@@ -102,8 +102,7 @@ import { SalesOrderStatusBadge } from "./status-badge";
 import { buildSalesOrderLineRemovalPayload } from "./order-line-removal";
 import { CreateManufacturingOrdersDialog } from "./create-manufacturing-orders-dialog";
 import type {
-	  DraftAllocationTakeoverWarningPayload,
-	  NegativeStockWarningPayload,
+  NegativeStockWarningPayload,
   SalesOrderDetail as SalesOrderDetailType,
   SalesMarginSummary,
   SalesShipmentRow,
@@ -112,9 +111,8 @@ import type {
 type ActionError = {
   status?: number;
   error?: string;
-	  draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
-	  negativeStock?: NegativeStockWarningPayload;
-	};
+  negativeStock?: NegativeStockWarningPayload;
+};
 
 function formatMarginPercent(value: string | null | undefined) {
   return value == null ? "\u2014" : `${value}%`;
@@ -421,7 +419,7 @@ function lineMarginParts(
     marginPercent: hasActualMargin
       ? line.actualMarginPercent
       : line.estimatedMarginPercent,
-    statusLabel: hasActualMargin || orderStatus === "shipped" ? "Actual" : "Estimated",
+    statusLabel: hasActualMargin || orderStatus === "done" ? "Actual" : "Estimated",
   };
 }
 
@@ -1271,10 +1269,6 @@ export function OrderDetail({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [cancelOpen, setCancelOpen] = useState(false);
-  const [cancelRemainingOpen, setCancelRemainingOpen] = useState(false);
-  const [cancelRemainingIdempotencyKey, setCancelRemainingIdempotencyKey] =
-    useState<string | null>(null);
 	  const [shipmentToShip, setShipmentToShip] = useState<SalesShipmentRow | null>(null);
 	  const [shipShipmentIdempotencyKey, setShipShipmentIdempotencyKey] =
 	    useState<string | null>(null);
@@ -1290,8 +1284,6 @@ export function OrderDetail({
     useState<SalesOrderDetailType["lines"][number] | null>(null);
   const [deleteLineIdempotencyKey, setDeleteLineIdempotencyKey] =
     useState<string | null>(null);
-  const [draftTakeoverWarning, setDraftTakeoverWarning] =
-    useState<DraftAllocationTakeoverWarningPayload | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [syncDialog, setSyncDialog] = useState<SyncDialogState | null>(null);
   const accountingDocument = salesOrderAccountingDocument(order);
@@ -1491,36 +1483,6 @@ export function OrderDetail({
     },
   });
 
-  const cancelMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`/api/sales-orders/${order.id}`, {
-        method: "PUT",
-        headers: createIdempotencyHeaders("sales-order-cancel", {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify({ status: "cancelled" }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to cancel order.");
-      }
-    },
-    onMutate: () => {
-      setActionError(null);
-    },
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
-        queryClient.invalidateQueries({ queryKey: ["items"] }),
-      ]);
-      setCancelOpen(false);
-      router.refresh();
-    },
-    onError: (error) => {
-      setActionError(error.message);
-    },
-  });
-
   const shipmentMutation = useMutation({
     mutationFn: async (values: ShipmentFormState) => {
       const isEdit = values.shipmentId != null;
@@ -1659,7 +1621,7 @@ export function OrderDetail({
 
       const latest = await fetchSalesOrderDetail(order.id);
       const latestDocument = salesOrderAccountingDocument(latest);
-      const includeAccounting = latest.status === "shipped";
+      const includeAccounting = latest.status === "done";
       setSyncDialog({
         title: includeAccounting ? "Shipment Complete" : "Shipment Recorded",
         description: includeAccounting
@@ -1702,81 +1664,6 @@ export function OrderDetail({
 	      });
 	    },
 	  });
-
-  const cancelRemainingMutation = useMutation({
-    mutationFn: async () => {
-      if (!cancelRemainingIdempotencyKey) {
-        throw new Error("Open cancel remaining before confirming.");
-      }
-
-      const response = await fetch(`/api/sales-orders/${order.id}/cancel-remaining`, {
-        method: "POST",
-        headers: { "Idempotency-Key": cancelRemainingIdempotencyKey },
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to cancel remaining quantities.");
-      }
-    },
-    onMutate: () => {
-      setActionError(null);
-    },
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
-        queryClient.invalidateQueries({ queryKey: ["items"] }),
-      ]);
-      setCancelRemainingOpen(false);
-      setCancelRemainingIdempotencyKey(null);
-      router.refresh();
-    },
-    onError: (error) => {
-      setActionError(error.message);
-    },
-  });
-
-  const confirmMutation = useMutation({
-    mutationFn: async (flags: {
-      confirmDraftAllocationTakeover?: boolean;
-    }) => {
-      const response = await fetch(`/api/sales-orders/${order.id}/confirm`, {
-        method: "POST",
-        headers: createIdempotencyHeaders("sales-order-confirm", {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify(flags),
-      });
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw {
-          status: response.status,
-          error: getApiErrorMessage(body, "Failed to confirm order."),
-          draftAllocationTakeover: body?.draftAllocationTakeover,
-        } satisfies ActionError;
-      }
-    },
-    onMutate: () => {
-      setActionError(null);
-      setDraftTakeoverWarning(null);
-    },
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
-      queryClient.invalidateQueries({ queryKey: ["items"] }),
-      ]);
-      setDraftTakeoverWarning(null);
-      router.refresh();
-    },
-    onError: (error: ActionError) => {
-      if (error.status === 409 && error.draftAllocationTakeover) {
-        setDraftTakeoverWarning(error.draftAllocationTakeover);
-        return;
-      }
-
-      setActionError(error.error ?? "Failed to confirm order.");
-    },
-  });
 
   const xeroPushMutation = useMutation({
     mutationFn: async () => {
@@ -1873,23 +1760,14 @@ export function OrderDetail({
   });
 
   const isDeleted = order.deletedAt != null;
-  const canEdit = !isDeleted && (order.status === "draft" || order.status === "confirmed");
-  const canConfirm = !isDeleted && order.status === "draft";
+  const canEdit = !isDeleted && order.status === "open";
   const canCreateManufacturingOrders =
     !isDeleted &&
-    (order.status === "confirmed" || order.status === "partially_shipped") &&
+    order.status === "open" &&
     order.hasManufacturableLines;
-  const canCancelRemaining =
-    !isDeleted &&
-    (order.status === "confirmed" || order.status === "partially_shipped") &&
-    order.lines.some((line) => Number(line.remainingQuantity) > 0);
-  const canCancel = !isDeleted && order.status === "confirmed";
   const canDelete = !isDeleted;
-  const canDownloadBol = order.status === "shipped";
-  const canInvoiceOrderStatus =
-    order.status === "confirmed" ||
-    order.status === "partially_shipped" ||
-    order.status === "shipped";
+  const canDownloadBol = order.status === "done";
+  const canInvoiceOrderStatus = order.status === "open" || order.status === "done";
   const canRetryXeroPush =
     canInvoiceOrderStatus &&
     (order.xeroPushStatus === "failed" || order.xeroPushStatus === "pending");
@@ -1897,10 +1775,8 @@ export function OrderDetail({
     !isDeleted && canInvoiceOrderStatus && !order.xeroPushStatus;
   const canCreateShipment =
     !isDeleted &&
-    (order.status === "confirmed" || order.status === "partially_shipped");
-  const hasCancelledRemainingHistory =
-    order.status === "cancelled" &&
-    order.shipments.some((shipment) => shipment.status === "shipped");
+    order.status === "open";
+  const hasCancelledRemainingHistory = false;
   const tabs: SalesOrderTabConfig[] = [
     { value: "lines", label: "Line Items", count: order.lines.length },
     { value: "shipping", label: "Shipping", count: order.shipments.length },
@@ -1943,13 +1819,6 @@ export function OrderDetail({
       compact
     />
   );
-
-  const openCancelRemainingDialog = () => {
-    setCancelRemainingIdempotencyKey(
-      `sales-order-cancel-remaining:${crypto.randomUUID()}`
-    );
-    setCancelRemainingOpen(true);
-  };
 
   const openShipShipmentDialog = (shipment: SalesShipmentRow) => {
     setShipmentToShip(shipment);
@@ -2058,15 +1927,6 @@ export function OrderDetail({
                       },
                     ]
                   : []),
-                ...(canCancel
-                  ? [
-                      {
-                        label: "Cancel order",
-                        onSelect: () => setCancelOpen(true),
-                        disabled: cancelMutation.isPending,
-                      },
-                    ]
-                  : []),
                 ...(canDelete
                   ? [
                       {
@@ -2079,24 +1939,6 @@ export function OrderDetail({
                   : []),
               ]}
             >
-              {canCancelRemaining ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={openCancelRemainingDialog}
-                >
-                  Cancel remaining
-                </Button>
-              ) : null}
-              {canConfirm ? (
-                <Button
-                  size="sm"
-                  onClick={() => confirmMutation.mutate({})}
-                  disabled={confirmMutation.isPending}
-                >
-                  {confirmMutation.isPending ? "Confirming..." : "Confirm"}
-                </Button>
-              ) : null}
               {canCreateShipment ? (
                 <Button
                   size="sm"
@@ -2595,102 +2437,6 @@ export function OrderDetail({
         />
       ) : null}
 
-      <AlertDialog open={draftTakeoverWarning != null} onOpenChange={(open) => {
-        if (!open) {
-          setDraftTakeoverWarning(null);
-        }
-      }}>
-        <AlertDialogContent size="2xl" className="bg-background text-foreground">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Take Open Allocations?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Confirming this order will reduce stock allocated to other open orders.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          <div className="space-y-2 overflow-y-auto pr-1 text-sm">
-            {draftTakeoverWarning?.allocations.map((allocation) => (
-              <div
-                key={`${allocation.salesOrderLineId}-${allocation.itemId}`}
-                className="flex justify-between gap-4 rounded-md border p-2"
-              >
-                <span>
-                  {allocation.orderNumber} · {allocation.customerName} ·{" "}
-                  {allocation.itemName}
-                </span>
-                <span className="font-medium">
-                  {allocation.quantity} {allocation.unitName}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={confirmMutation.isPending}
-              onClick={() =>
-                confirmMutation.mutate({ confirmDraftAllocationTakeover: true })
-              }
-            >
-              {confirmMutation.isPending ? "Confirming..." : "Take and Confirm"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
-        <AlertDialogContent className="bg-background text-foreground">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancel this order?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The order will remain in history, but it will stop contributing to committed quantity.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={cancelMutation.isPending}
-              onClick={() => cancelMutation.mutate()}
-            >
-              {cancelMutation.isPending ? "Cancelling..." : "Cancel Order"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={cancelRemainingOpen}
-        onOpenChange={(open) => {
-          setCancelRemainingOpen(open);
-          if (!open) {
-            setCancelRemainingIdempotencyKey(null);
-          } else if (!cancelRemainingIdempotencyKey) {
-            setCancelRemainingIdempotencyKey(
-              `sales-order-cancel-remaining:${crypto.randomUUID()}`
-            );
-          }
-        }}
-      >
-        <AlertDialogContent className="bg-background text-foreground">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancel remaining quantities?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Ready shipments will be cancelled and unshipped reservations released.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={cancelRemainingMutation.isPending}
-              onClick={() => cancelRemainingMutation.mutate()}
-            >
-              {cancelRemainingMutation.isPending ? "Cancelling..." : "Cancel Remaining"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-	      </AlertDialog>
-	
 	      <AlertDialog
 	        open={negativeStockWarning != null}
 	        onOpenChange={(open) => {

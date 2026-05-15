@@ -17,7 +17,7 @@ export const SALES_LINE_ALLOCATED_QTY_TOOLTIP =
   "Stock reserved by this sales order line.";
 
 export const DEMAND_QTY_TOOLTIP =
-  "Demand from confirmed sales and released manufacturing orders.";
+  "Demand from open sales and active manufacturing orders.";
 
 export const BACKORDER_QTY_TOOLTIP =
   "Accepted demand not covered by reservations.";
@@ -105,25 +105,20 @@ export const LOT_DISPOSITION_TOOLTIP =
   "Lot status: available, blocked, rejected, or scrap.";
 
 export const SALES_ORDER_STATUS_TOOLTIP = {
-  draft: "Open order that has not shipped.",
-  confirmed: "Stock reserved; awaiting shipment.",
-  partially_shipped: "Some stock shipped; remaining demand still open.",
-  shipped: "Stock shipped; order closed.",
-  cancelled: "Cancelled; reservations released.",
+  open: "Active order with remaining operational work.",
+  done: "Closed order with no remaining operational work.",
 } as const;
 
 export const SALES_ORDER_STATUS_COLUMN_TOOLTIP =
-  "Status values: open, confirmed, partially shipped, shipped, cancelled.";
+  "Status values: open or done.";
 
 export const MANUFACTURING_ORDER_STATUS_TOOLTIP = {
-  draft: "Planned but not yet released.",
-  released: "Released; ingredients reserved.",
-  completed: "Output stocked; order closed.",
-  cancelled: "Cancelled; reservations released.",
+  open: "Active production order.",
+  done: "Closed production order.",
 } as const;
 
 export const MANUFACTURING_ORDER_STATUS_COLUMN_TOOLTIP =
-  "Status values: draft, released, completed, cancelled.";
+  "Status values: open or done.";
 
 export const PICK_PROGRESS_TOOLTIP = {
   not_started: "No ingredients done yet.",

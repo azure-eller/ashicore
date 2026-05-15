@@ -175,7 +175,7 @@ async function syncSalesLineStockReservationFromLotAllocationsInTx(
       )
     );
 
-  if (line?.status !== "confirmed" && line?.status !== "partially_shipped") {
+  if (line?.status !== "open") {
     return;
   }
 

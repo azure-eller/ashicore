@@ -88,7 +88,7 @@ async function createConfirmedSalesOrderFixture(params: {
     method: "POST",
     body: JSON.stringify({
       customerId: params.customerId,
-      status: "draft",
+      status: "open",
       shipDate: "2026-04-15",
       requestedDate: null,
       notes: null,
@@ -405,7 +405,7 @@ test.describe("inventory kernel invariants", () => {
     const idempotencyKey = key("create-sales-order", ts);
     const payload = {
       customerId,
-      status: "draft",
+      status: "open",
       shipDate: "2026-04-15",
       requestedDate: null,
       notes: "request replay fixture",

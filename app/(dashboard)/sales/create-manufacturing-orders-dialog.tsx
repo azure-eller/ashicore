@@ -67,7 +67,7 @@ function formatOpenManufacturingOrders(
   orders: SalesOrderDetail["linkedManufacturingOrders"]
 ): NonNullable<Props["openManufacturingOrders"]> {
   return orders
-    .filter((order) => order.status === "draft" || order.status === "released")
+    .filter((order) => order.status === "open")
     .map((order) => ({
       id: order.id,
       orderNumber: order.orderNumber,

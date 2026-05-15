@@ -318,7 +318,7 @@ export type SalesLinkedManufacturingOrder = {
   unitName: string;
   plannedDate: string | null;
   priorityRank: number | null;
-  status: "draft" | "released" | "completed" | "cancelled";
+  status: "open" | "done";
   linkSource: "sales_order" | "output_allocation" | "both";
 };
 
@@ -502,7 +502,7 @@ export type SalesAllocationSource = {
   sourceType: SalesAllocationSourceType;
   sourceId: string | null;
   label: string;
-  status: "available" | "draft" | "released" | "completed";
+  status: "available" | "open" | "done";
   date: string | null;
   receivedAt?: string | null;
   createdAt?: string | null;
@@ -592,7 +592,7 @@ export type SalesShippingQueueRow = {
   salesOrderId: string;
   orderNumber: string;
   customerName: string;
-  status: Extract<SalesOrderStatus, "confirmed" | "partially_shipped">;
+  status: Extract<SalesOrderStatus, "open">;
   shipDate: string | null;
   deliveryDate: string | null;
   requestedDate: string | null;
@@ -616,7 +616,7 @@ export type SalesOrderEditData = {
   customerId: string;
   customerProjectId: string | null;
   orderNumber: string;
-  status: Extract<SalesOrderStatus, "draft" | "confirmed">;
+  status: Extract<SalesOrderStatus, "open">;
   orderDate: string;
   shipDate: string | null;
   requestedDate: string | null;
@@ -636,19 +636,6 @@ export type SalesOrderEditData = {
     pricingScheduleName: string | null;
     pricingBreakLabel: string | null;
     isPriceOverridden: boolean;
-  }>;
-};
-
-export type DraftAllocationTakeoverWarningPayload = {
-  allocations: Array<{
-    salesOrderId: string;
-    salesOrderLineId: string;
-    orderNumber: string;
-    customerName: string;
-    itemId: string;
-    itemName: string;
-    unitName: string;
-    quantity: number;
   }>;
 };
 

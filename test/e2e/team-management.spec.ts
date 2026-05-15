@@ -555,7 +555,7 @@ test.describe("Team management and invite flow", () => {
       method: "POST",
       body: {
         customerId: BLOCKED_ROUTE_ID,
-        status: "draft",
+        status: "open",
         requestedDate: null,
         notes: null,
         lines: [],

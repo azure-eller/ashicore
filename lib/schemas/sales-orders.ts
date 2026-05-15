@@ -9,13 +9,7 @@ import {
   positiveMoneyString,
 } from "./shared";
 
-export const SALES_ORDER_STATUSES = [
-  "draft",
-  "confirmed",
-  "partially_shipped",
-  "shipped",
-  "cancelled",
-] as const;
+export const SALES_ORDER_STATUSES = ["open", "done"] as const;
 export type SalesOrderStatus = (typeof SALES_ORDER_STATUSES)[number];
 
 export const SALES_SHIPMENT_STATUSES = ["draft", "shipped", "cancelled"] as const;
@@ -131,9 +125,9 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
     "Invalid project"
   ),
   status: z
-    .enum(["draft", "confirmed"])
+    .enum(["open", "done"])
     .optional()
-    .transform(() => "confirmed" as const),
+    .transform(() => "open" as const),
   orderDate: z
     .string()
     .optional()
@@ -172,7 +166,7 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
     confirmOversell: z.boolean().optional(),
   })
   .superRefine((values, ctx) => {
-    if (values.status === "confirmed" && values.lines.length === 0) {
+    if (values.status === "open" && values.lines.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Sales order must have at least one line item",
@@ -180,7 +174,7 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
       });
     }
 
-    if (values.status === "confirmed" && !values.shipDate) {
+    if (values.status === "open" && !values.shipDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Ship date is required to create a sales order",
@@ -213,19 +207,11 @@ export const insertSalesOrderSchema = baseSalesOrderSchema;
 
 export type InsertSalesOrder = z.infer<typeof insertSalesOrderSchema>;
 
-const cancelSalesOrderSchema = z.object({
-  status: z.literal("cancelled"),
-});
-
-export const updateSalesOrderSchema = z.union([
-  baseSalesOrderSchema,
-  cancelSalesOrderSchema,
-]);
+export const updateSalesOrderSchema = baseSalesOrderSchema;
 export type UpdateSalesOrder = z.infer<typeof updateSalesOrderSchema>;
 
 export const confirmSalesOrderSchema = z.object({
   confirmOversell: z.boolean().optional(),
-  confirmDraftAllocationTakeover: z.boolean().optional(),
 });
 export type ConfirmSalesOrder = z.infer<typeof confirmSalesOrderSchema>;
 
@@ -255,29 +241,8 @@ export type ReorderSalesOrderPriorityRanks = z.infer<
 export const bulkConfirmSalesOrdersSchema = z.object({
   ids: z.array(z.string().min(1)).min(1),
   confirmOversell: z.boolean().optional(),
-  confirmDraftAllocationTakeover: z.boolean().optional(),
 });
 export type BulkConfirmSalesOrders = z.infer<typeof bulkConfirmSalesOrdersSchema>;
-
-export const saveSalesLineAllocationSchema = z.object({
-  allocations: z
-    .array(
-      z.object({
-        sourceType: z.enum(["inventory_lot", "manufacturing_order"]),
-        sourceId: z.string().uuid("Select a valid source"),
-        quantity: z
-          .string()
-          .trim()
-          .min(1, "Quantity is required")
-          .refine((value) => {
-            const parsed = Number(value);
-            return Number.isFinite(parsed) && parsed > 0;
-          }, "Quantity must be greater than 0"),
-      })
-    )
-    .default([]),
-});
-export type SaveSalesLineAllocation = z.infer<typeof saveSalesLineAllocationSchema>;
 
 const rawShipmentLineSchema = z.object({
   salesOrderLineId: z.string().min(1, "Line is required"),
@@ -381,7 +346,7 @@ export const salesOrderDefaultValues: InsertSalesOrder = {
   orderNumber: null,
   customerId: "",
   customerProjectId: null,
-  status: "confirmed",
+  status: "open",
   orderDate: new Date().toISOString().slice(0, 10),
   shipDate: null,
   requestedDate: null,

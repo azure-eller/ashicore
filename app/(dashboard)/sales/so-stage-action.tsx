@@ -15,7 +15,7 @@ type Props = {
 };
 
 export function SoStageAction({ order }: Props) {
-  if (order.status === "confirmed" || order.status === "partially_shipped") {
+  if (order.status === "open") {
     if (
       !order.hasManufacturableLines ||
       Number(order.fulfillmentSummary.shortQty) <= 0

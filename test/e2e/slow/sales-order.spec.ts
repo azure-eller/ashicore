@@ -45,7 +45,7 @@ async function createDraftSalesOrder(payload: {
     method: "POST",
     body: JSON.stringify({
       customerId: payload.customerId,
-      status: "draft",
+      status: "open",
       orderDate: payload.orderDate ?? "2026-04-01",
       shipDate: payload.shipDate ?? payload.requestedDate ?? "2026-04-20",
       requestedDate: payload.requestedDate ?? null,
@@ -793,7 +793,7 @@ test.describe("Sales order flow", () => {
       method: "PUT",
       body: JSON.stringify({
         customerId: extraCustomerId,
-        status: "draft",
+        status: "open",
         requestedDate: expectedRequestedDate,
         shipDate: expectedShipDate,
         notes: "Stale status edit applied.",

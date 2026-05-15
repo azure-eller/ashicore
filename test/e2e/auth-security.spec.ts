@@ -49,7 +49,7 @@ async function createConfirmedSalesOrder(payload: {
     method: "POST",
     body: JSON.stringify({
       customerId: payload.customerId,
-      status: "draft",
+      status: "open",
       orderDate: "2026-04-15",
       shipDate: "2026-04-15",
       requestedDate: null,

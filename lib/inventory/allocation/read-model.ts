@@ -84,8 +84,7 @@ async function loadAssignmentsForItemInTx(
         sourceType: AllocationAssignment["sourceType"];
         sourceId: string;
       } =>
-        (row.demandType === "sales_order_line" ||
-          row.demandType === "manufacturing_order_ingredient") &&
+        row.demandType === "sales_order_line" &&
         (row.sourceType === "inventory_lot" ||
           row.sourceType === "manufacturing_order") &&
         row.sourceId != null
@@ -144,13 +143,10 @@ export async function getAllocationWorkspaceInTx(
       return left.sortLabel.localeCompare(right.sortLabel, undefined, { numeric: true });
     });
 
-  const primaryParentManufacturingOrderId =
-    primaryDemand?.parentManufacturingOrderId ?? null;
   const sources = await loadAllocationSourcesForItemInTx(tx, {
     organizationId: params.organizationId,
     itemId,
     primaryDemand: params.primaryDemand ?? null,
-    primaryParentManufacturingOrderId,
   });
   const sourceLabels = new Map(sources.map((source) => [source.sourceKey, source.label]));
   const assignments = (await loadAssignmentsForItemInTx(tx, {

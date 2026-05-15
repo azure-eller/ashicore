@@ -56,7 +56,7 @@ async function createSalesOrder(payload: {
     method: "POST",
     body: JSON.stringify({
       customerId: payload.customerId,
-      status: "draft",
+      status: "open",
       orderDate: payload.requestedDate ?? "2026-04-20",
       shipDate: payload.requestedDate ?? "2026-04-20",
       requestedDate: payload.requestedDate ?? null,
@@ -97,7 +97,7 @@ async function updateSalesOrder(payload: {
     method: "PUT",
     body: JSON.stringify({
       customerId: payload.customerId,
-      status: "draft",
+      status: "open",
       orderDate: payload.requestedDate ?? "2026-04-20",
       shipDate: payload.requestedDate ?? "2026-04-20",
       requestedDate: payload.requestedDate ?? null,
@@ -505,7 +505,7 @@ test.describe("Manufacturing order flow", () => {
         plannedQuantity: "5",
         plannedDate: "2026-04-25",
         notes: "Initial draft manufacturing order",
-        status: "draft",
+        status: "open",
       })
       .returning({ id: manufacturingOrders.id });
     expect(draftOrder).toBeTruthy();
@@ -1301,23 +1301,33 @@ test.describe("Manufacturing order flow", () => {
       .where(eq(salesOrderLines.salesOrderId, salesOrderId));
     expect(salesLine?.id).toBeTruthy();
 
-    const allocationResponse = await testFetch(
-      `/api/sales-order-lines/${salesLine.id}/allocation`,
+    await confirmSalesOrder(salesOrderId, false);
+
+    const releaseResponse = await testFetch(
+      `/api/manufacturing-orders/${batchOrderId}/release`,
       {
-        method: "PUT",
-        body: JSON.stringify({
-          allocations: [
-            {
-              sourceType: "manufacturing_order",
-              sourceId: batchOrderId,
-              quantity: "100",
-            },
-          ],
-        }),
+        method: "POST",
+        body: JSON.stringify({ confirmShortage: true }),
       }
     );
+    expect(releaseResponse.status).toBe(200);
+
+    const allocationResponse = await testFetch("/api/allocation/save", {
+      method: "POST",
+      body: JSON.stringify({
+        demandType: "sales_order_line",
+        demandId: salesLine.id,
+        itemId: productId,
+        allocations: [
+          {
+            sourceType: "manufacturing_order",
+            sourceId: batchOrderId,
+            quantity: "100",
+          },
+        ],
+      }),
+    });
     expect(allocationResponse.status).toBe(200);
-    await confirmSalesOrder(salesOrderId, false);
 
     const [sourcePromise] = await db
       .select({
@@ -1346,15 +1356,6 @@ test.describe("Manufacturing order flow", () => {
       quantity: "100.0000",
       status: "active",
     });
-
-    const releaseResponse = await testFetch(
-      `/api/manufacturing-orders/${batchOrderId}/release`,
-      {
-        method: "POST",
-        body: JSON.stringify({ confirmShortage: true }),
-      }
-    );
-    expect(releaseResponse.status).toBe(200);
 
     const [batch] = await db
       .select()

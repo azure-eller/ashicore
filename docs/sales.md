@@ -103,6 +103,20 @@ Historical rules:
 - `confirmOversell` may still appear in older clients, but the server ignores it
 - shipping is the stock-consuming step and may warn/require confirmation for negative stock
 
+## Sales Allocation
+
+The Sales Allocation tab is the authoritative manual allocation surface.
+
+- allocation demand includes only non-deleted sales order lines on `confirmed` or `partially_shipped` orders
+- `draft`, `shipped`, and `cancelled` orders are excluded from allocation demand
+- draft sales orders must not hold allocation rows or trigger allocation takeover behavior during confirmation
+- available inventory-lot sources come from current available lot balances
+- manufacturing-order sources are allocatable only after the MO is `released`
+- draft MOs are planning work only; they are not allocatable supply
+- allocation writes go through `/api/allocation/save` with `demandType = "sales_order_line"`
+- allocation reads go through `/api/allocation/workspace` or the Sales Allocation tab read model
+- do not reintroduce the old allocation sheet, per-line allocation route, item allocation route, or sales-order allocation bulk route
+
 ## Shipments and BOLs
 
 - a sales order is the commercial object; a sales shipment is the physical fulfillment object

@@ -63,7 +63,7 @@
     "test:fast:sales": "pnpm test:e2e:sales",
     "test:e2e:sales": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/fast/sales-write.spec.ts --workers=${PLAYWRIGHT_FAST_WORKERS:-2}",
     "test:slow:sales": "pnpm test:e2e:sales:slow",
-    "test:e2e:sales:slow": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/slow/sales-order.spec.ts test/e2e/slow/sales-allocation-manager.spec.ts test/e2e/slow/customer-crm.spec.ts test/e2e/slow/partial-sales-shipments.spec.ts",
+    "test:e2e:sales:slow": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/slow/sales-order.spec.ts test/e2e/slow/customer-crm.spec.ts test/e2e/slow/partial-sales-shipments.spec.ts",
     "test:slow:auth": "pnpm test:e2e:auth",
     "test:e2e:auth": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/auth-security.spec.ts test/e2e/team-management.spec.ts",
     "test:inventory": "pnpm test:fast:inventory",

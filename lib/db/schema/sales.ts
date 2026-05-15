@@ -408,7 +408,7 @@ export const salesOrders = salesSchema
         () => customerProjects.id
       ),
       customerName: varchar("customer_name", { length: 255 }).notNull(),
-      status: varchar("status", { length: 20 }).notNull().default("draft"),
+      status: varchar("status", { length: 20 }).notNull().default("open"),
       priorityRank: integer("priority_rank"),
       orderDate: date("order_date", { mode: "string" })
         .notNull()
@@ -444,7 +444,7 @@ export const salesOrders = salesSchema
       uniqueIndex("sales_orders_open_priority_rank_uidx")
         .on(table.organizationId, table.priorityRank)
         .where(
-          sql`deleted_at IS NULL AND priority_rank IS NOT NULL AND status IN ('draft', 'confirmed', 'partially_shipped')`
+          sql`deleted_at IS NULL AND priority_rank IS NOT NULL AND status = 'open'`
         ),
       index("sales_orders_order_date_idx").on(table.orderDate),
       index("sales_orders_created_at_idx").on(table.createdAt),

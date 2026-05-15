@@ -209,7 +209,7 @@ test.describe("Manufacturing batch ingredient actuals", () => {
       })
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, orderId));
-    expect(completedOrder.status).toBe("completed");
+    expect(completedOrder.status).toBe("done");
     expect(completedOrder.actualQuantity).toBe("100.0000");
 
     const [remainingSoil] = await db
@@ -349,7 +349,7 @@ test.describe("Manufacturing batch ingredient actuals", () => {
       })
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, orderId));
-    expect(order.status).toBe("released");
+    expect(order.status).toBe("open");
     expect(order.actualQuantity).toBeNull();
   });
 

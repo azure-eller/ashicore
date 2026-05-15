@@ -17,7 +17,7 @@ import type {
   AllocationDemandAdapterRow,
 } from "../types";
 
-const ACTIVE_ORDER_STATUSES = ["draft", "confirmed", "partially_shipped"] as const;
+const ACTIVE_ORDER_STATUSES = ["open"] as const;
 
 function toQuantity(value: string | number | null | undefined) {
   const parsed = Number(value ?? 0);
@@ -184,7 +184,7 @@ export const salesOrderLineAllocationAdapter: AllocationDemandAdapter = {
       })
       .where(eq(salesOrderLines.id, params.demandId));
 
-    if (order?.status === "confirmed" || order?.status === "partially_shipped") {
+    if (order?.status === "open") {
       await setSalesLineStockReservationInTx(tx, {
         organizationId: params.organizationId,
         salesOrderLineId: params.demandId,

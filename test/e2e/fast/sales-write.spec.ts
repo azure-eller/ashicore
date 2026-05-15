@@ -89,6 +89,36 @@ async function getSalesOrderNumber(orderId: string) {
   return body.orderNumber as string;
 }
 
+async function getSalesAllocationWorkspace(lineId: string, itemId: string) {
+  const response = await testFetch(
+    `/api/allocation/workspace?demandType=sales_order_line&demandId=${lineId}&itemId=${itemId}`
+  );
+  const body = await response.json();
+  return { response, body };
+}
+
+async function saveSalesAllocation(params: {
+  lineId: string;
+  itemId: string;
+  allocations: Array<{
+    sourceType: "inventory_lot" | "manufacturing_order";
+    sourceId: string;
+    quantity: string;
+  }>;
+}) {
+  const response = await testFetch("/api/allocation/save", {
+    method: "POST",
+    body: JSON.stringify({
+      demandType: "sales_order_line",
+      demandId: params.lineId,
+      itemId: params.itemId,
+      allocations: params.allocations,
+    }),
+  });
+  const body = await response.json().catch(() => null);
+  return { response, body };
+}
+
 test.describe("Sales write-path smoke", () => {
   test.describe.configure({ mode: "serial" });
 
@@ -390,7 +420,7 @@ test.describe("Sales write-path smoke", () => {
     expect(order.customerId).toBe(customerId);
     expect(order.customerProjectId).toBe(crmProjectId);
     expect(order.customerName).toBe(customerName);
-    expect(order.status).toBe("confirmed");
+    expect(order.status).toBe("open");
     expect(order.orderDate).toBe("2026-04-01");
     expect(order.shipDate).toBe("2026-04-15");
     expect(order.requestedDate).toBe("2026-04-15");
@@ -456,7 +486,7 @@ test.describe("Sales write-path smoke", () => {
       method: "POST",
       body: JSON.stringify({
         customerId,
-        status: "draft",
+        status: "open",
         orderDate: "2026-04-01",
         shipDate: null,
         requestedDate: null,
@@ -477,7 +507,7 @@ test.describe("Sales write-path smoke", () => {
       method: "POST",
       body: JSON.stringify({
         customerId,
-        status: "draft",
+        status: "open",
         orderDate: "2026-04-01",
         shipDate: null,
         requestedDate: null,
@@ -495,7 +525,7 @@ test.describe("Sales write-path smoke", () => {
       method: "POST",
       body: JSON.stringify({
         customerId,
-        status: "draft",
+        status: "open",
         orderDate: "2026-04-10",
         shipDate: "2026-04-09",
         requestedDate: "2026-04-11",
@@ -533,7 +563,7 @@ test.describe("Sales write-path smoke", () => {
       .where(eq(salesOrders.id, duplicateId));
     expect(duplicate.customerId).toBe(customerId);
     expect(duplicate.customerName).toBe(customerName);
-    expect(duplicate.status).toBe("confirmed");
+    expect(duplicate.status).toBe("open");
     expect(duplicate.notes).toBe(orderNote);
 
     const [duplicateLine] = await db
@@ -581,7 +611,7 @@ test.describe("Sales write-path smoke", () => {
     );
     const detailOrderResult = await createSalesOrder({
       customerId,
-      status: "draft",
+      status: "open",
       shipDate: "2026-04-20",
       requestedDate: "2026-04-20",
       notes: "Fast detail line delete regression",
@@ -618,7 +648,7 @@ test.describe("Sales write-path smoke", () => {
     expect(detailLines[0].itemId).toBe(detailKeepId);
   });
 
-  test("edits a confirmed unshipped order and refreshes reservations", async ({
+  test("edits an open unshipped order and refreshes reservations", async ({
     page,
     db,
   }) => {
@@ -646,7 +676,7 @@ test.describe("Sales write-path smoke", () => {
 
     const editOrderResult = await createSalesOrder({
       customerId: editCustomerId,
-      status: "draft",
+      status: "open",
       shipDate: "2026-04-18",
       requestedDate: "2026-04-18",
       lines: [{ itemId: editItemId, quantity: "2", unitPrice: "12" }],
@@ -687,7 +717,7 @@ test.describe("Sales write-path smoke", () => {
       })
       .from(salesOrders)
       .where(eq(salesOrders.id, editOrderId));
-    expect(orderAfterEdit.status).toBe("confirmed");
+    expect(orderAfterEdit.status).toBe("open");
     expect(orderAfterEdit.notes).toBe("Confirmed order edited after approval");
     expect(orderAfterEdit.totalAmount).toBe("48.00");
 
@@ -771,7 +801,7 @@ test.describe("Sales write-path smoke", () => {
 
     const orderResult = await createSalesOrder({
       customerId: reservedCustomerId,
-      status: "confirmed",
+      status: "open",
       confirmOversell: true,
       lines: [{ itemId: materialId, quantity: "150", unitPrice: "10" }],
     });
@@ -793,7 +823,7 @@ test.describe("Sales write-path smoke", () => {
     await expect(sheet).toBeHidden();
   });
 
-  test("allocation matrix saves an inventory allocation", async ({ page }) => {
+  test("allocation matrix saves an inventory allocation", async ({ page, db }) => {
     const tokenCustomerResult = await createCustomer({
       name: `Fast Token Allocation Customer ${ts}`,
       email: `fast-token-allocation-${ts}@example.com`,
@@ -835,14 +865,14 @@ test.describe("Sales write-path smoke", () => {
 
     const tokenOrderResult = await createSalesOrder({
       customerId: tokenCustomerId,
-      status: "draft",
+      status: "open",
       lines: [{ itemId: tokenMaterialId, quantity: "6", unitPrice: "10" }],
     });
     expect(tokenOrderResult.status).toBe(201);
     const tokenOrderId = tokenOrderResult.body.id as string;
     const competingOrderResult = await createSalesOrder({
       customerId: tokenCustomerId,
-      status: "draft",
+      status: "open",
       shipDate: "2026-05-12",
       lines: [{ itemId: tokenMaterialId, quantity: "3", unitPrice: "10" }],
     });
@@ -870,7 +900,7 @@ test.describe("Sales write-path smoke", () => {
     await expect(page.getByRole("button", { name: "Saving..." })).toBeHidden({
       timeout: 15_000,
     });
-    await sheet.getByRole("button", { name: "Close" }).click();
+    await page.keyboard.press("Escape");
     await expect(sheet).toBeHidden();
 
     const detailResponse = await testFetch(`/api/sales-orders/${tokenOrderId}`);
@@ -879,16 +909,23 @@ test.describe("Sales write-path smoke", () => {
     const line = detailBody.lines[0];
     expect(line.allocatedQty).toBe("6");
 
-    const allocationResponse = await testFetch(
-      `/api/sales-order-lines/${line.id}/allocation`
-    );
-    expect(allocationResponse.status).toBe(200);
-    const allocationBody = await allocationResponse.json();
-    expect(allocationBody.targetLine.allocatedQty).toBe("6");
-    expect(allocationBody.targetLine.sources).toMatchObject([
+    const allocationRows = await db
+      .select({
+        sourceType: stockAllocations.sourceType,
+        quantity: stockAllocations.quantity,
+      })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.demandType, "sales_order_line"),
+          eq(stockAllocations.demandId, line.id),
+          eq(stockAllocations.status, "active")
+        )
+      );
+    expect(allocationRows).toMatchObject([
       {
         sourceType: "inventory_lot",
-        quantity: "6",
+        quantity: "6.0000",
       },
     ]);
   });
@@ -926,7 +963,7 @@ test.describe("Sales write-path smoke", () => {
 
     const firstOrderResult = await createSalesOrder({
       customerId: allocationCustomerId,
-      status: "confirmed",
+      status: "open",
       shipDate: "2026-05-15",
       confirmOversell: true,
       lines: [{ itemId: allocationItemId, quantity: "70", unitPrice: "10" }],
@@ -934,7 +971,7 @@ test.describe("Sales write-path smoke", () => {
     expect(firstOrderResult.status).toBe(201);
     const secondOrderResult = await createSalesOrder({
       customerId: allocationCustomerId,
-      status: "confirmed",
+      status: "open",
       shipDate: "2026-05-16",
       confirmOversell: true,
       lines: [{ itemId: allocationItemId, quantity: "70", unitPrice: "10" }],
@@ -959,51 +996,40 @@ test.describe("Sales write-path smoke", () => {
     expect(lines[0].allocationManagedAt).toBeNull();
     expect(lines[1].allocationManagedAt).toBeNull();
 
-    const firstAllocationResponse = await testFetch(
-      `/api/sales-order-lines/${lines[0].id}/allocation`
-    );
+    const { response: firstAllocationResponse, body: firstAllocation } =
+      await getSalesAllocationWorkspace(lines[0].id, allocationItemId);
     expect(firstAllocationResponse.status).toBe(200);
-    const firstAllocation = await firstAllocationResponse.json();
-    expect(firstAllocation.targetLine.allocatedQty).toBe("0");
-    expect(firstAllocation.targetLine.shortQty).toBe("70");
-    expect(firstAllocation.targetLine.sourceSummary).toBe("\u2014");
-    const firstLotSource = firstAllocation.supplySources.find(
+    expect(firstAllocation.primaryDemand.allocatedQty).toBe("0");
+    expect(firstAllocation.primaryDemand.shortQty).toBe("70");
+    const firstLotSource = firstAllocation.sources.find(
       (source: { sourceType: string }) => source.sourceType === "inventory_lot"
     );
     expect(firstLotSource).toBeTruthy();
 
-    const secondAllocationResponse = await testFetch(
-      `/api/sales-order-lines/${lines[1].id}/allocation`
-    );
+    const { response: secondAllocationResponse, body: secondAllocation } =
+      await getSalesAllocationWorkspace(lines[1].id, allocationItemId);
     expect(secondAllocationResponse.status).toBe(200);
-    const secondAllocation = await secondAllocationResponse.json();
-    expect(secondAllocation.targetLine.allocatedQty).toBe("0");
-    expect(secondAllocation.targetLine.shortQty).toBe("70");
+    expect(secondAllocation.primaryDemand.allocatedQty).toBe("0");
+    expect(secondAllocation.primaryDemand.shortQty).toBe("70");
 
-    const overAllocateResponse = await testFetch(
-      `/api/sales-order-lines/${lines[0].id}/allocation`,
-      {
-        method: "PUT",
-        body: JSON.stringify({
-          allocations: [
-            {
-              sourceType: "inventory_lot",
-              sourceId: firstLotSource.sourceId,
-              quantity: "80",
-            },
-          ],
-        }),
-      }
-    );
+    const { response: overAllocateResponse } = await saveSalesAllocation({
+      lineId: lines[0].id,
+      itemId: allocationItemId,
+      allocations: [
+        {
+          sourceType: "inventory_lot",
+          sourceId: firstLotSource.sourceId,
+          quantity: "80",
+        },
+      ],
+    });
     expect(overAllocateResponse.status).toBe(409);
 
-    const zeroAllocationResponse = await testFetch(
-      `/api/sales-order-lines/${lines[1].id}/allocation`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ allocations: [] }),
-      }
-    );
+    const { response: zeroAllocationResponse } = await saveSalesAllocation({
+      lineId: lines[1].id,
+      itemId: allocationItemId,
+      allocations: [],
+    });
     expect(zeroAllocationResponse.status).toBe(200);
 
     const [managedLine] = await db
@@ -1023,13 +1049,11 @@ test.describe("Sales write-path smoke", () => {
       );
     expect(activeRows).toHaveLength(0);
 
-    const zeroedAllocationResponse = await testFetch(
-      `/api/sales-order-lines/${lines[1].id}/allocation`
-    );
+    const { response: zeroedAllocationResponse, body: zeroedAllocation } =
+      await getSalesAllocationWorkspace(lines[1].id, allocationItemId);
     expect(zeroedAllocationResponse.status).toBe(200);
-    const zeroedAllocation = await zeroedAllocationResponse.json();
-    expect(zeroedAllocation.targetLine.allocatedQty).toBe("0");
-    expect(zeroedAllocation.targetLine.shortQty).toBe("70");
+    expect(zeroedAllocation.primaryDemand.allocatedQty).toBe("0");
+    expect(zeroedAllocation.primaryDemand.shortQty).toBe("70");
   });
 
   test("lot-aware allocation prevents shared stock double counting", async ({
@@ -1057,7 +1081,7 @@ test.describe("Sales write-path smoke", () => {
 
     const orderResult = await createSalesOrder({
       customerId: customerResult.body.id,
-      status: "confirmed",
+      status: "open",
       shipDate: "2026-05-17",
       lines: [{ itemId: itemResult.body.id, quantity: "10", unitPrice: "10" }],
     });
@@ -1068,31 +1092,25 @@ test.describe("Sales write-path smoke", () => {
       .from(salesOrderLines)
       .where(eq(salesOrderLines.salesOrderId, orderResult.body.id as string));
 
-    const allocationResponse = await testFetch(
-      `/api/sales-order-lines/${line.id}/allocation`
-    );
+    const { response: allocationResponse, body: allocationModel } =
+      await getSalesAllocationWorkspace(line.id, itemResult.body.id as string);
     expect(allocationResponse.status).toBe(200);
-    const allocationModel = await allocationResponse.json();
-    const lotSource = allocationModel.supplySources.find(
+    const lotSource = allocationModel.sources.find(
       (source: { sourceType: string }) => source.sourceType === "inventory_lot"
     );
     expect(lotSource).toBeTruthy();
 
-    const overAllocateResponse = await testFetch(
-      `/api/sales-order-lines/${line.id}/allocation`,
-      {
-        method: "PUT",
-        body: JSON.stringify({
-          allocations: [
-            {
-              sourceType: "inventory_lot",
-              sourceId: lotSource.sourceId,
-              quantity: "11",
-            },
-          ],
-        }),
-      }
-    );
+    const { response: overAllocateResponse } = await saveSalesAllocation({
+      lineId: line.id,
+      itemId: itemResult.body.id as string,
+      allocations: [
+        {
+          sourceType: "inventory_lot",
+          sourceId: lotSource.sourceId,
+          quantity: "11",
+        },
+      ],
+    });
     expect(overAllocateResponse.status).toBe(409);
   });
 
@@ -1121,7 +1139,7 @@ test.describe("Sales write-path smoke", () => {
 
     const orderResult = await createSalesOrder({
       customerId: customerResult.body.id,
-      status: "confirmed",
+      status: "open",
       shipDate: "2026-05-18",
       lines: [{ itemId: itemResult.body.id, quantity: "10", unitPrice: "10" }],
     });
@@ -1132,31 +1150,25 @@ test.describe("Sales write-path smoke", () => {
       .from(salesOrderLines)
       .where(eq(salesOrderLines.salesOrderId, orderResult.body.id as string));
 
-    const allocationResponse = await testFetch(
-      `/api/sales-order-lines/${line.id}/allocation`
-    );
+    const { response: allocationResponse, body: allocationModel } =
+      await getSalesAllocationWorkspace(line.id, itemResult.body.id as string);
     expect(allocationResponse.status).toBe(200);
-    const allocationModel = await allocationResponse.json();
-    const lotSource = allocationModel.supplySources.find(
+    const lotSource = allocationModel.sources.find(
       (source: { sourceType: string }) => source.sourceType === "inventory_lot"
     );
     expect(lotSource).toBeTruthy();
 
-    const lotAllocationResponse = await testFetch(
-      `/api/sales-order-lines/${line.id}/allocation`,
-      {
-        method: "PUT",
-        body: JSON.stringify({
-          allocations: [
-            {
-              sourceType: "inventory_lot",
-              sourceId: lotSource.sourceId,
-              quantity: "10",
-            },
-          ],
-        }),
-      }
-    );
+    const { response: lotAllocationResponse } = await saveSalesAllocation({
+      lineId: line.id,
+      itemId: itemResult.body.id as string,
+      allocations: [
+        {
+          sourceType: "inventory_lot",
+          sourceId: lotSource.sourceId,
+          quantity: "10",
+        },
+      ],
+    });
     expect(lotAllocationResponse.status).toBe(200);
 
     const shipResult = await fulfillSalesOrder(orderResult.body.id as string);
@@ -1166,7 +1178,7 @@ test.describe("Sales write-path smoke", () => {
       .select({ status: salesOrders.status })
       .from(salesOrders)
       .where(eq(salesOrders.id, orderResult.body.id as string));
-    expect(order.status).toBe("shipped");
+    expect(order.status).toBe("done");
   });
 
   test("keeps same-date sales order rows in place after confirming from the list", async ({
@@ -1320,7 +1332,7 @@ test.describe("Sales write-path smoke", () => {
 
     const orderResult = await createSalesOrder({
       customerId,
-      status: "confirmed",
+      status: "open",
       confirmOversell: true,
       shipDate: "2026-06-02",
       requestedDate: "2026-06-05",
@@ -1443,7 +1455,7 @@ test.describe("Sales write-path smoke", () => {
 
     const orderResult = await createSalesOrder({
       customerId,
-      status: "draft",
+      status: "open",
       lines: [{ itemId: constrainedProductId, quantity: "1", unitPrice: "10" }],
     });
     expect(orderResult.status).toBe(201);
@@ -1541,7 +1553,7 @@ test.describe("Sales write-path smoke", () => {
 
     const orderResult = await createSalesOrder({
       customerId,
-      status: "confirmed",
+      status: "open",
       confirmOversell: true,
       lines: [{ itemId: materialId, quantity: "2", unitPrice: "50" }],
     });
@@ -1788,7 +1800,7 @@ test.describe("Sales write-path smoke", () => {
 
     const orderResult = await createSalesOrder({
       customerId,
-      status: "confirmed",
+      status: "open",
       confirmOversell: true,
       lines: [
         { itemId: productOneId, quantity: "1", unitPrice: "10" },
@@ -1896,14 +1908,14 @@ test.describe("Sales write-path smoke", () => {
 
     const draftOrderResult = await createSalesOrder({
       customerId: stockedCustomerId,
-      status: "draft",
+      status: "open",
       lines: [{ itemId: stockedProductId, quantity: "4", unitPrice: "10" }],
     });
     expect(draftOrderResult.status).toBe(201);
 
     const orderResult = await createSalesOrder({
       customerId: stockedCustomerId,
-      status: "confirmed",
+      status: "open",
       lines: [{ itemId: stockedProductId, quantity: "3", unitPrice: "10" }],
     });
     expect(orderResult.status).toBe(201);
@@ -1926,7 +1938,7 @@ test.describe("Sales write-path smoke", () => {
 
     const oversellOrderResult = await createSalesOrder({
       customerId: stockedCustomerId,
-      status: "confirmed",
+      status: "open",
       confirmOversell: true,
       lines: [{ itemId: stockedProductId, quantity: "4", unitPrice: "10" }],
     });
@@ -2007,7 +2019,7 @@ test.describe("Sales write-path smoke", () => {
         {
           id: independentMoId,
           linkSource: "output_allocation",
-          status: "released",
+          status: "open",
         },
       ],
       shippingReadiness: { state: "in_production" },
@@ -2068,7 +2080,7 @@ test.describe("Sales write-path smoke", () => {
 
     const orderResult = await createSalesOrder({
       customerId: webShipCustomerId,
-      status: "confirmed",
+      status: "open",
       lines: [{ itemId: webShipProductId, quantity: "2", unitPrice: "10" }],
     });
     expect(orderResult.status).toBe(201);
@@ -2089,7 +2101,7 @@ test.describe("Sales write-path smoke", () => {
       .select({ status: salesOrders.status, shippedAt: salesOrders.shippedAt })
       .from(salesOrders)
       .where(eq(salesOrders.id, webShipOrderId));
-    expect(shippedOrder.status).toBe("shipped");
+    expect(shippedOrder.status).toBe("done");
     expect(shippedOrder.shippedAt).not.toBeNull();
 
     const [shippedShipment] = await db
@@ -2126,7 +2138,7 @@ test.describe("Sales write-path smoke", () => {
       method: "POST",
       body: JSON.stringify({
         customerId: customerResult.body.id,
-        status: "confirmed",
+        status: "open",
         confirmOversell: true,
         orderDate: "2026-04-23",
         shipDate: "2026-04-23",

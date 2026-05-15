@@ -41,8 +41,8 @@ import {
 } from "./sales-order-table-action-cells";
 import type { SalesOrderListRow } from "./types";
 
-const OPEN_SALES_STATUSES = ["draft", "confirmed", "partially_shipped"] as const;
-const DONE_SALES_STATUSES = ["shipped", "cancelled"] as const;
+const OPEN_SALES_STATUSES = ["open"] as const;
+const DONE_SALES_STATUSES = ["done"] as const;
 type SalesWorkflowFilterValue = "open" | "done";
 
 function isOpenSalesOrder(order: SalesOrderListRow) {
@@ -79,11 +79,7 @@ function parseQuantity(value: string | null | undefined) {
 }
 
 function getSalesItemsState(order: SalesOrderListRow): OperationalState {
-  if (order.status === "cancelled") {
-    return { label: "Cancelled", tone: "destructive" };
-  }
-
-  if (order.status === "shipped") {
+  if (order.status === "done") {
     return { label: "Complete", tone: "success" };
   }
 
@@ -133,6 +129,13 @@ function hasFullyGroundAllocatedStock(order: SalesOrderListRow) {
   );
 }
 
+function shippedSalesQuantity(order: SalesOrderListRow) {
+  return order.lines.reduce(
+    (sum, line) => sum + parseQuantity(line.shippedQuantity),
+    0
+  );
+}
+
 function SalesItemsActionCell({ order }: { order: SalesOrderListRow }) {
   const state = getSalesItemsState(order);
   const isAllocationLink =
@@ -157,20 +160,12 @@ function SalesItemsActionCell({ order }: { order: SalesOrderListRow }) {
 }
 
 function getProductionState(order: SalesOrderListRow): OperationalState {
-  if (order.status === "cancelled") {
-    return { label: "Cancelled", tone: "destructive" };
-  }
-
   if (!order.hasManufacturableLines) {
     return { label: "No production", tone: "muted" };
   }
 
-  if (order.openManufacturingOrders.some((mo) => mo.status === "released")) {
+  if (order.openManufacturingOrders.some((mo) => mo.status === "open")) {
     return { label: "Work in progress", tone: "warning" };
-  }
-
-  if (order.openManufacturingOrders.some((mo) => mo.status === "draft")) {
-    return { label: "Not started", tone: "muted" };
   }
 
   if (parseQuantity(order.fulfillmentSummary.productionAllocatedQty) > 0) {
@@ -185,11 +180,7 @@ function getProductionState(order: SalesOrderListRow): OperationalState {
 }
 
 function getDeliveryState(order: SalesOrderListRow): OperationalState {
-  if (order.status === "cancelled") {
-    return { label: "Cancelled", tone: "destructive" };
-  }
-
-  if (order.status === "shipped") {
+  if (order.status === "done") {
     return { label: "Shipped", tone: "success" };
   }
 
@@ -197,7 +188,7 @@ function getDeliveryState(order: SalesOrderListRow): OperationalState {
     return { label: readyShipmentLabel(order), tone: "success" };
   }
 
-  if (order.status === "partially_shipped") {
+  if (shippedSalesQuantity(order) > 0) {
     return { label: "Partially shipped", tone: "warning" };
   }
 
@@ -212,8 +203,7 @@ function getDeliveryState(order: SalesOrderListRow): OperationalState {
 }
 
 function doneSalesOrderRank(order: SalesOrderListRow) {
-  if (order.status === "cancelled") return 1;
-  if (order.status === "shipped") return 0;
+  if (order.status === "done") return 0;
   return -1;
 }
 

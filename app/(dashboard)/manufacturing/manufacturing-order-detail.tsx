@@ -64,7 +64,6 @@ import { MoStageAction } from "./mo-stage-action";
 import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import type { ManufacturingOrderDetail as ManufacturingOrderDetailType } from "./types";
-import { AllocationManagerSheet } from "@/components/allocation-manager/allocation-manager-sheet";
 
 type ManufacturingIngredient =
   ManufacturingOrderDetailType["ingredients"][number];
@@ -113,7 +112,7 @@ function PriorityRankEditor({
 }) {
   const [value, setValue] = useState(order.priorityRank?.toString() ?? "");
   const [error, setError] = useState<string | null>(null);
-  const canEdit = order.status === "released";
+  const canEdit = order.status === "open" && order.releasedAt != null;
 
   const mutation = useMutation({
     mutationFn: async (priorityRank: number | null) => {
@@ -187,7 +186,6 @@ function PriorityRankEditor({
 
 function OutputAllocationSection({
   order,
-  onUpdated,
 }: {
   order: ManufacturingOrderDetailType;
   onUpdated: () => Promise<void>;
@@ -195,8 +193,6 @@ function OutputAllocationSection({
   const [data, setData] = useState<OutputAllocationData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [sheetManufacturingOrderId, setSheetManufacturingOrderId] = useState<string | null>(order.id);
 
   const loadAllocation = useCallback(async () => {
     setLoading(true);
@@ -219,26 +215,9 @@ function OutputAllocationSection({
     void loadAllocation();
   }, [loadAllocation]);
 
-  const canEdit = order.status !== "cancelled";
-
   return (
-    <>
-      <div className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold tracking-tight">Output Allocation</h2>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setSheetManufacturingOrderId(order.id);
-              setSheetOpen(true);
-            }}
-            disabled={!canEdit || loading}
-          >
-            Manage allocation
-          </Button>
-        </div>
+    <div className="space-y-3">
+      <h2 className="text-lg font-semibold tracking-tight">Output Allocation</h2>
         {data ? (
           <>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
@@ -287,34 +266,16 @@ function OutputAllocationSection({
           </p>
         )}
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
-      </div>
-      <AllocationManagerSheet
-        lineId={null}
-        open={sheetOpen}
-        onOpenChange={(nextOpen) => {
-          setSheetOpen(nextOpen);
-          if (!nextOpen) {
-            setSheetManufacturingOrderId(order.id);
-            void loadAllocation();
-            void onUpdated();
-          }
-        }}
-        onTargetLineChange={() => {}}
-        outputManufacturingOrderId={sheetOpen ? sheetManufacturingOrderId : null}
-        onOutputManufacturingOrderChange={(id) => setSheetManufacturingOrderId(id ?? order.id)}
-      />
-    </>
+    </div>
   );
 }
 
 function IngredientTableRow({
   ingredient,
   canReorder,
-  onAllocate,
 }: {
   ingredient: ManufacturingIngredient;
   canReorder: boolean;
-  onAllocate: (ingredientId: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, style } = useSortableReorderItem(
     ingredient.id
@@ -360,16 +321,6 @@ function IngredientTableRow({
           ? formatMinimumLotAgeRequirement(minimumLotAgeDays)
           : "\u2014"}
       </TableCell>
-      <TableCell className="text-right">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => onAllocate(ingredient.id)}
-        >
-          Allocate
-        </Button>
-      </TableCell>
     </TableRow>
   );
 }
@@ -385,10 +336,9 @@ function IngredientsTable({
   const [savedIngredientIds, setSavedIngredientIds] = useState(initialIngredientIds);
   const [ingredients, setIngredients] = useState(order.ingredients);
   const [error, setError] = useState<string | null>(null);
-  const [allocationIngredientId, setAllocationIngredientId] = useState<string | null>(null);
   const canReorder =
-    order.status === "draft" ||
-    (order.status === "released" && order.manufacturingMode !== "batch");
+    order.status === "open" &&
+    (order.releasedAt == null || order.manufacturingMode !== "batch");
   const isDirty = !hasSameOrder(
     ingredients.map((ingredient) => ingredient.id),
     savedIngredientIds
@@ -463,7 +413,6 @@ function IngredientsTable({
             <TooltipHeader label="Cost" tooltip={MANUFACTURING_COMPONENT_COST_TOOLTIP} />
           </TableHead>
           <TableHead>Requirements</TableHead>
-          <TableHead className="text-right">Allocation</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -472,7 +421,6 @@ function IngredientsTable({
             key={ingredient.id}
             ingredient={ingredient}
             canReorder={canReorder}
-            onAllocate={setAllocationIngredientId}
           />
         ))}
       </TableBody>
@@ -507,23 +455,6 @@ function IngredientsTable({
           ingredientsTable
         )}
       </div>
-      <AllocationManagerSheet
-        open={allocationIngredientId != null}
-        onOpenChange={(open) => {
-          if (!open) setAllocationIngredientId(null);
-        }}
-        demandRef={
-          allocationIngredientId == null
-            ? undefined
-            : {
-                demandType: "manufacturing_order_ingredient",
-                demandId: allocationIngredientId,
-              }
-        }
-        onSaved={() => {
-          void onUpdated();
-        }}
-      />
     </div>
   );
 }
@@ -539,7 +470,6 @@ export function ManufacturingOrderDetail({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [cancelOpen, setCancelOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const refreshQueries = async () => {
@@ -597,33 +527,8 @@ export function ManufacturingOrderDetail({
     },
   });
 
-  const cancelMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(`/api/manufacturing-orders/${order.id}/cancel`, {
-        method: "POST",
-        headers: createIdempotencyHeaders("manufacturing-order-cancel"),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to cancel order.");
-      }
-    },
-    onMutate: () => {
-      setActionError(null);
-    },
-    onSuccess: async () => {
-      await refreshQueries();
-      setCancelOpen(false);
-      router.refresh();
-    },
-    onError: (error) => {
-      setActionError(error.message);
-    },
-  });
-
-  const canEdit = order.status === "draft";
-  const canCancel = order.status === "draft" || order.status === "released";
-  const canDelete = order.status !== "released";
+  const canEdit = order.status === "open" && order.releasedAt == null;
+  const canDelete = order.deletedAt == null;
 
   return (
     <>
@@ -639,7 +544,7 @@ export function ManufacturingOrderDetail({
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-semibold tracking-tight">{order.orderNumber}</h1>
               <ManufacturingOrderStatusBadge status={order.status} />
-              {order.status === "released" && (
+              {order.status === "open" && order.releasedAt != null && (
                 <ManufacturingPickProgressBadge status={order.pickProgressStatus} />
               )}
               {order.deletedAt && <Badge variant="outline">Deleted</Badge>}
@@ -672,15 +577,6 @@ export function ManufacturingOrderDetail({
                     },
                   ]
                 : []),
-              ...(canCancel
-                ? [
-                    {
-                      label: "Cancel order",
-                      onSelect: () => setCancelOpen(true),
-                      disabled: cancelMutation.isPending,
-                    },
-                  ]
-                : []),
               ...(canDelete
                 ? [
                     {
@@ -693,7 +589,11 @@ export function ManufacturingOrderDetail({
                 : []),
             ]}
           >
-            <MoStageAction orderId={order.id} status={order.status} />
+            <MoStageAction
+              orderId={order.id}
+              status={order.status}
+              releasedAt={order.releasedAt}
+            />
           </DetailPageActions>
         </div>
 
@@ -945,27 +845,6 @@ export function ManufacturingOrderDetail({
           )}
         </div>
       </div>
-
-      <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
-        <AlertDialogContent className="bg-background text-foreground">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Cancel this order?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The order will remain in history, and released orders will stop
-              contributing to expected quantity.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={cancelMutation.isPending}
-              onClick={() => cancelMutation.mutate()}
-            >
-              {cancelMutation.isPending ? "Cancelling..." : "Cancel Order"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent className="bg-background text-foreground">

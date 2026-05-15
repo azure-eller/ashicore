@@ -1,6 +1,4 @@
-export type AllocationDemandType =
-  | "sales_order_line"
-  | "manufacturing_order_ingredient";
+export type AllocationDemandType = "sales_order_line";
 
 export type AllocationSourceType = "inventory_lot" | "manufacturing_order";
 
@@ -91,7 +89,6 @@ export type AllocationDemandAdapterRow = {
   openQty: string;
   sortDate: string | null;
   sortLabel: string;
-  parentManufacturingOrderId?: string | null;
 };
 
 export type AllocationDemandAdapter = {

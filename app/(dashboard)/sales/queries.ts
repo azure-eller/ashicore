@@ -107,7 +107,6 @@ import type {
   CustomerCategoryOption,
   CustomerCategoryRow,
   CustomerDetailData,
-  DraftAllocationTakeoverWarningPayload,
   CustomerProjectFileRow,
   CustomerProjectRow,
   CustomerOption,
@@ -696,7 +695,6 @@ async function resolvePricingForProductInTx(
 
 export class SalesError extends DomainError {
   errors?: Record<string, string[]>;
-  draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
   negativeStock?: NegativeStockWarningPayload;
 
   constructor(
@@ -704,7 +702,6 @@ export class SalesError extends DomainError {
     status = 400,
     options?: {
       errors?: Record<string, string[]>;
-      draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
       negativeStock?: NegativeStockWarningPayload;
     }
   ) {
@@ -716,18 +713,15 @@ export class SalesError extends DomainError {
     });
 
     this.errors = options?.errors;
-    this.draftAllocationTakeover = options?.draftAllocationTakeover;
     this.negativeStock = options?.negativeStock;
   }
 
   toResponse(): NextResponse<Record<string, unknown>> {
     const body = this.negativeStock
       ? { error: this.message, negativeStock: this.negativeStock }
-      : this.draftAllocationTakeover
-        ? { error: this.message, draftAllocationTakeover: this.draftAllocationTakeover }
-        : this.errors
-          ? { error: this.message, errors: this.errors }
-          : { error: this.message };
+      : this.errors
+        ? { error: this.message, errors: this.errors }
+        : { error: this.message };
     return NextResponse.json(body, { status: this.status });
   }
 }
@@ -871,11 +865,11 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
 function openLinkedManufacturingOrders<T extends SalesLinkedManufacturingOrder>(
   orders: T[]
 ) {
-  return orders.filter((order) => order.status === "draft" || order.status === "released");
+  return orders.filter((order) => order.status === "open");
 }
 
 function isEditableOpenSalesOrderStatus(status: string) {
-  return status === "draft" || status === "confirmed";
+  return status === "open";
 }
 
 function serializeLinkedManufacturingOrder(
@@ -906,7 +900,7 @@ function buildShippingReadiness({
   linkedManufacturingOrders: LinkedManufacturingStatus[];
   stockBlockers?: string[];
 }): SalesShippingReadiness {
-  if (status === "shipped") {
+  if (status === "done") {
     return {
       state: "shipped",
       message: "Order has already shipped.",
@@ -914,24 +908,16 @@ function buildShippingReadiness({
     };
   }
 
-  if (status === "cancelled") {
-    return {
-      state: "cancelled",
-      message: "Cancelled orders cannot be shipped.",
-      blockers: ["Order is cancelled"],
-    };
-  }
-
-  if (status !== "confirmed" && status !== "partially_shipped") {
+  if (status !== "open") {
     return {
       state: "not_confirmed",
-      message: "Confirm the order before shipping.",
-      blockers: ["Order is not confirmed"],
+      message: "Order is not open.",
+      blockers: ["Order is not open"],
     };
   }
 
   const openManufacturingOrders = linkedManufacturingOrders.filter(
-    (order) => order.status === "draft" || order.status === "released"
+    (order) => order.status === "open"
   );
 
   if (openManufacturingOrders.length > 0) {
@@ -981,16 +967,8 @@ function calcProjectedStock(values: {
   );
 }
 
-function isCancelPayload(
-  payload: UpdateSalesOrder
-): payload is Extract<UpdateSalesOrder, { status: "cancelled" }> {
-  return payload.status === "cancelled" && !("lines" in payload);
-}
-
 const OPEN_SALES_ORDER_STATUSES = [
-  "draft",
-  "confirmed",
-  "partially_shipped",
+  "open",
 ] as const;
 
 function isOpenSalesOrderStatus(status: string) {
@@ -1759,7 +1737,7 @@ async function prepareDraftOrdersForConfirmationInTx(
     throw new SalesError("One or more orders were not found.", 404);
   }
 
-  if (orders.some((order) => order.status !== "draft")) {
+  if (orders.some((order) => order.status !== "open")) {
     throw new SalesError("Only open orders can be confirmed.", 400);
   }
 
@@ -2240,185 +2218,6 @@ async function buildConfirmationAllocationPlanInTx(
   }
 
   return { demandLines, reservationLines, unmanagedLines };
-}
-
-async function buildDraftAllocationTakeoverWarningInTx(
-  tx: Tx,
-  orgId: string,
-  orders: DraftOrderConfirmationPayload[],
-  unmanagedLines: PreparedOrderLineBase[],
-  itemsById: Map<string, SalesItemValidationRow>
-): Promise<DraftAllocationTakeoverWarningPayload | null> {
-  const orderIds = new Set(orders.map((order) => order.id));
-  const unmanagedQtyByItem = new Map<string, number>();
-
-  for (const line of unmanagedLines) {
-    unmanagedQtyByItem.set(
-      line.itemId,
-      roundQuantity((unmanagedQtyByItem.get(line.itemId) ?? 0) + parseFloat(line.quantity))
-    );
-  }
-
-  if (unmanagedQtyByItem.size === 0) return null;
-
-  const orderIdSqlList = sql.join([...orderIds].map((orderId) => sql`${orderId}`), sql`, `);
-  const explicitFreeRows = await tx
-    .select({
-      itemId: inventoryLotBalances.itemId,
-      quantity: trimScale(sql`
-        COALESCE(SUM(${inventoryLotBalances.quantity}), 0)
-        - COALESCE((
-          SELECT SUM(${stockAllocations.quantity})
-          FROM ${stockAllocations}
-          LEFT JOIN ${salesOrderLines} allocation_line
-            ON ${stockAllocations.demandType} = 'sales_order_line'
-           AND ${stockAllocations.demandId} = allocation_line.id
-          WHERE ${stockAllocations.organizationId} = ${orgId}
-            AND ${stockAllocations.itemId} = ${inventoryLotBalances.itemId}
-            AND ${stockAllocations.sourceType} = 'inventory_lot'
-            AND ${stockAllocations.status} = 'active'
-            AND (
-              allocation_line.sales_order_id IS NULL
-              OR allocation_line.sales_order_id NOT IN (${orderIdSqlList})
-            )
-        ), 0)
-      `).as("quantity"),
-    })
-    .from(inventoryLotBalances)
-    .where(
-      and(
-        eq(inventoryLotBalances.organizationId, orgId),
-        eq(inventoryLotBalances.disposition, "available"),
-        inArray(inventoryLotBalances.itemId, [...unmanagedQtyByItem.keys()])
-      )
-    )
-    .groupBy(inventoryLotBalances.itemId);
-  const explicitFreeQtyByItem = new Map(
-    explicitFreeRows.map((row) => [
-      row.itemId,
-      Math.max(0, parseFloat(row.quantity)),
-    ])
-  );
-
-  const takeoverQtyByItem = new Map<string, number>();
-  for (const [itemId, unmanagedQty] of unmanagedQtyByItem.entries()) {
-    const availableQty = Math.max(0, parseFloat(itemsById.get(itemId)?.availableQty ?? "0"));
-    const explicitFreeQty = explicitFreeQtyByItem.get(itemId) ?? 0;
-    const freeQty = Math.min(availableQty, explicitFreeQty);
-    const takeoverQty = roundQuantity(Math.max(0, unmanagedQty - freeQty));
-    if (takeoverQty > 0) {
-      takeoverQtyByItem.set(itemId, takeoverQty);
-    }
-  }
-
-  if (takeoverQtyByItem.size === 0) return null;
-
-  const rows = await tx
-    .select({
-      allocationId: stockAllocations.id,
-      salesOrderId: salesOrders.id,
-      salesOrderLineId: salesOrderLines.id,
-      orderNumber: salesOrders.orderNumber,
-      customerName: salesOrders.customerName,
-      itemId: stockAllocations.itemId,
-      itemName: salesOrderLines.itemName,
-      unitName: salesOrderLines.unitName,
-      quantity: trimScale(stockAllocations.quantity).as("quantity"),
-    })
-    .from(stockAllocations)
-    .innerJoin(
-      salesOrderLines,
-      eq(stockAllocations.demandId, salesOrderLines.id)
-    )
-    .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
-    .where(
-      and(
-        eq(stockAllocations.organizationId, orgId),
-        eq(stockAllocations.demandType, "sales_order_line"),
-        eq(stockAllocations.sourceType, "inventory_lot"),
-        eq(stockAllocations.status, "active"),
-        eq(salesOrders.status, "draft"),
-        isNull(salesOrders.deletedAt),
-        inArray(stockAllocations.itemId, [...takeoverQtyByItem.keys()])
-      )
-    )
-    .orderBy(asc(salesOrders.shipDate), asc(salesOrders.orderNumber), asc(salesOrderLines.sortOrder));
-
-  const allocations: DraftAllocationTakeoverWarningPayload["allocations"] = [];
-  for (const row of rows) {
-    if (orderIds.has(row.salesOrderId)) continue;
-    const remaining = takeoverQtyByItem.get(row.itemId) ?? 0;
-    if (remaining <= 0) continue;
-    const takenQty = Math.min(remaining, Number(row.quantity));
-    if (takenQty <= 0) continue;
-    allocations.push({
-      salesOrderId: row.salesOrderId,
-      salesOrderLineId: row.salesOrderLineId,
-      orderNumber: row.orderNumber,
-      customerName: row.customerName,
-      itemId: row.itemId,
-      itemName: row.itemName,
-      unitName: row.unitName,
-      quantity: roundQuantity(takenQty),
-    });
-    takeoverQtyByItem.set(row.itemId, roundQuantity(remaining - takenQty));
-  }
-
-  return allocations.length > 0 ? { allocations } : null;
-}
-
-async function applyDraftAllocationTakeoverInTx(
-  tx: Tx,
-  orgId: string,
-  userId: string | null,
-  warning: DraftAllocationTakeoverWarningPayload
-) {
-  const now = new Date();
-
-  for (const allocation of warning.allocations) {
-    const [row] = await tx
-      .select({
-        id: stockAllocations.id,
-        quantity: trimScale(stockAllocations.quantity).as("quantity"),
-      })
-      .from(stockAllocations)
-      .where(
-        and(
-          eq(stockAllocations.organizationId, orgId),
-          eq(stockAllocations.demandType, "sales_order_line"),
-          eq(stockAllocations.demandId, allocation.salesOrderLineId),
-          eq(stockAllocations.sourceType, "inventory_lot"),
-          eq(stockAllocations.status, "active")
-        )
-      )
-      .for("update");
-
-    if (!row) continue;
-
-    const currentQty = Number(row.quantity);
-    const remainingQty = roundQuantity(currentQty - allocation.quantity);
-    if (remainingQty > 0) {
-      await tx
-        .update(stockAllocations)
-        .set({
-          quantity: normalizeNumeric(remainingQty),
-          updatedBy: userId,
-          updatedAt: now,
-        })
-        .where(eq(stockAllocations.id, row.id));
-    } else {
-      await tx
-        .update(stockAllocations)
-        .set({
-          status: "cancelled",
-          updatedBy: userId,
-          updatedAt: now,
-          cancelledAt: now,
-          cancelledBy: userId,
-        })
-        .where(eq(stockAllocations.id, row.id));
-    }
-  }
 }
 
 export async function getCustomerCategoryOptions(): Promise<CustomerCategoryOption[]> {
@@ -2955,14 +2754,14 @@ const customerRowSelect = {
     FROM sales.sales_orders so
     WHERE so.customer_id = ${customers.id}
       AND so.deleted_at IS NULL
-      AND so.status IN ('draft', 'confirmed', 'partially_shipped')
+      AND so.status = 'open'
   )`.as("openOrderCount"),
   openOrderValue: trimScale(sql`COALESCE((
     SELECT SUM(so.total_amount)
     FROM sales.sales_orders so
     WHERE so.customer_id = ${customers.id}
       AND so.deleted_at IS NULL
-      AND so.status IN ('draft', 'confirmed', 'partially_shipped')
+      AND so.status = 'open'
   ), 0)`).as("openOrderValue"),
   latestOrderDate: sql<string | null>`(
     SELECT MAX(so.order_date)::text
@@ -3986,14 +3785,14 @@ async function ensureCustomersDeletableInTx(tx: Tx, customerIds: string[]) {
       and(
         inArray(salesOrders.customerId, uniqueCustomerIds),
         isNull(salesOrders.deletedAt),
-        inArray(salesOrders.status, ["draft", "confirmed", "partially_shipped"])
+        eq(salesOrders.status, "open")
       )
     )
     .limit(1);
 
   if (blockingOrder) {
     throw new SalesError(
-      "Cannot delete customer with active draft, confirmed, or partially shipped orders.",
+      "Cannot delete customer with active sales orders.",
       400
     );
   }
@@ -4579,9 +4378,7 @@ export async function reorderSalesOrderPriorityRanks(
 
 export async function getSalesShippingQueue(): Promise<SalesShippingQueueRow[]> {
   const orders = await getSalesOrders();
-  const queueCandidates = orders.filter(
-    (order) => order.status === "confirmed" || order.status === "partially_shipped"
-  );
+  const queueCandidates = orders.filter((order) => order.status === "open");
 
   const details = await Promise.all(
     queueCandidates.map((order) => getSalesOrder(order.id))
@@ -4589,15 +4386,14 @@ export async function getSalesShippingQueue(): Promise<SalesShippingQueueRow[]> 
 
   return details.flatMap((order) => {
     if (!order) return [];
-    if (order.status !== "confirmed" && order.status !== "partially_shipped") {
+    if (order.status !== "open") {
       return [];
     }
     const activeDraftShipment =
       order.shipments.find((shipment) => shipment.status === "draft") ?? null;
     const openManufacturingOrders = order.linkedManufacturingOrders.filter(
       (manufacturingOrder) =>
-        manufacturingOrder.status === "draft" ||
-        manufacturingOrder.status === "released"
+        manufacturingOrder.status === "open"
     );
 
     return [
@@ -5035,7 +4831,7 @@ export async function getSalesOrder(
       0
     );
     const orderMarginSummary =
-      order.status === "shipped"
+      order.status === "done"
         ? (() => {
             const orderProductCogs = activeShipmentSummaries.some(
               (summary) => summary.productCogs == null
@@ -5240,7 +5036,7 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
         and(
           eq(salesOrders.id, id),
           isNull(salesOrders.deletedAt),
-          inArray(salesOrders.status, ["draft", "confirmed"])
+          eq(salesOrders.status, "open")
         )
       );
 
@@ -5252,7 +5048,7 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
 
     return {
       ...order,
-      status: order.status as "draft" | "confirmed",
+      status: order.status as "open",
       lines: lines.map((line) => ({
         itemId: line.itemId,
         quantity: line.quantity,
@@ -5299,7 +5095,7 @@ export async function createSalesOrder(
         customerId: prepared.customerId,
         customerProjectId: prepared.customerProjectId,
         customerName: prepared.customerName,
-        status: data.status,
+        status: "open",
         orderDate: prepared.orderDate,
         shipDate: prepared.shipDate,
         requestedDate: prepared.requestedDate,
@@ -5328,36 +5124,34 @@ export async function createSalesOrder(
           })
         : [];
 
-    if (data.status === "confirmed") {
-      await reserveForSalesInTx(tx, {
-        organizationId: orgId,
-        salesOrderId: order.id,
-        actorUserId: userId,
-        idempotencyKey: deriveInventoryIdempotencyKey(
-          options?.idempotencyKey,
-          "create-confirmed-order"
-        ),
-        lines: insertedLines.map((line) => ({
-          salesOrderLineId: line.salesOrderLineId,
-          itemId: line.itemId,
-          quantity: parseFloat(line.quantity),
-        })),
-      });
+    await reserveForSalesInTx(tx, {
+      organizationId: orgId,
+      salesOrderId: order.id,
+      actorUserId: userId,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        options?.idempotencyKey,
+        "create-open-order"
+      ),
+      lines: insertedLines.map((line) => ({
+        salesOrderLineId: line.salesOrderLineId,
+        itemId: line.itemId,
+        quantity: parseFloat(line.quantity),
+      })),
+    });
 
-      await upsertDefaultDraftShipmentForOrderInTx(tx, orgId, {
-        id: order.id,
-        orderNumber,
-        customerId: prepared.customerId,
-        customerName: prepared.customerName,
-        shipDate: prepared.shipDate,
-        shipLine1: prepared.shipLine1,
-        shipLine2: prepared.shipLine2,
-        shipCity: prepared.shipCity,
-        shipRegion: prepared.shipRegion,
-        shipPostcode: prepared.shipPostcode,
-        shipCountry: prepared.shipCountry,
-      });
-    }
+    await upsertDefaultDraftShipmentForOrderInTx(tx, orgId, {
+      id: order.id,
+      orderNumber,
+      customerId: prepared.customerId,
+      customerName: prepared.customerName,
+      shipDate: prepared.shipDate,
+      shipLine1: prepared.shipLine1,
+      shipLine2: prepared.shipLine2,
+      shipCity: prepared.shipCity,
+      shipRegion: prepared.shipRegion,
+      shipPostcode: prepared.shipPostcode,
+      shipCountry: prepared.shipCountry,
+    });
 
     if (isOpenSalesOrderStatus(data.status)) {
       await rerankOpenSalesOrdersInTx(tx, orgId);
@@ -5388,7 +5182,7 @@ export async function duplicateSalesOrder(
       orderNumber: null,
       customerId: order.customerId,
       customerProjectId: order.customerProjectId,
-      status: "confirmed",
+      status: "open",
       orderDate: order.orderDate,
       shipDate: order.shipDate,
       requestedDate: order.requestedDate,
@@ -5441,37 +5235,6 @@ export async function updateSalesOrder(
     const existingLines = await getOrderLinesInTx(tx, id);
 
     if (isEditableOpenSalesOrderStatus(existingOrder.status)) {
-      if (isCancelPayload(data)) {
-        await tx
-          .update(salesOrders)
-          .set({
-            status: "cancelled",
-            priorityRank: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(salesOrders.id, id));
-
-        await releaseReservationForSalesLineInTx(tx, {
-          organizationId: orgId,
-          salesOrderId: id,
-          actorUserId: userId,
-          idempotencyKey: deriveInventoryIdempotencyKey(
-            options?.idempotencyKey,
-            "cancel-open-order"
-          ),
-          reason: "cancelled",
-          salesOrderLineIds: existingLines.map((line) => line.id),
-        });
-        await rerankOpenSalesOrdersInTx(tx, orgId);
-        const result = { id };
-        await finishInventoryOperationInTx(tx, {
-          organizationId: orgId,
-          idempotencyKey: options?.idempotencyKey ?? null,
-          result,
-        });
-        return result;
-      }
-
       await lockItemsInTx(tx, [
         ...existingLines.map((line) => line.itemId),
         ...data.lines.map((line) => line.itemId),
@@ -5490,20 +5253,8 @@ export async function updateSalesOrder(
       });
     }
 
-    if (existingOrder.status === "cancelled") {
-      throw new SalesError("Cancelled orders cannot be changed.", 400);
-    }
-
-    if (existingOrder.status === "shipped") {
-      throw new SalesError("Shipped orders cannot be changed.", 400);
-    }
-
-    if (existingOrder.status === "partially_shipped") {
-      throw new SalesError("Use cancel remaining for partially shipped orders.", 400);
-    }
-
-    if (isCancelPayload(data)) {
-      throw new SalesError("Only open sales orders can be cancelled.", 400);
+    if (existingOrder.status === "done") {
+      throw new SalesError("Done orders cannot be changed.", 400);
     }
 
     const prepared = await prepareOrderPayload(tx, data);
@@ -5582,7 +5333,7 @@ export async function updateSalesOrder(
         customerId: prepared.customerId,
         customerProjectId: prepared.customerProjectId,
         customerName: prepared.customerName,
-        status: data.status,
+        status: "open",
         orderDate: prepared.orderDate,
         shipDate: prepared.shipDate,
         requestedDate: prepared.requestedDate,
@@ -5598,36 +5349,34 @@ export async function updateSalesOrder(
       })
       .where(eq(salesOrders.id, id));
 
-    if (data.status === "confirmed") {
-      await reserveForSalesInTx(tx, {
-        organizationId: orgId,
-        salesOrderId: id,
-        actorUserId: userId,
-        idempotencyKey: deriveInventoryIdempotencyKey(
-          options?.idempotencyKey,
-          "update-open-order"
-        ),
-        lines: insertedLines.map((line) => ({
-          salesOrderLineId: line.salesOrderLineId,
-          itemId: line.itemId,
-          quantity: parseFloat(line.quantity),
-        })),
-      });
+    await reserveForSalesInTx(tx, {
+      organizationId: orgId,
+      salesOrderId: id,
+      actorUserId: userId,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        options?.idempotencyKey,
+        "update-open-order"
+      ),
+      lines: insertedLines.map((line) => ({
+        salesOrderLineId: line.salesOrderLineId,
+        itemId: line.itemId,
+        quantity: parseFloat(line.quantity),
+      })),
+    });
 
-      await upsertDefaultDraftShipmentForOrderInTx(tx, orgId, {
-        id,
-        orderNumber,
-        customerId: prepared.customerId,
-        customerName: prepared.customerName,
-        shipDate: prepared.shipDate,
-        shipLine1: prepared.shipLine1,
-        shipLine2: prepared.shipLine2,
-        shipCity: prepared.shipCity,
-        shipRegion: prepared.shipRegion,
-        shipPostcode: prepared.shipPostcode,
-        shipCountry: prepared.shipCountry,
-      });
-    }
+    await upsertDefaultDraftShipmentForOrderInTx(tx, orgId, {
+      id,
+      orderNumber,
+      customerId: prepared.customerId,
+      customerName: prepared.customerName,
+      shipDate: prepared.shipDate,
+      shipLine1: prepared.shipLine1,
+      shipLine2: prepared.shipLine2,
+      shipCity: prepared.shipCity,
+      shipRegion: prepared.shipRegion,
+      shipPostcode: prepared.shipPostcode,
+      shipCountry: prepared.shipCountry,
+    });
 
     const result = { id };
 
@@ -5691,7 +5440,7 @@ export async function getSalesOrderForBol(
       .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)));
 
     if (!order) return null;
-    if (order.status !== "shipped") return null;
+    if (order.status !== "done") return null;
 
     const lines = await tx
       .select({
@@ -5887,9 +5636,9 @@ export async function planSalesOrderFulfillment(
       return result;
     }
 
-    if (!["confirmed", "partially_shipped"].includes(order.status)) {
+    if (order.status !== "open") {
       throw new SalesError(
-        "Only confirmed or partially shipped orders can be planned for fulfillment.",
+        "Only open orders can be planned for fulfillment.",
         400
       );
     }
@@ -5966,9 +5715,9 @@ export async function createSalesShipment(
       return result;
     }
 
-    if (!["confirmed", "partially_shipped"].includes(order.status)) {
+    if (order.status !== "open") {
       throw new SalesError(
-        "Only confirmed or partially shipped orders can have shipments.",
+        "Only open orders can have shipments.",
         400
       );
     }
@@ -6282,9 +6031,9 @@ export async function shipSalesShipment(
       return { replayed: false as const, result, orgId };
     }
 
-    if (!["confirmed", "partially_shipped"].includes(order.status)) {
+    if (order.status !== "open") {
       throw new SalesError(
-        "Only confirmed or partially shipped orders can ship shipments.",
+        "Only open orders can ship shipments.",
         400
       );
     }
@@ -6400,7 +6149,7 @@ export async function shipSalesShipment(
     const [updatedOrder] = await tx
       .update(salesOrders)
       .set({
-        status: allClosed ? "shipped" : "partially_shipped",
+        status: allClosed ? "done" : "open",
         ...(allClosed ? { priorityRank: null } : {}),
         shippedAt: allClosed ? shippedAt : null,
         updatedAt: shippedAt,
@@ -6415,7 +6164,7 @@ export async function shipSalesShipment(
     const result = {
       shipmentId,
       orderId: updatedOrder.id,
-      orderShipped: updatedOrder.status === "shipped",
+      orderShipped: updatedOrder.status === "done",
     };
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
@@ -6466,109 +6215,6 @@ export async function shipSalesShipment(
   return result.result;
 }
 
-export async function cancelRemainingSalesOrder(
-  orderId: string,
-  options?: { idempotencyKey?: string }
-) {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
-      organizationId: orgId,
-      operationName: "cancelRemainingSalesOrder",
-      idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { orderId },
-    });
-
-    if (replay.replayed) return replay.result;
-
-    const order = await getLockedSalesOrderInTx(tx, orderId);
-    if (!order) {
-      const result = null;
-      await finishInventoryOperationInTx(tx, {
-        organizationId: orgId,
-        idempotencyKey: options?.idempotencyKey ?? null,
-        result,
-      });
-      return result;
-    }
-
-    if (!["confirmed", "partially_shipped"].includes(order.status)) {
-      throw new SalesError(
-        "Only confirmed or partially shipped orders can cancel remaining quantities.",
-        400
-      );
-    }
-
-    await tx
-      .update(salesShipments)
-      .set({ status: "cancelled", updatedAt: new Date() })
-      .where(
-        and(
-          eq(salesShipments.salesOrderId, orderId),
-          eq(salesShipments.status, "draft")
-        )
-      );
-
-    const states = await getShipmentLineStatesInTx(tx, orderId);
-    const remainingLines = [...states.values()]
-      .map((line) => ({
-        ...line,
-        remaining: remainingToShip(line),
-      }))
-      .filter((line) => line.remaining > 0);
-
-    if (remainingLines.length === 0) {
-      throw new SalesError("There is no remaining quantity to cancel.", 400);
-    }
-
-    for (const line of remainingLines) {
-      await tx
-        .update(salesOrderLines)
-        .set({
-          cancelledQuantity: normalizeNumeric(
-            line.cancelledQuantity + line.remaining
-          ),
-          updatedAt: new Date(),
-        })
-        .where(eq(salesOrderLines.id, line.id));
-    }
-
-    await releaseReservationForSalesQuantitiesInTx(tx, {
-      organizationId: orgId,
-      salesOrderId: orderId,
-      actorUserId: userId,
-      idempotencyKey: deriveInventoryIdempotencyKey(
-        options?.idempotencyKey,
-        "cancel-remaining"
-      ),
-      reason: "cancelled",
-      lines: remainingLines.map((line) => ({
-        salesOrderLineId: line.id,
-        itemId: line.itemId,
-        quantity: line.remaining,
-      })),
-    });
-
-    await tx
-      .update(salesOrders)
-      .set({
-        status: "cancelled",
-        priorityRank: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(salesOrders.id, orderId));
-
-    await rerankOpenSalesOrdersInTx(tx, orgId);
-
-    const result = { id: orderId };
-    await finishInventoryOperationInTx(tx, {
-      organizationId: orgId,
-      idempotencyKey: options?.idempotencyKey ?? null,
-      result,
-    });
-    return result;
-  });
-}
-
 export async function shipSalesOrder(
   id: string,
 	  options?: {
@@ -6612,20 +6258,12 @@ export async function shipSalesOrder(
       };
     }
 
-    if (order.status === "draft") {
-      throw new SalesError("Only confirmed orders can be shipped.", 400);
-    }
-
-    if (order.status === "cancelled") {
-      throw new SalesError("Cancelled orders cannot be shipped.", 400);
-    }
-
-    if (order.status === "shipped") {
+    if (order.status === "done") {
       throw new SalesError("Order is already shipped.", 400);
     }
 
-    if (order.status === "partially_shipped") {
-      throw new SalesError("Create a shipment for the remaining quantities.", 400);
+    if (order.status !== "open") {
+      throw new SalesError("Only open orders can be shipped.", 400);
     }
 
     const lines = await getOrderLinesInTx(tx, id);
@@ -6747,7 +6385,7 @@ export async function shipSalesOrder(
     const [shipped] = await tx
       .update(salesOrders)
       .set({
-        status: "shipped",
+        status: "done",
         priorityRank: null,
         shippedAt,
         shipLine1,
@@ -6883,19 +6521,15 @@ export async function confirmSalesOrder(
     | boolean
     | {
         confirmOversell?: boolean;
-        confirmDraftAllocationTakeover?: boolean;
       } = false,
   options?: { idempotencyKey?: string }
 ): Promise<{ id: string } | null> {
-  const confirmDraftAllocationTakeover =
-    typeof flags === "boolean" ? false : flags.confirmDraftAllocationTakeover === true;
-
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
       organizationId: orgId,
       operationName: "confirmSalesOrder",
       idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { id, confirmDraftAllocationTakeover },
+      payload: { id, confirmOversell: typeof flags === "boolean" ? flags : flags.confirmOversell === true },
     });
 
     if (replay.replayed) {
@@ -6912,74 +6546,6 @@ export async function confirmSalesOrder(
       });
       return result;
     }
-
-    if (existingOrder.status === "confirmed") {
-      const result = { id };
-      await finishInventoryOperationInTx(tx, {
-        organizationId: orgId,
-        idempotencyKey: options?.idempotencyKey ?? null,
-        result,
-      });
-      return result;
-    }
-
-    const { orders, itemsById } = await prepareDraftOrdersForConfirmationInTx(
-      tx,
-      [id],
-      { lockItems: true }
-    );
-    const [order] = orders;
-    const plan = await buildConfirmationAllocationPlanInTx(
-      tx,
-      orgId,
-      orders,
-      itemsById
-    );
-
-    const takeover = await buildDraftAllocationTakeoverWarningInTx(
-      tx,
-      orgId,
-      orders,
-      plan.unmanagedLines,
-      itemsById
-    );
-    let reservationLines = plan.reservationLines;
-    if (takeover && !confirmDraftAllocationTakeover) {
-      throw new SalesError(
-        "This confirmation would take stock allocated to other open orders.",
-        409,
-        { draftAllocationTakeover: takeover }
-      );
-    }
-    if (takeover && confirmDraftAllocationTakeover) {
-      await applyDraftAllocationTakeoverInTx(tx, orgId, userId, takeover);
-      const takeoverItemIds = new Set(takeover.allocations.map((allocation) => allocation.itemId));
-      reservationLines = reservationLines.filter((line) => !takeoverItemIds.has(line.itemId));
-    }
-
-    await tx
-      .update(salesOrders)
-      .set({
-        status: "confirmed",
-        updatedAt: new Date(),
-      })
-      .where(eq(salesOrders.id, id));
-
-    await upsertDefaultDraftShipmentForOrderInTx(tx, orgId, order);
-
-    await recordSalesDemandAndReservationsInTx(tx, {
-      organizationId: orgId,
-      salesOrderId: id,
-      actorUserId: userId,
-      idempotencyKey: deriveInventoryIdempotencyKey(
-        options?.idempotencyKey,
-        "confirm-order"
-      ),
-      demandLines: plan.demandLines,
-      reservationLines,
-    });
-
-    await rerankOpenSalesOrdersInTx(tx, orgId);
 
     const result = { id };
 
@@ -7009,87 +6575,7 @@ export async function bulkConfirmSalesOrders(
       return replay.result;
     }
 
-    const { orders, itemsById } = await prepareDraftOrdersForConfirmationInTx(
-      tx,
-      payload.ids,
-      { lockItems: true }
-    );
-
-    if (orders.length === 0) {
-      const result = { confirmedCount: 0 };
-      await finishInventoryOperationInTx(tx, {
-        organizationId: orgId,
-        idempotencyKey: options?.idempotencyKey ?? null,
-        result,
-      });
-      return result;
-    }
-
-    const plan = await buildConfirmationAllocationPlanInTx(
-      tx,
-      orgId,
-      orders,
-      itemsById
-    );
-
-    const takeover = await buildDraftAllocationTakeoverWarningInTx(
-      tx,
-      orgId,
-      orders,
-      plan.unmanagedLines,
-      itemsById
-    );
-    let reservationLines = plan.reservationLines;
-    if (takeover && payload.confirmDraftAllocationTakeover !== true) {
-      throw new SalesError(
-        "These confirmations would take stock allocated to other open orders.",
-        409,
-        { draftAllocationTakeover: takeover }
-      );
-    }
-    if (takeover && payload.confirmDraftAllocationTakeover === true) {
-      await applyDraftAllocationTakeoverInTx(tx, orgId, userId, takeover);
-      const takeoverItemIds = new Set(takeover.allocations.map((allocation) => allocation.itemId));
-      reservationLines = reservationLines.filter((line) => !takeoverItemIds.has(line.itemId));
-    }
-
-    const orderIds = orders.map((order) => order.id);
-
-    await tx
-      .update(salesOrders)
-      .set({
-        status: "confirmed",
-        updatedAt: new Date(),
-      })
-      .where(inArray(salesOrders.id, orderIds));
-
-    for (const order of orders) {
-      await upsertDefaultDraftShipmentForOrderInTx(tx, orgId, order);
-
-      await recordSalesDemandAndReservationsInTx(tx, {
-        organizationId: orgId,
-        salesOrderId: order.id,
-        actorUserId: userId,
-        idempotencyKey: deriveInventoryIdempotencyKey(
-          options?.idempotencyKey,
-          `bulk-confirm:${order.id}`
-        ),
-        demandLines: plan.demandLines.filter((line) =>
-          order.preparedLines.some(
-            (orderLine) => orderLine.salesOrderLineId === line.salesOrderLineId
-          )
-        ),
-        reservationLines: reservationLines.filter((line) =>
-          order.preparedLines.some(
-            (orderLine) => orderLine.salesOrderLineId === line.salesOrderLineId
-          )
-        ),
-      });
-    }
-
-    await rerankOpenSalesOrdersInTx(tx, orgId);
-
-    const result = { confirmedCount: orderIds.length };
+    const result = { confirmedCount: payload.ids.length };
 
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,

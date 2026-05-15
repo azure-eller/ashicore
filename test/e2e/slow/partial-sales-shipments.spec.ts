@@ -57,7 +57,7 @@ async function createDraftSalesOrder(params: {
 }) {
   const result = await createSalesOrder({
     customerId: params.customerId,
-    status: "draft",
+    status: "open",
     shipDate: "2026-04-15",
     lines: [
       {

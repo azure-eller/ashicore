@@ -14,7 +14,7 @@ import type {
 } from "./types";
 import { sourceKey } from "./types";
 
-const OPEN_SALES_STATUSES = ["draft", "confirmed", "partially_shipped"] as const;
+const OPEN_SALES_STATUSES = ["open"] as const;
 
 type BulkAllocationSummary = {
   itemCount: number;

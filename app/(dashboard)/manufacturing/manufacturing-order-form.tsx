@@ -255,7 +255,7 @@ export function ManufacturingOrderForm({
             itemSku: initialData.productSku,
             quantity: initialData.requestedQuantity,
             unitName: initialData.unitName,
-            status: "confirmed" as const,
+            status: "open" as const,
           },
           ...salesLineOptions,
         ]

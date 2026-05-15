@@ -45,7 +45,7 @@ import {
 import type { SalesOrderListLine, SalesOrderListRow } from "./types";
 import styles from "./sales-allocation-table.module.css";
 
-const OPEN_SALES_STATUSES = ["draft", "confirmed", "partially_shipped"] as const;
+const OPEN_SALES_STATUSES = ["open"] as const;
 const STANDALONE_FAMILY_LABEL = "Standalone Products";
 const CUSTOMER_COL_WIDTH = 230;
 const SHIP_COL_WIDTH = 96;

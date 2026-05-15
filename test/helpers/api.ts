@@ -430,7 +430,7 @@ export async function createSalesOrder(data: {
     method: "POST",
     body: JSON.stringify({
       customerId: data.customerId,
-      status: data.status ?? "confirmed",
+      status: data.status ?? "open",
       orderDate:
         data.orderDate ??
         data.shipDate ??
@@ -474,7 +474,7 @@ export async function updateSalesOrder(
     method: "PUT",
     body: JSON.stringify({
       customerId: data.customerId,
-      status: data.status ?? "confirmed",
+      status: data.status ?? "open",
       orderDate:
         data.orderDate ??
         data.shipDate ??

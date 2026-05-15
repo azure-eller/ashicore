@@ -237,7 +237,7 @@ test.describe("Planning workspace", () => {
     const demandCustomerId = await ensureCustomerId();
     const result = await createSalesOrder({
       customerId: demandCustomerId,
-      status: "confirmed",
+      status: "open",
       requestedDate: isoDateDaysFromToday(13),
       notes: null,
       lines: [{ itemId, quantity, unitPrice: "1.00" }],
@@ -824,7 +824,17 @@ test.describe("Planning workspace", () => {
     const parentId = await createProduct("Late Supply Parent Product", [
       { componentId: subassemblyId, quantity: "1" },
     ]);
-    await createConfirmedDemand(parentId, "1");
+    const lateDemandCustomerId = await ensureCustomerId();
+    const lateDemand = await createSalesOrder({
+      customerId: lateDemandCustomerId,
+      status: "open",
+      requestedDate: "2026-05-10",
+      shipDate: "2026-05-10",
+      notes: null,
+      lines: [{ itemId: parentId, quantity: "1", unitPrice: "1.00" }],
+      confirmOversell: true,
+    });
+    expect(lateDemand.status).toBe(201);
 
     const lateMo = await createManufacturingOrder({
       productId: subassemblyId,
@@ -1102,7 +1112,7 @@ test.describe("Planning workspace", () => {
     expect(line.quantityOrdered).toBe("6.0000");
   });
 
-  test("create WO draft from recommendation validates payload and creates a draft", async ({
+  test("create WO from recommendation validates payload and creates an open order", async ({
     db,
   }) => {
     const componentId = await createMaterial("Rice Hulls", { stock: "100" });
@@ -1124,7 +1134,7 @@ test.describe("Planning workspace", () => {
       .select()
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, created.body.id as string));
-    expect(order.status).toBe("draft");
+    expect(order.status).toBe("open");
     expect(order.productId).toBe(productId);
     expect(order.bomRevisionId).toBe(recommendation.suggestedBomRevisionId);
     expect(order.notes).toContain("[planning-recommendation:");
@@ -1351,7 +1361,7 @@ test.describe("Planning workspace", () => {
     }
     const order = await createSalesOrder({
       customerId: usageCustomerId,
-      status: "confirmed",
+      status: "open",
       requestedDate: isoDateDaysFromToday(13),
       notes: null,
       lines: [{ itemId: item.id, quantity: "12", unitPrice: "1.00" }],

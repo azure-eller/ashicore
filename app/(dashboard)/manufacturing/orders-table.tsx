@@ -36,8 +36,8 @@ import type { ManufacturingOrderListRow } from "./types";
 
 const BADGE_VARIANTS = ["secondary", "outline", "default"] as const;
 
-const OPEN_MANUFACTURING_STATUSES = ["draft", "released"] as const;
-const DONE_MANUFACTURING_STATUSES = ["completed", "cancelled"] as const;
+const OPEN_MANUFACTURING_STATUSES = ["open"] as const;
+const DONE_MANUFACTURING_STATUSES = ["done"] as const;
 type ManufacturingWorkflowFilterValue = "open" | "done";
 
 const INITIAL_SORTING: SortingState = [{ id: "priorityRank", desc: false }];
@@ -90,15 +90,11 @@ function clampPercent(value: number) {
 }
 
 function getOrderProgress(order: ManufacturingOrderListRow) {
-  if (order.status === "completed") {
+  if (order.status === "done") {
     return { percent: 100, label: "Complete" };
   }
 
-  if (order.status === "cancelled") {
-    return { percent: 0, label: "Cancelled" };
-  }
-
-  if (order.status === "draft") {
+  if (order.releasedAt == null) {
     return { percent: 0, label: "Not started" };
   }
 
@@ -114,7 +110,7 @@ function getOrderProgress(order: ManufacturingOrderListRow) {
       label:
         totalBatchCount > 0
           ? `${order.completedBatchCount}/${totalBatchCount} batches`
-          : "Released",
+          : "In production",
     };
   }
 
@@ -127,14 +123,14 @@ function getOrderProgress(order: ManufacturingOrderListRow) {
     label:
       order.pickProgressPercent > 0
         ? `${clampPercent(order.pickProgressPercent)}% picked`
-        : "Released",
+        : "In production",
   };
 }
 
 function ProgressCell({ order }: { order: ManufacturingOrderListRow }) {
   const progress = getOrderProgress(order);
   const fillClassName =
-    order.status === "completed"
+    order.status === "done"
       ? "alloc-progress-fill-supply"
       : "alloc-progress-fill-held";
 
@@ -155,10 +151,6 @@ function ProgressCell({ order }: { order: ManufacturingOrderListRow }) {
 }
 
 function getIngredientState(order: ManufacturingOrderListRow): OperationalState {
-  if (order.status === "cancelled") {
-    return { label: "Cancelled", tone: "destructive" };
-  }
-
   if (order.ingredientReadiness === "picked") {
     return { label: "Picked", tone: "success" };
   }
@@ -179,15 +171,11 @@ function getIngredientState(order: ManufacturingOrderListRow): OperationalState 
 }
 
 function getProductionState(order: ManufacturingOrderListRow): OperationalState {
-  if (order.status === "completed") {
+  if (order.status === "done") {
     return { label: "Completed", tone: "success" };
   }
 
-  if (order.status === "cancelled") {
-    return { label: "Cancelled", tone: "destructive" };
-  }
-
-  if (order.status === "released") {
+  if (order.releasedAt != null) {
     if (
       order.pickProgressStatus === "in_progress" ||
       order.pickProgressStatus === "picked" ||
@@ -205,7 +193,7 @@ function getProductionState(order: ManufacturingOrderListRow): OperationalState 
 function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
   const state = getProductionState(order);
 
-  if (order.status !== "draft" && order.status !== "released") {
+  if (order.status !== "open") {
     return <OperationalStateCell state={state} />;
   }
 
@@ -220,13 +208,13 @@ function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
         />
       }
       triggerAriaLabel={`Manufacturing actions for ${order.orderNumber}`}
+      releasedAt={order.releasedAt}
     />
   );
 }
 
 function doneManufacturingOrderRank(order: ManufacturingOrderListRow) {
-  if (order.status === "cancelled") return 1;
-  if (order.status === "completed") return 0;
+  if (order.status === "done") return 0;
   return -1;
 }
 
@@ -428,10 +416,8 @@ function ManufacturingStatusFilter({
     DONE_MANUFACTURING_STATUSES.every((status) => selected.includes(status));
   const value: ManufacturingWorkflowFilterValue = isDone ? "done" : "open";
   const statusCounts = statusColumn?.getFacetedUniqueValues();
-  const openCount =
-    (statusCounts?.get("draft") ?? 0) + (statusCounts?.get("released") ?? 0);
-  const doneCount =
-    (statusCounts?.get("completed") ?? 0) + (statusCounts?.get("cancelled") ?? 0);
+  const openCount = statusCounts?.get("open") ?? 0;
+  const doneCount = statusCounts?.get("done") ?? 0;
 
   const applyFilter = (nextValue: ManufacturingWorkflowFilterValue) => {
     if (!statusColumn) return;
@@ -586,7 +572,7 @@ export function OrdersTable({
         confirmTitle: (count) =>
           `Delete ${count} manufacturing order${count !== 1 ? "s" : ""}?`,
         confirmDescription: () =>
-          "Completed or cancelled orders will be soft-deleted and removed from normal views. Open orders must be cancelled first.",
+          "Selected manufacturing orders will be deleted and removed from normal views.",
       }}
     />
   );

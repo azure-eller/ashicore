@@ -238,7 +238,7 @@ test.describe("Inventory disposition", () => {
 
       const order = await createSalesOrder({
         customerId: customer.body.id,
-        status: "draft",
+        status: "open",
         lines: [{ itemId, quantity: "1", unitPrice: "9.00" }],
       });
       expect(order.status).toBe(201);
@@ -341,7 +341,7 @@ test.describe("Inventory disposition", () => {
     expect(customer.status).toBe(201);
     const order = await createSalesOrder({
       customerId: customer.body.id,
-      status: "draft",
+      status: "open",
       lines: [{ itemId: blockedItemId, quantity: "4", unitPrice: "9.00" }],
     });
     expect(order.status).toBe(201);

@@ -22,12 +22,14 @@ type ApiError = Error & {
 export function MoStageAction({
   orderId,
   status,
+  releasedAt,
   trigger,
   triggerAriaLabel,
   menuAlign = "end",
 }: {
   orderId: string;
   status: ManufacturingOrderStatus;
+  releasedAt: Date | null;
   trigger?: ReactNode;
   triggerAriaLabel?: string;
   menuAlign?: "start" | "center" | "end";
@@ -69,7 +71,7 @@ export function MoStageAction({
     },
   });
 
-  if (trigger && (status === "draft" || status === "released")) {
+  if (trigger && status === "open") {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -83,7 +85,7 @@ export function MoStageAction({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align={menuAlign} className="w-48">
-          {status === "draft" ? (
+          {releasedAt == null ? (
             <DropdownMenuItem
               disabled={releaseMutation.isPending}
               onSelect={(event) => {
@@ -112,7 +114,7 @@ export function MoStageAction({
     );
   }
 
-  if (status === "draft") {
+  if (status === "open" && releasedAt == null) {
     return (
       <div className="flex justify-end">
         <div className="flex flex-col items-end gap-1">
@@ -134,7 +136,7 @@ export function MoStageAction({
     );
   }
 
-  if (status === "released") {
+  if (status === "open") {
     return (
       <div className="flex justify-end">
         <Button size="sm" asChild>

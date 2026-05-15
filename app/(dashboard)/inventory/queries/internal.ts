@@ -350,7 +350,7 @@ async function getRevenue30dByItemIdInTx(tx: Tx, itemIds: string[]) {
     .where(
       and(
         inArray(salesOrderLines.itemId, uniqueItemIds),
-        eq(salesOrders.status, "shipped"),
+        eq(salesOrders.status, "done"),
         isNull(salesOrders.deletedAt),
         sql`${salesOrders.shippedAt} >= ${thirtyDaysAgo}`,
       ),
@@ -1227,7 +1227,7 @@ export async function getItemCommitmentSummary(
             defaultLocationIdSubquery(inventoryReservationsSummary.organizationId)
           ),
           eq(inventoryReservationsSummary.referenceType, "sales_order_line"),
-          inArray(salesOrders.status, ["confirmed", "partially_shipped"]),
+          eq(salesOrders.status, "open"),
           isNull(salesOrders.deletedAt),
           sql`${inventoryReservationsSummary.quantity} > 0`
         )
@@ -1294,7 +1294,7 @@ export async function deleteItem(
         and(
           eq(salesOrderLines.itemId, id),
           isNull(salesOrders.deletedAt),
-          inArray(salesOrders.status, ["draft", "confirmed", "partially_shipped"])
+          eq(salesOrders.status, "open")
         )
       )
       .limit(1);
@@ -1313,7 +1313,7 @@ export async function deleteItem(
       .where(
         and(
           isNull(manufacturingOrders.deletedAt),
-          inArray(manufacturingOrders.status, ["draft", "released"]),
+          eq(manufacturingOrders.status, "open"),
           or(
             eq(manufacturingOrders.productId, id),
             eq(manufacturingOrderIngredients.itemId, id)
@@ -1422,7 +1422,7 @@ export async function deleteItems(
         and(
           inArray(salesOrderLines.itemId, uniqueIds),
           isNull(salesOrders.deletedAt),
-          inArray(salesOrders.status, ["draft", "confirmed", "partially_shipped"])
+          eq(salesOrders.status, "open")
         )
       )
       .limit(1);
@@ -1431,7 +1431,7 @@ export async function deleteItems(
       return {
         deletedCount: 0,
         error:
-          "Cannot delete: one or more items are used by draft, confirmed, or partially shipped sales orders.",
+          "Cannot delete: one or more items are used by active sales orders.",
       };
     }
 
@@ -1445,7 +1445,7 @@ export async function deleteItems(
       .where(
         and(
           isNull(manufacturingOrders.deletedAt),
-          inArray(manufacturingOrders.status, ["draft", "released"]),
+          eq(manufacturingOrders.status, "open"),
           or(
             inArray(manufacturingOrders.productId, uniqueIds),
             inArray(manufacturingOrderIngredients.itemId, uniqueIds)
@@ -1458,7 +1458,7 @@ export async function deleteItems(
       return {
         deletedCount: 0,
         error:
-          "Cannot delete: one or more items are used by draft or released manufacturing orders.",
+          "Cannot delete: one or more items are used by open manufacturing orders.",
       };
     }
 

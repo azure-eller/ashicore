@@ -222,11 +222,7 @@ export async function getSalesOrderManufacturingSummariesInTx(
           and(
             inArray(manufacturingOrders.salesOrderLineId, salesOrderLineIds),
             isNull(manufacturingOrders.deletedAt),
-            inArray(manufacturingOrders.status, [
-              "draft",
-              "released",
-              "completed",
-            ])
+            inArray(manufacturingOrders.status, ["open", "done"])
           )
         )
     : [];
@@ -292,8 +288,7 @@ export async function getSalesOrderManufacturingSummariesInTx(
       skipReason = "inactive_product";
     } else {
       const orderedQuantity = Number(line.quantity);
-      const canCreateFromOrder =
-        line.orderStatus === "confirmed" || line.orderStatus === "partially_shipped";
+      const canCreateFromOrder = line.orderStatus === "open";
       let stockCoversLine = false;
       let uncoveredQuantity: string | null = null;
 

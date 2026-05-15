@@ -492,9 +492,7 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
     activityFilter === "all"
       ? detail.correspondence
       : detail.correspondence.filter((entry) => entry.type === activityFilter);
-  const openSalesOrders = detail.salesOrders.filter((order) =>
-    ["draft", "confirmed", "partially_shipped"].includes(order.status)
-  );
+  const openSalesOrders = detail.salesOrders.filter((order) => order.status === "open");
   const groupedActivity = useMemo(
     () => groupActivity(filteredActivity),
     [filteredActivity]
@@ -1602,7 +1600,7 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this customer?</AlertDialogTitle>
             <AlertDialogDescription>
-              The customer will be soft-deleted. Customers with active draft or confirmed orders cannot be deleted.
+              The customer will be soft-deleted. Customers with active sales orders cannot be deleted.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

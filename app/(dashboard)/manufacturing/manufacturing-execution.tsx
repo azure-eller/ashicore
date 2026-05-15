@@ -451,7 +451,7 @@ export function ManufacturingExecution({
     execution.manufacturingMode === "discrete" ||
     execution.currentBatch?.status === "in_progress" ||
     execution.currentBatchId === optimisticStartedBatchId;
-  const canReorderStatus = execution.status === "released";
+  const canReorderStatus = execution.status === "open";
 
   const refreshExecutionScreen = useCallback(() => {
     startTransition(() => {
@@ -468,7 +468,7 @@ export function ManufacturingExecution({
   }, [queryClient, refreshExecutionScreen]);
 
   useEffect(() => {
-    if (execution.status !== "released") {
+    if (execution.status !== "open") {
       return;
     }
 

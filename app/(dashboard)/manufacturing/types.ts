@@ -24,7 +24,7 @@ export type ManufacturingSalesLineOption = {
   itemSku: string | null;
   quantity: string;
   unitName: string;
-  status: "draft" | "confirmed" | "partially_shipped";
+  status: "open";
 };
 
 export type ManufacturingSalesOrderOption = {
@@ -139,6 +139,7 @@ export type ManufacturingOrderListRow = {
   ingredientReadiness: ManufacturingIngredientReadiness;
   completedBatchCount: number;
   actionableBatchCount: number;
+  releasedAt: Date | null;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;

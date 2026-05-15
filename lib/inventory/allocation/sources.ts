@@ -2,19 +2,16 @@ import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   inventoryLotBalances,
   lots,
-  manufacturingOrderIngredients,
   manufacturingOrders,
+  salesOrderLines,
+  salesOrders,
   stockAllocations,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel";
-import type {
-  AllocationDemandRef,
-  AllocationDemandType,
-  AllocationSourceRow,
-} from "./types";
+import type { AllocationDemandRef, AllocationSourceRow } from "./types";
 
 function toQuantity(value: string | number | null | undefined) {
   const parsed = Number(value ?? 0);
@@ -53,7 +50,21 @@ async function getActiveSourceAllocationsForItemInTx(
       and(
         eq(stockAllocations.organizationId, params.organizationId),
         eq(stockAllocations.itemId, params.itemId),
-        eq(stockAllocations.status, "active")
+        eq(stockAllocations.status, "active"),
+        sql`(
+          (
+            ${stockAllocations.demandType} = 'sales_order_line'
+            AND EXISTS (
+              SELECT 1
+              FROM ${salesOrderLines}
+              INNER JOIN ${salesOrders}
+                ON ${salesOrders.id} = ${salesOrderLines.salesOrderId}
+              WHERE ${salesOrderLines.id} = ${stockAllocations.demandId}
+                AND ${salesOrders.status} = 'open'
+                AND ${salesOrders.deletedAt} IS NULL
+            )
+          )
+        )`
       )
     );
 }
@@ -64,7 +75,6 @@ export async function loadAllocationSourcesForItemInTx(
     organizationId: string;
     itemId: string;
     primaryDemand?: AllocationDemandRef | null;
-    primaryParentManufacturingOrderId?: string | null;
   }
 ): Promise<AllocationSourceRow[]> {
   const activeRows = await getActiveSourceAllocationsForItemInTx(tx, params);
@@ -115,7 +125,10 @@ export async function loadAllocationSourcesForItemInTx(
     eq(manufacturingOrders.productId, params.itemId),
     isNull(manufacturingOrders.deletedAt),
     or(
-      inArray(manufacturingOrders.status, ["draft", "released"]),
+      and(
+        eq(manufacturingOrders.status, "open"),
+        sql`${manufacturingOrders.releasedAt} IS NOT NULL`
+      ),
       manufacturingAllocatedSourceIds.length > 0
         ? inArray(manufacturingOrders.id, manufacturingAllocatedSourceIds)
         : sql`false`
@@ -127,6 +140,7 @@ export async function loadAllocationSourcesForItemInTx(
       orderNumber: manufacturingOrders.orderNumber,
       productName: manufacturingOrders.productName,
       status: manufacturingOrders.status,
+      releasedAt: manufacturingOrders.releasedAt,
       plannedDate: manufacturingOrders.plannedDate,
       priorityRank: manufacturingOrders.priorityRank,
       remainingExpectedQty: trimScale(sql`GREATEST(
@@ -175,13 +189,7 @@ export async function loadAllocationSourcesForItemInTx(
       0,
       roundQuantity(totalQty - Math.max(0, allocatedQty - currentPrimaryQty))
     );
-    const isSelfSupply =
-      params.primaryDemand?.demandType === "manufacturing_order_ingredient" &&
-      params.primaryParentManufacturingOrderId === mo.id;
-    const canAllocate =
-      !isSelfSupply &&
-      (mo.status === "draft" || mo.status === "released") &&
-      totalQty > 0;
+    const canAllocate = mo.status === "open" && mo.releasedAt != null && totalQty > 0;
 
     sources.push({
       sourceType: "manufacturing_order",
@@ -203,16 +211,4 @@ export async function loadAllocationSourcesForItemInTx(
   }
 
   return sources;
-}
-
-export async function getManufacturingIngredientParentOrderInTx(
-  tx: Tx,
-  params: { demandType: AllocationDemandType; demandId: string }
-) {
-  if (params.demandType !== "manufacturing_order_ingredient") return null;
-  const [row] = await tx
-    .select({ manufacturingOrderId: manufacturingOrderIngredients.manufacturingOrderId })
-    .from(manufacturingOrderIngredients)
-    .where(eq(manufacturingOrderIngredients.id, params.demandId));
-  return row?.manufacturingOrderId ?? null;
 }

@@ -267,8 +267,6 @@ async function reserveConfirmedImportLinesInTx(
     quantity: string;
   }>
 ) {
-  if (order.status !== "confirmed") return;
-
   const linesToReserve = lineRows
     .map((line) => ({
       salesOrderLineId: line.salesOrderLineId,
@@ -300,7 +298,7 @@ async function createImportDraftShipmentInTx(
   const allocatedLineRows = lineRows.filter(({ line }) => line.allocated);
 
   if (
-    order.status !== "confirmed" ||
+    order.status !== "open" ||
     !order.shipDate ||
     allocatedLineRows.length === 0
   ) {
@@ -518,7 +516,7 @@ export async function evaluateSalesImportInTx(
       order.requestedDate ?? config.requestedDateBySourceRow?.[order.sourceRows[0]] ?? null;
     const orderDate = order.orderDate ?? requestedDate ?? new Date().toISOString().slice(0, 10);
     const shipDate = order.shipDate ?? requestedDate;
-    const status = order.status ?? "draft";
+    const status = "open";
     const customerKey = resolveOrderCustomerKey(
       order,
       customerAliasByKey,
@@ -646,7 +644,7 @@ export async function evaluateSalesImportInTx(
     const existingOrder =
       existingOrdersByMarker.get(marker) ?? existingOrdersBySignature.get(signature) ?? null;
 
-    if (existingOrder && existingOrder.status !== "draft") {
+    if (existingOrder && existingOrder.status !== "open") {
       if (existingOrder.status === status && existingOrder.lineSignature === signature) {
         orders.push({
           kind: "ready",
@@ -672,7 +670,7 @@ export async function evaluateSalesImportInTx(
         label,
         sourceRows: order.sourceRows,
         issues: [
-          `Existing order ${existingOrder.orderNumber} is ${existingOrder.status}; import leaves non-draft orders untouched.`,
+          `Existing order ${existingOrder.orderNumber} is ${existingOrder.status}; import leaves non-open orders untouched.`,
         ],
       });
       continue;
@@ -753,7 +751,7 @@ export async function applySalesImportOrdersInTx(
           .where(eq(salesOrders.id, order.existingId))
           .for("update");
 
-        if (!lockedOrder || lockedOrder.status !== "draft") {
+        if (!lockedOrder || lockedOrder.status !== "open") {
           if (lockedOrder?.status === order.status) {
             report.existingOrders.push(
               `${order.existingOrderNumber ?? order.existingId} - ${order.label}`
@@ -766,7 +764,7 @@ export async function applySalesImportOrdersInTx(
             sourceRows: order.sourceRows,
             issues: [
               lockedOrder
-                ? `Existing order ${lockedOrder.orderNumber} is ${lockedOrder.status}; import leaves non-draft orders untouched.`
+                ? `Existing order ${lockedOrder.orderNumber} is ${lockedOrder.status}; import leaves non-open orders untouched.`
                 : "Existing order could not be locked; it may have been deleted.",
             ],
           });

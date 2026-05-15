@@ -1,7 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import {
   inventoryLotBalances,
-  manufacturingOrderIngredients,
   manufacturingOrders,
   stockAllocations,
 } from "@/lib/db/schema";
@@ -29,56 +28,11 @@ function quantityString(value: number) {
 }
 
 function isDemandType(value: string): value is AllocationDemandType {
-  return value === "sales_order_line" || value === "manufacturing_order_ingredient";
+  return value === "sales_order_line";
 }
 
 function isSourceType(value: string): value is AllocationSourceType {
   return value === "inventory_lot" || value === "manufacturing_order";
-}
-
-async function assertNoObviousManufacturingCycleInTx(
-  tx: Tx,
-  params: {
-    demandType: AllocationDemandType;
-    demandId: string;
-    sourceManufacturingOrderId: string;
-  }
-) {
-  if (params.demandType !== "manufacturing_order_ingredient") return;
-
-  const [demandOrder] = await tx
-    .select({
-      manufacturingOrderId: manufacturingOrderIngredients.manufacturingOrderId,
-      productId: manufacturingOrders.productId,
-    })
-    .from(manufacturingOrderIngredients)
-    .innerJoin(
-      manufacturingOrders,
-      eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrders.id)
-    )
-    .where(eq(manufacturingOrderIngredients.id, params.demandId));
-  if (!demandOrder) return;
-
-  if (demandOrder.manufacturingOrderId === params.sourceManufacturingOrderId) {
-    throw new AllocationError("A manufacturing order cannot supply its own ingredients.", 409);
-  }
-
-  const [cycle] = await tx
-    .select({ id: manufacturingOrderIngredients.id })
-    .from(manufacturingOrderIngredients)
-    .where(
-      and(
-        eq(
-          manufacturingOrderIngredients.manufacturingOrderId,
-          params.sourceManufacturingOrderId
-        ),
-        eq(manufacturingOrderIngredients.itemId, demandOrder.productId)
-      )
-    )
-    .limit(1);
-  if (cycle) {
-    throw new AllocationError("Circular manufacturing allocations are not allowed.", 409);
-  }
 }
 
 async function validateSourceInTx(
@@ -119,6 +73,7 @@ async function validateSourceInTx(
     .select({
       productId: manufacturingOrders.productId,
       status: manufacturingOrders.status,
+      releasedAt: manufacturingOrders.releasedAt,
       deletedAt: manufacturingOrders.deletedAt,
       remainingExpectedQty: trimScale(sql`GREATEST(
         ${manufacturingOrders.plannedQuantity} - COALESCE(${manufacturingOrders.actualQuantity}, 0),
@@ -132,16 +87,12 @@ async function validateSourceInTx(
     !row ||
     row.deletedAt != null ||
     row.productId !== params.itemId ||
-    !["draft", "released"].includes(row.status) ||
+    row.status !== "open" ||
+    row.releasedAt == null ||
     toQuantity(row.remainingExpectedQty) <= 0
   ) {
     throw new AllocationError("Manufacturing order source is not available.", 409);
   }
-  await assertNoObviousManufacturingCycleInTx(tx, {
-    demandType: params.demandType,
-    demandId: params.demandId,
-    sourceManufacturingOrderId: params.sourceId,
-  });
 }
 
 export async function saveAllocationsForDemandInTx(

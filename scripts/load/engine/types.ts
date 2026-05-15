@@ -173,7 +173,7 @@ export type ReadySalesImportOrder = {
   sourceRows: number[];
   existingId: string | null;
   existingOrderNumber: string | null;
-  status: "draft" | "confirmed";
+  status: "open";
   customerKey: string;
   customerName: string;
   notes: string | null;
@@ -295,7 +295,7 @@ export type OrderSeed = {
   orderDate?: string | null;
   shipDate?: string | null;
   requestedDate?: string | null;
-  status?: "draft" | "confirmed";
+  status?: "open";
   requestedWindow?: string | null;
   address: string | null;
   contact: string | null;

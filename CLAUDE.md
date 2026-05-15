@@ -425,6 +425,7 @@ See `docs/sales.md` and `docs/planning.md`. Critical:
 
 - Confirmed orders reserve the full order. Draft shipments plan only; shipped shipments consume/release. BOL state: `draft` = planned, `shipped` = final.
 - `partially_shipped` orders still block customer/product deletes while remaining demand exists.
+- Sales Allocation tab is authoritative. Allocation demand is only confirmed/partial SO lines; draft SOs and draft MOs are ignored. MO supply is allocatable only after release.
 - Planning downstream rows are sales-order attribution paths only — use `salesOrderProductionDemandPaths`, never infer from `sourceRefs`, BOM revisions, or MOs. Direct SO demand stays flat on the card.
 - Outbound shipment costs and customer freight recovery are margin-only. Editing them must not mutate inventory, Xero invoices, AP, GL, or BOL behavior.
 

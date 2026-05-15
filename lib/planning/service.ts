@@ -1070,7 +1070,7 @@ async function getSalesDemandFactsInTx(tx: Tx): Promise<InternalDemandFact[]> {
     .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
     .where(
       and(
-        inArray(salesOrders.status, ["confirmed", "partially_shipped"]),
+        eq(salesOrders.status, "open"),
         isNull(salesOrders.deletedAt)
       )
     )
@@ -1163,7 +1163,8 @@ async function getOpenManufacturingComponentDemandFactsInTx(
     )
     .where(
       and(
-        eq(manufacturingOrders.status, "released"),
+        eq(manufacturingOrders.status, "open"),
+        sql`${manufacturingOrders.releasedAt} IS NOT NULL`,
         isNull(manufacturingOrders.deletedAt),
         sql`${manufacturingOrderIngredients.plannedQuantity} > ${manufacturingOrderIngredients.pickedQuantity}`
       )
@@ -1336,7 +1337,13 @@ async function getManufacturingSupplyFactsInTx(tx: Tx): Promise<SupplyFact[]> {
       quantity: remainingQuantity.as("quantity"),
     })
     .from(manufacturingOrders)
-    .where(and(eq(manufacturingOrders.status, "released"), isNull(manufacturingOrders.deletedAt)))
+    .where(
+      and(
+        eq(manufacturingOrders.status, "open"),
+        sql`${manufacturingOrders.releasedAt} IS NOT NULL`,
+        isNull(manufacturingOrders.deletedAt)
+      )
+    )
     .orderBy(
       asc(manufacturingOrders.plannedDate),
       asc(manufacturingOrders.orderNumber),

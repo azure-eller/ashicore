@@ -108,9 +108,8 @@ type PushInvoiceOptions = {
 };
 
 const orderInvoiceableStatuses = new Set([
-  "confirmed",
-  "partially_shipped",
-  "shipped",
+  "open",
+  "done",
 ]);
 
 function shouldSendSalesInvoiceEmail(
@@ -674,7 +673,7 @@ export async function pushSalesOrderToXero(
 
   if (!orderInvoiceableStatuses.has(data.order.status)) {
     throw new XeroError(
-      "Only confirmed, partially shipped, or shipped orders can be invoiced.",
+      "Only open or done orders can be invoiced.",
       409
     );
   }
@@ -1165,7 +1164,7 @@ export async function emailSalesInvoiceForOrder(
   }
   if (!orderInvoiceableStatuses.has(data.order.status)) {
     throw new XeroError(
-      "Only confirmed, partially shipped, or shipped orders can be invoiced.",
+      "Only open or done orders can be invoiced.",
       409
     );
   }

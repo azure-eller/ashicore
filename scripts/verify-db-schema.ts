@@ -23,12 +23,6 @@ type ExpectedColumn = {
 
 const expectedColumns: ExpectedColumn[] = [
   {
-    schema: "inventory",
-    table: "items",
-    column: "xero_purchase_account_code",
-    dataType: "character varying",
-  },
-  {
     schema: "purchasing",
     table: "purchase_orders",
     column: "shipping_cost",
@@ -41,7 +35,7 @@ const expectedColumns: ExpectedColumn[] = [
   {
     schema: "purchasing",
     table: "purchase_orders",
-    column: "xero_purchase_account_code",
+    column: "accounting_purchase_account_code",
     dataType: "character varying",
   },
   { schema: "purchasing", table: "purchase_orders", column: "ship_line1" },
@@ -53,7 +47,7 @@ const expectedColumns: ExpectedColumn[] = [
   {
     schema: "purchasing",
     table: "purchase_order_lines",
-    column: "xero_purchase_account_code",
+    column: "accounting_purchase_account_code",
     dataType: "character varying",
   },
   {
@@ -94,7 +88,7 @@ const expectedColumns: ExpectedColumn[] = [
   {
     schema: "purchasing",
     table: "purchase_order_additional_costs",
-    column: "xero_purchase_account_code",
+    column: "accounting_purchase_account_code",
     dataType: "character varying",
   },
   {

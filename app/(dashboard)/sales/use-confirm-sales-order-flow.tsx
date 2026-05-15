@@ -4,26 +4,14 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiJson, getApiErrorMessage } from "@/lib/client/api";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import type { DraftAllocationTakeoverWarningPayload } from "./types";
 
 type ConfirmError = Error & {
   status: number;
   error: string;
-  draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
 };
 
 type ConfirmFlags = {
-  confirmDraftAllocationTakeover?: boolean;
+  confirmOversell?: boolean;
 };
 
 export function useConfirmSalesOrderFlow(
@@ -33,8 +21,6 @@ export function useConfirmSalesOrderFlow(
   const queryClient = useQueryClient();
   const router = useRouter();
   const [actionError, setActionError] = useState<ConfirmError | null>(null);
-  const [draftTakeoverWarning, setDraftTakeoverWarning] =
-    useState<DraftAllocationTakeoverWarningPayload | null>(null);
 
   const refreshSalesList = async () => {
     await Promise.all([
@@ -54,35 +40,23 @@ export function useConfirmSalesOrderFlow(
         body: flags,
         fallbackError: "Failed to confirm order.",
         mapError: (status, body) => {
-          const payload = body as
-            | {
-                error?: unknown;
-                draftAllocationTakeover?: DraftAllocationTakeoverWarningPayload;
-              }
-            | null;
+          const payload = body as { error?: unknown } | null;
           const message = getApiErrorMessage(payload, "Failed to confirm order.");
           return Object.assign(new Error(message), {
             status,
             error: message,
-            draftAllocationTakeover: payload?.draftAllocationTakeover,
           } satisfies Omit<ConfirmError, keyof Error>);
         },
       });
     },
     onMutate: () => {
       setActionError(null);
-      setDraftTakeoverWarning(null);
     },
     onSuccess: async () => {
       await refreshSalesList();
       options?.onSuccess?.();
     },
     onError: (error: ConfirmError) => {
-      if (error.status === 409 && error.draftAllocationTakeover) {
-        setDraftTakeoverWarning(error.draftAllocationTakeover);
-        return;
-      }
-
       setActionError(error);
     },
   });
@@ -91,52 +65,6 @@ export function useConfirmSalesOrderFlow(
     confirm: () => confirmMutation.mutate({}),
     isPending: confirmMutation.isPending,
     errorMessage: actionError?.error ?? null,
-    dialogs: (
-      <AlertDialog
-        open={draftTakeoverWarning != null}
-        onOpenChange={(open) => {
-          if (!open) setDraftTakeoverWarning(null);
-        }}
-      >
-        <AlertDialogContent
-          size="2xl"
-          className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground"
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle>Take Open Allocations?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Confirming this order will reduce stock allocated to other open orders.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-2 text-sm">
-            {draftTakeoverWarning?.allocations.map((allocation) => (
-              <div
-                key={`${allocation.salesOrderLineId}-${allocation.itemId}`}
-                className="flex justify-between gap-4 rounded-md border p-2"
-              >
-                <span>
-                  {allocation.orderNumber} · {allocation.customerName} ·{" "}
-                  {allocation.itemName}
-                </span>
-                <span className="font-medium">
-                  {allocation.quantity} {allocation.unitName}
-                </span>
-              </div>
-            ))}
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={confirmMutation.isPending}
-              onClick={() =>
-                confirmMutation.mutate({ confirmDraftAllocationTakeover: true })
-              }
-            >
-              {confirmMutation.isPending ? "Confirming..." : "Take and Confirm"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    ),
+    dialogs: null,
   };
 }

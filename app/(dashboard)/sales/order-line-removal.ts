@@ -7,7 +7,7 @@ export function buildSalesOrderLineRemovalPayload(
   return {
     orderNumber: order.orderNumber,
     customerId: order.customerId,
-    status: order.status === "confirmed" ? "confirmed" : "draft",
+    status: "open",
     orderDate: order.orderDate,
     shipDate: order.shipDate,
     requestedDate: order.requestedDate,

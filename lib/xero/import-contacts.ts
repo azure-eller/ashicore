@@ -815,7 +815,7 @@ async function loadReferencedCustomerIdsInTx(tx: Tx, ids: string[]) {
     .where(
       and(
         inArray(salesOrders.customerId, ids),
-        inArray(salesOrders.status, ["draft", "confirmed", "partially_shipped"]),
+        eq(salesOrders.status, "open"),
         isNull(salesOrders.deletedAt)
       )
     );

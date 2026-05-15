@@ -38,9 +38,9 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  if (order.status !== "confirmed" && order.status !== "partially_shipped") {
+  if (order.status !== "open") {
     return NextResponse.json(
-      { error: "Only confirmed or partially shipped orders can be prepared." },
+      { error: "Only open orders can be prepared." },
       { status: 400 }
     );
   }

@@ -3,12 +3,7 @@ import { z } from "zod";
 import { manufacturingOrders } from "@/lib/db/schema";
 import { isValidIsoDate, nullableString, positiveDecimalString } from "./shared";
 
-export const MANUFACTURING_ORDER_STATUSES = [
-  "draft",
-  "released",
-  "completed",
-  "cancelled",
-] as const;
+export const MANUFACTURING_ORDER_STATUSES = ["open", "done"] as const;
 
 export type ManufacturingOrderStatus =
   (typeof MANUFACTURING_ORDER_STATUSES)[number];

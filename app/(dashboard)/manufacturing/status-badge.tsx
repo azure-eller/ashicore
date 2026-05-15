@@ -12,17 +12,12 @@ export function ManufacturingOrderStatusBadge({
 }: {
   status: ManufacturingOrderStatus;
 }) {
-  let badge;
-
-  if (status === "released") {
-    badge = <Badge>Released</Badge>;
-  } else if (status === "completed") {
-    badge = <Badge variant="outline">Completed</Badge>;
-  } else if (status === "cancelled") {
-    badge = <Badge variant="destructive">Cancelled</Badge>;
-  } else {
-    badge = <Badge variant="secondary">Draft</Badge>;
-  }
+  const badge =
+    status === "done" ? (
+      <Badge variant="outline">Done</Badge>
+    ) : (
+      <Badge variant="secondary">Open</Badge>
+    );
 
   return (
     <Tooltip>

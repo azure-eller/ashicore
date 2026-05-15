@@ -111,7 +111,7 @@ export const DELETE = apiHandler(async (_req: Request, ctx: unknown) => {
     return NextResponse.json(
       {
         error:
-          "Cannot delete: this product is still used by one or more draft, confirmed, or partially shipped sales orders.",
+          "Cannot delete: this product is still used by one or more active sales orders.",
       },
       { status: 400 }
     );

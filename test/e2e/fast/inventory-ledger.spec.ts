@@ -1004,7 +1004,8 @@ test.describe("Inventory ledger explorer", () => {
         unitName: "Each",
         requestedQuantity: "1",
         plannedQuantity: "1",
-        status: "released",
+        status: "open",
+        releasedAt: new Date(),
       })
       .returning({ id: manufacturingOrders.id, orderNumber: manufacturingOrders.orderNumber });
     if (!manufacturingOrder) {
@@ -1227,7 +1228,8 @@ test.describe("Inventory ledger explorer", () => {
         expectedBatchYield: "1",
         requestedQuantity: "1",
         plannedQuantity: "1",
-        status: "released",
+        status: "open",
+        releasedAt: new Date(),
       })
       .returning({ id: manufacturingOrders.id, orderNumber: manufacturingOrders.orderNumber });
     if (!order) {
@@ -1239,7 +1241,7 @@ test.describe("Inventory ledger explorer", () => {
       .values({
         manufacturingOrderId: order.id,
         batchNumber: 1,
-        status: "completed",
+        status: "done",
         plannedQuantity: "1",
         actualQuantity: "1",
       })

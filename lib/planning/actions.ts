@@ -218,7 +218,7 @@ async function assertNoDuplicateManufacturingDraftInTx(
     .from(manufacturingOrders)
     .where(
       and(
-        inArray(manufacturingOrders.status, ["draft", "released"]),
+        eq(manufacturingOrders.status, "open"),
         isNull(manufacturingOrders.deletedAt),
         eq(manufacturingOrders.productId, payload.itemId),
         sql`${manufacturingOrders.notes} LIKE ${`%${marker}%`}`

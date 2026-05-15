@@ -56,6 +56,7 @@ export const GET = apiHandler(async (request) => {
           eq(inventoryReservationsSummary.organizationId, orgId),
           eq(inventoryReservationsSummary.referenceType, "sales_order_line"),
           inArray(inventoryReservationsSummary.itemId, itemIds),
+          eq(salesOrders.status, "open"),
           isNull(salesOrders.deletedAt)
         )
       );

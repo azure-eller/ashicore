@@ -108,6 +108,13 @@ function hasFullyGroundAllocatedStock(order: SalesOrderListRow | SalesOrderDetai
   );
 }
 
+function shippedSalesQuantity(order: SalesOrderListRow | SalesOrderDetail) {
+  return order.lines.reduce(
+    (sum, line) => sum + parseQuantity(line.shippedQuantity),
+    0
+  );
+}
+
 function StateMenuItem({
   label,
   tone,
@@ -145,8 +152,7 @@ function StateMenuItem({
 export function ProductionActionCell({ order, state }: ProductionActionCellProps) {
   const [makeToOrderOpen, setMakeToOrderOpen] = useState(false);
   const isActionable =
-    order.status !== "cancelled" &&
-    order.status !== "shipped" &&
+    order.status === "open" &&
     order.hasManufacturableLines;
 
   if (!isActionable) {
@@ -306,13 +312,8 @@ export function DeliveryActionCell({
     createShipmentMutation.isPending ||
     shipShipmentMutation.isPending ||
     createAndShipMutation.isPending;
-  const canOpen =
-    order.status === "draft" ||
-    order.status === "confirmed" ||
-    order.status === "partially_shipped" ||
-    order.status === "shipped";
-  const canPrepareShipment =
-    detail?.status === "confirmed" || detail?.status === "partially_shipped";
+  const canOpen = order.status === "open" || order.status === "done";
+  const canPrepareShipment = detail?.status === "open";
   const hasGroundAllocation = detail
     ? hasFullyGroundAllocatedStock(detail)
     : hasFullyGroundAllocatedStock(order);
@@ -323,7 +324,7 @@ export function DeliveryActionCell({
     activePackedShipment == null;
   const canMarkShipped =
     detail != null &&
-    detail.status !== "shipped" &&
+    detail.status === "open" &&
     (activePackedShipment != null ||
       (detail.shippingReadiness.state === "ready" && hasGroundAllocation));
 
@@ -363,7 +364,7 @@ export function DeliveryActionCell({
                 tone="muted"
                 disabled
               />
-              {detail.status === "partially_shipped" ? (
+              {shippedSalesQuantity(detail) > 0 ? (
                 <StateMenuItem
                   label="Partially shipped"
                   tone="warning"

@@ -118,7 +118,8 @@ test.describe("Manufacturing write-path smoke", () => {
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, orderId));
     expect(order.productId).toBe(productId);
-    expect(order.status).toBe("released");
+    expect(order.status).toBe("open");
+    expect(order.releasedAt).not.toBeNull();
     expect(order.priorityRank).not.toBeNull();
     expect(order.requestedQuantity).toBe("5.0000");
     expect(order.plannedQuantity).toBe("5.0000");
@@ -193,7 +194,8 @@ test.describe("Manufacturing write-path smoke", () => {
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, duplicateId));
     expect(duplicate.productId).toBe(productId);
-    expect(duplicate.status).toBe("released");
+    expect(duplicate.status).toBe("open");
+    expect(duplicate.releasedAt).not.toBeNull();
     expect(duplicate.priorityRank).not.toBeNull();
     expect(duplicate.requestedQuantity).toBe("5.0000");
     expect(duplicate.plannedQuantity).toBe("5.0000");
@@ -299,7 +301,7 @@ test.describe("Manufacturing write-path smoke", () => {
       .from(manufacturingOrders)
       .where(
         and(
-          inArray(manufacturingOrders.status, ["draft", "released"]),
+          eq(manufacturingOrders.status, "open"),
           isNull(manufacturingOrders.deletedAt)
         )
       )
@@ -499,7 +501,8 @@ test.describe("Manufacturing write-path smoke", () => {
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, batchOrderId));
     expect(openOrder.productId).toBe(batchProductId);
-    expect(openOrder.status).toBe("released");
+    expect(openOrder.status).toBe("open");
+    expect(openOrder.releasedAt).not.toBeNull();
     expect(openOrder.plannedQuantity).toBe("6.0000");
     expect(openOrder.numberOfBatches).toBe(3);
 
@@ -669,7 +672,7 @@ test.describe("Manufacturing write-path smoke", () => {
         { timeout: 15_000 }
       )
       .toEqual({
-        status: "completed",
+        status: "done",
         actualQuantity: "5.7000",
       });
 

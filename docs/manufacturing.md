@@ -123,6 +123,8 @@ Release behavior differs by manufacturing mode:
 
 Only released, non-deleted manufacturing orders contribute to expected supply projections.
 
+Only released manufacturing orders can be selected as supply in the Sales Allocation tab. Draft manufacturing orders remain editable planning snapshots and must not be treated as allocatable sales supply.
+
 On release, manufacturing now does two inventory-side things through the kernel:
 
 - emits `expected_increase` for the finished-product output side

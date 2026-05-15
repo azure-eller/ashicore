@@ -37,7 +37,7 @@ export const manufacturingOrders = manufacturingSchema
         .references(() => items.id),
       bomRevisionId: uuid("bom_revision_id").references(() => bomRevisions.id),
       salesOrderId: uuid("sales_order_id").references(() => salesOrders.id),
-      // Stored as a plain UUID snapshot reference so draft sales-order edits can
+      // Stored as a plain UUID snapshot reference so sales-order edits can
       // replace line rows without being blocked by FK constraints.
       salesOrderLineId: uuid("sales_order_line_id"),
       productName: varchar("product_name", { length: 255 }).notNull(),
@@ -51,7 +51,7 @@ export const manufacturingOrders = manufacturingSchema
       expectedBatchYield: numeric("expected_batch_yield", { precision: 12, scale: 4 }),
       requestedQuantity: numeric("requested_quantity", { precision: 12, scale: 4 })
         .notNull(),
-      status: varchar("status", { length: 20 }).notNull().default("draft"),
+      status: varchar("status", { length: 20 }).notNull().default("open"),
       priorityRank: integer("priority_rank"),
       plannedQuantity: numeric("planned_quantity", { precision: 12, scale: 4 })
         .notNull(),
@@ -85,7 +85,7 @@ export const manufacturingOrders = manufacturingSchema
       uniqueIndex("manufacturing_orders_active_priority_rank_uidx")
         .on(table.organizationId, table.priorityRank)
         .where(
-          sql`deleted_at IS NULL AND priority_rank IS NOT NULL AND status IN ('draft', 'released')`
+          sql`deleted_at IS NULL AND priority_rank IS NOT NULL AND status = 'open'`
         ),
       index("manufacturing_orders_product_id_idx").on(table.productId),
       index("manufacturing_orders_bom_revision_id_idx").on(table.bomRevisionId),

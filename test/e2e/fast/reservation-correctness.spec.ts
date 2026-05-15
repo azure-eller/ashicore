@@ -16,6 +16,7 @@ import {
   createManufacturingOrder,
   createSalesOrder,
   getUnitId,
+  releaseManufacturingOrder,
   testFetch,
   updateItem,
   updateSalesOrder,
@@ -94,7 +95,7 @@ async function createOpenSalesOrder(params: {
 }) {
   const result = await createSalesOrder({
     customerId: params.customerId,
-    status: "confirmed",
+    status: "open",
     lines: [
       {
         itemId: params.itemId,
@@ -203,7 +204,7 @@ test.describe("Reservation correctness", () => {
 
     const orderResult = await createSalesOrder({
       customerId,
-      status: "confirmed",
+      status: "open",
       lines: [{ itemId, quantity: "10", unitPrice: "9.00" }],
       confirmOversell: false,
     });
@@ -214,7 +215,7 @@ test.describe("Reservation correctness", () => {
       .select({ status: salesOrders.status })
       .from(salesOrders)
       .where(eq(salesOrders.id, orderId));
-    expect(order.status).toBe("confirmed");
+    expect(order.status).toBe("open");
 
     const balance = await getItemBalance(db, itemId);
     expect(balance.committedQty).toBe("4.0000");
@@ -262,7 +263,7 @@ test.describe("Reservation correctness", () => {
 
     const confirmedEdit = await updateSalesOrder(orderId, {
       customerId,
-      status: "confirmed",
+      status: "open",
       shipDate: "2026-04-15",
       lines: [{ itemId, quantity: "7", unitPrice: "9.00" }],
       confirmOversell: false,
@@ -309,7 +310,7 @@ test.describe("Reservation correctness", () => {
 
     const blockedOrder = await createSalesOrder({
       customerId,
-      status: "confirmed",
+      status: "open",
       lines: [{ itemId: blockedItemId, quantity: "5", unitPrice: "9.00" }],
       confirmOversell: false,
     });
@@ -354,7 +355,7 @@ test.describe("Reservation correctness", () => {
     expect(blockedBalance.availableToPromise).toBe("-4.0000");
   });
 
-  test("manufacturing release records raw-material shortage without over-reserving", async ({
+  test("manufacturing release records raw-material demand without hard-reserving", async ({
     db,
   }) => {
     const materialId = await createMaterial(uniqueName("MO constrained material"), "3");
@@ -370,13 +371,17 @@ test.describe("Reservation correctness", () => {
     });
     expect(released.status).toBe(201);
     const orderId = released.body.id as string;
+    const release = await releaseManufacturingOrder(orderId, {
+      confirmShortage: true,
+    });
+    expect(release.status).toBe(200);
 
     const balance = await getItemBalance(db, materialId);
-    expect(balance.committedQty).toBe("3.0000");
+    expect(balance.committedQty).toBe("0.0000");
     expect(balance.demandQty).toBe("6.0000");
-    expect(balance.shortageQty).toBe("3.0000");
+    expect(balance.shortageQty).toBe("6.0000");
     expect(balance.availableToPromise).toBe("-3.0000");
-    expect(await getReservationTotal(db, materialId)).toBe("3.0000");
+    expect(await getReservationTotal(db, materialId)).toBe("0");
     expect(await getDemandTotal(db, materialId)).toBe("6.0000");
 
     const [ingredient] = await db
@@ -391,7 +396,7 @@ test.describe("Reservation correctness", () => {
     expect(ingredient.id).toBeTruthy();
   });
 
-  test("manufacturing lot-age warnings account for existing reservations", async ({
+  test("manufacturing lot-age release succeeds when eligible stock remains", async ({
     db,
   }) => {
     const materialName = uniqueName("Age reserved material");
@@ -429,7 +434,7 @@ test.describe("Reservation correctness", () => {
     const customerId = await createCustomerFixture(uniqueName("Age reserved customer"));
     const reservationOrder = await createSalesOrder({
       customerId,
-      status: "confirmed",
+      status: "open",
       lines: [{ itemId: materialId, quantity: "4", unitPrice: "9" }],
     });
     expect(reservationOrder.status).toBe(201);
@@ -440,19 +445,14 @@ test.describe("Reservation correctness", () => {
       "1",
       7
     );
-    const warning = await createManufacturingOrder({
+    const order = await createManufacturingOrder({
       productId,
       plannedQuantity: "5",
       ingredients: [{ itemId: materialId, quantityPerUnit: "1" }],
     });
-    expect(warning.status).toBe(409);
-    expect(warning.body.shortage.ingredients[0]).toMatchObject({
-      itemId: materialId,
-      needed: 5,
-      available: 1,
-      shortage: 4,
-      warningType: "requirement_violation",
-    });
+    expect(order.status).toBe(201);
+    const release = await releaseManufacturingOrder(order.body.id as string);
+    expect(release.status).toBe(200);
   });
 
   test("concurrent sales confirmations cannot reserve the same stock twice", async ({
@@ -525,7 +525,7 @@ test.describe("Reservation correctness", () => {
     await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
 
     await expect(
-      page.locator("main").getByText("Confirmed", { exact: true }).first()
+      page.locator("main").getByText("Open", { exact: true }).first()
     ).toBeVisible({ timeout: 15000 });
 
     const balance = await getItemBalance(db, itemId);
