@@ -511,7 +511,7 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
               <div
                 key={member.id}
                 data-email={member.email}
-                className="group flex items-center justify-between gap-4 px-6 py-4"
+                className="group grid grid-cols-[minmax(0,1fr)_minmax(8rem,auto)_2rem] items-center gap-4 px-6 py-4"
               >
                 <div className="min-w-0 flex-1">
                   <div className="font-medium text-foreground">
@@ -525,28 +525,28 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
                   </div>
                 </div>
 
-                <div className="flex shrink-0 items-center gap-2">
-                  <div className="flex flex-wrap justify-end gap-2">
-                    {member.presetKey ? <AccessPresetBadge presetKey={member.presetKey} /> : null}
-                    {member.role === "owner" ? (
-                      <TeamRoleBadge role={member.role} />
-                    ) : null}
-                  </div>
-
-                  {manageable ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      disabled={mutationPending}
-                      onClick={() => setCustomizingMember(member)}
-                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-                      aria-label={`Edit ${member.name}`}
-                    >
-                      <HugeiconsIcon icon={PencilEdit02Icon} />
-                    </Button>
+                <div className="flex flex-wrap justify-end gap-2">
+                  {member.presetKey ? <AccessPresetBadge presetKey={member.presetKey} /> : null}
+                  {member.role === "owner" ? (
+                    <TeamRoleBadge role={member.role} />
                   ) : null}
                 </div>
+
+                {manageable ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    disabled={mutationPending}
+                    onClick={() => setCustomizingMember(member)}
+                    className="justify-self-end bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-transparent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                    aria-label={`Edit ${member.name}`}
+                  >
+                    <HugeiconsIcon icon={PencilEdit02Icon} />
+                  </Button>
+                ) : (
+                  <span aria-hidden="true" className="h-8 w-8" />
+                )}
               </div>
             );
           })}
