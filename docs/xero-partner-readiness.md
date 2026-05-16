@@ -42,6 +42,11 @@ Rollout:
 - **Support/listing docs** — setup guide, disconnect guide, data-flow diagram, field mapping, FAQ, privacy/support links, pricing/plan details, and marketplace copy/assets.
 - **Customer validation evidence** — collect if requested during partner review.
 
+## Audit events
+
+Immutable Xero/accounting events live in `integrations.audit_events`; schema,
+retention, and redaction rules are documented in `docs/xero-security-evidence.md`.
+
 ## OAuth callback behavior
 
 OAuth callback endpoints that receive auth code/state must validate, persist,

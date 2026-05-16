@@ -24,6 +24,10 @@ import {
   getAccountingConnector,
   isAccountingProvider,
 } from "@/lib/accounting/providers";
+import {
+  accountingAuditErrorMetadata,
+  tryRecordAccountingAuditEvent,
+} from "@/lib/accounting/audit-events";
 import { cleanString } from "@/lib/accounting/providers/common";
 import type {
   ExternalPurchaseOrderDocument,
@@ -641,11 +645,39 @@ export async function autoSyncAccountingPurchaseOrders() {
         { auto: true, provider }
       );
       results.push({ orgId, provider, result });
+      await tryRecordAccountingAuditEvent({
+        organizationId: orgId,
+        actor: { type: "process", processName: "accounting_purchase_order_sync" },
+        eventType: "accounting_auto_sync",
+        outcome: "success",
+        source: "GET /api/internal/accounting-purchase-order-sync",
+        provider,
+        localEntityType: "purchase_orders",
+        localEntityId: result.runId,
+        metadata: {
+          fetched: providerData.purchaseOrders.length,
+          created: result.created,
+          updated: result.updated,
+          skipped: result.skipped,
+          protected: result.protected,
+          errorCount: result.errors.length,
+        },
+      });
     } catch (error) {
       results.push({
         orgId,
         provider,
         error: getAccountingConnector(provider).extractErrorMessage(error),
+      });
+      await tryRecordAccountingAuditEvent({
+        organizationId: orgId,
+        actor: { type: "process", processName: "accounting_purchase_order_sync" },
+        eventType: "accounting_auto_sync",
+        outcome: "failure",
+        source: "GET /api/internal/accounting-purchase-order-sync",
+        provider,
+        localEntityType: "purchase_orders",
+        metadata: accountingAuditErrorMetadata(error),
       });
     }
   }

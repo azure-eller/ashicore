@@ -6,6 +6,10 @@ import {
   extractXeroMessage,
   redactXeroError,
 } from "./errors";
+import {
+  accountingAuditErrorMetadata,
+  tryRecordAccountingAuditEvent,
+} from "@/lib/accounting/audit-events";
 
 export type XeroConnectionHealth = {
   state:
@@ -47,6 +51,14 @@ export async function probeXeroConnectionHealth(
         return { state: "needs_reauthorization", message: error.message };
       }
       if (error.status === 403) {
+        await tryRecordAccountingAuditEvent({
+          organizationId: orgId,
+          actor: { type: "process", processName: "xero_health_probe" },
+          eventType: "xero_missing_scope",
+          outcome: "failure",
+          source: "lib/xero/health:probeXeroConnectionHealth",
+          metadata: accountingAuditErrorMetadata(error),
+        });
         return { state: "missing_scope", message: error.message };
       }
       if (error.status === 503) {
@@ -65,6 +77,14 @@ export async function probeXeroConnectionHealth(
       };
     }
     if (status === 403) {
+      await tryRecordAccountingAuditEvent({
+        organizationId: orgId,
+        actor: { type: "process", processName: "xero_health_probe" },
+        eventType: "xero_missing_scope",
+        outcome: "failure",
+        source: "lib/xero/health:probeXeroConnectionHealth",
+        metadata: accountingAuditErrorMetadata(error),
+      });
       return {
         state: "missing_scope",
         message:

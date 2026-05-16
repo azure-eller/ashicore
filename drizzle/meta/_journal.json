@@ -715,6 +715,13 @@
       "when": 1778969936373,
       "tag": "0101_xero_signup_intents",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1778973234020,
+      "tag": "0102_immutable_accounting_audit_events",
+      "breakpoints": true
     }
   ]
 }

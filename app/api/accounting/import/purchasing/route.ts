@@ -4,6 +4,10 @@ import { apiHandler } from "@/lib/api/handler";
 import { assertModuleWriteAccess, getAuthedMemberContext } from "@/lib/dal/auth";
 import { applyXeroPurchasingSync } from "@/lib/xero/import-purchasing";
 import { XeroError } from "@/lib/xero/errors";
+import {
+  accountingAuditErrorMetadata,
+  tryRecordAccountingAuditEvent,
+} from "@/lib/accounting/audit-events";
 
 const bodySchema = z.object({
   candidateIds: z.array(z.string().min(1)).min(1),
@@ -19,9 +23,42 @@ export const POST = apiHandler(async (request: Request) => {
     const result = await applyXeroPurchasingSync(context.orgId, body.candidateIds, {
       allowDemoCompany: body.allowDemoCompany ?? false,
     });
+    await tryRecordAccountingAuditEvent({
+      organizationId: context.orgId,
+      actor: { type: "user", userId: context.userId },
+      eventType: "accounting_import",
+      outcome: "success",
+      source: "POST /api/accounting/import/purchasing",
+      localEntityType: "purchasing",
+      localEntityId: result.runId,
+      metadata: {
+        entityType: "purchasing",
+        selectedCount: body.candidateIds.length,
+        created: result.created,
+        updated: result.updated,
+        skipped: result.skipped,
+        errorCount: result.errors.length,
+        createdSuppliers: result.createdSuppliers,
+        createdItems: result.createdItems,
+      },
+    });
     return NextResponse.json(result);
   } catch (error) {
-    if (error instanceof XeroError) return error.toResponse();
+    if (error instanceof XeroError) {
+      await tryRecordAccountingAuditEvent({
+        organizationId: context.orgId,
+        actor: { type: "user", userId: context.userId },
+        eventType: "accounting_import",
+        outcome: "failure",
+        source: "POST /api/accounting/import/purchasing",
+        localEntityType: "purchasing",
+        metadata: {
+          selectedCount: body.candidateIds.length,
+          ...accountingAuditErrorMetadata(error),
+        },
+      });
+      return error.toResponse();
+    }
     throw error;
   }
 });

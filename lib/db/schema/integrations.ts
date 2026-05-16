@@ -241,3 +241,56 @@ export const integrationImportRunRows = integrationsSchema
     ]
   )
   .enableRLS();
+
+export type IntegrationAuditActorType = "user" | "process";
+export type IntegrationAuditOutcome = "success" | "failure";
+
+export const integrationAuditEvents = integrationsSchema
+  .table(
+    "audit_events",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      occurredAt: timestamp("occurred_at", { withTimezone: true })
+        .notNull()
+        .defaultNow(),
+      actorType: varchar("actor_type", { length: 20 })
+        .$type<IntegrationAuditActorType>()
+        .notNull(),
+      actorUserId: text("actor_user_id"),
+      processName: varchar("process_name", { length: 100 }),
+      eventType: varchar("event_type", { length: 100 }).notNull(),
+      outcome: varchar("outcome", { length: 20 })
+        .$type<IntegrationAuditOutcome>()
+        .notNull(),
+      source: varchar("source", { length: 200 }).notNull(),
+      provider: varchar("provider", { length: 50 }).notNull(),
+      tenantId: text("tenant_id"),
+      tenantName: text("tenant_name"),
+      localEntityType: varchar("local_entity_type", { length: 100 }),
+      localEntityId: uuid("local_entity_id"),
+      metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      index("integration_audit_events_org_occurred_idx").on(
+        table.organizationId,
+        table.occurredAt
+      ),
+      index("integration_audit_events_org_provider_idx").on(
+        table.organizationId,
+        table.provider,
+        table.eventType
+      ),
+      index("integration_audit_events_org_entity_idx")
+        .on(table.organizationId, table.localEntityType, table.localEntityId)
+        .where(sql`local_entity_id IS NOT NULL`),
+      pgPolicy("integration_audit_events_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();

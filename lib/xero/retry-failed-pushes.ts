@@ -16,6 +16,7 @@ import {
 import { db } from "@/lib/db";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { XeroError } from "./errors";
+import { tryRecordAccountingAuditEvent } from "@/lib/accounting/audit-events";
 
 /**
  * Cap on attempts per failed row. After this many attempts the cron
@@ -339,6 +340,19 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
       }
     }
 
+    await tryRecordAccountingAuditEvent({
+      organizationId: orgId,
+      actor: { type: "process", processName: "xero_retry_cron" },
+      eventType: "xero_retry",
+      outcome: orgResult.errors.length > 0 ? "failure" : "success",
+      source: "GET /api/internal/xero-retry",
+      metadata: {
+        salesOrders: orgResult.salesOrders,
+        salesShipments: orgResult.salesShipments,
+        purchaseOrders: orgResult.purchaseOrders,
+        errorCount: orgResult.errors.length,
+      },
+    });
     results.push(orgResult);
   }
 

@@ -8,6 +8,10 @@ import {
   type ContactImportEntity,
 } from "@/lib/xero/import-contacts";
 import { XeroError } from "@/lib/xero/errors";
+import {
+  accountingAuditErrorMetadata,
+  tryRecordAccountingAuditEvent,
+} from "@/lib/accounting/audit-events";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -36,9 +40,36 @@ export const POST = apiHandler(
       const entityType = await getXeroImportRunEntityType(memberContext.orgId, id);
       assertImportResetAccess(memberContext.assignedRoles, entityType);
       const result = await undoXeroImportRun(memberContext.orgId, id);
+      await tryRecordAccountingAuditEvent({
+        organizationId: memberContext.orgId,
+        actor: { type: "user", userId: memberContext.userId },
+        eventType: "accounting_import_undo",
+        outcome: "success",
+        source: "POST /api/accounting/import-runs/[id]/undo",
+        localEntityType: entityType,
+        localEntityId: id,
+        metadata: {
+          entityType,
+          undoneCreatedRows: result.undoneCreatedRows,
+          restoredUpdatedRows: result.restoredUpdatedRows,
+          blockedRows: result.blockedRows,
+        },
+      });
       return NextResponse.json(result);
     } catch (error) {
-      if (error instanceof XeroError) return error.toResponse();
+      if (error instanceof XeroError) {
+        await tryRecordAccountingAuditEvent({
+          organizationId: memberContext.orgId,
+          actor: { type: "user", userId: memberContext.userId },
+          eventType: "accounting_import_undo",
+          outcome: "failure",
+          source: "POST /api/accounting/import-runs/[id]/undo",
+          localEntityType: "import_run",
+          localEntityId: id,
+          metadata: accountingAuditErrorMetadata(error),
+        });
+        return error.toResponse();
+      }
       throw error;
     }
   }

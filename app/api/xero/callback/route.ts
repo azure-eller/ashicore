@@ -6,6 +6,10 @@ import { integrationConnections } from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { captureAppError } from "@/lib/observability/sentry";
 import {
+  accountingAuditErrorMetadata,
+  tryRecordAccountingAuditEvent,
+} from "@/lib/accounting/audit-events";
+import {
   createXeroClient,
   createXeroSignupClient,
   tokenSetToPersistable,
@@ -55,6 +59,24 @@ function readCookie(request: Request, name: string) {
 function getTokenSetClaims(tokenSet: unknown): XeroIdentityClaims {
   const claims = (tokenSet as { claims?: () => unknown })?.claims?.();
   return claims && typeof claims === "object" ? (claims as XeroIdentityClaims) : {};
+}
+
+async function tryRecordConnectCallbackFailure(
+  metadata: Record<string, unknown>
+) {
+  try {
+    const context = await getAuthedMemberContext();
+    await tryRecordAccountingAuditEvent({
+      organizationId: context.orgId,
+      actor: { type: "user", userId: context.userId },
+      eventType: "xero_connect_callback",
+      outcome: "failure",
+      source: "GET /api/xero/callback",
+      metadata,
+    });
+  } catch {
+    // Signup callbacks and unauthenticated callback failures do not have an org.
+  }
 }
 
 async function handleConnectCallback(request: Request, cookieState: string) {
@@ -114,6 +136,19 @@ async function handleConnectCallback(request: Request, cookieState: string) {
     refreshToken: persistable.refreshToken,
     expiresAt: persistable.expiresAt,
     authorizedTenants,
+  });
+  await tryRecordAccountingAuditEvent({
+    organizationId: context.orgId,
+    actor: { type: "user", userId: context.userId },
+    eventType: "xero_connect_callback",
+    outcome: "success",
+    source: "GET /api/xero/callback",
+    tenantId: primary.tenantId,
+    tenantName: primary.tenantName,
+    metadata: {
+      authorizedTenantCount: authorizedTenants.length,
+      preservedTenant: existing?.tenantId === primary.tenantId,
+    },
   });
 
   const response = settingsRedirect(request.url);
@@ -198,6 +233,15 @@ export const GET = apiHandler(async (request: Request) => {
       hasSignupCookieState: Boolean(signupCookieState),
       host: url.host,
     });
+    if (connectCookieState) {
+      await tryRecordConnectCallbackFailure({
+        reason: "state_mismatch",
+        hasState: Boolean(state),
+        hasConnectCookieState: Boolean(connectCookieState),
+        hasSignupCookieState: Boolean(signupCookieState),
+        host: url.host,
+      });
+    }
     return signupCookieState
       ? xeroSignupErrorRedirect(request.url, "state_mismatch")
       : settingsRedirect(request.url, "state_mismatch");
@@ -205,6 +249,12 @@ export const GET = apiHandler(async (request: Request) => {
 
   const errorParam = url.searchParams.get("error");
   if (errorParam) {
+    if (isConnectCallback) {
+      await tryRecordConnectCallbackFailure({
+        reason: "xero_error_callback",
+        error: errorParam,
+      });
+    }
     return isSignupCallback
       ? xeroSignupErrorRedirect(request.url, errorParam)
       : settingsRedirect(request.url, errorParam);
@@ -237,6 +287,11 @@ export const GET = apiHandler(async (request: Request) => {
           ?.statusCode ??
         (error as { statusCode?: number })?.statusCode,
     });
+    if (!isSignupCallback) {
+      await tryRecordConnectCallbackFailure(
+        accountingAuditErrorMetadata(error)
+      );
+    }
     return isSignupCallback
       ? xeroSignupErrorRedirect(request.url, "callback_failed")
       : settingsRedirect(request.url, "callback_failed");

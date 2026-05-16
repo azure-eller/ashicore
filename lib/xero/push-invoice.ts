@@ -30,6 +30,10 @@ import {
   persistAccountingDocumentPushFailure,
   persistAccountingDocumentPushSuccess,
 } from "@/lib/accounting/sync-state";
+import {
+  accountingAuditErrorMetadata,
+  tryRecordAccountingAuditEvent,
+} from "@/lib/accounting/audit-events";
 
 const ACCOUNTING_DOCUMENT_SALES_ORDER = "sales_order";
 const ACCOUNTING_DOCUMENT_SALES_SHIPMENT = "sales_shipment";
@@ -572,6 +576,7 @@ async function sendInvoiceEmail(
     customerEmail: string;
     lines: LineForPush[];
     tenantId: string;
+    localEntityType?: typeof ACCOUNTING_DOCUMENT_SALES_ORDER | typeof ACCOUNTING_DOCUMENT_SALES_SHIPMENT;
     accountingApi: import("xero-node").AccountingApi;
   }
 ): Promise<void> {
@@ -636,6 +641,17 @@ async function sendInvoiceEmail(
       persistEmailOutcome(params.orgId, params.orderId, outcome)))({
       status: "sent",
     });
+    await tryRecordAccountingAuditEvent({
+      organizationId: params.orgId,
+      actor: { type: "process", processName: "xero_email" },
+      eventType: "xero_email",
+      outcome: "success",
+      source: "lib/xero/push-invoice:sendInvoiceEmail",
+      tenantId: params.tenantId,
+      localEntityType: params.localEntityType ?? ACCOUNTING_DOCUMENT_SALES_ORDER,
+      localEntityId: params.orderId,
+      metadata: { status: "sent" },
+    });
   } catch (error) {
     const message = extractXeroMessage(error).slice(0, 500);
     console.error("Invoice email failed:", redactXeroError(error));
@@ -643,6 +659,17 @@ async function sendInvoiceEmail(
       persistEmailOutcome(params.orgId, params.orderId, outcome)))({
       status: "failed",
       error: message,
+    });
+    await tryRecordAccountingAuditEvent({
+      organizationId: params.orgId,
+      actor: { type: "process", processName: "xero_email" },
+      eventType: "xero_email",
+      outcome: "failure",
+      source: "lib/xero/push-invoice:sendInvoiceEmail",
+      tenantId: params.tenantId,
+      localEntityType: params.localEntityType ?? ACCOUNTING_DOCUMENT_SALES_ORDER,
+      localEntityId: params.orderId,
+      metadata: accountingAuditErrorMetadata(error),
     });
     throw new XeroError(
       `Failed to email invoice: ${message}`,
@@ -863,6 +890,7 @@ export async function pushSalesOrderToXero(
           customerEmail: data.customer.email ?? "",
           lines: data.lines,
           tenantId: authed.tenantId,
+          localEntityType: ACCOUNTING_DOCUMENT_SALES_SHIPMENT,
           accountingApi,
         });
         emailStatus = "sent";
@@ -874,6 +902,19 @@ export async function pushSalesOrderToXero(
       emailStatus = "skipped";
     }
   }
+
+  await tryRecordAccountingAuditEvent({
+    organizationId: orgId,
+    actor: { type: "process", processName: "xero_push" },
+    eventType: "xero_push",
+    outcome: "success",
+    source: "lib/xero/push-invoice:pushSalesOrderToXero",
+    tenantId: authed.tenantId,
+    tenantName: authed.tenantName,
+    localEntityType: ACCOUNTING_DOCUMENT_SALES_ORDER,
+    localEntityId: orderId,
+    metadata: { created, adopted, emailStatus },
+  });
 
   return {
     xeroInvoiceId: invoiceId,
@@ -1052,6 +1093,19 @@ export async function pushSalesShipmentToXero(
     }
   }
 
+  await tryRecordAccountingAuditEvent({
+    organizationId: orgId,
+    actor: { type: "process", processName: "xero_push" },
+    eventType: "xero_push",
+    outcome: "success",
+    source: "lib/xero/push-invoice:pushSalesShipmentToXero",
+    tenantId: authed.tenantId,
+    tenantName: authed.tenantName,
+    localEntityType: ACCOUNTING_DOCUMENT_SALES_SHIPMENT,
+    localEntityId: shipmentId,
+    metadata: { created, adopted, emailStatus, orderId },
+  });
+
   return {
     xeroInvoiceId: invoiceId,
     xeroInvoiceNumber: invoiceNumber,
@@ -1076,6 +1130,16 @@ export async function markShipmentXeroPushFailed(
       documentId: shipmentId,
       error: message,
     });
+  });
+  await tryRecordAccountingAuditEvent({
+    organizationId: orgId,
+    actor: { type: "process", processName: "xero_push" },
+    eventType: "xero_push",
+    outcome: "failure",
+    source: "lib/xero/push-invoice:markShipmentXeroPushFailed",
+    localEntityType: ACCOUNTING_DOCUMENT_SALES_SHIPMENT,
+    localEntityId: shipmentId,
+    metadata: accountingAuditErrorMetadata(error),
   });
 }
 
@@ -1142,6 +1206,16 @@ export async function markXeroPushFailed(
       error: message,
     });
   });
+  await tryRecordAccountingAuditEvent({
+    organizationId: orgId,
+    actor: { type: "process", processName: "xero_push" },
+    eventType: "xero_push",
+    outcome: "failure",
+    source: "lib/xero/push-invoice:markXeroPushFailed",
+    localEntityType: ACCOUNTING_DOCUMENT_SALES_ORDER,
+    localEntityId: orderId,
+    metadata: accountingAuditErrorMetadata(error),
+  });
 }
 
 /**
@@ -1195,6 +1269,19 @@ export async function emailSalesInvoiceForOrder(
     lines: data.lines,
     tenantId: authed.tenantId,
     accountingApi: authed.client.accountingApi,
+  });
+
+  await tryRecordAccountingAuditEvent({
+    organizationId: orgId,
+    actor: { type: "process", processName: "xero_email" },
+    eventType: "xero_email",
+    outcome: "success",
+    source: "lib/xero/push-invoice:emailSalesInvoiceForOrder",
+    tenantId: authed.tenantId,
+    tenantName: authed.tenantName,
+    localEntityType: ACCOUNTING_DOCUMENT_SALES_ORDER,
+    localEntityId: orderId,
+    metadata: { status: "sent" },
   });
 
   return { status: "sent" };

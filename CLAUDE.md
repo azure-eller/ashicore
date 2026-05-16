@@ -541,6 +541,10 @@ Official supplier-facing POs are accounting-provider-first. Import open provider
 
 Connector workflows use `/api/accounting/*` plus `lib/accounting/providers/*`; provider-specific OAuth/API mapping stays inside the adapter.
 
+### Accounting audit events
+
+Xero/accounting integration actions must write append-only `integrations.audit_events` rows through `lib/accounting/audit-events.ts`. Store only allowlisted/redacted metadata — never OAuth codes, tokens, cookies, raw request bodies, passwords, customer notes, or comments.
+
 ### Playwright email outbox
 
 Playwright email assertions must force outbox mode with the runtime flag file, not only process env. The dev server may inherit repo-root Resend vars before tests start.

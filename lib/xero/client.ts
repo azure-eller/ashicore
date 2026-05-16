@@ -10,6 +10,10 @@ import {
   encryptXeroToken,
   getXeroTokenEncryptionKeyId,
 } from "./token-crypto";
+import {
+  accountingAuditErrorMetadata,
+  tryRecordAccountingAuditEvent,
+} from "@/lib/accounting/audit-events";
 
 const REQUIRED_SCOPES = [
   "accounting.contacts",
@@ -229,6 +233,19 @@ export async function getAuthedXeroClient(orgId: string): Promise<{
           status:
             (error as { response?: { statusCode?: number } })?.response
               ?.statusCode ?? (error as { statusCode?: number })?.statusCode,
+        });
+        await tryRecordAccountingAuditEvent({
+          organizationId: orgId,
+          actor: { type: "process", processName: "xero_token_refresh" },
+          eventType: "xero_token_refresh",
+          outcome: "failure",
+          source: "lib/xero/client:getAuthedXeroClient",
+          tenantId: existing.tenantId,
+          tenantName: existing.tenantName,
+          metadata: {
+            permanent: isPermanentRefreshFailure(error),
+            ...accountingAuditErrorMetadata(error),
+          },
         });
 
         if (isPermanentRefreshFailure(error)) {

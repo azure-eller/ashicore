@@ -4,6 +4,10 @@ import { apiHandler } from "@/lib/api/handler";
 import { assertModuleWriteAccess, getAuthedMemberContext } from "@/lib/dal/auth";
 import { importCustomersFromXero } from "@/lib/xero/import-contacts";
 import { XeroError } from "@/lib/xero/errors";
+import {
+  accountingAuditErrorMetadata,
+  tryRecordAccountingAuditEvent,
+} from "@/lib/accounting/audit-events";
 
 const bodySchema = z
   .object({
@@ -20,9 +24,36 @@ export const POST = apiHandler(async (request: Request) => {
     const result = await importCustomersFromXero(context.orgId, {
       allowDemoCompany: body?.allowDemoCompany ?? false,
     });
+    await tryRecordAccountingAuditEvent({
+      organizationId: context.orgId,
+      actor: { type: "user", userId: context.userId },
+      eventType: "accounting_import",
+      outcome: "success",
+      source: "POST /api/accounting/import/customers",
+      localEntityType: "customers",
+      localEntityId: result.runId,
+      metadata: {
+        entityType: "customers",
+        created: result.created,
+        updated: result.updated,
+        skipped: result.skipped,
+        errorCount: result.errors.length,
+      },
+    });
     return NextResponse.json(result);
   } catch (error) {
-    if (error instanceof XeroError) return error.toResponse();
+    if (error instanceof XeroError) {
+      await tryRecordAccountingAuditEvent({
+        organizationId: context.orgId,
+        actor: { type: "user", userId: context.userId },
+        eventType: "accounting_import",
+        outcome: "failure",
+        source: "POST /api/accounting/import/customers",
+        localEntityType: "customers",
+        metadata: accountingAuditErrorMetadata(error),
+      });
+      return error.toResponse();
+    }
     throw error;
   }
 });

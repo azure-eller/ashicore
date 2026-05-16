@@ -31,6 +31,10 @@ import {
   persistAttachmentSyncFailure,
   persistAttachmentSyncSuccess,
 } from "@/lib/accounting/sync-state";
+import {
+  accountingAuditErrorMetadata,
+  tryRecordAccountingAuditEvent,
+} from "@/lib/accounting/audit-events";
 import { buildAccountingDocumentEmail } from "@/lib/email/accounting-documents";
 import { sendTransactionalEmail } from "@/lib/email/send";
 import { getAuthedXeroClient } from "./client";
@@ -578,12 +582,34 @@ async function sendPurchaseOrderPdfEmail(params: {
     await persistPurchaseOrderEmailOutcome(params.orgId, params.orderId, {
       status: "sent",
     });
+    await tryRecordAccountingAuditEvent({
+      organizationId: params.orgId,
+      actor: { type: "process", processName: "xero_email" },
+      eventType: "xero_email",
+      outcome: "success",
+      source: "lib/xero/push-purchase-order:sendPurchaseOrderPdfEmail",
+      tenantId: params.tenantId,
+      localEntityType: ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+      localEntityId: params.orderId,
+      metadata: { status: "sent" },
+    });
   } catch (error) {
     const message = extractXeroMessage(error).slice(0, 500);
     console.error("Xero purchase order email failed:", redactXeroError(error));
     await persistPurchaseOrderEmailOutcome(params.orgId, params.orderId, {
       status: "failed",
       error: message,
+    });
+    await tryRecordAccountingAuditEvent({
+      organizationId: params.orgId,
+      actor: { type: "process", processName: "xero_email" },
+      eventType: "xero_email",
+      outcome: "failure",
+      source: "lib/xero/push-purchase-order:sendPurchaseOrderPdfEmail",
+      tenantId: params.tenantId,
+      localEntityType: ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+      localEntityId: params.orderId,
+      metadata: accountingAuditErrorMetadata(error),
     });
     throw new XeroError(`Failed to email purchase order: ${message}`, 502);
   }
@@ -872,6 +898,19 @@ export async function pushPurchaseOrderToXero(
     }
   }
 
+  await tryRecordAccountingAuditEvent({
+    organizationId: orgId,
+    actor: { type: "process", processName: "xero_push" },
+    eventType: "xero_push",
+    outcome: "success",
+    source: "lib/xero/push-purchase-order:pushPurchaseOrderToXero",
+    tenantId: authed.tenantId,
+    tenantName: authed.tenantName,
+    localEntityType: ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+    localEntityId: orderId,
+    metadata: { created, adopted, emailStatus },
+  });
+
   return {
     xeroPurchaseOrderId: purchaseOrderId,
     xeroPurchaseOrderNumber: purchaseOrderNumber,
@@ -927,6 +966,19 @@ export async function emailPurchaseOrderForOrder(
     accountingApi: authed.client.accountingApi,
   });
 
+  await tryRecordAccountingAuditEvent({
+    organizationId: orgId,
+    actor: { type: "process", processName: "xero_email" },
+    eventType: "xero_email",
+    outcome: "success",
+    source: "lib/xero/push-purchase-order:emailPurchaseOrderForOrder",
+    tenantId: authed.tenantId,
+    tenantName: authed.tenantName,
+    localEntityType: ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+    localEntityId: orderId,
+    metadata: { status: "sent" },
+  });
+
   return { status: "sent" };
 }
 
@@ -948,5 +1000,15 @@ export async function markXeroPurchaseOrderPushFailed(
       documentId: orderId,
       error: message,
     });
+  });
+  await tryRecordAccountingAuditEvent({
+    organizationId: orgId,
+    actor: { type: "process", processName: "xero_push" },
+    eventType: "xero_push",
+    outcome: "failure",
+    source: "lib/xero/push-purchase-order:markXeroPurchaseOrderPushFailed",
+    localEntityType: ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+    localEntityId: orderId,
+    metadata: accountingAuditErrorMetadata(error),
   });
 }

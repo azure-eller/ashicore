@@ -3,6 +3,7 @@ import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updateXeroSettings } from "@/lib/dal/xero";
+import { tryRecordAccountingAuditEvent } from "@/lib/accounting/audit-events";
 
 const updateSchema = z.object({
   tenantId: z.string().trim().nullable().optional(),
@@ -20,7 +21,7 @@ const updateSchema = z.object({
 });
 
 export const PUT = apiHandler(async (request: Request) => {
-  await assertModuleWriteAccess("sales", request.headers);
+  const context = await assertModuleWriteAccess("sales", request.headers);
   const body = await request.json();
   const data = updateSchema.parse(body);
 
@@ -46,6 +47,14 @@ export const PUT = apiHandler(async (request: Request) => {
   });
 
   if (!result) {
+    await tryRecordAccountingAuditEvent({
+      organizationId: context.orgId,
+      actor: { type: "user", userId: context.userId },
+      eventType: "xero_settings_update",
+      outcome: "failure",
+      source: "PUT /api/xero/settings",
+      metadata: { reason: "not_connected" },
+    });
     return NextResponse.json(
       { error: "Xero is not connected." },
       { status: 409 }
@@ -53,6 +62,14 @@ export const PUT = apiHandler(async (request: Request) => {
   }
 
   if (!result.ok) {
+    await tryRecordAccountingAuditEvent({
+      organizationId: context.orgId,
+      actor: { type: "user", userId: context.userId },
+      eventType: "xero_settings_update",
+      outcome: "failure",
+      source: "PUT /api/xero/settings",
+      metadata: { reason: "unauthorized_tenant" },
+    });
     return NextResponse.json(
       {
         error:
@@ -62,5 +79,25 @@ export const PUT = apiHandler(async (request: Request) => {
     );
   }
 
+  await tryRecordAccountingAuditEvent({
+    organizationId: context.orgId,
+    actor: { type: "user", userId: context.userId },
+    eventType: "xero_settings_update",
+    outcome: "success",
+    source: "PUT /api/xero/settings",
+    tenantId: result.summary?.tenantId,
+    tenantName: result.summary?.tenantName,
+    metadata: {
+      invoiceStatusPreference: data.invoiceStatusPreference,
+      purchaseOrderStatusPreference: data.purchaseOrderStatusPreference,
+      autoPushSalesInvoices: data.autoPushSalesInvoices,
+      autoPushPurchaseOrders: data.autoPushPurchaseOrders,
+      autoSyncPurchaseOrdersFromAccounting:
+        data.autoSyncPurchaseOrdersFromAccounting,
+      autoEmailSalesInvoices: data.autoEmailSalesInvoices,
+      autoEmailPurchaseOrders: data.autoEmailPurchaseOrders,
+      changedTenant: Boolean(data.tenantId),
+    },
+  });
   return NextResponse.json(result.summary);
 });
