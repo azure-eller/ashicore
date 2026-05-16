@@ -372,6 +372,13 @@ export const createManufacturingOrdersFromSalesOrderSchema = z.object({
       })
     )
     .optional(),
+  groupRemainderChoices: z
+    .array(
+      groupRemainderChoiceSchema.extend({
+        salesOrderLineId: z.string().uuid("Sales order line is required"),
+      })
+    )
+    .default([]),
   notes: nullableString,
 });
 export type CreateManufacturingOrdersFromSalesOrder = z.infer<

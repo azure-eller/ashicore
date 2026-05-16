@@ -13,6 +13,7 @@ import {
   customerProjects,
   integrationConnections,
   lots,
+  manufacturingOrderIngredients,
   manufacturingOrders,
   purchaseOrderLines,
   stockAllocations,
@@ -2439,6 +2440,187 @@ test.describe("Sales write-path smoke", () => {
     expect(pricingResponse.status).toBe(200);
     const pricing = await pricingResponse.json();
     expect(pricing.estimatedUnitCost).toBe("5");
+  });
+
+  test("creates sales-linked MOs with explicit group remainder choices", async ({
+    db,
+  }) => {
+    const suffix = `${ts}-SALES-GROUP-MO`;
+    const materialResult = await createItem({
+      name: `Fast Sales Group Soil ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FSGM-SOIL-${suffix}`,
+      category: `Fast Sales Group MO ${suffix}`,
+      description: null,
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "500",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialResult.status).toBe(201);
+    const materialId = materialResult.body.id as string;
+
+    const palletResult = await createItem({
+      name: `Fast Sales Group Pallet ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FSGM-PALLET-${suffix}`,
+      category: `Fast Sales Group MO ${suffix}`,
+      description: null,
+      defaultPurchasePrice: "5",
+      defaultSellingPrice: null,
+      stock: "50",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(palletResult.status).toBe(201);
+    const palletId = palletResult.body.id as string;
+
+    const productResult = await createItem({
+      name: `Fast Sales Group Product ${suffix}`,
+      itemType: "product",
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FSGM-PROD-${suffix}`,
+      category: `Fast Sales Group MO ${suffix}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "12",
+      stock: "0",
+      safetyStock: "0",
+      bom: [
+        {
+          componentId: materialId,
+          quantity: "1",
+          consumptionMode: "per_output_unit",
+        },
+        {
+          componentId: palletId,
+          quantity: "1",
+          consumptionMode: "per_group",
+          basisOutputQuantity: "50",
+          groupRemainderPolicy: "ask",
+        },
+      ],
+    });
+    expect(productResult.status).toBe(201);
+    const productIdForSalesGroup = productResult.body.id as string;
+
+    const orderResult = await createSalesOrder({
+      customerId,
+      status: "open",
+      confirmOversell: true,
+      lines: [{ itemId: productIdForSalesGroup, quantity: "52", unitPrice: "12" }],
+    });
+    expect(orderResult.status).toBe(201);
+    const groupOrderId = orderResult.body.id as string;
+
+    const previewResponse = await testFetch(
+      `/api/sales-orders/${groupOrderId}/manufacturing-orders`
+    );
+    expect(previewResponse.status).toBe(200);
+    const preview = await previewResponse.json();
+    const line = preview.lines.find(
+      (candidate: { itemId: string }) =>
+        candidate.itemId === productIdForSalesGroup
+    );
+    expect(line).toBeTruthy();
+    expect(line.groupRemainderRows).toEqual([
+      { basisOutputQuantity: "50", groupRemainderPolicy: "ask" },
+    ]);
+
+    const fallbackResponse = await testFetch(
+      `/api/sales-orders/${groupOrderId}/manufacturing-orders`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          plannedDate: null,
+          salesOrderLineIds: [line.salesOrderLineId],
+          priorityRank: null,
+          lineQuantities: [
+            { salesOrderLineId: line.salesOrderLineId, quantity: "52" },
+          ],
+          notes: null,
+        }),
+      }
+    );
+    expect(fallbackResponse.status).toBe(201);
+    const fallbackBody = await fallbackResponse.json();
+    const fallbackMoId = fallbackBody.created[0].manufacturingOrderId as string;
+    const fallbackIngredientRows = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, fallbackMoId));
+    const fallbackByItemId = new Map(
+      fallbackIngredientRows.map((row) => [row.itemId, row])
+    );
+    expect(fallbackByItemId.get(palletId)?.plannedQuantity).toBe("1.0000");
+    expect(fallbackByItemId.get(palletId)?.chosenGroupRemainderHandling).toBe(
+      "leave_loose"
+    );
+
+    const secondOrderResult = await createSalesOrder({
+      customerId,
+      status: "open",
+      confirmOversell: true,
+      lines: [{ itemId: productIdForSalesGroup, quantity: "52", unitPrice: "12" }],
+    });
+    expect(secondOrderResult.status).toBe(201);
+    const secondGroupOrderId = secondOrderResult.body.id as string;
+
+    const secondPreviewResponse = await testFetch(
+      `/api/sales-orders/${secondGroupOrderId}/manufacturing-orders`
+    );
+    expect(secondPreviewResponse.status).toBe(200);
+    const secondPreview = await secondPreviewResponse.json();
+    const secondLine = secondPreview.lines.find(
+      (candidate: { itemId: string }) =>
+        candidate.itemId === productIdForSalesGroup
+    );
+    expect(secondLine).toBeTruthy();
+
+    const createResponse = await testFetch(
+      `/api/sales-orders/${secondGroupOrderId}/manufacturing-orders`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          plannedDate: null,
+          salesOrderLineIds: [secondLine.salesOrderLineId],
+          priorityRank: null,
+          lineQuantities: [
+            { salesOrderLineId: secondLine.salesOrderLineId, quantity: "52" },
+          ],
+          groupRemainderChoices: [
+            {
+              salesOrderLineId: secondLine.salesOrderLineId,
+              basisOutputQuantity: "50",
+              handling: "create_partial_group",
+            },
+          ],
+          notes: null,
+        }),
+      }
+    );
+    expect(createResponse.status).toBe(201);
+
+    const [createdMo] = await db
+      .select()
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.salesOrderLineId, secondLine.salesOrderLineId));
+    expect(createdMo).toBeTruthy();
+
+    const ingredientRows = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, createdMo.id));
+    const byItemId = new Map(ingredientRows.map((row) => [row.itemId, row]));
+    expect(byItemId.get(materialId)?.plannedQuantity).toBe("52.0000");
+    expect(byItemId.get(palletId)?.plannedQuantity).toBe("2.0000");
+    expect(byItemId.get(palletId)?.chosenGroupRemainderHandling).toBe(
+      "create_partial_group"
+    );
   });
 
   test("keeps Create MOs available when another line is already in production", async ({

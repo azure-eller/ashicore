@@ -1012,9 +1012,15 @@ export function ManufacturingOrderForm({
                   <div className="col-span-full space-y-3 rounded-lg border border-dashed px-4 py-3">
                     <p className="text-sm font-medium">Grouped materials</p>
                     {groupSummaries.map((summary) => {
-                      const currentChoice =
-                        groupChoiceMap.get(summary.basisOutputQuantity) ??
-                        "leave_loose";
+                      const fixedPolicies = [...summary.policies];
+                      const hasMixedFixedPolicies =
+                        !summary.requiresChoice && fixedPolicies.length > 1;
+                      const currentChoice = summary.requiresChoice
+                        ? groupChoiceMap.get(summary.basisOutputQuantity) ??
+                          "leave_loose"
+                        : fixedPolicies.includes("create_partial_group")
+                          ? "create_partial_group"
+                          : "leave_loose";
                       const hasRemainder =
                         parseFloat(summary.remainderQuantity) > 0;
                       const groupCount =
@@ -1038,6 +1044,11 @@ export function ManufacturingOrderForm({
                               <>
                                 {"; "}
                                 {formatQuantity(summary.remainderQuantity)} leftover
+                              </>
+                            ) : null}
+                            {hasMixedFixedPolicies ? (
+                              <>
+                                {"; mixed leftover policies"}
                               </>
                             ) : null}
                           </div>

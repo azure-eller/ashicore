@@ -39,6 +39,10 @@ export type SalesOrderManufacturingLineSummary = {
   status: "will_create" | "skipped";
   skipReason: SalesOrderManufacturingSkipReason | null;
   skipMessage: string | null;
+  groupRemainderRows: Array<{
+    basisOutputQuantity: string | null;
+    groupRemainderPolicy: string | null;
+  }>;
 };
 
 export type SalesOrderManufacturingSummary = {
@@ -336,6 +340,12 @@ export async function getSalesOrderManufacturingSummariesInTx(
       status: skipReason == null ? "will_create" : "skipped",
       skipReason,
       skipMessage: skipReason == null ? null : getSkipMessage(skipReason),
+      groupRemainderRows: (bomCoverage.get(line.itemId) ?? [])
+        .filter((component) => component.consumptionMode === "per_group")
+        .map((component) => ({
+          basisOutputQuantity: component.basisOutputQuantity,
+          groupRemainderPolicy: component.groupRemainderPolicy,
+        })),
     });
   });
 

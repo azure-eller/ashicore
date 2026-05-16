@@ -308,6 +308,68 @@ test.describe("Manufacturing write-path smoke", () => {
     );
   });
 
+  test("keeps batch order readiness based on execution ingredient rows", async () => {
+    const batchTs = Date.now();
+    const materialResult = await createItem({
+      name: `Fast Batch Readiness Material ${batchTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-BATCH-READY-MAT-${batchTs}`,
+      category: `Fast Batch Readiness ${batchTs}`,
+      description: null,
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "100",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialResult.status).toBe(201);
+    const materialId = materialResult.body.id as string;
+
+    const productResult = await createItem({
+      name: `Fast Batch Readiness Product ${batchTs}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-BATCH-READY-PROD-${batchTs}`,
+      category: `Fast Batch Readiness ${batchTs}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "0",
+      safetyStock: "0",
+      typicalBatchSize: "10",
+      bom: [
+        {
+          componentId: materialId,
+          quantity: "3",
+          consumptionMode: "per_batch",
+          basisOutputQuantity: "10",
+          batchScalingMode: "full_batches_only",
+        },
+      ],
+    });
+    expect(productResult.status).toBe(201);
+    const batchProductId = productResult.body.id as string;
+
+    const orderResult = await createManufacturingOrder({
+      productId: batchProductId,
+      plannedQuantity: "12",
+      ingredients: [{ itemId: materialId, quantityPerUnit: "3" }],
+    });
+    expect(orderResult.status).toBe(201);
+
+    const listResponse = await testFetch("/api/manufacturing-orders");
+    expect(listResponse.status).toBe(200);
+    const rows = await listResponse.json();
+    const row = rows.find(
+      (candidate: { id: string }) => candidate.id === orderResult.body.id
+    );
+    expect(row).toMatchObject({
+      manufacturingMode: "batch",
+      ingredientReadiness: "in_stock",
+    });
+  });
+
   test("duplicates a manufacturing order from the detail actions", async ({
     page,
     db,

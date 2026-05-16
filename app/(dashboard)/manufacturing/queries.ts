@@ -2578,29 +2578,46 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
           .where(inArray(manufacturingOrderBatches.manufacturingOrderId, orderIds));
 
         const ingredientsByOrder = new Map<string, IngredientProgressRow[]>();
-        const readinessIngredientsByOrder = new Map<
-          string,
-          Array<{ itemId: string; plannedQuantity: string }>
-        >();
+        const readinessQuantityByOrderItem = new Map<string, Map<string, number>>();
         for (const row of ingredientRows) {
-          if (row.manufacturingOrderBatchId != null) {
-            continue;
+          if (row.manufacturingOrderBatchId == null) {
+            const existing = ingredientsByOrder.get(row.manufacturingOrderId) ?? [];
+            existing.push({
+              plannedQuantity: row.plannedQuantity,
+              pickedQuantity: row.pickedQuantity,
+            });
+            ingredientsByOrder.set(row.manufacturingOrderId, existing);
           }
-          const existing = ingredientsByOrder.get(row.manufacturingOrderId) ?? [];
-          existing.push({
-            plannedQuantity: row.plannedQuantity,
-            pickedQuantity: row.pickedQuantity,
-          });
-          ingredientsByOrder.set(row.manufacturingOrderId, existing);
 
-          const readinessRows =
-            readinessIngredientsByOrder.get(row.manufacturingOrderId) ?? [];
-          readinessRows.push({
-            itemId: row.itemId,
-            plannedQuantity: row.plannedQuantity,
-          });
-          readinessIngredientsByOrder.set(row.manufacturingOrderId, readinessRows);
+          const remainingQuantity = getRemainingQuantityNumber(
+            row.plannedQuantity,
+            row.pickedQuantity
+          );
+          if (remainingQuantity <= 0) continue;
+
+          const orderReadiness =
+            readinessQuantityByOrderItem.get(row.manufacturingOrderId) ??
+            new Map<string, number>();
+          orderReadiness.set(
+            row.itemId,
+            normalizeQuantityNumber(
+              (orderReadiness.get(row.itemId) ?? 0) + remainingQuantity
+            )
+          );
+          readinessQuantityByOrderItem.set(
+            row.manufacturingOrderId,
+            orderReadiness
+          );
         }
+        const readinessIngredientsByOrder = new Map(
+          [...readinessQuantityByOrderItem.entries()].map(([orderId, rows]) => [
+            orderId,
+            [...rows.entries()].map(([itemId, plannedQuantity]) => ({
+              itemId,
+              plannedQuantity: normalizeNumeric(plannedQuantity),
+            })),
+          ])
+        );
 
         const batchesByOrder = new Map<string, Array<{ status: ManufacturingBatchStatus }>>();
         for (const row of batchRows) {
@@ -3513,6 +3530,15 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
       lineQuantity.quantity,
     ]) ?? []
   );
+  const groupChoicesByLineId = new Map<string, GroupRemainderChoice[]>();
+  for (const choice of payload.groupRemainderChoices) {
+    const existing = groupChoicesByLineId.get(choice.salesOrderLineId) ?? [];
+    existing.push({
+      basisOutputQuantity: choice.basisOutputQuantity,
+      handling: choice.handling,
+    });
+    groupChoicesByLineId.set(choice.salesOrderLineId, existing);
+  }
   const created: ManufacturingOrdersFromSalesOrderResult["created"] = [];
   const skipped: ManufacturingOrdersFromSalesOrderResult["skipped"] = [];
   const summaryLineById = new Map(
@@ -3541,6 +3567,17 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
     );
   }
 
+  const invalidGroupChoiceLine = [...groupChoicesByLineId.keys()].find(
+    (lineId) => !selectedLineIds.has(lineId)
+  );
+
+  if (invalidGroupChoiceLine) {
+    throw new ManufacturingError(
+      "Grouped material choices changed. Refresh and try again.",
+      409
+    );
+  }
+
   for (const line of summary.lines) {
     if (line.status === "skipped" || line.skipReason != null) {
       skipped.push({
@@ -3560,7 +3597,8 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
     const { bomRevisionId, ingredients } = await prepareCreateIngredientsFromBomInTx(
       tx,
       line.itemId,
-      plannedQuantity
+      plannedQuantity,
+      groupChoicesByLineId.get(line.salesOrderLineId)
     );
     const scalingPlan = deriveScalingPlan(plannedQuantity, ingredients);
     const createdOrder = await insertManufacturingOrderInTx(tx, orgId, {

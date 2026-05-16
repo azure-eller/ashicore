@@ -56,6 +56,10 @@ export type ManufacturingSalesOrderPreviewLine = {
     | "existing_active_mo"
     | null;
   skipMessage: string | null;
+  groupRemainderRows: Array<{
+    basisOutputQuantity: string | null;
+    groupRemainderPolicy: string | null;
+  }>;
 };
 
 export type ManufacturingSalesOrderPreview = {
