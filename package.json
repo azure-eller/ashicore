@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "NODE_OPTIONS=--max-old-space-size=4096 next dev --disable-source-maps",
     "build": "next build",
     "start": "next start",
     "lint": "eslint && pnpm verify:schema-timestamps && pnpm verify:migration-order",

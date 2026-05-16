@@ -78,7 +78,7 @@ import {
 } from "@/lib/format";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
-import { captureAppError } from "@/lib/observability/sentry";
+import { captureAppError } from "@/lib/observability/browser-sentry";
 import { receivePurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
 import {
   EXPECTED_DELIVERY_DATE_TOOLTIP,

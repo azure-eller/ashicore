@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import NextError from "next/error";
-import { captureAppError } from "@/lib/observability/sentry";
+import { captureAppError } from "@/lib/observability/browser-sentry";
 
 export default function GlobalError({
   error,

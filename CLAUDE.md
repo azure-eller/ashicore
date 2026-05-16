@@ -9,7 +9,7 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 
 ## Commands
 
-- `pnpm dev` — start dev server
+- `pnpm dev` — start dev server with capped heap and source maps disabled
 - `pnpm build` — production build (catch type errors)
 - `pnpm lint` — ESLint
 - `pnpm test` / `pnpm test:fast` — run all fast Playwright write-path smoke tests (dev server must be running)

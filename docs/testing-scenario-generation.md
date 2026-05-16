@@ -33,9 +33,13 @@ read_when:
 
 ## Local defaults
 
+- `pnpm dev` caps the Next dev server heap and disables source maps so local
+  test runs fail instead of exhausting workstation memory.
 - Narrow domain changes: run `pnpm build`, `pnpm lint`, and the relevant `pnpm test:fast:<domain>` locally.
 - Shared or cross-domain changes: run `pnpm build`, `pnpm lint`, and `pnpm test:fast` locally.
 - Local fast lanes default to 2 Playwright workers so multiple agents are less likely to saturate a workstation. CI overrides this with `PLAYWRIGHT_FAST_WORKERS=4`.
+- When several agents are active on one machine, set `PLAYWRIGHT_FAST_WORKERS=1`
+  for local fast lanes.
 - ERP agent tests are archived with the parked agent. See `docs/erp-agent.md` before restoring live provider coverage.
 - If the change is isolated to one domain, add that domain's slow spec locally instead of the whole slow lane
 - Use `pnpm test:slow:auth` when touching auth, invites, sessions, team access, or permission gates

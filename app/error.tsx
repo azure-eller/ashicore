@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { captureAppError } from "@/lib/observability/sentry";
+import { captureAppError } from "@/lib/observability/browser-sentry";
 
 export default function AppError({
   error,
