@@ -553,7 +553,7 @@ export function OrdersTable({
         emptyMessage="No manufacturing orders yet."
         enableRowSelection
         onSelectionChange={setSelectedOrders}
-        enableManagedRowDrag={reorderEnabled && !reorderMutation.isPending}
+        enableManagedRowDrag={reorderEnabled}
         suppressMoveWhenRowDragging
         resetRowDataOnUpdate
         onSortChange={setHasActiveSort}

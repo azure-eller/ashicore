@@ -849,7 +849,7 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
           emptyMessage="No sales orders yet."
           enableRowSelection
           onSelectionChange={setSelectedOrders}
-          enableManagedRowDrag={reorderEnabled && !reorderMutation.isPending}
+          enableManagedRowDrag={reorderEnabled}
           suppressMoveWhenRowDragging
           resetRowDataOnUpdate
           onGridReady={(event) => {
