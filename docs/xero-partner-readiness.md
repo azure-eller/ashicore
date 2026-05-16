@@ -34,7 +34,8 @@ Rollout:
 
 ## Certification blockers
 
-- **Sign Up with Xero** — required for App Store listing.
+- **Sign Up with Xero** — implemented as a dedicated App Store acquisition
+  route; see `docs/xero-support-listing.md`.
 - **Login security** — decide native 2SA vs Sign in with Xero. Xero requires strong customer authentication with minimum two-step authentication or SSO, and strongly recommends Sign in with Xero.
 - **Audit logging** — application access logs plus event-based actions. Logs should include date/time, user or process, event description, success/failure, source, and applicable equipment/location. Retain long enough for investigation, usually at least one year, and keep logs immutable and secure.
 - **Security packet** — document hosting, encryption at rest, key management, access control, vulnerability management, monitoring, breach reporting, subprocessors, privacy policy, and support ownership.
@@ -64,6 +65,6 @@ Track before certification:
 
 1. Add Xero/application audit events for connect, disconnect, tenant switch, settings changes, import, push, retry, email, and failure.
 2. Decide and implement login-security posture: native 2SA vs Sign in with Xero.
-3. Implement Sign Up with Xero.
+3. Validate Sign Up with Xero against Xero App Store review.
 4. Prepare security packet and public support/listing documentation.
 5. Plan and execute granular-scope migration.

@@ -52,6 +52,8 @@ function isPublicRoute(pathname: string) {
     pathname === "/favicon.ico" ||
     pathname.startsWith("/monitoring") ||
     pathname.startsWith("/api/auth") ||
+    pathname === "/api/xero/sign-up" ||
+    pathname === "/api/xero/callback" ||
     pathname === "/api/reports/sparkline.png" ||
     pathname === "/api/internal/sentry/autofix" ||
     pathname === "/android" ||
@@ -60,6 +62,7 @@ function isPublicRoute(pathname: string) {
     pathname === "/reset-password" ||
     pathname === "/sign-in" ||
     pathname === "/sign-up" ||
+    pathname.startsWith("/xero/sign-up") ||
     pathname === "/accept-invitation" ||
     isDevelopmentRoute(pathname)
   );

@@ -83,7 +83,10 @@ export const integrationConnections = integrationsSchema
         table.organizationId,
         table.provider
       ),
-      index("integration_connections_tenant_idx").on(table.provider, table.tenantId),
+      uniqueIndex("integration_connections_provider_tenant_uidx").on(
+        table.provider,
+        table.tenantId
+      ),
       uniqueIndex("integration_connections_org_provider_uidx").on(
         table.organizationId,
         table.provider

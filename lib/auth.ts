@@ -13,6 +13,7 @@ import {
 } from "@/lib/authz";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
+import { xeroSignupAuthPlugin } from "@/lib/xero/signup-auth-plugin";
 
 const authModuleInitStartedAt = performance.now();
 const authModuleLoadedAt = Date.now();
@@ -210,6 +211,7 @@ export const auth = betterAuth({
         });
       },
     }),
+    xeroSignupAuthPlugin(),
     nextCookies(),
   ],
 });

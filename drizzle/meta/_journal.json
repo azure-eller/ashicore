@@ -708,6 +708,13 @@
       "when": 1778771839310,
       "tag": "0100_consumption_mode_bom_scaling",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1778969936373,
+      "tag": "0101_xero_signup_intents",
+      "breakpoints": true
     }
   ]
 }

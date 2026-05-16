@@ -7,6 +7,8 @@ import {
   index,
   jsonb,
   uniqueIndex,
+  uuid,
+  varchar,
 } from "drizzle-orm/pg-core";
 
 export const systemSchema = pgSchema("system");
@@ -168,6 +170,52 @@ export const userViewPreferences = systemSchema.table(
     index("user_view_preferences_organization_id_idx").on(table.organizationId),
     index("user_view_preferences_user_id_idx").on(table.userId),
   ],
+);
+
+export type XeroSignupAuthorizedTenant = {
+  tenantId: string;
+  tenantName: string;
+};
+
+export const xeroSignupIntents = systemSchema.table(
+  "xero_signup_intents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    name: text("name").notNull(),
+    xeroUserId: text("xero_user_id").notNull(),
+    tenantId: text("tenant_id").notNull(),
+    tenantName: text("tenant_name").notNull(),
+    authorizedTenants: jsonb("authorized_tenants")
+      .$type<XeroSignupAuthorizedTenant[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    accessTokenCiphertext: text("access_token_ciphertext").notNull(),
+    refreshTokenCiphertext: text("refresh_token_ciphertext").notNull(),
+    tokenEncryptionKeyId: varchar("token_encryption_key_id", { length: 100 }).notNull(),
+    tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }).notNull(),
+    claimTokenHash: text("claim_token_hash").notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("pending"),
+    claimedUserId: text("claimed_user_id"),
+    claimedOrganizationId: text("claimed_organization_id"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("xero_signup_intents_claim_token_hash_uidx").on(
+      table.claimTokenHash
+    ),
+    index("xero_signup_intents_email_status_idx").on(table.email, table.status),
+    index("xero_signup_intents_tenant_status_idx").on(
+      table.tenantId,
+      table.status
+    ),
+  ]
 );
 
 export const userRelations = relations(user, ({ many }) => ({

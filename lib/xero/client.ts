@@ -18,10 +18,15 @@ const REQUIRED_SCOPES = [
   "accounting.attachments",
   "offline_access",
 ];
+const XERO_SIGNUP_IDENTITY_SCOPES = ["openid", "profile", "email"];
 const XERO_PROVIDER = "xero";
 
 export function getXeroScopes() {
   return [...REQUIRED_SCOPES];
+}
+
+export function getXeroSignupScopes() {
+  return [...XERO_SIGNUP_IDENTITY_SCOPES, ...REQUIRED_SCOPES];
 }
 
 function requireEnv(name: string): string {
@@ -32,14 +37,18 @@ function requireEnv(name: string): string {
   return value;
 }
 
-export function createXeroClient(): XeroClient {
+export function createXeroClient(scopes = REQUIRED_SCOPES): XeroClient {
   return new XeroClient({
     clientId: requireEnv("XERO_CLIENT_ID"),
     clientSecret: requireEnv("XERO_CLIENT_SECRET"),
     redirectUris: [requireEnv("XERO_REDIRECT_URI")],
-    scopes: REQUIRED_SCOPES,
+    scopes,
     state: "",
   });
+}
+
+export function createXeroSignupClient(): XeroClient {
+  return createXeroClient(getXeroSignupScopes());
 }
 
 type ConnectionRow = typeof integrationConnections.$inferSelect;

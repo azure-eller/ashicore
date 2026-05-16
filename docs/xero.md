@@ -10,13 +10,18 @@ read_when:
 # Xero integration
 
 For App Store / App Partner certification gaps, rollout sequencing, and future
-security work, read `docs/xero-partner-readiness.md`.
+security work, read `docs/xero-partner-readiness.md`. For customer-facing App
+Store setup/support copy, read `docs/xero-support-listing.md`.
 
 ## Where things live
 
 - **OAuth + token refresh** — `lib/xero/client.ts`. `getAuthedXeroClient`
   locks the connection row `FOR UPDATE`, decrypts stored tokens, refreshes if
   the token is near expiry, and persists the rotated token pair encrypted.
+- **Sign up with Xero** — `/api/xero/sign-up` starts the App Store acquisition
+  OAuth flow. `/api/xero/callback` stores a short-lived encrypted signup intent,
+  then Better Auth endpoints under `/api/auth/xero-signup/*` create a
+  passwordless owner account or link the intent to a signed-in existing user.
 - **Sales push** — `lib/xero/push-invoice.ts`. Reconciles by
   `InvoiceNumber` before issuing a create.
 - **PO push** — `lib/xero/push-purchase-order.ts`. Reconciles by

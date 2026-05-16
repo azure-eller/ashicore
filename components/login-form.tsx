@@ -24,9 +24,11 @@ import { authClient } from "@/lib/auth-client"
 export function LoginForm({
   className,
   notice,
+  callbackURL,
   ...props
 }: React.ComponentProps<"div"> & {
   notice?: string
+  callbackURL?: string
 }) {
   const router = useRouter()
   const [email, setEmail] = useState("")
@@ -52,7 +54,7 @@ export function LoginForm({
       setLoading(false)
       return
     }
-    router.push("/")
+    router.push(callbackURL?.startsWith("/") && !callbackURL.startsWith("//") ? callbackURL : "/")
   }
 
   return (
