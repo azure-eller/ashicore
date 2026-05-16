@@ -450,9 +450,9 @@ export async function createSalesOrder(data: {
         data.requestedDate ??
         "2026-04-15",
       shipDate:
-        data.shipDate ??
-        data.requestedDate ??
-        "2026-04-15",
+        data.shipDate === undefined
+          ? data.requestedDate ?? "2026-04-15"
+          : data.shipDate,
       requestedDate: data.requestedDate ?? null,
       notes: data.notes ?? null,
       lines: data.lines,
@@ -494,9 +494,9 @@ export async function updateSalesOrder(
         data.requestedDate ??
         "2026-04-15",
       shipDate:
-        data.shipDate ??
-        data.requestedDate ??
-        "2026-04-15",
+        data.shipDate === undefined
+          ? data.requestedDate ?? "2026-04-15"
+          : data.shipDate,
       requestedDate: data.requestedDate ?? null,
       notes: data.notes ?? null,
       lines: data.lines,

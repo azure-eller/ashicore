@@ -8,6 +8,8 @@ import {
   lots,
   manufacturingOrderBatches,
   manufacturingOrderIngredients,
+  manufacturingOrderOutputConsumptions,
+  manufacturingOrderOutputs,
   manufacturingOrders,
 } from "../../../lib/db/schema";
 import {
@@ -351,6 +353,17 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(productResult.status).toBe(201);
     const batchProductId = productResult.body.id as string;
 
+    const productsResponse = await testFetch("/api/manufacturing-products");
+    expect(productsResponse.status).toBe(200);
+    const products = await productsResponse.json();
+    const template = products.find(
+      (candidate: { id: string }) => candidate.id === batchProductId
+    );
+    expect(template).toMatchObject({
+      manufacturingMode: "batch",
+      expectedBatchYield: "10",
+    });
+
     const orderResult = await createManufacturingOrder({
       productId: batchProductId,
       plannedQuantity: "12",
@@ -368,6 +381,69 @@ test.describe("Manufacturing write-path smoke", () => {
       manufacturingMode: "batch",
       ingredientReadiness: "in_stock",
     });
+  });
+
+  test("ignores product compatibility mode when BOM has no batch lines", async ({ db }) => {
+    const compatTs = Date.now();
+    const materialResult = await createItem({
+      name: `Fast Compat Material ${compatTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-COMPAT-MAT-${compatTs}`,
+      category: `Fast Compat ${compatTs}`,
+      description: null,
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "100",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialResult.status).toBe(201);
+    const materialId = materialResult.body.id as string;
+
+    const productResult = await createItem({
+      name: `Fast Compat Product ${compatTs}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-COMPAT-PROD-${compatTs}`,
+      category: `Fast Compat ${compatTs}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "0",
+      safetyStock: "0",
+      manufacturingMode: "batch",
+      expectedBatchYield: "10",
+      bom: [{ componentId: materialId, quantity: "1" }],
+    });
+    expect(productResult.status).toBe(201);
+    const productId = productResult.body.id as string;
+
+    const productsResponse = await testFetch("/api/manufacturing-products");
+    expect(productsResponse.status).toBe(200);
+    const products = await productsResponse.json();
+    const template = products.find(
+      (candidate: { id: string }) => candidate.id === productId
+    );
+    expect(template).toMatchObject({
+      manufacturingMode: "discrete",
+      expectedBatchYield: null,
+    });
+
+    const orderResult = await createManufacturingOrder({
+      productId,
+      plannedQuantity: "4",
+      ingredients: [{ itemId: materialId, quantityPerUnit: "1" }],
+    });
+    expect(orderResult.status).toBe(201);
+
+    const [order] = await db
+      .select()
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, orderResult.body.id as string));
+    expect(order.manufacturingMode).toBe("discrete");
+    expect(order.numberOfBatches).toBeNull();
+    expect(order.expectedBatchYield).toBeNull();
   });
 
   test("duplicates a manufacturing order from the detail actions", async ({
@@ -664,8 +740,6 @@ test.describe("Manufacturing write-path smoke", () => {
       defaultSellingPrice: "60.00",
       stock: "0",
       safetyStock: "0",
-      manufacturingMode: "batch",
-      expectedBatchYield: "2",
       bom: [
         {
           componentId: batchSandId,
@@ -893,6 +967,40 @@ test.describe("Manufacturing write-path smoke", () => {
     const producedLots = await db.select().from(lots).where(eq(lots.itemId, batchProductId));
     expect(producedLots).toHaveLength(3);
 
+    const outputRows = await db
+      .select({
+        id: manufacturingOrderOutputs.id,
+        manufacturingOrderBatchId: manufacturingOrderOutputs.manufacturingOrderBatchId,
+        lotId: manufacturingOrderOutputs.lotId,
+        quantity: manufacturingOrderOutputs.quantity,
+      })
+      .from(manufacturingOrderOutputs)
+      .where(eq(manufacturingOrderOutputs.manufacturingOrderId, batchOrderId))
+      .orderBy(asc(manufacturingOrderOutputs.outputNumber));
+    expect(outputRows).toHaveLength(3);
+    expect(outputRows.map((output) => output.quantity)).toEqual([
+      "2.0000",
+      "1.5000",
+      "2.2000",
+    ]);
+    expect(outputRows.map((output) => output.manufacturingOrderBatchId).sort()).toEqual(
+      completedBatches.map((batch) => batch.id).sort()
+    );
+    expect(outputRows.map((output) => output.lotId).sort()).toEqual(
+      producedLots.map((lot) => lot.id).sort()
+    );
+
+    const outputConsumptions = await db
+      .select()
+      .from(manufacturingOrderOutputConsumptions)
+      .where(
+        inArray(
+          manufacturingOrderOutputConsumptions.manufacturingOrderOutputId,
+          outputRows.map((output) => output.id)
+        )
+      );
+    expect(outputConsumptions).toHaveLength(6);
+
     const movements = await db
       .select({
         eventType: inventoryEvents.eventType,
@@ -961,11 +1069,21 @@ test.describe("Manufacturing write-path smoke", () => {
       defaultSellingPrice: "60.00",
       stock: "0",
       safetyStock: "0",
-      manufacturingMode: "batch",
-      expectedBatchYield: "2",
       bom: [
-        { componentId: legacySandCreate.body.id as string, quantity: "3" },
-        { componentId: legacyCompostCreate.body.id as string, quantity: "1" },
+        {
+          componentId: legacySandCreate.body.id as string,
+          quantity: "3",
+          consumptionMode: "per_batch",
+          basisOutputQuantity: "2",
+          batchScalingMode: "full_batches_only",
+        },
+        {
+          componentId: legacyCompostCreate.body.id as string,
+          quantity: "1",
+          consumptionMode: "per_batch",
+          basisOutputQuantity: "2",
+          batchScalingMode: "full_batches_only",
+        },
       ],
     });
 
@@ -1006,6 +1124,10 @@ test.describe("Manufacturing write-path smoke", () => {
     if (!draftTemplateIngredients[0] || !draftTemplateIngredients[1]) {
       throw new Error("Expected batch ingredients to seed legacy template rows.");
     }
+    const templateIngredients = [
+      draftTemplateIngredients[0],
+      draftTemplateIngredients[1],
+    ];
 
     await db
       .delete(manufacturingOrderBatches)
@@ -1015,7 +1137,7 @@ test.describe("Manufacturing write-path smoke", () => {
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, legacyOrderId));
 
     await db.insert(manufacturingOrderIngredients).values(
-      draftTemplateIngredients.map((ingredient) => ({
+      templateIngredients.map((ingredient) => ({
         manufacturingOrderId: legacyOrderId,
         manufacturingOrderBatchId: null,
         itemId: ingredient.itemId,

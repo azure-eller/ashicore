@@ -370,8 +370,6 @@ async function createBomRevisionInTx(
     productId: string;
     note?: string | null;
     bom: BomInputRow[];
-    legacyDefaultConsumptionMode?: "per_output_unit" | "per_batch";
-    legacyDefaultBasisOutputQuantity?: string | null;
   }
 ) {
   const [currentRevision] = await tx
@@ -428,16 +426,7 @@ async function createBomRevisionInTx(
         throw new Error("BOM component not found");
       }
 
-      const shouldUseLegacyBatchDefault =
-        params.legacyDefaultConsumptionMode === "per_batch" &&
-        params.legacyDefaultBasisOutputQuantity != null &&
-        (row.consumptionMode == null || row.consumptionMode === "per_output_unit") &&
-        row.basisOutputQuantity == null &&
-        row.batchScalingMode == null &&
-        row.groupRemainderPolicy == null;
-      const consumptionMode = shouldUseLegacyBatchDefault
-        ? "per_batch"
-        : row.consumptionMode ?? "per_output_unit";
+      const consumptionMode = row.consumptionMode ?? "per_output_unit";
 
       return {
         bomRevisionId: revision.id,
@@ -450,7 +439,7 @@ async function createBomRevisionInTx(
         consumptionMode,
         basisOutputQuantity:
           consumptionMode === "per_batch" || consumptionMode === "per_group"
-            ? row.basisOutputQuantity ?? params.legacyDefaultBasisOutputQuantity ?? null
+            ? row.basisOutputQuantity ?? null
             : null,
         batchScalingMode:
           consumptionMode === "per_batch"
@@ -460,8 +449,7 @@ async function createBomRevisionInTx(
           consumptionMode === "per_group"
             ? row.groupRemainderPolicy ?? "ask"
             : null,
-        scalingReviewRecommended:
-          shouldUseLegacyBatchDefault || (row.consumptionMode == null && consumptionMode === "per_batch"),
+        scalingReviewRecommended: row.consumptionMode == null && consumptionMode === "per_batch",
         sortOrder: index,
       };
     });
@@ -913,10 +901,6 @@ export async function getItem(id: string) {
           "defaultSellingPrice"
         ),
         sellable: items.sellable,
-        manufacturingMode: items.manufacturingMode,
-        expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
-          "expectedBatchYield"
-        ),
         typicalBatchSize: trimScaleNullable(items.typicalBatchSize).as(
           "typicalBatchSize"
         ),
@@ -2006,6 +1990,8 @@ export async function updateItem(
     const normalizedItemData = {
       ...itemData,
       currentStockUnitCost: normalizedCurrentStockUnitCost,
+      manufacturingMode: "discrete" as const,
+      expectedBatchYield: null,
     };
 
     const [item] = await tx
@@ -2039,9 +2025,6 @@ export async function updateItem(
           productId: id,
           note: revisionNote,
           bom,
-          legacyDefaultConsumptionMode:
-            itemData.manufacturingMode === "batch" ? "per_batch" : "per_output_unit",
-          legacyDefaultBasisOutputQuantity: itemData.expectedBatchYield ?? null,
         });
 
         await recordCostBasisChangeInTx(tx, {
@@ -2205,6 +2188,8 @@ export async function createItemWithLot(
       .insert(items)
       .values({
         ...data,
+        manufacturingMode: "discrete",
+        expectedBatchYield: null,
         currentStockUnitCost: initialCurrentStockUnitCost,
         organizationId: orgId,
       })
@@ -2217,9 +2202,6 @@ export async function createItemWithLot(
         productId: item.id,
         note: revisionNote,
         bom,
-        legacyDefaultConsumptionMode:
-          data.manufacturingMode === "batch" ? "per_batch" : "per_output_unit",
-        legacyDefaultBasisOutputQuantity: data.expectedBatchYield ?? null,
       });
     }
 
@@ -2793,8 +2775,8 @@ export async function createVariant(
         itemType: "product",
         category: master.category,
         unitDefinitionId: data.unitDefinitionId,
-        manufacturingMode: data.manufacturingMode,
-        expectedBatchYield: data.expectedBatchYield ?? null,
+        manufacturingMode: "discrete",
+        expectedBatchYield: null,
         typicalBatchSize: data.typicalBatchSize ?? null,
         typicalGroupSize: data.typicalGroupSize ?? null,
         defaultSellingPrice: data.defaultSellingPrice ?? null,
@@ -2815,9 +2797,6 @@ export async function createVariant(
         productId: variant.id,
         note: data.revisionNote,
         bom: data.bom,
-        legacyDefaultConsumptionMode:
-          data.manufacturingMode === "batch" ? "per_batch" : "per_output_unit",
-        legacyDefaultBasisOutputQuantity: data.expectedBatchYield ?? null,
       });
     }
 

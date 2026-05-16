@@ -145,8 +145,6 @@ type ProductSnapshot = {
   name: string;
   sku: string | null;
   unitName: string;
-  manufacturingMode: string;
-  expectedBatchYield: string | null;
 };
 
 type SalesLineSnapshot = {
@@ -706,10 +704,6 @@ async function getValidatedProductInTx(
       name: items.name,
       sku: items.sku,
       unitName: unitDefinitions.name,
-      manufacturingMode: items.manufacturingMode,
-      expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
-        "expectedBatchYield"
-      ),
     })
     .from(items)
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -1984,6 +1978,101 @@ async function nextOutputNumberInTx(tx: Tx, manufacturingOrderId: string) {
   return Number(row?.value ?? 0) + 1;
 }
 
+type ManufacturingOutputConsumptionInput = {
+  manufacturingOrderIngredientId: string;
+  lotId: string;
+  quantityUsed: string;
+  costPerUnit: string;
+};
+
+async function insertManufacturingOrderOutputInTx(
+  tx: Tx,
+  params: {
+    manufacturingOrderId: string;
+    manufacturingOrderBatchId: string | null;
+    lotId: string;
+    quantity: number;
+    disposition: Extract<InventoryDisposition, "available" | "blocked">;
+    materialCostTotal: number;
+    notes?: string | null;
+    actorUserId: string | null;
+    consumptions: ManufacturingOutputConsumptionInput[];
+  }
+) {
+  const [output] = await tx
+    .insert(manufacturingOrderOutputs)
+    .values({
+      manufacturingOrderId: params.manufacturingOrderId,
+      manufacturingOrderBatchId: params.manufacturingOrderBatchId,
+      lotId: params.lotId,
+      outputNumber: await nextOutputNumberInTx(tx, params.manufacturingOrderId),
+      quantity: normalizeNumeric(params.quantity),
+      disposition: params.disposition,
+      unitCost:
+        params.quantity > 0
+          ? normalizeNumericScale(params.materialCostTotal / params.quantity, 6)
+          : normalizeNumericScale(0, 6),
+      materialCostTotal: normalizeNumericScale(params.materialCostTotal, 6),
+      notes: params.notes ?? null,
+      createdBy: params.actorUserId ?? "system",
+    })
+    .returning({ id: manufacturingOrderOutputs.id });
+
+  if (params.consumptions.length > 0) {
+    await tx.insert(manufacturingOrderOutputConsumptions).values(
+      params.consumptions.map((row) => ({
+        manufacturingOrderOutputId: output.id,
+        ...row,
+      }))
+    );
+  }
+
+  return output;
+}
+
+function buildOutputConsumptionsFromPickedAllocations(
+  ingredients: Array<{ ingredientId: string; actualQuantity: number }>,
+  allocationsByIngredient: Map<
+    string,
+    Array<{ lotId: string; quantityUsed: string; costPerUnit: string | null }>
+  >
+) {
+  const rows: ManufacturingOutputConsumptionInput[] = [];
+
+  for (const ingredient of ingredients) {
+    let remainingQuantity = normalizeQuantityNumber(ingredient.actualQuantity);
+    if (remainingQuantity <= 0) {
+      continue;
+    }
+
+    const allocations = allocationsByIngredient.get(ingredient.ingredientId) ?? [];
+    for (const allocation of allocations) {
+      if (remainingQuantity <= 0) {
+        break;
+      }
+
+      const allocationQuantity = parseFloat(allocation.quantityUsed);
+      const quantityUsed = normalizeQuantityNumber(
+        Math.min(remainingQuantity, allocationQuantity)
+      );
+      if (quantityUsed <= 0) {
+        continue;
+      }
+
+      const costPerUnit = allocation.costPerUnit != null ? parseFloat(allocation.costPerUnit) : 0;
+      rows.push({
+        manufacturingOrderIngredientId: ingredient.ingredientId,
+        lotId: allocation.lotId,
+        quantityUsed: normalizeNumericScale(quantityUsed, 4),
+        costPerUnit: normalizeNumericScale(costPerUnit, 6),
+      });
+      remainingQuantity = normalizeQuantityNumber(remainingQuantity - quantityUsed);
+    }
+  }
+
+  return rows;
+}
+
 async function reverseManufacturingOutputInTx(
   tx: Tx,
   params: {
@@ -2842,10 +2931,6 @@ export async function getManufacturingProductTemplates(): Promise<
         name: items.name,
         sku: items.sku,
         unitName: unitDefinitions.name,
-        manufacturingMode: items.manufacturingMode,
-        expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
-          "expectedBatchYield"
-        ),
         typicalBatchSize: trimScaleNullable(items.typicalBatchSize).as(
           "typicalBatchSize"
         ),
@@ -2867,32 +2952,41 @@ export async function getManufacturingProductTemplates(): Promise<
 
     return products
       .filter((product) => (bomByProduct.get(product.id) ?? []).length > 0)
-      .map((product) => ({
-        ...product,
-        bom: (bomByProduct.get(product.id) ?? []).map((row) => ({
-          itemId: row.componentId,
-          itemName: row.componentName,
-          itemSku: row.componentSku,
-          itemType: row.componentItemType,
-          unitName: row.unitName,
-          quantityPerUnit: row.quantity ?? "0",
-          consumptionMode: row.consumptionMode,
-          basisOutputQuantity: row.basisOutputQuantity,
-          batchScalingMode: row.batchScalingMode,
-          groupRemainderPolicy: row.groupRemainderPolicy,
-          scalingReviewRecommended: row.scalingReviewRecommended,
-          defaultQuantityPerUnit: row.quantity ?? "0",
-          alternates: row.alternates.map((alternate) => ({
-            itemId: alternate.alternateItemId,
-            itemName: alternate.alternateItemName,
-            itemSku: alternate.alternateItemSku,
-            itemType: alternate.alternateItemType,
-            unitName: alternate.unitName,
-            quantityFactor: alternate.quantityFactor,
-            sortOrder: alternate.sortOrder,
+      .map((product) => {
+        const bomRows = bomByProduct.get(product.id) ?? [];
+        const batchBasis = bomRows.find(
+          (row) => row.consumptionMode === "per_batch" && row.basisOutputQuantity != null
+        )?.basisOutputQuantity;
+
+        return {
+          ...product,
+          manufacturingMode: batchBasis == null ? "discrete" : "batch",
+          expectedBatchYield: batchBasis == null ? null : normalizeNumeric(Number(batchBasis)),
+          bom: bomRows.map((row) => ({
+            itemId: row.componentId,
+            itemName: row.componentName,
+            itemSku: row.componentSku,
+            itemType: row.componentItemType,
+            unitName: row.unitName,
+            quantityPerUnit: row.quantity ?? "0",
+            consumptionMode: row.consumptionMode,
+            basisOutputQuantity: row.basisOutputQuantity,
+            batchScalingMode: row.batchScalingMode,
+            groupRemainderPolicy: row.groupRemainderPolicy,
+            scalingReviewRecommended: row.scalingReviewRecommended,
+            defaultQuantityPerUnit: row.quantity ?? "0",
+            alternates: row.alternates.map((alternate) => ({
+              itemId: alternate.alternateItemId,
+              itemName: alternate.alternateItemName,
+              itemSku: alternate.alternateItemSku,
+              itemType: alternate.alternateItemType,
+              unitName: alternate.unitName,
+              quantityFactor: alternate.quantityFactor,
+              sortOrder: alternate.sortOrder,
+            })),
           })),
-        })),
-      }));
+        };
+      });
   });
 }
 
@@ -4463,30 +4557,17 @@ export async function recordManufacturingOutput(
       ingredientRows: produceIngredientRows,
     });
 
-    const [output] = await tx
-      .insert(manufacturingOrderOutputs)
-      .values({
-        manufacturingOrderId: orderId,
-        manufacturingOrderBatchId: batch?.id ?? null,
-        lotId: produced.lotId,
-        outputNumber: await nextOutputNumberInTx(tx, orderId),
-        quantity: normalizeNumeric(outputQuantity),
-        disposition: payload.outputDisposition,
-        unitCost: normalizeNumericScale(materialCostTotal / outputQuantity, 6),
-        materialCostTotal: normalizeNumericScale(materialCostTotal, 6),
-        notes: payload.notes,
-        createdBy: userId,
-      })
-      .returning({ id: manufacturingOrderOutputs.id });
-
-    if (outputConsumptionRows.length > 0) {
-      await tx.insert(manufacturingOrderOutputConsumptions).values(
-        outputConsumptionRows.map((row) => ({
-          manufacturingOrderOutputId: output.id,
-          ...row,
-        }))
-      );
-    }
+    const output = await insertManufacturingOrderOutputInTx(tx, {
+      manufacturingOrderId: orderId,
+      manufacturingOrderBatchId: batch?.id ?? null,
+      lotId: produced.lotId,
+      quantity: outputQuantity,
+      disposition: payload.outputDisposition,
+      materialCostTotal,
+      notes: payload.notes,
+      actorUserId: userId,
+      consumptions: outputConsumptionRows,
+    });
 
     const updatedActualQuantity = normalizeQuantityNumber(
       existingOutputQuantity + outputQuantity
@@ -5690,6 +5771,31 @@ export async function completeManufacturingBatch(
       ),
       expectedReleaseQuantity: completesOrder ? null : actualQuantity,
       ingredientRows: produceIngredientRows,
+    });
+
+    const pickAllocationsByIngredient = await getPickAllocationsByIngredientInTx(
+      tx,
+      produceIngredientRows.map((ingredient) => ingredient.ingredientId)
+    );
+    const outputConsumptionRows = buildOutputConsumptionsFromPickedAllocations(
+      produceIngredientRows,
+      pickAllocationsByIngredient
+    );
+    const materialCostTotal = produceIngredientRows.reduce(
+      (sum, ingredient) => sum + ingredient.actualCostTotal,
+      0
+    );
+
+    await insertManufacturingOrderOutputInTx(tx, {
+      manufacturingOrderId: orderId,
+      manufacturingOrderBatchId: batchId,
+      lotId: produced.lotId,
+      quantity: actualQuantity,
+      disposition: payload.outputDisposition,
+      materialCostTotal,
+      notes: null,
+      actorUserId: userId,
+      consumptions: outputConsumptionRows,
     });
 
     await tx

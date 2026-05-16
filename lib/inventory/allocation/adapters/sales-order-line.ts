@@ -130,7 +130,6 @@ async function loadSalesRowsInTx(
   whereClause: ReturnType<typeof and>,
   options?: {
     subtractPlannedShipments?: boolean;
-    hideWhenPlannedShipmentsExist?: boolean;
   }
 ) {
   const masterItems = alias(items, "allocation_sales_master_items");
@@ -171,11 +170,6 @@ async function loadSalesRowsInTx(
     : new Map<string, number>();
 
   return rows
-    .filter(
-      (row) =>
-        !options?.hideWhenPlannedShipmentsExist ||
-        (plannedByLine.get(row.salesOrderLineId) ?? 0) <= 0
-    )
     .map((row) =>
       mapSalesDemandRow(
         row,
@@ -261,7 +255,8 @@ export const salesOrderLineAllocationAdapter: AllocationDemandAdapter = {
         eq(salesOrderLines.id, params.demandId),
         isNull(salesOrders.deletedAt),
         inArray(salesOrders.status, [...ACTIVE_ORDER_STATUSES])
-      )
+      ),
+      { subtractPlannedShipments: true }
     );
     return rows[0] ?? null;
   },
@@ -275,7 +270,6 @@ export const salesOrderLineAllocationAdapter: AllocationDemandAdapter = {
       ),
       {
         subtractPlannedShipments: true,
-        hideWhenPlannedShipmentsExist: true,
       }
     );
   },

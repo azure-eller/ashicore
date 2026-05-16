@@ -174,14 +174,6 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
       });
     }
 
-    if (values.status === "open" && !values.shipDate) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Ship date is required to create a sales order",
-        path: ["shipDate"],
-      });
-    }
-
     if (values.shipDate && values.orderDate && values.shipDate < values.orderDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

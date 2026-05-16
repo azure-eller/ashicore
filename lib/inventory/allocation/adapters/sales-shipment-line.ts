@@ -1,6 +1,5 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import {
-  salesOrderLines,
   salesOrders,
   salesShipmentLines,
   salesShipments,

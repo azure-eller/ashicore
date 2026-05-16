@@ -123,8 +123,6 @@ interface ItemDetailProps {
     availableQty: string;
     expectedQty: string;
     safetyStock: string;
-    manufacturingMode?: string;
-    expectedBatchYield?: string | null;
     typicalBatchSize?: string | null;
     typicalGroupSize?: string | null;
     isMaster?: boolean;

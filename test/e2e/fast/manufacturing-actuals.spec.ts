@@ -60,7 +60,15 @@ test.describe("Manufacturing batch ingredient actuals", () => {
       safetyStock: "0",
       manufacturingMode: "batch",
       expectedBatchYield: "50",
-      bom: [{ componentId: soilId, quantity: "1" }],
+      bom: [
+        {
+          componentId: soilId,
+          quantity: "1",
+          consumptionMode: "per_batch",
+          basisOutputQuantity: "50",
+          batchScalingMode: "full_batches_only",
+        },
+      ],
     });
     expect(productCreate.status).toBe(201);
     const productId = productCreate.body.id as string;
@@ -391,7 +399,15 @@ test.describe("Manufacturing batch ingredient actuals", () => {
       safetyStock: "0",
       manufacturingMode: "batch",
       expectedBatchYield: "50",
-      bom: [{ componentId: soilId, quantity: "1" }],
+      bom: [
+        {
+          componentId: soilId,
+          quantity: "1",
+          consumptionMode: "per_batch",
+          basisOutputQuantity: "50",
+          batchScalingMode: "full_batches_only",
+        },
+      ],
     });
     expect(productCreate.status).toBe(201);
     const productId = productCreate.body.id as string;

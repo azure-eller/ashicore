@@ -72,8 +72,6 @@ type PlanningItemRecord = {
   purchaseUnitDefinitionId: string | null;
   purchaseUnitName: string | null;
   purchaseToStockFactor: string | null;
-  manufacturingMode: string;
-  expectedBatchYield: string | null;
 };
 
 type BomComponentRecord = {
@@ -1022,10 +1020,6 @@ async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
       purchaseToStockFactor: trimScaleNullable(items.purchaseToStockFactor).as(
         "purchaseToStockFactor"
       ),
-      manufacturingMode: items.manufacturingMode,
-      expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
-        "expectedBatchYield"
-      ),
     })
     .from(items)
     .leftJoin(masterItems, eq(items.parentId, masterItems.id))
@@ -1808,15 +1802,6 @@ function computeReplenishmentMetadata(args: {
   };
 }
 
-function computeBatchCount(item: PlanningItemRecord, quantity: number) {
-  const expectedBatchYield = nullableNumber(item.expectedBatchYield);
-  if (item.manufacturingMode !== "batch" || expectedBatchYield == null || expectedBatchYield <= 0) {
-    return null;
-  }
-
-  return Math.ceil(quantity / expectedBatchYield);
-}
-
 function computeBomBatchMetadata(
   bom: CurrentBomRecord | undefined,
   quantity: number
@@ -1876,11 +1861,9 @@ function computeProductionMetadata(args: {
   return {
     latestStartDate: null,
     productionBucket,
-    manufacturingMode: bomBatchMetadata?.manufacturingMode ?? args.item.manufacturingMode,
-    expectedBatchYield: bomBatchMetadata?.expectedBatchYield ?? args.item.expectedBatchYield,
-    plannedBatchCount:
-      bomBatchMetadata?.plannedBatchCount ??
-      computeBatchCount(args.item, args.shortageQuantity),
+    manufacturingMode: bomBatchMetadata?.manufacturingMode ?? "discrete",
+    expectedBatchYield: bomBatchMetadata?.expectedBatchYield ?? null,
+    plannedBatchCount: bomBatchMetadata?.plannedBatchCount ?? null,
   };
 }
 

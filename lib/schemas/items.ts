@@ -207,32 +207,6 @@ function purchaseUnitRefine(
   }
 }
 
-function batchYieldRefine(
-  data: { manufacturingMode?: string; expectedBatchYield?: string | null },
-  ctx: z.RefinementCtx
-) {
-  if (data.manufacturingMode !== "batch") return;
-
-  const raw = data.expectedBatchYield?.trim() ?? "";
-  if (raw === "") {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Expected batch yield is required for batch manufacturing",
-      path: ["expectedBatchYield"],
-    });
-    return;
-  }
-
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Expected batch yield must be greater than 0",
-      path: ["expectedBatchYield"],
-    });
-  }
-}
-
 function positiveOptionalRefine(
   value: string | null | undefined,
   fieldName: string,
@@ -342,7 +316,7 @@ function bomRefine(
 export const insertItemSchema = rawBaseItemSchema.superRefine((data, ctx) => {
   purchaseUnitRefine(data, ctx);
   bomRefine(data, ctx);
-  batchYieldRefine(data, ctx);
+  positiveOptionalRefine(data.expectedBatchYield, "Expected batch yield", "expectedBatchYield", ctx);
   positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
   positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);
 });
@@ -360,7 +334,7 @@ export const updateItemSchema = rawBaseItemSchema.omit({
 }).extend({
   currentStockUnitCost: currentStockUnitCostUpdateSchema,
   sellable: z.boolean().optional(),
-  manufacturingMode: z.enum(["discrete", "batch"]),
+  manufacturingMode: z.enum(["discrete", "batch"]).default("discrete"),
   stock: z.string().refine(
     (v) => { const n = Number(v); return !isNaN(n) && n >= 0; },
     "Must be a non-negative number"
@@ -368,7 +342,7 @@ export const updateItemSchema = rawBaseItemSchema.omit({
 }).superRefine((data, ctx) => {
   purchaseUnitRefine(data, ctx);
   bomRefine(data, ctx);
-  batchYieldRefine(data, ctx);
+  positiveOptionalRefine(data.expectedBatchYield, "Expected batch yield", "expectedBatchYield", ctx);
   positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
   positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);
 });
@@ -409,8 +383,8 @@ export const insertVariantSchema = z.object({
   bom: cleanedBomRowsSchema.optional(),
   revisionNote: nullableStringOptional,
 }).superRefine((data, ctx) => {
-  batchYieldRefine(data, ctx);
   bomRefine(data, ctx);
+  positiveOptionalRefine(data.expectedBatchYield, "Expected batch yield", "expectedBatchYield", ctx);
   positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
   positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);
 });

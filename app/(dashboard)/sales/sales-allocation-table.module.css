@@ -136,6 +136,19 @@
   margin-top: var(--space-1);
 }
 
+.demandTypeBadge {
+  width: fit-content;
+  margin-top: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-none);
+  background: var(--muted);
+  padding: var(--space-1) var(--space-4);
+  color: var(--muted-foreground);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
 .hideColumnAction {
   position: absolute;
   top: var(--space-2);
@@ -226,6 +239,11 @@
   font-size: var(--text-2xs);
   font-weight: 700;
   line-height: 1.2;
+}
+
+.relativeBadge[data-tone="neutral"] {
+  background: var(--muted);
+  color: var(--muted-foreground);
 }
 
 .productCell {

@@ -32,8 +32,6 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
         currentStockUnitCost: items.currentStockUnitCost,
         defaultPurchasePrice: items.defaultPurchasePrice,
         purchaseToStockFactor: items.purchaseToStockFactor,
-        manufacturingMode: items.manufacturingMode,
-        expectedBatchYield: items.expectedBatchYield,
         deletedAt: items.deletedAt,
       })
       .from(items)

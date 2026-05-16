@@ -292,9 +292,19 @@ export function AllocationSourceDialog({
         <DialogHeader>
           <DialogTitle>Allocate {target?.product.label}</DialogTitle>
           <DialogDescription>
-            {target
-              ? `${target.order.customerName} · ${target.order.orderNumber}`
-              : ""}
+            {target ? (
+              target.line.allocationDemandType === "sales_shipment_line" ? (
+                <>
+                  {target.order.customerName} · {target.line.shipmentNumber ?? target.order.orderNumber} · Planned shipment
+                </>
+              ) : (
+                <>
+                  {target.order.customerName} · {target.order.orderNumber} · Unplanned demand. Not assigned to a shipment yet.
+                </>
+              )
+            ) : (
+              ""
+            )}
           </DialogDescription>
         </DialogHeader>
 

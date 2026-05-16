@@ -274,8 +274,6 @@ export async function resolvePositiveStockUnitCostInTx(
         currentStockUnitCost: items.currentStockUnitCost,
         defaultPurchasePrice: items.defaultPurchasePrice,
         purchaseToStockFactor: items.purchaseToStockFactor,
-        manufacturingMode: items.manufacturingMode,
-        expectedBatchYield: items.expectedBatchYield,
       })
       .from(items)
       .where(eq(items.id, currentItemId));

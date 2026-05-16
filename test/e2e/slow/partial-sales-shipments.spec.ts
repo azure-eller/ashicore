@@ -199,7 +199,7 @@ test.describe("Partial sales shipments", () => {
 
     await page.goto(`/sales/orders/${orderId}`);
     await expect(page.locator("main").getByText("Open", { exact: true }).first()).toBeVisible();
-    await expect(page.locator("main")).toContainText("1 of 2 shipped");
+    await expect(page.locator("main")).toContainText("1 of 1 shipped");
     await expect(page.locator("main")).toContainText("Shipped");
 
     let balance = await getItemBalance(db, itemId);

@@ -95,6 +95,8 @@ type AllocationRow = {
   id: string;
   order: SalesOrderListRow;
   label: string;
+  demandTypeLabel: "Planned shipment" | "Unplanned demand";
+  demandContext: string;
   customerName: string;
   shipDate: string | null;
   cells: Map<string, AllocationCell>;
@@ -123,6 +125,8 @@ type SalesAllocationGridRow =
       rowType: "order";
       order: SalesOrderListRow;
       label: string;
+      demandTypeLabel: "Planned shipment" | "Unplanned demand";
+      demandContext: string;
       customerName: string;
       shipDate: string | null;
       cells: Map<string, AllocationCell>;
@@ -280,6 +284,8 @@ function buildRows(orders: SalesOrderListRow[], products: AllocationProduct[]) {
               id: `shipment:${shipment.id}`,
               order,
               label: shipment.shipmentNumber,
+              demandTypeLabel: "Planned shipment",
+              demandContext: `Assigned to shipment ${shipment.shipmentNumber}`,
               customerName: order.customerName,
               shipDate: shipment.scheduledDate ?? order.shipDate,
               cells,
@@ -317,6 +323,8 @@ function buildRows(orders: SalesOrderListRow[], products: AllocationProduct[]) {
           id: `order:${order.id}`,
           order,
           label: order.orderNumber,
+          demandTypeLabel: "Unplanned demand",
+          demandContext: "Not assigned to a shipment yet",
           customerName: order.customerName,
           shipDate: order.shipDate,
           cells: fallbackCells,
@@ -547,6 +555,8 @@ function buildGridRows(rows: AllocationRow[]): SalesAllocationGridRow[] {
     rowType: "order",
     order: row.order,
     label: row.label,
+    demandTypeLabel: row.demandTypeLabel,
+    demandContext: row.demandContext,
     customerName: row.customerName,
     shipDate: row.shipDate,
     cells: row.cells,
@@ -608,6 +618,9 @@ function CustomerCell({ data }: ICellRendererParams<SalesAllocationGridRow>) {
         ) : null}
       </Link>
       <span className={styles.orderNumber}>{data.label}</span>
+      <span className={styles.demandTypeBadge} title={data.demandContext}>
+        {data.demandTypeLabel}
+      </span>
     </div>
   );
 }
@@ -629,11 +642,19 @@ function ShipCell({ data }: ICellRendererParams<SalesAllocationGridRow>) {
   return (
     <div className={styles.shipCell}>
       <span className={styles.shipDate}>
-        {data.isToday ? "Today" : formatShipDate(data.shipDate)}
+        {data.shipDate == null
+          ? "Not assigned"
+          : data.isToday
+            ? "Today"
+            : formatShipDate(data.shipDate)}
       </span>
       {data.lateDays != null ? (
         <span className={styles.relativeBadge}>
           {relativeShipLabel(data.shipDate)}
+        </span>
+      ) : data.shipDate == null ? (
+        <span className={styles.relativeBadge} data-tone="neutral">
+          Unplanned
         </span>
       ) : null}
     </div>

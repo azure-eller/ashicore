@@ -54,7 +54,7 @@ export function buildBomSignature(
     .join("|");
 }
 
-function resolveSeedBomConsumption(
+export function resolveSeedBomConsumption(
   seed: ItemSeed,
   row: NonNullable<ItemSeed["bom"]>[number]
 ): Pick<

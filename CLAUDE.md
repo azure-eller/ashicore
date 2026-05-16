@@ -435,6 +435,7 @@ return resolveStockUnitCostFromDefaultPurchasePrice(...)
 See `docs/sales.md` and `docs/planning.md`. Critical:
 
 - Confirmed orders reserve the full order. Draft shipments plan only; shipped shipments consume/release. BOL state: `draft` = planned, `shipped` = final.
+- Sales allocation targets are two buckets: `sales_order_line` means unplanned residual demand; `sales_shipment_line` means planned shipment demand. Shipment create/edit/delete moves allocations between those buckets automatically.
 - `partially_shipped` orders still block customer/product deletes while remaining demand exists.
 - Sales Allocation tab is authoritative. Allocation demand is only confirmed/partial SO lines; draft SOs and draft MOs are ignored. MO supply is allocatable only after release.
 - Planning downstream rows are sales-order attribution paths only — use `salesOrderProductionDemandPaths`, never infer from `sourceRefs`, BOM revisions, or MOs. Direct SO demand stays flat on the card.

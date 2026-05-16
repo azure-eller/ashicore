@@ -1342,6 +1342,107 @@ function buildShipmentEntries(
   });
 }
 
+type SalesAllocationDemandType = "sales_order_line" | "sales_shipment_line";
+
+async function moveActiveSalesAllocationsInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    sourceDemandType: SalesAllocationDemandType;
+    sourceDemandId: string;
+    targetDemandType: SalesAllocationDemandType;
+    targetDemandId: string;
+    itemId: string;
+    quantity?: number | null;
+    demandLabelSnapshot?: string | null;
+    actorUserId?: string | null;
+  }
+) {
+  let remaining =
+    params.quantity == null ? Number.POSITIVE_INFINITY : roundQuantity(params.quantity);
+  if (remaining <= 0) return 0;
+
+  const rows = await tx
+    .select({
+      id: stockAllocations.id,
+      sourceType: stockAllocations.sourceType,
+      sourceId: stockAllocations.sourceId,
+      quantity: stockAllocations.quantity,
+      sourceLabelSnapshot: stockAllocations.sourceLabelSnapshot,
+      notes: stockAllocations.notes,
+      createdBy: stockAllocations.createdBy,
+    })
+    .from(stockAllocations)
+    .where(
+      and(
+        eq(stockAllocations.organizationId, params.organizationId),
+        eq(stockAllocations.demandType, params.sourceDemandType),
+        eq(stockAllocations.demandId, params.sourceDemandId),
+        eq(stockAllocations.itemId, params.itemId),
+        eq(stockAllocations.status, "active")
+      )
+    )
+    .orderBy(asc(stockAllocations.createdAt), asc(stockAllocations.id))
+    .for("update");
+
+  let moved = 0;
+  const now = new Date();
+  for (const row of rows) {
+    if (remaining <= 0) break;
+    const rowQty = roundQuantity(parseFloat(row.quantity));
+    const moveQty = Number.isFinite(remaining)
+      ? roundQuantity(Math.min(rowQty, remaining))
+      : rowQty;
+    if (moveQty <= 0) continue;
+
+    if (moveQty >= rowQty) {
+      await tx
+        .update(stockAllocations)
+        .set({
+          demandType: params.targetDemandType,
+          demandId: params.targetDemandId,
+          demandLabelSnapshot: params.demandLabelSnapshot ?? null,
+          updatedAt: now,
+          updatedBy: params.actorUserId ?? null,
+        })
+        .where(eq(stockAllocations.id, row.id));
+    } else {
+      await tx
+        .update(stockAllocations)
+        .set({
+          quantity: normalizeNumeric(roundQuantity(rowQty - moveQty)),
+          updatedAt: now,
+          updatedBy: params.actorUserId ?? null,
+        })
+        .where(eq(stockAllocations.id, row.id));
+      await tx.insert(stockAllocations).values({
+        organizationId: params.organizationId,
+        demandType: params.targetDemandType,
+        demandId: params.targetDemandId,
+        itemId: params.itemId,
+        sourceType: row.sourceType,
+        sourceId: row.sourceId,
+        quantity: normalizeNumeric(moveQty),
+        status: "active",
+        demandLabelSnapshot: params.demandLabelSnapshot ?? null,
+        sourceLabelSnapshot: row.sourceLabelSnapshot,
+        notes: row.notes,
+        createdBy: row.createdBy,
+        updatedBy: params.actorUserId ?? null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    moved = roundQuantity(moved + moveQty);
+    if (Number.isFinite(remaining)) {
+      remaining = roundQuantity(remaining - moveQty);
+    }
+  }
+
+  return moved;
+}
+
 async function cancelShipmentLineAllocationsInTx(
   tx: Tx,
   params: {
@@ -1362,26 +1463,17 @@ async function cancelShipmentLineAllocationsInTx(
     .from(salesShipmentLines)
     .where(inArray(salesShipmentLines.id, uniqueShipmentLineIds));
 
-  const now = new Date();
-  await tx
-    .update(stockAllocations)
-    .set({
-      status: "cancelled",
-      cancelledAt: now,
-      cancelledBy: params.actorUserId ?? null,
-      updatedAt: now,
-      updatedBy: params.actorUserId ?? null,
-    })
-    .where(
-      and(
-        eq(stockAllocations.organizationId, params.organizationId),
-        eq(stockAllocations.demandType, "sales_shipment_line"),
-        inArray(stockAllocations.demandId, uniqueShipmentLineIds),
-        eq(stockAllocations.status, "active")
-      )
-    );
-
   for (const line of lines) {
+    await moveActiveSalesAllocationsInTx(tx, {
+      organizationId: params.organizationId,
+      sourceDemandType: "sales_shipment_line",
+      sourceDemandId: line.id,
+      targetDemandType: "sales_order_line",
+      targetDemandId: line.salesOrderLineId,
+      itemId: line.itemId,
+      demandLabelSnapshot: null,
+      actorUserId: params.actorUserId ?? null,
+    });
     await syncSalesLineAllocationReservationInTx(tx, {
       organizationId: params.organizationId,
       salesOrderLineId: line.salesOrderLineId,
@@ -1453,27 +1545,17 @@ async function clampShipmentLineAllocationsInTx(
     const releaseQty = roundQuantity(Math.min(rowQty, excessQty));
     if (releaseQty <= 0) continue;
 
-    if (releaseQty >= rowQty) {
-      await tx
-        .update(stockAllocations)
-        .set({
-          status: "cancelled",
-          cancelledAt: now,
-          cancelledBy: params.actorUserId ?? null,
-          updatedAt: now,
-          updatedBy: params.actorUserId ?? null,
-        })
-        .where(eq(stockAllocations.id, row.id));
-    } else {
-      await tx
-        .update(stockAllocations)
-        .set({
-          quantity: normalizeNumeric(roundQuantity(rowQty - releaseQty)),
-          updatedAt: now,
-          updatedBy: params.actorUserId ?? null,
-        })
-        .where(eq(stockAllocations.id, row.id));
-    }
+    await moveActiveSalesAllocationsInTx(tx, {
+      organizationId: params.organizationId,
+      sourceDemandType: "sales_shipment_line",
+      sourceDemandId: params.shipmentLineId,
+      targetDemandType: "sales_order_line",
+      targetDemandId: params.salesOrderLineId,
+      itemId: params.itemId,
+      quantity: releaseQty,
+      demandLabelSnapshot: null,
+      actorUserId: params.actorUserId ?? null,
+    });
 
     excessQty = roundQuantity(excessQty - releaseQty);
   }
@@ -1484,6 +1566,149 @@ async function clampShipmentLineAllocationsInTx(
     itemId: params.itemId,
     actorUserId: params.actorUserId ?? null,
   });
+}
+
+async function pullUnplannedSalesAllocationsToShipmentLineInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    shipmentLineId: string;
+    salesOrderLineId: string;
+    itemId: string;
+    shipmentQuantity: number;
+    demandLabelSnapshot: string;
+    actorUserId?: string | null;
+  }
+) {
+  const [current] = await tx
+    .select({
+      allocatedQty: trimScale(
+        sql`COALESCE(SUM(${stockAllocations.quantity}), 0)`
+      ).as("allocatedQty"),
+    })
+    .from(stockAllocations)
+    .where(
+      and(
+        eq(stockAllocations.organizationId, params.organizationId),
+        eq(stockAllocations.demandType, "sales_shipment_line"),
+        eq(stockAllocations.demandId, params.shipmentLineId),
+        eq(stockAllocations.itemId, params.itemId),
+        eq(stockAllocations.status, "active")
+      )
+    );
+
+  const currentAllocatedQty = roundQuantity(
+    parseFloat(current?.allocatedQty ?? "0")
+  );
+  const capacityQty = roundQuantity(params.shipmentQuantity - currentAllocatedQty);
+  if (capacityQty <= 0) return;
+
+  const movedQty = await moveActiveSalesAllocationsInTx(tx, {
+    organizationId: params.organizationId,
+    sourceDemandType: "sales_order_line",
+    sourceDemandId: params.salesOrderLineId,
+    targetDemandType: "sales_shipment_line",
+    targetDemandId: params.shipmentLineId,
+    itemId: params.itemId,
+    quantity: capacityQty,
+    demandLabelSnapshot: params.demandLabelSnapshot,
+    actorUserId: params.actorUserId ?? null,
+  });
+
+  if (movedQty > 0) {
+    await syncSalesLineAllocationReservationInTx(tx, {
+      organizationId: params.organizationId,
+      salesOrderLineId: params.salesOrderLineId,
+      itemId: params.itemId,
+      actorUserId: params.actorUserId ?? null,
+    });
+  }
+}
+
+async function moveReplacedSalesLineAllocationsInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    existingLines: Array<{ id: string; itemId: string; sortOrder: number | null }>;
+    insertedLines: Array<{
+      salesOrderLineId: string;
+      itemId: string;
+      quantity: string;
+      sortOrder: number | null;
+    }>;
+    actorUserId?: string | null;
+  }
+) {
+  const insertedByItemId = new Map<string, typeof params.insertedLines>();
+  for (const line of params.insertedLines) {
+    const lines = insertedByItemId.get(line.itemId) ?? [];
+    lines.push(line);
+    insertedByItemId.set(line.itemId, lines);
+  }
+
+  for (const lines of insertedByItemId.values()) {
+    lines.sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0));
+  }
+
+  const existingLines = [...params.existingLines].sort(
+    (left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0)
+  );
+  for (const existingLine of existingLines) {
+    const replacements = insertedByItemId.get(existingLine.itemId);
+    const replacement = replacements?.shift();
+    if (!replacement) continue;
+
+    const movedQty = await moveActiveSalesAllocationsInTx(tx, {
+      organizationId: params.organizationId,
+      sourceDemandType: "sales_order_line",
+      sourceDemandId: existingLine.id,
+      targetDemandType: "sales_order_line",
+      targetDemandId: replacement.salesOrderLineId,
+      itemId: existingLine.itemId,
+      quantity: parseFloat(replacement.quantity),
+      demandLabelSnapshot: null,
+      actorUserId: params.actorUserId ?? null,
+    });
+
+    if (movedQty > 0) {
+      await syncSalesLineAllocationReservationInTx(tx, {
+        organizationId: params.organizationId,
+        salesOrderLineId: replacement.salesOrderLineId,
+        itemId: replacement.itemId,
+        actorUserId: params.actorUserId ?? null,
+      });
+    }
+  }
+
+  const existingLineIds = params.existingLines.map((line) => line.id);
+  if (existingLineIds.length === 0) return;
+
+  const now = new Date();
+  await tx
+    .update(stockAllocations)
+    .set({
+      status: "cancelled",
+      cancelledAt: now,
+      cancelledBy: params.actorUserId ?? null,
+      updatedAt: now,
+      updatedBy: params.actorUserId ?? null,
+    })
+    .where(
+      and(
+        inArray(stockAllocations.demandId, existingLineIds),
+        eq(stockAllocations.demandType, "sales_order_line"),
+        eq(stockAllocations.status, "active")
+      )
+    );
+
+  await tx
+    .delete(stockAllocations)
+    .where(
+      and(
+        eq(stockAllocations.demandType, "sales_order_line"),
+        inArray(stockAllocations.demandId, existingLineIds)
+      )
+    );
 }
 
 async function replaceShipmentLinesPreservingAllocationsInTx(
@@ -1536,6 +1761,15 @@ async function replaceShipmentLinesPreservingAllocationsInTx(
         demandLabelSnapshot: params.demandLabelSnapshot,
         actorUserId: params.actorUserId ?? null,
       });
+      await pullUnplannedSalesAllocationsToShipmentLineInTx(tx, {
+        organizationId: params.organizationId,
+        shipmentLineId: existing.id,
+        salesOrderLineId: existing.salesOrderLineId,
+        itemId: existing.itemId,
+        shipmentQuantity: entry.quantity,
+        demandLabelSnapshot: params.demandLabelSnapshot,
+        actorUserId: params.actorUserId ?? null,
+      });
       continue;
     }
 
@@ -1551,7 +1785,7 @@ async function replaceShipmentLinesPreservingAllocationsInTx(
         .where(eq(salesShipmentLines.id, existing.id));
     }
 
-    await tx.insert(salesShipmentLines).values({
+    const [insertedLine] = await tx.insert(salesShipmentLines).values({
       salesShipmentId: params.shipmentId,
       salesOrderLineId: entry.state.id,
       itemId: entry.state.itemId,
@@ -1560,6 +1794,16 @@ async function replaceShipmentLinesPreservingAllocationsInTx(
       unitName: entry.state.unitName,
       quantity: normalizeNumeric(entry.quantity),
       sortOrder: entry.state.sortOrder,
+    }).returning({ id: salesShipmentLines.id });
+
+    await pullUnplannedSalesAllocationsToShipmentLineInTx(tx, {
+      organizationId: params.organizationId,
+      shipmentLineId: insertedLine.id,
+      salesOrderLineId: entry.state.id,
+      itemId: entry.state.itemId,
+      shipmentQuantity: entry.quantity,
+      demandLabelSnapshot: params.demandLabelSnapshot,
+      actorUserId: params.actorUserId ?? null,
     });
   }
 
@@ -1590,79 +1834,17 @@ async function moveShipmentLineAllocationsInTx(
     actorUserId?: string | null;
   }
 ) {
-  let remaining = roundQuantity(params.quantity);
-  if (remaining <= 0) return;
-
-  const rows = await tx
-    .select({
-      id: stockAllocations.id,
-      sourceType: stockAllocations.sourceType,
-      sourceId: stockAllocations.sourceId,
-      quantity: stockAllocations.quantity,
-      sourceLabelSnapshot: stockAllocations.sourceLabelSnapshot,
-      notes: stockAllocations.notes,
-      createdBy: stockAllocations.createdBy,
-    })
-    .from(stockAllocations)
-    .where(
-      and(
-        eq(stockAllocations.organizationId, params.organizationId),
-        eq(stockAllocations.demandType, "sales_shipment_line"),
-        eq(stockAllocations.demandId, params.sourceShipmentLineId),
-        eq(stockAllocations.itemId, params.itemId),
-        eq(stockAllocations.status, "active")
-      )
-    )
-    .orderBy(asc(stockAllocations.createdAt), asc(stockAllocations.id))
-    .for("update");
-
-  const now = new Date();
-  for (const row of rows) {
-    if (remaining <= 0) break;
-    const rowQty = roundQuantity(parseFloat(row.quantity));
-    const moveQty = roundQuantity(Math.min(rowQty, remaining));
-    if (moveQty <= 0) continue;
-
-    if (moveQty >= rowQty) {
-      await tx
-        .update(stockAllocations)
-        .set({
-          demandId: params.targetShipmentLineId,
-          demandLabelSnapshot: params.demandLabelSnapshot,
-          updatedAt: now,
-          updatedBy: params.actorUserId ?? null,
-        })
-        .where(eq(stockAllocations.id, row.id));
-    } else {
-      await tx
-        .update(stockAllocations)
-        .set({
-          quantity: normalizeNumeric(roundQuantity(rowQty - moveQty)),
-          updatedAt: now,
-          updatedBy: params.actorUserId ?? null,
-        })
-        .where(eq(stockAllocations.id, row.id));
-      await tx.insert(stockAllocations).values({
-        organizationId: params.organizationId,
-        demandType: "sales_shipment_line",
-        demandId: params.targetShipmentLineId,
-        itemId: params.itemId,
-        sourceType: row.sourceType,
-        sourceId: row.sourceId,
-        quantity: normalizeNumeric(moveQty),
-        status: "active",
-        demandLabelSnapshot: params.demandLabelSnapshot,
-        sourceLabelSnapshot: row.sourceLabelSnapshot,
-        notes: row.notes,
-        createdBy: row.createdBy,
-        updatedBy: params.actorUserId ?? null,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-
-    remaining = roundQuantity(remaining - moveQty);
-  }
+  await moveActiveSalesAllocationsInTx(tx, {
+    organizationId: params.organizationId,
+    sourceDemandType: "sales_shipment_line",
+    sourceDemandId: params.sourceShipmentLineId,
+    targetDemandType: "sales_shipment_line",
+    targetDemandId: params.targetShipmentLineId,
+    itemId: params.itemId,
+    quantity: params.quantity,
+    demandLabelSnapshot: params.demandLabelSnapshot,
+    actorUserId: params.actorUserId ?? null,
+  });
 }
 
 type FulfillmentPlanOrderSnapshot = {
@@ -1897,7 +2079,7 @@ async function upsertPlannedShipmentForFulfillmentPlanInTx(
     })
     .returning({ id: salesShipments.id });
 
-  await tx.insert(salesShipmentLines).values(
+  const insertedLines = await tx.insert(salesShipmentLines).values(
     entries.map((entry) => ({
       salesShipmentId: shipment.id,
       salesOrderLineId: entry.state.id,
@@ -1908,7 +2090,24 @@ async function upsertPlannedShipmentForFulfillmentPlanInTx(
       quantity: normalizeNumeric(entry.quantity),
       sortOrder: entry.state.sortOrder,
     }))
-  );
+  ).returning({
+    id: salesShipmentLines.id,
+    salesOrderLineId: salesShipmentLines.salesOrderLineId,
+    itemId: salesShipmentLines.itemId,
+    quantity: trimScale(salesShipmentLines.quantity).as("quantity"),
+  });
+
+  for (const line of insertedLines) {
+    await pullUnplannedSalesAllocationsToShipmentLineInTx(tx, {
+      organizationId: orgId,
+      shipmentLineId: line.id,
+      salesOrderLineId: line.salesOrderLineId,
+      itemId: line.itemId,
+      shipmentQuantity: parseFloat(line.quantity),
+      demandLabelSnapshot: shipmentNumber,
+      actorUserId: actorUserId ?? null,
+    });
+  }
 
   return shipment.id;
 }
@@ -2212,6 +2411,25 @@ async function upsertDefaultPlannedShipmentForOrderInTx(
   order: AutoPlannedShipmentOrderSnapshot,
   actorUserId?: string | null
 ) {
+  if (!order.shipDate) {
+    const existingShipments = await tx
+      .select({ id: salesShipments.id })
+      .from(salesShipments)
+      .where(
+        and(
+          eq(salesShipments.salesOrderId, order.id),
+          eq(salesShipments.status, "planned")
+        )
+      )
+      .for("update");
+    await deletePlannedShipmentsInTx(tx, {
+      organizationId: orgId,
+      shipmentIds: existingShipments.map((shipment) => shipment.id),
+      actorUserId: actorUserId ?? null,
+    });
+    return null;
+  }
+
   const existingShipment = await getActivePlannedShipmentInTx(tx, order.id);
   const states = await getShipmentLineStatesInTx(tx, order.id, {
     excludeShipmentId: existingShipment?.id,
@@ -2306,119 +2524,43 @@ async function upsertUnscheduledRemainderShipmentForOrderInTx(
   actorUserId?: string | null,
   options?: { excludeShipmentId?: string | null }
 ) {
-  const existingShipment = await getActivePlannedShipmentInTx(
-    tx,
-    order.id,
-    null,
-    {
-      excludeShipmentId: options?.excludeShipmentId ?? null,
-      unscheduledOnly: true,
-    }
-  );
-  const states = await getShipmentLineStatesInTx(tx, order.id, {
-    excludeShipmentId: existingShipment?.id,
-  });
-  const lines = [...states.values()].flatMap((state) => {
-    const quantity = unplannedRemaining(state);
-    if (quantity <= 0) return [];
-    return [{ salesOrderLineId: state.id, quantity: normalizeNumeric(quantity) }];
-  });
-
-  if (lines.length === 0) {
-    if (existingShipment) {
-      const existingLines = await tx
-        .select({ id: salesShipmentLines.id })
-        .from(salesShipmentLines)
-        .where(eq(salesShipmentLines.salesShipmentId, existingShipment.id))
-        .for("update");
-      await cancelShipmentLineAllocationsInTx(tx, {
-        organizationId: orgId,
-        shipmentLineIds: existingLines.map((line) => line.id),
-        actorUserId: actorUserId ?? null,
-      });
-      await tx
-        .delete(salesShipmentLines)
-        .where(eq(salesShipmentLines.salesShipmentId, existingShipment.id));
-      await tx
-        .delete(salesShipmentCosts)
-        .where(eq(salesShipmentCosts.salesShipmentId, existingShipment.id));
-      await tx.delete(salesShipments).where(eq(salesShipments.id, existingShipment.id));
-    }
-    return null;
+  const conditions = [
+    eq(salesShipments.salesOrderId, order.id),
+    eq(salesShipments.status, "planned"),
+    sql`${salesShipments.scheduledDate} IS NULL`,
+    eq(salesShipments.notes, "Remaining demand"),
+  ];
+  if (options?.excludeShipmentId) {
+    conditions.push(sql`${salesShipments.id} <> ${options.excludeShipmentId}`);
   }
 
-  const shipmentData: SalesShipmentInput = {
-    fulfillmentType: "delivery",
-    scheduledDate: null,
-    notes: "Remaining demand",
-    lines,
-  };
-  const shipAddress = await resolveShipmentAddressInTx(tx, order);
-  const entries = buildShipmentEntries(states, shipmentData);
-  const now = new Date();
+  const generatedRemainderShipments = await tx
+    .select({ id: salesShipments.id })
+    .from(salesShipments)
+    .where(and(...conditions))
+    .for("update");
 
-  if (existingShipment) {
-    const shipmentNumber = `${order.orderNumber}-S${existingShipment.sequence}`;
-    await replaceShipmentLinesPreservingAllocationsInTx(tx, {
+  for (const shipment of generatedRemainderShipments) {
+    const existingLines = await tx
+      .select({ id: salesShipmentLines.id })
+      .from(salesShipmentLines)
+      .where(eq(salesShipmentLines.salesShipmentId, shipment.id))
+      .for("update");
+    await cancelShipmentLineAllocationsInTx(tx, {
       organizationId: orgId,
-      shipmentId: existingShipment.id,
-      entries,
-      demandLabelSnapshot: shipmentNumber,
-      actorUserId,
+      shipmentLineIds: existingLines.map((line) => line.id),
+      actorUserId: actorUserId ?? null,
     });
-
     await tx
-      .update(salesShipments)
-      .set({
-        shipmentNumber,
-        orderNumber: order.orderNumber,
-        customerName: order.customerName,
-        scheduledDate: null,
-        fulfillmentType: "delivery",
-        notes: "Remaining demand",
-        ...shipAddress,
-        updatedAt: now,
-      })
-      .where(eq(salesShipments.id, existingShipment.id));
-
-    return existingShipment.id;
+      .delete(salesShipmentLines)
+      .where(eq(salesShipmentLines.salesShipmentId, shipment.id));
+    await tx
+      .delete(salesShipmentCosts)
+      .where(eq(salesShipmentCosts.salesShipmentId, shipment.id));
+    await tx.delete(salesShipments).where(eq(salesShipments.id, shipment.id));
   }
 
-  const sequence = await getNextShipmentSequenceInTx(tx, order.id);
-  const shipmentNumber = `${order.orderNumber}-S${sequence}`;
-  const [shipment] = await tx
-    .insert(salesShipments)
-    .values({
-      organizationId: orgId,
-      salesOrderId: order.id,
-      shipmentNumber,
-      sequence,
-      status: "planned",
-      fulfillmentType: shipmentData.fulfillmentType,
-      scheduledDate: shipmentData.scheduledDate,
-      notes: shipmentData.notes,
-      orderNumber: order.orderNumber,
-      customerName: order.customerName,
-      ...shipAddress,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning({ id: salesShipments.id });
-
-  await tx.insert(salesShipmentLines).values(
-    entries.map((entry) => ({
-      salesShipmentId: shipment.id,
-      salesOrderLineId: entry.state.id,
-      itemId: entry.state.itemId,
-      itemName: entry.state.itemName,
-      itemSku: entry.state.itemSku,
-      unitName: entry.state.unitName,
-      quantity: normalizeNumeric(entry.quantity),
-      sortOrder: entry.state.sortOrder,
-    }))
-  );
-
-  return shipment.id;
+  return null;
 }
 
 async function getNextShipmentSequenceInTx(tx: Tx, salesOrderId: string) {
@@ -4751,13 +4893,6 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             sources,
           });
         }
-        const allocationDemandByLineId = new Map(
-          [...allocationModels.values()].flatMap((model) =>
-            model.demandRows
-              .filter((row) => row.demandType === "sales_order_line")
-              .map((row) => [row.salesOrderLineId, row])
-          )
-        );
         for (const shipment of shipmentsById.values()) {
           shipment.lines = shipment.lines.map((line) => {
             const allocation = allocationSummaryByDemandId.get(line.id);
@@ -4785,13 +4920,11 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           const stockBlockers = summaryLines.flatMap((line) => {
             const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
             const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
-            const plannedQty = plannedByLine.get(line.salesOrderLineId) ?? 0;
             const remainingQty = normalizeShipmentQuantity(
               Number(line.quantity) - shippedQty
             );
-            const unplannedQty = normalizeShipmentQuantity(remainingQty - plannedQty);
             const shortQty = roundQuantity(
-              Number(allocation?.shortQty ?? 0) + unplannedQty
+              Number(allocation?.shortQty ?? remainingQty)
             );
 
             if (!Number.isFinite(shortQty) || shortQty <= 0) {
@@ -4814,14 +4947,12 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             lines: summaryLines.map((line) => {
               const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
               const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
-              const plannedQty = plannedByLine.get(line.salesOrderLineId) ?? 0;
               const remainingQty = normalizeShipmentQuantity(
                 Number(line.quantity) - shippedQty
               );
-              const unplannedQty = normalizeShipmentQuantity(remainingQty - plannedQty);
               const allocatedQty = Number(allocation?.allocatedQty ?? 0);
               const shortQty = roundQuantity(
-                Number(allocation?.shortQty ?? 0) + unplannedQty
+                Number(allocation?.shortQty ?? remainingQty)
               );
               const sources = allocation?.sources ?? [];
 
@@ -4855,16 +4986,12 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 (acc, line) => {
                   const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
                   const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
-                  const plannedQty = plannedByLine.get(line.salesOrderLineId) ?? 0;
                   const remainingQty = normalizeShipmentQuantity(
                     Number(line.quantity) - shippedQty
                   );
-                  const unplannedQty = normalizeShipmentQuantity(
-                    remainingQty - plannedQty
-                  );
                   acc.remainingQty += remainingQty;
                   acc.allocatedQty += Number(allocation?.allocatedQty ?? 0);
-                  acc.shortQty += Number(allocation?.shortQty ?? 0) + unplannedQty;
+                  acc.shortQty += Number(allocation?.shortQty ?? remainingQty);
                   acc.productionAllocatedQty +=
                     allocation?.sources
                       .filter((source) => source.sourceType === "manufacturing_order")
@@ -5587,17 +5714,9 @@ export async function getSalesOrder(
     }
     const linesWithAllocation = linesWithFulfillment.map((line) => {
       const allocation = allocationSummaryByLineId.get(line.id);
-      const fallbackAllocatedQty = Number(line.reservationAllocatedQty ?? 0);
-      const allocatedQty = Math.max(
-        Number(allocation?.allocatedQty ?? 0),
-        fallbackAllocatedQty
-      );
+      const allocatedQty = Number(allocation?.allocatedQty ?? 0);
       const shortQty = roundQuantity(
-        Math.max(
-          0,
-          Number(allocation?.shortQty ?? Number(line.remainingQuantity)) -
-            Math.max(0, allocatedQty - Number(allocation?.allocatedQty ?? 0))
-        ) + Number(line.unplannedRemainingQuantity)
+        Number(allocation?.shortQty ?? Number(line.remainingQuantity))
       );
       const sources = allocation?.sources ?? [];
 
@@ -5959,36 +6078,6 @@ export async function updateSalesOrder(
 
     const prepared = await prepareOrderPayload(tx, data);
 
-    const existingLineIds = existingLines.map((line) => line.id);
-    if (existingLineIds.length > 0) {
-      const now = new Date();
-      await tx
-        .update(stockAllocations)
-        .set({
-          status: "cancelled",
-          cancelledAt: now,
-          cancelledBy: userId,
-          updatedAt: now,
-          updatedBy: userId,
-        })
-        .where(
-          and(
-            inArray(stockAllocations.demandId, existingLineIds),
-            eq(stockAllocations.demandType, "sales_order_line"),
-            eq(stockAllocations.status, "active")
-          )
-        );
-
-      await tx
-        .delete(stockAllocations)
-        .where(
-          and(
-            eq(stockAllocations.demandType, "sales_order_line"),
-            inArray(stockAllocations.demandId, existingLineIds)
-          )
-        );
-    }
-
     const existingShipmentRows = await tx
       .select({ id: salesShipments.id })
       .from(salesShipments)
@@ -6030,8 +6119,20 @@ export async function updateSalesOrder(
             salesOrderLineId: salesOrderLines.id,
             itemId: salesOrderLines.itemId,
             quantity: salesOrderLines.quantity,
+            sortOrder: salesOrderLines.sortOrder,
           })
         : [];
+
+    await moveReplacedSalesLineAllocationsInTx(tx, {
+      organizationId: orgId,
+      existingLines: existingLines.map((line) => ({
+        id: line.id,
+        itemId: line.itemId,
+        sortOrder: line.sortOrder,
+      })),
+      insertedLines,
+      actorUserId: userId,
+    });
 
     const orderNumber = await resolveSalesOrderNumberInTx(
       tx,
@@ -6594,6 +6695,18 @@ export async function createSalesShipment(
           .delete(salesShipmentCosts)
           .where(eq(salesShipmentCosts.salesShipmentId, splitSourceId));
         await tx.delete(salesShipments).where(eq(salesShipments.id, splitSourceId));
+      }
+    } else {
+      for (const line of insertedShipmentLines) {
+        await pullUnplannedSalesAllocationsToShipmentLineInTx(tx, {
+          organizationId: orgId,
+          shipmentLineId: line.id,
+          salesOrderLineId: line.salesOrderLineId,
+          itemId: line.itemId,
+          shipmentQuantity: parseFloat(line.quantity),
+          demandLabelSnapshot: shipmentNumber,
+          actorUserId: userId,
+        });
       }
     }
 

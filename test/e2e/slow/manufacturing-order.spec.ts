@@ -11,6 +11,7 @@ import {
   manufacturingPickAllocations,
   manufacturingOrders,
   salesOrderLines,
+  salesShipmentLines,
   salesOrders,
   stockAllocations,
 } from "../../../lib/db/schema";
@@ -1304,8 +1305,20 @@ test.describe("Manufacturing order flow", () => {
       manufacturingMode: "batch",
       expectedBatchYield: "100",
       bom: [
-        { componentId: baseId, quantity: "3" },
-        { componentId: packagingId, quantity: "1" },
+        {
+          componentId: baseId,
+          quantity: "3",
+          consumptionMode: "per_batch",
+          basisOutputQuantity: "100",
+          batchScalingMode: "full_batches_only",
+        },
+        {
+          componentId: packagingId,
+          quantity: "1",
+          consumptionMode: "per_batch",
+          basisOutputQuantity: "100",
+          batchScalingMode: "full_batches_only",
+        },
       ],
     });
     expect(productCreate.status).toBe(201);
@@ -1337,11 +1350,17 @@ test.describe("Manufacturing order flow", () => {
 
     await confirmSalesOrder(salesOrderId, false);
 
+    const [salesShipmentLine] = await db
+      .select({ id: salesShipmentLines.id })
+      .from(salesShipmentLines)
+      .where(eq(salesShipmentLines.salesOrderLineId, salesLine.id));
+    expect(salesShipmentLine?.id).toBeTruthy();
+
     const allocationResponse = await testFetch("/api/allocation/save", {
       method: "POST",
       body: JSON.stringify({
-        demandType: "sales_order_line",
-        demandId: salesLine.id,
+        demandType: "sales_shipment_line",
+        demandId: salesShipmentLine.id,
         itemId: productId,
         allocations: [
           {
@@ -1366,16 +1385,16 @@ test.describe("Manufacturing order flow", () => {
       .from(stockAllocations)
       .where(
         and(
-          eq(stockAllocations.demandType, "sales_order_line"),
-          eq(stockAllocations.demandId, salesLine.id),
+          eq(stockAllocations.demandType, "sales_shipment_line"),
+          eq(stockAllocations.demandId, salesShipmentLine.id),
           eq(stockAllocations.sourceType, "manufacturing_order"),
           eq(stockAllocations.sourceId, batchOrderId),
           eq(stockAllocations.status, "active")
         )
       );
     expect(sourcePromise).toMatchObject({
-      demandType: "sales_order_line",
-      demandId: salesLine.id,
+      demandType: "sales_shipment_line",
+      demandId: salesShipmentLine.id,
       sourceType: "manufacturing_order",
       sourceId: batchOrderId,
       quantity: "100.0000",
@@ -1481,15 +1500,15 @@ test.describe("Manufacturing order flow", () => {
       .from(stockAllocations)
       .where(
         and(
-          eq(stockAllocations.demandType, "sales_order_line"),
-          eq(stockAllocations.demandId, salesLine.id),
+          eq(stockAllocations.demandType, "sales_shipment_line"),
+          eq(stockAllocations.demandId, salesShipmentLine.id),
           eq(stockAllocations.sourceType, "inventory_lot"),
           eq(stockAllocations.status, "active")
         )
       );
     expect(lotHold).toMatchObject({
-      demandType: "sales_order_line",
-      demandId: salesLine.id,
+      demandType: "sales_shipment_line",
+      demandId: salesShipmentLine.id,
       sourceType: "inventory_lot",
       quantity: "100.0000",
       status: "active",

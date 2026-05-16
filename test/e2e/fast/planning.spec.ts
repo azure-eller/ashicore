@@ -693,6 +693,40 @@ test.describe("Planning workspace", () => {
     ).toBe(false);
   });
 
+  test("production planning ignores product compatibility batch mode without BOM batch lines", async () => {
+    const productName = `Production Legacy Compat Blend ${runToken}`;
+    const componentId = await createMaterial("Production Legacy Compat Component", {
+      stock: "100",
+      skuKey: "PROD-COMPAT-COMP",
+    });
+    const product = await createItem({
+      name: productName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: buildItemSku("PLAN-P", "PROD-COMPAT-BLEND"),
+      category,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10.00",
+      sellable: true,
+      stock: "0",
+      safetyStock: "0",
+      manufacturingMode: "batch",
+      expectedBatchYield: "4",
+      bom: [{ componentId, quantity: "2" }],
+    });
+    expect(product.status).toBe(201);
+    const productId = product.body.id as string;
+    await createConfirmedDemand(productId, "9");
+
+    const planning = await snapshot();
+    const row = rowFor(planning, productId);
+
+    expect(row.manufacturingMode).toBe("discrete");
+    expect(row.expectedBatchYield).toBeNull();
+    expect(row.plannedBatchCount).toBeNull();
+  });
+
   test("component shortage references parent demand and BOM revision", async () => {
     const componentId = await createMaterial("Biochar");
     const productId = await createProduct("Paonia Potting Mix", [

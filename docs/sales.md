@@ -96,10 +96,14 @@ The Sales Allocation tab is the authoritative manual allocation surface.
 - allocation demand includes only non-deleted sales order lines on `confirmed` or `partially_shipped` orders
 - `draft`, `shipped`, and `cancelled` orders are excluded from allocation demand
 - draft sales orders must not hold allocation rows or trigger allocation takeover behavior during confirmation
+- sales order line demand is the unplanned residual bucket: `remaining_to_ship - planned shipment qty`
+- sales shipment line demand is the planned shipment bucket
+- creating or increasing planned shipments automatically pulls active allocations from matching unplanned demand
+- decreasing or deleting planned shipments automatically moves excess allocations back to matching unplanned demand
 - available inventory-lot sources come from current available lot balances
 - manufacturing-order sources are allocatable only after the MO is `released`
 - draft MOs are planning work only; they are not allocatable supply
-- allocation writes go through `/api/allocation/save` with `demandType = "sales_order_line"`
+- allocation writes go through `/api/allocation/save` with `demandType = "sales_order_line"` for unplanned demand or `demandType = "sales_shipment_line"` for planned shipment demand
 - allocation reads go through `/api/allocation/workspace` or the Sales Allocation tab read model
 - do not reintroduce the old allocation sheet, per-line allocation route, item allocation route, or sales-order allocation bulk route
 
