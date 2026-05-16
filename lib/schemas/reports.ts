@@ -23,6 +23,7 @@ export const manualSendDailyManufacturingReportSchema = z.object({
   reportDate: z
     .string()
     .refine(isValidIsoDate, "Report date must be a real date in YYYY-MM-DD format"),
+  recipientUserIds: z.array(z.string()).default([]),
 });
 
 export type ManualSendDailyManufacturingReportInput = z.infer<

@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import { render } from "@react-email/components";
-import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
@@ -11,6 +11,7 @@ import {
   manufacturingOrderOutputConsumptions,
   manufacturingOrderOutputs,
   manufacturingOrders,
+  member,
   notifications,
   organization,
   reportRecipients,
@@ -177,6 +178,30 @@ async function getRecipientsInTx(tx: Tx, scheduleId: string) {
     .orderBy(asc(user.name), asc(user.email));
 }
 
+async function getRecipientsByUserIdsInTx(tx: Tx, userIds: string[]) {
+  const uniqueUserIds = [...new Set(userIds)];
+
+  if (uniqueUserIds.length === 0) {
+    return [];
+  }
+
+  return tx
+    .select({
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+    })
+    .from(member)
+    .innerJoin(user, eq(member.userId, user.id))
+    .where(
+      and(
+        eq(member.organizationId, sql`current_setting('app.current_org_id', true)`),
+        inArray(member.userId, uniqueUserIds)
+      )
+    )
+    .orderBy(asc(user.name), asc(user.email));
+}
+
 async function buildDailyManufacturingReportPayloadInTx(
   tx: Tx,
   params: {
@@ -339,7 +364,18 @@ async function buildDailyManufacturingReportPayloadInTx(
       manufacturingOrders,
       eq(manufacturingOrderOutputs.manufacturingOrderId, manufacturingOrders.id)
     )
-    .where(and(windowWhere, sql`${manufacturingOrderOutputs.manufacturingOrderBatchId} IS NOT NULL`))
+    .where(
+      and(
+        windowWhere,
+        sql`${manufacturingOrderOutputs.manufacturingOrderBatchId} IS NOT NULL`,
+        sql`EXISTS (
+          SELECT 1
+          FROM ${manufacturingOrderIngredients} batch_ingredients
+          WHERE batch_ingredients.manufacturing_order_id = ${manufacturingOrders.id}
+            AND batch_ingredients.consumption_mode = 'per_batch'
+        )`
+      )
+    )
     .groupBy(
       manufacturingOrders.productName,
       manufacturingOrders.productSku,
@@ -516,6 +552,7 @@ export async function generateDailyManufacturingReportForOrg(params: {
   timeZone: string;
   scheduleId: string;
   emailEnabled: boolean;
+  recipientsOverride?: ReportRecipient[];
 }) {
   const claim = await withOrgContext(params.organizationId, (tx) =>
     claimReportRunInTx(tx, params)
@@ -535,7 +572,8 @@ export async function generateDailyManufacturingReportForOrg(params: {
           timeZone: params.timeZone,
           window: claim.window,
         });
-        const recipients = await getRecipientsInTx(tx, params.scheduleId);
+        const recipients =
+          params.recipientsOverride ?? (await getRecipientsInTx(tx, params.scheduleId));
 
         await tx
           .update(reportRuns)
@@ -653,6 +691,7 @@ export async function generateDueDailyManufacturingReports(now = new Date()) {
 export async function manualSendDailyManufacturingReportForOrg(params: {
   organizationId: string;
   reportDate: string;
+  recipientUserIds: string[];
 }) {
   const existingRun = await withOrgContext(params.organizationId, async (tx) => {
     const [schedule] = await tx
@@ -665,10 +704,15 @@ export async function manualSendDailyManufacturingReportForOrg(params: {
       throw new AuthorizationError("Configure report settings before sending.", 400);
     }
 
-    const recipients = await getRecipientsInTx(tx, schedule.id);
+    const uniqueRecipientUserIds = [...new Set(params.recipientUserIds)];
+    const recipients = await getRecipientsByUserIdsInTx(tx, uniqueRecipientUserIds);
 
     if (recipients.length === 0) {
       throw new AuthorizationError("Select at least one report recipient before sending.", 400);
+    }
+
+    if (recipients.length !== uniqueRecipientUserIds.length) {
+      throw new AuthorizationError("Selected report recipients must be active organization members.", 400);
     }
 
     const [run] = await tx
@@ -780,6 +824,7 @@ export async function manualSendDailyManufacturingReportForOrg(params: {
     timeZone: existingRun.schedule.timeZone,
     scheduleId: existingRun.schedule.id,
     emailEnabled: true,
+    recipientsOverride: existingRun.recipients,
   });
 
   if (!result.generated) {

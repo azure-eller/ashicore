@@ -21,7 +21,7 @@ export function DailyManufacturingReportEmail({
   const generatedAt = formatGeneratedAt(payload.generatedAt, payload.timeZone);
   const outputRows = payload.outputByProduct.slice(0, 5);
   const materialRows = payload.materialsConsumed.slice(0, 5);
-  const preheader = `${payload.summary.outputEventsRecorded} output events recorded · ${payload.summary.shipmentsShipped} shipments · ${date}`;
+  const preheader = `${payload.summary.productsWithRecordedOutput} products with recorded output · ${payload.summary.shipmentsShipped} shipments · ${date}`;
 
   return (
     <Html lang="en">
@@ -51,7 +51,11 @@ export function DailyManufacturingReportEmail({
                 >
                   <tbody>
                     <HeroSection payload={payload} date={date} />
-                    <OutputSection rows={outputRows} dashboardUrl={payload.erpUrl} />
+                    <OutputSection
+                      rows={outputRows}
+                      totalRows={payload.outputByProduct.length}
+                      dashboardUrl={payload.erpUrl}
+                    />
                     <MaterialsSection rows={materialRows} />
                     <Footer generatedAt={generatedAt} dashboardUrl={payload.erpUrl} />
                   </tbody>
@@ -72,21 +76,19 @@ function HeroSection({
   payload: DailyManufacturingReportPayload;
   date: string;
 }) {
-  const outputRollup = formatQuantityRollup(
-    payload.outputByProduct.map((row) => ({ quantity: row.quantity, unit: row.unit }))
-  );
   const batchOutputRollup = formatQuantityRollup(
     payload.completedBatches.map((row) => ({ quantity: row.totalOutput, unit: row.unit }))
   );
   const materialRollup = formatQuantityRollup(
     payload.materialsConsumed.map((row) => ({ quantity: row.quantity, unit: row.unit }))
   );
+  const outputUnitCount = countUnits(
+    payload.outputByProduct.map((row) => row.unit)
+  );
   const outputFoot =
-    outputRollup.moreUnits > 0
-      ? `${formatInteger(payload.summary.outputEventsRecorded)} events · + ${outputRollup.moreUnits} more ${
-          outputRollup.moreUnits === 1 ? "unit" : "units"
-        }`
-      : `${formatInteger(payload.summary.outputEventsRecorded)} events recorded`;
+    outputUnitCount > 0
+      ? `${outputUnitCount} output ${outputUnitCount === 1 ? "unit type" : "unit types"}`
+      : "No output recorded";
 
   return (
     <tr>
@@ -102,14 +104,14 @@ function HeroSection({
             <tr>
               <KpiTile
                 label="Output"
-                value={outputRollup.primary}
+                value={payload.summary.productsWithRecordedOutput}
                 foot={outputFoot}
                 outerStyle={firstTile}
               />
               <KpiTile
                 label="Batches"
                 value={payload.summary.completedBatches}
-                foot={batchOutputRollup.secondary}
+                foot={batchOutputRollup.footer}
                 outerStyle={middleTile}
               />
               <KpiTile
@@ -121,7 +123,7 @@ function HeroSection({
               <KpiTile
                 label="Materials"
                 value={payload.summary.materialsConsumedFromRecordedOutputs}
-                foot={materialRollup.secondary}
+                foot={materialRollup.footer}
                 outerStyle={lastTile}
               />
             </tr>
@@ -164,18 +166,24 @@ function KpiTile({
 
 function OutputSection({
   rows,
+  totalRows,
   dashboardUrl,
 }: {
   rows: DailyManufacturingReportPayload["outputByProduct"];
+  totalRows: number;
   dashboardUrl: string;
 }) {
   const dashboardOrigin = getOrigin(dashboardUrl);
+  const productMeta =
+    totalRows > rows.length
+      ? `${rows.length} of ${totalRows} products`
+      : `${totalRows} ${totalRows === 1 ? "product" : "products"}`;
 
   return (
     <>
       <SectionHeader
         title="Output by product"
-        meta={`${rows.length} active ${rows.length === 1 ? "SKU" : "SKUs"} · 7-day trend`}
+        meta={`${productMeta} · 7-day trend`}
         topPadding={28}
       />
       <tr>
@@ -185,7 +193,6 @@ function OutputSection({
               <tr style={tableHeadRow}>
                 <th align="left" style={headCell}>Product</th>
                 <th align="right" style={headCellRight}>Output</th>
-                <th align="right" style={headCellRight}>Events</th>
                 <th align="right" className="hide-sm" style={headCellRight}>7-day</th>
               </tr>
               {rows.length > 0 ? (
@@ -198,9 +205,6 @@ function OutputSection({
                     <td align="right" style={numberCell(index === rows.length - 1, true)}>
                       {formatQuantity(row.quantity)} {row.unit}
                     </td>
-                    <td align="right" style={numberCell(index === rows.length - 1, false)}>
-                      {formatInteger(row.outputEvents)}
-                    </td>
                     <td align="right" className="hide-sm" style={trendCell(index === rows.length - 1)}>
                       <SparklineImage row={row} baseUrl={dashboardOrigin} />
                     </td>
@@ -208,7 +212,7 @@ function OutputSection({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={4} style={emptyCell}>No output recorded.</td>
+                  <td colSpan={3} style={emptyCell}>No output recorded.</td>
                 </tr>
               )}
             </tbody>
@@ -359,21 +363,24 @@ function formatQuantityRollup(rows: Array<{ quantity: string; unit: string }>) {
 
   const entries = Array.from(totals.entries());
   if (entries.length === 0) {
-    return { primary: "0", secondary: "No quantity recorded", moreUnits: 0 };
+    return { primary: "0", footer: "No quantity recorded" };
   }
 
   const [unit, quantity] = entries[0];
   const formatted = `${formatQuantity(String(quantity))} ${unit}`;
 
   if (entries.length === 1) {
-    return { primary: formatQuantity(String(quantity)), secondary: formatted, moreUnits: 0 };
+    return { primary: formatQuantity(String(quantity)), footer: formatted };
   }
 
   return {
     primary: formatted,
-    secondary: `+ ${entries.length - 1} more ${entries.length === 2 ? "unit" : "units"}`,
-    moreUnits: entries.length - 1,
+    footer: `+ ${entries.length - 1} more ${entries.length === 2 ? "unit type" : "unit types"}`,
   };
+}
+
+function countUnits(units: string[]) {
+  return new Set(units.filter(Boolean)).size;
 }
 
 function formatLongDate(value: string) {

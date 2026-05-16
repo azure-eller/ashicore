@@ -10,6 +10,7 @@ export const POST = apiHandler(async (request: Request) => {
   const result = await manualSendDailyManufacturingReportForOrg({
     organizationId: context.orgId,
     reportDate: input.reportDate,
+    recipientUserIds: input.recipientUserIds,
   });
 
   return NextResponse.json(result);

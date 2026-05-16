@@ -26,6 +26,31 @@ test("settings renders in the default fast smoke lane", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Send report" })
   ).toBeVisible();
+
+  const firstRecipient = page.getByRole("dialog").getByRole("checkbox").first();
+  if (!(await firstRecipient.isChecked())) {
+    await firstRecipient.click();
+  }
+
+  const manualSendRequest = page.waitForRequest((request) =>
+    request.url().endsWith("/api/reports/daily-manufacturing/manual-send")
+  );
+  await page.route("**/api/reports/daily-manufacturing/manual-send", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        runId: "test-run",
+        reportDate: "2026-05-15",
+        recipientCount: 1,
+        source: "generated",
+      }),
+    });
+  });
+  await page.getByRole("button", { name: "Send report" }).click();
+  const request = await manualSendRequest;
+  const body = request.postDataJSON() as { recipientUserIds?: string[] };
+  expect(body.recipientUserIds?.length).toBeGreaterThan(0);
 });
 
 test("xero settings show automation toggles, draft defaults, and export history", async ({

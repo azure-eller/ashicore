@@ -145,7 +145,10 @@ export function ReportsSection({
     mutationFn: async () =>
       apiJson<ManualSendResult>("/api/reports/daily-manufacturing/manual-send", {
         method: "POST",
-        body: { reportDate: manualReportDate },
+        body: {
+          reportDate: manualReportDate,
+          recipientUserIds: formState.recipientUserIds,
+        },
         fallbackError: "Failed to send report.",
       }),
     onMutate: () => {
@@ -417,7 +420,7 @@ function ReportHistoryDialog({
             <TableRow>
               <TableHead>Date</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Output Events</TableHead>
+              <TableHead>Products</TableHead>
               <TableHead>Generated</TableHead>
               <TableHead className="text-right">Action</TableHead>
             </TableRow>
@@ -443,7 +446,7 @@ function ReportHistoryDialog({
                     <ReportStatusBadge status={report.status} />
                   </TableCell>
                   <TableCell>
-                    {report.payload?.summary.outputEventsRecorded ?? "-"}
+                    {report.payload?.summary.productsWithRecordedOutput ?? "-"}
                   </TableCell>
                   <TableCell>{formatDateTime(report.createdAt, timeZone)}</TableCell>
                   <TableCell className="text-right">
@@ -511,8 +514,11 @@ function ReportDetail({
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <SummaryMetric label="Output events" value={payload.summary.outputEventsRecorded} />
-            <SummaryMetric label="Completed batches" value={payload.summary.completedBatches} />
+            <SummaryMetric
+              label="Products with output"
+              value={payload.summary.productsWithRecordedOutput}
+            />
+            <SummaryMetric label="Batches" value={payload.summary.completedBatches} />
             <SummaryMetric label="Shipments" value={payload.summary.shipmentsShipped} />
             <SummaryMetric
               label="Shipped line value"
@@ -525,26 +531,24 @@ function ReportDetail({
 
           <ReportTable
             title="Output by product"
-            headers={["Product", "Quantity", "Events"]}
+            headers={["Product", "Quantity"]}
             rows={payload.outputByProduct.map((row) => [
               row.productSku ? `${row.productName} (${row.productSku})` : row.productName,
               `${formatQuantity(row.quantity)} ${row.unit}`,
-              row.outputEvents,
             ])}
           />
           <ReportTable
             title="Output by recorded-by user"
-            headers={["User", "Quantity", "Events"]}
+            headers={["User", "Quantity"]}
             rows={payload.outputByRecordedBy.map((row) => [
               row.userEmail ? `${row.userName} (${row.userEmail})` : row.userName,
               row.quantities
                 .map((quantity) => `${formatQuantity(quantity.quantity)} ${quantity.unit}`)
                 .join(", "),
-              row.outputEvents,
             ])}
           />
           <ReportTable
-            title="Completed batches"
+            title="Batches"
             headers={["Product", "Output", "Batches"]}
             rows={payload.completedBatches.map((row) => [
               row.productSku ? `${row.productName} (${row.productSku})` : row.productName,
