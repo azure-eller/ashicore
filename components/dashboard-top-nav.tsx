@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -69,7 +69,8 @@ export function DashboardTopNav({
 }: DashboardTopNavProps) {
   const router = useRouter();
   const { pathname, optimisticPathname, navigate } = useNavigationPending();
-  const visiblePathname = optimisticPathname ?? pathname;
+  const [hydratedPathname, setHydratedPathname] = useState<string | null>(null);
+  const visiblePathname = optimisticPathname ?? hydratedPathname ?? "";
   const initials = getInitials(user.name);
   const [switchingOrgId, setSwitchingOrgId] = useState<string | null>(null);
   const [switchError, setSwitchError] = useState<string | null>(null);
@@ -88,6 +89,10 @@ export function DashboardTopNav({
           ) || action.description.toLowerCase().includes(normalizedPageSearch)
       )
     : searchActions;
+
+  useEffect(() => {
+    setHydratedPathname(pathname);
+  }, [pathname]);
 
   async function handleLogout() {
     const { error } = await authClient.signOut();

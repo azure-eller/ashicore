@@ -119,11 +119,11 @@ function StateMenuItem({
     <DropdownMenuItem
       disabled={disabled}
       onSelect={onSelect}
-      className="gap-3 py-2.5 text-lg"
+      className="gap-(--space-6) py-(--space-5) text-[length:var(--text-sm)]"
     >
       <span
         aria-hidden
-        className={cn("size-3 rounded-[2px]", swatchClassName[tone])}
+        className={cn("size-(--space-4) rounded-(--radius-none)", swatchClassName[tone])}
       />
       {label}
     </DropdownMenuItem>
@@ -145,8 +145,9 @@ export function ProductionActionCell({ order, state }: ProductionActionCellProps
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
+            suppressHydrationWarning
             type="button"
-            className="block w-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="block w-full rounded-(--radius-none) outline-none focus-visible:shadow-[var(--focus-ring)]"
             onClick={(event) => event.stopPropagation()}
             aria-label={
               state.label === "Make"
@@ -156,21 +157,21 @@ export function ProductionActionCell({ order, state }: ProductionActionCellProps
           >
             <OperationalStateCell
               state={state}
-              className="transition-colors hover:border-primary/40 hover:bg-primary/10"
+              className="transition-colors hover:border-primary"
             />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuItem
             onSelect={() => setMakeToOrderOpen(true)}
-            className="gap-3 py-2.5 text-lg"
+            className="gap-(--space-6) py-(--space-5) text-[length:var(--text-sm)]"
           >
-            <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-5" />
+            <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-(--space-8)" />
             Make to order
           </DropdownMenuItem>
-          <DropdownMenuItem asChild className="gap-3 py-2.5 text-lg">
+          <DropdownMenuItem asChild className="gap-(--space-6) py-(--space-5) text-[length:var(--text-sm)]">
             <Link href="/manufacturing/orders/new">
-              <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-5" />
+              <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-(--space-8)" />
               Make to stock
             </Link>
           </DropdownMenuItem>
@@ -297,24 +298,25 @@ export function DeliveryActionCell({
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <button
+            suppressHydrationWarning
             type="button"
-            className="block w-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="block w-full rounded-(--radius-none) outline-none focus-visible:shadow-[var(--focus-ring)]"
             onClick={(event) => event.stopPropagation()}
             aria-label={`Delivery actions for ${order.orderNumber}`}
           >
             <OperationalStateCell
               state={state}
-              className="transition-colors hover:border-primary/40 hover:bg-primary/10"
+              className="transition-colors hover:border-primary"
             />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
           {detailQuery.isLoading ? (
-            <DropdownMenuItem disabled className="py-2.5 text-lg">
+            <DropdownMenuItem disabled className="py-(--space-5) text-[length:var(--text-sm)]">
               Loading...
             </DropdownMenuItem>
           ) : detailQuery.isError ? (
-            <DropdownMenuItem disabled className="py-2.5 text-lg text-destructive">
+            <DropdownMenuItem disabled className="py-(--space-5) text-[length:var(--text-sm)] text-destructive">
               {detailQuery.error.message}
             </DropdownMenuItem>
           ) : detail ? (
@@ -347,7 +349,7 @@ export function DeliveryActionCell({
               {activeError ? (
                 <DropdownMenuItem
                   disabled
-                  className="py-2.5 text-lg text-destructive"
+                  className="py-(--space-5) text-[length:var(--text-sm)] text-destructive"
                 >
                   {activeError.message}
                 </DropdownMenuItem>

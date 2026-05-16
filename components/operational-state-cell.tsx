@@ -8,11 +8,11 @@ type OperationalStateTone =
   | "muted";
 
 const toneClassName: Record<OperationalStateTone, string> = {
-  success: "border-success/20 bg-success/10 text-success",
-  warning: "border-warning/25 bg-warning/10 text-warning",
-  destructive: "border-destructive/20 bg-destructive/10 text-destructive",
-  secondary: "border-primary/15 bg-primary/10 text-primary",
-  muted: "border-border bg-muted/60 text-muted-foreground",
+  success: "border-success/20 bg-background text-success",
+  warning: "border-warning/25 bg-background text-warning",
+  destructive: "border-destructive/20 bg-background text-destructive",
+  secondary: "border-border bg-background text-foreground",
+  muted: "border-border bg-muted text-muted-foreground",
 };
 
 export type OperationalState = {
@@ -30,7 +30,7 @@ export function OperationalStateCell({
   return (
     <span
       className={cn(
-        "inline-flex min-h-8 w-full min-w-28 items-center justify-center rounded-md border px-2 text-center text-[1.1375rem] font-medium",
+        "inline-flex min-h-(--height-input-sm) w-full min-w-28 items-center justify-center rounded-(--radius-none) border px-(--space-4) text-center text-[length:var(--text-xs)] font-medium",
         toneClassName[state.tone],
         className
       )}

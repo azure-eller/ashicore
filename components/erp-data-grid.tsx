@@ -30,22 +30,23 @@ import styles from "./erp-data-grid.module.css";
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 const erpGridTheme = themeQuartz.withParams({
-  accentColor: "var(--primary)",
-  backgroundColor: "var(--background)",
-  borderColor: "var(--border)",
+  accentColor: "var(--color-accent)",
+  backgroundColor: "var(--color-surface)",
+  borderColor: "var(--color-line)",
   browserColorScheme: "light",
-  cellHorizontalPadding: 12,
-  cellTextColor: "var(--foreground)",
-  dataBackgroundColor: "var(--background)",
-  foregroundColor: "var(--foreground)",
-  headerBackgroundColor: "color-mix(in oklch, var(--muted) 45%, transparent)",
+  cellHorizontalPadding: 10,
+  cellTextColor: "var(--color-ink)",
+  dataBackgroundColor: "var(--color-surface)",
+  foregroundColor: "var(--color-ink)",
+  headerBackgroundColor: "var(--color-surface-sunk)",
   headerColumnBorder: true,
-  headerColumnResizeHandleColor: "var(--border)",
-  headerTextColor: "var(--muted-foreground)",
+  headerColumnResizeHandleColor: "var(--color-line)",
+  headerTextColor: "var(--color-muted)",
+  oddRowBackgroundColor: "var(--color-surface-alt)",
   rowBorder: true,
-  rowHoverColor: "color-mix(in oklch, var(--muted) 45%, transparent)",
-  selectedRowBackgroundColor: "color-mix(in oklch, var(--primary) 8%, transparent)",
-  wrapperBorderRadius: 6,
+  rowHoverColor: "var(--color-accent-soft)",
+  selectedRowBackgroundColor: "var(--color-accent-soft)",
+  wrapperBorderRadius: 0,
 });
 
 export type ERPDataGridProps<TData extends { id: string }> = {
@@ -166,8 +167,8 @@ export function ERPDataGrid<TData extends { id: string }>({
   pinnedBottomRows,
   getRowId,
   height = "calc(100dvh - 10.75rem)",
-  rowHeight = 54,
-  headerHeight = 42,
+  rowHeight = 45,
+  headerHeight = 45,
   groupHeaderHeight,
   defaultColDef: defaultColDefOverrides,
   emptyMessage = "No rows found.",
@@ -371,7 +372,10 @@ export function ERPDataGrid<TData extends { id: string }>({
       )}
       <div
         data-slot="erp-data-grid"
-        className={cn("min-w-0 overflow-hidden rounded-md border", styles.grid)}
+        className={cn(
+          "ashicore-grid min-w-0 overflow-hidden rounded-(--radius-none) border",
+          styles.grid
+        )}
         style={gridStyle}
       >
         <AgGridReact<TData>
@@ -404,7 +408,6 @@ export function ERPDataGrid<TData extends { id: string }>({
           suppressRowDrag={
             onManagedRowDragReorder ? !enableManagedRowDrag : undefined
           }
-          suppressCellFocus
           suppressColumnMoveAnimation
           rowDragText={(params) => params.defaultTextValue}
           noRowsOverlayComponent={() => (

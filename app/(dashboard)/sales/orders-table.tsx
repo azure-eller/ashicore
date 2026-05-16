@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   QueryClient,
   QueryClientProvider,
@@ -9,16 +9,20 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { ICellRendererParams, RowDragEndEvent } from "ag-grid-community";
+import type { GridApi, ICellRendererParams } from "ag-grid-community";
 import { apiJson } from "@/lib/client/api";
 import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
 import {
-  OperationalStateCell,
   type OperationalState,
 } from "@/components/operational-state-cell";
 import {
   Add01Icon,
+  DatabaseExportIcon,
   Delete02Icon,
+  FilterIcon,
+  Search01Icon,
+  Sorting05Icon,
+  LayoutThreeColumnIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -32,7 +36,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { StatusLabel, type StatusTone } from "@/components/ui/status-label";
+import { StatusRibbon } from "@/components/ui/status-ribbon";
 import {
   Tooltip,
   TooltipContent,
@@ -59,6 +71,14 @@ import type { SalesOrderListRow } from "./types";
 const OPEN_SALES_STATUSES = ["open"] as const;
 const DONE_SALES_STATUSES = ["done"] as const;
 type SalesWorkflowFilterValue = "open" | "done";
+type AllocationFilterValue = "all" | "allocated" | "partial" | "not_allocated";
+
+const allocationToneByLabel: Record<string, StatusTone> = {
+  Complete: "success",
+  Allocated: "success",
+  Partial: "warning",
+  "Not allocated": "danger",
+};
 
 function isOpenSalesOrder(order: SalesOrderListRow) {
   return (OPEN_SALES_STATUSES as readonly string[]).includes(order.status);
@@ -117,6 +137,32 @@ function getSalesItemsState(order: SalesOrderListRow): OperationalState {
   return { label: "Not allocated", tone: "destructive" };
 }
 
+function getAllocationFilterValue(order: SalesOrderListRow): AllocationFilterValue {
+  const label = getSalesItemsState(order).label;
+
+  if (label === "Complete" || label === "Allocated") return "allocated";
+  if (label === "Partial") return "partial";
+  return "not_allocated";
+}
+
+function isThisWeek(dateString: string | null) {
+  if (!dateString) return false;
+
+  const [year, month, day] = dateString.split("-").map(Number);
+  if (!year || !month || !day) return false;
+
+  const date = new Date(year, month - 1, day);
+  const today = new Date();
+  const start = new Date(today);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(today.getDate() - today.getDay());
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + 7);
+
+  return date >= start && date < end;
+}
+
 function shippedSalesQuantity(order: SalesOrderListRow) {
   return order.lines.reduce(
     (sum, line) => sum + parseQuantity(line.shippedQuantity),
@@ -136,21 +182,19 @@ function SalesItemsActionCell({ order }: { order: SalesOrderListRow }) {
   const state = getSalesItemsState(order);
   const isAllocationLink =
     state.label === "Not allocated" || state.label === "Partial";
+  const tone = allocationToneByLabel[state.label] ?? "neutral";
 
   if (!isAllocationLink) {
-    return <OperationalStateCell state={state} />;
+    return <StatusLabel tone={tone}>{state.label}</StatusLabel>;
   }
 
   return (
     <Link
       href={`/sales/allocation?highlightOrderId=${order.id}`}
-      className="block w-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="block w-full outline-none focus-visible:shadow-[var(--focus-ring)]"
       aria-label="Open allocation status"
     >
-      <OperationalStateCell
-        state={state}
-        className="transition-colors hover:border-primary/40 hover:bg-primary/10"
-      />
+      <StatusLabel tone={tone}>{state.label}</StatusLabel>
     </Link>
   );
 }
@@ -241,10 +285,41 @@ function RankCell({ rowIndex, order }: { rowIndex: number; order: SalesOrderList
 
   return (
     <div className="flex h-full items-center">
-      <span className="w-8 text-[1.0625rem] text-muted-foreground tabular-nums">
+      <span className="w-(--space-16) text-muted-foreground tabular-nums">
         {order.priorityRank ?? rowIndex + 1}
       </span>
     </div>
+  );
+}
+
+function FilterChip({
+  active,
+  label,
+  ariaLabel,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  ariaLabel: string;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      aria-label={ariaLabel}
+      data-active={active ? "true" : undefined}
+      className="group inline-flex h-(--height-input-sm) items-center gap-(--space-3) border border-border bg-card px-(--space-5) text-[length:var(--text-xs)] font-medium text-foreground transition-colors hover:bg-muted data-[active=true]:border-primary data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
+      onClick={onClick}
+    >
+      {label}
+      <span className="bg-foreground/10 px-(--space-2) font-mono text-[length:var(--text-2xs)] tabular-nums group-data-[active=true]:bg-primary-foreground/20">
+        {count}
+      </span>
+    </button>
   );
 }
 
@@ -269,13 +344,18 @@ export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] 
 
 function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] }) {
   const queryClient = useQueryClient();
+  const gridApiRef = useRef<GridApi<SalesOrderListRow> | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [statusFilter, setStatusFilter] =
     useState<SalesWorkflowFilterValue>("open");
+  const [allocationFilter, setAllocationFilter] =
+    useState<AllocationFilterValue>("all");
   const [searchValue, setSearchValue] = useState("");
   const [selectedOrders, setSelectedOrders] = useState<SalesOrderListRow[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [hasActiveSort, setHasActiveSort] = useState(false);
-  const { data: orders = initialData } = useQuery({
+  const [now, setNow] = useState(() => Date.now());
+  const { data: orders = initialData, dataUpdatedAt } = useQuery({
     queryKey: ["sales-orders"],
     queryFn: () =>
       apiJson<SalesOrderListRow[]>("/api/sales-orders", {
@@ -283,6 +363,42 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
       }),
     initialData,
   });
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const inField = target?.closest(
+        "input, textarea, select, [contenteditable='true']"
+      );
+
+      if (
+        event.key === "/" &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !inField
+      ) {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
+
+      if (
+        event.key.toLowerCase() === "n" &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !inField
+      ) {
+        window.location.href = "/sales/orders/new";
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
   const statusCounts = useMemo(() => {
     const counts = new Map<string, number>();
 
@@ -292,12 +408,40 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
 
     return counts;
   }, [orders]);
+  const openOrders = useMemo(
+    () => orders.filter((order) => isOpenSalesOrder(order)),
+    [orders]
+  );
+  const openCount = openOrders.length;
+  const doneCount = DONE_SALES_STATUSES.reduce(
+    (sum, status) => sum + (statusCounts.get(status) ?? 0),
+    0
+  );
+  const allocatedCount = openOrders.filter(
+    (order) => getAllocationFilterValue(order) === "allocated"
+  ).length;
+  const partialCount = openOrders.filter(
+    (order) => getAllocationFilterValue(order) === "partial"
+  ).length;
+  const notAllocatedCount = openOrders.filter(
+    (order) => getAllocationFilterValue(order) === "not_allocated"
+  ).length;
+  const totalOpen = openOrders.reduce(
+    (sum, order) => sum + (Number.parseFloat(order.totalAmount) || 0),
+    0
+  );
+  const shipsThisWeek = openOrders.filter((order) =>
+    isThisWeek(order.shipDate ?? order.requestedDate)
+  ).length;
   const displayedOrders = useMemo(() => {
     const allowedStatuses =
       statusFilter === "done" ? DONE_SALES_STATUSES : OPEN_SALES_STATUSES;
     const filteredOrders = orders.filter(
       (order) =>
         (allowedStatuses as readonly string[]).includes(order.status) &&
+        (statusFilter !== "open" ||
+          allocationFilter === "all" ||
+          getAllocationFilterValue(order) === allocationFilter) &&
         salesOrderMatchesSearch(order, searchValue)
     );
 
@@ -306,19 +450,34 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
     }
 
     return [...filteredOrders].sort(compareSalesOrderRank);
-  }, [orders, searchValue, statusFilter]);
+  }, [allocationFilter, orders, searchValue, statusFilter]);
   const reorderEnabled =
     statusFilter === "open" && searchValue.trim() === "" && !hasActiveSort;
+  const lastSyncSeconds = Math.max(
+    0,
+    Math.floor((now - dataUpdatedAt) / 1000)
+  );
+  const filterSummary =
+    statusFilter === "done"
+      ? "Done"
+      : allocationFilter === "all"
+        ? "Open"
+        : allocationFilter === "allocated"
+          ? "Allocated"
+          : allocationFilter === "partial"
+            ? "Partial"
+            : "Not allocated";
   const gridColumns = useMemo<ColDef<SalesOrderListRow>[]>(
     () => [
       {
         colId: "priorityRank",
         field: "priorityRank",
-        headerName: "Rank",
+        headerName: "#",
         headerTooltip: SALES_ORDER_RANK_TOOLTIP,
-        width: 64,
-        minWidth: 56,
-        maxWidth: 110,
+        width: 50,
+        minWidth: 50,
+        maxWidth: 70,
+        cellClass: "num",
         resizable: false,
         sortable: false,
         rowDrag: reorderEnabled,
@@ -337,14 +496,14 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
         field: "orderNumber",
         headerName: "Order",
         headerTooltip: SALES_ORDER_NUMBER_TOOLTIP,
-        width: 150,
+        width: 130,
         minWidth: 130,
-        flex: 0.8,
+        cellClass: "mono",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
           data ? (
             <Link
               href={`/sales/orders/${data.id}`}
-              className="block truncate hover:underline"
+              className="block truncate font-medium hover:underline"
             >
               {data.orderNumber}
             </Link>
@@ -358,19 +517,22 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
         field: "customerName",
         headerName: "Customer",
         headerTooltip: SALES_ORDER_CUSTOMER_TOOLTIP,
-        width: 260,
-        minWidth: 190,
-        flex: 1.4,
+        minWidth: 200,
+        flex: 1,
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
-          data ? <span className="block truncate">{data.customerName}</span> : null,
+          data ? (
+            <span className="block truncate font-semibold">
+              {data.customerName}
+            </span>
+          ) : null,
       },
       {
         field: "notes",
         headerName: "Notes",
         headerTooltip: SALES_ORDER_NOTES_TOOLTIP,
-        width: 240,
-        minWidth: 180,
-        flex: 1.2,
+        minWidth: 200,
+        flex: 1,
+        cellClass: "muted",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
           data ? <NotesCell notes={data.notes} /> : null,
         getQuickFilterText: ({ data }) => data?.notes ?? "",
@@ -379,8 +541,9 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
         field: "totalAmount",
         headerName: "Total",
         headerTooltip: ORDER_TOTAL_TOOLTIP,
-        width: 135,
-        minWidth: 115,
+        width: 110,
+        minWidth: 110,
+        cellClass: "num",
         comparator: (left, right) =>
           parseFloat(String(left ?? "0")) - parseFloat(String(right ?? "0")),
         valueFormatter: ({ value }) => formatPrice(String(value ?? "")) ?? "—",
@@ -389,8 +552,8 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
         colId: "allocation",
         headerName: "Allocation",
         headerTooltip: SALES_ORDER_ITEMS_STATUS_TOOLTIP,
-        width: 165,
-        minWidth: 145,
+        width: 140,
+        minWidth: 140,
         valueGetter: ({ data }) => (data ? getSalesItemsState(data).label : ""),
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
           data ? <SalesItemsActionCell order={data} /> : null,
@@ -402,8 +565,8 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
         colId: "productionState",
         headerName: "Production",
         headerTooltip: SALES_ORDER_PRODUCTION_STATUS_TOOLTIP,
-        width: 170,
-        minWidth: 150,
+        width: 130,
+        minWidth: 130,
         valueGetter: ({ data }) => (data ? getProductionState(data).label : ""),
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
           data ? (
@@ -420,8 +583,8 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
         colId: "deliveryState",
         headerName: "Delivery",
         headerTooltip: SALES_ORDER_DELIVERY_STATUS_TOOLTIP,
-        width: 175,
-        minWidth: 155,
+        width: 130,
+        minWidth: 130,
         valueGetter: ({ data }) => (data ? getDeliveryState(data).label : ""),
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
           data ? (
@@ -449,8 +612,9 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
         field: "shipDate",
         headerName: "Ship by",
         headerTooltip: SALES_ORDER_SHIP_DATE_TOOLTIP,
-        width: 130,
-        minWidth: 115,
+        width: 100,
+        minWidth: 100,
+        cellClass: "mono",
         valueFormatter: ({ value }) => formatDate(value as string | null),
         comparator: (left, right, leftNode, rightNode) => {
           const dateCompare = String(left ?? "").localeCompare(String(right ?? ""));
@@ -535,70 +699,235 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
     },
   });
   const selectedCount = selectedOrders.length;
+  const openColumnChooser = () => {
+    const api = gridApiRef.current as
+      | (GridApi<SalesOrderListRow> & { showColumnChooser?: () => void })
+      | null;
+    api?.showColumnChooser?.();
+  };
+  const openFilterPanel = () => {
+    const api = gridApiRef.current as
+      | (GridApi<SalesOrderListRow> & { showAdvancedFilterBuilder?: () => void })
+      | null;
+    api?.showAdvancedFilterBuilder?.();
+  };
+  const clearSort = () => {
+    gridApiRef.current?.applyColumnState({
+      defaultState: { sort: null },
+    });
+    setHasActiveSort(false);
+  };
 
   return (
     <>
-      <ERPDataGrid
-        rows={displayedOrders}
-        columns={gridColumns}
-        searchAriaLabel="Search orders"
-        searchValue={searchValue}
-        onSearchChange={setSearchValue}
-        emptyMessage="No sales orders yet."
-        enableRowSelection
-        onSelectionChange={setSelectedOrders}
-        enableManagedRowDrag={reorderEnabled && !reorderMutation.isPending}
-        suppressMoveWhenRowDragging
-        resetRowDataOnUpdate
-        onSortChange={setHasActiveSort}
-        onManagedRowDragReorder={(orderedRows) => {
-          if (!reorderEnabled || reorderMutation.isPending) {
-            return;
-          }
-
-          reorderMutation.mutate(orderedRows);
-        }}
-        toolbarContent={
-          <SalesOrderWorkflowTabs
-            value={statusFilter}
-            statusCounts={statusCounts}
-            onStatusChange={setStatusFilter}
-          />
-        }
-        actions={
-          <>
+      <section className="flex h-[calc(100dvh_-_var(--height-nav)_-_var(--height-subnav))] min-h-0 flex-col bg-background">
+        <div className="flex h-(--height-toolbar) shrink-0 items-center gap-(--space-5) border-b border-border bg-card px-(--space-8)">
+          <div className="relative w-[260px]">
+            <HugeiconsIcon
+              icon={Search01Icon}
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 left-(--space-4) size-(--space-7) -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              ref={searchInputRef}
+              value={searchValue}
+              onChange={(event) => setSearchValue(event.target.value)}
+              placeholder="Search orders, customers, PO..."
+              aria-label="Search orders, customers, PO"
+              className="h-(--height-input-sm) bg-muted pl-(--space-12)"
+            />
+          </div>
+          <div
+            role="radiogroup"
+            aria-label="Filter sales orders by workflow"
+            className="flex items-center gap-(--space-2)"
+          >
+            <FilterChip
+              active={statusFilter === "open"}
+              label="Open"
+              ariaLabel="Show open orders"
+              count={openCount}
+              onClick={() => {
+                setStatusFilter("open");
+              }}
+            />
+            <FilterChip
+              active={statusFilter === "done"}
+              label="Done"
+              ariaLabel="Show done orders"
+              count={doneCount}
+              onClick={() => {
+                setStatusFilter("done");
+                setAllocationFilter("all");
+              }}
+            />
+          </div>
+          <div className="h-(--space-10) w-px bg-border" />
+          <div className="flex items-center gap-(--space-2)">
+            <Button type="button" variant="secondary" size="sm" onClick={openFilterPanel}>
+              <HugeiconsIcon icon={FilterIcon} data-icon="inline-start" />
+              Filter
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={clearSort}>
+              <HugeiconsIcon icon={Sorting05Icon} data-icon="inline-start" />
+              Sort
+            </Button>
             <Button
               type="button"
-              variant="destructive"
-              size="icon"
-              disabled={selectedCount === 0 || deleteMutation.isPending}
-              className="relative"
-              aria-label={
-                selectedCount > 0
-                  ? `Delete ${selectedCount} selected`
-                  : "Delete selected"
-              }
-              onClick={() => setDeleteDialogOpen(true)}
+              variant="secondary"
+              size="sm"
+              onClick={openColumnChooser}
             >
-              <HugeiconsIcon icon={Delete02Icon} className="h-4 w-4" aria-hidden />
-              {selectedCount > 0 ? (
-                <span
-                  aria-hidden
-                  className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground"
-                >
-                  {selectedCount}
-                </span>
-              ) : null}
+              <HugeiconsIcon icon={LayoutThreeColumnIcon} data-icon="inline-start" />
+              Columns
             </Button>
-            <Button asChild aria-label="New Order">
-              <Link href="/sales/orders/new">
-                <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
-                New Order
-              </Link>
-            </Button>
-          </>
-        }
-      />
+          </div>
+          <div className="flex-1" />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="secondary" size="sm">
+                <HugeiconsIcon icon={DatabaseExportIcon} data-icon="inline-start" />
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onSelect={() => gridApiRef.current?.exportDataAsCsv()}
+              >
+                Export CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled>Export Excel</DropdownMenuItem>
+              <DropdownMenuItem disabled>Print PDF</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            type="button"
+            variant="danger"
+            size="icon"
+            disabled={selectedCount === 0 || deleteMutation.isPending}
+            className="relative"
+            aria-label={
+              selectedCount > 0
+                ? `Delete ${selectedCount} selected`
+                : "Delete selected"
+            }
+            onClick={() => setDeleteDialogOpen(true)}
+          >
+            <HugeiconsIcon icon={Delete02Icon} aria-hidden />
+            {selectedCount > 0 ? (
+              <span
+                aria-hidden
+                className="absolute -top-1.5 -right-1.5 flex h-(--space-8) w-(--space-8) items-center justify-center rounded-full bg-primary text-[length:var(--text-2xs)] font-medium text-primary-foreground"
+              >
+                {selectedCount}
+              </span>
+            ) : null}
+          </Button>
+          <Button asChild aria-label="New Order">
+            <Link href="/sales/orders/new">
+              <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
+              New Order
+            </Link>
+          </Button>
+        </div>
+        <StatusRibbon>
+          <StatusRibbon.Stat
+            tone="info"
+            count={openCount}
+            label="open"
+            active={statusFilter === "open" && allocationFilter === "all"}
+            aria-label={`Filter by open (${openCount} orders)`}
+            onClick={() => {
+              setStatusFilter("open");
+              setAllocationFilter("all");
+            }}
+          />
+          <StatusRibbon.Stat
+            tone="success"
+            count={allocatedCount}
+            label="allocated"
+            active={allocationFilter === "allocated"}
+            aria-label={`Filter by allocated (${allocatedCount} orders)`}
+            onClick={() => {
+              setStatusFilter("open");
+              setAllocationFilter("allocated");
+            }}
+          />
+          <StatusRibbon.Stat
+            tone="warning"
+            count={partialCount}
+            label="partial"
+            active={allocationFilter === "partial"}
+            aria-label={`Filter by partial (${partialCount} orders)`}
+            onClick={() => {
+              setStatusFilter("open");
+              setAllocationFilter("partial");
+            }}
+          />
+          <StatusRibbon.Stat
+            tone="danger"
+            count={notAllocatedCount}
+            label="not allocated"
+            active={allocationFilter === "not_allocated"}
+            aria-label={`Filter by not allocated (${notAllocatedCount} orders)`}
+            onClick={() => {
+              setStatusFilter("open");
+              setAllocationFilter("not_allocated");
+            }}
+          />
+          <StatusRibbon.Spacer />
+          <StatusRibbon.Stat
+            label="Total open:"
+            value={formatPrice(String(totalOpen)) ?? "$0.00"}
+          />
+          <StatusRibbon.Stat label="Ships this week:" value={shipsThisWeek} />
+        </StatusRibbon>
+        <ERPDataGrid
+          rows={displayedOrders}
+          columns={gridColumns}
+          searchValue={searchValue}
+          emptyMessage="No sales orders yet."
+          enableRowSelection
+          onSelectionChange={setSelectedOrders}
+          enableManagedRowDrag={reorderEnabled && !reorderMutation.isPending}
+          suppressMoveWhenRowDragging
+          resetRowDataOnUpdate
+          onGridReady={(event) => {
+            gridApiRef.current = event.api;
+          }}
+          onSortChange={setHasActiveSort}
+          onManagedRowDragReorder={(orderedRows) => {
+            if (!reorderEnabled || reorderMutation.isPending) {
+              return;
+            }
+
+            reorderMutation.mutate(orderedRows);
+          }}
+          className="min-h-0 flex-1 space-y-0"
+          height="100%"
+        />
+        <div className="flex h-(--height-statusbar) shrink-0 items-center gap-(--space-6) border-t border-border bg-card px-(--space-8) text-[length:var(--text-xs)] text-muted-foreground tabular-nums">
+          <span>
+            {displayedOrders.length} of {orders.length} rows
+          </span>
+          <span>Last sync {lastSyncSeconds < 30 ? "<30" : lastSyncSeconds}s ago</span>
+          <div className="flex-1" />
+          <button type="button" className="hover:text-foreground" onClick={clearSort}>
+            Sort: {hasActiveSort ? "Custom" : "Ship by ↑"}
+          </button>
+          <button
+            type="button"
+            className="hover:text-foreground"
+            onClick={() => {
+              setStatusFilter("open");
+              setAllocationFilter("all");
+            }}
+          >
+            Filter: {filterSummary}
+          </button>
+          <span>v 4.12.2</span>
+        </div>
+      </section>
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -630,62 +959,5 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
         </AlertDialogContent>
       </AlertDialog>
     </>
-  );
-}
-
-function SalesOrderWorkflowTabs({
-  value,
-  statusCounts,
-  onStatusChange,
-}: {
-  value: SalesWorkflowFilterValue;
-  statusCounts: Map<string, number>;
-  onStatusChange: (status: SalesWorkflowFilterValue) => void;
-}) {
-  const openCount = OPEN_SALES_STATUSES.reduce(
-    (sum, status) => sum + (statusCounts.get(status) ?? 0),
-    0
-  );
-  const doneCount = DONE_SALES_STATUSES.reduce(
-    (sum, status) => sum + (statusCounts.get(status) ?? 0),
-    0
-  );
-  const applyFilter = (nextValue: SalesWorkflowFilterValue) => {
-    onStatusChange(nextValue);
-  };
-
-  return (
-    <ToggleGroup
-      type="single"
-      variant="segmented"
-      size="sm"
-      value={value}
-      onValueChange={(nextValue) => {
-        if (nextValue === "open" || nextValue === "done") {
-          applyFilter(nextValue);
-        }
-      }}
-      aria-label="Filter sales orders by workflow"
-      className="max-w-full flex-wrap rounded-lg bg-muted p-1"
-    >
-      <ToggleGroupItem
-        value="open"
-        aria-label="Show open orders"
-        className="gap-1.5"
-        onClick={() => applyFilter("open")}
-      >
-        Open
-        <span className="text-muted-foreground">{openCount}</span>
-      </ToggleGroupItem>
-      <ToggleGroupItem
-        value="done"
-        aria-label="Show done orders"
-        className="gap-1.5"
-        onClick={() => applyFilter("done")}
-      >
-        Done
-        <span className="text-muted-foreground">{doneCount}</span>
-      </ToggleGroupItem>
-    </ToggleGroup>
   );
 }

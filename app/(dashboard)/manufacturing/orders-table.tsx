@@ -16,6 +16,7 @@ import {
 import { DateTimeText } from "@/components/date-time-text";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { StatusLabel, type StatusTone } from "@/components/ui/status-label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -127,14 +128,14 @@ function ProgressCell({ order }: { order: ManufacturingOrderListRow }) {
       : "alloc-progress-fill-held";
 
   return (
-    <div className="min-w-32 space-y-1">
-      <div className="flex items-center justify-between gap-2 text-xs">
+    <div className="flex h-full min-w-32 flex-col justify-center gap-(--space-2)">
+      <div className="flex items-center justify-between gap-(--space-3) text-[length:var(--text-xs)] leading-[var(--leading-xs)]">
         <span className="truncate text-muted-foreground">{progress.label}</span>
         <span className="font-mono tabular-nums">{progress.percent}%</span>
       </div>
-      <div className="alloc-progress-track h-2 rounded-full">
+      <div className="alloc-progress-track h-(--space-5) rounded-(--radius-none)">
         <div
-          className={`${fillClassName} h-full rounded-full transition-[width]`}
+          className={`${fillClassName} h-full rounded-(--radius-none) transition-[width]`}
           style={{ width: `${progress.percent}%` }}
         />
       </div>
@@ -178,6 +179,31 @@ function getProductionState(order: ManufacturingOrderListRow): OperationalState 
   return { label: "Not started", tone: "muted" };
 }
 
+const operationalToneToStatusTone: Record<OperationalState["tone"], StatusTone> = {
+  destructive: "danger",
+  muted: "neutral",
+  secondary: "info",
+  success: "success",
+  warning: "warning",
+};
+
+function ManufacturingStatusLabel({
+  state,
+  className,
+}: {
+  state: OperationalState;
+  className?: string;
+}) {
+  return (
+    <StatusLabel
+      tone={operationalToneToStatusTone[state.tone]}
+      className={className}
+    >
+      {state.label}
+    </StatusLabel>
+  );
+}
+
 function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
   const state = getProductionState(order);
 
@@ -192,7 +218,7 @@ function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
       trigger={
         <OperationalStateCell
           state={state}
-          className="transition-colors hover:border-primary/40 hover:bg-primary/10"
+          className="transition-colors hover:border-primary"
         />
       }
       triggerAriaLabel={`Manufacturing actions for ${order.orderNumber}`}
@@ -260,7 +286,7 @@ function RankCell({
 
   return (
     <div className="flex h-full items-center">
-      <span className="w-8 text-[1.0625rem] text-muted-foreground tabular-nums">
+      <span className="w-(--space-16) text-muted-foreground tabular-nums">
         {order.priorityRank ?? rowIndex + 1}
       </span>
     </div>
@@ -400,7 +426,9 @@ export function OrdersTable({
         minWidth: 150,
         valueGetter: ({ data }) => (data ? getIngredientState(data).label : ""),
         cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
-          data ? <OperationalStateCell state={getIngredientState(data)} /> : null,
+          data ? (
+            <ManufacturingStatusLabel state={getIngredientState(data)} />
+          ) : null,
       },
       {
         colId: "productionState",

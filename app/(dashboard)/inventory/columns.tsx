@@ -88,10 +88,10 @@ function ProjectedSafetyCell({ row }: { row: ItemRow }) {
         : "bg-success";
 
   return (
-    <div className="flex min-w-0 max-w-full flex-col gap-2">
-      <div className="relative h-2 rounded-full bg-muted">
+    <div className="flex h-full min-w-0 max-w-full flex-col justify-center gap-2">
+      <div className="relative h-2 rounded-(--radius-none) bg-[var(--color-line-2)]">
         <div
-          className={cn("absolute inset-y-0 left-0 rounded-full", fillClass)}
+          className={cn("absolute inset-y-0 left-0 rounded-(--radius-none)", fillClass)}
           style={{ width: `${projectedPercent}%` }}
         />
         {safety > 0 ? (

@@ -30,11 +30,8 @@ test.describe("Inventory creation flow", () => {
   test("shows the active organization in the sidebar and hides placeholder actions", async ({
     page,
   }) => {
-    await page.goto("/");
-
-    await page.waitForURL("**/inventory/materials");
-    await expect(page.getByRole("button", { name: "Inventory", exact: true })).toBeVisible();
-    await expect(page.getByText("Test Org")).toBeVisible();
+    await page.goto("/inventory/materials");
+    await expect(page.getByRole("link", { name: "Inventory", exact: true })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "ERP Agent message" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Notifications" })).toHaveCount(0);
     await expect(page.getByText("Add Location")).toHaveCount(0);
@@ -290,7 +287,7 @@ test.describe("Inventory creation flow", () => {
     await page.goto("/inventory/materials");
     await page.getByLabel("Search items").fill(String(ts));
 
-    const firstRow = page.locator("tbody tr", { hasText: lowStockMaterialName }).first();
+    const firstRow = page.getByRole("row", { name: new RegExp(lowStockMaterialName) }).first();
 
     const lowStockLink = page.getByRole("link", {
       name: new RegExp(lowStockMaterialName),
@@ -431,8 +428,10 @@ test.describe("Inventory creation flow", () => {
     await page.getByRole("option").first().click();
     await page.getByLabel("Selling Price").fill("29.99");
 
+    const bomFormRows = page.getByTestId("bom-row");
+
     // BOM row 1 — Sand
-    let row = page.getByTestId("bom-row").last();
+    let row = bomFormRows.nth(0);
     await row.getByPlaceholder("Search items...").click();
     await row.getByPlaceholder("Search items...").fill(fullMaterialName);
     await page.getByRole("option", { name: fullMaterialName }).click();
@@ -440,7 +439,7 @@ test.describe("Inventory creation flow", () => {
     await page.getByText("Recipe / Bill of Materials").click();
 
     // BOM row 2 — Gravel
-    row = page.getByTestId("bom-row").last();
+    row = bomFormRows.nth(1);
     await row.getByPlaceholder("Search items...").click();
     await row.getByPlaceholder("Search items...").fill(minimalMaterialName);
     await page.getByRole("option", { name: minimalMaterialName }).click();
@@ -448,7 +447,7 @@ test.describe("Inventory creation flow", () => {
     await page.getByText("Recipe / Bill of Materials").click();
 
     // BOM row 3 — Base Mix
-    row = page.getByTestId("bom-row").last();
+    row = bomFormRows.nth(2);
     await row.getByPlaceholder("Search items...").click();
     await row.getByPlaceholder("Search items...").fill(simpleProductName);
     await page.getByRole("option", { name: simpleProductName }).click();

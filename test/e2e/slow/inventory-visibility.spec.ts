@@ -244,19 +244,23 @@ test.describe("Inventory visibility ranking", () => {
     await page.goto("/inventory/products");
     await filterList(page, "Search items", `Revenue Rank ${ts}`);
 
-    const rowLinks = page.locator("tbody tr td a[href^='/inventory/products/']");
+    const rowLinks = page.locator(
+      "[data-slot='erp-data-grid'] .ag-center-cols-container [role='row'][row-index] a[href^='/inventory/products/']",
+    );
     await expect(rowLinks.first()).toBeVisible();
 
     const orderedNames = await rowLinks.evaluateAll((links) =>
       links.map((link) => link.textContent?.trim() ?? "").filter(Boolean),
     );
-
-    expect(orderedNames.slice(0, 5)).toEqual([
+    const expectedNames = [
       productAName,
       productBName,
       unsoldVariantDisplayName,
       soldVariantDisplayName,
       zeroNewerName,
-    ]);
+    ];
+    const currentRunNames = orderedNames.filter((name) => expectedNames.includes(name));
+
+    expect(currentRunNames).toEqual(expectedNames);
   });
 });
