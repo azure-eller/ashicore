@@ -357,6 +357,7 @@ test.describe("Manufacturing order flow", () => {
     const productCreate = await createItem({
       name: productName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `PROD-BLEND-${ts}`,
       category: `Manufacturing ${ts}`,
@@ -377,6 +378,7 @@ test.describe("Manufacturing order flow", () => {
     const nonManufacturableProductCreate = await createItem({
       name: nonManufacturableProductName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `PROD-DISPLAY-${ts}`,
       category: `Manufacturing ${ts}`,
@@ -755,6 +757,7 @@ test.describe("Manufacturing order flow", () => {
     const repeatProductCreate = await createItem({
       name: repeatProductName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `PROD-REPEAT-${ts}`,
       category: `Manufacturing ${ts}`,
@@ -992,6 +995,7 @@ test.describe("Manufacturing order flow", () => {
     const productCreate = await createItem({
       name: deleteProductName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `PROD-DELETE-RELEASE-${ts}`,
       category: `Manufacturing ${ts}`,
@@ -1111,6 +1115,7 @@ test.describe("Manufacturing order flow", () => {
     const productCreate = await createItem({
       name: batchProductName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `PROD-BATCH-CANCEL-${ts}`,
       category: `Manufacturing ${ts}`,
@@ -1282,6 +1287,7 @@ test.describe("Manufacturing order flow", () => {
     const productCreate = await createItem({
       name: productName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `PROD-SALES-BATCH-${batchTs}`,
       category,
@@ -1739,6 +1745,7 @@ test.describe("Manufacturing order flow", () => {
     const subassemblyCreate = await createItem({
       name: subassemblyName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `PROD-SUB-${chainTs}`,
       category,
@@ -1755,6 +1762,7 @@ test.describe("Manufacturing order flow", () => {
     const finishedCreate = await createItem({
       name: finishedName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `PROD-NESTED-${chainTs}`,
       category,
@@ -1934,6 +1942,7 @@ test.describe("Manufacturing order flow", () => {
     const toteCreate = await createItem({
       name: `Allocation Tote ${allocationTs}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `PROD-ALLOC-TOTE-${allocationTs}`,
       category,
@@ -1951,6 +1960,7 @@ test.describe("Manufacturing order flow", () => {
     const bagCreate = await createItem({
       name: bagName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `PROD-ALLOC-BAG-${allocationTs}`,
       category,
@@ -2118,6 +2128,7 @@ test.describe("Manufacturing order flow", () => {
     const decimalProductCreate = await createItem({
       name: decimalProductName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `PROD-DEC-${ts}`,
       category: `Manufacturing ${ts}`,
@@ -2201,6 +2212,7 @@ test.describe("Manufacturing order flow", () => {
     const guardProductCreate = await createItem({
       name: guardProductName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `PROD-DELETE-GUARD-${ts}`,
       category: `Manufacturing ${ts}`,
@@ -2293,6 +2305,7 @@ test.describe("Manufacturing order flow", () => {
     const productCreate = await createItem({
       name: `Manufacturing Converted Blend ${ts}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: gallonUnit.body.id,
       sku: `MFG-CONV-PROD-${ts}`,
       category: `Manufacturing ${ts}`,

@@ -8,11 +8,13 @@ import {
   getXeroConnection,
 } from "@/lib/dal/xero";
 import { getAccountPageData, getTeamPageData } from "./queries";
+import { getDailyManufacturingReportSchedule } from "@/lib/dal/reports";
 import { getSettingsSections } from "./sections";
 import { SettingsNav } from "./settings-nav";
 import { AccountSection } from "./account-section";
 import { TeamSection } from "./team-section";
 import { IntegrationsSection } from "./integrations-section";
+import { ReportsSection } from "./reports-section";
 
 export const metadata: Metadata = {
   title: "Settings",
@@ -47,11 +49,13 @@ export default async function SettingsPage({
   );
   const showIntegrations = canManageXero || canImportSuppliers;
 
-  const sections = getSettingsSections({ showTeam, showIntegrations });
+  const showReports = showTeam;
+  const sections = getSettingsSections({ showTeam, showIntegrations, showReports });
 
   const [
     accountData,
     teamData,
+    reportScheduleData,
     xeroConnection,
     quickBooksConnection,
     xeroImportRuns,
@@ -60,6 +64,7 @@ export default async function SettingsPage({
   ] = await Promise.all([
     getAccountPageData(),
     showTeam ? getTeamPageData() : null,
+    showReports ? getDailyManufacturingReportSchedule() : null,
     showIntegrations ? getXeroConnection() : null,
     showIntegrations ? getQuickBooksConnection() : null,
     showIntegrations ? getRecentXeroImportRuns() : [],
@@ -78,6 +83,9 @@ export default async function SettingsPage({
         <div className="flex min-w-0 flex-col gap-(--space-10)">
           <AccountSection initialData={accountData} />
           {teamData ? <TeamSection initialData={teamData} /> : null}
+          {reportScheduleData ? (
+            <ReportsSection initialData={reportScheduleData} />
+          ) : null}
           {showIntegrations ? (
             <IntegrationsSection
               connection={xeroConnection}

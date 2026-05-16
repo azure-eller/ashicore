@@ -141,6 +141,7 @@ test.describe("Sales order flow", () => {
     const secondaryProductResult = await createItem({
       name: secondaryProductName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `SALES-BASE-${fixtureTs}`,
       category: `Sales ${fixtureTs}`,
@@ -157,6 +158,7 @@ test.describe("Sales order flow", () => {
     const primaryProductResult = await createItem({
       name: primaryProductName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `SALES-TOPSOIL-${fixtureTs}`,
       category: `Sales ${fixtureTs}`,
@@ -1310,6 +1312,7 @@ test.describe("Sales order flow", () => {
     const linkedProductResult = await createItem({
       name: `Stale Link Product ${run}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `STALE-LINK-PROD-${run}`,
       category: `Sales ${run}`,

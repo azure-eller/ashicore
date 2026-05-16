@@ -1,5 +1,6 @@
 import http from "node:http";
 import https from "node:https";
+import { createHash } from "node:crypto";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { readTestEnv } from "./test-env";
 
@@ -137,10 +138,17 @@ export async function testFetch(
 ): Promise<TestResponse> {
   const base = getBaseUrl();
   const method = (options.method ?? "GET").toUpperCase();
+  const bodyFingerprint =
+    typeof options.body === "string"
+      ? `:${createHash("sha256").update(options.body).digest("hex").slice(0, 16)}`
+      : "";
   const requestHeaders =
     method === "GET" || method === "HEAD"
       ? new Headers(options.headers)
-      : createIdempotencyHeaders(`test:${method}:${path}`, options.headers);
+      : createIdempotencyHeaders(
+          `test:${method}:${path}${bodyFingerprint}`,
+          options.headers
+        );
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {

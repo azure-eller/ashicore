@@ -18,7 +18,8 @@ export type TransactionalEmailInput = {
     | "team-invite"
     | "purchase-order"
     | "invoice"
-    | "feedback";
+    | "feedback"
+    | "daily-manufacturing-report";
   to: string;
   subject: string;
   html: string;

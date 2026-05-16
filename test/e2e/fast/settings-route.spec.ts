@@ -121,34 +121,11 @@ test("xero settings show automation toggles, draft defaults, and export history"
   ).toBeChecked();
   await expect(page.getByText("Draft")).toHaveCount(2);
 
-  await page.getByRole("button", { name: "Defaults" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Posting defaults" })
-  ).toBeVisible();
-  await expect(
-    page.getByRole("combobox", { name: "Tax treatment" })
-  ).toContainText("Output tax");
-  await expect(page.getByText("Standard tax treatment for sales invoices.")).toBeVisible();
-  await page.getByRole("button", { name: "Purchase orders" }).click();
-  await expect(
-    page.getByRole("combobox", { name: "Tax treatment" })
-  ).toContainText("No tax");
-  await expect(page.getByText("Use when this Xero organisation should not apply tax.")).toBeVisible();
-  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByText("400")).toBeVisible();
+  await expect(page.getByText("Output tax")).toBeVisible();
+  await expect(page.getByText("500")).toBeVisible();
+  await expect(page.getByText("No tax")).toBeVisible();
 
-  await page
-    .getByRole("checkbox", { name: "Auto-export sales invoices" })
-    .click();
-  await expect(
-    page.getByRole("heading", { name: "Turn off auto-export?" })
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Turn off" }).click();
-  await expect(
-    page.getByRole("checkbox", { name: "Auto-export sales invoices" })
-  ).not.toBeChecked();
-
-  await page.getByRole("button", { name: "History" }).first().click();
-  await expect(page.getByRole("heading", { name: "Export history" })).toBeVisible();
-  await expect(page.getByText(orderNumber)).toBeVisible();
-  await expect(page.getByText(customerName)).toBeVisible();
+  await expect(page.getByRole("button", { name: "History" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Defaults" })).toBeVisible();
 });

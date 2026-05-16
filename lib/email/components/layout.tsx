@@ -11,18 +11,19 @@ import {
 type EmailLayoutProps = {
   preview: string;
   children: React.ReactNode;
+  maxWidth?: number;
 };
 
 const fontFamily =
   '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
 
-export function EmailLayout({ preview, children }: EmailLayoutProps) {
+export function EmailLayout({ preview, children, maxWidth = 480 }: EmailLayoutProps) {
   return (
     <Html lang="en">
       <Head />
       <Preview>{preview}</Preview>
       <Body style={body}>
-        <Container style={container}>
+        <Container style={{ ...container, maxWidth }}>
           <Section style={brandRow}>
             <Text style={brandMark}>a</Text>
             <Text style={brandName}>ashicore</Text>

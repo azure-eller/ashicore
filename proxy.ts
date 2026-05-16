@@ -52,6 +52,7 @@ function isPublicRoute(pathname: string) {
     pathname === "/favicon.ico" ||
     pathname.startsWith("/monitoring") ||
     pathname.startsWith("/api/auth") ||
+    pathname === "/api/reports/sparkline.png" ||
     pathname === "/api/internal/sentry/autofix" ||
     pathname === "/android" ||
     pathname.startsWith("/downloads/") ||

@@ -12,6 +12,10 @@
     {
       "path": "/api/internal/accounting-purchase-order-sync",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/internal/daily-reports",
+      "schedule": "0 * * * *"
     }
   ]
 }
