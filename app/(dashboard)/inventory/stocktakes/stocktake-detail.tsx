@@ -543,7 +543,7 @@ export function StocktakeDetail({
             </div>
           </div>
 
-          <div className="overflow-x-auto rounded-lg border">
+          <div className="overflow-x-auto border">
             <Table>
               <TableHeader>
                 <TableRow>

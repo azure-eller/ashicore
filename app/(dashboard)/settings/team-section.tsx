@@ -178,7 +178,7 @@ function InviteMemberDialog({
               render={({ field, fieldState }) => (
                 <Field data-invalid={fieldState.invalid}>
                   <FieldLabel>Default role</FieldLabel>
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-(--space-6) sm:grid-cols-2">
                     {ACCESS_PRESET_KEYS.filter(
                       (presetKey) => canGrantTeamManagement || presetKey !== "admin"
                     ).map((presetKey) => {
@@ -189,14 +189,14 @@ function InviteMemberDialog({
                           key={presetKey}
                           type="button"
                           onClick={() => field.onChange(presetKey)}
-                          className={`rounded-xl border px-4 py-4 text-left transition-colors ${
+                          className={`border px-(--space-8) py-(--space-8) text-left transition-colors ${
                             selected
                               ? "border-ring bg-accent text-accent-foreground"
                               : "border-border bg-card text-card-foreground hover:bg-accent/50"
                           }`}
                           aria-pressed={selected}
                         >
-                          <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center justify-between gap-(--space-6)">
                             <span className="font-medium">
                               {formatAccessPresetLabel(presetKey)}
                             </span>
@@ -214,7 +214,7 @@ function InviteMemberDialog({
 
           {formError ? <FieldError>{formError}</FieldError> : null}
 
-          <div className="flex justify-end gap-3">
+          <div className="flex justify-end gap-(--space-6)">
             <Button
               type="button"
               variant="outline"
@@ -299,13 +299,13 @@ function CustomizeAccessDialog({
             </Field>
           </FieldGroup>
 
-          <div className="overflow-hidden rounded-xl border">
+          <div className="overflow-hidden border">
             <div className="divide-y">
               {MODULE_KEYS.map((moduleKey) => (
                 <div
                   key={moduleKey}
                   data-module-key={moduleKey}
-                  className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-(--space-6) px-(--space-8) py-(--space-8) sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="font-medium">{formatModuleLabel(moduleKey)}</div>
                   <ToggleGroup
@@ -482,11 +482,11 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
 
   return (
     <>
-      <section id="team" className="scroll-mt-24 rounded-lg border">
-        <div className="flex items-center justify-between gap-4 p-6">
-          <h2 className="text-base font-semibold tracking-tight">
+      <section id="team" className="scroll-mt-(--space-24) border">
+        <div className="flex items-center justify-between gap-(--space-8) p-(--space-12)">
+          <h2 className="text-[length:var(--text-base)] leading-[var(--leading-base)] font-semibold tracking-[var(--tracking-tight)]">
             Team{" "}
-            <span className="text-sm font-normal text-muted-foreground">
+            <span className="text-[length:var(--text-sm)] font-normal text-muted-foreground">
               · {memberCount} {memberCount === 1 ? "member" : "members"}
               {pendingCount > 0 ? ` · ${pendingCount} pending` : ""}
             </span>

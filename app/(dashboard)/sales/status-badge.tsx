@@ -1,4 +1,4 @@
-import { Badge } from "@/components/ui/badge";
+import { StatusLabel } from "@/components/ui/status-label";
 import {
   Tooltip,
   TooltipContent,
@@ -8,16 +8,16 @@ import { SALES_ORDER_STATUS_TOOLTIP } from "@/lib/tooltip-copy";
 import type { SalesOrderStatus } from "@/lib/schemas/sales-orders";
 
 export function SalesOrderStatusBadge({ status }: { status: SalesOrderStatus }) {
-  const badge =
+  const label =
     status === "done" ? (
-      <Badge variant="outline">Done</Badge>
+      <StatusLabel tone="success">Done</StatusLabel>
     ) : (
-      <Badge variant="secondary">Open</Badge>
+      <StatusLabel tone="info">Open</StatusLabel>
     );
 
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{badge}</TooltipTrigger>
+      <TooltipTrigger asChild>{label}</TooltipTrigger>
       <TooltipContent side="top">
         {SALES_ORDER_STATUS_TOOLTIP[status]}
       </TooltipContent>

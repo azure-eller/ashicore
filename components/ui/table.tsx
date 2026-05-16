@@ -18,7 +18,10 @@ function Table({
     >
       <table
         data-slot="table"
-        className={cn("w-full caption-bottom text-[1.1375rem]", className)}
+        className={cn(
+          "w-full caption-bottom text-[length:var(--text-sm)] leading-[var(--leading-sm)]",
+          className
+        )}
         {...props}
       />
     </div>
@@ -50,7 +53,7 @@ function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
     <tfoot
       data-slot="table-footer"
       className={cn(
-        "border-t bg-muted/50 font-medium [&>tr]:last:border-b-0",
+        "border-t bg-muted font-medium [&>tr]:last:border-b-0",
         className
       )}
       {...props}
@@ -63,7 +66,7 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
     <tr
       data-slot="table-row"
       className={cn(
-        "border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted",
+        "border-b border-border transition-colors hover:bg-muted data-[state=selected]:bg-[var(--color-accent-soft)]",
         className
       )}
       {...props}
@@ -76,7 +79,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       data-slot="table-head"
       className={cn(
-        "h-[var(--table-head-height)] bg-muted px-[var(--table-cell-px)] py-[var(--table-cell-py)] text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
+        "h-[var(--table-head-height)] bg-muted px-[var(--table-cell-px)] py-[var(--table-cell-py)] text-left align-middle text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] whitespace-nowrap text-muted-foreground uppercase [&:has([role=checkbox])]:pr-0",
         className
       )}
       {...props}
@@ -89,7 +92,7 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
     <td
       data-slot="table-cell"
       className={cn(
-        "px-[var(--table-cell-px)] py-[var(--table-cell-py)] align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        "px-[var(--table-cell-px)] py-[var(--table-cell-py)] align-middle whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
         className
       )}
       {...props}
@@ -104,7 +107,7 @@ function TableCaption({
   return (
     <caption
       data-slot="table-caption"
-      className={cn("mt-4 text-sm text-muted-foreground", className)}
+      className={cn("mt-(--space-8) text-[length:var(--text-sm)] text-muted-foreground", className)}
       {...props}
     />
   )

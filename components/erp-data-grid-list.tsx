@@ -162,7 +162,7 @@ export function ERPDataGridList<TData extends { id: string }>({
                 {selectedCount > 0 ? (
                   <span
                     aria-hidden
-                    className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground"
+                    className="absolute -top-(--space-2) -right-(--space-2) flex h-(--space-8) min-w-(--space-8) items-center justify-center bg-primary px-(--space-1) font-mono text-[length:var(--text-2xs)] font-medium tabular-nums text-primary-foreground"
                   >
                     {selectedCount}
                   </span>
@@ -220,7 +220,7 @@ export function ERPDataGridList<TData extends { id: string }>({
             {selectedCount > 0 ? (
               <span
                 aria-hidden
-                className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground"
+                className="absolute -top-(--space-2) -right-(--space-2) flex h-(--space-8) min-w-(--space-8) items-center justify-center bg-primary px-(--space-1) font-mono text-[length:var(--text-2xs)] font-medium tabular-nums text-primary-foreground"
               >
                 {selectedCount}
               </span>
@@ -291,7 +291,7 @@ export function ERPDataGridList<TData extends { id: string }>({
               {deleteError ? (
                 <div
                   role="alert"
-                  className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                  className="border border-destructive bg-[var(--color-danger-soft)] px-(--space-6) py-(--space-4) text-[length:var(--text-sm)] text-destructive"
                 >
                   {deleteError}
                 </div>

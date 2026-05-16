@@ -667,7 +667,7 @@ function TimelineNode({
     <div
       aria-hidden
       className={cn(
-        "absolute -left-10 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border bg-background text-xs font-medium",
+        "absolute -left-(--space-20) top-1/2 flex size-(--space-16) -translate-y-1/2 items-center justify-center border bg-background text-[length:var(--text-xs)] font-medium",
         active && "bg-primary text-primary-foreground"
       )}
     >

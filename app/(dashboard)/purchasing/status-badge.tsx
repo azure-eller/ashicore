@@ -1,4 +1,4 @@
-import { Badge } from "@/components/ui/badge";
+import { StatusLabel } from "@/components/ui/status-label";
 import {
   Tooltip,
   TooltipContent,
@@ -12,23 +12,23 @@ export function PurchaseOrderStatusBadge({
 }: {
   status: PurchaseOrderStatus;
 }) {
-  let badge;
+  let label;
 
   if (status === "ordered") {
-    badge = <Badge>Ordered</Badge>;
+    label = <StatusLabel tone="info">Ordered</StatusLabel>;
   } else if (status === "partial") {
-    badge = <Badge variant="outline">Partially Received</Badge>;
+    label = <StatusLabel tone="warning">Partially Received</StatusLabel>;
   } else if (status === "received") {
-    badge = <Badge variant="outline">Received</Badge>;
+    label = <StatusLabel tone="success">Received</StatusLabel>;
   } else if (status === "cancelled") {
-    badge = <Badge variant="destructive">Cancelled</Badge>;
+    label = <StatusLabel tone="danger">Cancelled</StatusLabel>;
   } else {
-    badge = <Badge variant="secondary">Draft</Badge>;
+    label = <StatusLabel tone="neutral">Draft</StatusLabel>;
   }
 
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{badge}</TooltipTrigger>
+      <TooltipTrigger asChild>{label}</TooltipTrigger>
       <TooltipContent side="top">
         {PURCHASE_ORDER_STATUS_TOOLTIP[status]}
       </TooltipContent>

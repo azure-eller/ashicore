@@ -429,7 +429,7 @@ export function PricingScheduleForm({
           >
             <FieldGroup className="gap-4">
               {fields.map((field, index) => (
-                <div key={field.id} className="rounded-lg border p-4">
+                <div key={field.id} className="border p-4">
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-medium">Break {index + 1}</p>

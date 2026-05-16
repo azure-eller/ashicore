@@ -11,6 +11,7 @@ import { AgGridReact } from "ag-grid-react";
 import {
   AllCommunityModule,
   ModuleRegistry,
+  TooltipModule,
   themeQuartz,
   type ColDef,
   type ColGroupDef,
@@ -27,7 +28,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import styles from "./erp-data-grid.module.css";
 
-ModuleRegistry.registerModules([AllCommunityModule]);
+ModuleRegistry.registerModules([AllCommunityModule, TooltipModule]);
 
 const erpGridTheme = themeQuartz.withParams({
   accentColor: "var(--color-accent)",
@@ -46,6 +47,9 @@ const erpGridTheme = themeQuartz.withParams({
   rowBorder: true,
   rowHoverColor: "var(--color-accent-soft)",
   selectedRowBackgroundColor: "var(--color-accent-soft)",
+  tooltipBackgroundColor: "var(--color-ink)",
+  tooltipBorder: "1px solid var(--color-ink)",
+  tooltipTextColor: "var(--color-bg)",
   wrapperBorderRadius: 0,
 });
 
@@ -392,6 +396,10 @@ export function ERPDataGrid<TData extends { id: string }>({
           rowHeight={rowHeight}
           headerHeight={headerHeight}
           groupHeaderHeight={groupHeaderHeight}
+          tooltipShowDelay={300}
+          tooltipSwitchShowDelay={100}
+          tooltipHideDelay={10000}
+          tooltipShowMode="standard"
           columnHoverHighlight={columnHoverHighlight}
           quickFilterText={enableQuickFilter ? searchValue : undefined}
           rowClassRules={rowClassRules}

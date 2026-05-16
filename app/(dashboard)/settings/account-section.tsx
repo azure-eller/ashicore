@@ -16,10 +16,10 @@ function Row({
   action: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 border-t py-3 first:border-t-0">
-      <div className="flex min-w-0 flex-1 items-center gap-4">
-        <span className="w-20 shrink-0 text-sm text-muted-foreground">{label}</span>
-        <span className="truncate text-sm">{value}</span>
+    <div className="flex items-center justify-between gap-(--space-8) border-t py-(--space-6) first:border-t-0">
+      <div className="flex min-w-0 flex-1 items-center gap-(--space-8)">
+        <span className="w-[calc(var(--space-20)*2)] shrink-0 text-[length:var(--text-sm)] text-muted-foreground">{label}</span>
+        <span className="truncate text-[length:var(--text-sm)]">{value}</span>
       </div>
       {action}
     </div>
@@ -28,8 +28,8 @@ function Row({
 
 export function AccountSection({ initialData }: { initialData: AccountPageData }) {
   return (
-    <section id="account" className="scroll-mt-24 rounded-lg border p-6">
-      <h2 className="mb-4 text-base font-semibold tracking-tight">Account</h2>
+    <section id="account" className="scroll-mt-(--space-24) border p-(--space-12)">
+      <h2 className="mb-(--space-8) text-[length:var(--text-base)] leading-[var(--leading-base)] font-semibold tracking-[var(--tracking-tight)]">Account</h2>
 
       <Row
         label="Name"

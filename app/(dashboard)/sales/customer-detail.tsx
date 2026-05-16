@@ -409,7 +409,7 @@ function CustomerDetailTabs({
             aria-current={isActive ? "page" : undefined}
             aria-controls={`customer-panel-${tab.value}`}
             className={cn(
-              "inline-flex h-10 shrink-0 items-center gap-1.5 border-b-2 px-4 text-sm font-medium transition-colors",
+              "inline-flex h-(--height-toolbar) shrink-0 items-center gap-(--space-3) border-b-2 px-(--space-8) text-[length:var(--text-sm)] font-medium transition-colors",
               isActive
                 ? "border-foreground text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground"
@@ -421,7 +421,7 @@ function CustomerDetailTabs({
             {tab.count != null ? (
               <span
                 className={cn(
-                  "ml-1 rounded-full px-1.5 py-0.5 text-[0.7rem] font-medium",
+                  "ml-(--space-2) px-(--space-3) py-(--space-1) font-mono text-[length:var(--text-2xs)] font-medium tabular-nums",
                   isActive ? "bg-foreground text-background" : "bg-muted text-muted-foreground"
                 )}
               >
@@ -934,7 +934,7 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                           <button
                             key={project.id}
                             type="button"
-                            className="w-full rounded-lg border p-3 text-left transition-colors hover:bg-muted/50"
+                            className="w-full border p-3 text-left transition-colors hover:bg-muted/50"
                             onClick={() => {
                               setActiveProjectId(project.id);
                               setActiveTab("projects");
@@ -977,7 +977,7 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                           <Link
                             key={order.id}
                             href={`/sales/orders/${order.id}`}
-                            className="block rounded-lg border p-3 hover:bg-muted/50"
+                            className="block border p-3 hover:bg-muted/50"
                           >
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-sm font-medium">{order.orderNumber}</span>
@@ -1119,15 +1119,15 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                       <CardTitle>Log correspondence</CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-4 pt-0">
-                      <div className="flex w-fit rounded-lg bg-muted p-1">
+                      <div className="flex w-fit bg-muted p-(--space-1)">
                         {activityTypes.map((type) => (
                           <button
                             key={type.value}
                             type="button"
                             className={cn(
-                              "inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors",
+                              "inline-flex h-(--height-input-sm) items-center gap-(--space-3) px-(--space-4) text-[length:var(--text-xs)] font-medium transition-colors",
                               activityForm.type === type.value
-                                ? "bg-background text-foreground shadow-sm"
+                                ? "bg-background text-foreground"
                                 : "text-muted-foreground hover:text-foreground"
                             )}
                             onClick={() =>
@@ -1160,8 +1160,8 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                           }))
                         }
                       />
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-medium text-muted-foreground">Tag people</span>
+                      <div className="flex flex-wrap items-center gap-(--space-4)">
+                        <span className="text-[length:var(--text-xs)] font-medium text-muted-foreground">Tag people</span>
                         {detail.contacts.map((contact) => {
                           const selected = activityForm.attendeeContactIds.includes(contact.id);
                           return (
@@ -1169,7 +1169,7 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                               key={contact.id}
                               type="button"
                               className={cn(
-                                "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs transition-colors",
+                                "inline-flex items-center gap-(--space-3) border px-(--space-4) py-(--space-1) text-[length:var(--text-xs)] transition-colors",
                                 selected
                                   ? "border-primary bg-primary text-primary-foreground"
                                   : "border-border bg-background text-muted-foreground hover:bg-muted"
@@ -1210,15 +1210,15 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                   </Card>
 
                   <div>
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <h3 className="text-sm font-semibold">Timeline</h3>
-                      <div className="flex items-center rounded-lg border bg-background p-0.5 text-xs">
+                    <div className="mb-(--space-6) flex items-center justify-between gap-(--space-6)">
+                      <h3 className="text-[length:var(--text-sm)] font-semibold">Timeline</h3>
+                      <div className="flex items-center border bg-background p-(--space-1) text-[length:var(--text-xs)]">
                         {["all" as const, ...activityTypes.map((type) => type.value)].map((type) => (
                           <button
                             key={type}
                             type="button"
                             className={cn(
-                              "rounded-md px-2 py-1 transition-colors",
+                              "px-(--space-4) py-(--space-2) transition-colors",
                               activityFilter === type
                                 ? "bg-primary text-primary-foreground"
                                 : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -1234,13 +1234,13 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                     {groupedActivity.length === 0 ? (
                       <EmptyState message="No activity logged yet." />
                     ) : (
-                      <div className="space-y-6">
+                      <div className="space-y-(--space-12)">
                         {groupedActivity.map(([label, entries]) => (
                           <div key={label}>
-                            <div className="mb-2 text-[0.7rem] font-medium uppercase text-muted-foreground">
+                            <div className="mb-(--space-4) text-[length:var(--text-2xs)] font-semibold tracking-[var(--tracking-caps)] text-muted-foreground uppercase">
                               {label}
                             </div>
-                            <div className="space-y-3 border-l pl-5">
+                            <div className="space-y-(--space-6) border-l pl-(--space-10)">
                               {entries.map((entry) => {
                                 const config = activityTypeConfig(entry.type);
                                 return (
@@ -1258,14 +1258,14 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                                             {entry.body}
                                           </p>
                                           {entry.attendees.length > 0 ? (
-                                            <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                                              <span className="text-[0.7rem] uppercase text-muted-foreground">
+                                            <div className="mt-(--space-6) flex flex-wrap items-center gap-(--space-3)">
+                                              <span className="text-[length:var(--text-2xs)] tracking-[var(--tracking-caps)] text-muted-foreground uppercase">
                                                 With
                                               </span>
                                               {entry.attendees.map((attendee) => (
                                                 <span
                                                   key={attendee.id}
-                                                  className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs"
+                                                  className="inline-flex items-center gap-(--space-2) border bg-background px-(--space-4) py-(--space-1) text-[length:var(--text-xs)]"
                                                 >
                                                   <ContactAvatar name={attendee.contactName} size="sm" />
                                                   {attendee.contactName}
@@ -1355,7 +1355,7 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                             key={project.id}
                             type="button"
                             className={cn(
-                              "w-full rounded-lg border p-3 text-left transition-colors",
+                              "w-full border p-3 text-left transition-colors",
                               active ? "border-foreground bg-muted/50" : "hover:bg-muted/50"
                             )}
                             onClick={() => setActiveProjectId(project.id)}
@@ -1504,7 +1504,7 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                               }}
                             />
                             <div
-                              className="flex items-center justify-center gap-2 rounded-lg border border-dashed bg-muted/30 px-4 py-8 text-sm text-muted-foreground"
+                              className="flex items-center justify-center gap-(--space-4) border border-dashed bg-muted px-(--space-8) py-(--space-16) text-[length:var(--text-sm)] text-muted-foreground"
                               onDragOver={(event) => event.preventDefault()}
                               onDrop={(event) => {
                                 event.preventDefault();
@@ -1521,12 +1521,12 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                               </button>
                             </div>
                             {fileActionError ? (
-                              <p className="text-sm text-destructive">{fileActionError}</p>
+                              <p className="text-[length:var(--text-sm)] text-destructive">{fileActionError}</p>
                             ) : null}
                             {activeProject.files.length === 0 ? (
                               <EmptyState message="No files yet." />
                             ) : (
-                              <div className="divide-y rounded-lg border">
+                              <div className="divide-y border">
                                 {activeProject.files.map((file) => (
                                   <div key={file.id} className="flex items-center gap-3 px-3 py-2.5">
                                     <FileTypeBadge file={file} />
@@ -1680,7 +1680,7 @@ function ContactDialog({
               <FieldLabel>Roles</FieldLabel>
               <FieldGroup className="grid gap-2 sm:grid-cols-2">
                 {roleOptions.map((role) => (
-                  <label key={role.value} className="flex items-center gap-2 rounded-lg border p-2 text-sm">
+                  <label key={role.value} className="flex items-center gap-2 border p-2 text-sm">
                     <Checkbox
                       checked={form.roles.includes(role.value)}
                       onCheckedChange={() => onToggleRole(role.value)}
@@ -1805,7 +1805,7 @@ function ProjectDialog({
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="rounded-lg border border-dashed bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
+    <div className="border border-dashed bg-muted px-(--space-8) py-(--space-16) text-center text-[length:var(--text-sm)] text-muted-foreground">
       {message}
     </div>
   );
@@ -1813,7 +1813,7 @@ function EmptyState({ message }: { message: string }) {
 
 function IconTile({ icon }: { icon: typeof NoteIcon }) {
   return (
-    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
+    <span className="grid size-(--space-16) shrink-0 place-items-center bg-muted text-muted-foreground">
       <HugeiconsIcon icon={icon} size={16} aria-hidden />
     </span>
   );

@@ -251,7 +251,7 @@ export function StocktakeForm({
       <CreatePageGrid
         sidebar={
           <CreateSidebarCard title="How it works">
-            <div className="space-y-4">
+            <div className="space-y-(--space-8)">
               {[
                 {
                   title: "Snapshot",
@@ -269,13 +269,13 @@ export function StocktakeForm({
                     "Completing it writes counted totals to live stock.",
                 },
               ].map((step, index) => (
-                <div key={step.title} className="flex gap-3">
-                  <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium">
+                <div key={step.title} className="flex gap-(--space-6)">
+                  <div className="flex size-(--space-10) shrink-0 items-center justify-center border bg-muted font-mono text-[length:var(--text-xs)] font-medium tabular-nums">
                     {index + 1}
                   </div>
-                  <div className="space-y-0.5">
-                    <div className="text-sm font-medium">{step.title}</div>
-                    <p className="text-xs leading-5 text-muted-foreground">
+                  <div className="space-y-(--space-1)">
+                    <div className="text-[length:var(--text-sm)] font-medium">{step.title}</div>
+                    <p className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground">
                       {step.description}
                     </p>
                   </div>

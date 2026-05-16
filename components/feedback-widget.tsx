@@ -247,7 +247,7 @@ function FeedbackWidgetContent() {
           suppressHydrationWarning
           type="button"
           size="lg"
-          className="fixed bottom-20 right-6 z-50 h-11 px-4 text-sm shadow-lg"
+          className="fixed right-(--space-12) bottom-(--space-20) z-50 h-(--height-input-lg) px-(--space-8) text-[length:var(--text-sm)] shadow-[var(--shadow-overlay)]"
         >
           Feedback
         </Button>
@@ -258,7 +258,7 @@ function FeedbackWidgetContent() {
         </DialogHeader>
 
         <form
-          className="flex flex-col gap-5"
+          className="flex flex-col gap-(--space-10)"
           onSubmit={(event) => {
             event.preventDefault();
             setSubmitError(null);
@@ -285,8 +285,8 @@ function FeedbackWidgetContent() {
             <FieldError errors={messageError ? [{ message: messageError }] : []} />
           </Field>
 
-          <div className="flex flex-col gap-2">
-            <span className="text-sm font-medium">
+          <div className="flex flex-col gap-(--space-4)">
+            <span className="text-[length:var(--text-sm)] font-medium">
               Pasted images{" "}
               <span className="font-normal text-muted-foreground">
                 ({screenshots.length}/{MAX_SCREENSHOTS})
@@ -294,11 +294,11 @@ function FeedbackWidgetContent() {
             </span>
 
             {screenshots.length > 0 && (
-              <ul className="flex flex-wrap gap-2">
+              <ul className="flex flex-wrap gap-(--space-4)">
                 {screenshots.map((shot) => (
                   <li
                     key={shot.id}
-                    className="relative h-20 w-20 overflow-hidden rounded-md border border-border bg-muted"
+                    className="relative h-[calc(var(--space-20)*2)] w-[calc(var(--space-20)*2)] overflow-hidden border border-border bg-muted"
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
@@ -310,7 +310,7 @@ function FeedbackWidgetContent() {
                       type="button"
                       onClick={() => removeScreenshot(shot.id)}
                       aria-label={`Remove ${shot.filename}`}
-                      className="absolute right-1 top-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-background/90 text-foreground shadow"
+                      className="absolute top-(--space-2) right-(--space-2) inline-flex h-(--height-input-sm) w-(--height-input-sm) items-center justify-center border bg-background/90 text-foreground shadow-none"
                     >
                       <HugeiconsIcon icon={Cancel01Icon} size={12} strokeWidth={2} />
                     </button>
@@ -320,20 +320,20 @@ function FeedbackWidgetContent() {
             )}
 
             {attachmentError && (
-              <p className="text-sm text-destructive">{attachmentError}</p>
+              <p className="text-[length:var(--text-sm)] text-destructive">{attachmentError}</p>
             )}
           </div>
 
           {submitError && (
-            <p className="text-sm text-destructive">{submitError}</p>
+            <p className="text-[length:var(--text-sm)] text-destructive">{submitError}</p>
           )}
 
           <DialogFooter className="sm:items-center sm:justify-between">
-            <div className="inline-flex w-fit items-center gap-1 rounded-full border border-border bg-background px-2 py-1 text-xs text-muted-foreground">
+            <div className="inline-flex w-fit items-center gap-(--space-2) border border-border bg-background px-(--space-4) py-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
               <HugeiconsIcon icon={AlertCircleIcon} size={12} strokeWidth={2} />
               Feedback is sent anonymously.
             </div>
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <div className="flex flex-col-reverse gap-(--space-4) sm:flex-row sm:justify-end">
               <Button
                 type="button"
                 variant="outline"

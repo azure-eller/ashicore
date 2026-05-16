@@ -43,7 +43,7 @@ function EditableLineGrid({
       };
 
   return (
-    <div className={cn("w-full overflow-x-auto rounded-lg border bg-card", className)}>
+    <div className={cn("w-full overflow-x-auto border bg-card", className)}>
       <FieldGroup
         role="table"
         className="w-(--editable-line-grid-width) gap-0"
@@ -52,7 +52,7 @@ function EditableLineGrid({
         <div
           role="row"
           className={cn(
-            "grid min-w-0 grid-cols-(--editable-line-grid-columns) border-b bg-muted/50",
+            "grid min-w-0 grid-cols-(--editable-line-grid-columns) border-b bg-muted",
             headerClassName
           )}
         >
@@ -60,7 +60,7 @@ function EditableLineGrid({
             <div
               key={index}
               role="columnheader"
-              className="min-w-0 truncate px-[var(--table-cell-px)] py-[var(--table-cell-py)] text-left align-middle text-sm font-medium whitespace-nowrap text-foreground"
+              className="min-w-0 truncate px-[var(--table-cell-px)] py-[var(--table-cell-py)] text-left align-middle text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] whitespace-nowrap text-muted-foreground uppercase"
             >
               {header}
             </div>
@@ -81,7 +81,7 @@ function EditableLineGridRow({
     <div
       role="row"
       className={cn(
-        "group/line-grid-row grid min-w-0 grid-cols-(--editable-line-grid-columns) border-b transition-colors last:border-b-0 hover:bg-muted/50",
+        "group/line-grid-row grid min-w-0 grid-cols-(--editable-line-grid-columns) border-b transition-colors last:border-b-0 hover:bg-muted",
         className
       )}
       {...props}
@@ -105,7 +105,7 @@ function EditableLineGridCell({
     <div
       role="cell"
       className={cn(
-        "min-w-0 overflow-hidden px-[var(--table-cell-px)] py-[var(--table-cell-py)] align-middle [&_[data-slot=field]]:min-w-0 [&_input]:min-w-0 [&_p]:max-w-full [&_p]:overflow-hidden",
+        "flex min-w-0 items-center overflow-hidden px-[var(--table-cell-px)] py-[var(--table-cell-py)] text-[length:var(--text-sm)] leading-[var(--leading-sm)] [&_[data-slot=field]]:min-w-0 [&_input]:min-w-0 [&_p]:max-w-full [&_p]:overflow-hidden",
         align === "right" && "text-right",
         align === "center" && "text-center",
         className
@@ -146,7 +146,7 @@ function EditableLineGridRemoveButton({
           variant="ghost"
           size="icon-xs"
           className={cn(
-            "text-destructive opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 group-hover/line-grid-row:opacity-100 group-focus-within/line-grid-row:opacity-100",
+            "text-destructive opacity-0 transition-opacity hover:bg-[var(--color-danger-soft)] hover:text-destructive focus-visible:opacity-100 group-hover/line-grid-row:opacity-100 group-focus-within/line-grid-row:opacity-100",
             className
           )}
           aria-label={label}

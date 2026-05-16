@@ -817,7 +817,7 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
             {selectedCount > 0 ? (
               <span
                 aria-hidden
-                className="absolute -top-1.5 -right-1.5 flex h-(--space-8) w-(--space-8) items-center justify-center rounded-full bg-primary text-[length:var(--text-2xs)] font-medium text-primary-foreground"
+                className="absolute -top-(--space-2) -right-(--space-2) flex h-(--space-8) min-w-(--space-8) items-center justify-center bg-primary px-(--space-1) font-mono text-[length:var(--text-2xs)] font-medium tabular-nums text-primary-foreground"
               >
                 {selectedCount}
               </span>

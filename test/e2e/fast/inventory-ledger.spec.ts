@@ -242,6 +242,7 @@ test.describe("Inventory ledger explorer", () => {
       description: "Ledger sales product",
       defaultPurchasePrice: null,
       defaultSellingPrice: "18.50",
+      sellable: true,
       stock: "0",
       safetyStock: "0",
       bom: [],

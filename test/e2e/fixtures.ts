@@ -152,10 +152,7 @@ export async function filterList(
   value: string
 ): Promise<void> {
   const input = page.getByLabel(label);
-  await input.click();
-  await input.press(`${process.platform === "darwin" ? "Meta" : "Control"}+A`);
-  await input.press("Backspace");
-  await input.pressSequentially(value, { delay: 20 });
+  await input.fill(value);
   await expect(input).toHaveValue(value);
 }
 

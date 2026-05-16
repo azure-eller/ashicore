@@ -811,7 +811,7 @@ export function ManufacturingExecution({
               </div>
               {execution.currentBatch ? (
                 <div className="space-y-3">
-                  <div className="rounded-lg border border-border/80 p-4">
+                  <div className="border border-border/80 p-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                       <div className="space-y-1">
                         <p className="font-medium">

@@ -1,4 +1,4 @@
-import { Badge } from "@/components/ui/badge";
+import { StatusLabel } from "@/components/ui/status-label";
 import {
   Tooltip,
   TooltipContent,
@@ -12,16 +12,16 @@ export function ManufacturingOrderStatusBadge({
 }: {
   status: ManufacturingOrderStatus;
 }) {
-  const badge =
+  const label =
     status === "done" ? (
-      <Badge variant="outline">Done</Badge>
+      <StatusLabel tone="success">Done</StatusLabel>
     ) : (
-      <Badge variant="secondary">Open</Badge>
+      <StatusLabel tone="info">Open</StatusLabel>
     );
 
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{badge}</TooltipTrigger>
+      <TooltipTrigger asChild>{label}</TooltipTrigger>
       <TooltipContent side="top">
         {MANUFACTURING_ORDER_STATUS_TOOLTIP[status]}
       </TooltipContent>

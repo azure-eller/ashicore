@@ -1,4 +1,4 @@
-import { Badge } from "@/components/ui/badge";
+import { StatusLabel } from "@/components/ui/status-label";
 import {
   Tooltip,
   TooltipContent,
@@ -8,19 +8,19 @@ import { STOCKTAKE_STATUS_TOOLTIP } from "@/lib/tooltip-copy";
 import type { StocktakeStatus } from "@/lib/schemas/stocktakes";
 
 export function StocktakeStatusBadge({ status }: { status: StocktakeStatus }) {
-  let badge;
+  let label;
 
   if (status === "draft") {
-    badge = <Badge variant="secondary">Draft</Badge>;
+    label = <StatusLabel tone="neutral">Draft</StatusLabel>;
   } else if (status === "completed") {
-    badge = <Badge variant="outline">Completed</Badge>;
+    label = <StatusLabel tone="success">Completed</StatusLabel>;
   } else {
-    badge = <Badge variant="destructive">Deleted</Badge>;
+    label = <StatusLabel tone="danger">Deleted</StatusLabel>;
   }
 
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{badge}</TooltipTrigger>
+      <TooltipTrigger asChild>{label}</TooltipTrigger>
       <TooltipContent side="top">{STOCKTAKE_STATUS_TOOLTIP[status]}</TooltipContent>
     </Tooltip>
   );

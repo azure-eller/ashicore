@@ -134,7 +134,7 @@ export default async function ProductBomHistoryPage({
               ) : null}
             </div>
 
-            <div className="overflow-hidden rounded-lg border">
+            <div className="overflow-hidden border">
               <Table>
                 <TableHeader>
                   <TableRow>

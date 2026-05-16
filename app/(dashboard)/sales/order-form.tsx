@@ -212,22 +212,24 @@ function SalesOrderSection({
   footer?: ReactNode;
 }) {
   return (
-    <Card className="rounded-lg border shadow-sm ring-0">
-      <CardHeader className="border-b bg-muted/20 px-5 pb-4">
+    <Card className="border shadow-none ring-0">
+      <CardHeader className="border-b bg-muted px-(--space-10) pb-(--space-8)">
         <div>
-          <CardTitle className="text-[15px] font-semibold tracking-normal">
+          <CardTitle className="text-[length:var(--text-base)] leading-[var(--leading-base)] font-semibold tracking-[var(--tracking-normal)]">
             {title}
           </CardTitle>
           {description ? (
-            <CardDescription className="text-[13px]">
+            <CardDescription className="text-[length:var(--text-sm)] leading-[var(--leading-sm)]">
               {description}
             </CardDescription>
           ) : null}
         </div>
         {action ? <CardAction>{action}</CardAction> : null}
       </CardHeader>
-      <CardContent className="px-5">{children}</CardContent>
-      {footer ? <CardFooter className="bg-muted/25 px-5">{footer}</CardFooter> : null}
+      <CardContent className="px-(--space-10)">{children}</CardContent>
+      {footer ? (
+        <CardFooter className="border-t bg-muted px-(--space-10)">{footer}</CardFooter>
+      ) : null}
     </Card>
   );
 }
@@ -1013,15 +1015,15 @@ export function OrderForm({
   if (!isHydrated) {
     return (
       <div className="w-full space-y-8">
-        <div className="space-y-1.5">
-          <div className="h-9 w-56 rounded-md bg-muted" />
-          <div className="h-4 w-80 rounded-md bg-muted" />
+        <div className="space-y-(--space-3)">
+          <div className="h-(--height-input-lg) w-56 bg-muted" />
+          <div className="h-(--space-8) w-80 bg-muted" />
         </div>
         <Separator />
         <div className="space-y-8">
-          <div className="h-48 rounded-lg border bg-card" />
-          <div className="h-64 rounded-lg border bg-card" />
-          <div className="h-40 rounded-lg border bg-card" />
+          <div className="h-48 border bg-card" />
+          <div className="h-64 border bg-card" />
+          <div className="h-40 border bg-card" />
         </div>
       </div>
     );
@@ -1029,10 +1031,10 @@ export function OrderForm({
 
   return (
     <>
-      <div className="mx-auto w-full max-w-[1480px] space-y-6">
-        <div className="sticky top-0 z-10 border-b bg-background/90 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
+      <div className="mx-auto w-full max-w-[1480px] space-y-(--space-12)">
+        <div className="sticky top-0 z-10 border-b bg-background/90 py-(--space-6) backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="flex flex-col gap-(--space-6) md:flex-row md:items-center md:justify-between">
+            <div className="flex min-w-0 items-center gap-(--space-6)">
               <Button
                 type="button"
                 variant="outline"
@@ -1043,15 +1045,15 @@ export function OrderForm({
                 <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={2} />
               </Button>
               <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-[22px] font-bold leading-tight tracking-tight">
+                <div className="flex flex-wrap items-center gap-(--space-4)">
+                  <h1 className="text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-[var(--tracking-tight)]">
                     {isEditing ? "Edit Sales Order" : "Add Sales Order"}
                   </h1>
                 </div>
               </div>
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex flex-col gap-(--space-4) sm:flex-row">
               <Button type="button" variant="outline" onClick={handleCancel}>
                 Cancel
               </Button>
@@ -1411,15 +1413,15 @@ export function OrderForm({
             </SalesOrderSection>
           </form>
 
-          <aside className="space-y-4 self-start 2xl:sticky 2xl:top-6">
-            <Card className="rounded-lg border shadow-sm ring-0">
-              <CardHeader className="border-b bg-muted/20 px-5 pb-4">
-                <CardTitle className="text-[15px] font-semibold tracking-normal">
+          <aside className="space-y-(--space-8) self-start 2xl:sticky 2xl:top-(--space-12)">
+            <Card className="border shadow-none ring-0">
+              <CardHeader className="border-b bg-muted px-(--space-10) pb-(--space-8)">
+                <CardTitle className="text-[length:var(--text-base)] leading-[var(--leading-base)] font-semibold tracking-[var(--tracking-normal)]">
                   Order summary
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3 px-5 text-sm">
-                <div className="flex items-center justify-between gap-4">
+              <CardContent className="space-y-(--space-6) px-(--space-10) text-[length:var(--text-sm)]">
+                <div className="flex items-center justify-between gap-(--space-8)">
                   <span className="text-muted-foreground">
                     Subtotal ({orderSummary.resolvedLineCount}{" "}
                     {orderSummary.resolvedLineCount === 1 ? "item" : "items"})
@@ -1429,25 +1431,25 @@ export function OrderForm({
                   </span>
                 </div>
               </CardContent>
-              <CardFooter className="justify-between bg-muted/25 px-5">
+              <CardFooter className="justify-between border-t bg-muted px-(--space-10)">
                 <div>
-                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <div className="text-[length:var(--text-xs)] font-semibold tracking-[var(--tracking-caps)] text-muted-foreground uppercase">
                     Total
                   </div>
-                  <div className="text-xs text-muted-foreground">USD</div>
+                  <div className="text-[length:var(--text-xs)] text-muted-foreground">USD</div>
                 </div>
-                <div className="font-mono text-2xl font-semibold tabular-nums tracking-tight">
+                <div className="font-mono text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-[var(--tracking-tight)] tabular-nums">
                   {formatPrice(orderTotal.toFixed(2)) ?? "$0.00"}
                 </div>
               </CardFooter>
             </Card>
 
-            <Card className="rounded-lg border shadow-sm ring-0" size="sm">
-              <CardContent className="grid grid-cols-2 gap-4 px-5">
+            <Card className="border shadow-none ring-0" size="sm">
+              <CardContent className="grid grid-cols-2 gap-(--space-8) px-(--space-10)">
                 <div>
-                  <div className="text-xs text-muted-foreground">Estimated margin</div>
+                  <div className="text-[length:var(--text-xs)] text-muted-foreground">Estimated margin</div>
                   <div
-                    className={`text-lg font-semibold ${marginToneClass(
+                    className={`text-[length:var(--text-lg)] leading-[var(--leading-lg)] font-semibold ${marginToneClass(
                       orderSummary.marginMetrics?.marginPercent
                     )}`}
                   >
@@ -1455,8 +1457,8 @@ export function OrderForm({
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-xs text-muted-foreground">COGS</div>
-                  <div className="font-mono text-sm font-medium tabular-nums">
+                  <div className="text-[length:var(--text-xs)] text-muted-foreground">COGS</div>
+                  <div className="font-mono text-[length:var(--text-sm)] font-medium tabular-nums">
                     {formatPrice(orderSummary.cogs.toFixed(2)) ?? "$0.00"}
                   </div>
                 </div>

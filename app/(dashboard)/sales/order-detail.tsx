@@ -472,7 +472,7 @@ function SalesOrderDetailTabs({
               aria-current={isActive ? "page" : undefined}
               aria-controls={`sales-order-panel-${tab.value}`}
               className={cn(
-                "inline-flex h-10 shrink-0 items-center border-b-2 px-4 text-sm font-medium transition-colors",
+                "inline-flex h-(--height-toolbar) shrink-0 items-center border-b-2 px-(--space-8) text-[length:var(--text-sm)] font-medium transition-colors",
                 isActive
                   ? "border-foreground text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground"
@@ -483,7 +483,7 @@ function SalesOrderDetailTabs({
               {tab.count != null ? (
                 <span
                   className={cn(
-                    "ml-1.5 rounded-full px-1.5 py-0.5 text-[0.7rem] font-medium",
+                    "ml-(--space-3) px-(--space-3) py-(--space-1) font-mono text-[length:var(--text-2xs)] font-medium tabular-nums",
                     isActive
                       ? "bg-foreground text-background"
                       : "bg-muted text-muted-foreground"

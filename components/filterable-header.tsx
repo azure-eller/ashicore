@@ -45,7 +45,7 @@ export function FilterHeaderButton({
     >
       {label}
       {selectedCount > 0 && (
-        <span className="ml-1.5 flex h-4 items-center rounded bg-primary px-1 text-[10px] font-medium text-primary-foreground">
+        <span className="ml-(--space-3) flex h-(--space-8) items-center bg-primary px-(--space-2) font-mono text-[length:var(--text-2xs)] font-medium tabular-nums text-primary-foreground">
           {selectedCount}
         </span>
       )}

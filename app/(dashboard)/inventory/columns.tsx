@@ -135,12 +135,12 @@ function NameCell({
   const attention = getInventoryAttention(row);
 
   return (
-    <div className="flex h-full min-w-0 items-center gap-1.5">
+    <div className="flex h-full min-w-0 items-center gap-(--space-3)">
       {attention ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <span
-              className="size-2 shrink-0 cursor-default rounded-full bg-destructive"
+              className="size-(--space-4) shrink-0 cursor-default bg-destructive"
               aria-label={attention.label}
             />
           </TooltipTrigger>
@@ -157,7 +157,7 @@ function NameCell({
       {isProduct && row.sellable === false ? (
         <Tooltip>
           <TooltipTrigger asChild>
-            <Badge variant="outline" className="text-xs">
+            <Badge variant="outline">
               Not sellable
             </Badge>
           </TooltipTrigger>

@@ -1,4 +1,4 @@
-import { Badge } from "@/components/ui/badge";
+import { StatusLabel } from "@/components/ui/status-label";
 import {
   Tooltip,
   TooltipContent,
@@ -12,19 +12,19 @@ export function ManufacturingPickProgressBadge({
 }: {
   status: ManufacturingPickProgressStatus;
 }) {
-  let badge;
+  let label;
 
   if (status === "picked") {
-    badge = <Badge variant="outline">Done</Badge>;
+    label = <StatusLabel tone="success">Done</StatusLabel>;
   } else if (status === "in_progress") {
-    badge = <Badge>In Progress</Badge>;
+    label = <StatusLabel tone="warning">In Progress</StatusLabel>;
   } else {
-    badge = <Badge variant="secondary">Not Started</Badge>;
+    label = <StatusLabel tone="neutral">Not Started</StatusLabel>;
   }
 
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{badge}</TooltipTrigger>
+      <TooltipTrigger asChild>{label}</TooltipTrigger>
       <TooltipContent side="top">{PICK_PROGRESS_TOOLTIP[status]}</TooltipContent>
     </Tooltip>
   );

@@ -593,7 +593,7 @@ export function OrdersTable({
               {selectedCount > 0 ? (
                 <span
                   aria-hidden
-                  className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground"
+                  className="absolute -top-(--space-2) -right-(--space-2) flex h-(--space-8) min-w-(--space-8) items-center justify-center bg-primary px-(--space-1) font-mono text-[length:var(--text-2xs)] font-medium tabular-nums text-primary-foreground"
                 >
                   {selectedCount}
                 </span>
@@ -670,25 +670,29 @@ function ManufacturingStatusFilter({
         }
       }}
       aria-label="Filter manufacturing orders by status"
-      className="max-w-full flex-wrap rounded-lg bg-muted p-1"
+      className="max-w-full flex-wrap bg-muted p-(--space-1)"
     >
       <ToggleGroupItem
         value="open"
         aria-label="Show open orders"
-        className="gap-1.5"
+        className="gap-(--space-3)"
         onClick={() => onStatusChange("open")}
       >
         Open
-        <span className="text-muted-foreground">{openCount}</span>
+        <span className="font-mono text-[length:var(--text-2xs)] tabular-nums text-muted-foreground">
+          {openCount}
+        </span>
       </ToggleGroupItem>
       <ToggleGroupItem
         value="done"
         aria-label="Show done orders"
-        className="gap-1.5"
+        className="gap-(--space-3)"
         onClick={() => onStatusChange("done")}
       >
         Done
-        <span className="text-muted-foreground">{doneCount}</span>
+        <span className="font-mono text-[length:var(--text-2xs)] tabular-nums text-muted-foreground">
+          {doneCount}
+        </span>
       </ToggleGroupItem>
     </ToggleGroup>
   );

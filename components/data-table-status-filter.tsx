@@ -35,7 +35,7 @@ export function DataTableStatusFilter<TData, TValue extends string>({
   const allCount = statusCounts
     ? Array.from(statusCounts.values()).reduce((sum, count) => sum + count, 0)
     : table.getFilteredRowModel().rows.length;
-  const itemClassName = "gap-1.5";
+  const itemClassName = "gap-(--space-3)";
 
   return (
     <ToggleGroup
@@ -55,7 +55,7 @@ export function DataTableStatusFilter<TData, TValue extends string>({
         onFilterValueChange?.(nextValue as TValue | "all");
       }}
       aria-label={ariaLabel}
-      className="max-w-full flex-wrap rounded-lg bg-muted p-1"
+      className="max-w-full flex-wrap bg-muted p-(--space-1)"
     >
       {showAll ? (
         <ToggleGroupItem
@@ -64,7 +64,9 @@ export function DataTableStatusFilter<TData, TValue extends string>({
           className={itemClassName}
         >
           All
-          <span className="text-muted-foreground">{allCount}</span>
+          <span className="font-mono text-[length:var(--text-2xs)] tabular-nums text-muted-foreground">
+            {allCount}
+          </span>
         </ToggleGroupItem>
       ) : null}
       {options.map((option) => (
@@ -75,7 +77,7 @@ export function DataTableStatusFilter<TData, TValue extends string>({
           className={itemClassName}
         >
           {option.label}
-          <span className="text-muted-foreground">
+          <span className="font-mono text-[length:var(--text-2xs)] tabular-nums text-muted-foreground">
             {statusCounts?.get(option.value) ?? 0}
           </span>
         </ToggleGroupItem>

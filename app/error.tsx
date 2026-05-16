@@ -29,11 +29,11 @@ export default function AppError({
   };
 
   return (
-    <div className="flex min-h-svh items-center justify-center px-6 py-10">
-      <div className="w-full max-w-md space-y-4 rounded-lg border bg-background p-6 text-foreground shadow-sm">
-        <div className="space-y-2">
-          <h1 className="text-xl font-semibold tracking-tight">Something went wrong</h1>
-          <p className="text-sm text-muted-foreground">
+    <div className="flex min-h-svh items-center justify-center px-(--space-12) py-(--space-20)">
+      <div className="w-full max-w-md space-y-(--space-8) border bg-background p-(--space-12) text-foreground shadow-none">
+        <div className="space-y-(--space-4)">
+          <h1 className="text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-[var(--tracking-tight)]">Something went wrong</h1>
+          <p className="text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
             The error was reported. Try the action again, or reload this section.
           </p>
         </div>

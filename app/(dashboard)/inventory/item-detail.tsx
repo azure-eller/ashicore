@@ -277,19 +277,19 @@ function EqTerm({
   dim?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-(--space-6)">
       {operator ? (
-        <span className="text-2xl font-light leading-none text-muted-foreground/60">
+        <span className="text-[length:var(--text-xl)] font-light leading-none text-muted-foreground/60">
           {operator}
         </span>
       ) : null}
       <div>
-        <div className="text-[0.68rem] font-medium uppercase tracking-wide text-muted-foreground">
+        <div className="text-[length:var(--text-2xs)] font-semibold tracking-[var(--tracking-caps)] text-muted-foreground uppercase">
           <TooltipHeader label={label} tooltip={tooltip} />
         </div>
         <div
           className={cn(
-            "mt-1 font-mono text-2xl font-semibold leading-none tracking-tight md:text-3xl",
+            "mt-(--space-2) font-mono text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-[var(--tracking-tight)] md:text-[length:var(--text-2xl)]",
             dim ? "text-muted-foreground/70" : "text-foreground"
           )}
         >
@@ -309,7 +309,7 @@ function StockEquation({
 }) {
   const safetyStock = parseFloat(item.safetyStock);
   return (
-    <div className="flex flex-wrap items-center gap-4 border-t py-5">
+    <div className="flex flex-wrap items-center gap-(--space-8) border-t py-(--space-10)">
       <EqTerm label="Physical" value={item.stock} tooltip={ON_HAND_STOCK_TOOLTIP} />
       <EqTerm
         label="Demand"
@@ -332,20 +332,20 @@ function StockEquation({
         operator="-"
         dim={!Number.isFinite(safetyStock) || safetyStock === 0}
       />
-      <span className="text-2xl font-light leading-none text-muted-foreground/60">=</span>
-      <div className="rounded-lg bg-foreground px-4 py-3 text-background">
-        <div className="text-[0.68rem] font-medium uppercase tracking-wide text-background/60">
+      <span className="text-[length:var(--text-xl)] font-light leading-none text-muted-foreground/60">=</span>
+      <div className="bg-foreground px-(--space-8) py-(--space-6) text-background">
+        <div className="text-[length:var(--text-2xs)] font-semibold tracking-[var(--tracking-caps)] text-background/60 uppercase">
           <TooltipHeader label="Calculated" tooltip={CALCULATED_STOCK_TOOLTIP} />
         </div>
-        <div className="mt-1 font-mono text-2xl font-semibold leading-none tracking-tight md:text-3xl">
+        <div className="mt-(--space-2) font-mono text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-[var(--tracking-tight)] md:text-[length:var(--text-2xl)]">
           {formatQuantityValue(calculatedStock)}
         </div>
       </div>
       <div className="min-w-32 flex-1 text-right">
-        <div className="text-[0.68rem] font-medium uppercase tracking-wide text-muted-foreground">
+        <div className="text-[length:var(--text-2xs)] font-semibold tracking-[var(--tracking-caps)] text-muted-foreground uppercase">
           <TooltipHeader label="Available now" tooltip={AVAILABLE_QTY_TOOLTIP} />
         </div>
-        <div className="mt-1 font-mono text-2xl font-semibold leading-none tracking-tight text-success md:text-3xl">
+        <div className="mt-(--space-2) font-mono text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-[var(--tracking-tight)] text-success md:text-[length:var(--text-2xl)]">
           {formatQuantity(item.availableQty)}
         </div>
         <div className="mt-1 text-xs text-muted-foreground">
@@ -1341,8 +1341,8 @@ export function ItemDetail({
                           {isLow ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span className="inline-flex items-center justify-end gap-1.5 text-destructive">
-                                  <span className="h-2 w-2 shrink-0 rounded-full bg-destructive" />
+                                <span className="inline-flex items-center justify-end gap-(--space-3) text-destructive">
+                                  <span className="size-(--space-4) shrink-0 bg-destructive" />
                                   {calcStockVal}
                                 </span>
                               </TooltipTrigger>

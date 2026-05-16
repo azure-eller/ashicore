@@ -888,7 +888,7 @@ export function ManufacturingOrderForm({
                 )}
 
                 {!isSalesOrderMode && isBatchMode && batchCalc && (
-                  <div className="col-span-full rounded-lg border border-dashed px-4 py-3">
+                  <div className="col-span-full border border-dashed px-4 py-3">
                     <p className="text-sm text-muted-foreground">
                       <span className="font-medium text-foreground">{batchCalc.numberOfBatches} batch{batchCalc.numberOfBatches === 1 ? "" : "es"}</span>
                       {" \u00d7 "}
@@ -936,7 +936,7 @@ export function ManufacturingOrderForm({
             >
               <FieldGroup>
                 {previewQuery.isLoading ? (
-                  <div className="rounded-lg border border-dashed px-4 py-6">
+                  <div className="border border-dashed px-4 py-6">
                     <p className="text-sm text-muted-foreground">
                       Loading sales order preview...
                     </p>
@@ -944,7 +944,7 @@ export function ManufacturingOrderForm({
                 ) : salesOrderPreview ? (
                   <>
                     <div className="grid gap-4 md:grid-cols-3">
-                      <div className="rounded-lg border px-4 py-3">
+                      <div className="border px-4 py-3">
                         <p className="text-xs uppercase text-muted-foreground">
                           Sales Order
                         </p>
@@ -952,7 +952,7 @@ export function ManufacturingOrderForm({
                           {salesOrderPreview.salesOrderNumber}
                         </p>
                       </div>
-                      <div className="rounded-lg border px-4 py-3">
+                      <div className="border px-4 py-3">
                         <p className="text-xs uppercase text-muted-foreground">
                           Customer
                         </p>
@@ -960,7 +960,7 @@ export function ManufacturingOrderForm({
                           {salesOrderPreview.customerName}
                         </p>
                       </div>
-                      <div className="rounded-lg border px-4 py-3">
+                      <div className="border px-4 py-3">
                         <p className="text-xs uppercase text-muted-foreground">
                           Will Create
                         </p>
@@ -971,7 +971,7 @@ export function ManufacturingOrderForm({
                       </div>
                     </div>
 
-                    <div className="overflow-x-auto rounded-lg border">
+                    <div className="overflow-x-auto border">
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -1033,7 +1033,7 @@ export function ManufacturingOrderForm({
                     )}
                   </>
                 ) : (
-                  <div className="rounded-lg border border-dashed px-4 py-6">
+                  <div className="border border-dashed px-4 py-6">
                     <p className="text-sm text-muted-foreground">
                       Select an open sales order.
                     </p>
@@ -1192,7 +1192,7 @@ export function ManufacturingOrderForm({
                     })}
                   </EditableLineGrid>
                 ) : (
-                  <div className="rounded-lg border border-dashed px-4 py-6">
+                  <div className="border border-dashed px-4 py-6">
                     <p className="text-sm text-muted-foreground">
                       {watchedProductId
                         ? "No eligible BOM ingredients."

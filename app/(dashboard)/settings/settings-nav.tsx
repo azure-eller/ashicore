@@ -39,17 +39,17 @@ export function SettingsNav({ sections }: { sections: SettingsSection[] }) {
 
   return (
     <nav
-      className="w-full lg:sticky lg:top-8 lg:self-start"
+      className="w-full lg:sticky lg:top-(--space-16) lg:self-start"
       aria-label="Settings sections"
     >
-      <div className="flex gap-2 overflow-x-auto rounded-lg border bg-card p-1 lg:flex-col lg:gap-0 lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0">
+      <div className="flex gap-(--space-2) overflow-x-auto border bg-card p-(--space-1) lg:flex-col lg:gap-0 lg:border-0 lg:bg-transparent lg:p-0">
         {sections.map((section) => (
           <button
             key={section.id}
             type="button"
             onClick={() => handleClick(section.id)}
             className={cn(
-              "shrink-0 rounded-md px-3 py-1.5 text-left text-sm transition-colors lg:rounded-none lg:px-3",
+              "shrink-0 px-(--space-6) py-(--space-3) text-left text-[length:var(--text-sm)] leading-[var(--leading-sm)] transition-colors lg:px-(--space-6)",
               activeId === section.id
                 ? "bg-muted font-medium text-foreground lg:bg-transparent"
                 : "text-muted-foreground hover:bg-muted hover:text-foreground lg:hover:bg-transparent"

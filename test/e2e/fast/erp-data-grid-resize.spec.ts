@@ -125,6 +125,7 @@ test("sales orders AG grid reorders open rows with the rank drag handle", async 
     description: null,
     defaultPurchasePrice: null,
     defaultSellingPrice: "10",
+    sellable: true,
     stock: "0",
     safetyStock: "0",
     bom: [],

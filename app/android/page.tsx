@@ -15,29 +15,29 @@ export const metadata: Metadata = {
 export default function AndroidDownloadPage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <section className="mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center px-6 py-12">
-        <div className="space-y-8">
-          <div className="space-y-3">
-            <p className="text-sm font-medium uppercase tracking-[0.22em] text-muted-foreground">
+      <section className="mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center px-(--space-12) py-(--space-24)">
+        <div className="space-y-(--space-16)">
+          <div className="space-y-(--space-6)">
+            <p className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-muted-foreground uppercase">
               Mobile app
             </p>
-            <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
+            <h1 className="text-[length:var(--text-2xl)] leading-[var(--leading-2xl)] font-semibold tracking-[var(--tracking-tight)]">
               Download the mobile app
             </h1>
-            <p className="max-w-xl text-base leading-7 text-muted-foreground">
+            <p className="max-w-xl text-[length:var(--text-base)] leading-[var(--leading-base)] text-muted-foreground">
               Use this link on an Android phone to install the employee app.
             </p>
           </div>
 
-          <div className="rounded-2xl border bg-card p-5 text-card-foreground shadow-sm">
-            <ol className="list-decimal space-y-3 pl-5 text-sm leading-6 text-muted-foreground">
+          <div className="border bg-card p-(--space-10) text-card-foreground shadow-none">
+            <ol className="list-decimal space-y-(--space-6) pl-(--space-10) text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
               <li>Open this page on the phone.</li>
               <li>Tap download.</li>
               <li>If the phone asks for permission, allow the install.</li>
             </ol>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="flex flex-col gap-(--space-6) sm:flex-row">
             <Button asChild size="lg">
               <Link href={apkUrl}>Download mobile app</Link>
             </Button>
@@ -46,7 +46,7 @@ export default function AndroidDownloadPage() {
             </Button>
           </div>
 
-          <p className="text-xs leading-5 text-muted-foreground">
+          <p className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground">
             Updates use this same page.
           </p>
         </div>

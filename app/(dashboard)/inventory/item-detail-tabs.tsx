@@ -20,7 +20,7 @@ type ItemDetailTabsProps = {
 
 function TabCount({ children }: { children: ReactNode }) {
   return (
-    <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[0.7rem] font-medium text-muted-foreground">
+    <span className="ml-(--space-3) bg-muted px-(--space-3) py-(--space-1) font-mono text-[length:var(--text-2xs)] font-medium tabular-nums text-muted-foreground">
       {children}
     </span>
   );

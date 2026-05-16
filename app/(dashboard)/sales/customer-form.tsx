@@ -548,7 +548,7 @@ export function CustomerForm({
           >
             <FieldGroup>
               {shippingSameAsBilling ? (
-                <p className="rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                <p className="border border-dashed bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
                   Shipping address mirrors the billing address above.
                 </p>
               ) : (

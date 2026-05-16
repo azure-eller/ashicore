@@ -189,7 +189,7 @@ function DotBadge({
 }) {
   return (
     <Badge variant={variant}>
-      <span className="size-1.5 rounded-full bg-current" />
+      <span className="size-(--space-3) bg-current" />
       {children}
     </Badge>
   );
@@ -199,11 +199,11 @@ function XeroLogo() {
   return (
     <div
       aria-hidden
-      className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-sm"
+      className="flex size-(--space-20) shrink-0 items-center justify-center bg-primary text-primary-foreground shadow-none"
     >
-      <span className="relative flex size-5 items-center justify-center rounded-full border border-white/40">
-        <span className="absolute h-0.5 w-4 rotate-45 rounded-full bg-white" />
-        <span className="absolute h-0.5 w-4 -rotate-45 rounded-full bg-white" />
+      <span className="relative flex size-(--space-10) items-center justify-center border border-primary-foreground/40">
+        <span className="absolute h-(--space-1) w-(--space-8) rotate-45 bg-primary-foreground" />
+        <span className="absolute h-(--space-1) w-(--space-8) -rotate-45 bg-primary-foreground" />
       </span>
     </div>
   );
@@ -211,7 +211,7 @@ function XeroLogo() {
 
 function DefaultChip({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex min-h-6 items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs font-medium text-foreground">
+    <span className="inline-flex min-h-(--height-input-sm) items-center gap-(--space-2) border bg-background px-(--space-4) py-(--space-1) text-[length:var(--text-xs)] font-medium text-foreground">
       {children}
     </span>
   );
@@ -492,20 +492,20 @@ function XeroRow({
   const isConnected = connection != null;
 
   return (
-    <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
-      <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
+    <div className="overflow-hidden border bg-card shadow-none">
+      <div className="flex flex-col gap-(--space-8) p-(--space-10) sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-(--space-6)">
           <XeroLogo />
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-base font-semibold text-foreground">Xero</h3>
+            <div className="flex flex-wrap items-center gap-(--space-4)">
+              <h3 className="text-[length:var(--text-base)] leading-[var(--leading-base)] font-semibold text-foreground">Xero</h3>
               {isConnected ? (
                 <DotBadge variant="success">Connected</DotBadge>
               ) : (
                 <Badge variant="secondary">Not connected</Badge>
               )}
             </div>
-            <p className="mt-1 truncate text-sm text-muted-foreground">
+            <p className="mt-(--space-2) truncate text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
               {isConnected
                 ? `${connection.tenantName} · Accounting exports enabled`
                 : "Push invoices and POs to Xero automatically. Import contacts when needed."}
@@ -513,7 +513,7 @@ function XeroRow({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-(--space-4)">
           {isConnected ? (
             <>
               <DropdownMenu>
@@ -564,7 +564,7 @@ function XeroRow({
       </div>
 
       {error ? (
-        <div className="border-t px-5 py-3">
+        <div className="border-t px-(--space-10) py-(--space-6)">
           <FieldError>
             {ERROR_MESSAGES[error] ?? `Xero connection failed (${error}).`}
           </FieldError>
@@ -714,15 +714,15 @@ function QuickBooksRow({
   const isConnected = connection != null;
 
   return (
-    <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
-      <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-md border bg-muted text-sm font-semibold">
+    <div className="overflow-hidden border bg-card shadow-none">
+      <div className="flex flex-col gap-(--space-8) p-(--space-10) sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-(--space-6)">
+          <div className="flex size-(--space-20) items-center justify-center border bg-muted text-[length:var(--text-sm)] font-semibold">
             QB
           </div>
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-base font-semibold text-foreground">
+            <div className="flex flex-wrap items-center gap-(--space-4)">
+              <h3 className="text-[length:var(--text-base)] leading-[var(--leading-base)] font-semibold text-foreground">
                 QuickBooks
               </h3>
               {isConnected ? (
@@ -731,7 +731,7 @@ function QuickBooksRow({
                 <Badge variant="secondary">Not connected</Badge>
               )}
             </div>
-            <p className="mt-1 truncate text-sm text-muted-foreground">
+            <p className="mt-(--space-2) truncate text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
               {isConnected
                 ? `${connection.tenantName} · Accounting provider`
                 : "Connect QuickBooks as an accounting provider."}
@@ -909,13 +909,13 @@ function PostingDefaultsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex rounded-lg bg-muted p-1">
+        <div className="flex bg-muted p-(--space-1)">
           <button
             type="button"
             className={cn(
-              "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition",
+              "flex-1 px-(--space-6) py-(--space-3) text-[length:var(--text-sm)] font-medium transition",
               tab === "sales"
-                ? "bg-background text-foreground shadow-sm"
+                ? "bg-background text-foreground shadow-none"
                 : "text-muted-foreground hover:text-foreground"
             )}
             onClick={() => setTab("sales")}
@@ -925,9 +925,9 @@ function PostingDefaultsDialog({
           <button
             type="button"
             className={cn(
-              "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition",
+              "flex-1 px-(--space-6) py-(--space-3) text-[length:var(--text-sm)] font-medium transition",
               tab === "purchases"
-                ? "bg-background text-foreground shadow-sm"
+                ? "bg-background text-foreground shadow-none"
                 : "text-muted-foreground hover:text-foreground"
             )}
             onClick={() => setTab("purchases")}
@@ -1069,7 +1069,7 @@ function PostingDefaultsDialog({
           )}
         </FieldGroup>
 
-        <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+        <div className="border bg-muted p-(--space-6) text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground">
           <p>{TAX_DESCRIPTIONS[activeTax] ?? "Xero tax code saved as entered."}</p>
           <p className="mt-1">
             {STATUS_DESCRIPTIONS[activeStatus] ??
@@ -1078,11 +1078,11 @@ function PostingDefaultsDialog({
         </div>
 
         <DialogFooter className="items-center justify-between sm:justify-between">
-          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+          <p className="flex items-center gap-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
             <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} />
             Changes apply to new exports.
           </p>
-          <div className="flex gap-2">
+          <div className="flex gap-(--space-4)">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -1125,12 +1125,12 @@ function DisconnectDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm text-warning">
-          <div className="flex gap-3">
-            <HugeiconsIcon icon={Alert02Icon} className="mt-0.5 size-4" strokeWidth={2} />
+        <div className="border border-warning bg-[var(--color-warning-soft)] p-(--space-8) text-[length:var(--text-sm)] text-warning">
+          <div className="flex gap-(--space-6)">
+            <HugeiconsIcon icon={Alert02Icon} className="mt-(--space-1) size-(--space-8)" strokeWidth={2} />
             <div>
               <p className="font-medium">After disconnecting</p>
-              <ul className="mt-2 list-disc space-y-1 pl-4">
+              <ul className="mt-(--space-4) list-disc space-y-(--space-2) pl-(--space-8)">
                 <li>New invoices and POs will stop exporting to Xero.</li>
                 <li>Customer and supplier imports will be unavailable.</li>
                 <li>Already-exported records remain in both systems.</li>
@@ -1269,7 +1269,7 @@ function SwitchOrgDialog({
 
         {formError ? <FieldError>{formError}</FieldError> : null}
 
-        <div className="space-y-2">
+        <div className="space-y-(--space-4)">
           {tenants.map((tenant) => {
             const selected = pendingTenantId === tenant.tenantId;
             const current = connection.tenantId === tenant.tenantId;
@@ -1280,19 +1280,19 @@ function SwitchOrgDialog({
                 type="button"
                 onClick={() => setPendingTenantId(tenant.tenantId)}
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-lg border p-3 text-left transition",
+                  "flex w-full items-center gap-(--space-6) border p-(--space-6) text-left transition",
                   selected
-                    ? "border-foreground ring-2 ring-foreground/10"
+                    ? "border-foreground shadow-[var(--focus-ring)]"
                     : "hover:bg-muted/50"
                 )}
               >
                 <span
                   className={cn(
-                    "flex size-4 items-center justify-center rounded-full border",
+                    "flex size-(--space-8) items-center justify-center rounded-full border",
                     selected && "border-foreground"
                   )}
                 >
-                  {selected ? <span className="size-2 rounded-full bg-foreground" /> : null}
+                  {selected ? <span className="size-(--space-4) rounded-full bg-foreground" /> : null}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
@@ -1346,20 +1346,20 @@ function ConnectDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
+        <div className="space-y-(--space-6)">
           {[
             ["Auto-export sales invoices", "Shipped sales orders can create Xero invoices."],
             ["Auto-export purchase orders", "Submitted POs can create Xero purchase orders."],
             ["Import contacts", "Pull existing customers and suppliers into ERP."],
             ["Avoid duplicates", "Existing records are matched before import."],
           ].map(([title, description]) => (
-            <div key={title} className="flex gap-3">
-              <span className="mt-0.5 flex size-6 items-center justify-center rounded-full bg-success/10 text-success">
+            <div key={title} className="flex gap-(--space-6)">
+              <span className="mt-(--space-1) flex size-(--space-10) items-center justify-center border bg-[var(--color-success-soft)] text-success">
                 <HugeiconsIcon icon={Tick02Icon} strokeWidth={2} />
               </span>
               <div>
-                <p className="text-sm font-medium text-foreground">{title}</p>
-                <p className="text-xs text-muted-foreground">{description}</p>
+                <p className="text-[length:var(--text-sm)] font-medium text-foreground">{title}</p>
+                <p className="text-[length:var(--text-xs)] text-muted-foreground">{description}</p>
               </div>
             </div>
           ))}
@@ -1370,7 +1370,7 @@ function ConnectDialog({
             <HugeiconsIcon icon={HelpCircleIcon} strokeWidth={2} />
             Setup guide
           </Button>
-          <div className="flex gap-2">
+          <div className="flex gap-(--space-4)">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -1404,23 +1404,23 @@ function ExportHistoryDialog({
         </DialogHeader>
 
         {rows.length === 0 ? (
-          <div className="rounded-lg border bg-muted/30 p-8 text-center">
-            <div className="mx-auto flex size-10 items-center justify-center rounded-full bg-background text-muted-foreground">
+          <div className="border bg-muted p-(--space-16) text-center">
+            <div className="mx-auto flex size-(--space-20) items-center justify-center border bg-background text-muted-foreground">
               <HugeiconsIcon icon={FileExportIcon} strokeWidth={2} />
             </div>
-            <p className="mt-3 text-sm font-medium text-foreground">
+            <p className="mt-(--space-6) text-[length:var(--text-sm)] font-medium text-foreground">
               No export history yet.
             </p>
-            <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+            <p className="mx-auto mt-(--space-2) max-w-md text-[length:var(--text-sm)] text-muted-foreground">
               Exported invoices and purchase orders will appear here.
             </p>
           </div>
         ) : (
-          <div className="max-h-[420px] overflow-auto rounded-lg border">
+          <div className="max-h-[420px] overflow-auto border">
             {rows.map((row) => (
               <div
                 key={`${row.sourceType}-${row.id}`}
-                className="grid gap-2 border-t p-3 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                className="grid gap-(--space-4) border-t p-(--space-6) first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
               >
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
