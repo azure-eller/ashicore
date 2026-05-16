@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidIsoDate } from "@/lib/schemas/shared";
 import { isValidTimeZone } from "@/lib/time-zone";
 
 export const updateDailyManufacturingReportScheduleSchema = z.object({
@@ -16,4 +17,14 @@ export const updateDailyManufacturingReportScheduleSchema = z.object({
 
 export type UpdateDailyManufacturingReportScheduleInput = z.infer<
   typeof updateDailyManufacturingReportScheduleSchema
+>;
+
+export const manualSendDailyManufacturingReportSchema = z.object({
+  reportDate: z
+    .string()
+    .refine(isValidIsoDate, "Report date must be a real date in YYYY-MM-DD format"),
+});
+
+export type ManualSendDailyManufacturingReportInput = z.infer<
+  typeof manualSendDailyManufacturingReportSchema
 >;

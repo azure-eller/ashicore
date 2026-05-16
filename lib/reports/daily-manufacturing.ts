@@ -1,5 +1,6 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import { render } from "@react-email/components";
 import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -24,7 +25,8 @@ import { trimScale } from "@/lib/db/numeric";
 import { getCanonicalAppUrl } from "@/lib/email/config";
 import { sendTransactionalEmail } from "@/lib/email/send";
 import { DailyManufacturingReportEmail } from "@/lib/email/components/daily-manufacturing-report";
-import { formatDate } from "@/lib/format";
+import { formatDate, todayInTimeZone } from "@/lib/format";
+import { AuthorizationError } from "@/lib/authz";
 import {
   DAILY_MANUFACTURING_REPORT_PAYLOAD_VERSION,
   NOTIFICATION_ENTITY_TYPES,
@@ -427,6 +429,30 @@ async function buildDailyManufacturingReportPayloadInTx(
   return dailyManufacturingReportPayloadSchema.parse(payload);
 }
 
+async function sendDailyManufacturingReportEmails(params: {
+  runId: string;
+  reportDate: string;
+  recipients: ReportRecipient[];
+  payload: DailyManufacturingReportPayload;
+  idempotencyKeyPrefix?: string;
+}) {
+  const subject = `Daily Manufacturing Report - ${formatSubjectDate(params.reportDate)}`;
+  const email = DailyManufacturingReportEmail({ payload: params.payload });
+  const html = await render(email);
+  const text = await render(email, { plainText: true });
+
+  for (const recipient of params.recipients) {
+    await sendTransactionalEmail({
+      tag: "daily-manufacturing-report",
+      to: recipient.email,
+      subject,
+      html,
+      text,
+      idempotencyKey: `${params.idempotencyKeyPrefix ?? "daily-manufacturing-report"}:${params.runId}:${recipient.userId}`,
+    });
+  }
+}
+
 async function markRunFailed(
   organizationId: string,
   runId: string,
@@ -481,21 +507,7 @@ async function createNotificationsAndSendEmail(params: {
     return;
   }
 
-  const subject = `Daily Manufacturing Report - ${formatSubjectDate(params.reportDate)}`;
-  const email = DailyManufacturingReportEmail({ payload: params.payload });
-  const html = await render(email);
-  const text = await render(email, { plainText: true });
-
-  for (const recipient of params.recipients) {
-    await sendTransactionalEmail({
-      tag: "daily-manufacturing-report",
-      to: recipient.email,
-      subject,
-      html,
-      text,
-      idempotencyKey: `daily-manufacturing-report:${params.runId}:${recipient.userId}`,
-    });
-  }
+  await sendDailyManufacturingReportEmails(params);
 }
 
 export async function generateDailyManufacturingReportForOrg(params: {
@@ -636,6 +648,152 @@ export async function generateDueDailyManufacturingReports(now = new Date()) {
   }
 
   return summary;
+}
+
+export async function manualSendDailyManufacturingReportForOrg(params: {
+  organizationId: string;
+  reportDate: string;
+}) {
+  const existingRun = await withOrgContext(params.organizationId, async (tx) => {
+    const [schedule] = await tx
+      .select({ id: reportSchedules.id, timeZone: reportSchedules.timeZone })
+      .from(reportSchedules)
+      .where(eq(reportSchedules.reportType, REPORT_TYPES.DAILY_MANUFACTURING))
+      .limit(1);
+
+    if (!schedule) {
+      throw new AuthorizationError("Configure report settings before sending.", 400);
+    }
+
+    const recipients = await getRecipientsInTx(tx, schedule.id);
+
+    if (recipients.length === 0) {
+      throw new AuthorizationError("Select at least one report recipient before sending.", 400);
+    }
+
+    const [run] = await tx
+      .select({
+        id: reportRuns.id,
+        status: reportRuns.status,
+        payloadVersion: reportRuns.payloadVersion,
+        payload: reportRuns.payload,
+      })
+      .from(reportRuns)
+      .where(
+        and(
+          eq(reportRuns.reportType, REPORT_TYPES.DAILY_MANUFACTURING),
+          eq(reportRuns.reportDate, params.reportDate)
+        )
+      )
+      .limit(1);
+
+    return { schedule, recipients, run };
+  });
+  const today = todayInTimeZone(existingRun.schedule.timeZone);
+
+  if (params.reportDate > today) {
+    throw new AuthorizationError("Report date cannot be in the future.", 400);
+  }
+
+  if (existingRun.run && existingRun.run.status !== "failed") {
+    if (existingRun.run.status === "generating") {
+      throw new AuthorizationError("Report is already generating.", 409);
+    }
+
+    if (existingRun.run.payloadVersion !== DAILY_MANUFACTURING_REPORT_PAYLOAD_VERSION) {
+      throw new AuthorizationError("Saved report payload is not compatible with manual send.", 409);
+    }
+
+    const payload = dailyManufacturingReportPayloadSchema.parse(existingRun.run.payload);
+    const previousStatus = existingRun.run.status;
+    const claim = await withOrgContext(params.organizationId, async (tx) => {
+      const [row] = await tx
+        .update(reportRuns)
+        .set({
+          status: "generating",
+          failureMessage: null,
+          claimedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(reportRuns.id, existingRun.run!.id),
+            sql`${reportRuns.status} <> 'generating'`
+          )
+        )
+        .returning({ id: reportRuns.id });
+
+      return row ?? null;
+    });
+
+    if (!claim) {
+      throw new AuthorizationError("Report is already generating.", 409);
+    }
+
+    const manualSendId = randomUUID();
+
+    try {
+      await sendDailyManufacturingReportEmails({
+        runId: existingRun.run.id,
+        reportDate: params.reportDate,
+        recipients: existingRun.recipients,
+        payload,
+        idempotencyKeyPrefix: `daily-manufacturing-report:manual:${manualSendId}`,
+      });
+
+      await withOrgContext(params.organizationId, async (tx) => {
+        await tx
+          .update(reportRuns)
+          .set({
+            status: "sent",
+            emailSentAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(reportRuns.id, existingRun.run!.id));
+      });
+    } catch (error) {
+      await withOrgContext(params.organizationId, async (tx) => {
+        await tx
+          .update(reportRuns)
+          .set({
+            status: previousStatus,
+            failureMessage:
+              error instanceof Error ? error.message.slice(0, 2000) : "Manual send failed.",
+            updatedAt: new Date(),
+          })
+          .where(eq(reportRuns.id, existingRun.run!.id));
+      });
+      throw error;
+    }
+
+    return {
+      runId: existingRun.run.id,
+      reportDate: params.reportDate,
+      recipientCount: existingRun.recipients.length,
+      source: "snapshot" as const,
+    };
+  }
+
+  const result = await generateDailyManufacturingReportForOrg({
+    organizationId: params.organizationId,
+    reportDate: params.reportDate,
+    timeZone: existingRun.schedule.timeZone,
+    scheduleId: existingRun.schedule.id,
+    emailEnabled: true,
+  });
+
+  if (!result.generated) {
+    throw new AuthorizationError("Report payload is unavailable for manual send.", 409);
+  }
+
+  const source = existingRun.run?.status === "failed" ? "retried" : "generated";
+
+  return {
+    runId: result.runId,
+    reportDate: params.reportDate,
+    recipientCount: existingRun.recipients.length,
+    source,
+  };
 }
 
 export async function getDailyManufacturingReportHistory(limit = 60) {

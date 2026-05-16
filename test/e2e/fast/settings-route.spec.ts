@@ -15,6 +15,17 @@ test("settings renders in the default fast smoke lane", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Account", exact: true })
   ).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", { name: "Enable daily manufacturing report" })
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Configure daily manufacturing report" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Daily Manufacturing Report" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Send report" })
+  ).toBeVisible();
 });
 
 test("xero settings show automation toggles, draft defaults, and export history", async ({

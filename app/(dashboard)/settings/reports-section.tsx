@@ -9,6 +9,7 @@ import { apiJson } from "@/lib/client/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -29,7 +30,13 @@ import {
 } from "@/components/ui/table";
 import type { DailyManufacturingReportScheduleData } from "@/lib/dal/reports";
 import type { DailyManufacturingReportPayload } from "@/lib/reports/daily-manufacturing-schema";
-import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/format";
+import {
+  formatDate,
+  formatDateTime,
+  formatPrice,
+  formatQuantity,
+  todayInTimeZone,
+} from "@/lib/format";
 import { SettingsPanel, SettingsPanelHeader } from "./settings-panel";
 
 type FormState = {
@@ -47,6 +54,13 @@ type DailyManufacturingReportRun = {
   createdAt: string;
   failureMessage: string | null;
   payload: DailyManufacturingReportPayload | null;
+};
+
+type ManualSendResult = {
+  runId: string;
+  reportDate: string;
+  recipientCount: number;
+  source: "generated" | "retried" | "snapshot";
 };
 
 function toFormState(data: DailyManufacturingReportScheduleData): FormState {
@@ -78,6 +92,11 @@ export function ReportsSection({
   const [configOpen, setConfigOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [manualReportDate, setManualReportDate] = useState(() =>
+    todayInTimeZone(initialData.schedule.timeZone)
+  );
+  const [manualSendError, setManualSendError] = useState<string | null>(null);
+  const [manualSendMessage, setManualSendMessage] = useState<string | null>(null);
   const selectedRecipients = useMemo(
     () => new Set(formState.recipientUserIds),
     [formState.recipientUserIds]
@@ -122,6 +141,30 @@ export function ReportsSection({
     },
   });
 
+  const manualSendMutation = useMutation({
+    mutationFn: async () =>
+      apiJson<ManualSendResult>("/api/reports/daily-manufacturing/manual-send", {
+        method: "POST",
+        body: { reportDate: manualReportDate },
+        fallbackError: "Failed to send report.",
+      }),
+    onMutate: () => {
+      setManualSendError(null);
+      setManualSendMessage(null);
+    },
+    onSuccess: async (result) => {
+      setManualSendMessage(
+        `Report sent to ${result.recipientCount} ${result.recipientCount === 1 ? "recipient" : "recipients"}.`
+      );
+      await queryClient.invalidateQueries({
+        queryKey: ["daily-manufacturing-report-history"],
+      });
+    },
+    onError: (error) => {
+      setManualSendError(error instanceof Error ? error.message : "Failed to send report.");
+    },
+  });
+
   function saveSettings(nextState: FormState) {
     saveMutation.mutate(nextState);
   }
@@ -140,6 +183,9 @@ export function ReportsSection({
   function openConfigDialog() {
     setFormState(toFormState(data));
     setFormError(null);
+    setManualReportDate(todayInTimeZone(data.schedule.timeZone));
+    setManualSendError(null);
+    setManualSendMessage(null);
     setConfigOpen(true);
   }
 
@@ -268,6 +314,36 @@ export function ReportsSection({
             </Field>
 
             <FieldError errors={formError ? [{ message: formError }] : []} />
+
+            <div className="grid gap-4 border-t pt-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+              <Field>
+                <FieldLabel htmlFor="daily-report-manual-date">Manual send date</FieldLabel>
+                <DatePicker
+                  id="daily-report-manual-date"
+                  value={manualReportDate}
+                  onChange={setManualReportDate}
+                  disabled={manualSendMutation.isPending}
+                />
+              </Field>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={manualSendMutation.isPending || !manualReportDate}
+                onClick={() => manualSendMutation.mutate()}
+              >
+                {manualSendMutation.isPending ? "Sending..." : "Send report"}
+              </Button>
+              <div className="md:col-span-2">
+                <FieldError
+                  errors={manualSendError ? [{ message: manualSendError }] : []}
+                />
+                {manualSendMessage ? (
+                  <div className="text-[length:var(--text-sm)] text-success">
+                    {manualSendMessage}
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </FieldGroup>
 
           <DialogFooter>
