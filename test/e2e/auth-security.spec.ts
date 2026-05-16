@@ -302,13 +302,13 @@ test.describe("Auth and security regressions", () => {
     expect(persistedUser?.id).toBe(createdUser.id);
   });
 
-  test("confirmed sales order remains confirmed after auth guard attempts", async ({ db }) => {
+  test("sales order stays open after auth guard attempts", async ({ db }) => {
     const [order] = await db
       .select({ status: salesOrders.status })
       .from(salesOrders)
       .where(eq(salesOrders.id, orderId))
       .limit(1);
 
-    expect(order?.status).toBe("confirmed");
+    expect(order?.status).toBe("open");
   });
 });

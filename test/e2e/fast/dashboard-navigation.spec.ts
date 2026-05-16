@@ -6,22 +6,28 @@ test("page search navigation shows optimistic destination shell while route is p
   await page.goto("/sales/orders");
   await expect(page.getByRole("button", { name: "Search pages" })).toBeVisible();
 
-  await page.route(/\/inventory\/products(?:\?|$)/, async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 750));
-    await route.continue();
-  });
-
   await page.getByRole("button", { name: "Search pages" }).click();
   await page.getByRole("textbox", { name: "Search pages" }).fill("products");
+
+  let releaseNavigation: () => void = () => {};
+  const navigationRequestBlocked = new Promise<void>((resolve) => {
+    releaseNavigation = resolve;
+  });
+
+  await page.route(
+    (url) => url.searchParams.has("_rsc"),
+    async (route) => {
+      await navigationRequestBlocked;
+      await route.continue();
+    },
+    { times: 1 }
+  );
+
   await page.getByRole("button", { name: /Inventory - Products/ }).click();
 
   const shell = page.getByTestId("optimistic-dashboard-shell");
   await expect(shell).toBeVisible();
   await expect(shell.getByRole("heading")).toHaveCount(0);
-  const optimisticDataRegion = page.getByTestId("optimistic-data-region");
-  if ((await optimisticDataRegion.count()) > 0) {
-    await expect(optimisticDataRegion).toBeVisible();
-  }
   await expect(page.getByTestId("data-table-loading")).toBeVisible();
   const spinnerBox = await page.getByRole("status", { name: "Loading" }).boundingBox();
   expect(spinnerBox?.width).toBeGreaterThanOrEqual(32);
@@ -29,6 +35,8 @@ test("page search navigation shows optimistic destination shell while route is p
   await expect(
     page.getByRole("link", { name: "Products", exact: true })
   ).toHaveClass(/text-primary/);
+
+  releaseNavigation();
 
   await expect(shell).toHaveCount(0);
   await expect(page).toHaveURL(/\/inventory\/products/);

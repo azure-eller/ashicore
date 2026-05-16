@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  actions: write
+  actions: read
   contents: write
   issues: write
   pull-requests: write
@@ -67,9 +67,9 @@ jobs:
           fi
 
           {
-            echo "Claude Code should investigate this failed scheduled Playwright slow run and push a fix to this PR branch if the failure is caused by the app or tests."
+            echo "@codex please investigate this failed scheduled Playwright slow run and push a fix to this PR branch if the failure is caused by the app or tests."
             echo
-            echo "This PR was opened automatically from the latest \`main\` branch so the existing PR agent workflow has somewhere to investigate, commit fixes, and rerun CI."
+            echo "This PR was opened automatically from the latest \`main\` branch so Codex has somewhere to investigate, commit fixes, and rerun CI."
             echo
             echo "## Failed run"
             echo
@@ -107,17 +107,7 @@ jobs:
           )"
 
           if [ -n "${existing_pr}" ]; then
-            pr_url="$(gh pr view "${existing_pr}" --repo "${repo}" --json url --jq '.url')"
             gh pr comment "${existing_pr}" --repo "${repo}" --body-file /tmp/nightly-slow-failure.md
-            jq -n \
-              --arg branch "${branch}" \
-              --arg pr_url "${pr_url}" \
-              --arg prompt "Nightly failure PR: ${pr_url}
-
-          $(cat /tmp/nightly-slow-failure.md)" \
-              '{event_type: "nightly-slow-failure", client_payload: {branch: $branch, pr_url: $pr_url, prompt: $prompt}}' \
-              > /tmp/nightly-slow-failure-dispatch.json
-            gh api "repos/${repo}/dispatches" --method POST --input /tmp/nightly-slow-failure-dispatch.json
             echo "Updated existing nightly slow failure PR #${existing_pr}."
             exit 0
           fi
@@ -144,13 +134,4 @@ jobs:
               --label "${label}"
           )"
 
-          jq -n \
-            --arg branch "${branch}" \
-            --arg pr_url "${pr_url}" \
-            --arg prompt "Nightly failure PR: ${pr_url}
-
-          $(cat /tmp/nightly-slow-failure.md)" \
-            '{event_type: "nightly-slow-failure", client_payload: {branch: $branch, pr_url: $pr_url, prompt: $prompt}}' \
-            > /tmp/nightly-slow-failure-dispatch.json
-          gh api "repos/${repo}/dispatches" --method POST --input /tmp/nightly-slow-failure-dispatch.json
           echo "Opened ${pr_url}."

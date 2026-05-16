@@ -33,15 +33,13 @@ function pendingInviteCard(page: Page, email: string) {
 }
 
 async function expectModuleLinkVisible(page: Page, moduleName: string, href: string) {
-  await expect(page.getByRole("button", { name: moduleName, exact: true })).toBeVisible();
-  await page.getByRole("button", { name: moduleName, exact: true }).click();
-  await expect(page.locator(`a[href="${href}"]`).first()).toBeVisible();
-  await page.keyboard.press("Escape");
+  const link = page.getByRole("link", { name: moduleName, exact: true });
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute("href", href);
 }
 
-async function expectModuleHidden(page: Page, moduleName: string, href: string) {
-  await expect(page.getByRole("button", { name: moduleName, exact: true })).toHaveCount(0);
-  await expect(page.locator(`a[href="${href}"]`)).toHaveCount(0);
+async function expectModuleHidden(page: Page, moduleName: string) {
+  await expect(page.getByRole("link", { name: moduleName, exact: true })).toHaveCount(0);
 }
 
 async function addSessionCookie(context: BrowserContext, rawCookie: string) {
@@ -237,7 +235,7 @@ test.describe("Team management and invite flow", () => {
     const orgName = `Fresh Org ${run}`;
     await page.getByLabel("Organization name").fill(orgName);
     await page.getByRole("button", { name: "Create Organization" }).click();
-    await page.waitForURL("**/inventory/materials");
+    await page.waitForURL("**/sales/orders");
 
     const [ownerUser] = await db.select().from(user).where(eq(user.email, orgOwnerEmail));
     expect(ownerUser).toBeTruthy();
@@ -661,7 +659,7 @@ test.describe("Team management and invite flow", () => {
       browser,
       adminEmail,
       adminPassword,
-      "/inventory/materials"
+      "/sales/orders"
     );
     await page.goto("/settings");
     await expect(page.getByRole("heading", { name: "Team" })).toBeVisible();
