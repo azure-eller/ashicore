@@ -346,28 +346,30 @@ export function XeroImportSection({
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid gap-3 lg:grid-cols-2">
-        {canImportCustomers ? (
-          <div className="rounded-md border bg-muted/30 p-3">
-            <div className="mb-3 text-sm font-medium text-foreground">Sales</div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setDialogAction({ mode: "import", entityType: "customers" })}
-            >
-              Import customers
-            </Button>
-          </div>
-        ) : null}
-        {canImportSuppliers ? (
-          <div className="rounded-md border bg-muted/30 p-3">
-            <div className="mb-3 text-sm font-medium text-foreground">Purchasing</div>
-            <div className="flex flex-wrap gap-2">
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+      <div className="space-y-5">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+          {canImportCustomers ? (
+            <ImportActionGroup title="Contacts">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setDialogAction({ mode: "import", entityType: "suppliers" })}
+                onClick={() =>
+                  setDialogAction({ mode: "import", entityType: "customers" })
+                }
+              >
+                Import customers
+              </Button>
+            </ImportActionGroup>
+          ) : null}
+          {canImportSuppliers ? (
+            <ImportActionGroup title="Purchasing">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setDialogAction({ mode: "import", entityType: "suppliers" })
+                }
               >
                 Import suppliers
               </Button>
@@ -407,68 +409,84 @@ export function XeroImportSection({
                   setRuns((current) => [nextRun, ...current].slice(0, 8));
                 }}
               />
-            </div>
-          </div>
-        ) : null}
+            </ImportActionGroup>
+          ) : null}
+        </div>
+
+        <div className="space-y-2">
+          {customerSummary ? (
+            <ImportSummary label="Customers" summary={customerSummary} />
+          ) : null}
+          {supplierSummary ? (
+            <ImportSummary label="Suppliers" summary={supplierSummary} />
+          ) : null}
+          {purchasingSummary ? (
+            <PurchasingSummary summary={purchasingSummary} />
+          ) : null}
+          {purchaseOrderSummary ? (
+            <PurchaseOrderImportSummary summary={purchaseOrderSummary} />
+          ) : null}
+        </div>
       </div>
 
-      {customerSummary ? (
-        <ImportSummary label="Customers" summary={customerSummary} />
-      ) : null}
-      {supplierSummary ? (
-        <ImportSummary label="Suppliers" summary={supplierSummary} />
-      ) : null}
-      {purchasingSummary ? (
-        <PurchasingSummary summary={purchasingSummary} />
-      ) : null}
-      {purchaseOrderSummary ? (
-        <PurchaseOrderImportSummary summary={purchaseOrderSummary} />
-      ) : null}
+      <div className="min-w-0">
+        {runs.length > 0 ? (
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h4 className="text-sm font-medium text-foreground">Recent imports</h4>
+              <span className="text-xs text-muted-foreground">{runs.length} recent</span>
+            </div>
+            <div className="divide-y border-y">
+              {runs.map((run) => {
+                const canReset =
+                  run.status === "completed" &&
+                  ((run.entityType === "customers" && canResetCustomerImports) ||
+                    (run.entityType === "suppliers" && canResetSupplierImports));
 
-      {runs.length > 0 ? (
-        <div className="space-y-2">
-          <h3 className="text-sm font-medium text-foreground">Recent imports</h3>
-          <div className="divide-y rounded-md border">
-            {runs.map((run) => {
-              const canReset =
-                run.status === "completed" &&
-                ((run.entityType === "customers" && canResetCustomerImports) ||
-                  (run.entityType === "suppliers" && canResetSupplierImports));
-
-              return (
-                <div
-                  key={run.id}
-                  className="flex flex-wrap items-center justify-between gap-3 px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <span className="font-medium">
-                        {entityTitle(run.entityType)}
-                      </span>
-                      <Badge variant={run.status === "undone" ? "secondary" : "outline"}>
-                        {run.status === "undone" ? "Reset" : "Imported"}
-                      </Badge>
+                return (
+                  <div
+                    key={run.id}
+                    className="grid gap-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <span className="font-medium">{entityTitle(run.entityType)}</span>
+                        <Badge variant={run.status === "undone" ? "secondary" : "outline"}>
+                          {run.status === "undone" ? "Reset" : "Imported"}
+                        </Badge>
+                      </div>
+                      <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {run.tenantName} · {formatDateTime(run.createdAt, timeZone)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {run.createdCount} loaded, {run.updatedCount} already existed
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      {run.tenantName} · {formatDateTime(run.createdAt, timeZone)} ·{" "}
-                      {run.createdCount} loaded, {run.updatedCount} already existed
-                    </div>
+                    {canReset ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setDialogAction({ mode: "reset", run })}
+                      >
+                        Reset
+                      </Button>
+                    ) : null}
                   </div>
-                  {canReset ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setDialogAction({ mode: "reset", run })}
-                    >
-                      Reset
-                    </Button>
-                  ) : null}
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : (
+          <div>
+            <h4 className="mb-2 text-sm font-medium text-foreground">
+              Recent imports
+            </h4>
+            <div className="border-y py-6 text-sm text-muted-foreground">
+              No recent imports.
+            </div>
+          </div>
+        )}
+      </div>
 
       <ImportActionDialog
         action={dialogAction}
@@ -484,6 +502,21 @@ export function XeroImportSection({
   );
 }
 
+function ImportActionGroup({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-0">
+      <h4 className="mb-2 text-sm font-medium text-foreground">{title}</h4>
+      <div className="flex flex-wrap gap-2">{children}</div>
+    </div>
+  );
+}
+
 function ImportSummary({
   label,
   summary,
@@ -492,7 +525,7 @@ function ImportSummary({
   summary: ImportResult;
 }) {
   return (
-    <div className="rounded-md border bg-muted/40 p-3 text-sm">
+    <div className="border-y py-2 text-sm">
       <p className="font-medium">
         {label}: {summary.created} loaded, {summary.updated} already existed
       </p>
@@ -509,7 +542,7 @@ function ImportSummary({
 
 function PurchasingSummary({ summary }: { summary: PurchasingApplyResult }) {
   return (
-    <div className="rounded-md border bg-muted/40 p-3 text-sm">
+    <div className="border-y py-2 text-sm">
       <p className="font-medium">
         Purchasing: {summary.created} supplier items created, {summary.updated} updated
       </p>
@@ -539,7 +572,7 @@ function PurchaseOrderImportSummary({
   summary: PurchaseOrderImportResult;
 }) {
   return (
-    <div className="rounded-md border bg-muted/40 p-3 text-sm">
+    <div className="border-y py-2 text-sm">
       <p className="font-medium">
         Purchase orders: {summary.created} imported, {summary.updated} updated
       </p>

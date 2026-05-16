@@ -51,9 +51,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import {
-  ACCOUNTING_PROVIDER_QUICKBOOKS,
-} from "@/lib/accounting/constants";
+import { ACCOUNTING_PROVIDER_QUICKBOOKS } from "@/lib/accounting/constants";
 import type { AccountingConnectionSummary } from "@/lib/dal/accounting";
 import type {
   XeroConnectionSummary,
@@ -213,9 +211,61 @@ function XeroLogo() {
 
 function DefaultChip({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex min-h-6 items-center gap-1 rounded-md border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground">
+    <span className="inline-flex min-h-6 items-center gap-1 rounded-md border bg-background px-2 py-0.5 text-xs font-medium text-foreground">
       {children}
     </span>
+  );
+}
+
+function SectionHeading({
+  title,
+  action,
+}: {
+  title: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3">
+      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+      {action ? <div className="shrink-0">{action}</div> : null}
+    </div>
+  );
+}
+
+function AutomationRow({
+  checked,
+  disabled,
+  onCheckedChange,
+  ariaLabel,
+  title,
+  meta,
+  children,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  onCheckedChange: (value: boolean) => void;
+  ariaLabel: string;
+  title: string;
+  meta: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="grid gap-3 border-t py-3 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <label className="flex min-w-0 items-start gap-3">
+        <Checkbox
+          checked={checked}
+          disabled={disabled}
+          onCheckedChange={(value) => onCheckedChange(value === true)}
+          aria-label={ariaLabel}
+          className="mt-0.5"
+        />
+        <span className="min-w-0">
+          <span className="block text-sm font-medium text-foreground">{title}</span>
+          <span className="text-xs text-muted-foreground">{meta}</span>
+        </span>
+      </label>
+      <div className="flex flex-wrap items-center gap-2 sm:justify-end">{children}</div>
+    </div>
   );
 }
 
@@ -247,52 +297,35 @@ function PostingDefaultsSummary({
 
   return (
     <div className="border-t p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">
-            Export to Xero
-          </h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Xero automation and posting defaults for ERP workflows.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={onHistory}>
-            <HugeiconsIcon icon={TimelineListIcon} strokeWidth={2} />
-            Export history
-          </Button>
-          {canManageConnection ? (
-            <Button variant="outline" size="sm" onClick={onEdit}>
-              <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
-              Edit defaults
+      <SectionHeading
+        title="Automation"
+        action={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={onHistory}>
+              <HugeiconsIcon icon={TimelineListIcon} strokeWidth={2} />
+              History
             </Button>
-          ) : null}
-        </div>
-      </div>
+            {canManageConnection ? (
+              <Button variant="outline" size="sm" onClick={onEdit}>
+                <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
+                Defaults
+              </Button>
+            ) : null}
+          </div>
+        }
+      />
 
-      <div className="mt-4 rounded-lg border bg-muted/20">
-        <div className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-          <label className="flex min-w-0 gap-3">
-            <Checkbox
-              checked={connection.autoPushSalesInvoices}
-              disabled={!canManageConnection}
-              onCheckedChange={(value) =>
-                onToggleAutoPush("autoPushSalesInvoices", value === true)
-              }
-              aria-label="Auto-export sales invoices"
-              className="mt-0.5"
-            />
-            <span className="min-w-0">
-              <span className="block text-sm font-medium text-foreground">
-                Sales invoices
-              </span>
-              <span className="text-xs text-muted-foreground">
-                Check to automatically push shipped or manually invoiced sales
-                orders to Xero.
-              </span>
-            </span>
-          </label>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:justify-end">
+      <div className="mt-2">
+        <AutomationRow
+          checked={connection.autoPushSalesInvoices}
+          disabled={!canManageConnection}
+          onCheckedChange={(value) =>
+            onToggleAutoPush("autoPushSalesInvoices", value)
+          }
+          ariaLabel="Auto-export sales invoices"
+          title="Sales invoices"
+          meta="Export shipped or manually invoiced sales orders."
+        >
             <DefaultChip>
               <span className="font-mono">{salesAccount ?? "Account"}</span>
             </DefaultChip>
@@ -302,30 +335,18 @@ function PostingDefaultsSummary({
             <DefaultChip>
               <FriendlyStatus value={connection.invoiceStatusPreference} />
             </DefaultChip>
-          </div>
-        </div>
-        <div className="grid gap-3 border-t p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-          <label className="flex min-w-0 gap-3">
-            <Checkbox
-              checked={connection.autoPushPurchaseOrders}
-              disabled={!canManageConnection}
-              onCheckedChange={(value) =>
-                onToggleAutoPush("autoPushPurchaseOrders", value === true)
-              }
-              aria-label="Auto-export purchase orders"
-              className="mt-0.5"
-            />
-            <span className="min-w-0">
-              <span className="block text-sm font-medium text-foreground">
-                Purchase orders
-              </span>
-              <span className="text-xs text-muted-foreground">
-                Check to automatically push submitted ERP purchase orders to
-                Xero.
-              </span>
-            </span>
-          </label>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:justify-end">
+        </AutomationRow>
+
+        <AutomationRow
+          checked={connection.autoPushPurchaseOrders}
+          disabled={!canManageConnection}
+          onCheckedChange={(value) =>
+            onToggleAutoPush("autoPushPurchaseOrders", value)
+          }
+          ariaLabel="Auto-export purchase orders"
+          title="Purchase orders"
+          meta="Export submitted ERP purchase orders."
+        >
             <DefaultChip>
               <span className="font-mono">{purchaseAccount ?? "Account"}</span>
             </DefaultChip>
@@ -335,34 +356,21 @@ function PostingDefaultsSummary({
             <DefaultChip>
               <FriendlyStatus value={connection.purchaseOrderStatusPreference} />
             </DefaultChip>
-          </div>
-        </div>
-        <div className="grid gap-3 border-t p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-          <label className="flex min-w-0 gap-3">
-            <Checkbox
-              checked={connection.autoSyncPurchaseOrdersFromAccounting}
-              disabled={!canManageConnection}
-              onCheckedChange={(value) =>
-                onToggleAutoPush("autoSyncPurchaseOrdersFromAccounting", value === true)
-              }
-              aria-label="Auto-sync purchase orders from Xero"
-              className="mt-0.5"
-            />
-            <span className="min-w-0">
-              <span className="block text-sm font-medium text-foreground">
-                Xero purchase order import
-              </span>
-              <span className="text-xs text-muted-foreground">
-                Check to automatically import open Xero purchase orders for ERP
-                receiving.
-              </span>
-            </span>
-          </label>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:justify-end">
+        </AutomationRow>
+
+        <AutomationRow
+          checked={connection.autoSyncPurchaseOrdersFromAccounting}
+          disabled={!canManageConnection}
+          onCheckedChange={(value) =>
+            onToggleAutoPush("autoSyncPurchaseOrdersFromAccounting", value)
+          }
+          ariaLabel="Auto-sync purchase orders from Xero"
+          title="Purchase order import"
+          meta="Import open Xero purchase orders for receiving."
+        >
             <DefaultChip>Creates missing materials</DefaultChip>
             <DefaultChip>Open POs only</DefaultChip>
-          </div>
-        </div>
+        </AutomationRow>
       </div>
     </div>
   );
@@ -385,14 +393,8 @@ function ImportFromXeroSection({
 
   return (
     <div className="border-t p-5">
-      <div>
-        <h3 className="text-sm font-semibold text-foreground">Import from Xero</h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Pull contacts, purchasing defaults, and open purchase orders into ERP.
-        </p>
-      </div>
-
-      <div className="mt-4">
+      <SectionHeading title="Imports" />
+      <div className="mt-3">
         <XeroImportSection
           canImportCustomers={canImportCustomers}
           canImportSuppliers={canImportSuppliers}
@@ -514,14 +516,6 @@ function XeroRow({
         <div className="flex shrink-0 items-center gap-2">
           {isConnected ? (
             <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setOpenDialog("history")}
-              >
-                <HugeiconsIcon icon={TimelineListIcon} strokeWidth={2} />
-                Export history
-              </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="icon-sm" aria-label="More actions">

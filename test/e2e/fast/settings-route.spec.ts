@@ -108,7 +108,10 @@ test("xero settings show automation toggles, draft defaults, and export history"
   await page.goto("/settings");
 
   await expect(
-    page.getByRole("heading", { name: "Export to Xero" })
+    page.getByRole("heading", { name: "Automation" })
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Imports", exact: true })
   ).toBeVisible();
   await expect(
     page.getByRole("checkbox", { name: "Auto-export sales invoices" })
@@ -118,7 +121,7 @@ test("xero settings show automation toggles, draft defaults, and export history"
   ).toBeChecked();
   await expect(page.getByText("Draft")).toHaveCount(2);
 
-  await page.getByRole("button", { name: "Edit defaults" }).click();
+  await page.getByRole("button", { name: "Defaults" }).click();
   await expect(
     page.getByRole("heading", { name: "Posting defaults" })
   ).toBeVisible();
@@ -144,7 +147,7 @@ test("xero settings show automation toggles, draft defaults, and export history"
     page.getByRole("checkbox", { name: "Auto-export sales invoices" })
   ).not.toBeChecked();
 
-  await page.getByRole("button", { name: "Export history" }).first().click();
+  await page.getByRole("button", { name: "History" }).first().click();
   await expect(page.getByRole("heading", { name: "Export history" })).toBeVisible();
   await expect(page.getByText(orderNumber)).toBeVisible();
   await expect(page.getByText(customerName)).toBeVisible();
