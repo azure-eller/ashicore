@@ -47,7 +47,6 @@ import {
 } from "@/lib/bom/constraints";
 import {
   BATCH_YIELD_TOOLTIP,
-  BOM_QTY_PER_BATCH_TOOLTIP,
   BOM_QTY_PER_UNIT_TOOLTIP,
   COST_PER_UNIT_TOOLTIP,
   MANUFACTURING_ACTUAL_QTY_TOOLTIP,
@@ -389,12 +388,8 @@ function IngredientsTable({
           <TableHead>Type</TableHead>
           <TableHead className="text-right">
             <TooltipHeader
-              label={order.manufacturingMode === "batch" ? "Qty / Batch" : "Qty / Unit"}
-              tooltip={
-                order.manufacturingMode === "batch"
-                  ? BOM_QTY_PER_BATCH_TOOLTIP
-                  : BOM_QTY_PER_UNIT_TOOLTIP
-              }
+              label="Qty used"
+              tooltip={BOM_QTY_PER_UNIT_TOOLTIP}
             />
           </TableHead>
           <TableHead className="text-right">

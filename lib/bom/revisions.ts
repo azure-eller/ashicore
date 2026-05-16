@@ -8,7 +8,7 @@ import {
   bomRevisions,
   user,
 } from "@/lib/db/schema";
-import { trimScale } from "@/lib/db/numeric";
+import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
 import type { BomComponentConstraint } from "./constraints";
 export { getCurrentActiveBomIngredientsInTx } from "./active-ingredients";
@@ -22,6 +22,11 @@ export type BomRevisionComponentSnapshot = {
   componentItemType: string;
   unitName: string;
   quantity: string;
+  consumptionMode: string;
+  basisOutputQuantity: string | null;
+  batchScalingMode: string | null;
+  groupRemainderPolicy: string | null;
+  scalingReviewRecommended: boolean;
   sortOrder: number;
   constraints: BomComponentConstraint[];
   alternates: BomRevisionComponentAlternateSnapshot[];
@@ -100,6 +105,14 @@ export async function getBomRevisionComponentsInTx(tx: Tx, bomRevisionId: string
       componentItemType: bomRevisionComponents.componentItemType,
       unitName: bomRevisionComponents.unitName,
       quantity: trimScale(bomRevisionComponents.quantity).as("quantity"),
+      consumptionMode: bomRevisionComponents.consumptionMode,
+      basisOutputQuantity: trimScaleNullable(
+        bomRevisionComponents.basisOutputQuantity
+      ).as("basisOutputQuantity"),
+      batchScalingMode: bomRevisionComponents.batchScalingMode,
+      groupRemainderPolicy: bomRevisionComponents.groupRemainderPolicy,
+      scalingReviewRecommended:
+        bomRevisionComponents.scalingReviewRecommended,
       sortOrder: bomRevisionComponents.sortOrder,
     })
     .from(bomRevisionComponents)
@@ -235,6 +248,14 @@ export async function getCurrentBomCoverageInTx(tx: Tx, productIds: string[]) {
       componentItemType: bomRevisionComponents.componentItemType,
       unitName: bomRevisionComponents.unitName,
       quantity: trimScale(bomRevisionComponents.quantity).as("quantity"),
+      consumptionMode: bomRevisionComponents.consumptionMode,
+      basisOutputQuantity: trimScaleNullable(
+        bomRevisionComponents.basisOutputQuantity
+      ).as("basisOutputQuantity"),
+      batchScalingMode: bomRevisionComponents.batchScalingMode,
+      groupRemainderPolicy: bomRevisionComponents.groupRemainderPolicy,
+      scalingReviewRecommended:
+        bomRevisionComponents.scalingReviewRecommended,
       sortOrder: bomRevisionComponents.sortOrder,
     })
     .from(bomRevisionComponents)

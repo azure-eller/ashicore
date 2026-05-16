@@ -53,8 +53,6 @@ import {
 import { cn } from "@/lib/utils";
 import {
   AVAILABLE_QTY_TOOLTIP,
-  BATCH_YIELD_TOOLTIP,
-  BOM_QTY_PER_BATCH_TOOLTIP,
   BOM_QTY_PER_UNIT_TOOLTIP,
   CALCULATED_STOCK_ALERT_TOOLTIP,
   CALCULATED_STOCK_TOOLTIP,
@@ -127,6 +125,8 @@ interface ItemDetailProps {
     safetyStock: string;
     manufacturingMode?: string;
     expectedBatchYield?: string | null;
+    typicalBatchSize?: string | null;
+    typicalGroupSize?: string | null;
     isMaster?: boolean;
     variantAxes?: string[] | null;
     parentId?: string | null;
@@ -156,6 +156,11 @@ interface ItemDetailProps {
     componentItemType: string;
     componentUnit: string;
     quantity: string | null;
+    consumptionMode?: string | null;
+    basisOutputQuantity?: string | null;
+    batchScalingMode?: string | null;
+    groupRemainderPolicy?: string | null;
+    scalingReviewRecommended?: boolean | null;
     minimumLotAgeDays?: number | null;
   }[];
   lots: {
@@ -255,8 +260,31 @@ function formatPurchaseConversion(
   }`;
 }
 
-function formatMode(value: string | null | undefined) {
-  return value ? value.replace(/_/g, " ") : "discrete";
+function formatConsumptionMode(value: string | null | undefined) {
+  if (value === "per_batch") return "Batch";
+  if (value === "per_group") return "Group";
+  return "Output unit";
+}
+
+function formatConsumptionBasis(line: DetailBomLine, outputUnit: string | null | undefined) {
+  if (line.consumptionMode !== "per_batch" && line.consumptionMode !== "per_group") {
+    return "\u2014";
+  }
+  return line.basisOutputQuantity != null
+    ? `${formatQuantity(line.basisOutputQuantity)} ${outputUnit ?? "units"}`
+    : "\u2014";
+}
+
+function formatConsumptionBehavior(line: DetailBomLine) {
+  if (line.consumptionMode === "per_batch") {
+    return line.batchScalingMode === "full_batches_only" ? "Full batches" : "Proportional";
+  }
+  if (line.consumptionMode === "per_group") {
+    if (line.groupRemainderPolicy === "create_partial_group") return "Create partial group";
+    if (line.groupRemainderPolicy === "leave_loose") return "Leave loose";
+    return "Ask";
+  }
+  return "\u2014";
 }
 
 function formatQuantityValue(value: string | number | null | undefined) {
@@ -499,10 +527,6 @@ function ItemInfoCards({
                 : []),
               ...(itemType === "product"
                 ? [
-                    {
-                      label: "Mfg mode",
-                      value: formatMode(item.manufacturingMode),
-                    },
                     ...(item.currentBomRevision
                       ? [
                           {
@@ -545,17 +569,21 @@ function ItemInfoCards({
                 dim: !item.purchaseToStockFactor,
                 tooltip: PURCHASE_CONVERSION_TOOLTIP,
               },
-              ...(itemType === "product" && item.manufacturingMode === "batch"
+              ...(itemType === "product" && item.typicalBatchSize != null
                 ? [
                     {
-                      label: "Batch yield",
-                      value:
-                        item.expectedBatchYield != null
-                          ? `${formatQuantity(item.expectedBatchYield)} ${item.unitName ?? "units"}`
-                          : "\u2014",
+                      label: "Typical batch",
+                      value: `${formatQuantity(item.typicalBatchSize)} ${item.unitName ?? "units"}`,
                       mono: true,
-                      dim: item.expectedBatchYield == null,
-                      tooltip: BATCH_YIELD_TOOLTIP,
+                    },
+                  ]
+                : []),
+              ...(itemType === "product" && item.typicalGroupSize != null
+                ? [
+                    {
+                      label: "Typical group",
+                      value: `${formatQuantity(item.typicalGroupSize)} ${item.unitName ?? "units"}`,
+                      mono: true,
                     },
                   ]
                 : []),
@@ -1061,32 +1089,19 @@ function RecipePanel({
               </TableHead>
               <TableHead className="text-right">
                 <TooltipHeader
-                  label={item.manufacturingMode === "batch" ? "Qty / Batch" : "Qty"}
-                  tooltip={
-                    item.manufacturingMode === "batch"
-                      ? BOM_QTY_PER_BATCH_TOOLTIP
-                      : BOM_QTY_PER_UNIT_TOOLTIP
-                  }
+                  label="Qty used"
+                  tooltip={BOM_QTY_PER_UNIT_TOOLTIP}
                 />
               </TableHead>
-              {item.manufacturingMode === "batch" && item.expectedBatchYield != null && (
-                <TableHead className="text-right">
-                  <TooltipHeader label="Qty / Unit" tooltip={BOM_QTY_PER_UNIT_TOOLTIP} />
-                </TableHead>
-              )}
+              <TableHead>Used per</TableHead>
+              <TableHead className="text-right">Basis</TableHead>
+              <TableHead>Behavior</TableHead>
               <TableHead>Requirements</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {bom.map((line) => {
               const batchQty = line.quantity ? parseFloat(line.quantity) : null;
-              const yieldValue = item.expectedBatchYield
-                ? parseFloat(item.expectedBatchYield)
-                : null;
-              const perUnit =
-                batchQty != null && yieldValue != null && yieldValue > 0
-                  ? parseFloat((batchQty / yieldValue).toFixed(4).replace(/\.?0+$/, ""))
-                  : null;
 
               return (
                 <TableRow key={line.id}>
@@ -1106,11 +1121,18 @@ function RecipePanel({
                       ? `${formatQuantity(line.quantity)} ${line.componentUnit}`
                       : "\u2014"}
                   </TableCell>
-                  {item.manufacturingMode === "batch" && item.expectedBatchYield != null && (
-                    <TableCell className="text-right font-mono text-muted-foreground">
-                      {perUnit != null ? `${perUnit} ${line.componentUnit}` : "\u2014"}
-                    </TableCell>
-                  )}
+                  <TableCell>{formatConsumptionMode(line.consumptionMode)}</TableCell>
+                  <TableCell className="text-right font-mono">
+                    {formatConsumptionBasis(line, item.unitName)}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {formatConsumptionBehavior(line)}
+                    {line.scalingReviewRecommended ? (
+                      <Badge variant="outline" className="ml-2">
+                        Review
+                      </Badge>
+                    ) : null}
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {line.minimumLotAgeDays
                       ? formatMinimumLotAgeRequirement(line.minimumLotAgeDays)
@@ -1424,11 +1446,9 @@ export function ItemDetail({
                   {item.category ? (
                     <Badge variant="secondary">{item.category}</Badge>
                   ) : null}
-                  {itemType === "product" ? (
-                    <Badge variant="secondary">{formatMode(item.manufacturingMode)}</Badge>
-                  ) : (
-                    <Badge variant="secondary">Material</Badge>
-                  )}
+                  <Badge variant="secondary">
+                    {itemType === "product" ? "Product" : "Material"}
+                  </Badge>
                   {itemType === "product" && item.sellable === false ? (
                     <Badge variant="outline">Not sellable</Badge>
                   ) : null}

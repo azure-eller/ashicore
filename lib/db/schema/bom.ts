@@ -70,6 +70,18 @@ export const bomRevisionComponents = inventorySchema
       componentItemType: varchar("component_item_type", { length: 20 }).notNull(),
       unitName: varchar("unit_name", { length: 50 }).notNull(),
       quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
+      consumptionMode: varchar("consumption_mode", { length: 32 })
+        .notNull()
+        .default("per_output_unit"),
+      basisOutputQuantity: numeric("basis_output_quantity", {
+        precision: 12,
+        scale: 4,
+      }),
+      batchScalingMode: varchar("batch_scaling_mode", { length: 32 }),
+      groupRemainderPolicy: varchar("group_remainder_policy", { length: 32 }),
+      scalingReviewRecommended: boolean("scaling_review_recommended")
+        .notNull()
+        .default(false),
       sortOrder: integer("sort_order").notNull().default(0),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -82,6 +94,45 @@ export const bomRevisionComponents = inventorySchema
         table.componentId
       ),
       check("bom_revision_components_no_self_reference", sql`component_id IS NOT NULL`),
+      check(
+        "bom_revision_components_consumption_mode_check",
+        sql`consumption_mode IN ('per_output_unit', 'per_batch', 'per_group')`
+      ),
+      check(
+        "bom_revision_components_batch_scaling_mode_check",
+        sql`batch_scaling_mode IS NULL OR batch_scaling_mode IN ('proportional', 'full_batches_only')`
+      ),
+      check(
+        "bom_revision_components_group_remainder_policy_check",
+        sql`group_remainder_policy IS NULL OR group_remainder_policy IN ('ask', 'leave_loose', 'create_partial_group')`
+      ),
+      check(
+        "bom_revision_components_basis_output_quantity_check",
+        sql`(
+          consumption_mode = 'per_output_unit'
+          AND basis_output_quantity IS NULL
+        ) OR (
+          consumption_mode IN ('per_batch', 'per_group')
+          AND basis_output_quantity IS NOT NULL
+          AND basis_output_quantity > 0
+        )`
+      ),
+      check(
+        "bom_revision_components_batch_fields_check",
+        sql`(
+          consumption_mode = 'per_batch'
+          AND batch_scaling_mode IS NOT NULL
+          AND group_remainder_policy IS NULL
+        ) OR consumption_mode <> 'per_batch'`
+      ),
+      check(
+        "bom_revision_components_group_fields_check",
+        sql`(
+          consumption_mode = 'per_group'
+          AND group_remainder_policy IS NOT NULL
+          AND batch_scaling_mode IS NULL
+        ) OR consumption_mode <> 'per_group'`
+      ),
       pgPolicy("bom_revision_components_org_isolation", {
         for: "all",
         to: "public",

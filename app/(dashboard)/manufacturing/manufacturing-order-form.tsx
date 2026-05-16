@@ -52,6 +52,13 @@ import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -68,11 +75,19 @@ import {
   getFieldArrayError,
   getFirstFormErrorMessage,
   normalizeNumeric,
-  parsePositive,
   todayInTimeZone,
 } from "@/lib/format";
 import {
-  BOM_QTY_PER_BATCH_TOOLTIP,
+  calculateConsumptionRequirement,
+  makeGroupChoiceKey,
+  summarizeGroupRemainders,
+  type BatchScalingMode,
+  type ConsumptionMode,
+  type GroupRemainderHandling,
+  type GroupRemainderChoice,
+  type GroupRemainderPolicy,
+} from "@/lib/manufacturing/consumption";
+import {
   BOM_QTY_PER_UNIT_TOOLTIP,
   MANUFACTURING_PLANNED_TOTAL_TOOLTIP,
   MANUFACTURING_PLANNED_QTY_TOOLTIP,
@@ -96,6 +111,11 @@ type ManufacturingProductTemplate = ManufacturingProductOption & {
     itemType: string;
     unitName: string;
     quantityPerUnit: string;
+    consumptionMode: string;
+    basisOutputQuantity: string | null;
+    batchScalingMode: string | null;
+    groupRemainderPolicy: string | null;
+    scalingReviewRecommended: boolean;
     defaultItemId?: string | null;
     defaultItemName?: string | null;
     defaultItemSku?: string | null;
@@ -194,6 +214,18 @@ export function ManufacturingOrderForm({
             itemId: ingredient.itemId,
             quantityPerUnit: ingredient.quantityPerUnit,
           })),
+          groupRemainderChoices: initialData.ingredients
+            .filter(
+              (ingredient) =>
+                ingredient.groupRemainderPolicy === "ask" &&
+                ingredient.basisOutputQuantity != null &&
+                ingredient.chosenGroupRemainderHandling != null
+            )
+            .map((ingredient) => ({
+              basisOutputQuantity: ingredient.basisOutputQuantity!,
+              handling:
+                ingredient.chosenGroupRemainderHandling as GroupRemainderHandling,
+            })),
           confirmShortage: false,
         }
       : {
@@ -223,6 +255,10 @@ export function ManufacturingOrderForm({
   const watchedSalesOrderId = useWatch({
     control: form.control,
     name: "salesOrderId",
+  });
+  const watchedGroupRemainderChoices = useWatch({
+    control: form.control,
+    name: "groupRemainderChoices",
   });
 
   const productOptions = useMemo(
@@ -330,14 +366,21 @@ export function ManufacturingOrderForm({
     }
   }, [append, fields, isSalesOrderMode, watchedIngredients, watchedProductId]);
 
-  // For editing, use the snapshotted batch info from the MO
+  const selectedBomRows = isEditing
+    ? initialData?.ingredients ?? []
+    : selectedProduct?.bom ?? [];
+  const firstBatchBasis = selectedBomRows.find(
+    (row) => row.consumptionMode === "per_batch" && row.basisOutputQuantity != null
+  )?.basisOutputQuantity;
+
+  // For editing, use the snapshotted compatibility mode from the MO.
   const isBatchMode = isEditing
     ? initialData?.manufacturingMode === "batch"
-    : selectedProduct?.manufacturingMode === "batch";
+    : selectedBomRows.some((row) => row.consumptionMode === "per_batch");
   const batchYield = isEditing
     ? initialData?.expectedBatchYield != null ? parseFloat(initialData.expectedBatchYield) : null
-    : selectedProduct?.expectedBatchYield != null ? parseFloat(selectedProduct.expectedBatchYield) : null;
-  const isManualBatchCreate = !isEditing && !isSalesOrderMode && isBatchMode;
+    : firstBatchBasis != null ? parseFloat(firstBatchBasis) : null;
+  const isManualBatchCreate = false;
 
   // Manual batch creation enters batch count; existing/edit flows enter output quantity.
   const batchCalc = (() => {
@@ -347,10 +390,74 @@ export function ManufacturingOrderForm({
     const numberOfBatches = isManualBatchCreate
       ? entered
       : Math.ceil(entered / batchYield);
-    const plannedOutput = numberOfBatches * batchYield;
-    const excess = isManualBatchCreate ? 0 : plannedOutput - entered;
-    return { numberOfBatches, plannedOutput, excess };
+    const plannedOutput = isManualBatchCreate ? numberOfBatches * batchYield : entered;
+    return { numberOfBatches, plannedOutput };
   })();
+  const groupSummaries = summarizeGroupRemainders(
+    selectedBomRows,
+    watchedPlannedQuantity ?? ""
+  );
+  const groupChoiceMap = new Map(
+    (watchedGroupRemainderChoices ?? []).map((choice) => [
+      makeGroupChoiceKey(choice.basisOutputQuantity),
+      choice.handling,
+    ])
+  );
+  const setGroupChoice = (
+    basisOutputQuantity: string,
+    handling: GroupRemainderHandling
+  ) => {
+    const key = makeGroupChoiceKey(basisOutputQuantity);
+    const next = new Map(groupChoiceMap);
+    next.set(key, handling);
+    form.setValue(
+      "groupRemainderChoices",
+      [...next.entries()].map(
+        ([basis, value]): GroupRemainderChoice => ({
+          basisOutputQuantity: basis,
+          handling: value,
+        })
+      ),
+      { shouldDirty: true, shouldValidate: true }
+    );
+  };
+
+  useEffect(() => {
+    if (isSalesOrderMode) return;
+    const requiredKeys = new Set(
+      groupSummaries
+        .filter((summary) => summary.requiresChoice)
+        .map((summary) => summary.basisOutputQuantity)
+    );
+    const current = watchedGroupRemainderChoices ?? [];
+    const next = [
+      ...current.filter((choice) =>
+        requiredKeys.has(makeGroupChoiceKey(choice.basisOutputQuantity))
+      ),
+    ];
+
+    for (const key of requiredKeys) {
+      if (!next.some((choice) => makeGroupChoiceKey(choice.basisOutputQuantity) === key)) {
+        next.push({ basisOutputQuantity: key, handling: "leave_loose" });
+      }
+    }
+
+    const currentSignature = current
+      .map((choice) => `${makeGroupChoiceKey(choice.basisOutputQuantity)}:${choice.handling}`)
+      .sort()
+      .join("|");
+    const nextSignature = next
+      .map((choice) => `${makeGroupChoiceKey(choice.basisOutputQuantity)}:${choice.handling}`)
+      .sort()
+      .join("|");
+
+    if (currentSignature !== nextSignature) {
+      form.setValue("groupRemainderChoices", next, {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+    }
+  }, [form, groupSummaries, isSalesOrderMode, watchedGroupRemainderChoices]);
 
   const previewQuery = useQuery<ManufacturingSalesOrderPreview>({
     queryKey: ["manufacturing-sales-order-preview", watchedSalesOrderId],
@@ -445,6 +552,7 @@ export function ManufacturingOrderForm({
             priorityRank: null,
             plannedDate: values.plannedDate,
             notes: values.notes,
+            groupRemainderChoices: values.groupRemainderChoices,
             ingredients: values.ingredients,
           }
         : {
@@ -457,6 +565,7 @@ export function ManufacturingOrderForm({
             priorityRank: null,
             plannedDate: values.plannedDate,
             notes: values.notes,
+            groupRemainderChoices: values.groupRemainderChoices,
             ingredients: values.ingredients,
             confirmShortage: true,
           };
@@ -538,6 +647,7 @@ export function ManufacturingOrderForm({
       form.setValue("salesOrderLineId", null);
       form.setValue("productId", "");
       form.setValue("plannedQuantity", "");
+      form.setValue("groupRemainderChoices", []);
       form.setValue("ingredients", []);
       return;
     }
@@ -562,6 +672,7 @@ export function ManufacturingOrderForm({
     form.setValue("salesOrderId", null);
     form.setValue("salesOrderLineId", null);
     form.setValue("plannedQuantity", "");
+    form.setValue("groupRemainderChoices", []);
     form.setValue(
       "ingredients",
       (template?.bom ?? []).map((ingredient) => ({
@@ -891,14 +1002,71 @@ export function ManufacturingOrderForm({
                   <div className="col-span-full border border-dashed px-4 py-3">
                     <p className="text-sm text-muted-foreground">
                       <span className="font-medium text-foreground">{batchCalc.numberOfBatches} batch{batchCalc.numberOfBatches === 1 ? "" : "es"}</span>
-                      {" \u00d7 "}
-                      {formatQuantity(String(batchYield))} {selectedProduct?.unitName ?? initialData?.unitName ?? "units"}/batch
-                      {" = "}
-                      <span className="font-medium text-foreground">{formatQuantity(String(batchCalc.plannedOutput))} {selectedProduct?.unitName ?? initialData?.unitName ?? "units"}</span>
-                      {batchCalc.excess > 0 && (
-                        <span className="text-muted-foreground"> ({formatQuantity(String(batchCalc.excess))} excess)</span>
-                      )}
+                      {" of up to "}
+                      {formatQuantity(String(batchYield))} {selectedProduct?.unitName ?? initialData?.unitName ?? "units"}
                     </p>
+                  </div>
+                )}
+
+                {!isSalesOrderMode && groupSummaries.length > 0 && (
+                  <div className="col-span-full space-y-3 rounded-lg border border-dashed px-4 py-3">
+                    <p className="text-sm font-medium">Grouped materials</p>
+                    {groupSummaries.map((summary) => {
+                      const currentChoice =
+                        groupChoiceMap.get(summary.basisOutputQuantity) ??
+                        "leave_loose";
+                      const hasRemainder =
+                        parseFloat(summary.remainderQuantity) > 0;
+                      const groupCount =
+                        !hasRemainder || currentChoice === "leave_loose"
+                          ? summary.fullGroupCount
+                          : summary.fullGroupCount + 1;
+
+                      return (
+                        <div
+                          key={summary.basisOutputQuantity}
+                          className="grid gap-3 md:grid-cols-[1fr_auto]"
+                        >
+                          <div className="text-sm text-muted-foreground">
+                            <span className="font-medium text-foreground">
+                              {groupCount} group{groupCount === 1 ? "" : "s"}
+                            </span>
+                            {" of "}
+                            {formatQuantity(summary.basisOutputQuantity)}{" "}
+                            {selectedProduct?.unitName ?? initialData?.unitName ?? "units"}
+                            {hasRemainder ? (
+                              <>
+                                {"; "}
+                                {formatQuantity(summary.remainderQuantity)} leftover
+                              </>
+                            ) : null}
+                          </div>
+                          {summary.requiresChoice ? (
+                            <Select
+                              value={currentChoice}
+                              onValueChange={(value) =>
+                                setGroupChoice(
+                                  summary.basisOutputQuantity,
+                                  value as GroupRemainderHandling
+                                )
+                              }
+                            >
+                              <SelectTrigger className="w-56">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="leave_loose">
+                                  Leave loose
+                                </SelectItem>
+                                <SelectItem value="create_partial_group">
+                                  Create partial group
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 
@@ -1059,12 +1227,8 @@ export function ManufacturingOrderForm({
                       "Ingredient",
                       <TooltipHeader
                         key="quantity"
-                        label={isBatchMode ? "Qty / Batch" : "Qty / Unit"}
-                        tooltip={
-                          isBatchMode
-                            ? BOM_QTY_PER_BATCH_TOOLTIP
-                            : BOM_QTY_PER_UNIT_TOOLTIP
-                        }
+                        label="Qty used"
+                        tooltip={BOM_QTY_PER_UNIT_TOOLTIP}
                       />,
                       <TooltipHeader
                         key="planned-total"
@@ -1081,16 +1245,27 @@ export function ManufacturingOrderForm({
                       const selectedMaterial = ingredientOptionMap.get(selectedIngredientId);
                       const quantityPerUnit =
                         watchedIngredients?.[index]?.quantityPerUnit ?? "";
-                      const perUnit = parsePositive(quantityPerUnit);
-                      const multiplier = isBatchMode && batchCalc
-                        ? batchCalc.numberOfBatches
-                        : parsePositive(watchedPlannedQuantity);
-                      const plannedTotal =
-                        multiplier != null && perUnit != null
-                          ? (multiplier * perUnit)
-                              .toFixed(4)
-                              .replace(/\.?0+$/, "")
-                          : "\u2014";
+                      const bomRow = selectedBomRows[index];
+                      const plannedTotal = (() => {
+                        if (!bomRow) return "\u2014";
+                        const calculation = calculateConsumptionRequirement({
+                          outputQuantity: watchedPlannedQuantity ?? "",
+                          quantity: quantityPerUnit,
+                          consumptionMode: bomRow.consumptionMode as ConsumptionMode,
+                          basisOutputQuantity: bomRow.basisOutputQuantity,
+                          batchScalingMode: bomRow.batchScalingMode as BatchScalingMode | null,
+                          groupRemainderPolicy:
+                            bomRow.groupRemainderPolicy as GroupRemainderPolicy | null,
+                          chosenGroupRemainderHandling:
+                            bomRow.basisOutputQuantity != null
+                              ? groupChoiceMap.get(
+                                  makeGroupChoiceKey(bomRow.basisOutputQuantity)
+                                )
+                              : undefined,
+                        });
+
+                        return calculation.plannedQuantity ?? "\u2014";
+                      })();
 
                       return (
                         <EditableLineGridRow
@@ -1158,7 +1333,7 @@ export function ManufacturingOrderForm({
                                     className="sr-only"
                                     htmlFor={`ingredient-${index}-quantity-per-unit`}
                                   >
-                                    {isBatchMode ? "Qty / Batch" : "Qty / Unit"}
+                                    Qty used
                                   </FieldLabel>
                                   <Input
                                     {...quantityField}

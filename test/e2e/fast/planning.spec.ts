@@ -213,6 +213,10 @@ test.describe("Planning workspace", () => {
     bom: Array<{
       componentId: string;
       quantity: string;
+      consumptionMode?: "per_output_unit" | "per_batch" | "per_group";
+      basisOutputQuantity?: string | null;
+      batchScalingMode?: "proportional" | "full_batches_only" | null;
+      groupRemainderPolicy?: "ask" | "leave_loose" | "create_partial_group" | null;
       minimumLotAgeDays?: number | null;
     }>
   ) {
@@ -225,6 +229,7 @@ test.describe("Planning workspace", () => {
       description: null,
       defaultPurchasePrice: null,
       defaultSellingPrice: "10.00",
+      sellable: true,
       stock: "0",
       safetyStock: "0",
       bom,
@@ -640,7 +645,7 @@ test.describe("Planning workspace", () => {
     expect(line.unitCost).toBe("2.5000");
   });
 
-  test("production planning backend exposes start bucket and batch count without direct-demand downstream noise", async () => {
+  test("production planning backend derives batch count from BOM line basis", async () => {
     const productName = `Production Batch Blend ${runToken}`;
     const componentId = await createMaterial("Production Batch Component", {
       stock: "100",
@@ -656,11 +661,18 @@ test.describe("Planning workspace", () => {
       description: null,
       defaultPurchasePrice: null,
       defaultSellingPrice: "10.00",
+      sellable: true,
       stock: "0",
       safetyStock: "0",
-      manufacturingMode: "batch",
-      expectedBatchYield: "4",
-      bom: [{ componentId, quantity: "2" }],
+      bom: [
+        {
+          componentId,
+          quantity: "2",
+          consumptionMode: "per_batch",
+          basisOutputQuantity: "4",
+          batchScalingMode: "proportional",
+        },
+      ],
     });
     expect(product.status).toBe(201);
     const productId = product.body.id as string;

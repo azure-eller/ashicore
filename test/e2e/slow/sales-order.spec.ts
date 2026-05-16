@@ -148,6 +148,7 @@ test.describe("Sales order flow", () => {
       description: "Sellable product without a BOM",
       defaultPurchasePrice: null,
       defaultSellingPrice: "12.00",
+      sellable: true,
       stock: "0",
       safetyStock: "0",
       bom: [],
@@ -165,6 +166,7 @@ test.describe("Sales order flow", () => {
       description: "BOM-backed product for shortage and manufacturing coverage",
       defaultPurchasePrice: null,
       defaultSellingPrice: "34.99",
+      sellable: true,
       stock: "4",
       safetyStock: "0",
       bom: [
@@ -1319,6 +1321,7 @@ test.describe("Sales order flow", () => {
       description: "Product for stale manufacturing link guard",
       defaultPurchasePrice: null,
       defaultSellingPrice: "34.99",
+      sellable: true,
       stock: "0",
       safetyStock: "0",
       bom: [

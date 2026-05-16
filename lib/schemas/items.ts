@@ -3,6 +3,11 @@ import { z } from "zod";
 import { items } from "@/lib/db/schema";
 import { normalizeMinimumLotAgeDays } from "@/lib/bom/constraints";
 import {
+  BATCH_SCALING_MODES,
+  CONSUMPTION_MODES,
+  GROUP_REMAINDER_POLICIES,
+} from "@/lib/manufacturing/consumption";
+import {
   isNonNegativeNumberString,
   nullableString as nullableStringOptional,
   nullableStringPreserveUndefined,
@@ -29,6 +34,10 @@ const minimumLotAgeDaysSchema = z
 const bomRowSchema = z.object({
   componentId: z.string().min(1, "Component is required"),
   quantity: bomQuantitySchema,
+  consumptionMode: z.enum(CONSUMPTION_MODES).default("per_output_unit"),
+  basisOutputQuantity: nullableStringOptional,
+  batchScalingMode: z.enum(BATCH_SCALING_MODES).nullable().optional(),
+  groupRemainderPolicy: z.enum(GROUP_REMAINDER_POLICIES).nullable().optional(),
   minimumLotAgeDays: minimumLotAgeDaysSchema,
   alternates: z
     .array(
@@ -43,6 +52,10 @@ const bomRowSchema = z.object({
 const rawBomRowSchema = z.object({
   componentId: z.string().nullable().optional(),
   quantity: z.string().nullable().optional(),
+  consumptionMode: z.enum(CONSUMPTION_MODES).nullable().optional(),
+  basisOutputQuantity: z.string().nullable().optional(),
+  batchScalingMode: z.enum(BATCH_SCALING_MODES).nullable().optional(),
+  groupRemainderPolicy: z.enum(GROUP_REMAINDER_POLICIES).nullable().optional(),
   minimumLotAgeDays: z.union([z.string(), z.number()]).nullable().optional(),
   alternates: z
     .array(
@@ -76,6 +89,10 @@ const cleanedBomRowsSchema = z
       const parsed = bomRowSchema.safeParse({
         componentId: row.componentId ?? "",
         quantity: row.quantity ?? null,
+        consumptionMode: row.consumptionMode ?? "per_output_unit",
+        basisOutputQuantity: row.basisOutputQuantity ?? null,
+        batchScalingMode: row.batchScalingMode ?? null,
+        groupRemainderPolicy: row.groupRemainderPolicy ?? null,
         minimumLotAgeDays: row.minimumLotAgeDays,
         alternates: row.alternates,
       });
@@ -126,6 +143,8 @@ const rawBaseItemSchema = createInsertSchema(items, {
   description: nullableString,
   manufacturingMode: z.enum(["discrete", "batch"]).default("discrete"),
   expectedBatchYield: nullableStringOptional,
+  typicalBatchSize: nullableStringOptional,
+  typicalGroupSize: nullableStringOptional,
   safetyStock: z.string().transform((v) => (v.trim() === "" ? "0" : v)),
 }).omit({
   id: true,
@@ -214,8 +233,36 @@ function batchYieldRefine(
   }
 }
 
+function positiveOptionalRefine(
+  value: string | null | undefined,
+  fieldName: string,
+  path: string,
+  ctx: z.RefinementCtx
+) {
+  const raw = value?.trim() ?? "";
+  if (raw === "") return;
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `${fieldName} must be greater than 0`,
+      path: [path],
+    });
+  }
+}
+
 function bomRefine(
-  data: { bom?: Array<{ componentId: string; alternates?: Array<{ itemId: string }> }> },
+  data: {
+    bom?: Array<{
+      componentId: string;
+      consumptionMode?: string;
+      basisOutputQuantity?: string | null;
+      batchScalingMode?: string | null;
+      groupRemainderPolicy?: string | null;
+      alternates?: Array<{ itemId: string }>;
+    }>;
+  },
   ctx: z.RefinementCtx
 ) {
   if (!data.bom || data.bom.length === 0) return;
@@ -229,6 +276,43 @@ function bomRefine(
       });
     }
     seen.add(data.bom[i].componentId);
+
+    const row = data.bom[i];
+    if (row.consumptionMode === "per_batch" || row.consumptionMode === "per_group") {
+      const basis = row.basisOutputQuantity?.trim() ?? "";
+      if (basis === "") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Basis is required",
+          path: ["bom", i, "basisOutputQuantity"],
+        });
+      } else {
+        const parsed = Number(basis);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Basis must be greater than 0",
+            path: ["bom", i, "basisOutputQuantity"],
+          });
+        }
+      }
+    }
+
+    if (row.consumptionMode === "per_batch" && !row.batchScalingMode) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Batch scaling is required",
+        path: ["bom", i, "batchScalingMode"],
+      });
+    }
+
+    if (row.consumptionMode === "per_group" && !row.groupRemainderPolicy) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Leftover handling is required",
+        path: ["bom", i, "groupRemainderPolicy"],
+      });
+    }
 
     const alternatesSeen = new Set<string>();
     for (let j = 0; j < (data.bom[i].alternates ?? []).length; j++) {
@@ -259,6 +343,8 @@ export const insertItemSchema = rawBaseItemSchema.superRefine((data, ctx) => {
   purchaseUnitRefine(data, ctx);
   bomRefine(data, ctx);
   batchYieldRefine(data, ctx);
+  positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
+  positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);
 });
 
 export type InsertItem = z.infer<typeof insertItemSchema>;
@@ -283,6 +369,8 @@ export const updateItemSchema = rawBaseItemSchema.omit({
   purchaseUnitRefine(data, ctx);
   bomRefine(data, ctx);
   batchYieldRefine(data, ctx);
+  positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
+  positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);
 });
 
 export type UpdateItem = z.infer<typeof updateItemSchema>;
@@ -316,11 +404,15 @@ export const insertVariantSchema = z.object({
   ),
   manufacturingMode: z.enum(["discrete", "batch"]).default("discrete"),
   expectedBatchYield: nullableStringOptional,
+  typicalBatchSize: nullableStringOptional,
+  typicalGroupSize: nullableStringOptional,
   bom: cleanedBomRowsSchema.optional(),
   revisionNote: nullableStringOptional,
 }).superRefine((data, ctx) => {
   batchYieldRefine(data, ctx);
   bomRefine(data, ctx);
+  positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
+  positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);
 });
 
 export type InsertVariant = z.infer<typeof insertVariantSchema>;

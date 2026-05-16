@@ -124,6 +124,7 @@ test.describe("Auth and security regressions", () => {
       description: "BOM-backed product used for manufacturing auth coverage",
       defaultPurchasePrice: null,
       defaultSellingPrice: "15.00",
+      sellable: true,
       stock: "0",
       safetyStock: "0",
       bom: [

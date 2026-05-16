@@ -219,9 +219,7 @@ const expectedQtySubquery = projectedExpectedQty(
 const potentialSubquery = projectedPotentialQty(
   items.organizationId,
   items.id,
-  items.itemType,
-  items.manufacturingMode,
-  items.expectedBatchYield
+  items.itemType
 ).as("potential");
 
 type BomViewPermissions = {
@@ -372,6 +370,8 @@ async function createBomRevisionInTx(
     productId: string;
     note?: string | null;
     bom: BomInputRow[];
+    legacyDefaultConsumptionMode?: "per_output_unit" | "per_batch";
+    legacyDefaultBasisOutputQuantity?: string | null;
   }
 ) {
   const [currentRevision] = await tx
@@ -428,6 +428,17 @@ async function createBomRevisionInTx(
         throw new Error("BOM component not found");
       }
 
+      const shouldUseLegacyBatchDefault =
+        params.legacyDefaultConsumptionMode === "per_batch" &&
+        params.legacyDefaultBasisOutputQuantity != null &&
+        (row.consumptionMode == null || row.consumptionMode === "per_output_unit") &&
+        row.basisOutputQuantity == null &&
+        row.batchScalingMode == null &&
+        row.groupRemainderPolicy == null;
+      const consumptionMode = shouldUseLegacyBatchDefault
+        ? "per_batch"
+        : row.consumptionMode ?? "per_output_unit";
+
       return {
         bomRevisionId: revision.id,
         componentId: row.componentId,
@@ -436,6 +447,21 @@ async function createBomRevisionInTx(
         componentItemType: component.itemType,
         unitName: component.unitName,
         quantity: row.quantity,
+        consumptionMode,
+        basisOutputQuantity:
+          consumptionMode === "per_batch" || consumptionMode === "per_group"
+            ? row.basisOutputQuantity ?? params.legacyDefaultBasisOutputQuantity ?? null
+            : null,
+        batchScalingMode:
+          consumptionMode === "per_batch"
+            ? row.batchScalingMode ?? "full_batches_only"
+            : null,
+        groupRemainderPolicy:
+          consumptionMode === "per_group"
+            ? row.groupRemainderPolicy ?? "ask"
+            : null,
+        scalingReviewRecommended:
+          shouldUseLegacyBatchDefault || (row.consumptionMode == null && consumptionMode === "per_batch"),
         sortOrder: index,
       };
     });
@@ -890,6 +916,12 @@ export async function getItem(id: string) {
         manufacturingMode: items.manufacturingMode,
         expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
           "expectedBatchYield"
+        ),
+        typicalBatchSize: trimScaleNullable(items.typicalBatchSize).as(
+          "typicalBatchSize"
+        ),
+        typicalGroupSize: trimScaleNullable(items.typicalGroupSize).as(
+          "typicalGroupSize"
         ),
         isMaster: items.isMaster,
         parentId: items.parentId,
@@ -1988,6 +2020,11 @@ export async function updateItem(
           currentBom.map((row) => ({
             componentId: row.componentId,
             quantity: row.quantity,
+            consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
+            basisOutputQuantity: row.basisOutputQuantity,
+            batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
+            groupRemainderPolicy:
+              row.groupRemainderPolicy as BomInputRow["groupRemainderPolicy"],
             minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
             alternates: row.alternates.map((alternate) => ({
               itemId: alternate.alternateItemId,
@@ -2002,6 +2039,9 @@ export async function updateItem(
           productId: id,
           note: revisionNote,
           bom,
+          legacyDefaultConsumptionMode:
+            itemData.manufacturingMode === "batch" ? "per_batch" : "per_output_unit",
+          legacyDefaultBasisOutputQuantity: itemData.expectedBatchYield ?? null,
         });
 
         await recordCostBasisChangeInTx(tx, {
@@ -2177,6 +2217,9 @@ export async function createItemWithLot(
         productId: item.id,
         note: revisionNote,
         bom,
+        legacyDefaultConsumptionMode:
+          data.manufacturingMode === "batch" ? "per_batch" : "per_output_unit",
+        legacyDefaultBasisOutputQuantity: data.expectedBatchYield ?? null,
       });
     }
 
@@ -2407,6 +2450,11 @@ export async function getBomComponents(itemId: string) {
       id: row.id,
       componentId: row.componentId,
       quantity: row.quantity,
+      consumptionMode: row.consumptionMode,
+      basisOutputQuantity: row.basisOutputQuantity,
+      batchScalingMode: row.batchScalingMode,
+      groupRemainderPolicy: row.groupRemainderPolicy,
+      scalingReviewRecommended: row.scalingReviewRecommended,
       minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
       constraints: row.constraints,
       componentName: row.componentName,
@@ -2747,6 +2795,8 @@ export async function createVariant(
         unitDefinitionId: data.unitDefinitionId,
         manufacturingMode: data.manufacturingMode,
         expectedBatchYield: data.expectedBatchYield ?? null,
+        typicalBatchSize: data.typicalBatchSize ?? null,
+        typicalGroupSize: data.typicalGroupSize ?? null,
         defaultSellingPrice: data.defaultSellingPrice ?? null,
         defaultPurchasePrice: data.defaultPurchasePrice ?? null,
         safetyStock: data.safetyStock,
@@ -2765,6 +2815,9 @@ export async function createVariant(
         productId: variant.id,
         note: data.revisionNote,
         bom: data.bom,
+        legacyDefaultConsumptionMode:
+          data.manufacturingMode === "batch" ? "per_batch" : "per_output_unit",
+        legacyDefaultBasisOutputQuantity: data.expectedBatchYield ?? null,
       });
     }
 

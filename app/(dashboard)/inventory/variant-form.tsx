@@ -69,6 +69,8 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
       safetyStock: "0",
       manufacturingMode: "discrete" as const,
       expectedBatchYield: null,
+      typicalBatchSize: null,
+      typicalGroupSize: null,
     },
   });
   const watchedVariantAttrs = useWatch({

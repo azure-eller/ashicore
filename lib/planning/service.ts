@@ -30,6 +30,7 @@ import {
 } from "@/lib/inventory/kernel";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import { normalizeNumeric, resolveVariantDisplay, roundQuantity } from "@/lib/format";
+import { calculateConsumptionRequirement } from "@/lib/manufacturing/consumption";
 import type {
   BomRequirementFact,
   BomComponentRequirement,
@@ -83,6 +84,10 @@ type BomComponentRecord = {
   componentItemType: string;
   unitName: string;
   quantity: string;
+  consumptionMode: string;
+  basisOutputQuantity: string | null;
+  batchScalingMode: string | null;
+  groupRemainderPolicy: string | null;
   sortOrder: number;
   requirements: BomComponentRequirement[];
 };
@@ -772,18 +777,14 @@ function buildSalesOrderProductionDemandPaths(args: {
         continue;
       }
 
-      const parentMultiplier = computeBomExplosionMultiplier(
-        parentItem,
-        slice.quantity
-      );
-
       for (const component of bom.components) {
         if (slice.explosionPath.includes(component.componentId)) {
           continue;
         }
 
-        const componentQuantity = roundQuantity(
-          parentMultiplier * toQuantity(component.quantity)
+        const componentQuantity = computeBomComponentQuantity(
+          component,
+          slice.quantity
         );
         if (componentQuantity <= 0) {
           continue;
@@ -1410,6 +1411,12 @@ async function getCurrentBomsInTx(
       componentItemType: items.itemType,
       unitName: unitDefinitions.name,
       quantity: trimScale(bomRevisionComponents.quantity).as("quantity"),
+      consumptionMode: bomRevisionComponents.consumptionMode,
+      basisOutputQuantity: trimScaleNullable(
+        bomRevisionComponents.basisOutputQuantity
+      ).as("basisOutputQuantity"),
+      batchScalingMode: bomRevisionComponents.batchScalingMode,
+      groupRemainderPolicy: bomRevisionComponents.groupRemainderPolicy,
       sortOrder: bomRevisionComponents.sortOrder,
     })
     .from(bomRevisionComponents)
@@ -1473,6 +1480,10 @@ async function getCurrentBomsInTx(
       componentItemType: component.componentItemType,
       unitName: component.unitName,
       quantity: component.quantity,
+      consumptionMode: component.consumptionMode,
+      basisOutputQuantity: component.basisOutputQuantity,
+      batchScalingMode: component.batchScalingMode,
+      groupRemainderPolicy: component.groupRemainderPolicy,
       sortOrder: component.sortOrder,
       requirements: requirementsByComponentId.get(component.id) ?? [],
     });
@@ -1806,17 +1817,51 @@ function computeBatchCount(item: PlanningItemRecord, quantity: number) {
   return Math.ceil(quantity / expectedBatchYield);
 }
 
-function computeBomExplosionMultiplier(item: PlanningItemRecord, quantity: number) {
-  const expectedBatchYield = nullableNumber(item.expectedBatchYield);
-  if (item.manufacturingMode !== "batch" || expectedBatchYield == null || expectedBatchYield <= 0) {
-    return quantity;
+function computeBomBatchMetadata(
+  bom: CurrentBomRecord | undefined,
+  quantity: number
+) {
+  const basisValues = [
+    ...new Set(
+      (bom?.components ?? [])
+        .filter((component) => component.consumptionMode === "per_batch")
+        .map((component) => component.basisOutputQuantity)
+        .filter((value): value is string => value != null)
+    ),
+  ];
+
+  if (basisValues.length !== 1) {
+    return null;
   }
 
-  return Math.ceil(quantity / expectedBatchYield);
+  const basis = nullableNumber(basisValues[0]);
+  if (basis == null || basis <= 0) {
+    return null;
+  }
+
+  return {
+    manufacturingMode: "batch",
+    expectedBatchYield: normalizeQuantity(basis),
+    plannedBatchCount: Math.ceil(quantity / basis),
+  };
+}
+
+function computeBomComponentQuantity(component: BomComponentRecord, outputQuantity: number) {
+  const calculation = calculateConsumptionRequirement({
+    quantity: component.quantity,
+    outputQuantity,
+    consumptionMode: component.consumptionMode as never,
+    basisOutputQuantity: component.basisOutputQuantity,
+    batchScalingMode: component.batchScalingMode as never,
+    groupRemainderPolicy: component.groupRemainderPolicy as never,
+  });
+
+  return roundQuantity(toQuantity(calculation.plannedQuantity));
 }
 
 function computeProductionMetadata(args: {
   item: PlanningItemRecord;
+  bom: CurrentBomRecord | undefined;
   shortageQuantity: number;
   earliestRequiredDate: string | null;
   horizonStart: string;
@@ -1826,12 +1871,16 @@ function computeProductionMetadata(args: {
     args.horizonStart
   );
 
+  const bomBatchMetadata = computeBomBatchMetadata(args.bom, args.shortageQuantity);
+
   return {
     latestStartDate: null,
     productionBucket,
-    manufacturingMode: args.item.manufacturingMode,
-    expectedBatchYield: args.item.expectedBatchYield,
-    plannedBatchCount: computeBatchCount(args.item, args.shortageQuantity),
+    manufacturingMode: bomBatchMetadata?.manufacturingMode ?? args.item.manufacturingMode,
+    expectedBatchYield: bomBatchMetadata?.expectedBatchYield ?? args.item.expectedBatchYield,
+    plannedBatchCount:
+      bomBatchMetadata?.plannedBatchCount ??
+      computeBatchCount(args.item, args.shortageQuantity),
   };
 }
 
@@ -1905,6 +1954,7 @@ function buildPlanningRows(args: {
       planningType === "make"
         ? computeProductionMetadata({
             item,
+            bom: args.bomByProductId?.get(item.id),
             shortageQuantity,
             earliestRequiredDate,
             horizonStart: args.horizonStart,
@@ -2038,8 +2088,9 @@ function addBomExplosionDemand(args: {
   const bomRequirementFacts: BomRequirementFact[] = [];
 
   for (const component of bom.components) {
-    const componentQuantity = roundQuantity(
-      args.componentMultiplier * toQuantity(component.quantity)
+    const componentQuantity = computeBomComponentQuantity(
+      component,
+      args.componentMultiplier
     );
     if (componentQuantity <= 0) {
       continue;
@@ -2168,7 +2219,7 @@ function buildRowsWithBomExplosion(args: {
         continue;
       }
       const shortageQuantity = toQuantity(row.shortageQuantity);
-      const requiredMultiplier = computeBomExplosionMultiplier(parentItem, shortageQuantity);
+      const requiredMultiplier = shortageQuantity;
       const alreadyExploded = explodedMultiplierByItemId.get(row.item.id) ?? 0;
       const incrementalMultiplier = roundQuantity(requiredMultiplier - alreadyExploded);
       if (incrementalMultiplier <= 0) {

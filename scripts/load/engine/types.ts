@@ -35,10 +35,16 @@ export type ItemSeed = {
   purchaseToStockFactor?: string;
   manufacturingMode?: "discrete" | "batch";
   expectedBatchYield?: string | null;
+  typicalBatchSize?: string | null;
+  typicalGroupSize?: string | null;
   bomLocked?: boolean;
   bom?: Array<{
     componentKey: string;
     quantity: string;
+    consumptionMode?: "per_output_unit" | "per_batch" | "per_group";
+    basisOutputQuantity?: string | null;
+    batchScalingMode?: "proportional" | "full_batches_only" | null;
+    groupRemainderPolicy?: "ask" | "leave_loose" | "create_partial_group" | null;
     minimumLotAgeDays?: number | null;
     alternates?: Array<{ itemKey: string }>;
   }>;
@@ -76,6 +82,8 @@ export type ExistingItem = {
   defaultSellingPrice: string | null;
   manufacturingMode: string;
   expectedBatchYield: string | null;
+  typicalBatchSize: string | null;
+  typicalGroupSize: string | null;
   bomLocked: boolean;
   safetyStock: string;
   isMaster: boolean;
@@ -90,6 +98,10 @@ export type ExistingBomRow = {
   itemId: string;
   componentId: string;
   quantity: string;
+  consumptionMode: string;
+  basisOutputQuantity: string | null;
+  batchScalingMode: string | null;
+  groupRemainderPolicy: string | null;
   minimumLotAgeDays: number | null;
   alternateItemIds: string[];
 };
@@ -97,6 +109,11 @@ export type ExistingBomRow = {
 export type BomSeedRow = {
   componentId: string;
   quantity: string;
+  consumptionMode: "per_output_unit" | "per_batch" | "per_group";
+  basisOutputQuantity: string | null;
+  batchScalingMode: "proportional" | "full_batches_only" | null;
+  groupRemainderPolicy: "ask" | "leave_loose" | "create_partial_group" | null;
+  scalingReviewRecommended: boolean;
   minimumLotAgeDays?: number | null;
   alternates?: Array<{ itemId: string }>;
 };

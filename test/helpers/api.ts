@@ -612,6 +612,10 @@ export async function createManufacturingOrder(data: {
   plannedDate?: string | null;
   notes?: string | null;
   ingredients: Array<{ itemId: string; quantityPerUnit: string }>;
+  groupRemainderChoices?: Array<{
+    basisOutputQuantity: string;
+    handling: "leave_loose" | "create_partial_group";
+  }>;
   confirmShortage?: boolean;
 }) {
   const res = await testFetch("/api/manufacturing-orders", {
@@ -624,6 +628,7 @@ export async function createManufacturingOrder(data: {
       plannedDate: data.plannedDate ?? null,
       notes: data.notes ?? null,
       ingredients: data.ingredients,
+      groupRemainderChoices: data.groupRemainderChoices ?? [],
       confirmShortage: data.confirmShortage ?? false,
     }),
   });

@@ -5,6 +5,7 @@ import {
   normalizeNumericScale,
   roundQuantity,
 } from "@/lib/format";
+import { calculateAverageUnitConsumptionQuantity } from "@/lib/manufacturing/consumption";
 import {
   type InventoryDisposition,
   inventoryItemBalances,
@@ -338,14 +339,12 @@ export async function resolvePositiveStockUnitCostInTx(
       const componentUnitCost = parseFloat(
         await deriveCost(component.itemId, nextVisited)
       );
-      total += parseFloat(component.quantityPerUnit ?? "0") * componentUnitCost;
-    }
-
-    if (item.manufacturingMode === "batch" && item.expectedBatchYield != null) {
-      const expectedBatchYield = parseFloat(item.expectedBatchYield);
-      if (Number.isFinite(expectedBatchYield) && expectedBatchYield > 0) {
-        return normalizeNumericScale(total / expectedBatchYield, 6);
-      }
+      const averageUnitQuantity = calculateAverageUnitConsumptionQuantity({
+        quantity: component.quantityPerUnit ?? "0",
+        consumptionMode: component.consumptionMode as never,
+        basisOutputQuantity: component.basisOutputQuantity,
+      });
+      total += parseFloat(averageUnitQuantity) * componentUnitCost;
     }
 
     return normalizeNumericScale(total, 6);

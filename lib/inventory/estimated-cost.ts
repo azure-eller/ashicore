@@ -9,6 +9,7 @@ import { trimScaleNullable } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
 import { normalizeNumericScale } from "@/lib/format";
 import { resolveStockUnitCostFromDefaultPurchasePrice } from "@/lib/inventory/cost";
+import { calculateAverageUnitConsumptionQuantity } from "@/lib/manufacturing/consumption";
 
 export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[]) {
   const uniqueIds = [...new Set(itemIds)];
@@ -84,6 +85,10 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
       .select({
         componentId: bomRevisionComponents.componentId,
         quantity: bomRevisionComponents.quantity,
+        consumptionMode: bomRevisionComponents.consumptionMode,
+        basisOutputQuantity: bomRevisionComponents.basisOutputQuantity,
+        batchScalingMode: bomRevisionComponents.batchScalingMode,
+        groupRemainderPolicy: bomRevisionComponents.groupRemainderPolicy,
       })
       .from(bomRevisions)
       .innerJoin(
@@ -108,7 +113,12 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
 
     for (const component of components) {
       const componentCost = await resolve(component.componentId, nextVisited);
-      const componentQuantity = Number.parseFloat(component.quantity);
+      const averageUnitQuantity = calculateAverageUnitConsumptionQuantity({
+        quantity: component.quantity,
+        consumptionMode: component.consumptionMode as never,
+        basisOutputQuantity: component.basisOutputQuantity,
+      });
+      const componentQuantity = Number.parseFloat(averageUnitQuantity);
 
       if (componentCost == null || !Number.isFinite(componentQuantity)) {
         cache.set(itemId, null);
@@ -118,17 +128,7 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
       totalCost += componentQuantity * Number.parseFloat(componentCost);
     }
 
-    const expectedBatchYield =
-      item.manufacturingMode === "batch" && item.expectedBatchYield != null
-        ? Number.parseFloat(item.expectedBatchYield)
-        : null;
-    const unitCost =
-      expectedBatchYield != null &&
-      Number.isFinite(expectedBatchYield) &&
-      expectedBatchYield > 0
-        ? totalCost / expectedBatchYield
-        : totalCost;
-    const normalized = normalizeNumericScale(unitCost, 6);
+    const normalized = normalizeNumericScale(totalCost, 6);
     cache.set(itemId, normalized);
     return normalized;
   }

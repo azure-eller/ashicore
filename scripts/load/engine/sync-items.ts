@@ -54,6 +54,8 @@ export async function loadExistingItemsInTx(tx: Tx): Promise<ExistingItem[]> {
       defaultSellingPrice: items.defaultSellingPrice,
       manufacturingMode: items.manufacturingMode,
       expectedBatchYield: items.expectedBatchYield,
+      typicalBatchSize: items.typicalBatchSize,
+      typicalGroupSize: items.typicalGroupSize,
       bomLocked: items.bomLocked,
       safetyStock: items.safetyStock,
       isMaster: items.isMaster,
@@ -137,6 +139,10 @@ export function planItemsSync(
         existing.manufacturingMode !== seed.manufacturingMode) ||
       (seed.expectedBatchYield !== undefined &&
         !numericStringEquals(existing.expectedBatchYield, seed.expectedBatchYield)) ||
+      (seed.typicalBatchSize !== undefined &&
+        !numericStringEquals(existing.typicalBatchSize, seed.typicalBatchSize)) ||
+      (seed.typicalGroupSize !== undefined &&
+        !numericStringEquals(existing.typicalGroupSize, seed.typicalGroupSize)) ||
       (seed.bomLocked !== undefined && existing.bomLocked !== seed.bomLocked) ||
       (seed.safetyStock !== undefined &&
         !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0")) ||
@@ -209,6 +215,8 @@ export async function applyItemsSyncInTx(
           purchaseToStockFactor: seed.purchaseToStockFactor ?? null,
           manufacturingMode: seed.manufacturingMode ?? "discrete",
           expectedBatchYield: seed.expectedBatchYield ?? null,
+          typicalBatchSize: seed.typicalBatchSize ?? null,
+          typicalGroupSize: seed.typicalGroupSize ?? null,
           bomLocked: seed.bomLocked ?? false,
           isMaster: seed.isMaster ?? false,
           parentId: resolvedParentId,
@@ -258,6 +266,12 @@ export async function applyItemsSyncInTx(
       if (seed.expectedBatchYield !== undefined) {
         nextValues.expectedBatchYield = seed.expectedBatchYield;
       }
+      if (seed.typicalBatchSize !== undefined) {
+        nextValues.typicalBatchSize = seed.typicalBatchSize;
+      }
+      if (seed.typicalGroupSize !== undefined) {
+        nextValues.typicalGroupSize = seed.typicalGroupSize;
+      }
       if (seed.bomLocked !== undefined) {
         nextValues.bomLocked = seed.bomLocked;
       }
@@ -287,6 +301,10 @@ export async function applyItemsSyncInTx(
           existing.manufacturingMode !== seed.manufacturingMode) ||
         (seed.expectedBatchYield !== undefined &&
           !numericStringEquals(existing.expectedBatchYield, seed.expectedBatchYield)) ||
+        (seed.typicalBatchSize !== undefined &&
+          !numericStringEquals(existing.typicalBatchSize, seed.typicalBatchSize)) ||
+        (seed.typicalGroupSize !== undefined &&
+          !numericStringEquals(existing.typicalGroupSize, seed.typicalGroupSize)) ||
         (seed.bomLocked !== undefined && existing.bomLocked !== seed.bomLocked) ||
         (seed.safetyStock !== undefined &&
           !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0")) ||

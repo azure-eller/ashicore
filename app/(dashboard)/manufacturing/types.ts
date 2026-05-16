@@ -12,6 +12,8 @@ export type ManufacturingProductOption = {
   unitName: string;
   manufacturingMode: string;
   expectedBatchYield: string | null;
+  typicalBatchSize: string | null;
+  typicalGroupSize: string | null;
 };
 
 export type ManufacturingSalesLineOption = {
@@ -175,6 +177,13 @@ export type ManufacturingOrderIngredientDetail = {
   itemType: string;
   unitName: string;
   quantityPerUnit: string;
+  consumptionMode: string;
+  basisOutputQuantity: string | null;
+  batchScalingMode: string | null;
+  groupRemainderPolicy: string | null;
+  chosenGroupRemainderHandling: string | null;
+  calculatedBatchCount: string | null;
+  calculatedGroupCount: string | null;
   plannedQuantity: string;
   pickedQuantity: string;
   remainingQuantity: string;
@@ -321,6 +330,13 @@ export type ManufacturingOrderEditData = {
     itemType: string;
     unitName: string;
     quantityPerUnit: string;
+    consumptionMode: string;
+    basisOutputQuantity: string | null;
+    batchScalingMode: string | null;
+    groupRemainderPolicy: string | null;
+    chosenGroupRemainderHandling: string | null;
+    calculatedBatchCount: string | null;
+    calculatedGroupCount: string | null;
     defaultItemId: string | null;
     defaultItemName: string | null;
     defaultItemSku: string | null;

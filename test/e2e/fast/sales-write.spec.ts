@@ -2021,6 +2021,47 @@ test.describe("Sales write-path smoke", () => {
     expect(productResult.status).toBe(201);
     const constrainedProductId = productResult.body.id as string;
 
+    const batchMaterialResult = await createItem({
+      name: `Fast Batch Potential Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-BATCH-POT-MAT-${suffix}`,
+      category: `Fast Aged Potential ${suffix}`,
+      description: "Material for BOM-basis potential regression",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "9",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(batchMaterialResult.status).toBe(201);
+    const batchMaterialId = batchMaterialResult.body.id as string;
+
+    const batchProductResult = await createItem({
+      name: `Fast Batch Potential Product ${suffix}`,
+      itemType: "product",
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-BATCH-POT-PROD-${suffix}`,
+      category: `Fast Aged Potential ${suffix}`,
+      description: "Product whose potential is driven by BOM batch basis",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "0",
+      safetyStock: "0",
+      bom: [
+        {
+          componentId: batchMaterialId,
+          quantity: "3",
+          consumptionMode: "per_batch",
+          basisOutputQuantity: "9",
+          batchScalingMode: "proportional",
+        },
+      ],
+    });
+    expect(batchProductResult.status).toBe(201);
+    const batchProductId = batchProductResult.body.id as string;
+
     const orderResult = await createSalesOrder({
       customerId,
       status: "open",
@@ -2037,6 +2078,9 @@ test.describe("Sales write-path smoke", () => {
     }>;
     expect(products.find((product) => product.id === constrainedProductId)).toMatchObject({
       potential: "0",
+    });
+    expect(products.find((product) => product.id === batchProductId)).toMatchObject({
+      potential: "27",
     });
 
     const detailResponse = await testFetch(`/api/sales-orders/${constrainedOrderId}`);
@@ -2285,7 +2329,15 @@ test.describe("Sales write-path smoke", () => {
       safetyStock: "0",
       manufacturingMode: "batch",
       expectedBatchYield: "4",
-      bom: [{ componentId: materialId, quantity: "2" }],
+      bom: [
+        {
+          componentId: materialId,
+          quantity: "2",
+          consumptionMode: "per_batch",
+          basisOutputQuantity: "4",
+          batchScalingMode: "full_batches_only",
+        },
+      ],
     });
     expect(batchProductResult.status).toBe(201);
     const batchProductId = batchProductResult.body.id as string;
@@ -2314,6 +2366,79 @@ test.describe("Sales write-path smoke", () => {
       estimatedUnitCost: "10",
       marginPercent: "33.3",
     });
+  });
+
+  test("spreads grouped packaging across estimated product unit cost", async () => {
+    const suffix = `${ts}-GROUP-MARGIN`;
+    const materialResult = await createItem({
+      name: `Fast Group Margin Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FGM-MAT-${suffix}`,
+      category: `Fast Group Margin ${suffix}`,
+      description: "Material for grouped estimated margin",
+      defaultPurchasePrice: "2",
+      defaultSellingPrice: null,
+      stock: "1",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialResult.status).toBe(201);
+    const materialId = materialResult.body.id as string;
+
+    const palletResult = await createItem({
+      name: `Fast Group Margin Pallet ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FGM-PAL-${suffix}`,
+      category: `Fast Group Margin ${suffix}`,
+      description: "Grouped packaging for estimated margin",
+      defaultPurchasePrice: "50",
+      defaultSellingPrice: null,
+      stock: "1",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(palletResult.status).toBe(201);
+    const palletId = palletResult.body.id as string;
+
+    const productResult = await createItem({
+      name: `Fast Group Margin Product ${suffix}`,
+      itemType: "product",
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FGM-PROD-${suffix}`,
+      category: `Fast Group Margin ${suffix}`,
+      description: "Grouped product for estimated margin",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "20",
+      stock: "0",
+      safetyStock: "0",
+      bom: [
+        { componentId: materialId, quantity: "2" },
+        {
+          componentId: palletId,
+          quantity: "1",
+          consumptionMode: "per_group",
+          basisOutputQuantity: "50",
+          groupRemainderPolicy: "ask",
+        },
+      ],
+    });
+    expect(productResult.status).toBe(201);
+    const productId = productResult.body.id as string;
+
+    const pricingResponse = await testFetch("/api/sales-orders/price", {
+      method: "POST",
+      body: JSON.stringify({
+        customerId,
+        itemId: productId,
+        quantity: "1",
+      }),
+    });
+    expect(pricingResponse.status).toBe(200);
+    const pricing = await pricingResponse.json();
+    expect(pricing.estimatedUnitCost).toBe("5");
   });
 
   test("keeps Create MOs available when another line is already in production", async ({

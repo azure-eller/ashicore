@@ -1,6 +1,7 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { manufacturingOrders } from "@/lib/db/schema";
+import { GROUP_REMAINDER_HANDLINGS } from "@/lib/manufacturing/consumption";
 import { isValidIsoDate, nullableString, positiveDecimalString } from "./shared";
 
 export const MANUFACTURING_ORDER_STATUSES = ["open", "done"] as const;
@@ -102,6 +103,11 @@ const ingredientsSchema = cleanedIngredientRowsSchema
     });
   });
 
+const groupRemainderChoiceSchema = z.object({
+  basisOutputQuantity: positiveDecimalString("Group size"),
+  handling: z.enum(GROUP_REMAINDER_HANDLINGS),
+});
+
 const baseManufacturingOrderSchema = createInsertSchema(manufacturingOrders, {
   productId: z.string().min(1, "Product is required"),
   salesOrderId: nullableString,
@@ -137,12 +143,13 @@ const baseManufacturingOrderSchema = createInsertSchema(manufacturingOrders, {
   .extend({
     plannedQuantity: positiveDecimalString("Planned quantity"),
     batchCount: positiveDecimalString("Batches").optional(),
+    groupRemainderChoices: z.array(groupRemainderChoiceSchema).optional().default([]),
     ingredients: ingredientsSchema,
     confirmShortage: z.boolean().optional(),
   });
 
 export const insertManufacturingOrderSchema = baseManufacturingOrderSchema;
-export type InsertManufacturingOrder = z.infer<
+export type InsertManufacturingOrder = z.input<
   typeof insertManufacturingOrderSchema
 >;
 
@@ -159,6 +166,7 @@ export const manufacturingOrderCreateFormSchema = z
     ),
     notes: nullableString,
     ingredients: cleanedIngredientRowsSchema,
+    groupRemainderChoices: z.array(groupRemainderChoiceSchema).default([]),
     confirmShortage: z.boolean().optional(),
   })
   .superRefine((values, ctx) => {
@@ -369,7 +377,7 @@ export const createManufacturingOrdersFromSalesOrderSchema = z.object({
 export type CreateManufacturingOrdersFromSalesOrder = z.infer<
   typeof createManufacturingOrdersFromSalesOrderSchema
 >;
-export const manufacturingOrderDefaultValues: InsertManufacturingOrder = {
+export const manufacturingOrderDefaultValues: ManufacturingOrderCreateFormValues = {
   productId: "",
   salesOrderId: null,
   salesOrderLineId: null,
@@ -377,6 +385,7 @@ export const manufacturingOrderDefaultValues: InsertManufacturingOrder = {
   plannedQuantity: "",
   plannedDate: null,
   notes: null,
+  groupRemainderChoices: [],
   ingredients: [],
   confirmShortage: true,
 };

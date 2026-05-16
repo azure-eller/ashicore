@@ -60,7 +60,6 @@ import {
 } from "@/components/ui/field";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Badge } from "@/components/ui/badge";
 import { BomEditor } from "@/app/(dashboard)/inventory/bom-editor";
 import { BomLockConfirmDialog } from "./dialogs/bom-lock-confirm-dialog";
@@ -78,7 +77,6 @@ import {
   SAFETY_STOCK_TOOLTIP,
   SELLING_PRICE_TOOLTIP,
   STOCKING_UNIT_TOOLTIP,
-  BATCH_YIELD_TOOLTIP,
 } from "@/lib/tooltip-copy";
 
 const CREATE_NEW_UNIT = "__create_new__";
@@ -189,6 +187,8 @@ export function ItemForm({
           sellable: initialData.sellable ?? true,
           manufacturingMode: initialData.manufacturingMode as "discrete" | "batch" ?? "discrete",
           expectedBatchYield: initialData.expectedBatchYield,
+          typicalBatchSize: initialData.typicalBatchSize,
+          typicalGroupSize: initialData.typicalGroupSize,
           bomLocked: initialData.bomLocked ?? false,
           stock: initialData.stock,
           safetyStock: initialData.safetyStock,
@@ -217,6 +217,8 @@ export function ItemForm({
             sellable: false,
             manufacturingMode: "discrete" as const,
             expectedBatchYield: null,
+            typicalBatchSize: null,
+            typicalGroupSize: null,
             bomLocked: false,
             stock: "0",
             safetyStock: "0",
@@ -231,9 +233,13 @@ export function ItemForm({
     control: form.control,
     name: "bomLocked",
   });
-  const watchedManufacturingMode = useWatch({
+  const watchedTypicalBatchSize = useWatch({
     control: form.control,
-    name: "manufacturingMode",
+    name: "typicalBatchSize",
+  });
+  const watchedTypicalGroupSize = useWatch({
+    control: form.control,
+    name: "typicalGroupSize",
   });
   const selectedStockingUnitId = useWatch({
     control: form.control,
@@ -1126,30 +1132,6 @@ export function ItemForm({
               title="Recipe / Bill of Materials"
               action={
                 <div className="flex items-center gap-2">
-                    <Controller
-                      control={form.control}
-                      name="manufacturingMode"
-                      render={({ field }) => (
-                        <ToggleGroup
-                          type="single"
-                          variant="outline"
-                          size="sm"
-                          value={field.value ?? "discrete"}
-                          onValueChange={(value) => {
-                            if (!value) return;
-                            field.onChange(value);
-                            if (value === "discrete") {
-                              form.setValue("expectedBatchYield", null, {
-                                shouldDirty: true,
-                              });
-                            }
-                          }}
-                        >
-                          <ToggleGroupItem value="discrete">Discrete</ToggleGroupItem>
-                          <ToggleGroupItem value="batch">Batch</ToggleGroupItem>
-                        </ToggleGroup>
-                      )}
-                    />
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <span className="inline-flex">
@@ -1183,39 +1165,62 @@ export function ItemForm({
                   </div>
               }
             >
-                {watchedManufacturingMode === "batch" && (
-                  <Controller
-                    control={form.control}
-                    name="expectedBatchYield"
-                    render={({ field, fieldState }) => (
-                      <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel htmlFor={field.name}>
-                          <TooltipHeader
-                            label="Expected Batch Yield"
-                            tooltip={BATCH_YIELD_TOOLTIP}
+                <FieldGroup>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Controller
+                      control={form.control}
+                      name="typicalBatchSize"
+                      render={({ field, fieldState }) => (
+                        <Field data-invalid={fieldState.invalid}>
+                          <FieldLabel htmlFor={field.name}>
+                            Typical Batch Size
+                          </FieldLabel>
+                          <Input
+                            {...field}
+                            id={field.name}
+                            value={field.value ?? ""}
+                            aria-invalid={fieldState.invalid}
+                            inputMode="decimal"
+                            autoComplete="off"
+                            placeholder="0"
                           />
-                        </FieldLabel>
-                        <Input
-                          {...field}
-                          id={field.name}
-                          value={field.value ?? ""}
-                          aria-invalid={fieldState.invalid}
-                          inputMode="decimal"
-                          autoComplete="off"
-                          placeholder="0"
-                          className="w-48"
-                        />
-                        {fieldState.invalid ? (
-                          <FieldError errors={[fieldState.error]} />
-                        ) : null}
-                      </Field>
-                    )}
-                  />
-                )}
+                          {fieldState.invalid ? (
+                            <FieldError errors={[fieldState.error]} />
+                          ) : null}
+                        </Field>
+                      )}
+                    />
+                    <Controller
+                      control={form.control}
+                      name="typicalGroupSize"
+                      render={({ field, fieldState }) => (
+                        <Field data-invalid={fieldState.invalid}>
+                          <FieldLabel htmlFor={field.name}>
+                            Typical Group Size
+                          </FieldLabel>
+                          <Input
+                            {...field}
+                            id={field.name}
+                            value={field.value ?? ""}
+                            aria-invalid={fieldState.invalid}
+                            inputMode="decimal"
+                            autoComplete="off"
+                            placeholder="0"
+                          />
+                          {fieldState.invalid ? (
+                            <FieldError errors={[fieldState.error]} />
+                          ) : null}
+                        </Field>
+                      )}
+                    />
+                  </div>
+                </FieldGroup>
                 <BomEditor
                   control={form.control as Parameters<typeof BomEditor>[0]["control"]}
+                  setValue={form.setValue as Parameters<typeof BomEditor>[0]["setValue"]}
                   availableComponents={availableComponents}
-                  manufacturingMode={watchedManufacturingMode ?? "discrete"}
+                  typicalBatchSize={watchedTypicalBatchSize}
+                  typicalGroupSize={watchedTypicalGroupSize}
                 />
                 {isBomDirty ? (
                   <FieldGroup>

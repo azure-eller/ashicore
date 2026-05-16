@@ -131,6 +131,33 @@ function resolveSeedDirectOpeningUnitCost(seed: ItemSeed) {
   );
 }
 
+function resolveSeedAverageComponentQuantity(
+  seed: ItemSeed,
+  component: NonNullable<ItemSeed["bom"]>[number]
+) {
+  const quantity = Number.parseFloat(component.quantity);
+  if (!Number.isFinite(quantity)) {
+    return null;
+  }
+
+  const consumptionMode =
+    component.consumptionMode ??
+    (seed.manufacturingMode === "batch" ? "per_batch" : "per_output_unit");
+
+  if (consumptionMode === "per_output_unit") {
+    return quantity;
+  }
+
+  const basis = Number.parseFloat(
+    component.basisOutputQuantity ?? seed.expectedBatchYield ?? ""
+  );
+  if (!Number.isFinite(basis) || basis <= 0) {
+    return null;
+  }
+
+  return quantity / basis;
+}
+
 export function resolveSeedOpeningUnitCost(
   seed: ItemSeed,
   seedByKey?: Map<string, ItemSeed>,
@@ -155,8 +182,11 @@ export function resolveSeedOpeningUnitCost(
   let totalCost = 0;
   for (const component of seed.bom) {
     const componentSeed = seedByKey.get(component.componentKey);
-    const componentQuantity = Number.parseFloat(component.quantity);
-    if (!componentSeed || !Number.isFinite(componentQuantity)) {
+    const averageComponentQuantity = resolveSeedAverageComponentQuantity(
+      seed,
+      component
+    );
+    if (!componentSeed || averageComponentQuantity == null) {
       return null;
     }
 
@@ -169,21 +199,10 @@ export function resolveSeedOpeningUnitCost(
       return null;
     }
 
-    totalCost += componentQuantity * Number.parseFloat(componentUnitCost);
+    totalCost += averageComponentQuantity * Number.parseFloat(componentUnitCost);
   }
 
-  const expectedBatchYield =
-    seed.manufacturingMode === "batch" && seed.expectedBatchYield != null
-      ? Number.parseFloat(seed.expectedBatchYield)
-      : null;
-  const unitCost =
-    expectedBatchYield != null &&
-    Number.isFinite(expectedBatchYield) &&
-    expectedBatchYield > 0
-      ? totalCost / expectedBatchYield
-      : totalCost;
-
-  return normalizeNumericScale(unitCost, 6);
+  return normalizeNumericScale(totalCost, 6);
 }
 
 export function orderSeedsForSync(itemSeeds: ItemSeed[]) {

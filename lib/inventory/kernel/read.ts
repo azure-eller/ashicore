@@ -163,16 +163,12 @@ export function projectedAvailableQty(organizationId: SqlExpression, itemId: Sql
 export function projectedPotentialQty(
   organizationId: SqlExpression,
   productId: SqlExpression,
-  itemType: SqlExpression,
-  manufacturingMode: SqlExpression,
-  expectedBatchYield: SqlExpression
+  itemType: SqlExpression
 ) {
   return trimScaleNullable(projectedPotentialQtyExpr(
     organizationId,
     productId,
-    itemType,
-    manufacturingMode,
-    expectedBatchYield
+    itemType
   ));
 }
 
@@ -355,9 +351,7 @@ export function projectedAgeEligibleAvailableQtyExpr(
 export function projectedPotentialQtyExpr(
   organizationId: SqlExpression,
   productId: SqlExpression,
-  itemType: SqlExpression,
-  manufacturingMode: SqlExpression,
-  expectedBatchYield: SqlExpression
+  itemType: SqlExpression
 ) {
   return sql<string | null>`(
     CASE WHEN ${itemType} = 'product' AND EXISTS (
@@ -383,7 +377,16 @@ export function projectedPotentialQtyExpr(
                 )}
               END
             )
-            / NULLIF(brc.quantity, 0)
+            / NULLIF(
+              CASE
+                WHEN brc.consumption_mode IN ('per_batch', 'per_group')
+                  AND brc.basis_output_quantity IS NOT NULL
+                  AND brc.basis_output_quantity > 0
+                THEN brc.quantity / brc.basis_output_quantity
+                ELSE brc.quantity
+              END,
+              0
+            )
           )
           FROM inventory.bom_revisions br
           INNER JOIN inventory.bom_revision_components brc ON brc.bom_revision_id = br.id
@@ -397,11 +400,7 @@ export function projectedPotentialQtyExpr(
           WHERE br.product_id = ${productId}
             AND br.is_current = true
         )
-        * CASE WHEN ${manufacturingMode} = 'batch' AND ${expectedBatchYield} IS NOT NULL
-            THEN ${expectedBatchYield}::numeric
-            ELSE 1
-          END
-        )
+      )
       )
     ELSE NULL END
   )`;

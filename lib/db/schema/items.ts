@@ -55,6 +55,8 @@ export const items = inventorySchema
       // Manufacturing
       manufacturingMode: varchar("manufacturing_mode", { length: 20 }).notNull().default("discrete"),
       expectedBatchYield: numeric("expected_batch_yield", { precision: 12, scale: 4 }),
+      typicalBatchSize: numeric("typical_batch_size", { precision: 12, scale: 4 }),
+      typicalGroupSize: numeric("typical_group_size", { precision: 12, scale: 4 }),
 
       // Variant family
       isMaster: boolean("is_master").notNull().default(false),
@@ -97,6 +99,14 @@ export const items = inventorySchema
       check("items_non_master_sellable_required", sql`is_master = true OR sellable IS NOT NULL`),
       check("items_variant_attrs_needs_parent", sql`variant_attrs IS NULL OR parent_id IS NOT NULL`),
       check("items_variant_axes_needs_master", sql`variant_axes IS NULL OR is_master = true`),
+      check(
+        "items_typical_batch_size_positive",
+        sql`typical_batch_size IS NULL OR typical_batch_size > 0`
+      ),
+      check(
+        "items_typical_group_size_positive",
+        sql`typical_group_size IS NULL OR typical_group_size > 0`
+      ),
       pgPolicy("items_org_isolation", {
         for: "all",
         to: "public",

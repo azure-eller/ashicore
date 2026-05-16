@@ -166,6 +166,148 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(updatedOrder.notes).toBe("Fast manufacturing updated");
   });
 
+  test("plans shared group remainder choices once per basis", async ({ db }) => {
+    const groupTs = Date.now();
+    const materialPayloads = [
+      ["soil", "1.00", "500"],
+      ["pallet", "5.00", "50"],
+      ["wrap", "2.00", "50"],
+      ["labels", "0.25", "200"],
+    ] as const;
+    const createdMaterials = await Promise.all(
+      materialPayloads.map(([key, price, stock]) =>
+        createItem({
+          name: `Fast Group ${key} ${groupTs}`,
+          itemType: "material",
+          unitDefinitionId: unitId,
+          sku: `FAST-GROUP-${key.toUpperCase()}-${groupTs}`,
+          category: `Fast Group ${groupTs}`,
+          description: null,
+          defaultPurchasePrice: price,
+          defaultSellingPrice: null,
+          stock,
+          safetyStock: "0",
+          bom: [],
+        })
+      )
+    );
+    createdMaterials.forEach((result) => expect(result.status).toBe(201));
+    const [soilId, palletId, wrapId, labelId] = createdMaterials.map(
+      (result) => result.body.id as string
+    );
+
+    const productCreate = await createItem({
+      name: `Fast Group Bag ${groupTs}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-GROUP-BAG-${groupTs}`,
+      category: `Fast Group ${groupTs}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "12.00",
+      stock: "0",
+      safetyStock: "0",
+      typicalGroupSize: "50",
+      bom: [
+        { componentId: soilId, quantity: "2", consumptionMode: "per_output_unit" },
+        {
+          componentId: palletId,
+          quantity: "1",
+          consumptionMode: "per_group",
+          basisOutputQuantity: "50",
+          groupRemainderPolicy: "ask",
+        },
+        {
+          componentId: wrapId,
+          quantity: "1",
+          consumptionMode: "per_group",
+          basisOutputQuantity: "50",
+          groupRemainderPolicy: "ask",
+        },
+        {
+          componentId: labelId,
+          quantity: "4",
+          consumptionMode: "per_group",
+          basisOutputQuantity: "50",
+          groupRemainderPolicy: "ask",
+        },
+      ],
+    });
+    expect(productCreate.status).toBe(201);
+    const productIdForGroup = productCreate.body.id as string;
+    const ingredients = [
+      { itemId: soilId, quantityPerUnit: "2" },
+      { itemId: palletId, quantityPerUnit: "1" },
+      { itemId: wrapId, quantityPerUnit: "1" },
+      { itemId: labelId, quantityPerUnit: "4" },
+    ];
+
+    const looseOrder = await createManufacturingOrder({
+      productId: productIdForGroup,
+      plannedQuantity: "52",
+      ingredients,
+      groupRemainderChoices: [
+        { basisOutputQuantity: "50", handling: "leave_loose" },
+      ],
+    });
+    expect(looseOrder.status).toBe(201);
+
+    const looseRows = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, looseOrder.body.id));
+    const looseByItem = new Map(looseRows.map((row) => [row.itemId, row]));
+    expect(looseByItem.get(soilId)?.plannedQuantity).toBe("104.0000");
+    expect(looseByItem.get(palletId)?.plannedQuantity).toBe("1.0000");
+    expect(looseByItem.get(wrapId)?.plannedQuantity).toBe("1.0000");
+    expect(looseByItem.get(labelId)?.plannedQuantity).toBe("4.0000");
+    expect(looseByItem.get(palletId)?.chosenGroupRemainderHandling).toBe("leave_loose");
+    expect(looseByItem.get(wrapId)?.chosenGroupRemainderHandling).toBe("leave_loose");
+    expect(looseByItem.get(labelId)?.calculatedGroupCount).toBe("1.0000");
+
+    const partialOrder = await createManufacturingOrder({
+      productId: productIdForGroup,
+      plannedQuantity: "52",
+      ingredients,
+      groupRemainderChoices: [
+        { basisOutputQuantity: "50", handling: "create_partial_group" },
+      ],
+    });
+    expect(partialOrder.status).toBe(201);
+
+    const partialRows = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, partialOrder.body.id));
+    const partialByItem = new Map(partialRows.map((row) => [row.itemId, row]));
+    expect(partialByItem.get(palletId)?.plannedQuantity).toBe("2.0000");
+    expect(partialByItem.get(wrapId)?.plannedQuantity).toBe("2.0000");
+    expect(partialByItem.get(labelId)?.plannedQuantity).toBe("8.0000");
+    expect(partialByItem.get(palletId)?.chosenGroupRemainderHandling).toBe(
+      "create_partial_group"
+    );
+    expect(partialByItem.get(labelId)?.calculatedGroupCount).toBe("2.0000");
+
+    const duplicateResponse = await testFetch(
+      `/api/manufacturing-orders/${partialOrder.body.id}/duplicate`,
+      { method: "POST" }
+    );
+    expect(duplicateResponse.status).toBe(201);
+    const duplicateBody = await duplicateResponse.json();
+    const duplicatedRows = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, duplicateBody.id));
+    const duplicatedByItem = new Map(
+      duplicatedRows.map((row) => [row.itemId, row])
+    );
+    expect(duplicatedByItem.get(palletId)?.plannedQuantity).toBe("2.0000");
+    expect(duplicatedByItem.get(wrapId)?.plannedQuantity).toBe("2.0000");
+    expect(duplicatedByItem.get(labelId)?.chosenGroupRemainderHandling).toBe(
+      "create_partial_group"
+    );
+  });
+
   test("duplicates a manufacturing order from the detail actions", async ({
     page,
     db,
@@ -463,8 +605,20 @@ test.describe("Manufacturing write-path smoke", () => {
       manufacturingMode: "batch",
       expectedBatchYield: "2",
       bom: [
-        { componentId: batchSandId, quantity: "3" },
-        { componentId: batchCompostId, quantity: "1" },
+        {
+          componentId: batchSandId,
+          quantity: "3",
+          consumptionMode: "per_batch",
+          basisOutputQuantity: "2",
+          batchScalingMode: "full_batches_only",
+        },
+        {
+          componentId: batchCompostId,
+          quantity: "1",
+          consumptionMode: "per_batch",
+          basisOutputQuantity: "2",
+          batchScalingMode: "full_batches_only",
+        },
       ],
     });
 
@@ -477,9 +631,9 @@ test.describe("Manufacturing write-path smoke", () => {
     await productInput.fill(batchProductName);
     await page.getByRole("option", { name: new RegExp(batchProductName) }).click();
 
-    await page.getByLabel("Batches").fill("3");
+    await page.getByLabel("Planned Quantity").fill("6");
     await expect(page.getByText("3 batches")).toBeVisible();
-    await expect(page.getByText(/6 test-unit-/)).toBeVisible();
+    await expect(page.getByText(/of up to 2 test-unit-/)).toBeVisible();
     await expect(page.getByRole("row", { name: new RegExp(batchSandName) })).toContainText("9");
     await expect(page.getByRole("row", { name: new RegExp(batchCompostName) })).toContainText("3");
     await page.getByLabel("Notes").fill("Fast batch execution smoke");

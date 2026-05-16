@@ -176,6 +176,16 @@ Packaging and internal assemblies should use the shared `Each` unit with `uom: "
 { name: "Each", size: "1", uom: "ea" }
 ```
 
+### BOM consumption modes
+
+BOM line scaling lives on `bom_revision_components`, not product identity. Use `per_output_unit` for linear ingredients, `per_batch` for process recipe inputs, and `per_group` for packaging/logistics groups. Snapshot the selected mode and calculated counts onto MO ingredient rows.
+Estimated unit cost uses average per-output consumption for `per_batch` / `per_group`; MO planning uses operational policies.
+
+```ts
+{ consumptionMode: "per_batch", basisOutputQuantity: "9", batchScalingMode: "proportional" }
+{ consumptionMode: "per_group", basisOutputQuantity: "50", groupRemainderPolicy: "ask" }
+```
+
 ### Don't re-validate after Zod
 
 DAL functions receive Zod-parsed types. Don't add manual null/positive/required checks in the DAL — the schema already enforces these. Redundant validation adds dead code that can never trigger through the API.

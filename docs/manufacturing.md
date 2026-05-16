@@ -85,7 +85,7 @@ The detail page should link into execution with `Start Manufacturing` or `Contin
 Manufacturing orders still snapshot live master data at create time:
 
 - header snapshots: product name, SKU, unit, optional sales order number, optional sales customer
-- ingredient snapshots: item name, SKU, item type, unit, quantity per unit
+- ingredient snapshots: item name, SKU, item type, unit, quantity used, consumption mode, basis, selected batch/group policy, calculated batch/group count, and planned quantity
 
 Editing a draft manufacturing order never mutates the product BOM.
 
@@ -99,6 +99,33 @@ For quantities, store both:
 - `planned_quantity`: what execution will actually run
 
 Discrete orders keep these values the same. Batch-mode orders may round `planned_quantity` up to full-batch output while preserving `requested_quantity`. Manual batch entry may use decimal batch counts; execution still stores an integer row count and scales the final batch's planned output and ingredients.
+
+## BOM Consumption Modes
+
+Product rows are not the source of truth for batch vs discrete BOM math. The active BOM revision line defines how each component scales:
+
+- `per_output_unit`: linear finished-output usage, for bags, labels, totes, or measured material that scales with each output unit
+- `per_batch`: process recipe usage, for mixer/load ingredients
+- `per_group`: packaging or logistics groups, for pallets, wrap, toppers, and pallet labels
+
+`per_batch` supports `batchScalingMode`:
+
+- `proportional`: `planned = outputQty / basisOutputQuantity * quantity`
+- `full_batches_only`: `planned = ceil(outputQty / basisOutputQuantity) * quantity`
+
+`per_group` uses integer group counts with `groupRemainderPolicy`:
+
+- `leave_loose`: only full groups consume group materials
+- `create_partial_group`: any leftover output consumes one extra group
+- `ask`: MO creation stores the user's `chosenGroupRemainderHandling`
+
+Ask decisions are per distinct `basisOutputQuantity`, not per ingredient. If pallet, wrap, and labels all share group basis `50`, the MO asks once and applies that choice to all matching group lines.
+
+MO creation snapshots all calculation inputs and outputs on `manufacturing_order_ingredients`: `consumptionMode`, `basisOutputQuantity`, `batchScalingMode`, `groupRemainderPolicy`, `chosenGroupRemainderHandling`, `calculatedBatchCount`, `calculatedGroupCount`, and `plannedQuantity`. Historical MOs should display and execute from the snapshot, not from the current product BOM.
+
+Estimated unit cost uses average per-output consumption for batch and group lines (`quantity / basisOutputQuantity`). Operational MOs still use the explicit batch scaling and group leftover policies.
+
+Legacy product-level `manufacturingMode` and `expectedBatchYield` remain as compatibility fields for execution/mobile contracts. New product authoring should use typical batch/group sizes only as BOM-line prefill helpers.
 
 ## Release Behavior
 

@@ -364,6 +364,7 @@ test.describe("Manufacturing order flow", () => {
       description: "Finished manufactured product",
       defaultPurchasePrice: null,
       defaultSellingPrice: "45.00",
+      sellable: true,
       stock: "0",
       safetyStock: "0",
       bom: [
@@ -385,6 +386,7 @@ test.describe("Manufacturing order flow", () => {
       description: "Confirmed sales order line without a BOM",
       defaultPurchasePrice: null,
       defaultSellingPrice: "18.00",
+      sellable: true,
       stock: "0",
       safetyStock: "0",
       bom: [],
@@ -764,6 +766,7 @@ test.describe("Manufacturing order flow", () => {
       description: "Repeat linked-order guard product",
       defaultPurchasePrice: null,
       defaultSellingPrice: "14.00",
+      sellable: true,
       stock: "0",
       safetyStock: "0",
       bom: [{ componentId: repeatMaterialId, quantity: "1" }],
@@ -874,7 +877,7 @@ test.describe("Manufacturing order flow", () => {
 
     await page.getByLabel("Planned Quantity").fill("6");
     const sandRow = page.getByRole("row", { name: new RegExp(sandName) });
-    const sandQuantityInput = sandRow.getByRole("textbox", { name: "Qty / Unit" });
+    const sandQuantityInput = sandRow.getByRole("textbox", { name: "Qty used" });
     await sandQuantityInput.fill("3.5");
     await expect(sandQuantityInput).toHaveValue("3.5");
     await page.getByLabel("Notes").fill("Edited draft before release");
@@ -1296,6 +1299,7 @@ test.describe("Manufacturing order flow", () => {
       defaultSellingPrice: "30.00",
       stock: "0",
       safetyStock: "0",
+      sellable: true,
       manufacturingMode: "batch",
       expectedBatchYield: "100",
       bom: [
@@ -1951,6 +1955,7 @@ test.describe("Manufacturing order flow", () => {
       defaultSellingPrice: "15.00",
       stock: "0",
       safetyStock: "0",
+      sellable: true,
       bom: [{ componentId: baseId, quantity: "1" }],
     });
     expect(toteCreate.status).toBe(201);

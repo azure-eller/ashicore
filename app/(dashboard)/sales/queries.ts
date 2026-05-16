@@ -5180,9 +5180,7 @@ export async function getSalesOrder(
         potential: projectedPotentialQty(
           items.organizationId,
           items.id,
-          items.itemType,
-          items.manufacturingMode,
-          items.expectedBatchYield
+          items.itemType
         ).as("potential"),
       })
       .from(salesOrderLines)
