@@ -284,8 +284,8 @@ function RankCell({ rowIndex, order }: { rowIndex: number; order: SalesOrderList
   }
 
   return (
-    <div className="flex h-full items-center">
-      <span className="w-(--space-16) text-muted-foreground tabular-nums">
+    <div className="flex h-full min-w-0 items-center">
+      <span className="block w-(--space-16) shrink-0 text-right text-muted-foreground tabular-nums">
         {order.priorityRank ?? rowIndex + 1}
       </span>
     </div>
@@ -474,9 +474,9 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
         field: "priorityRank",
         headerName: "#",
         headerTooltip: SALES_ORDER_RANK_TOOLTIP,
-        width: 50,
-        minWidth: 50,
-        maxWidth: 70,
+        width: 92,
+        minWidth: 88,
+        maxWidth: 104,
         cellClass: "num",
         resizable: false,
         sortable: false,

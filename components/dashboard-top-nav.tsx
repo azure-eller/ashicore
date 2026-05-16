@@ -318,9 +318,9 @@ export function DashboardTopNav({
                 <Button
                   id="dashboard-user-menu-trigger"
                   type="button"
-                  variant="default"
+                  variant="ghost"
                   size="icon"
-                  className="size-[41px] rounded-(--radius-none) bg-foreground text-background hover:bg-foreground"
+                  className="size-[41px] rounded-full text-foreground hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground"
                   aria-label="User menu"
                 >
                   <Avatar className="size-[41px]">
