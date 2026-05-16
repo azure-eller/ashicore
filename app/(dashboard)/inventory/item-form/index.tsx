@@ -31,6 +31,7 @@ import {
   CreateSidebarCard,
   SummaryRows,
 } from "@/components/create-page";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -213,7 +214,7 @@ export function ItemForm({
             defaultPurchasePrice: null,
             currentStockUnitCost: null,
             defaultSellingPrice: null,
-            sellable: true,
+            sellable: false,
             manufacturingMode: "discrete" as const,
             expectedBatchYield: null,
             bomLocked: false,
@@ -871,14 +872,12 @@ export function ItemForm({
                   control={form.control}
                   render={({ field }) => (
                     <Field orientation="horizontal">
-                      <Switch
+                      <Checkbox
                         id={field.name}
-                        checked={field.value ?? true}
-                        onCheckedChange={field.onChange}
+                        checked={field.value ?? false}
+                        onCheckedChange={(checked) => field.onChange(checked === true)}
                       />
-                      <div className="flex flex-col gap-1">
-                        <FieldLabel htmlFor={field.name}>Sellable</FieldLabel>
-                      </div>
+                      <FieldLabel htmlFor={field.name}>Sellable</FieldLabel>
                     </Field>
                   )}
                 />

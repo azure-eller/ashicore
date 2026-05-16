@@ -17,8 +17,8 @@ import {
   CreatePageShell,
   CreateSection,
 } from "@/components/create-page";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -61,7 +61,7 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
     defaultValues: {
       unitDefinitionId: "",
       variantAttrs: Object.fromEntries(masterAxes.map((axis) => [axis, ""])),
-      sellable: true,
+      sellable: false,
       sku: null,
       description: null,
       defaultSellingPrice: null,
@@ -249,14 +249,12 @@ export function VariantForm({ masterId, masterName, masterAxes, units }: Variant
                 control={form.control}
                 render={({ field }) => (
                   <Field orientation="horizontal">
-                    <Switch
+                    <Checkbox
                       id={field.name}
-                      checked={field.value ?? true}
-                      onCheckedChange={field.onChange}
+                      checked={field.value ?? false}
+                      onCheckedChange={(checked) => field.onChange(checked === true)}
                     />
-                    <div className="flex flex-col gap-1">
-                      <FieldLabel htmlFor={field.name}>Sellable</FieldLabel>
-                    </div>
+                    <FieldLabel htmlFor={field.name}>Sellable</FieldLabel>
                   </Field>
                 )}
               />

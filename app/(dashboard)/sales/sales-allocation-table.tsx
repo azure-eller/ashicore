@@ -851,7 +851,7 @@ export function SalesAllocationTable({
     queryFn: () =>
       apiJson<ItemRow[]>("/api/items?itemType=product&view=products", {
         fallbackError: "Failed to fetch product inventory.",
-      }),
+      }).then((rows) => rows.filter((row) => row.sellable === true)),
     initialData: [] as ItemRow[],
   });
   const preferenceQuery = useQuery({

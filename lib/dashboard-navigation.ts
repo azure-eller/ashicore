@@ -6,7 +6,6 @@ import {
   GridTableIcon,
   Invoice01Icon,
   Package02Icon,
-  PackageAddIcon,
   PackageIcon,
   Settings02Icon,
   ShoppingBag01Icon,
@@ -84,11 +83,6 @@ const dashboardNavModules: DashboardNavModule[] = [
     items: [
       { title: "Products", href: "/inventory/products", icon: PackageIcon },
       { title: "Materials", href: "/inventory/materials", icon: Package02Icon },
-      {
-        title: "Sub-assemblies",
-        href: "/inventory/sub-assemblies",
-        icon: PackageAddIcon,
-      },
       { title: "Stocktakes", href: "/inventory/stocktakes", icon: Task01Icon },
       { title: "Ledger", href: "/inventory/ledger", icon: ChartIcon },
     ],
@@ -242,13 +236,6 @@ export function getDashboardSearchActions(
         description: "View all products",
         href: "/inventory/products",
         icon: PackageIcon,
-        group: "Inventory",
-      },
-      {
-        title: "Inventory - Sub-assemblies",
-        description: "View all sub-assemblies",
-        href: "/inventory/sub-assemblies",
-        icon: PackageAddIcon,
         group: "Inventory",
       },
       {

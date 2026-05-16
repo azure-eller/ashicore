@@ -15,8 +15,8 @@ Stocktakes are an **inventory-native** reconciliation workflow.
 Stocktakes support scoped snapshots plus lot-aware counts:
 
 - a stocktake snapshots all active items in one scope chosen from one grouped dropdown:
-  - quick scopes: `all`, `material`, `product`, or `subassembly`
-  - category scopes: one category inside `material`, `product`, or `subassembly`
+  - quick scopes: `all`, `material`, or `product`
+  - category scopes: one category inside `material` or `product`
 - the create form uses editable line rows; scope changes auto-fill matching
   items, and users can add, search, or remove items before creating the snapshot
 - count entry happens on the stocktake detail page
@@ -28,7 +28,7 @@ Stocktakes reconcile the `available` disposition. Blocked and rejected stock rem
 
 Category scopes must encode both the item type and the category name in `inventory.stocktakes.scope`, for example `material:category:Soil`. This avoids ambiguous category names shared by both materials and products while keeping list/detail labels readable.
 
-`product` scopes include sellable final products only. Non-sellable product items are shown under `subassembly`.
+`product` scopes include all made items, including non-sellable internal products.
 
 ## Data Model
 

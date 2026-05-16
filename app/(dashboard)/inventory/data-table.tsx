@@ -13,7 +13,7 @@ interface DataTableProps {
 }
 
 export function DataTable({ initialData, itemType, view }: DataTableProps) {
-  const columns = useMemo(() => getColumns(itemType, view), [itemType, view]);
+  const columns = useMemo(() => getColumns(itemType), [itemType]);
   const isProduct = itemType === "product";
   const queryKey = isProduct
     ? ["items", itemType, view ?? "products"]

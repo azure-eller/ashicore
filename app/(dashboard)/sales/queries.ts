@@ -325,6 +325,7 @@ type SalesItemValidationRow = {
   itemType: string;
   name: string;
   sku: string | null;
+  sellable: boolean | null;
   parentId: string | null;
   variantAttrs: Record<string, string> | null;
   unitDefinitionId: string;
@@ -2495,6 +2496,7 @@ async function getValidatedSalesItemsInTx(
       itemType: items.itemType,
       name: items.name,
       sku: items.sku,
+      sellable: items.sellable,
       parentId: items.parentId,
       variantAttrs: items.variantAttrs,
       unitDefinitionId: items.unitDefinitionId,
@@ -2550,6 +2552,10 @@ async function getValidatedSalesItemsInTx(
 
   const itemMap = new Map(
     rows.map((row) => {
+      if (row.itemType === "product" && row.sellable !== true) {
+        throw new SalesError("Only sellable products can be added to sales orders.", 400);
+      }
+
       let displayName = row.name;
 
       if (row.parentId && row.variantAttrs) {
@@ -4405,6 +4411,7 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
         id: items.id,
         itemType: items.itemType,
         name: items.name,
+        sellable: items.sellable,
         parentId: items.parentId,
         variantAttrs: items.variantAttrs,
         sku: items.sku,
@@ -4427,6 +4434,7 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
           inArray(items.itemType, ["product", "material"]),
           isNull(items.deletedAt),
           eq(items.isMaster, false),
+          sql`(${items.itemType} != 'product' OR ${items.sellable} = true)`,
         )
       )
       .orderBy(asc(items.name));

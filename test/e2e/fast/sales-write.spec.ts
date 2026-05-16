@@ -376,6 +376,7 @@ test.describe("Sales write-path smoke", () => {
     const productResult = await createItem({
       name: productName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `FAST-SALES-${ts}`,
       category: `Fast Sales ${ts}`,
@@ -658,6 +659,7 @@ test.describe("Sales write-path smoke", () => {
       const result = await createItem({
         name,
         itemType: "product",
+        sellable: true,
         unitDefinitionId: unitId,
         sku,
         category: `Fast Sales ${ts}`,
@@ -857,6 +859,7 @@ test.describe("Sales write-path smoke", () => {
     const materialResult = await createItem({
       name: materialName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: materialSku,
       category: `Fast Sales ${ts}`,
@@ -921,6 +924,7 @@ test.describe("Sales write-path smoke", () => {
     const tokenMaterialResult = await createItem({
       name: tokenMaterialName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: tokenMaterialSku,
       category: `Fast Allocation Tokens ${ts}`,
@@ -1837,6 +1841,7 @@ test.describe("Sales write-path smoke", () => {
     const firstProductResult = await createItem({
       name: `Fast Fulfillment Product One ${suffix}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `FAST-FULFILL-P1-${suffix}`,
       category: `Fast Fulfillment ${suffix}`,
@@ -1853,6 +1858,7 @@ test.describe("Sales write-path smoke", () => {
     const secondProductResult = await createItem({
       name: `Fast Fulfillment Product Two ${suffix}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `FAST-FULFILL-P2-${suffix}`,
       category: `Fast Fulfillment ${suffix}`,
@@ -2001,6 +2007,7 @@ test.describe("Sales write-path smoke", () => {
     const productResult = await createItem({
       name: `Fast Aged Potential Product ${suffix}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `FAST-AGED-POT-PROD-${suffix}`,
       category: `Fast Aged Potential ${suffix}`,
@@ -2180,6 +2187,7 @@ test.describe("Sales write-path smoke", () => {
     const subassemblyResult = await createItem({
       name: `Fast Estimate Subassembly ${suffix}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `FAST-EST-SUB-${suffix}`,
       category: `Fast Estimate ${suffix}`,
@@ -2205,6 +2213,7 @@ test.describe("Sales write-path smoke", () => {
     const finishedResult = await createItem({
       name: `Fast Estimate Finished ${suffix}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `FAST-EST-FIN-${suffix}`,
       category: `Fast Estimate ${suffix}`,
@@ -2265,6 +2274,7 @@ test.describe("Sales write-path smoke", () => {
     const batchProductResult = await createItem({
       name: `Fast Batch Margin Product ${suffix}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `FAST-BATCH-MARGIN-PROD-${suffix}`,
       category: `Fast Batch Margin ${suffix}`,
@@ -2329,6 +2339,7 @@ test.describe("Sales write-path smoke", () => {
     const productOneResult = await createItem({
       name: `Fast Partial MO Product One ${suffix}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `FAST-PARTIAL-MO-P1-${suffix}`,
       category: `Fast Partial MO ${suffix}`,
@@ -2346,6 +2357,7 @@ test.describe("Sales write-path smoke", () => {
     const productTwoResult = await createItem({
       name: productTwoName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `FAST-PARTIAL-MO-P2-${suffix}`,
       category: `Fast Partial MO ${suffix}`,
@@ -2454,6 +2466,7 @@ test.describe("Sales write-path smoke", () => {
     const productResult = await createItem({
       name: productName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `FAST-STOCK-PROD-${suffix}`,
       category: `Fast Stock Covers ${suffix}`,
@@ -2626,6 +2639,7 @@ test.describe("Sales write-path smoke", () => {
     const productResult = await createItem({
       name: `Fast Web Ship Product ${suffix}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `FAST-WS-${suffix}`,
       category: `Fast Web Ship ${suffix}`,

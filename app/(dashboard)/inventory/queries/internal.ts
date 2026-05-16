@@ -627,132 +627,6 @@ export async function getItems(filters?: {
           return results;
         }
 
-        if (filters?.view === "sub-assemblies") {
-          const leafRows = await tx
-            .select({
-              id: items.id,
-              name: items.name,
-              sku: items.sku,
-              itemType: items.itemType,
-              stock: stockSubquery,
-              committedQty: committedQtySubquery,
-              demandQty: demandQtySubquery,
-              shortageQty: shortageQtySubquery,
-              availableQty: availableQtySubquery,
-              expectedQty: expectedQtySubquery,
-              safetyStock: trimScale(items.safetyStock).as("safetyStock"),
-              unit: unitDefinitions.name,
-              unitSize: unitDefinitions.size,
-              unitUom: unitDefinitions.uom,
-              category: items.category,
-              isMaster: items.isMaster,
-              parentId: items.parentId,
-              variantAttrs: items.variantAttrs,
-              sellable: items.sellable,
-              createdAt: items.createdAt,
-            })
-            .from(items)
-            .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-            .where(
-              and(
-                isNull(items.deletedAt),
-                eq(items.itemType, "product"),
-                eq(items.isMaster, false),
-              ),
-            );
-
-          const parentIds = [...new Set(
-            leafRows
-              .map((row) => row.parentId)
-              .filter((id): id is string => id != null),
-          )];
-          const [hasBomSet, usedInCounts, parents] = await Promise.all([
-            getCurrentBomProductIdSetInTx(
-              tx,
-              leafRows.map((row) => row.id),
-            ),
-            getUsedInCountsInTx(
-              tx,
-              leafRows.map((row) => row.id),
-              bomViewPermissions,
-            ),
-            parentIds.length > 0
-              ? tx
-                  .select({
-                    id: items.id,
-                    name: items.name,
-                    variantAxes: items.variantAxes,
-                  })
-                  .from(items)
-                  .where(and(inArray(items.id, parentIds), isNull(items.deletedAt)))
-              : Promise.resolve([]),
-          ]);
-
-          const parentsById = new Map(
-            parents.map((parent) => [
-              parent.id,
-              {
-                name: parent.name,
-                variantAxes: (parent.variantAxes as string[] | null) ?? null,
-              },
-            ]),
-          );
-
-          const results: ItemRow[] = leafRows
-            .filter((row) => row.sellable === false || (usedInCounts.get(row.id) ?? 0) > 0)
-            .map((row) => {
-              const parent = row.parentId ? parentsById.get(row.parentId) : null;
-              const displayName =
-                parent && parent.variantAxes && row.variantAttrs
-                  ? formatVariantDisplay(
-                      parent.name,
-                      (row.variantAttrs as Record<string, string>) ?? {},
-                      parent.variantAxes,
-                    )
-                  : row.name;
-              const usedInCount = usedInCounts.get(row.id) ?? 0;
-
-              return {
-                id: row.id,
-                name: row.name,
-                displayName,
-                sku: row.sku,
-                itemType: row.itemType as ItemType,
-                stock: row.stock,
-                committedQty: row.committedQty,
-                demandQty: row.demandQty,
-                shortageQty: row.shortageQty,
-                availableQty: row.availableQty,
-                expectedQty: row.expectedQty,
-                safetyStock: row.safetyStock,
-                currentStockUnitCost: null,
-                unit: row.unit ?? null,
-                unitSize: row.unitSize ?? null,
-                unitUom: row.unitUom ?? null,
-                category: row.category,
-                potential: null,
-                estimatedUnitCost: null,
-                marginPercent: null,
-                marginTier: null,
-                isMaster: false,
-                parentId: row.parentId,
-                variantCount: 0,
-                variantAxes: null,
-                variantAttrs: (row.variantAttrs as Record<string, string> | null) ?? null,
-                priceRange: null,
-                sellable: row.sellable,
-                hasBom: hasBomSet.has(row.id),
-                usedInBom: usedInCount > 0,
-                usedInCount,
-                revenue30d: null,
-                createdAt: row.createdAt,
-              } satisfies ItemRow;
-            })
-            .sort((a, b) => a.displayName.localeCompare(b.displayName));
-
-          return results;
-        }
-
         const topLevelRows = await tx
           .select({
             id: items.id,
@@ -841,10 +715,6 @@ export async function getItems(filters?: {
         const results: ItemRow[] = topLevelRows
           .flatMap<ItemRow>((row): ItemRow[] => {
             if (!row.isMaster) {
-              if (row.sellable !== true) {
-                return [];
-              }
-
               const usedInCount = usedInCounts.get(row.id) ?? 0;
               const estimatedUnitCost = estimatedUnitCostByItemId.get(row.id) ?? null;
               return [{
@@ -884,11 +754,7 @@ export async function getItems(filters?: {
               } satisfies ItemRow];
             }
 
-            const visibleVariants = (variantsByParent.get(row.id) ?? []).filter(
-              (variant) => variant.sellable === true,
-            );
-
-            return visibleVariants.map((variant) => {
+            return (variantsByParent.get(row.id) ?? []).map((variant) => {
               const variantUsedInCount = usedInCounts.get(variant.id) ?? 0;
               const estimatedUnitCost = estimatedUnitCostByItemId.get(variant.id) ?? null;
 
@@ -939,6 +805,10 @@ export async function getItems(filters?: {
             });
           })
           .sort((a, b) => {
+            if (a.sellable !== b.sellable) {
+              return a.sellable === true ? -1 : 1;
+            }
+
             const displayNameDiff = a.displayName.localeCompare(
               b.displayName,
               undefined,
@@ -971,41 +841,15 @@ export async function getItems(filters?: {
 }
 
 export async function getInventoryTabCounts(): Promise<InventoryTabCounts> {
-  const context = await getAuthedMemberContext();
-  const bomViewPermissions = getBomViewPermissions(context.assignedRoles);
-
   return withAuthedOrgContext(async (tx) => {
-    const bomParentVisibilityCondition = bomViewPermissions.canViewLockedBom
-      ? sql`true`
-      : bomViewPermissions.canViewUnlockedBom
-        ? sql`parent_item.bom_locked = false`
-        : sql`false`;
-    const currentBomUsageExists = sql`
-      EXISTS (
-        SELECT 1
-        FROM inventory.bom_revision_components brc
-        INNER JOIN inventory.bom_revisions br ON br.id = brc.bom_revision_id
-        INNER JOIN inventory.items parent_item ON parent_item.id = br.product_id
-        WHERE brc.component_id = ${items.id}
-          AND br.is_current = true
-          AND parent_item.deleted_at IS NULL
-          AND ${bomParentVisibilityCondition}
-      )
-    `;
     const [counts] = await tx
       .select({
         products: sql<number>`COUNT(*) FILTER (
           WHERE ${items.itemType} = 'product'
             AND ${items.isMaster} = false
-            AND ${items.sellable} = true
         )::int`,
         materials: sql<number>`COUNT(*) FILTER (
           WHERE ${items.itemType} = 'material'
-        )::int`,
-        subAssemblies: sql<number>`COUNT(*) FILTER (
-          WHERE ${items.itemType} = 'product'
-            AND ${items.isMaster} = false
-            AND (${items.sellable} = false OR ${currentBomUsageExists})
         )::int`,
       })
       .from(items)
@@ -1014,7 +858,6 @@ export async function getInventoryTabCounts(): Promise<InventoryTabCounts> {
     return {
       products: Number(counts?.products ?? 0),
       materials: Number(counts?.materials ?? 0),
-      subAssemblies: Number(counts?.subAssemblies ?? 0),
     };
   });
 }

@@ -23,7 +23,7 @@ import {
 import { formatQuantity } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { calcProjectedStock, calcStock, getReplenishmentStatus } from "./types";
-import type { InventoryProductView, ItemRow, ItemType } from "./types";
+import type { ItemRow, ItemType } from "./types";
 import { ITEM_TYPE_SEGMENTS } from "./types";
 
 type InventoryAttention = {
@@ -127,10 +127,10 @@ function ProjectedSafetyCell({ row }: { row: ItemRow }) {
 
 function NameCell({
   row,
-  isSubAssemblies,
+  isProduct,
 }: {
   row: ItemRow;
-  isSubAssemblies: boolean;
+  isProduct: boolean;
 }) {
   const attention = getInventoryAttention(row);
 
@@ -154,7 +154,7 @@ function NameCell({
       >
         {row.displayName}
       </Link>
-      {isSubAssemblies && row.sellable === false ? (
+      {isProduct && row.sellable === false ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <Badge variant="outline" className="text-xs">
@@ -168,12 +168,8 @@ function NameCell({
   );
 }
 
-export function getColumns(
-  itemType: ItemType,
-  view?: InventoryProductView
-): ColDef<ItemRow>[] {
+export function getColumns(itemType: ItemType): ColDef<ItemRow>[] {
   const isProduct = itemType === "product";
-  const isSubAssemblies = view === "sub-assemblies";
 
   return [
     {
@@ -183,7 +179,7 @@ export function getColumns(
       minWidth: 220,
       flex: 1.3,
       cellRenderer: ({ data }: ICellRendererParams<ItemRow>) =>
-        data ? <NameCell row={data} isSubAssemblies={isSubAssemblies} /> : null,
+        data ? <NameCell row={data} isProduct={isProduct} /> : null,
       getQuickFilterText: ({ data }) =>
         [data?.displayName, data?.name, data?.sku, data?.category]
           .filter(Boolean)
@@ -228,7 +224,7 @@ export function getColumns(
           } satisfies ColDef<ItemRow>,
         ]
       : []),
-    ...(isProduct && !isSubAssemblies
+    ...(isProduct
       ? [
           {
             field: "marginPercent",

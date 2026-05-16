@@ -172,7 +172,7 @@ test.describe("inventory visibility", () => {
     expect(mixedInternalRow?.sellable).toBe(false);
   });
 
-  test("shows only sellable catalog rows in Products", async ({ page }) => {
+  test("shows sellable and internal made rows in Products", async ({ page }) => {
     await page.goto("/inventory/products");
     await expect(page.getByRole("link", { name: "New Product" })).toBeVisible();
 
@@ -180,52 +180,34 @@ test.describe("inventory visibility", () => {
     await expect(page.getByRole("link", { name: sellableOnlyName })).toBeVisible();
 
     await filterList(page, "Search items", internalOnlyName);
-    await expect(page.getByRole("link", { name: internalOnlyName })).toHaveCount(0);
+    const internalOnlyRow = page.getByRole("row", { name: new RegExp(internalOnlyName) });
+    await expect(internalOnlyRow.getByRole("link", { name: internalOnlyName })).toBeVisible();
+    await expect(internalOnlyRow.getByText("Not sellable")).toBeVisible();
 
     await filterList(page, "Search items", sharedComponentName);
     await expect(page.getByRole("link", { name: sharedComponentName })).toBeVisible();
 
     await filterList(page, "Search items", mixedMasterName);
     await expect(page.getByRole("link", { name: mixedSellableVariantDisplay })).toBeVisible();
+    await expect(page.getByRole("link", { name: mixedInternalVariantDisplay })).toBeVisible();
     await expect(page.getByRole("button", { name: /^(Expand|Collapse)$/ })).toHaveCount(0);
     await expect(page.getByText(/\d+ variants?/)).toHaveCount(0);
-    await expect(page.getByRole("link", { name: mixedInternalVariantDisplay })).toHaveCount(0);
   });
 
-  test("shows non-sellable and consumed leaves in Sub-assemblies", async ({ page }) => {
+  test("redirects old Sub-assemblies route to Products", async ({ page }) => {
     await page.goto("/inventory/sub-assemblies");
+    await page.waitForURL("**/inventory/products");
     await expect(page.getByLabel("Search items")).toBeVisible();
-
-    await filterList(page, "Search items", internalOnlyName);
-    const internalOnlyRow = page.getByRole("row", { name: new RegExp(internalOnlyName) });
-    await expect(internalOnlyRow.getByRole("link", { name: internalOnlyName })).toBeVisible();
-    await expect(internalOnlyRow.getByText("Not sellable")).toBeVisible();
-
-    await filterList(page, "Search items", sharedComponentName);
-    const sharedComponentRow = page.getByRole("row", { name: new RegExp(sharedComponentName) });
-    await expect(sharedComponentRow.getByRole("link", { name: sharedComponentName })).toBeVisible();
-
-    await filterList(page, "Search items", mixedInternalVariantDisplay);
-    const mixedInternalVariantRow = page.getByRole("row", {
-      name: new RegExp(mixedInternalVariantDisplay),
-    });
-    await expect(
-      mixedInternalVariantRow.getByRole("link", { name: mixedInternalVariantDisplay }),
-    ).toBeVisible();
-    await expect(mixedInternalVariantRow.getByText("Not sellable")).toBeVisible();
-
-    await filterList(page, "Search items", sellableOnlyName);
-    await expect(page.getByRole("link", { name: sellableOnlyName })).toHaveCount(0);
   });
 
-  test("toggling sellable moves a product from Products to Sub-assemblies", async ({ page, db }) => {
+  test("toggling sellable marks a product internal but keeps it in Products", async ({ page, db }) => {
     await page.goto(`/inventory/products/${sellableOnlyId}/edit`);
     await expect(page.getByRole("heading", { name: "Edit Product" })).toBeVisible();
 
-    const sellableSwitch = page.getByRole("switch", { name: "Sellable" });
-    await expect(sellableSwitch).toHaveAttribute("data-state", "checked");
-    await sellableSwitch.click();
-    await expect(sellableSwitch).toHaveAttribute("data-state", "unchecked");
+    const sellableCheckbox = page.getByRole("checkbox", { name: "Sellable" });
+    await expect(sellableCheckbox).toBeChecked();
+    await sellableCheckbox.click();
+    await expect(sellableCheckbox).not.toBeChecked();
 
     const updateResponsePromise = page.waitForResponse(
       (response) =>
@@ -244,16 +226,12 @@ test.describe("inventory visibility", () => {
 
     await page.goto("/inventory/products");
     await filterList(page, "Search items", sellableOnlyName);
-    await expect(page.getByRole("link", { name: sellableOnlyName })).toHaveCount(0);
-
-    await page.goto("/inventory/sub-assemblies");
-    await filterList(page, "Search items", sellableOnlyName);
     const movedRow = page.getByRole("row", { name: new RegExp(sellableOnlyName) });
     await expect(movedRow.getByRole("link", { name: sellableOnlyName })).toBeVisible();
     await expect(movedRow.getByText("Not sellable")).toBeVisible();
   });
 
-  test("soft-deleting the only parent clears used-in counts and sub-assembly inclusion", async ({
+  test("soft-deleting the only parent clears used-in counts", async ({
     page,
     db,
   }) => {
@@ -267,9 +245,5 @@ test.describe("inventory visibility", () => {
     await expect(page.getByRole("heading", { name: sharedComponentName })).toBeVisible();
     await expect(page.getByText("Not used in any current product recipes.")).toBeVisible();
     await expect(page.getByRole("link", { name: parentProductName })).toHaveCount(0);
-
-    await page.goto("/inventory/sub-assemblies");
-    await filterList(page, "Search items", sharedComponentName);
-    await expect(page.getByRole("link", { name: sharedComponentName })).toHaveCount(0);
   });
 });
