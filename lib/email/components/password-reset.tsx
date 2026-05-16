@@ -1,5 +1,5 @@
-import { Link, Text } from "@react-email/components";
-import { EmailLayout } from "@/lib/email/components/layout";
+import { Heading, Link, Text } from "@react-email/components";
+import { EmailLayout, emailStyles } from "@/lib/email/components/layout";
 
 type PasswordResetProps = {
   url: string;
@@ -8,33 +8,22 @@ type PasswordResetProps = {
 export function PasswordReset({ url }: PasswordResetProps) {
   return (
     <EmailLayout preview="Reset your password">
-      <Text style={sentence}>
+      <Text style={emailStyles.eyebrow}>Account security</Text>
+      <Heading style={emailStyles.heading}>Reset your password</Heading>
+      <Text style={emailStyles.text}>
         A password reset was requested for your account.
       </Text>
-      <Text style={action}>
-        <Link style={link} href={url}>
-          Reset password &rarr;
+      <Text style={emailStyles.action}>
+        <Link style={emailStyles.button} href={url}>
+          Reset password
+        </Link>
+      </Text>
+      <Text style={emailStyles.fallback}>
+        If the button does not work, open this link:{" "}
+        <Link style={emailStyles.link} href={url}>
+          {url}
         </Link>
       </Text>
     </EmailLayout>
   );
 }
-
-const sentence: React.CSSProperties = {
-  color: "#171717",
-  fontSize: 15,
-  lineHeight: "1.5",
-  margin: "0 0 20px",
-};
-
-const action: React.CSSProperties = {
-  margin: 0,
-};
-
-const link: React.CSSProperties = {
-  color: "#171717",
-  fontSize: 13,
-  fontWeight: 500,
-  textDecoration: "underline",
-  textUnderlineOffset: "3px",
-};

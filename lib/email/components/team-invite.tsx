@@ -1,5 +1,5 @@
-import { Link, Text } from "@react-email/components";
-import { EmailLayout } from "@/lib/email/components/layout";
+import { Heading, Link, Text } from "@react-email/components";
+import { EmailLayout, emailStyles } from "@/lib/email/components/layout";
 
 type TeamInviteProps = {
   inviteUrl: string;
@@ -7,9 +7,6 @@ type TeamInviteProps = {
   inviterName: string | null;
   roleLabel: string;
 };
-
-const mono =
-  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace';
 
 export function TeamInvite({
   inviteUrl,
@@ -22,63 +19,36 @@ export function TeamInvite({
 
   return (
     <EmailLayout preview={`Invitation to ${organizationName}`}>
-      <Text style={sentence}>You have received an invitation.</Text>
-      <Text style={row}>
-        <span style={label}>Company</span>
-        <span style={value}>{organizationName}</span>
+      <Text style={emailStyles.eyebrow}>Team invitation</Text>
+      <Heading style={emailStyles.heading}>Join {organizationName}</Heading>
+      <Text style={emailStyles.text}>
+        You have been invited to collaborate in ashicore.
       </Text>
-      <Text style={row}>
-        <span style={label}>Role</span>
-        <span style={value}>{displayRole}</span>
+      <Text style={emailStyles.row}>
+        <span style={emailStyles.rowLabel}>Company</span>
+        <span style={emailStyles.rowValue}>{organizationName}</span>
+      </Text>
+      <Text style={emailStyles.row}>
+        <span style={emailStyles.rowLabel}>Role</span>
+        <span style={emailStyles.rowValue}>{displayRole}</span>
       </Text>
       {inviterName && (
-        <Text style={row}>
-          <span style={label}>Invited by</span>
-          <span style={value}>{inviterName}</span>
+        <Text style={emailStyles.row}>
+          <span style={emailStyles.rowLabel}>Invited by</span>
+          <span style={emailStyles.rowValue}>{inviterName}</span>
         </Text>
       )}
-      <Text style={action}>
-        <Link style={link} href={inviteUrl}>
-          Accept invitation &rarr;
+      <Text style={emailStyles.action}>
+        <Link style={emailStyles.button} href={inviteUrl}>
+          Accept invitation
+        </Link>
+      </Text>
+      <Text style={emailStyles.fallback}>
+        If the button does not work, open this link:{" "}
+        <Link style={emailStyles.link} href={inviteUrl}>
+          {inviteUrl}
         </Link>
       </Text>
     </EmailLayout>
   );
 }
-
-const sentence: React.CSSProperties = {
-  color: "#171717",
-  fontSize: 15,
-  lineHeight: "1.5",
-  margin: "0 0 20px",
-};
-
-const row: React.CSSProperties = {
-  fontFamily: mono,
-  fontSize: 13,
-  lineHeight: "1.7",
-  margin: 0,
-  color: "#171717",
-};
-
-const label: React.CSSProperties = {
-  color: "#999",
-  display: "inline-block",
-  minWidth: 110,
-};
-
-const value: React.CSSProperties = {
-  color: "#171717",
-};
-
-const action: React.CSSProperties = {
-  margin: "20px 0 0",
-};
-
-const link: React.CSSProperties = {
-  color: "#171717",
-  fontSize: 13,
-  fontWeight: 500,
-  textDecoration: "underline",
-  textUnderlineOffset: "3px",
-};

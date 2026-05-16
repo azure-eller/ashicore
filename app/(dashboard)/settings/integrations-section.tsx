@@ -62,6 +62,7 @@ import {
   AccountingPurchaseOrderImportButton,
   XeroImportSection,
 } from "./integrations/xero-import-section";
+import { SettingsPanel, SettingsPanelHeader } from "./settings-panel";
 
 const ERROR_MESSAGES: Record<string, string> = {
   state_mismatch: "Security check failed. Please try connecting Xero again.",
@@ -1488,28 +1489,26 @@ export function IntegrationsSection({
   exportRows: XeroExportHistoryRow[];
 }) {
   return (
-    <section id="integrations" className="scroll-mt-24">
-      <div className="mb-3">
-        <h2 className="text-base font-semibold tracking-tight">Integrations</h2>
-      </div>
-      <XeroRow
-        connection={connection}
-        error={error}
-        canManageConnection={canManageConnection}
-        canImportCustomers={canImportCustomers}
-        canImportSuppliers={canImportSuppliers}
-        canResetCustomerImports={canResetCustomerImports}
-        canResetSupplierImports={canResetSupplierImports}
-        importRuns={importRuns}
-        exportRows={exportRows}
-      />
-      <div className="mt-4">
+    <SettingsPanel id="integrations">
+      <SettingsPanelHeader title="Integrations" />
+      <div className="flex flex-col gap-(--space-8) p-(--space-8)">
+        <XeroRow
+          connection={connection}
+          error={error}
+          canManageConnection={canManageConnection}
+          canImportCustomers={canImportCustomers}
+          canImportSuppliers={canImportSuppliers}
+          canResetCustomerImports={canResetCustomerImports}
+          canResetSupplierImports={canResetSupplierImports}
+          importRuns={importRuns}
+          exportRows={exportRows}
+        />
         <QuickBooksRow
           connection={quickBooksConnection}
           canManageConnection={canManageConnection}
           canImportSuppliers={canImportSuppliers}
         />
       </div>
-    </section>
+    </SettingsPanel>
   );
 }

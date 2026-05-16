@@ -40,6 +40,7 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { TeamRoleBadge } from "./team-role-badge";
 import type { TeamMemberRow, TeamPageData } from "./types";
+import { SettingsPanel, SettingsPanelHeader } from "./settings-panel";
 
 type InviteFormValues = {
   email: string;
@@ -482,28 +483,25 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
 
   return (
     <>
-      <section id="team" className="scroll-mt-(--space-24) border">
-        <div className="flex items-center justify-between gap-(--space-8) p-(--space-12)">
-          <h2 className="text-[length:var(--text-base)] leading-[var(--leading-base)] font-semibold tracking-[var(--tracking-tight)]">
-            Team{" "}
-            <span className="text-[length:var(--text-sm)] font-normal text-muted-foreground">
-              · {memberCount} {memberCount === 1 ? "member" : "members"}
-              {pendingCount > 0 ? ` · ${pendingCount} pending` : ""}
-            </span>
-          </h2>
-          <InviteMemberDialog
-            canGrantTeamManagement={data.canGrantTeamManagement}
-            onSuccess={refreshData}
-          />
-        </div>
+      <SettingsPanel id="team">
+        <SettingsPanelHeader
+          title="Team"
+          meta={`${memberCount} ${memberCount === 1 ? "member" : "members"}${pendingCount > 0 ? ` · ${pendingCount} pending` : ""}`}
+          action={
+            <InviteMemberDialog
+              canGrantTeamManagement={data.canGrantTeamManagement}
+              onSuccess={refreshData}
+            />
+          }
+        />
 
         {actionError ? (
-          <div className="px-6 pb-4">
+          <div className="px-(--space-12) py-(--space-6)">
             <FieldError>{actionError}</FieldError>
           </div>
         ) : null}
 
-        <div className="divide-y border-t">
+        <div className="divide-y">
           {data.members.map((member) => {
             const manageable = member.canManage && !member.isCurrentUser;
 
@@ -511,21 +509,21 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
               <div
                 key={member.id}
                 data-email={member.email}
-                className="group grid grid-cols-[minmax(0,1fr)_minmax(8rem,auto)_2rem] items-center gap-4 px-6 py-4"
+                className="group grid gap-(--space-6) px-(--space-12) py-(--space-8) md:grid-cols-[minmax(0,1fr)_minmax(8rem,auto)_2rem] md:items-center"
               >
                 <div className="min-w-0 flex-1">
                   <div className="font-medium text-foreground">
                     {member.name}
                     {member.isCurrentUser ? (
-                      <span className="ml-2 text-xs text-muted-foreground">(You)</span>
+                      <span className="ml-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">(You)</span>
                     ) : null}
                   </div>
-                  <div className="truncate text-sm text-muted-foreground">
+                  <div className="truncate text-[length:var(--text-sm)] text-muted-foreground">
                     {member.email}
                   </div>
                 </div>
 
-                <div className="flex flex-wrap justify-end gap-2">
+                <div className="flex flex-wrap gap-(--space-4) md:justify-end">
                   {member.presetKey ? <AccessPresetBadge presetKey={member.presetKey} /> : null}
                   {member.role === "owner" ? (
                     <TeamRoleBadge role={member.role} />
@@ -539,7 +537,7 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
                     size="icon-sm"
                     disabled={mutationPending}
                     onClick={() => setCustomizingMember(member)}
-                    className="justify-self-end bg-transparent text-muted-foreground opacity-0 transition-opacity hover:bg-transparent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                    className="justify-self-start bg-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:justify-self-end md:opacity-0 md:transition-opacity md:hover:bg-transparent md:focus-visible:opacity-100 md:group-hover:opacity-100"
                     aria-label={`Edit ${member.name}`}
                   >
                     <HugeiconsIcon icon={PencilEdit02Icon} />
@@ -556,16 +554,16 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
               key={invite.id}
               data-email={invite.email}
               data-pending="true"
-              className="flex items-center justify-between gap-4 px-6 py-4 opacity-60"
+              className="grid gap-(--space-6) px-(--space-12) py-(--space-8) opacity-70 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
             >
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium text-foreground">{invite.email}</div>
-                <div className="text-sm text-muted-foreground">
+                <div className="text-[length:var(--text-sm)] text-muted-foreground">
                   pending · expires <DateTimeText value={invite.expiresAt} />
                 </div>
               </div>
 
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center gap-(--space-4)">
                 <AccessPresetBadge presetKey={invite.presetKey} />
                 <Button
                   type="button"
@@ -590,7 +588,7 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
             </div>
           ))}
         </div>
-      </section>
+      </SettingsPanel>
 
       {customizingMember ? (
         <CustomizeAccessDialog

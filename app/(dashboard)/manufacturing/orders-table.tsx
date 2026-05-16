@@ -521,9 +521,6 @@ export function OrdersTable({
     onError: (_error, _orderedRows, context) => {
       queryClient.setQueryData(["manufacturing-orders"], context?.previous);
     },
-    onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
-    },
   });
   const deleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {

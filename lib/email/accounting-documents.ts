@@ -20,6 +20,17 @@ export type AccountingDocumentEmailInput = {
   lines: AccountingDocumentEmailLine[];
 };
 
+const EMAIL_BG = "#f3f3f1";
+const EMAIL_SURFACE = "#ffffff";
+const EMAIL_SURFACE_ALT = "#fafaf8";
+const EMAIL_INK = "#13161b";
+const EMAIL_INK_2 = "#3a3f48";
+const EMAIL_MUTED = "#6a707a";
+const EMAIL_LINE = "#dcdcd6";
+const EMAIL_LINE_2 = "#e8e8e3";
+const EMAIL_ACCENT = "#1c3d6b";
+const EMAIL_ACCENT_TEXT = "#ffffff";
+
 const moneyFormat = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -116,16 +127,16 @@ export function buildAccountingDocumentEmail(params: AccountingDocumentEmailInpu
       const quantityLabel = quantity ? `${escapeHtml(quantity)}${escapeHtml(unit)}` : "";
       return [
         "<tr>",
-        `<td style="padding:14px 0;border-top:1px solid #e5e7eb;color:#111827;font-size:14px;line-height:20px;">${escapeHtml(line.description)}${quantityLabel ? `<div style="color:#6b7280;font-size:12px;line-height:18px;">${quantityLabel}</div>` : ""}</td>`,
-        `<td style="padding:14px 0;border-top:1px solid #e5e7eb;color:#111827;font-size:14px;line-height:20px;text-align:right;white-space:nowrap;">${escapeHtml(formatMoney(line.amount))}</td>`,
+        `<td style="padding:14px 0;border-top:1px solid ${EMAIL_LINE_2};color:${EMAIL_INK};font-size:14px;line-height:20px;">${escapeHtml(line.description)}${quantityLabel ? `<div style="color:${EMAIL_MUTED};font-size:12px;line-height:18px;">${quantityLabel}</div>` : ""}</td>`,
+        `<td style="padding:14px 0;border-top:1px solid ${EMAIL_LINE_2};color:${EMAIL_INK};font-size:14px;line-height:20px;text-align:right;white-space:nowrap;">${escapeHtml(formatMoney(line.amount))}</td>`,
         "</tr>",
       ].join("");
     })
     .join("");
 
   const cta = params.actionUrl
-    ? `<a href="${escapedActionUrl}" style="display:block;background:#0f7fd1;color:#ffffff;font-size:15px;font-weight:700;line-height:20px;padding:14px 18px;text-align:center;text-decoration:none;border-radius:4px;">${escapeHtml(actionLabel)}</a>`
-    : `<div style="background:#111827;color:#ffffff;font-size:15px;font-weight:700;line-height:20px;padding:14px 18px;text-align:center;border-radius:4px;">${escapeHtml(actionLabel)}</div>`;
+    ? `<a href="${escapedActionUrl}" style="display:block;background:${EMAIL_ACCENT};color:${EMAIL_ACCENT_TEXT};font-size:15px;font-weight:700;line-height:20px;padding:14px 18px;text-align:center;text-decoration:none;">${escapeHtml(actionLabel)}</a>`
+    : `<div style="background:${EMAIL_INK};color:${EMAIL_ACCENT_TEXT};font-size:15px;font-weight:700;line-height:20px;padding:14px 18px;text-align:center;">${escapeHtml(actionLabel)}</div>`;
 
   const bodyCopy =
     params.documentType === "invoice"
@@ -140,35 +151,39 @@ export function buildAccountingDocumentEmail(params: AccountingDocumentEmailInpu
     "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />",
     buildInvoiceSchema(params),
     "</head>",
-    '<body style="margin:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Arial,sans-serif;color:#111827;">',
+    `<body style="margin:0;background:${EMAIL_BG};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:${EMAIL_INK};">`,
     '<div style="display:none;max-height:0;overflow:hidden;opacity:0;">',
     `${escapedTitle} ${escapedNumber} for ${escapedTotal}`,
     "</div>",
-    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f4f6;width:100%;">',
-    "<tr><td align=\"center\" style=\"padding:40px 16px;\">",
-    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#ffffff;max-width:580px;width:100%;border-radius:2px;">',
-    '<tr><td style="padding:34px 30px 24px;text-align:center;">',
-    `<div style="color:#6b7280;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">${escapedIssuer}</div>`,
-    `<h1 style="color:#111827;font-size:24px;line-height:30px;margin:18px 0 8px;">${escapedTitle}</h1>`,
-    `<div style="color:#111827;font-size:34px;font-weight:700;line-height:40px;margin:0;">${escapedTotal} <span style="font-size:14px;font-weight:700;">USD</span></div>`,
+    `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:${EMAIL_BG};width:100%;">`,
+    '<tr><td align="center" style="padding:40px 16px;">',
+    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:580px;width:100%;margin-bottom:16px;"><tr><td>',
+    `<span style="display:inline-block;width:24px;background:${EMAIL_ACCENT};color:${EMAIL_ACCENT_TEXT};font-size:13px;font-weight:700;line-height:24px;text-align:center;margin-right:10px;">a</span>`,
+    `<span style="color:${EMAIL_INK};font-size:17px;font-weight:700;line-height:24px;">ashicore</span>`,
+    "</td></tr></table>",
+    `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:${EMAIL_SURFACE};border:1px solid ${EMAIL_LINE};max-width:580px;width:100%;">`,
+    `<tr><td style="background:${EMAIL_SURFACE_ALT};border-bottom:1px solid ${EMAIL_LINE};padding:30px;text-align:left;">`,
+    `<div style="color:${EMAIL_MUTED};font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">${escapedIssuer}</div>`,
+    `<h1 style="color:${EMAIL_INK};font-size:24px;line-height:30px;margin:16px 0 10px;">${escapedTitle}</h1>`,
+    `<div style="color:${EMAIL_INK};font-size:34px;font-weight:700;line-height:40px;margin:0;">${escapedTotal} <span style="font-size:14px;font-weight:700;">USD</span></div>`,
     escapedDue
-      ? `<div style="color:#111827;font-size:14px;font-weight:700;line-height:20px;margin-top:12px;">Due ${escapedDue}</div>`
+      ? `<div style="color:${EMAIL_INK};font-size:14px;font-weight:700;line-height:20px;margin-top:12px;">Due ${escapedDue}</div>`
       : "",
-    `<div style="color:#6b7280;font-size:13px;line-height:20px;margin-top:2px;">${escapedTitle} #: ${escapedNumber}</div>`,
+    `<div style="color:${EMAIL_MUTED};font-size:13px;line-height:20px;margin-top:2px;">${escapedTitle} #: ${escapedNumber}</div>`,
     "</td></tr>",
     `<tr><td style="padding:0 30px 24px;">${cta}</td></tr>`,
     '<tr><td style="padding:0 30px 8px;">',
-    `<p style="color:#111827;font-size:15px;line-height:23px;margin:0 0 18px;">Hi ${escapedRecipient},</p>`,
-    `<p style="color:#111827;font-size:15px;line-height:23px;margin:0 0 18px;">${escapeHtml(bodyCopy)}</p>`,
+    `<p style="color:${EMAIL_INK_2};font-size:15px;line-height:23px;margin:0 0 18px;">Hi ${escapedRecipient},</p>`,
+    `<p style="color:${EMAIL_INK_2};font-size:15px;line-height:23px;margin:0 0 18px;">${escapeHtml(bodyCopy)}</p>`,
     params.actionUrl
-      ? `<p style="color:#111827;font-size:14px;line-height:22px;margin:0 0 24px;">View online: <a href="${escapedActionUrl}" style="color:#0f7fd1;text-decoration:underline;">${escapedActionUrl}</a></p>`
-      : `<p style="color:#111827;font-size:14px;line-height:22px;margin:0 0 24px;">A PDF copy is attached to this email.</p>`,
+      ? `<p style="color:${EMAIL_INK_2};font-size:14px;line-height:22px;margin:0 0 24px;">View online: <a href="${escapedActionUrl}" style="color:${EMAIL_ACCENT};text-decoration:underline;">${escapedActionUrl}</a></p>`
+      : `<p style="color:${EMAIL_INK_2};font-size:14px;line-height:22px;margin:0 0 24px;">A PDF copy is attached to this email.</p>`,
     '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;border-collapse:collapse;">',
-    '<tr><th align="left" style="color:#111827;font-size:13px;line-height:18px;padding:0 0 12px;text-align:left;">Description</th><th align="right" style="color:#111827;font-size:13px;line-height:18px;padding:0 0 12px;text-align:right;">Amount</th></tr>',
+    `<tr><th align="left" style="color:${EMAIL_INK};font-size:13px;line-height:18px;padding:0 0 12px;text-align:left;">Description</th><th align="right" style="color:${EMAIL_INK};font-size:13px;line-height:18px;padding:0 0 12px;text-align:right;">Amount</th></tr>`,
     rows,
     '<tr>',
-    '<td style="padding:16px 0;border-top:1px solid #d1d5db;color:#111827;font-size:16px;font-weight:700;">Amount Due</td>',
-    `<td style="padding:16px 0;border-top:1px solid #d1d5db;color:#111827;font-size:20px;font-weight:700;text-align:right;white-space:nowrap;">USD ${escapedTotal}</td>`,
+    `<td style="padding:16px 0;border-top:1px solid ${EMAIL_LINE};color:${EMAIL_INK};font-size:16px;font-weight:700;">Amount Due</td>`,
+    `<td style="padding:16px 0;border-top:1px solid ${EMAIL_LINE};color:${EMAIL_INK};font-size:20px;font-weight:700;text-align:right;white-space:nowrap;">USD ${escapedTotal}</td>`,
     "</tr>",
     "</table>",
     "</td></tr>",

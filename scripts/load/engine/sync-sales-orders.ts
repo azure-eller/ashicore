@@ -322,7 +322,7 @@ async function createImportDraftShipmentInTx(
       salesOrderId,
       shipmentNumber,
       sequence,
-      status: "draft",
+      status: "planned",
       fulfillmentType: "delivery",
       scheduledDate: order.shipDate,
       notes: null,

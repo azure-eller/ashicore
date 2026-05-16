@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import type { Page } from "@playwright/test";
 import { test, expect, filterList } from "../fixtures";
 import { items } from "../../../lib/db/schema";
 import { createItem, createVariant, deleteItem, getUnitId } from "../../helpers/api";
@@ -24,6 +25,12 @@ test.describe("inventory visibility", () => {
   let sharedComponentId = "";
   let parentProductId = "";
   let mixedInternalVariantId = "";
+
+  const visibleProductLink = (page: Page, name: string) =>
+    page
+      .locator('[data-slot="erp-data-grid"] .ag-center-cols-container')
+      .getByRole("link", { name })
+      .first();
 
   test("creates the visibility matrix fixtures", async ({ db }) => {
     const sellableOnly = await createItem({
@@ -177,19 +184,19 @@ test.describe("inventory visibility", () => {
     await expect(page.getByRole("link", { name: "New Product" })).toBeVisible();
 
     await filterList(page, "Search items", sellableOnlyName);
-    await expect(page.getByRole("link", { name: sellableOnlyName })).toBeVisible();
+    await expect(visibleProductLink(page, sellableOnlyName)).toBeVisible();
 
     await filterList(page, "Search items", internalOnlyName);
     const internalOnlyRow = page.getByRole("row", { name: new RegExp(internalOnlyName) });
-    await expect(internalOnlyRow.getByRole("link", { name: internalOnlyName })).toBeVisible();
+    await expect(visibleProductLink(page, internalOnlyName)).toBeVisible();
     await expect(internalOnlyRow.getByText("Not sellable")).toBeVisible();
 
     await filterList(page, "Search items", sharedComponentName);
-    await expect(page.getByRole("link", { name: sharedComponentName })).toBeVisible();
+    await expect(visibleProductLink(page, sharedComponentName)).toBeVisible();
 
     await filterList(page, "Search items", mixedMasterName);
-    await expect(page.getByRole("link", { name: mixedSellableVariantDisplay })).toBeVisible();
-    await expect(page.getByRole("link", { name: mixedInternalVariantDisplay })).toBeVisible();
+    await expect(visibleProductLink(page, mixedSellableVariantDisplay)).toBeVisible();
+    await expect(visibleProductLink(page, mixedInternalVariantDisplay)).toBeVisible();
     await expect(page.getByRole("button", { name: /^(Expand|Collapse)$/ })).toHaveCount(0);
     await expect(page.getByText(/\d+ variants?/)).toHaveCount(0);
   });
@@ -227,7 +234,7 @@ test.describe("inventory visibility", () => {
     await page.goto("/inventory/products");
     await filterList(page, "Search items", sellableOnlyName);
     const movedRow = page.getByRole("row", { name: new RegExp(sellableOnlyName) });
-    await expect(movedRow.getByRole("link", { name: sellableOnlyName })).toBeVisible();
+    await expect(visibleProductLink(page, sellableOnlyName)).toBeVisible();
     await expect(movedRow.getByText("Not sellable")).toBeVisible();
   });
 

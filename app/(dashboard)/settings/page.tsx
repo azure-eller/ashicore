@@ -73,9 +73,9 @@ export default async function SettingsPage({
   ]);
 
   return (
-    <div className="mx-auto w-full max-w-5xl">
-      <div className="flex flex-col-reverse gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_160px] lg:gap-8">
-        <div className="flex min-w-0 flex-col gap-6">
+    <div className="w-full">
+      <div className="grid gap-(--space-10) xl:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="flex min-w-0 flex-col gap-(--space-10)">
           <AccountSection initialData={accountData} />
           {teamData ? <TeamSection initialData={teamData} /> : null}
           {showIntegrations ? (

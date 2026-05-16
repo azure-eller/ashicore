@@ -39,25 +39,30 @@ export function SettingsNav({ sections }: { sections: SettingsSection[] }) {
 
   return (
     <nav
-      className="w-full lg:sticky lg:top-(--space-16) lg:self-start"
+      className="order-first w-full xl:order-none xl:sticky xl:top-(--space-16) xl:self-start"
       aria-label="Settings sections"
     >
-      <div className="flex gap-(--space-2) overflow-x-auto border bg-card p-(--space-1) lg:flex-col lg:gap-0 lg:border-0 lg:bg-transparent lg:p-0">
+      <div className="border bg-card p-(--space-4)">
+        <div className="hidden border-b pb-(--space-4) text-[length:var(--text-sm)] font-semibold leading-[var(--leading-sm)] text-foreground xl:block">
+          Settings
+        </div>
+        <div className="flex gap-(--space-2) overflow-x-auto xl:flex-col xl:gap-0 xl:pt-(--space-4)">
         {sections.map((section) => (
           <button
             key={section.id}
             type="button"
             onClick={() => handleClick(section.id)}
             className={cn(
-              "shrink-0 px-(--space-6) py-(--space-3) text-left text-[length:var(--text-sm)] leading-[var(--leading-sm)] transition-colors lg:px-(--space-6)",
+              "shrink-0 px-(--space-6) py-(--space-3) text-left text-[length:var(--text-sm)] leading-[var(--leading-sm)] transition-colors xl:w-full",
               activeId === section.id
-                ? "bg-muted font-medium text-foreground lg:bg-transparent"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground lg:hover:bg-transparent"
+                ? "bg-muted font-medium text-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
             )}
           >
             {section.title}
           </button>
         ))}
+        </div>
       </div>
     </nav>
   );

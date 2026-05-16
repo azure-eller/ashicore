@@ -1,5 +1,5 @@
-import { Link, Text } from "@react-email/components";
-import { EmailLayout } from "@/lib/email/components/layout";
+import { Heading, Link, Text } from "@react-email/components";
+import { EmailLayout, emailStyles } from "@/lib/email/components/layout";
 
 type EmailVerificationProps = {
   url: string;
@@ -8,33 +8,22 @@ type EmailVerificationProps = {
 export function EmailVerification({ url }: EmailVerificationProps) {
   return (
     <EmailLayout preview="Verify your email">
-      <Text style={sentence}>
-        Confirm this address to activate your account.
+      <Text style={emailStyles.eyebrow}>Account security</Text>
+      <Heading style={emailStyles.heading}>Confirm your email address</Heading>
+      <Text style={emailStyles.text}>
+        Confirm this address to activate your ashicore account.
       </Text>
-      <Text style={action}>
-        <Link style={link} href={url}>
-          Verify email &rarr;
+      <Text style={emailStyles.action}>
+        <Link style={emailStyles.button} href={url}>
+          Verify email
+        </Link>
+      </Text>
+      <Text style={emailStyles.fallback}>
+        If the button does not work, open this link:{" "}
+        <Link style={emailStyles.link} href={url}>
+          {url}
         </Link>
       </Text>
     </EmailLayout>
   );
 }
-
-const sentence: React.CSSProperties = {
-  color: "#171717",
-  fontSize: 15,
-  lineHeight: "1.5",
-  margin: "0 0 20px",
-};
-
-const action: React.CSSProperties = {
-  margin: 0,
-};
-
-const link: React.CSSProperties = {
-  color: "#171717",
-  fontSize: 13,
-  fontWeight: 500,
-  textDecoration: "underline",
-  textUnderlineOffset: "3px",
-};

@@ -19,10 +19,8 @@ import {
   Add01Icon,
   DatabaseExportIcon,
   Delete02Icon,
-  FilterIcon,
   Search01Icon,
   Sorting05Icon,
-  LayoutThreeColumnIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -36,12 +34,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { StatusLabel, type StatusTone } from "@/components/ui/status-label";
 import { StatusRibbon } from "@/components/ui/status-ribbon";
@@ -676,9 +668,6 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
     onError: (_error, _orderedRows, context) => {
       queryClient.setQueryData(["sales-orders"], context?.previous);
     },
-    onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
-    },
   });
   const deleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
@@ -699,18 +688,6 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
     },
   });
   const selectedCount = selectedOrders.length;
-  const openColumnChooser = () => {
-    const api = gridApiRef.current as
-      | (GridApi<SalesOrderListRow> & { showColumnChooser?: () => void })
-      | null;
-    api?.showColumnChooser?.();
-  };
-  const openFilterPanel = () => {
-    const api = gridApiRef.current as
-      | (GridApi<SalesOrderListRow> & { showAdvancedFilterBuilder?: () => void })
-      | null;
-    api?.showAdvancedFilterBuilder?.();
-  };
   const clearSort = () => {
     gridApiRef.current?.applyColumnState({
       defaultState: { sort: null },
@@ -762,44 +739,27 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
               }}
             />
           </div>
-          <div className="h-(--space-10) w-px bg-border" />
-          <div className="flex items-center gap-(--space-2)">
-            <Button type="button" variant="secondary" size="sm" onClick={openFilterPanel}>
-              <HugeiconsIcon icon={FilterIcon} data-icon="inline-start" />
-              Filter
-            </Button>
-            <Button type="button" variant="secondary" size="sm" onClick={clearSort}>
-              <HugeiconsIcon icon={Sorting05Icon} data-icon="inline-start" />
-              Sort
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={openColumnChooser}
-            >
-              <HugeiconsIcon icon={LayoutThreeColumnIcon} data-icon="inline-start" />
-              Columns
-            </Button>
-          </div>
+          {hasActiveSort ? (
+            <>
+              <div className="h-(--space-10) w-px bg-border" />
+              <div className="flex items-center gap-(--space-2)">
+                <Button type="button" variant="secondary" size="sm" onClick={clearSort}>
+                  <HugeiconsIcon icon={Sorting05Icon} data-icon="inline-start" />
+                  Reset sort
+                </Button>
+              </div>
+            </>
+          ) : null}
           <div className="flex-1" />
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="secondary" size="sm">
-                <HugeiconsIcon icon={DatabaseExportIcon} data-icon="inline-start" />
-                Export
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onSelect={() => gridApiRef.current?.exportDataAsCsv()}
-              >
-                Export CSV
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled>Export Excel</DropdownMenuItem>
-              <DropdownMenuItem disabled>Print PDF</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => gridApiRef.current?.exportDataAsCsv()}
+          >
+            <HugeiconsIcon icon={DatabaseExportIcon} data-icon="inline-start" />
+            Export
+          </Button>
           <Button
             type="button"
             variant="danger"
