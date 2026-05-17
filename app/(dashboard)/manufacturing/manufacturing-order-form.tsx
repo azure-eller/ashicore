@@ -185,7 +185,7 @@ export function ManufacturingOrderForm({
     name: string;
     displayName: string;
     itemType: string;
-    unit: string | null;
+    unit: string;
   }>;
   salesLineOptions?: ManufacturingSalesLineOption[];
   salesOrderOptions?: ManufacturingSalesOrderOption[];
@@ -322,7 +322,7 @@ export function ManufacturingOrderForm({
         displayName: string;
         sku: string | null;
         itemType: string;
-        unitName: string;
+        unitName: string | null;
       }
     >();
 
@@ -335,7 +335,7 @@ export function ManufacturingOrderForm({
         displayName: item.displayName,
         sku: null,
         itemType: item.itemType,
-        unitName: item.unit ?? "units",
+        unitName: item.unit,
       });
     });
 
