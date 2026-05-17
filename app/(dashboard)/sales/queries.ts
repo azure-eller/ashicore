@@ -2501,7 +2501,7 @@ async function upsertDefaultPlannedShipmentForOrderInTx(
     })
     .returning({ id: salesShipments.id });
 
-  await tx.insert(salesShipmentLines).values(
+  const insertedLines = await tx.insert(salesShipmentLines).values(
     entries.map((entry) => ({
       salesShipmentId: shipment.id,
       salesOrderLineId: entry.state.id,
@@ -2512,7 +2512,24 @@ async function upsertDefaultPlannedShipmentForOrderInTx(
       quantity: normalizeNumeric(entry.quantity),
       sortOrder: entry.state.sortOrder,
     }))
-  );
+  ).returning({
+    id: salesShipmentLines.id,
+    salesOrderLineId: salesShipmentLines.salesOrderLineId,
+    itemId: salesShipmentLines.itemId,
+    quantity: trimScale(salesShipmentLines.quantity).as("quantity"),
+  });
+
+  for (const line of insertedLines) {
+    await pullUnplannedSalesAllocationsToShipmentLineInTx(tx, {
+      organizationId: orgId,
+      shipmentLineId: line.id,
+      salesOrderLineId: line.salesOrderLineId,
+      itemId: line.itemId,
+      shipmentQuantity: parseFloat(line.quantity),
+      demandLabelSnapshot: shipmentNumber,
+      actorUserId: actorUserId ?? null,
+    });
+  }
 
   return shipment.id;
 }
@@ -4946,9 +4963,15 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             itemSummary: summarizeItems(summaryLines),
             lines: summaryLines.map((line) => {
               const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
+              const unplannedAllocation = allocationSummaryByDemandId.get(
+                line.salesOrderLineId
+              );
               const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
               const remainingQty = normalizeShipmentQuantity(
                 Number(line.quantity) - shippedQty
+              );
+              const unplannedQty = normalizeShipmentQuantity(
+                remainingQty - (plannedByLine.get(line.salesOrderLineId) ?? 0)
               );
               const allocatedQty = Number(allocation?.allocatedQty ?? 0);
               const shortQty = roundQuantity(
@@ -4977,6 +5000,13 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                       : sources.some((source) => source.sourceType === "manufacturing_order")
                         ? "waiting_production"
                         : "ready",
+                unplannedAllocatedQty: unplannedAllocation?.allocatedQty ?? "0",
+                unplannedShortQty:
+                  unplannedAllocation?.shortQty ?? normalizeNumeric(unplannedQty),
+                unplannedSourceSummary:
+                  unplannedAllocation?.sourceSummary ?? "\u2014",
+                unplannedAllocationStatus:
+                  unplannedAllocation?.status ?? "short",
                 unitName: line.unitName,
               };
             }),

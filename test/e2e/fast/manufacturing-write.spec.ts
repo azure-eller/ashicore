@@ -16,6 +16,7 @@ import {
   createItem,
   createManufacturingOrder,
   createUnit,
+  completeManufacturingOrder,
   getUnitId,
   testFetch,
 } from "../../helpers/api";
@@ -683,6 +684,128 @@ test.describe("Manufacturing write-path smoke", () => {
     );
     await expect(warningDialog).not.toContainText("under-age");
     await expect(warningDialog).not.toContainText("Lot must be at least");
+  });
+
+  test("direct order completion records manufacturing output detail", async ({
+    db,
+  }) => {
+    const directTs = Date.now();
+    const material = await createItem({
+      name: `Fast Direct Output Material ${directTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-DIRECT-OUTPUT-MAT-${directTs}`,
+      category: `Fast Direct Output ${directTs}`,
+      description: "Material for direct output detail coverage",
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "20",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+    const materialId = material.body.id as string;
+
+    const product = await createItem({
+      name: `Fast Direct Output Product ${directTs}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-DIRECT-OUTPUT-PRODUCT-${directTs}`,
+      category: `Fast Direct Output ${directTs}`,
+      description: "Product for direct output detail coverage",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: materialId, quantity: "2" }],
+    });
+    expect(product.status).toBe(201);
+    const productId = product.body.id as string;
+
+    const order = await createManufacturingOrder({
+      productId,
+      plannedQuantity: "4",
+      ingredients: [{ itemId: materialId, quantityPerUnit: "2" }],
+      confirmShortage: false,
+    });
+    expect(order.status).toBe(201);
+    const directOrderId = order.body.id as string;
+
+    const [ingredient] = await db
+      .select({ id: manufacturingOrderIngredients.id })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, directOrderId));
+    expect(ingredient).toBeTruthy();
+
+    const pickResponse = await testFetch(
+      `/api/manufacturing-orders/${directOrderId}/ingredients/${ingredient.id}/pick`,
+      { method: "POST" }
+    );
+    expect(pickResponse.status).toBe(200);
+
+    const complete = await completeManufacturingOrder(directOrderId, "4");
+    expect(complete.status).toBe(200);
+
+    const outputRows = await db
+      .select({
+        id: manufacturingOrderOutputs.id,
+        manufacturingOrderBatchId: manufacturingOrderOutputs.manufacturingOrderBatchId,
+        lotId: manufacturingOrderOutputs.lotId,
+        quantity: manufacturingOrderOutputs.quantity,
+      })
+      .from(manufacturingOrderOutputs)
+      .where(eq(manufacturingOrderOutputs.manufacturingOrderId, directOrderId));
+    expect(outputRows).toHaveLength(1);
+    expect(outputRows[0]).toMatchObject({
+      manufacturingOrderBatchId: null,
+      quantity: "4.0000",
+    });
+    expect(outputRows[0].lotId).toBeTruthy();
+
+    const outputConsumptions = await db
+      .select()
+      .from(manufacturingOrderOutputConsumptions)
+      .where(
+        eq(
+          manufacturingOrderOutputConsumptions.manufacturingOrderOutputId,
+          outputRows[0].id
+        )
+      );
+    expect(outputConsumptions).toHaveLength(1);
+    expect(outputConsumptions[0].quantityUsed).toBe("8.0000");
+
+    const producedLots = await db
+      .select({ id: lots.id, quantity: lots.quantity })
+      .from(lots)
+      .where(eq(lots.itemId, productId));
+    expect(producedLots).toEqual([
+      {
+        id: outputRows[0].lotId,
+        quantity: "4.0000",
+      },
+    ]);
+
+    const outputEvents = await db
+      .select({
+        itemId: inventoryEvents.itemId,
+        lotId: inventoryEvents.lotId,
+        quantity: inventoryEvents.quantity,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.referenceType, "manufacturing_order"),
+          eq(inventoryEvents.referenceId, directOrderId),
+          eq(inventoryEvents.eventType, "manufacturing_output")
+        )
+      );
+    expect(outputEvents).toEqual([
+      {
+        itemId: productId,
+        lotId: outputRows[0].lotId,
+        quantity: "4.0000",
+      },
+    ]);
   });
 
   test("runs a batch-mode order through sequential batch execution", async ({

@@ -257,6 +257,10 @@ export type SalesOrderListLine = {
   shortQty?: string;
   sourceSummary?: string;
   allocationStatus?: SalesAllocationLineSummary["status"];
+  unplannedAllocatedQty?: string;
+  unplannedShortQty?: string;
+  unplannedSourceSummary?: string;
+  unplannedAllocationStatus?: SalesAllocationLineSummary["status"];
   unitName: string;
 };
 

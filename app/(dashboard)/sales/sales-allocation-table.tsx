@@ -309,7 +309,10 @@ function buildRows(orders: SalesOrderListRow[], products: AllocationProduct[]) {
           allocationDemandType: "sales_order_line",
           quantity: unplannedQuantity,
           remainingQty: unplannedQuantity,
-          shortQty: unplannedQuantity,
+          allocatedQty: line.unplannedAllocatedQty ?? "0",
+          shortQty: line.unplannedShortQty ?? unplannedQuantity,
+          sourceSummary: line.unplannedSourceSummary ?? "-",
+          allocationStatus: line.unplannedAllocationStatus ?? "short",
         };
         fallbackCells.set(product.itemId, {
           line: demandLine,

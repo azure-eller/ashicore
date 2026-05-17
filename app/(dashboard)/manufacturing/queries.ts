@@ -5424,7 +5424,7 @@ export async function completeManufacturingOrder(
 
     const actualCostPerUnit = totalMaterialCost / actualQuantity;
 
-    await produceManufacturedStockInTx(tx, {
+    const produced = await produceManufacturedStockInTx(tx, {
       organizationId: orgId,
       manufacturingOrderId: id,
       productId: order.productId,
@@ -5437,6 +5437,27 @@ export async function completeManufacturingOrder(
       ),
       expectedReleaseQuantity: null,
       ingredientRows: produceIngredientRows,
+    });
+
+    const pickAllocationsByIngredient = await getPickAllocationsByIngredientInTx(
+      tx,
+      produceIngredientRows.map((ingredient) => ingredient.ingredientId)
+    );
+    const outputConsumptionRows = buildOutputConsumptionsFromPickedAllocations(
+      produceIngredientRows,
+      pickAllocationsByIngredient
+    );
+
+    await insertManufacturingOrderOutputInTx(tx, {
+      manufacturingOrderId: id,
+      manufacturingOrderBatchId: null,
+      lotId: produced.lotId,
+      quantity: actualQuantity,
+      disposition: payload.outputDisposition,
+      materialCostTotal: totalMaterialCost,
+      notes: null,
+      actorUserId: userId,
+      consumptions: outputConsumptionRows,
     });
 
     const [completed] = await tx
