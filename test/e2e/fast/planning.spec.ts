@@ -7,7 +7,9 @@ import {
   manufacturingOrders,
   purchaseOrderLines,
   purchaseOrders,
+  user,
 } from "../../../lib/db/schema";
+import { db } from "../../../lib/db";
 import {
   createCustomer,
   createItem,
@@ -280,6 +282,11 @@ test.describe("Planning workspace", () => {
     });
     let cookies = extractCookies(signup);
     expect(cookies).toBeTruthy();
+
+    await db
+      .update(user)
+      .set({ twoFactorEnabled: true })
+      .where(eq(user.email, email));
 
     const org = await fetchWithCookies(cookies, "/api/auth/organization/create", {
       method: "POST",

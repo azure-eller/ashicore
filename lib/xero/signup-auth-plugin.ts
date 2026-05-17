@@ -17,6 +17,10 @@ function settingsRedirect() {
   return "/settings?xero_signup=connected#integrations";
 }
 
+function mfaSetupRedirect(next: string) {
+  return `/mfa-setup?next=${encodeURIComponent(next)}`;
+}
+
 function signupErrorRedirect(reason: string) {
   return `/xero/sign-up/error?reason=${encodeURIComponent(reason)}`;
 }
@@ -102,7 +106,7 @@ export function xeroSignupAuthPlugin() {
             organizationId: createdOrg.id,
           });
 
-          throw ctx.redirect(settingsRedirect());
+          throw ctx.redirect(mfaSetupRedirect(settingsRedirect()));
         }
       ),
       linkXeroSignup: createAuthEndpoint(

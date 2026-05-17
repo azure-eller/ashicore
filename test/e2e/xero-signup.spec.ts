@@ -23,6 +23,7 @@ dotenv.config({ path: ".env.local" });
 const TEST_KEY = Buffer.from("xero-signup-test-key-32-bytes!!!").toString("base64");
 const BASE_URL = process.env.TEST_BASE_URL ?? "http://localhost:3000";
 const PASSWORD = "XeroSignupPassword123!";
+const CONNECTED_SETTINGS_URL = "/settings?xero_signup=connected#integrations";
 
 function setTestEncryptionKey() {
   process.env.XERO_TOKEN_ENCRYPTION_KEY = TEST_KEY;
@@ -93,6 +94,10 @@ async function signUpWithPassword(email: string) {
   return body.user.id as string;
 }
 
+async function markUserMfaEnrolled(email: string) {
+  await db.update(user).set({ twoFactorEnabled: true }).where(eq(user.email, email));
+}
+
 async function createOrgForUser(userId: string, name: string) {
   const orgId = crypto.randomUUID();
   await db.insert(organization).values({
@@ -136,7 +141,9 @@ test.describe("Xero App Store signup", () => {
     const { id: intentId } = await seedIntent({ email, token, tenantId });
 
     await page.goto(`/api/auth/xero-signup/complete?intent=${intentId}&token=${token}`);
-    await page.waitForURL("**/settings?xero_signup=connected**");
+    await page.waitForURL("**/mfa-setup?next=**");
+    const mfaUrl = new URL(page.url());
+    expect(mfaUrl.searchParams.get("next")).toBe(CONNECTED_SETTINGS_URL);
 
     const [createdUser] = await db
       .select({ id: user.id, email: user.email })
@@ -187,6 +194,7 @@ test.describe("Xero App Store signup", () => {
     await page.getByRole("button", { name: "Login" }).click();
     await page.waitForURL("**/xero/sign-up/error?reason=active_org_required");
 
+    await markUserMfaEnrolled(email);
     await db
       .update(session)
       .set({ activeOrganizationId: orgId })
