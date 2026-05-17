@@ -19,11 +19,13 @@ export type AllocationAssignment = AllocationDemandRef &
     status: "active";
     sourceLabel: string;
     demandLabel: string;
+    salesOrderId: string | null;
   };
 
 export type AllocationDemandRow = AllocationDemandRef & {
   demandKey: `${AllocationDemandType}:${string}`;
   parentDemandId: string | null;
+  salesOrderId: string | null;
   itemId: string;
   itemName: string;
   unitName: string;
@@ -80,6 +82,7 @@ export type AllocationDemandAdapterRow = {
   demandType: AllocationDemandType;
   demandId: string;
   parentDemandId?: string | null;
+  salesOrderId?: string | null;
   itemId: string;
   itemName: string;
   unitName: string;

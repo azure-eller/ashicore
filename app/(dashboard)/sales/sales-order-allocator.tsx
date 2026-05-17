@@ -599,9 +599,11 @@ function AllocationSourceEditor({
                               : null;
                             const customer = demand?.contextLabel ?? null;
                             const orderId =
-                              claim.demandType === "sales_order_line"
+                              demand?.salesOrderId ??
+                              claim.salesOrderId ??
+                              (claim.demandType === "sales_order_line"
                                 ? demand?.parentDemandId ?? null
-                                : null;
+                                : null);
                             const tooltip = `${formatQuantity(claim.quantity)} reserved for ${claim.demandLabel}${customer ? ` — ${customer}` : ""}${due ? `, due ${due}` : ""}.`;
 
                             return (

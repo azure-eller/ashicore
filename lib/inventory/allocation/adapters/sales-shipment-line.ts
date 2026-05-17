@@ -42,6 +42,7 @@ function mapShipmentDemandRow(row: {
     demandType: "sales_shipment_line",
     demandId: row.salesShipmentLineId,
     parentDemandId: row.salesOrderLineId,
+    salesOrderId: row.salesOrderId,
     itemId: row.itemId,
     itemName: row.itemName,
     unitName: row.unitName,

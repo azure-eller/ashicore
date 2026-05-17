@@ -79,7 +79,7 @@ const COLLAPSED_WEEKS_KEY = "ashicore.allocation.collapsedWeeks";
 const UNPLANNED_OPEN_KEY = "ashicore.allocation.unplannedOpen";
 const POOL_REFRESHED_AT_KEY = "ashicore.allocation.poolRefreshedAt";
 
-type RibbonFilter = "late" | "shortLines" | "complete" | "variantsShort";
+type RibbonFilter = "late" | "shortLines" | "variantsShort";
 
 type AllocationProduct = AllocatorProduct & {
   stockQty: number;
@@ -545,9 +545,6 @@ function applyRibbonFilter(
   if (filter === "late") {
     return rows.filter((row) => getRowLateState(row) != null);
   }
-  if (filter === "complete") {
-    return rows.filter((row) => rowProgress(row).state === "complete");
-  }
   if (filter === "shortLines") {
     return rows.filter((row) =>
       [...row.cells.values()].some((cell) => cell.demand > cell.alloc)
@@ -944,9 +941,11 @@ function AllocationProductCell({
       aria-label={`Allocate ${product.label}`}
     >
       <span className={styles.miniSquare} data-status={status} aria-hidden="true" />
-      <span>{cell ? compactQuantity(cell.alloc) : "0"}</span>
-      <span className={styles.allocationCellQty}>
-        / {cell ? compactQuantity(cell.demand) : "0"}
+      <span className={styles.allocationCellText}>
+        <span>{cell ? compactQuantity(cell.alloc) : "0"}</span>
+        <span className={styles.allocationCellQty}>
+          / {cell ? compactQuantity(cell.demand) : "0"}
+        </span>
       </span>
     </button>
   );
@@ -1066,7 +1065,6 @@ function AllocationToolbar({
   lateCount,
   shortLines,
   totalLines,
-  completeCount,
   variantsShort,
   activeFilter,
   onToggleFilter,
@@ -1084,7 +1082,6 @@ function AllocationToolbar({
   lateCount: number;
   shortLines: number;
   totalLines: number;
-  completeCount: number;
   variantsShort: number;
   activeFilter: RibbonFilter | null;
   onToggleFilter: (filter: RibbonFilter) => void;
@@ -1152,21 +1149,6 @@ function AllocationToolbar({
       <button
         type="button"
         className={styles.statusStat}
-        data-active={activeFilter === "complete" ? "true" : undefined}
-        onClick={() => onToggleFilter("complete")}
-        disabled={completeCount === 0}
-        aria-pressed={activeFilter === "complete"}
-      >
-        <span
-          className={styles.statusStatSquare}
-          data-tone="complete"
-          aria-hidden="true"
-        />
-        <b>{completeCount}</b> complete
-      </button>
-      <button
-        type="button"
-        className={styles.statusStat}
         data-active={activeFilter === "variantsShort" ? "true" : undefined}
         onClick={() => onToggleFilter("variantsShort")}
         disabled={variantsShort === 0}
@@ -1184,7 +1166,7 @@ function AllocationToolbar({
         className={styles.toolbarRefreshed}
         data-stale={staleness ?? undefined}
       >
-        Pool refreshed <b>{refreshedLabel}</b>
+        Refreshed <b>{refreshedLabel}</b>
       </span>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -1804,7 +1786,6 @@ export function SalesAllocationTable({
           lateCount={totals.late}
           shortLines={totals.shortLines}
           totalLines={totals.lines}
-          completeCount={totals.complete}
           variantsShort={variantsShort}
           activeFilter={activeFilter}
           onToggleFilter={toggleRibbonFilter}

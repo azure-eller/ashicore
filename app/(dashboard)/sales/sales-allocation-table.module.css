@@ -457,8 +457,10 @@
   justify-content: flex-end;
   gap: var(--space-3);
   width: 100%;
+  min-width: 0;
   height: 100%;
   padding: 0 var(--space-5);
+  overflow: hidden;
   background: transparent;
   border: 0;
   color: var(--color-ink);
@@ -467,6 +469,13 @@
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   text-align: right;
+}
+
+.allocationCellText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .allocationCell:disabled {
