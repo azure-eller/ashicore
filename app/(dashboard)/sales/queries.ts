@@ -1189,6 +1189,7 @@ async function getLockedSalesOrderInTx(tx: Tx, id: string) {
       customerId: salesOrders.customerId,
       customerName: salesOrders.customerName,
       shipDate: salesOrders.shipDate,
+      requestedDate: salesOrders.requestedDate,
       shipLine1: salesOrders.shipLine1,
       shipLine2: salesOrders.shipLine2,
       shipCity: salesOrders.shipCity,
@@ -2015,7 +2016,8 @@ async function upsertPlannedShipmentForFulfillmentPlanInTx(
   const shipAddress = await resolveShipmentAddressInTx(tx, order);
   const shipmentData: SalesShipmentInput = {
     fulfillmentType: data.fulfillmentType,
-    scheduledDate: data.deliveryDate,
+    scheduledDate: data.shipDate ?? order.shipDate,
+    deliveryDate: data.deliveryDate,
     notes: data.shipmentNotes,
     lines: data.shipmentLines,
   };
@@ -2048,6 +2050,7 @@ async function upsertPlannedShipmentForFulfillmentPlanInTx(
       .set({
         fulfillmentType: shipmentData.fulfillmentType,
         scheduledDate: shipmentData.scheduledDate,
+        deliveryDate: shipmentData.deliveryDate,
         notes: shipmentData.notes,
         ...shipAddress,
         updatedAt: new Date(),
@@ -2073,6 +2076,7 @@ async function upsertPlannedShipmentForFulfillmentPlanInTx(
       status: "planned",
       fulfillmentType: shipmentData.fulfillmentType,
       scheduledDate: shipmentData.scheduledDate,
+      deliveryDate: shipmentData.deliveryDate,
       notes: shipmentData.notes,
       orderNumber: order.orderNumber,
       customerName: order.customerName,
@@ -2121,6 +2125,7 @@ type AutoPlannedShipmentOrderSnapshot = {
   customerId: string;
   customerName: string;
   shipDate: string | null;
+  requestedDate: string | null;
   shipLine1: string | null;
   shipLine2: string | null;
   shipCity: string | null;
@@ -2451,6 +2456,7 @@ async function upsertDefaultPlannedShipmentForOrderInTx(
   const shipmentData: SalesShipmentInput = {
     fulfillmentType: "delivery",
     scheduledDate: order.shipDate,
+    deliveryDate: order.requestedDate,
     notes: null,
     lines,
   };
@@ -2475,6 +2481,7 @@ async function upsertDefaultPlannedShipmentForOrderInTx(
         orderNumber: order.orderNumber,
         customerName: order.customerName,
         scheduledDate: order.shipDate,
+        deliveryDate: order.requestedDate,
         ...shipAddress,
         updatedAt: now,
       })
@@ -2495,6 +2502,7 @@ async function upsertDefaultPlannedShipmentForOrderInTx(
       status: "planned",
       fulfillmentType: shipmentData.fulfillmentType,
       scheduledDate: shipmentData.scheduledDate,
+      deliveryDate: shipmentData.deliveryDate,
       notes: shipmentData.notes,
       orderNumber: order.orderNumber,
       customerName: order.customerName,
@@ -4728,6 +4736,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             status: salesShipments.status,
             fulfillmentType: salesShipments.fulfillmentType,
             scheduledDate: salesShipments.scheduledDate,
+            deliveryDate: salesShipments.deliveryDate,
             shippedAt: salesShipments.shippedAt,
             totalAmount: trimScale(
               sql`COALESCE(SUM(${salesShipmentLines.quantity} * ${salesOrderLines.unitPrice}), 0)`
@@ -4754,6 +4763,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             salesShipments.status,
             salesShipments.fulfillmentType,
             salesShipments.scheduledDate,
+            salesShipments.deliveryDate,
             salesShipments.shippedAt
           )
           .orderBy(
@@ -4775,6 +4785,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             fulfillmentType:
               row.fulfillmentType as SalesOrderListRow["shipments"][number]["fulfillmentType"],
             scheduledDate: row.scheduledDate,
+            deliveryDate: row.deliveryDate,
             shippedAt: row.shippedAt,
             totalAmount: row.totalAmount,
             lineCount: row.lineCount,
@@ -5413,6 +5424,7 @@ export async function getSalesOrder(
         status: salesShipments.status,
         fulfillmentType: salesShipments.fulfillmentType,
         scheduledDate: salesShipments.scheduledDate,
+        deliveryDate: salesShipments.deliveryDate,
         shippedAt: salesShipments.shippedAt,
         notes: salesShipments.notes,
         customerFreightChargeAmount: trimScaleNullable(
@@ -5464,6 +5476,7 @@ export async function getSalesOrder(
           status: row.status as SalesShipmentRow["status"],
           fulfillmentType: row.fulfillmentType as SalesShipmentRow["fulfillmentType"],
           scheduledDate: row.scheduledDate,
+          deliveryDate: row.deliveryDate,
           shippedAt: row.shippedAt,
           notes: row.notes,
           customerFreightChargeAmount: row.customerFreightChargeAmount,
@@ -5995,6 +6008,7 @@ export async function createSalesOrder(
         customerId: prepared.customerId,
         customerName: prepared.customerName,
         shipDate: prepared.shipDate,
+        requestedDate: prepared.requestedDate,
         shipLine1: prepared.shipLine1,
         shipLine2: prepared.shipLine2,
         shipCity: prepared.shipCity,
@@ -6239,6 +6253,7 @@ export async function updateSalesOrder(
         customerId: prepared.customerId,
         customerName: prepared.customerName,
         shipDate: prepared.shipDate,
+        requestedDate: prepared.requestedDate,
         shipLine1: prepared.shipLine1,
         shipLine2: prepared.shipLine2,
         shipCity: prepared.shipCity,
@@ -6382,6 +6397,7 @@ export async function getSalesShipmentForBol(
         customerId: salesOrders.customerId,
         requestedDate: salesOrders.requestedDate,
         scheduledDate: salesShipments.scheduledDate,
+        deliveryDate: salesShipments.deliveryDate,
         shippedAt: salesShipments.shippedAt,
         notes: salesShipments.notes,
         status: salesShipments.status,
@@ -6447,7 +6463,7 @@ export async function getSalesShipmentForBol(
       shipmentNumber: shipment.shipmentNumber,
       customerName: shipment.customerName,
       ...contact,
-      requestedDate: shipment.requestedDate,
+      requestedDate: shipment.deliveryDate ?? shipment.requestedDate,
       scheduledDate: shipment.scheduledDate,
       shippedAt: shipment.shippedAt,
       notes: shipment.notes,
@@ -6669,6 +6685,7 @@ export async function createSalesShipment(
         status: "planned",
         fulfillmentType: data.fulfillmentType,
         scheduledDate: data.scheduledDate,
+        deliveryDate: data.deliveryDate,
         notes: data.notes,
         orderNumber: order.orderNumber,
         customerName: order.customerName,
@@ -6798,6 +6815,7 @@ export async function updateSalesShipment(
         customerId: salesOrders.customerId,
         customerName: salesOrders.customerName,
         shipDate: salesOrders.shipDate,
+        requestedDate: salesOrders.requestedDate,
         shipLine1: salesOrders.shipLine1,
         shipLine2: salesOrders.shipLine2,
         shipCity: salesOrders.shipCity,
@@ -6848,6 +6866,7 @@ export async function updateSalesShipment(
       .set({
         fulfillmentType: data.fulfillmentType,
         scheduledDate: data.scheduledDate,
+        deliveryDate: data.deliveryDate,
         notes: data.notes,
         ...shipAddress,
         updatedAt: new Date(),
@@ -6863,6 +6882,7 @@ export async function updateSalesShipment(
         customerId: shipment.customerId,
         customerName: shipment.customerName,
         shipDate: shipment.shipDate,
+        requestedDate: shipment.requestedDate,
         shipLine1: shipment.shipLine1,
         shipLine2: shipment.shipLine2,
         shipCity: shipment.shipCity,
@@ -6971,6 +6991,7 @@ export async function deleteSalesShipment(
         customerId: salesOrders.customerId,
         customerName: salesOrders.customerName,
         shipDate: salesOrders.shipDate,
+        requestedDate: salesOrders.requestedDate,
         shipLine1: salesOrders.shipLine1,
         shipLine2: salesOrders.shipLine2,
         shipCity: salesOrders.shipCity,
@@ -7028,6 +7049,7 @@ export async function deleteSalesShipment(
       customerId: shipment.customerId,
       customerName: shipment.customerName,
       shipDate: shipment.shipDate,
+      requestedDate: shipment.requestedDate,
       shipLine1: shipment.shipLine1,
       shipLine2: shipment.shipLine2,
       shipCity: shipment.shipCity,

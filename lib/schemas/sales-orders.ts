@@ -284,7 +284,11 @@ export const salesShipmentInputSchema = z.object({
   scheduledDate: nullableString.refine((value) => {
     if (value == null) return true;
     return isValidIsoDate(value);
-  }, "Scheduled date must be a real date in YYYY-MM-DD format"),
+  }, "Ship date must be a real date in YYYY-MM-DD format"),
+  deliveryDate: nullableString.refine((value) => {
+    if (value == null) return true;
+    return isValidIsoDate(value);
+  }, "Delivery date must be a real date in YYYY-MM-DD format"),
   notes: nullableString,
   splitFromShipmentId: z.string().uuid().nullable().optional(),
   lines: shipmentLinesSchema,
@@ -292,6 +296,10 @@ export const salesShipmentInputSchema = z.object({
 export type SalesShipmentInput = z.infer<typeof salesShipmentInputSchema>;
 
 export const salesFulfillmentPlanInputSchema = z.object({
+  shipDate: nullableString.refine((value) => {
+    if (value == null) return true;
+    return isValidIsoDate(value);
+  }, "Ship date must be a real date in YYYY-MM-DD format"),
   deliveryDate: z
     .string()
     .min(1, "Delivery date is required")

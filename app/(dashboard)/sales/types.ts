@@ -271,6 +271,7 @@ export type SalesOrderListShipment = {
   status: "planned" | "shipped";
   fulfillmentType: "delivery" | "pickup";
   scheduledDate: string | null;
+  deliveryDate: string | null;
   shippedAt: Date | null;
   totalAmount: string;
   lineCount: number;
@@ -455,6 +456,7 @@ export type SalesShipmentRow = {
   status: "planned" | "shipped";
   fulfillmentType: "delivery" | "pickup";
   scheduledDate: string | null;
+  deliveryDate: string | null;
   shippedAt: Date | null;
   notes: string | null;
   customerFreightChargeAmount: string | null;

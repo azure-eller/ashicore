@@ -4,6 +4,14 @@ loadWorktreeEnv();
 
 const REAL_PAONIA_ORG_SLUG = "paonia-soil-company";
 
+function isMfaDisabledForDevOrTest() {
+  const nodeEnv = process.env.NODE_ENV ?? "development";
+  return (
+    process.env.AUTH_MFA_DISABLED === "1" &&
+    (nodeEnv === "development" || nodeEnv === "test")
+  );
+}
+
 async function removeRealPaoniaMembership() {
   const connectionString =
     process.env.DATABASE_URL ?? process.env.DATABASE_URL_APP;
@@ -49,6 +57,23 @@ async function main() {
   const { loadPaoniaDevData } = await import("./load-paonia-dev-data");
 
   const result = await ensureTestAccount({ log: console.log });
+  if (isMfaDisabledForDevOrTest()) {
+    const connectionString =
+      process.env.DATABASE_URL ?? process.env.DATABASE_URL_APP;
+    if (connectionString) {
+      const { Client } = await import("pg");
+      const client = new Client({ connectionString });
+      await client.connect();
+      try {
+        await client.query(
+          'UPDATE system."user" SET two_factor_enabled = false, updated_at = NOW() WHERE email = $1',
+          [TEST_ACCOUNT_EMAIL]
+        );
+      } finally {
+        await client.end();
+      }
+    }
+  }
   await loadPaoniaDevData(result.organizationId, console.log);
   const removedRealMembership = await removeRealPaoniaMembership();
 

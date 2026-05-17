@@ -38,7 +38,18 @@ type MemberContext = {
 
 type AuthSession = Awaited<ReturnType<typeof auth.api.getSession>>;
 
+export function isMfaDisabledForDevOrTest(): boolean {
+  return (
+    process.env.AUTH_MFA_DISABLED === "1" &&
+    (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test")
+  );
+}
+
 export function isMfaEnrolled(session: AuthSession): boolean {
+  if (isMfaDisabledForDevOrTest()) {
+    return true;
+  }
+
   return Boolean(
     session &&
       (session.user as typeof session.user & { twoFactorEnabled?: boolean | null })
