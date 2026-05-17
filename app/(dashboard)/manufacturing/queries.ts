@@ -32,6 +32,8 @@ import {
   stockAllocations,
   salesOrderLines,
   salesOrders,
+  salesShipmentLines,
+  salesShipments,
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
@@ -137,6 +139,17 @@ function shippedSalesOrderLineQuantitySql() {
       ON shipments."id" = shipment_lines."sales_shipment_id"
     WHERE shipment_lines."sales_order_line_id" = "sales"."sales_order_lines"."id"
       AND shipments."status" = 'shipped'
+  ), 0)`;
+}
+
+function plannedSalesOrderLineQuantitySql() {
+  return sql<string>`COALESCE((
+    SELECT SUM(shipment_lines."quantity")
+    FROM "sales"."sales_shipment_lines" shipment_lines
+    INNER JOIN "sales"."sales_shipments" shipments
+      ON shipments."id" = shipment_lines."sales_shipment_id"
+    WHERE shipment_lines."sales_order_line_id" = "sales"."sales_order_lines"."id"
+      AND shipments."status" = 'planned'
   ), 0)`;
 }
 
@@ -4725,6 +4738,14 @@ function allocationQuantity(value: string | number) {
   return normalizeNumeric(normalizeQuantityNumber(Number(value)));
 }
 
+type SalesOutputDemandRef = {
+  demandType: "sales_order_line" | "sales_shipment_line";
+  demandId: string;
+  salesOrderLineId: string;
+  quantity: number;
+  demandLabelSnapshot: string | null;
+};
+
 async function getSourceOutputLotIdsInTx(tx: Tx, manufacturingOrderId: string) {
   const rows = await tx
     .select({ lotId: manufacturingOrderOutputs.lotId })
@@ -4920,24 +4941,48 @@ async function getManufacturingOutputAllocationInTx(
       (sum, allocation) => normalizeQuantityNumber(sum + Number(allocation.quantity)),
       0
     );
-    const assignedSalesQty = activeSourceAllocations
-      .filter((allocation) => allocation.demandType === "sales_order_line")
-      .reduce(
-        (sum, allocation) => normalizeQuantityNumber(sum + Number(allocation.quantity)),
-        0
-      );
-    const salesAllocationQtyByLineId = new Map<string, number>();
-    activeSourceAllocations
-      .filter((allocation) => allocation.demandType === "sales_order_line")
-      .forEach((allocation) => {
-        salesAllocationQtyByLineId.set(
-          allocation.demandId,
-          normalizeQuantityNumber(
-            (salesAllocationQtyByLineId.get(allocation.demandId) ?? 0) +
-              Number(allocation.quantity)
-          )
+    const shipmentDemandIds = activeSourceAllocations
+      .filter((allocation) => allocation.demandType === "sales_shipment_line")
+      .map((allocation) => allocation.demandId);
+    const shipmentDemandRows =
+      shipmentDemandIds.length > 0
+        ? await tx
+            .select({
+              shipmentLineId: salesShipmentLines.id,
+              salesOrderLineId: salesShipmentLines.salesOrderLineId,
+            })
+            .from(salesShipmentLines)
+            .where(inArray(salesShipmentLines.id, shipmentDemandIds))
+        : [];
+    const salesOrderLineIdByShipmentLineId = new Map(
+      shipmentDemandRows.map((row) => [row.shipmentLineId, row.salesOrderLineId])
+    );
+    const salesSourceAllocations = activeSourceAllocations.flatMap((allocation) => {
+      if (allocation.demandType === "sales_order_line") {
+        return [{ ...allocation, salesOrderLineId: allocation.demandId }];
+      }
+      if (allocation.demandType === "sales_shipment_line") {
+        const salesOrderLineId = salesOrderLineIdByShipmentLineId.get(
+          allocation.demandId
         );
-      });
+        return salesOrderLineId ? [{ ...allocation, salesOrderLineId }] : [];
+      }
+      return [];
+    });
+    const assignedSalesQty = salesSourceAllocations.reduce(
+      (sum, allocation) => normalizeQuantityNumber(sum + Number(allocation.quantity)),
+      0
+    );
+    const salesAllocationQtyByLineId = new Map<string, number>();
+    salesSourceAllocations.forEach((allocation) => {
+      salesAllocationQtyByLineId.set(
+        allocation.salesOrderLineId,
+        normalizeQuantityNumber(
+          (salesAllocationQtyByLineId.get(allocation.salesOrderLineId) ?? 0) +
+            Number(allocation.quantity)
+        )
+      );
+    });
     const salesCandidates = await tx
       .select({
         salesOrderLineId: salesOrderLines.id,
@@ -4948,6 +4993,7 @@ async function getManufacturingOutputAllocationInTx(
         orderedQty: trimScale(salesOrderLines.quantity).as("orderedQty"),
         cancelledQty: trimScale(salesOrderLines.cancelledQuantity).as("cancelledQty"),
         shippedQty: shippedSalesOrderLineQuantitySql(),
+        plannedQty: plannedSalesOrderLineQuantitySql(),
       })
       .from(salesOrderLines)
       .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
@@ -4970,6 +5016,10 @@ async function getManufacturingOutputAllocationInTx(
               Number(candidate.shippedQty)
           )
         );
+        const unplannedQty = Math.max(
+          0,
+          normalizeQuantityNumber(remainingQty - Number(candidate.plannedQty))
+        );
         const assignedQty =
           salesAllocationQtyByLineId.get(candidate.salesOrderLineId) ?? 0;
 
@@ -4982,6 +5032,7 @@ async function getManufacturingOutputAllocationInTx(
           remainingQty: normalizeNumeric(remainingQty),
           assignedQty: normalizeNumeric(assignedQty),
           shortQty: normalizeNumeric(Math.max(0, remainingQty - assignedQty)),
+          unplannedQty: normalizeNumeric(unplannedQty),
         };
       })
       .filter(
@@ -5063,6 +5114,7 @@ export async function saveManufacturingOutputAllocation(
           inArray(stockAllocations.demandType, [
             "manufacturing_order_ingredient",
             "sales_order_line",
+            "sales_shipment_line",
           ]),
           eq(stockAllocations.itemId, order.productId),
           eq(stockAllocations.status, "active"),
@@ -5090,6 +5142,7 @@ export async function saveManufacturingOutputAllocation(
               orderedQty: trimScale(salesOrderLines.quantity).as("orderedQty"),
               cancelledQty: trimScale(salesOrderLines.cancelledQuantity).as("cancelledQty"),
               shippedQty: shippedSalesOrderLineQuantitySql(),
+              plannedQty: plannedSalesOrderLineQuantitySql(),
               status: salesOrders.status,
               deletedAt: salesOrders.deletedAt,
             })
@@ -5112,6 +5165,98 @@ export async function saveManufacturingOutputAllocation(
         destination,
       ])
     );
+    const plannedShipmentRows =
+      normalizedSales.length > 0
+        ? await tx
+            .select({
+              shipmentLineId: salesShipmentLines.id,
+              salesOrderLineId: salesShipmentLines.salesOrderLineId,
+              shipmentNumber: salesShipments.shipmentNumber,
+              quantity: trimScale(salesShipmentLines.quantity).as("quantity"),
+              scheduledDate: salesShipments.scheduledDate,
+              sequence: salesShipments.sequence,
+              sortOrder: salesShipmentLines.sortOrder,
+            })
+            .from(salesShipmentLines)
+            .innerJoin(
+              salesShipments,
+              eq(salesShipmentLines.salesShipmentId, salesShipments.id)
+            )
+            .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
+            .where(
+              and(
+                eq(salesShipments.organizationId, orgId),
+                eq(salesShipments.status, "planned"),
+                eq(salesOrders.status, "open"),
+                isNull(salesOrders.deletedAt),
+                eq(salesShipmentLines.itemId, order.productId),
+                inArray(
+                  salesShipmentLines.salesOrderLineId,
+                  normalizedSales.map((allocation) => allocation.salesOrderLineId)
+                )
+              )
+            )
+            .orderBy(
+              asc(salesShipments.scheduledDate),
+              asc(salesShipments.sequence),
+              asc(salesShipmentLines.sortOrder)
+            )
+        : [];
+    const plannedShipmentsBySalesLineId = new Map<
+      string,
+      typeof plannedShipmentRows
+    >();
+    for (const row of plannedShipmentRows) {
+      const rows = plannedShipmentsBySalesLineId.get(row.salesOrderLineId) ?? [];
+      rows.push(row);
+      plannedShipmentsBySalesLineId.set(row.salesOrderLineId, rows);
+    }
+    const demandRefsForCapacity = [
+      ...normalizedSales.map((allocation) => ({
+        demandType: "sales_order_line" as const,
+        demandId: allocation.salesOrderLineId,
+      })),
+      ...plannedShipmentRows.map((line) => ({
+        demandType: "sales_shipment_line" as const,
+        demandId: line.shipmentLineId,
+      })),
+    ];
+    const activeDemandAllocationRows =
+      demandRefsForCapacity.length > 0
+        ? await tx
+            .select({
+              demandType: stockAllocations.demandType,
+              demandId: stockAllocations.demandId,
+              quantity: trimScale(stockAllocations.quantity).as("quantity"),
+            })
+            .from(stockAllocations)
+            .where(
+              and(
+                eq(stockAllocations.organizationId, orgId),
+                eq(stockAllocations.itemId, order.productId),
+                eq(stockAllocations.status, "active"),
+                or(
+                  ...demandRefsForCapacity.map((ref) =>
+                    and(
+                      eq(stockAllocations.demandType, ref.demandType),
+                      eq(stockAllocations.demandId, ref.demandId)
+                    )
+                  )
+                )
+              )
+            )
+        : [];
+    const activeQtyByDemandKey = new Map<string, number>();
+    for (const allocation of activeDemandAllocationRows) {
+      const key = `${allocation.demandType}:${allocation.demandId}`;
+      activeQtyByDemandKey.set(
+        key,
+        normalizeQuantityNumber(
+          (activeQtyByDemandKey.get(key) ?? 0) + Number(allocation.quantity)
+        )
+      );
+    }
+    const salesDemandRefs: SalesOutputDemandRef[] = [];
 
     for (const allocation of normalizedSales) {
       const destination = salesDestinationById.get(allocation.salesOrderLineId);
@@ -5133,11 +5278,76 @@ export async function saveManufacturingOutputAllocation(
             Number(destination.shippedQty)
         )
       );
-      if (allocation.quantity > remainingNeed) {
+      const plannedRows =
+        plannedShipmentsBySalesLineId.get(allocation.salesOrderLineId) ?? [];
+      const plannedCapacity = plannedRows.reduce((sum, row) => {
+        const demandKey = `sales_shipment_line:${row.shipmentLineId}`;
+        return normalizeQuantityNumber(
+          sum +
+            Math.max(
+              0,
+              Number(row.quantity) - (activeQtyByDemandKey.get(demandKey) ?? 0)
+            )
+        );
+      }, 0);
+      const unplannedNeed = Math.max(
+        0,
+        normalizeQuantityNumber(remainingNeed - Number(destination.plannedQty))
+      );
+      const unplannedCapacity = Math.max(
+        0,
+        normalizeQuantityNumber(
+          unplannedNeed -
+            (activeQtyByDemandKey.get(
+              `sales_order_line:${allocation.salesOrderLineId}`
+            ) ?? 0)
+        )
+      );
+      const totalCapacity = normalizeQuantityNumber(
+        plannedCapacity + unplannedCapacity
+      );
+      if (allocation.quantity > totalCapacity) {
         throw new ManufacturingError(
           "Assigned output cannot exceed destination remaining need.",
           409
         );
+      }
+
+      let remainingAllocation = allocation.quantity;
+      for (const row of plannedRows) {
+        if (remainingAllocation <= 0) break;
+        const demandKey = `sales_shipment_line:${row.shipmentLineId}`;
+        const capacity = Math.max(
+          0,
+          normalizeQuantityNumber(
+            Number(row.quantity) - (activeQtyByDemandKey.get(demandKey) ?? 0)
+          )
+        );
+        const quantity = normalizeQuantityNumber(
+          Math.min(remainingAllocation, capacity)
+        );
+        if (quantity <= 0) continue;
+
+        salesDemandRefs.push({
+          demandType: "sales_shipment_line",
+          demandId: row.shipmentLineId,
+          salesOrderLineId: allocation.salesOrderLineId,
+          quantity,
+          demandLabelSnapshot: row.shipmentNumber,
+        });
+        remainingAllocation = normalizeQuantityNumber(
+          remainingAllocation - quantity
+        );
+      }
+
+      if (remainingAllocation > 0) {
+        salesDemandRefs.push({
+          demandType: "sales_order_line",
+          demandId: allocation.salesOrderLineId,
+          salesOrderLineId: allocation.salesOrderLineId,
+          quantity: remainingAllocation,
+          demandLabelSnapshot: null,
+        });
       }
     }
 
@@ -5259,15 +5469,16 @@ export async function saveManufacturingOutputAllocation(
 
     if (normalizedSales.length > 0) {
       await tx.insert(stockAllocations).values(
-        normalizedSales.map((allocation) => ({
+        salesDemandRefs.map((allocation) => ({
           organizationId: orgId,
-          demandType: "sales_order_line" as const,
-          demandId: allocation.salesOrderLineId,
+          demandType: allocation.demandType,
+          demandId: allocation.demandId,
           itemId: order.productId,
           sourceType: "manufacturing_order" as const,
           sourceId: orderId,
           quantity: allocationQuantity(allocation.quantity),
           status: "active" as const,
+          demandLabelSnapshot: allocation.demandLabelSnapshot,
           createdBy: userId,
           updatedBy: userId,
         }))

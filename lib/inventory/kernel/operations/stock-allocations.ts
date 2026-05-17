@@ -277,13 +277,27 @@ async function getOpenDemandQtyForAllocationInTx(
           eq(salesShipments.status, "shipped")
         )
       );
+    const [planned] = await tx
+      .select({
+        quantity: sql<string>`COALESCE(SUM(${salesShipmentLines.quantity}), 0)`,
+      })
+      .from(salesShipmentLines)
+      .innerJoin(salesShipments, eq(salesShipments.id, salesShipmentLines.salesShipmentId))
+      .where(
+        and(
+          eq(salesShipmentLines.salesOrderLineId, params.demandId),
+          eq(salesShipmentLines.itemId, params.itemId),
+          eq(salesShipments.status, "planned")
+        )
+      );
 
     baseRemainingQty = roundQuantity(
       Math.max(
         0,
         parseFloat(line?.quantity ?? "0") -
           parseFloat(line?.cancelledQuantity ?? "0") -
-          parseFloat(shipped?.quantity ?? "0")
+          parseFloat(shipped?.quantity ?? "0") -
+          parseFloat(planned?.quantity ?? "0")
       )
     );
   } else if (params.demandType === "sales_shipment_line") {

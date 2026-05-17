@@ -28,6 +28,7 @@ import {
   createItem,
   createPurchaseOrder,
   createSalesOrder,
+  completeManufacturingOrder,
   confirmSalesOrder,
   createSupplier,
   createManufacturingOrder,
@@ -2032,6 +2033,157 @@ test.describe("Sales write-path smoke", () => {
         demandId: shipmentLine.id,
         quantity: "4.0000",
         status: "active",
+      },
+    ]);
+  });
+
+  test("manufacturing output allocation follows planned shipment demand", async ({
+    db,
+  }) => {
+    const suffix = `${ts}-MO-ALLOC`;
+    const customerResult = await createCustomer({
+      name: `Fast MO Allocation Customer ${suffix}`,
+    });
+    expect(customerResult.status).toBe(201);
+
+    const materialResult = await createItem({
+      name: `Fast MO Allocation Material ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-MO-ALLOC-MAT-${suffix}`,
+      category: `Fast MO Allocation ${suffix}`,
+      description: "Material for output allocation bucket regression",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "20",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialResult.status).toBe(201);
+    const materialId = materialResult.body.id as string;
+
+    const productResult = await createItem({
+      name: `Fast MO Allocation Product ${suffix}`,
+      itemType: "product",
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-MO-ALLOC-PROD-${suffix}`,
+      category: `Fast MO Allocation ${suffix}`,
+      description: "Product for output allocation bucket regression",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: materialId, quantity: "1" }],
+    });
+    expect(productResult.status).toBe(201);
+    const productId = productResult.body.id as string;
+
+    const orderResult = await createSalesOrder({
+      customerId: customerResult.body.id as string,
+      status: "open",
+      requestedDate: "2026-06-10",
+      lines: [{ itemId: productId, quantity: "5", unitPrice: "10" }],
+    });
+    expect(orderResult.status).toBe(201);
+    const orderId = orderResult.body.id as string;
+
+    const [salesLine] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, orderId));
+    expect(salesLine?.id).toBeTruthy();
+
+    const [shipmentLine] = await db
+      .select({
+        id: salesShipmentLines.id,
+        quantity: salesShipmentLines.quantity,
+      })
+      .from(salesShipmentLines)
+      .innerJoin(
+        salesShipments,
+        eq(salesShipmentLines.salesShipmentId, salesShipments.id)
+      )
+      .where(eq(salesShipments.salesOrderId, orderId));
+    expect(shipmentLine).toMatchObject({ quantity: "5.0000" });
+
+    const sourceMo = await createManufacturingOrder({
+      productId,
+      plannedQuantity: "5",
+      ingredients: [{ itemId: materialId, quantityPerUnit: "1" }],
+    });
+    expect(sourceMo.status).toBe(201);
+    const sourceMoId = sourceMo.body.id as string;
+
+    const allocationResponse = await testFetch(
+      `/api/manufacturing-orders/${sourceMoId}/output-allocation`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          salesAllocations: [{ salesOrderLineId: salesLine.id, quantity: "5" }],
+          productionAllocations: [],
+        }),
+      }
+    );
+    expect(allocationResponse.status).toBe(200);
+
+    const promiseRows = await db
+      .select({
+        demandType: stockAllocations.demandType,
+        demandId: stockAllocations.demandId,
+        quantity: stockAllocations.quantity,
+      })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.itemId, productId),
+          eq(stockAllocations.sourceType, "manufacturing_order"),
+          eq(stockAllocations.sourceId, sourceMoId),
+          eq(stockAllocations.status, "active")
+        )
+      );
+    expect(promiseRows).toEqual([
+      {
+        demandType: "sales_shipment_line",
+        demandId: shipmentLine.id,
+        quantity: "5.0000",
+      },
+    ]);
+
+    const [ingredient] = await db
+      .select({ id: manufacturingOrderIngredients.id })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, sourceMoId));
+    expect(ingredient?.id).toBeTruthy();
+    const pickResponse = await testFetch(
+      `/api/manufacturing-orders/${sourceMoId}/ingredients/${ingredient.id}/pick`,
+      { method: "POST", body: JSON.stringify({}) }
+    );
+    expect(pickResponse.status).toBe(200);
+
+    const completeResponse = await completeManufacturingOrder(sourceMoId, "5");
+    expect(completeResponse.status).toBe(200);
+
+    const materializedRows = await db
+      .select({
+        demandType: stockAllocations.demandType,
+        demandId: stockAllocations.demandId,
+        sourceType: stockAllocations.sourceType,
+        quantity: stockAllocations.quantity,
+      })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.itemId, productId),
+          eq(stockAllocations.status, "active")
+        )
+      );
+    expect(materializedRows).toEqual([
+      {
+        demandType: "sales_shipment_line",
+        demandId: shipmentLine.id,
+        sourceType: "inventory_lot",
+        quantity: "5.0000",
       },
     ]);
   });
