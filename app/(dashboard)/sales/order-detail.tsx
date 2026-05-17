@@ -24,6 +24,7 @@ import {
 } from "@/components/accounting-sync-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { DetailPageActions } from "@/components/detail-page-actions";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { TooltipHeader } from "@/components/tooltip-header";
@@ -150,6 +151,7 @@ type ShipmentActionPayload = {
   shipmentId: string;
   idempotencyKey: string;
   confirmNegativeStock?: boolean;
+  createXeroInvoice?: boolean;
 };
 
 type ShipmentInvoiceActionPayload = {
@@ -1010,19 +1012,6 @@ function ShippingPanel({
         </div>
       ) : null}
 
-      {order.shippingReadiness.blockers.length > 0 ? (
-        <div className="rounded-md border px-4 py-3 text-sm text-muted-foreground">
-          <div className="font-medium text-foreground">
-            Shipment planning is available; final shipping is blocked.
-          </div>
-          {order.shippingReadiness.blockers.map((blocker) => (
-            <div key={blocker} className="mt-1">
-              {blocker}
-            </div>
-          ))}
-        </div>
-      ) : null}
-
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm text-muted-foreground">
           {shippedShipmentCount} of {activeShipmentCount} shipped
@@ -1371,14 +1360,16 @@ export function OrderDetail({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
-	  const [shipmentToShip, setShipmentToShip] = useState<SalesShipmentRow | null>(null);
-	  const [shipShipmentIdempotencyKey, setShipShipmentIdempotencyKey] =
-	    useState<string | null>(null);
-	  const [negativeStockWarning, setNegativeStockWarning] = useState<{
-	    shipmentId: string;
-	    idempotencyKey: string;
-	    warning: NegativeStockWarningPayload;
-	  } | null>(null);
+  const [shipmentToShip, setShipmentToShip] = useState<SalesShipmentRow | null>(null);
+  const [shipShipmentIdempotencyKey, setShipShipmentIdempotencyKey] =
+    useState<string | null>(null);
+  const [createInvoiceOnShip, setCreateInvoiceOnShip] = useState(false);
+  const [negativeStockWarning, setNegativeStockWarning] = useState<{
+    shipmentId: string;
+    idempotencyKey: string;
+    createXeroInvoice: boolean;
+    warning: NegativeStockWarningPayload;
+  } | null>(null);
   const [shipmentForm, setShipmentForm] = useState<ShipmentFormState | null>(null);
   const [shipmentCostForm, setShipmentCostForm] =
     useState<ShipmentCostFormState | null>(null);
@@ -1684,43 +1675,50 @@ export function OrderDetail({
     },
   });
 
-	  const shipShipmentMutation = useMutation({
-	    mutationFn: async ({
-	      shipmentId,
-	      idempotencyKey,
-	      confirmNegativeStock,
-	    }: ShipmentActionPayload) => {
-	      const response = await fetch(
-	        `/api/sales-orders/${order.id}/shipments/${shipmentId}/ship`,
-	        {
-	          method: "POST",
-	          headers: {
-	            "Idempotency-Key": idempotencyKey,
-	            "Content-Type": "application/json",
-	          },
-	          body: JSON.stringify({ confirmNegativeStock }),
-	        }
-	      );
-	      const body = await response.json().catch(() => null);
-	      if (!response.ok) {
-	        throw {
-	          status: response.status,
-	          error: getApiErrorMessage(body, "Failed to ship shipment."),
-	          negativeStock: body?.negativeStock,
-	        } satisfies ActionError;
-	      }
-	    },
-    onMutate: () => {
+  const shipShipmentMutation = useMutation({
+    mutationFn: async ({
+      shipmentId,
+      idempotencyKey,
+      confirmNegativeStock,
+      createXeroInvoice,
+    }: ShipmentActionPayload) => {
+      const response = await fetch(
+        `/api/sales-orders/${order.id}/shipments/${shipmentId}/ship`,
+        {
+          method: "POST",
+          headers: {
+            "Idempotency-Key": idempotencyKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            confirmNegativeStock,
+            syncAccounting: createXeroInvoice === true,
+          }),
+        }
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw {
+          status: response.status,
+          error: getApiErrorMessage(body, "Failed to ship shipment."),
+          negativeStock: body?.negativeStock,
+        } satisfies ActionError;
+      }
+    },
+    onMutate: (variables) => {
       setActionError(null);
       openSyncDialog({
         title: "Shipping Shipment",
         description:
-          "The shipment will be marked shipped. If this completes the order, the invoice will sync to Xero.",
+          variables.createXeroInvoice === true
+            ? "The shipment will be marked shipped. If this completes the order, a Xero invoice will be created."
+            : "The shipment will be marked shipped.",
         localActionLabel: "Mark shipment shipped",
+        includeAccounting: variables.createXeroInvoice === true,
         includeEmail: false,
       });
     },
-	    onSuccess: async () => {
+    onSuccess: async (_result, variables) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
         queryClient.invalidateQueries({ queryKey: ["items"] }),
@@ -1730,12 +1728,13 @@ export function OrderDetail({
       const latestDocument = salesOrderAccountingDocument(latest, {
         salesInvoiceAccountReady: currentSalesInvoiceAccountReady,
       });
-      const includeAccounting = latest.status === "done";
+      const includeAccounting =
+        latest.status === "done" && variables.createXeroInvoice === true;
       setSyncDialog({
         title: includeAccounting ? "Shipment Complete" : "Shipment Recorded",
         description: includeAccounting
           ? "The order is shipped. The accounting invoice result is shown below."
-          : "The shipment was marked shipped. Remaining quantities still need shipment.",
+          : "The shipment was marked shipped.",
         stages: buildAccountingSyncStages({
           timeZone,
           document: latestDocument,
@@ -1748,31 +1747,33 @@ export function OrderDetail({
         documentNumber: includeAccounting ? latestDocument.documentNumber : null,
         showProviderAction: includeAccounting && latestDocument.pushStatus === "pushed",
       });
-	      setShipmentToShip(null);
-	      setShipShipmentIdempotencyKey(null);
-	      setNegativeStockWarning(null);
-	      router.refresh();
-	    },
-	    onError: (error: ActionError, variables) => {
-	      if (error.status === 409 && error.negativeStock) {
-	        setNegativeStockWarning({
-	          shipmentId: variables.shipmentId,
-	          idempotencyKey: variables.idempotencyKey,
-	          warning: error.negativeStock,
-	        });
-	        setSyncDialog(null);
-	        return;
-	      }
-	      const message = error.error ?? "Failed to ship shipment.";
-	      setActionError(message);
-	      failSyncDialog({
-	        title: "Shipment Failed",
-	        description: "The shipment was not marked shipped.",
-	        localActionLabel: "Mark shipment shipped",
-	        message,
-	      });
-	    },
-	  });
+      setShipmentToShip(null);
+      setShipShipmentIdempotencyKey(null);
+      setCreateInvoiceOnShip(false);
+      setNegativeStockWarning(null);
+      router.refresh();
+    },
+    onError: (error: ActionError, variables) => {
+      if (error.status === 409 && error.negativeStock) {
+        setNegativeStockWarning({
+          shipmentId: variables.shipmentId,
+          idempotencyKey: variables.idempotencyKey,
+          createXeroInvoice: variables.createXeroInvoice === true,
+          warning: error.negativeStock,
+        });
+        setSyncDialog(null);
+        return;
+      }
+      const message = error.error ?? "Failed to ship shipment.";
+      setActionError(message);
+      failSyncDialog({
+        title: "Shipment Failed",
+        description: "The shipment was not marked shipped.",
+        localActionLabel: "Mark shipment shipped",
+        message,
+      });
+    },
+  });
 
   const xeroPushMutation = useMutation({
     mutationFn: async () => {
@@ -1904,7 +1905,7 @@ export function OrderDetail({
       <Badge variant="secondary">Setup needed</Badge>
       <span className="text-warning/80">
         {xeroInvoiceSetupStatus === "missing_sales_account"
-          ? "Set a sales invoice account code before creating Xero invoices."
+          ? "Xero is connected. Set the sales invoice account code before creating Xero invoices."
           : "Connect Xero before creating invoices."}
       </span>
       <Button type="button" size="sm" variant="outline" asChild>
@@ -1951,6 +1952,7 @@ export function OrderDetail({
   const openShipShipmentDialog = (shipment: SalesShipmentRow) => {
     setShipmentToShip(shipment);
     setShipShipmentIdempotencyKey(`sales-shipment-ship:${crypto.randomUUID()}`);
+    setCreateInvoiceOnShip(false);
   };
 
   const openDeleteLineDialog = (line: SalesOrderDetailType["lines"][number]) => {
@@ -2602,6 +2604,7 @@ export function OrderDetail({
                   shipmentId: negativeStockWarning.shipmentId,
                   idempotencyKey: negativeStockWarning.idempotencyKey,
                   confirmNegativeStock: true,
+                  createXeroInvoice: negativeStockWarning.createXeroInvoice,
                 });
               }}
             >
@@ -2617,6 +2620,7 @@ export function OrderDetail({
           if (!open) {
             setShipmentToShip(null);
             setShipShipmentIdempotencyKey(null);
+            setCreateInvoiceOnShip(false);
           } else if (!shipShipmentIdempotencyKey) {
             setShipShipmentIdempotencyKey(
               `sales-shipment-ship:${crypto.randomUUID()}`
@@ -2631,6 +2635,22 @@ export function OrderDetail({
               Inventory allocated to this shipment will be consumed.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <label className="flex items-start gap-3 text-sm">
+            <Checkbox
+              checked={createInvoiceOnShip}
+              disabled={!currentSalesInvoiceAccountReady}
+              onCheckedChange={(checked) => setCreateInvoiceOnShip(checked === true)}
+              aria-label="Create Xero invoice after shipping"
+            />
+            <span className="grid gap-1">
+              <span>Create Xero invoice after shipping</span>
+              {!currentSalesInvoiceAccountReady ? (
+                <span className="text-xs text-muted-foreground">
+                  Xero invoice setup is not complete.
+                </span>
+              ) : null}
+            </span>
+          </label>
           <AlertDialogFooter>
             <AlertDialogCancel>Back</AlertDialogCancel>
             <AlertDialogAction
@@ -2644,6 +2664,7 @@ export function OrderDetail({
                 shipShipmentMutation.mutate({
                   shipmentId: shipmentToShip.id,
                   idempotencyKey: shipShipmentIdempotencyKey,
+                  createXeroInvoice: createInvoiceOnShip,
                 });
               }}
             >

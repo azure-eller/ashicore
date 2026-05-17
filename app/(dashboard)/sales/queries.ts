@@ -7253,13 +7253,7 @@ export async function shipSalesShipment(
   });
 
   if (!result.result) return null;
-  if (result.replayed || !result.result.orderShipped || payload.syncAccounting === false) {
-    return result.result;
-  }
-
-  const { getXeroAutomationSettingsForOrg } = await import("@/lib/dal/xero");
-  const automation = await getXeroAutomationSettingsForOrg(result.orgId);
-  if (!automation?.autoPushSalesInvoices) {
+  if (result.replayed || !result.result.orderShipped || payload.syncAccounting !== true) {
     return result.result;
   }
 

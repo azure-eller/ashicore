@@ -1,6 +1,14 @@
 import { and, eq } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { items, stockAllocations, unitDefinitions } from "@/lib/db/schema";
+import {
+  items,
+  salesOrderLines,
+  salesOrders,
+  salesShipmentLines,
+  salesShipments,
+  stockAllocations,
+  unitDefinitions,
+} from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
 import { normalizeNumeric, resolveVariantDisplay, roundQuantity } from "@/lib/format";
@@ -57,6 +65,24 @@ async function loadAssignmentsForItemInTx(
   tx: Tx,
   params: { organizationId: string; itemId: string }
 ) {
+  const allocationOrderLineRefs = alias(
+    salesOrderLines,
+    "allocation_assignment_sales_order_line_refs"
+  );
+  const allocationOrderRefs = alias(salesOrders, "allocation_assignment_sales_order_refs");
+  const allocationShipmentLineRefs = alias(
+    salesShipmentLines,
+    "allocation_assignment_sales_shipment_line_refs"
+  );
+  const allocationShipmentRefs = alias(
+    salesShipments,
+    "allocation_assignment_sales_shipment_refs"
+  );
+  const allocationShipmentOrderRefs = alias(
+    salesOrders,
+    "allocation_assignment_sales_shipment_order_refs"
+  );
+
   const rows = await tx
     .select({
       demandType: stockAllocations.demandType,
@@ -67,8 +93,36 @@ async function loadAssignmentsForItemInTx(
       quantity: trimScale(stockAllocations.quantity).as("quantity"),
       demandLabelSnapshot: stockAllocations.demandLabelSnapshot,
       sourceLabelSnapshot: stockAllocations.sourceLabelSnapshot,
+      salesOrderIdFromLine: allocationOrderRefs.id,
+      salesOrderNumberFromLine: allocationOrderRefs.orderNumber,
+      salesOrderIdFromShipment: allocationShipmentOrderRefs.id,
+      salesOrderNumberFromShipment: allocationShipmentOrderRefs.orderNumber,
+      shipmentNumber: allocationShipmentRefs.shipmentNumber,
     })
     .from(stockAllocations)
+    .leftJoin(
+      allocationOrderLineRefs,
+      and(
+        eq(stockAllocations.demandType, "sales_order_line"),
+        eq(stockAllocations.demandId, allocationOrderLineRefs.id)
+      )
+    )
+    .leftJoin(allocationOrderRefs, eq(allocationOrderLineRefs.salesOrderId, allocationOrderRefs.id))
+    .leftJoin(
+      allocationShipmentLineRefs,
+      and(
+        eq(stockAllocations.demandType, "sales_shipment_line"),
+        eq(stockAllocations.demandId, allocationShipmentLineRefs.id)
+      )
+    )
+    .leftJoin(
+      allocationShipmentRefs,
+      eq(allocationShipmentLineRefs.salesShipmentId, allocationShipmentRefs.id)
+    )
+    .leftJoin(
+      allocationShipmentOrderRefs,
+      eq(allocationShipmentRefs.salesOrderId, allocationShipmentOrderRefs.id)
+    )
     .where(
       and(
         eq(stockAllocations.organizationId, params.organizationId),
@@ -98,8 +152,14 @@ async function loadAssignmentsForItemInTx(
       itemId: row.itemId,
       quantity: row.quantity,
       status: "active",
-      demandLabel: row.demandLabelSnapshot ?? row.demandId,
+      demandLabel:
+        row.demandLabelSnapshot ??
+        row.salesOrderNumberFromLine ??
+        row.shipmentNumber ??
+        row.salesOrderNumberFromShipment ??
+        row.demandId,
       sourceLabel: row.sourceLabelSnapshot ?? row.sourceId,
+      salesOrderId: row.salesOrderIdFromLine ?? row.salesOrderIdFromShipment ?? null,
     }));
 }
 
@@ -193,6 +253,7 @@ export async function getAllocationWorkspaceInTx(
       demandId: row.demandId,
       demandKey: key,
       parentDemandId: row.parentDemandId ?? null,
+      salesOrderId: row.salesOrderId ?? null,
       itemId: row.itemId,
       itemName: row.itemName,
       unitName: row.unitName,

@@ -1386,6 +1386,28 @@ test.describe("Sales write-path smoke", () => {
     expect(zeroedAllocationResponse.status).toBe(200);
     expect(zeroedAllocation.primaryDemand.allocatedQty).toBe("0");
     expect(zeroedAllocation.primaryDemand.shortQty).toBe("70");
+
+    await db.insert(stockAllocations).values({
+      organizationId: getOrgId(),
+      demandType: "sales_order_line",
+      demandId: lines[0].id,
+      itemId: allocationItemId,
+      sourceType: "inventory_lot",
+      sourceId: firstLotSource.sourceId,
+      quantity: "5",
+      status: "active",
+      demandLabelSnapshot: null,
+      sourceLabelSnapshot: null,
+    });
+
+    const firstOrderNumber = await getSalesOrderNumber(firstOrderResult.body.id as string);
+    const { response: fallbackLabelResponse, body: fallbackLabelWorkspace } =
+      await getSalesAllocationWorkspace(lines[0].id, allocationItemId);
+    expect(fallbackLabelResponse.status).toBe(200);
+    expect(fallbackLabelWorkspace.assignments[0]).toMatchObject({
+      demandLabel: firstOrderNumber,
+      salesOrderId: firstOrderResult.body.id,
+    });
   });
 
   test("lot-aware allocation prevents shared stock double counting", async ({
@@ -2229,6 +2251,98 @@ test.describe("Sales write-path smoke", () => {
       { method: "POST" }
     );
     expect(shipResponse.status).toBe(409);
+  });
+
+  test("shipment-level lot allocation can ship when item is fully committed", async ({
+    db,
+  }) => {
+    const suffix = `${ts}-SHIP-LOT-HELD`;
+    const customerResult = await createCustomer({
+      name: `Fast Shipment Held Lot Customer ${suffix}`,
+    });
+    expect(customerResult.status).toBe(201);
+
+    const itemResult = await createItem({
+      name: `Fast Shipment Held Lot Product ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FSHL-${ts}`,
+      category: `Fast Shipment Held Lot ${suffix}`,
+      description: "Material for shipment-held lot allocation",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: "10",
+      stock: "150",
+      safetyStock: "0",
+    });
+    expect(itemResult.status).toBe(201);
+    const itemId = itemResult.body.id as string;
+
+    const competingOrderResult = await createSalesOrder({
+      customerId: customerResult.body.id,
+      status: "open",
+      shipDate: "2026-05-20",
+      lines: [{ itemId, quantity: "150", unitPrice: "10" }],
+    });
+    expect(competingOrderResult.status).toBe(201);
+
+    const orderResult = await createSalesOrder({
+      customerId: customerResult.body.id,
+      status: "open",
+      shipDate: "2026-05-21",
+      lines: [{ itemId, quantity: "50", unitPrice: "10" }],
+    });
+    expect(orderResult.status).toBe(201);
+
+    const [shipmentLine] = await db
+      .select({
+        id: salesShipmentLines.id,
+        salesOrderLineId: salesShipmentLines.salesOrderLineId,
+        shipmentId: salesShipmentLines.salesShipmentId,
+      })
+      .from(salesShipmentLines)
+      .innerJoin(
+        salesShipments,
+        eq(salesShipmentLines.salesShipmentId, salesShipments.id)
+      )
+      .where(eq(salesShipments.salesOrderId, orderResult.body.id as string));
+    expect(shipmentLine).toBeTruthy();
+
+    const [lot] = await db
+      .select({ id: lots.id })
+      .from(lots)
+      .where(eq(lots.itemId, itemId))
+      .orderBy(asc(lots.receivedAt), asc(lots.id));
+    expect(lot).toBeTruthy();
+
+    await db.insert(stockAllocations).values({
+      organizationId: getOrgId(),
+      demandType: "sales_shipment_line",
+      demandId: shipmentLine.id,
+      itemId,
+      sourceType: "inventory_lot",
+      sourceId: lot.id,
+      quantity: "50",
+      status: "active",
+      demandLabelSnapshot: "Shipment held lot allocation",
+      sourceLabelSnapshot: "Held inventory lot",
+    });
+
+    const shipResponse = await testFetch(
+      `/api/sales-orders/${orderResult.body.id}/shipments/${shipmentLine.shipmentId}/ship`,
+      { method: "POST" }
+    );
+    expect(shipResponse.status).toBe(200);
+
+    const activeAllocationRows = await db
+      .select({ status: stockAllocations.status })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.demandType, "sales_shipment_line"),
+          eq(stockAllocations.demandId, shipmentLine.id)
+        )
+      );
+    expect(activeAllocationRows).toEqual([{ status: "consumed" }]);
   });
 
   test("keeps same-date sales order rows in place after confirming from the list", async ({
@@ -3488,7 +3602,7 @@ test.describe("Sales write-path smoke", () => {
     const dialog = page.getByRole("alertdialog", { name: "Ship this shipment?" });
     await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Ship Shipment" }).click();
-    await expect(page.getByRole("dialog", { name: "Shipment Complete" })).toBeVisible({
+    await expect(page.getByRole("dialog", { name: "Shipment Recorded" })).toBeVisible({
       timeout: 15_000,
     });
 

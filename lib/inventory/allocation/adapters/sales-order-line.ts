@@ -113,6 +113,7 @@ function mapSalesDemandRow(
     demandType: "sales_order_line",
     demandId: row.salesOrderLineId,
     parentDemandId: row.salesOrderId,
+    salesOrderId: row.salesOrderId,
     itemId: row.itemId,
     itemName: display.masterName,
     unitName: row.unitName,

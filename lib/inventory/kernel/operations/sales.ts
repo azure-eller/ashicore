@@ -620,47 +620,8 @@ export async function consumeForShipmentInTx(
     current.push(allocation);
     allocationsByDemandKey.set(key, current);
   }
-  const availableByItem = new Map<string, number>();
 
-  for (const line of params.lines) {
-    if (!availableByItem.has(line.itemId)) {
-      availableByItem.set(
-        line.itemId,
-        await getCurrentAvailableQtyAtLocationInTx(tx, {
-          organizationId: params.organizationId,
-          locationId: location.id,
-          itemId: line.itemId,
-        })
-      );
-    }
-
-    const unreservedAvailable = availableByItem.get(line.itemId) ?? 0;
-    const ownReservation = reservedByLineId.get(line.salesOrderLineId) ?? 0;
-
-	    if (
-	      roundQuantity(unreservedAvailable + ownReservation) < line.quantity &&
-	      !params.allowNegativeStock
-	    ) {
-      throw new InsufficientStockError({
-        itemId: line.itemId,
-        available: roundQuantity(unreservedAvailable + ownReservation),
-        requested: line.quantity,
-      });
-    }
-
-    availableByItem.set(
-      line.itemId,
-      roundQuantity(unreservedAvailable - Math.max(0, line.quantity - ownReservation))
-    );
-  }
-
-  for (const [index, line] of params.lines.entries()) {
-    const metadata = {
-      salesOrderId: params.salesOrderId,
-      salesOrderLineId: line.salesOrderLineId,
-      salesShipmentId: params.salesShipmentId ?? null,
-    };
-    let remaining = roundQuantity(line.quantity);
+  function getLineAllocationContext(line: (typeof params.lines)[number]) {
     const shipmentDemandRef = line.salesShipmentLineId
       ? {
           demandType: "sales_shipment_line" as const,
@@ -687,15 +648,80 @@ export async function consumeForShipmentInTx(
             `${parentDemandRef.demandType}:${parentDemandRef.demandId}`
           ) ?? []
         : [];
+
+    return {
+      activeDemandRef,
+      hasShipmentAllocations,
+      lineAllocations,
+      shipmentLineAllocations,
+    };
+  }
+
+  const availableByItem = new Map<string, number>();
+
+  for (const line of params.lines) {
+    if (!availableByItem.has(line.itemId)) {
+      availableByItem.set(
+        line.itemId,
+        await getCurrentAvailableQtyAtLocationInTx(tx, {
+          organizationId: params.organizationId,
+          locationId: location.id,
+          itemId: line.itemId,
+        })
+      );
+    }
+
+    const unreservedAvailable = availableByItem.get(line.itemId) ?? 0;
+    const ownReservation = reservedByLineId.get(line.salesOrderLineId) ?? 0;
+    const { lineAllocations } = getLineAllocationContext(line);
+    const ownInventoryLotAllocation = roundQuantity(
+      lineAllocations
+        .filter((allocation) => allocation.sourceType === "inventory_lot")
+        .reduce((sum, allocation) => sum + parseFloat(allocation.quantity), 0)
+    );
+    const selfAvailable = roundQuantity(
+      unreservedAvailable + ownReservation + ownInventoryLotAllocation
+    );
+
+    if (selfAvailable < line.quantity && !params.allowNegativeStock) {
+      throw new InsufficientStockError({
+        itemId: line.itemId,
+        available: selfAvailable,
+        requested: line.quantity,
+      });
+    }
+
+    availableByItem.set(
+      line.itemId,
+      roundQuantity(
+        unreservedAvailable -
+          Math.max(0, line.quantity - ownReservation - ownInventoryLotAllocation)
+      )
+    );
+  }
+
+  for (const [index, line] of params.lines.entries()) {
+    const metadata = {
+      salesOrderId: params.salesOrderId,
+      salesOrderLineId: line.salesOrderLineId,
+      salesShipmentId: params.salesShipmentId ?? null,
+    };
+    let remaining = roundQuantity(line.quantity);
+    const {
+      activeDemandRef,
+      hasShipmentAllocations,
+      lineAllocations,
+      shipmentLineAllocations,
+    } = getLineAllocationContext(line);
     const allocatedQty = roundQuantity(
       lineAllocations.reduce((sum, allocation) => sum + parseFloat(allocation.quantity), 0)
     );
 
-	    if (
-	      (hasShipmentAllocations || managedLineIds.has(line.salesOrderLineId)) &&
-	      allocatedQty < line.quantity &&
-	      !params.allowNegativeStock
-	    ) {
+    if (
+      (hasShipmentAllocations || managedLineIds.has(line.salesOrderLineId)) &&
+      allocatedQty < line.quantity &&
+      !params.allowNegativeStock
+    ) {
       throw new InsufficientStockError({
         itemId: line.itemId,
         available: allocatedQty,
@@ -762,10 +788,10 @@ export async function consumeForShipmentInTx(
         idempotencyKey:
           index === 0 && !idempotencyUsed ? params.idempotencyKey ?? null : null,
         occurredAt: params.shippedAt,
-	        metadata,
-	        unavailableByLotId,
-	        allowNegativeStock: params.allowNegativeStock ?? false,
-	      });
+        metadata,
+        unavailableByLotId,
+        allowNegativeStock: params.allowNegativeStock ?? false,
+      });
       eventIds.push(...consumed.eventIds);
     }
   }
