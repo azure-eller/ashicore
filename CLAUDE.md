@@ -15,7 +15,6 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm test` / `pnpm test:fast` — run all fast Playwright write-path smoke tests (dev server must be running)
 - `pnpm test:fast:<domain>` — run one domain fast lane: `sales`, `inventory`, `purchasing`, `manufacturing`, `stocktake`
 - `pnpm test:slow:<domain>` — run one slow lane: `sales`, `inventory`, `purchasing`, `manufacturing`, `stocktake`, `auth`
-- `pnpm test:e2e:agent:live` — run the opt-in live Anthropic agent smoke on `claude-haiku-4-5` by default
 - `pnpm test:slow` / `pnpm test:e2e:slow` — run all slow serial operational Playwright stories
 - `pnpm test:e2e:auth` — legacy alias for auth, invite, and team-access regressions
 - `pnpm test:inventory` — run the fast inventory write-path smoke flow
@@ -57,6 +56,7 @@ When you discover a new pattern or gotcha:
 |-----------|------|
 | Forms / form fields | `docs/references/field-example.md`, `docs/references/react-hook-form-example.md` |
 | UI, components, layout | `docs/ui-patterns.md` |
+| Design system (tokens, color, type, density, status conventions) | `docs/design-system/01_DESIGN_SYSTEM.md` |
 | API routes, mutations | `docs/api-patterns.md` |
 | Schema, migrations, DAL | `docs/database.md` |
 | Feature planning | `docs/architecture.md` |
@@ -86,7 +86,7 @@ New tables: `.enableRLS()` + org-isolation `pgPolicy` in the Drizzle schema, plu
 ## Critical Rules
 
 - For code-changing work, NEVER edit files in the repo root checkout or on `main` unless the user explicitly asks for that. Use a dedicated git worktree.
-- No hardcoded Tailwind colors — shadcn semantic tokens only
+- Design tokens: shadcn semantic classes for colors (`bg-primary`, `text-muted-foreground`, `border-border`); V2 raw tokens for spacing/sizing/type (`gap-(--space-3)`, `h-(--height-input-md)`, `text-[length:var(--text-sm)]`); `var(--color-*)` only for states shadcn doesn't model (`bg-[var(--color-accent-hover)]`). Never hardcode Tailwind colors. Sharp corners — no `rounded-*` except `rounded-full` on circular avatars/dots. Full spec: `docs/design-system/01_DESIGN_SYSTEM.md`.
 - API routes for all mutations — no server actions
 - NEVER import db directly in pages, components, or API routes — use DAL
 - NEVER use `drizzle push` — always `pnpm db:generate` + `pnpm drizzle-kit migrate` (CI rejects non-idempotent migrations)
@@ -113,26 +113,11 @@ These are gotchas that have caused real bugs. Follow them exactly.
 
 ### ERP agent parked
 
-The ERP agent is intentionally disabled. Read `docs/erp-agent.md` before reconnecting it. While disabled, keep `lib/db/schema/agent.ts` out of the runtime schema barrel; only the migration schema should export it.
+Disabled; runtime barrel (`lib/db/schema/index.ts`) must not export `agent.ts`. Full state in `docs/erp-agent.md`.
 
 ### Paonia data loader
 
-`scripts/load/` holds the pilot-customer loader. Engine in `engine/` is generic; data in `paonia/`. Edits go in `paonia/` — never put Paonia specifics in `engine/`.
-
-```
-scripts/load/
-  paonia.ts                  # CLI entry
-  engine/                    # generic: sync-units/items/boms/stock/customers/sales-orders, plan, apply, reset, report
-  paonia/
-    index.ts                 # LoaderConfig bundle
-    units.ts | materials.ts | initial-stock.ts | constants.ts
-    products/                # family-definitions, family-builder, sticker-builder, dynamic-dressing, standalone, bom-helpers, sku-builders
-    sales-2026.ts | customers-2026.ts
-```
-
-Idempotency is signature-based (unit `name|size|uom`, item SKU/legacy SKU/name, BOM component+quantity hash, opening lot prefix `INIT-<sku>`, sales-order marker line in notes). Re-runs are safe and report unchanged rows.
-
-Reset wipes ALL org-scoped data (not just loader-managed rows): `pnpm load:paonia:reset -- --confirm <org-slug>`. Add `--dry-run` to preview row counts. Blocked in `NODE_ENV=production` unless `--i-know-what-im-doing`.
+`scripts/load/`: generic engine in `engine/`, pilot-customer specifics in `paonia/`. Edits go in `paonia/`. Idempotent by signature; re-runs safe. Reset (`pnpm load:paonia:reset -- --confirm <org-slug>`) wipes ALL org-scoped data, not just loader rows; `--dry-run` previews counts.
 
 
 ### UI text minimalism
@@ -285,67 +270,13 @@ const presetKey = getDerivedAccessPresetKey(moduleAccess)
 
 Invite-page sign-in is not done until the pending invite is accepted and the invited org is active. Existing users must join through `joinInviteIfNeeded()` after sign-in or matching-session Continue.
 
-### Portal theming
+### Portal, dialog, dark surfaces, tooltips
 
-Portal components should use semantic background/text tokens on the portal content itself. Do not hardcode `dark` on individual dialogs or menus.
-
-```tsx
-<DialogContent className="bg-background text-foreground" />
-<DropdownMenuContent className="bg-popover text-popover-foreground" />
-```
-
-### Dialog sizes
-
-`DialogContent` and `AlertDialogContent` take a `size` prop. Default is `default` (~24rem) which is right for short confirmations. Dialogs that contain tables or wider content should declare a wider size explicitly rather than reaching for a one-off `className="max-w-*"`.
-
-Variants: `sm | default | md | lg | xl | 2xl | 3xl | content`. `content` sizes to fit the content (`w-fit` capped at 90vw / 72rem) and is the right choice when the table inside determines width.
-
-```tsx
-// ✓ Correct — use the size prop to pick an appropriate width
-<AlertDialogContent size="2xl">{/* shortage table */}</AlertDialogContent>
-<DialogContent size="content">{/* width-driven by content */}</DialogContent>
-
-// ✗ Wrong — one-off max-width override for a recurring width
-<AlertDialogContent className="max-w-5xl">...</AlertDialogContent>
-```
-
-### Inverted / dark surfaces
-
-To create a dark surface in light mode (or light in dark mode), scope `className="dark"` on the container. This is how shadcn does it on their create page. All children automatically pick up dark mode tokens through the `@custom-variant dark (&:is(.dark *))` rule — no manual CSS variable overrides needed.
-
-```tsx
-// ✓ Correct — dark class scopes all children to dark tokens
-<Sidebar className="dark" />
-<Card className="dark bg-card/90 shadow-xl backdrop-blur-xl" />
-
-// ✗ Wrong — manually overriding CSS variables for each token
-// ✗ Wrong — hardcoding colors like bg-[#303030] text-white
-```
-
-The app sidebar uses this pattern. Never replace it with manual `--sidebar-*` variable swaps or hardcoded colors.
-
-### Tooltips
-
-Use tooltips when they clarify computed terms, domain jargon, alert indicators, disabled/ambiguous icon-only actions, or compact form guidance that would otherwise add noisy helper text. Skip tooltips that only restate a plain-English label or obvious action. See `docs/ui-patterns.md` for the full ruleset.
-
-Copy: one line, ≤ 80 chars, ends with a period, leads with the definition or formula. Don't restate the trigger label. Shared strings live in `lib/tooltip-copy.ts`.
-
-Triggers: prefer the existing label, link, badge, or status marker. Standalone help icons are acceptable beside form labels when the guidance is useful but too distracting as visible helper text. No `cursor-help`.
-
-```tsx
-<SortableHeader column={column} label="Calculated Stock" tooltip="Stock - demand + expected - safety stock." />
-
-// Non-sortable label
-<TooltipHeader label="Available" tooltip="Reservable stock after demand and reservations." />
-
-// Status pill or badge
-<Tooltip>
-  <TooltipTrigger asChild>
-    <Badge variant="secondary">Not Sellable</Badge>
-  </TooltipTrigger>
-  <TooltipContent side="top">Item is hidden from sales orders.</TooltipContent>
-</Tooltip>
-```
+All in `docs/ui-patterns.md`. Quick rules:
+- Portal content: semantic surface/text tokens; never hardcode `dark` on individual dialogs/menus.
+- Dialog widths: use the `size` prop on `DialogContent` / `AlertDialogContent`; never one-off `max-w-*`.
+- Inverted surfaces: scope `className="dark"` on the container; never override `--sidebar-*` vars or hardcode colors.
+- Tooltips: only for computed terms, jargon, alert indicators, disabled actions, or ambiguous icon-only buttons. One line ≤ 80 chars ending with a period; shared strings in `lib/tooltip-copy.ts`. No `cursor-help`.
 
 ### Route loading
 
@@ -472,9 +403,11 @@ Unlocked product BOMs use `inventory:operate`. Locked BOM state lives on the pro
 
 Auth helpers that read `headers()` must stay request-scoped, and `/org-setup` must auto-activate a signed-in user’s only org membership before showing org creation.
 
-### Detail page tables
+### Tables
 
-Always use shadcn `Table` / `TableHeader` / `TableBody` / `TableRow` / `TableCell` — never raw `<table>` / `<tr>` / `<td>`. Raw HTML tables bypass theme tokens and won't pick up future Table component changes.
+- **List pages**: AG Grid via `ERPDataGridList` (search + add + bulk delete) or `ERPDataGrid` for custom list behavior. See the Shared dashboard list grids rule.
+- **Detail pages**: shadcn `Table` / `TableHeader` / `TableBody` / `TableRow` / `TableCell`.
+- **Never** raw `<table>` / `<tr>` / `<td>` — bypasses theme tokens.
 
 ### Editable line-item forms
 
@@ -679,7 +612,6 @@ Tests follow **serial domain stories** mirroring real user workflows. Keep each 
 - Narrow domain changes: run `pnpm build`, `pnpm lint`, and the relevant `pnpm test:fast:<domain>` locally.
 - Shared or cross-domain changes: run `pnpm build`, `pnpm lint`, and `pnpm test:fast` locally.
 - Local fast lanes default to 2 Playwright workers. CI overrides this with `PLAYWRIGHT_FAST_WORKERS=4`.
-- Live Anthropic agent coverage is opt-in: `pnpm test:e2e:agent:live`
 - If you touch one domain deeply, run that domain's slow spec too: `pnpm test:slow:<domain>`
   Domain slow lanes may include multiple story files: sales includes order, CRM, and partial-shipment stories; inventory includes item-form, cost-basis, and visibility stories.
 - If you touch auth, invites, or team access, run `pnpm test:slow:auth`

@@ -11,10 +11,25 @@ read_when:
 
 ## Style System
 
-- shadcn/ui with `radix-nova` style and `stone` base color
-- Semantic tokens only — never hardcode Tailwind colors (e.g. `text-red-500`)
-- Check `components.json` for component aliases and token names
-- Font: Figtree (configured globally)
+The design system has **three token layers**. Full spec: `docs/design-system/01_DESIGN_SYSTEM.md`.
+
+1. **V2 raw tokens** in `app/globals.css` `:root` — source of truth for colors, spacing, sizing, type, motion, shadows, radii. Names follow the design handoff (`--color-*`, `--space-*`, `--height-*`, `--text-*`, `--leading-*`, `--weight-*`, `--radius-*`, `--shadow-*`, `--focus-ring`, `--ease-*`, `--duration-*`).
+2. **Bridge** — shadcn variable names (`--primary`, `--card`, `--muted`, `--border`, `--radius`, etc.) alias the V2 tokens. This keeps shadcn semantic classes working unchanged.
+3. **Component code** — uses the bridge by default; reaches for V2 raw tokens for dimensions and for states shadcn doesn't model (e.g. `accent-hover`, `surface-sunk`).
+
+### Rules
+
+- **Colors:** use shadcn semantic classes (`bg-primary`, `bg-card`, `bg-muted`, `text-foreground`, `text-muted-foreground`, `border-border`, `bg-destructive`) by default. Reach for `var(--color-*)` only when shadcn has no name for the state (`hover:bg-[var(--color-accent-hover)]`, `bg-[var(--color-surface-sunk)]`). Never hardcode Tailwind colors (`text-red-500`).
+- **Spacing / sizing / type:** always V2 raw tokens via Tailwind arbitrary syntax — `gap-(--space-3)`, `px-(--space-6)`, `h-(--height-input-md)`, `text-[length:var(--text-sm)]`, `leading-[var(--leading-sm)]`. There is no shadcn scale for these.
+- **Radii:** sharp corners everywhere. Don't add `rounded-*` other than `rounded-full` on circular avatars/status dots. All `--radius-*` tokens resolve to `0` via the bridge.
+- **Status:** label + 8×8 colored square indicator (`StatusLabel`, `StatusRibbon`). Never use rounded pills for status.
+- **Numerics:** order IDs, currency, counts, and dates in tabular context use `font-mono` + `tabular-nums`.
+- **Font:** Geist (sans) and Geist Mono. Configured globally via `--font-sans` / `--font-mono`.
+- **shadcn config:** `radix-nova` style with `stone` base color — see `components.json` for component aliases.
+
+### Canonical V2 primitives
+
+`Button`, `Input`, `InputGroup`, `StatusLabel`, `StatusRibbon`, `Spinner`, `Combobox`, plus the create-page shell components (`CreatePageShell`, `CreatePageHeader`, `CreatePageGrid`, `CreateSection`, `CreateSidebarCard`). All of these consume V2 tokens directly — compose them rather than re-styling at the page level.
 
 ## Icons
 
@@ -50,7 +65,7 @@ Then follow this pattern exactly:
 />
 ```
 
-Canonical reference: `app/(dashboard)/inventory/materials/material-form.tsx`
+Canonical reference: `app/(dashboard)/inventory/item-form/index.tsx` (with `dialogs/` and `fields/` siblings)
 
 ## Standalone Form Pages
 
@@ -246,6 +261,36 @@ Use semantic surface and text tokens on portal content. Do not hardcode `dark` o
   ...
 </DropdownMenuContent>
 ```
+
+## Dialog sizes
+
+`DialogContent` and `AlertDialogContent` take a `size` prop. Default is `default` (~24rem), right for short confirmations. Dialogs with tables or wider content should declare a wider size explicitly rather than reaching for a one-off `className="max-w-*"`.
+
+Variants: `sm | default | md | lg | xl | 2xl | 3xl | content`. `content` sizes to fit the content (`w-fit` capped at 90vw / 72rem) and is the right choice when an inner table determines width.
+
+```tsx
+// ✓ Correct — use the size prop to pick an appropriate width
+<AlertDialogContent size="2xl">{/* shortage table */}</AlertDialogContent>
+<DialogContent size="content">{/* width-driven by content */}</DialogContent>
+
+// ✗ Wrong — one-off max-width override for a recurring width
+<AlertDialogContent className="max-w-5xl">...</AlertDialogContent>
+```
+
+## Inverted / dark surfaces
+
+To create a dark surface in light mode (or light in dark mode), scope `className="dark"` on the container. This is how shadcn does it on their create page. All children automatically pick up dark mode tokens through the `@custom-variant dark (&:is(.dark *))` rule — no manual CSS variable overrides needed.
+
+```tsx
+// ✓ Correct — dark class scopes all children to dark tokens
+<Sidebar className="dark" />
+<Card className="dark bg-card/90 shadow-xl backdrop-blur-xl" />
+
+// ✗ Wrong — manually overriding CSS variables for each token
+// ✗ Wrong — hardcoding colors like bg-[#303030] text-white
+```
+
+The app sidebar uses this pattern. Never replace it with manual `--sidebar-*` variable swaps or hardcoded colors.
 
 ## Tooltips
 
