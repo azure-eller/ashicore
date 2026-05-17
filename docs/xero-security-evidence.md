@@ -36,7 +36,16 @@ from Vercel env. Redeploy production again after retirement.
 
 The script never logs token plaintext, full ciphertext, full DB URLs, or full
 secret values. Its audit summary records old/new key ids, row counts, failures,
-and whether the old key was retired.
+and whether the old key was retired. It also writes a redacted Markdown evidence
+file by default:
+
+```bash
+.xero-evidence/xero-token-key-rotation-<newKeyId>.md
+```
+
+Use `--evidence-file <path>` to choose a permanent evidence-packet location, or
+`--no-evidence-file` to disable file output. The local `.xero-evidence/`
+directory is git-ignored.
 
 ## Immutable Audit Events
 
@@ -81,7 +90,7 @@ Manual evidence:
 
 - Run `pnpm xero:smoke` against Xero Demo Company for happy path, failure path,
   idempotency/reconcile, and retry cron coverage.
-- Capture the final script summary when rotating token keys.
+- Keep the generated rotation evidence file when rotating token keys.
 - Keep Sentry issue links or request IDs for production Xero failures.
 
 ## Retention
