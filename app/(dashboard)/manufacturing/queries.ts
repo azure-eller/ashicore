@@ -3469,13 +3469,6 @@ export async function createManufacturingOrderInTx(
   payload: InsertManufacturingOrder,
   actorUserId?: string | null
 ): Promise<{ id: string }> {
-  if (payload.salesOrderId != null || payload.salesOrderLineId != null) {
-    throw new ManufacturingError(
-      "Create sales-linked manufacturing orders from the sales order Create MOs flow.",
-      400
-    );
-  }
-
   const product = await getValidatedProductInTx(tx, payload.productId);
   const plannedQuantity = Number(payload.plannedQuantity);
 

@@ -172,6 +172,7 @@ function formatSalesLineLabel(
 
 export function ManufacturingOrderForm({
   productTemplates = [],
+  ingredientItemOptions = [],
   salesLineOptions = [],
   salesOrderOptions = [],
   initialData,
@@ -179,6 +180,13 @@ export function ManufacturingOrderForm({
   initialSalesOrderPreview,
 }: {
   productTemplates?: ManufacturingProductTemplate[];
+  ingredientItemOptions?: Array<{
+    id: string;
+    name: string;
+    displayName: string;
+    itemType: string;
+    unit: string | null;
+  }>;
   salesLineOptions?: ManufacturingSalesLineOption[];
   salesOrderOptions?: ManufacturingSalesOrderOption[];
   initialData?: ManufacturingOrderEditData;
@@ -300,6 +308,9 @@ export function ManufacturingOrderForm({
   const salesLineMap = new Map(
     editSalesLineOptions.map((line) => [line.salesOrderLineId, line])
   );
+  const salesOrderLineIds = editSalesLineOptions
+    .filter((line) => line.salesOrderId === watchedSalesOrderId)
+    .map((line) => line.salesOrderLineId);
   const selectedProduct = productMap.get(watchedProductId ?? "");
   const ingredientOptions = useMemo(() => {
     const rows = isEditing ? initialData?.ingredients ?? [] : selectedProduct?.bom ?? [];
@@ -314,6 +325,19 @@ export function ManufacturingOrderForm({
         unitName: string;
       }
     >();
+
+    ingredientItemOptions.forEach((item) => {
+      if (item.id === watchedProductId) return;
+
+      options.set(item.id, {
+        id: item.id,
+        name: item.name,
+        displayName: item.displayName,
+        sku: null,
+        itemType: item.itemType,
+        unitName: item.unit,
+      });
+    });
 
     rows.forEach((row) => {
       options.set(row.itemId, {
@@ -342,12 +366,23 @@ export function ManufacturingOrderForm({
     return Array.from(options.values()).sort((left, right) =>
       left.name.localeCompare(right.name)
     );
-  }, [initialData?.ingredients, isEditing, selectedProduct?.bom]);
+  }, [
+    ingredientItemOptions,
+    initialData?.ingredients,
+    isEditing,
+    selectedProduct?.bom,
+    watchedProductId,
+  ]);
   const ingredientOptionMap = new Map(
     ingredientOptions.map((option) => [option.id, option])
   );
   const selectedSalesOrder = salesOrderMap.get(watchedSalesOrderId ?? "");
-  const isSalesOrderMode = !isEditing && watchedSalesOrderId != null;
+  const watchedSalesOrderLineId = useWatch({
+    control: form.control,
+    name: "salesOrderLineId",
+  });
+  const isSalesOrderMode =
+    !isEditing && watchedSalesOrderId != null && watchedSalesOrderLineId == null;
 
   useEffect(() => {
     if (!watchedProductId || isSalesOrderMode) return;
@@ -487,7 +522,7 @@ export function ManufacturingOrderForm({
 
   const mutation = useMutation({
     mutationFn: async (values: ManufacturingOrderFormValues) => {
-      if (!isEditing && values.salesOrderId) {
+      if (!isEditing && values.salesOrderId && !values.salesOrderLineId) {
         const response = await fetch(
           `/api/sales-orders/${values.salesOrderId}/manufacturing-orders`,
           {
@@ -557,8 +592,8 @@ export function ManufacturingOrderForm({
           }
         : {
             productId: values.productId ?? "",
-            salesOrderId: null,
-            salesOrderLineId: null,
+            salesOrderId: values.salesOrderId,
+            salesOrderLineId: values.salesOrderLineId,
             plannedQuantity,
             batchCount:
               manualBatchCount != null ? normalizeNumeric(manualBatchCount) : undefined,
@@ -687,16 +722,14 @@ export function ManufacturingOrderForm({
     const selected = salesLineMap.get(salesOrderLineId);
 
     if (!selected) {
-      form.setValue("salesOrderId", null, {
-        shouldValidate: true,
-        shouldDirty: true,
-      });
       form.setValue("salesOrderLineId", null, {
         shouldValidate: true,
         shouldDirty: true,
       });
       return;
     }
+
+    const template = productMap.get(selected.itemId);
 
     form.setValue("salesOrderId", selected.salesOrderId, {
       shouldValidate: true,
@@ -706,6 +739,26 @@ export function ManufacturingOrderForm({
       shouldValidate: true,
       shouldDirty: true,
     });
+    form.setValue("productId", selected.itemId, {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
+    form.setValue("plannedQuantity", selected.quantity, {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
+    form.setValue("groupRemainderChoices", [], {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
+    form.setValue(
+      "ingredients",
+      (template?.bom ?? []).map((ingredient) => ({
+        itemId: ingredient.itemId,
+        quantityPerUnit: ingredient.quantityPerUnit,
+      })),
+      { shouldValidate: true, shouldDirty: true }
+    );
   };
 
   const ingredientsError = getFieldArrayError(form.formState.errors.ingredients);
@@ -858,6 +911,60 @@ export function ManufacturingOrderForm({
                 />
               )}
 
+              {isSalesOrderMode && (
+                <Controller
+                  control={form.control}
+                  name="salesOrderLineId"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor={field.name}>
+                        <TooltipHeader
+                          label="Sales Order Line"
+                          tooltip={MANUFACTURING_SALES_ORDER_TOOLTIP}
+                        />
+                      </FieldLabel>
+                      <Combobox
+                        items={salesOrderLineIds}
+                        value={field.value ?? ""}
+                        onValueChange={(value) => handleSalesLineChange(value ?? "")}
+                        itemToStringLabel={(value) =>
+                          formatSalesLineLabel(value, salesLineMap)
+                        }
+                      >
+                        <ComboboxInput
+                          id={field.name}
+                          placeholder="Search sales lines..."
+                          showClear
+                        />
+                        <ComboboxContent className="bg-popover text-popover-foreground">
+                          <ComboboxEmpty>No matching sales lines found</ComboboxEmpty>
+                          <ComboboxList>
+                            {(id: string) => {
+                              const line = salesLineMap.get(id);
+                              return (
+                                <ComboboxItem key={id} value={id}>
+                                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                    <span className="truncate">{line?.itemName}</span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {line
+                                        ? `${line.quantity} ${line.unitName}${
+                                            line.itemSku ? ` • ${line.itemSku}` : ""
+                                          }`
+                                        : ""}
+                                    </span>
+                                  </div>
+                                </ComboboxItem>
+                              );
+                            }}
+                          </ComboboxList>
+                        </ComboboxContent>
+                      </Combobox>
+                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                    </Field>
+                  )}
+                />
+              )}
+
               {!isSalesOrderMode &&
                 (isEditing ? (
                   <>
@@ -931,39 +1038,97 @@ export function ManufacturingOrderForm({
                     />
                   </>
                 ) : (
-                  <Controller
-                    control={form.control}
-                    name="productId"
-                    render={({ field, fieldState }) => (
-                      <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel>Product</FieldLabel>
-                        <InventoryItemCombobox
-                          options={productOptions}
-                          value={field.value ?? ""}
-                          onValueChange={(value) => handleProductChange(value ?? "")}
-                          placeholder="Search products..."
-                          emptyMessage="No products found"
-                          createLinks={[
-                            {
-                              href: "/inventory/products/new",
-                              label: "Create product",
-                            },
-                          ]}
-                          getSecondaryText={(product) =>
-                            [product.sku, product.unitName]
-                              .filter((part): part is string => part != null && part !== "")
-                              .join(" · ")
-                          }
-                        />
-                        <FieldDescription>
-                          {watchedProductId
-                            ? "Change the product to reset ingredients."
-                            : "Only products with an active BOM can be manufactured."}
-                        </FieldDescription>
-                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                      </Field>
-                    )}
-                  />
+                  <>
+                    <Controller
+                      control={form.control}
+                      name="productId"
+                      render={({ field, fieldState }) => (
+                        <Field data-invalid={fieldState.invalid}>
+                          <FieldLabel>Product</FieldLabel>
+                          <InventoryItemCombobox
+                            options={productOptions}
+                            value={field.value ?? ""}
+                            onValueChange={(value) => handleProductChange(value ?? "")}
+                            placeholder="Search products..."
+                            emptyMessage="No products found"
+                            createLinks={[
+                              {
+                                href: "/inventory/products/new",
+                                label: "Create product",
+                              },
+                            ]}
+                            getSecondaryText={(product) =>
+                              [product.sku, product.unitName]
+                                .filter((part): part is string => part != null && part !== "")
+                                .join(" · ")
+                            }
+                          />
+                          <FieldDescription>
+                            {watchedProductId
+                              ? "Change the product to reset ingredients."
+                              : "Only products with an active BOM can be manufactured."}
+                          </FieldDescription>
+                          {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                        </Field>
+                      )}
+                    />
+
+                    <Controller
+                      control={form.control}
+                      name="salesOrderLineId"
+                      render={({ field, fieldState }) => (
+                        <Field data-invalid={fieldState.invalid}>
+                          <FieldLabel htmlFor={field.name}>
+                            <TooltipHeader
+                              label="Sales Order Line"
+                              tooltip={MANUFACTURING_SALES_ORDER_TOOLTIP}
+                            />
+                          </FieldLabel>
+                          <Combobox
+                            items={salesLineIds}
+                            value={field.value ?? ""}
+                            onValueChange={(value) =>
+                              handleSalesLineChange(value ?? "")
+                            }
+                            itemToStringLabel={(value) =>
+                              formatSalesLineLabel(value, salesLineMap)
+                            }
+                          >
+                            <ComboboxInput
+                              id={field.name}
+                              placeholder="Search active sales lines..."
+                              showClear
+                            />
+                            <ComboboxContent className="bg-popover text-popover-foreground">
+                              <ComboboxEmpty>No matching sales lines found</ComboboxEmpty>
+                              <ComboboxList>
+                                {(id: string) => {
+                                  const line = salesLineMap.get(id);
+                                  return (
+                                    <ComboboxItem key={id} value={id}>
+                                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                        <span className="truncate">
+                                          {line?.salesOrderNumber} - {line?.customerName}
+                                        </span>
+                                        <span className="text-xs text-muted-foreground">
+                                          {line
+                                            ? `${line.quantity} ${line.unitName} • ${line.itemName}`
+                                            : ""}
+                                        </span>
+                                      </div>
+                                    </ComboboxItem>
+                                  );
+                                }}
+                              </ComboboxList>
+                            </ComboboxContent>
+                          </Combobox>
+                          {fieldState.invalid && (
+                            <FieldError errors={[fieldState.error]} />
+                          )}
+                        </Field>
+                      )}
+                    />
+                  </>
                 ))}
 
               <div className="grid gap-4 md:grid-cols-2">
