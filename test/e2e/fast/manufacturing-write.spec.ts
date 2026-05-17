@@ -1192,6 +1192,7 @@ test.describe("Manufacturing write-path smoke", () => {
       description: "Legacy batch product",
       defaultPurchasePrice: null,
       defaultSellingPrice: "60.00",
+      sellable: true,
       stock: "0",
       safetyStock: "0",
       bom: [
