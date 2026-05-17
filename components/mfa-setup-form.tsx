@@ -84,10 +84,15 @@ export function MfaSetupForm({
     setNotice(null);
     setLoading(true);
 
-    const { error: sendError } = await authClient.twoFactor.sendOtp();
+    const response = await fetch("/api/auth/mfa/send-code", {
+      method: "POST",
+    });
 
-    if (sendError) {
-      setError(sendError.message ?? "Failed to send email code.");
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      setError(body?.error ?? "Failed to send email code.");
       setLoading(false);
       return;
     }
