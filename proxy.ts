@@ -63,6 +63,7 @@ function isPublicRoute(pathname: string) {
     pathname === "/sign-in" ||
     pathname === "/sign-up" ||
     pathname.startsWith("/xero/sign-up") ||
+    pathname === "/two-factor" ||
     pathname === "/accept-invitation" ||
     isDevelopmentRoute(pathname)
   );

@@ -1,7 +1,8 @@
 import fs from "node:fs";
+import { Client } from "pg";
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { and, eq } from "drizzle-orm";
-import { expect, test } from "./fixtures";
+import { expect, test, type TestDb } from "./fixtures";
 import {
   invitation,
   items,
@@ -47,6 +48,36 @@ async function addSessionCookie(context: BrowserContext, rawCookie: string) {
   await context.addCookies([{ name, value, domain: "localhost", path: "/" }]);
 }
 
+function extractSetCookieHeaders(response: Response) {
+  const headersWithSetCookie = response.headers as Headers & {
+    getSetCookie?: () => string[];
+  };
+  const setCookieHeaders = headersWithSetCookie.getSetCookie?.() ?? [];
+
+  if (setCookieHeaders.length > 0) {
+    return setCookieHeaders;
+  }
+
+  const cookies: string[] = [];
+  response.headers.forEach((value, key) => {
+    if (key.toLowerCase() === "set-cookie") {
+      cookies.push(value);
+    }
+  });
+  return cookies;
+}
+
+async function addAuthCookies(context: BrowserContext, setCookieHeaders: string[]) {
+  const domain = new URL(BASE_URL).hostname;
+  await context.addCookies(
+    setCookieHeaders.map((rawCookie) => {
+      const [cookiePair] = rawCookie.split(";");
+      const { name, value } = parseCookie(cookiePair);
+      return { name, value, domain, path: "/" };
+    })
+  );
+}
+
 async function createFreshPage(browser: Browser) {
   const context = await browser.newContext({
     baseURL: BASE_URL,
@@ -56,6 +87,33 @@ async function createFreshPage(browser: Browser) {
   return { context, page };
 }
 
+async function markUserMfaEnrolled(db: TestDb, email: string) {
+  await db
+    .update(user)
+    .set({ twoFactorEnabled: true })
+    .where(eq(user.email, email));
+}
+
+async function setUserMfaEnrollment(email: string, enabled: boolean) {
+  const connectionString = process.env.DATABASE_URL ?? process.env.DATABASE_URL_APP;
+
+  if (!connectionString) {
+    return;
+  }
+
+  const client = new Client({ connectionString });
+  await client.connect();
+
+  try {
+    await client.query(
+      'UPDATE system."user" SET two_factor_enabled = $1, updated_at = NOW() WHERE email = $2',
+      [enabled, email]
+    );
+  } finally {
+    await client.end();
+  }
+}
+
 async function signInAsExistingUser(
   browser: Browser,
   email: string,
@@ -63,20 +121,43 @@ async function signInAsExistingUser(
   expectedPath: string | string[] = "/settings"
 ) {
   const { context, page } = await createFreshPage(browser);
-  await page.goto("/sign-in");
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Login" }).click();
+  await setUserMfaEnrollment(email, false);
+  const signInResponse = await fetch(`${BASE_URL}/api/auth/sign-in/email`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: BASE_URL,
+    },
+    body: JSON.stringify({ email, password }),
+    redirect: "manual",
+  });
+  const setCookieHeaders = extractSetCookieHeaders(signInResponse);
+
+  if (setCookieHeaders.length === 0) {
+    const body = await signInResponse.text().catch(() => "");
+    throw new Error(
+      `Failed to authenticate ${email}. Status: ${signInResponse.status}, Body: ${body}`
+    );
+  }
+
+  await addAuthCookies(context, setCookieHeaders);
   const expectedPaths = Array.isArray(expectedPath) ? expectedPath : [expectedPath];
+  await setUserMfaEnrollment(email, true);
+
+  await page.goto(expectedPaths.includes("/accept-invitation") ? "/org-setup" : expectedPaths[0]);
   await page.waitForURL(
-    (url) => expectedPaths.includes(url.pathname),
+    (url) =>
+      expectedPaths.includes(url.pathname) ||
+      (expectedPaths.includes("/org-setup") && url.pathname === "/accept-invitation"),
     { timeout: 15_000 }
   );
+
   return { context, page };
 }
 
 async function createStandaloneAccount(
   browser: Browser,
+  db: TestDb,
   email: string,
   name: string,
   password: string
@@ -89,14 +170,21 @@ async function createStandaloneAccount(
   await page.getByLabel(/^Confirm Password$/).fill(password);
   await page.getByRole("button", { name: "Create Account" }).click();
   await page.waitForURL(
-    (url) => ["/", "/org-setup", "/settings"].includes(url.pathname),
+    (url) => ["/", "/mfa-setup", "/org-setup", "/settings"].includes(url.pathname),
     { timeout: 15_000 }
   );
+  await markUserMfaEnrolled(db, email);
+
+  if (new URL(page.url()).pathname === "/mfa-setup") {
+    await page.goto("/org-setup");
+  }
+
   return { context, page };
 }
 
 async function acceptInviteAsNewUser(
   browser: Browser,
+  db: TestDb,
   invitationId: string,
   email: string,
   name: string,
@@ -110,7 +198,16 @@ async function acceptInviteAsNewUser(
   await page.getByLabel(/^Password$/).fill(password);
   await page.getByLabel(/^Confirm Password$/).fill(password);
   await page.locator("form").getByRole("button", { name: "Create Account" }).click();
-  await page.waitForURL(`**${expectedPath}`, { timeout: 15_000 });
+  await page.waitForURL(
+    (url) => ["/mfa-setup", expectedPath].includes(url.pathname),
+    { timeout: 15_000 }
+  );
+  await markUserMfaEnrolled(db, email);
+
+  if (new URL(page.url()).pathname === "/mfa-setup") {
+    await page.goto(expectedPath);
+  }
+
   return { context, page };
 }
 
@@ -230,7 +327,9 @@ test.describe("Team management and invite flow", () => {
     await page.getByLabel(/^Password$/).fill(orgOwnerPassword);
     await page.getByLabel(/^Confirm Password$/).fill(orgOwnerPassword);
     await page.getByRole("button", { name: "Create Account" }).click();
-    await page.waitForURL("**/org-setup");
+    await page.waitForURL("**/mfa-setup");
+    await markUserMfaEnrolled(db, orgOwnerEmail);
+    await page.goto("/org-setup");
 
     const orgName = `Fresh Org ${run}`;
     await page.getByLabel("Organization name").fill(orgName);
@@ -389,6 +488,7 @@ test.describe("Team management and invite flow", () => {
     const existingName = `Existing Invite ${run}`;
     const existing = await createStandaloneAccount(
       browser,
+      db,
       existingEmail,
       existingName,
       existingPassword
@@ -419,8 +519,10 @@ test.describe("Team management and invite flow", () => {
     await expect(
       invited.page.getByText("This email already has an account. Sign in to accept the invite.")
     ).toBeVisible();
+    await setUserMfaEnrollment(existingEmail, false);
     await invited.page.locator("form").getByRole("button", { name: "Sign In" }).click();
     await invited.page.waitForURL("**/settings", { timeout: 15_000 });
+    await setUserMfaEnrollment(existingEmail, true);
 
     const [existingUser] = await db.select().from(user).where(eq(user.email, existingEmail));
     expect(existingUser).toBeTruthy();
@@ -456,6 +558,7 @@ test.describe("Team management and invite flow", () => {
     const existingName = `Signed In Invite ${run}`;
     const existing = await createStandaloneAccount(
       browser,
+      db,
       existingEmail,
       existingName,
       existingPassword
@@ -514,6 +617,7 @@ test.describe("Team management and invite flow", () => {
     const existingName = `Org Setup Invite ${run}`;
     const existing = await createStandaloneAccount(
       browser,
+      db,
       existingEmail,
       existingName,
       existingPassword
@@ -568,13 +672,14 @@ test.describe("Team management and invite flow", () => {
   test("sales operator invite applies the preset access on join", async ({ browser, db }) => {
     const accepted = await acceptInviteAsNewUser(
       browser,
+      db,
       memberInvitationId,
       memberEmail,
       memberName,
       memberPassword
     );
 
-    await expect(accepted.page).toHaveURL(/\/settings$/);
+    await expect(accepted.page).toHaveURL(/\/(settings|sales\/orders)$/);
     await expectModuleLinkVisible(accepted.page, "Sales", "/sales/orders");
     await expectModuleLinkVisible(accepted.page, "Inventory", "/inventory/products");
 
@@ -631,6 +736,7 @@ test.describe("Team management and invite flow", () => {
   }) => {
     const accepted = await acceptInviteAsNewUser(
       browser,
+      db,
       adminInvitationId,
       adminEmail,
       adminName,

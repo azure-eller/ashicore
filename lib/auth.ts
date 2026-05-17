@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { createAccessControl, organization } from "better-auth/plugins";
+import { createAccessControl, organization, twoFactor } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { APP_DOMAIN, APP_URL } from "@/lib/app-brand";
 import { getCanonicalAppUrl } from "@/lib/app-url";
@@ -155,6 +155,7 @@ export const organizationRoles = {
 };
 
 export const auth = betterAuth({
+  appName: "Ashicore",
   baseURL: {
     allowedHosts: authAllowedHosts,
     fallback: authFallbackUrl,
@@ -196,6 +197,24 @@ export const auth = betterAuth({
     },
   },
   plugins: [
+    twoFactor({
+      issuer: "Ashicore",
+      otpOptions: {
+        storeOTP: "hashed",
+        async sendOTP({ user, otp }) {
+          if (!user.email) {
+            return;
+          }
+
+          const { sendMfaCodeEmail } = await import("@/lib/email/auth-emails");
+          await sendMfaCodeEmail({
+            email: user.email,
+            code: otp,
+          });
+        },
+      },
+      trustDeviceMaxAge: 60 * 60 * 24 * 30,
+    }),
     organization({
       ac: organizationAc,
       creatorRole: "owner",

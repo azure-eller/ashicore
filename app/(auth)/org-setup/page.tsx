@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { OrgSetupForm } from "@/components/org-setup-form";
 import { auth } from "@/lib/auth";
-import { getPendingInvitationForEmail } from "@/lib/dal/auth";
+import { getPendingInvitationForEmail, isMfaEnrolled } from "@/lib/dal/auth";
 
 export default async function Page() {
   const requestHeaders = await headers();
@@ -10,6 +10,10 @@ export default async function Page() {
 
   if (!session) {
     redirect("/sign-in");
+  }
+
+  if (!isMfaEnrolled(session)) {
+    redirect("/mfa-setup?next=/org-setup");
   }
 
   const organizations = await auth.api.listOrganizations({

@@ -117,6 +117,27 @@ async function forceActiveOrganizationOnSession(
   }
 }
 
+async function setTestAccountMfaEnrollment(enabled: boolean) {
+  const connectionString = getOwnerConnectionString();
+
+  if (!connectionString) {
+    return false;
+  }
+
+  const client = new Client({ connectionString });
+  await client.connect();
+
+  try {
+    const result = await client.query(
+      'UPDATE system."user" SET two_factor_enabled = $1, updated_at = NOW() WHERE email = $2',
+      [enabled, TEST_ACCOUNT_EMAIL]
+    );
+    return (result.rowCount ?? 0) > 0;
+  } finally {
+    await client.end();
+  }
+}
+
 async function getActiveOrganizationId(baseUrl: string, cookies: string) {
   const sessionRes = await fetchWithCookies(
     baseUrl,
@@ -355,7 +376,9 @@ export async function ensureTestAccount(
     );
   }
 
+  await setTestAccountMfaEnrollment(false);
   let cookies = await createSession(baseUrl);
+  await setTestAccountMfaEnrollment(true);
   const testOrg = await ensureOrganization(baseUrl, cookies);
 
   if (!testOrg?.id) {

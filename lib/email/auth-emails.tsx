@@ -3,6 +3,7 @@ import "server-only";
 import { render } from "@react-email/components";
 import { getCanonicalAppUrl } from "@/lib/email/config";
 import { EmailVerification } from "@/lib/email/components/email-verification";
+import { MfaCode } from "@/lib/email/components/mfa-code";
 import { PasswordReset } from "@/lib/email/components/password-reset";
 import { sendTransactionalEmail } from "@/lib/email/send";
 
@@ -51,6 +52,27 @@ export async function sendPasswordResetEmail({
     tag: "password-reset",
     to: email,
     subject: "Reset your password",
+    html,
+    text,
+  });
+}
+
+export async function sendMfaCodeEmail({
+  email,
+  code,
+}: {
+  email: string;
+  code: string;
+}) {
+  const html = await render(<MfaCode code={code} />);
+  const text = await render(<MfaCode code={code} />, {
+    plainText: true,
+  });
+
+  await sendTransactionalEmail({
+    tag: "mfa-code",
+    to: email,
+    subject: "Your ashicore verification code",
     html,
     text,
   });

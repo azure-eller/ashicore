@@ -41,7 +41,7 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
       setLoading(false)
       return
     }
-    router.push("/")
+    router.push("/mfa-setup")
   }
 
   return (

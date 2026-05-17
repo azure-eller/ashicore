@@ -89,6 +89,24 @@ Do not wrap request-auth helpers that read `headers()` in React `cache()`. Membe
 - Public sign-up remains for first-time org owners creating a new org
 - `/org-setup` remains the fallback resolver for owner onboarding and no-active-org recovery
 
+## MFA
+
+- MFA is mandatory for every signed-in account.
+- New sign-ups go to `/mfa-setup` before organization setup.
+- Existing signed-in users without MFA are redirected to `/mfa-setup` before
+  dashboard or API access.
+- Users with MFA enabled complete `/two-factor` after password sign-in unless
+  the device is trusted.
+- Supported methods are authenticator-app TOTP and email OTP. TOTP remains the
+  stronger default; email OTP is available for lower-friction setup/sign-in.
+- Better Auth owns TOTP secrets, encrypted backup codes, email OTP verification
+  records, and the 30-day trusted device cookie through the two-factor plugin.
+- Keep `/two-factor` public in `proxy.ts`; Better Auth removes the normal
+  session cookie while a 2FA challenge is pending and uses a signed temporary
+  two-factor cookie instead.
+- Invite acceptance may create/join the organization before MFA setup, but the
+  user is still blocked from app access until MFA is enrolled.
+
 ## Resend Wrapper
 
 Better Auth resends by calling `createInvitation` again with `resend: true`.

@@ -14,6 +14,7 @@ export type TransactionalEmailAttachment = {
 export type TransactionalEmailInput = {
   tag:
     | "email-verification"
+    | "mfa-code"
     | "password-reset"
     | "team-invite"
     | "purchase-order"

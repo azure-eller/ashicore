@@ -163,7 +163,7 @@ export function AcceptInvitationForm({
       return;
     }
 
-    const { error: signInError } = await authClient.signIn.email({
+    const { data: signInData, error: signInError } = await authClient.signIn.email({
       email: activeInvitation.email,
       password,
     });
@@ -171,6 +171,10 @@ export function AcceptInvitationForm({
     if (signInError) {
       setError(signInError.message ?? "Failed to sign in");
       setLoading(false);
+      return;
+    }
+
+    if (signInData && "twoFactorRedirect" in signInData) {
       return;
     }
 

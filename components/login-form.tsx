@@ -24,11 +24,11 @@ import { authClient } from "@/lib/auth-client"
 export function LoginForm({
   className,
   notice,
-  callbackURL,
+  next,
   ...props
 }: React.ComponentProps<"div"> & {
   notice?: string
-  callbackURL?: string
+  next?: string
 }) {
   const router = useRouter()
   const [email, setEmail] = useState("")
@@ -48,13 +48,17 @@ export function LoginForm({
     e.preventDefault()
     setError(null)
     setLoading(true)
-    const { error } = await authClient.signIn.email({ email, password, rememberMe })
+    const { data, error } = await authClient.signIn.email({ email, password, rememberMe })
     if (error) {
       setError(error.message ?? "Sign in failed")
       setLoading(false)
       return
     }
-    router.push(callbackURL?.startsWith("/") && !callbackURL.startsWith("//") ? callbackURL : "/")
+    if (data && "twoFactorRedirect" in data) {
+      return
+    }
+
+    router.push(next ?? "/")
   }
 
   return (

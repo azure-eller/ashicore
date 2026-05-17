@@ -66,7 +66,7 @@
     "test:slow:sales": "pnpm test:e2e:sales:slow",
     "test:e2e:sales:slow": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/slow/sales-order.spec.ts test/e2e/slow/customer-crm.spec.ts test/e2e/slow/partial-sales-shipments.spec.ts",
     "test:slow:auth": "pnpm test:e2e:auth",
-    "test:e2e:auth": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/auth-security.spec.ts test/e2e/team-management.spec.ts",
+    "test:e2e:auth": "BETTER_AUTH_RATE_LIMIT_DISABLED=1 EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/auth-security.spec.ts test/e2e/team-management.spec.ts",
     "test:inventory": "pnpm test:fast:inventory",
     "test:sales": "pnpm test:fast:sales"
   },
@@ -106,6 +106,7 @@
     "react-day-picker": "^9.14.0",
     "react-dom": "19.2.3",
     "react-hook-form": "^7.71.2",
+    "react-qr-code": "^2.0.21",
     "recharts": "3.8.0",
     "server-only": "^0.0.1",
     "shadcn": "^3.8.5",

@@ -722,6 +722,13 @@
       "when": 1778973234020,
       "tag": "0102_immutable_accounting_audit_events",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1778976221520,
+      "tag": "0103_mandatory_mfa",
+      "breakpoints": true
     }
   ]
 }

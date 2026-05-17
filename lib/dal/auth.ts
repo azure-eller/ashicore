@@ -38,6 +38,14 @@ type MemberContext = {
 
 type AuthSession = Awaited<ReturnType<typeof auth.api.getSession>>;
 
+export function isMfaEnrolled(session: AuthSession): boolean {
+  return Boolean(
+    session &&
+      (session.user as typeof session.user & { twoFactorEnabled?: boolean | null })
+        .twoFactorEnabled
+  );
+}
+
 async function resolveMemberContext(
   requestHeaders: HeadersInit,
   existingSession?: AuthSession
@@ -136,6 +144,13 @@ const getRequestAuthState = cache(async () => {
     };
   }
 
+  if (!isMfaEnrolled(session)) {
+    return {
+      session,
+      context: null as MemberContext | null,
+    };
+  }
+
   return {
     session,
     context: await resolveMemberContext(normalizedHeaders, session),
@@ -144,6 +159,10 @@ const getRequestAuthState = cache(async () => {
 
 export async function getAuthedMemberContext(): Promise<MemberContext> {
   const { session, context } = await getRequestAuthState();
+
+  if (session && !isMfaEnrolled(session)) {
+    redirect("/mfa-setup");
+  }
 
   if (!context) {
     if (!session) {
@@ -214,6 +233,10 @@ export async function getAuthedApiMemberContext(
 
   if (!session) {
     throw new AuthorizationError("Authentication required.", 401);
+  }
+
+  if (!isMfaEnrolled(session)) {
+    throw new AuthorizationError("Multi-factor authentication setup required.", 403);
   }
 
   throw new AuthorizationError("Active organization required.", 403);
