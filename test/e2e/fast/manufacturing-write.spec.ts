@@ -11,6 +11,7 @@ import {
   manufacturingOrderOutputConsumptions,
   manufacturingOrderOutputs,
   manufacturingOrders,
+  salesOrderLines,
 } from "../../../lib/db/schema";
 import {
   createItem,
@@ -1149,6 +1150,7 @@ test.describe("Manufacturing write-path smoke", () => {
 
   test("keeps execution detail reads side-effect free for open batch orders", async ({
     db,
+    page,
   }) => {
     const legacyTs = Date.now();
     const legacySandCreate = await createItem({
@@ -1190,6 +1192,7 @@ test.describe("Manufacturing write-path smoke", () => {
       description: "Legacy batch product",
       defaultPurchasePrice: null,
       defaultSellingPrice: "60.00",
+      sellable: true,
       stock: "0",
       safetyStock: "0",
       bom: [
@@ -1240,9 +1243,104 @@ test.describe("Manufacturing write-path smoke", () => {
       .from(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, legacyOrderId));
     expect(createdIngredients).toHaveLength(6);
-    const draftTemplateIngredients = [
+    expect(
+      createdIngredients.every((ingredient) => ingredient.manufacturingOrderBatchId != null)
+    ).toBe(true);
+
+    await page.goto(`/manufacturing/orders/${legacyOrderId}/edit`);
+    await expect(page.getByRole("heading", { name: "Edit Manufacturing Order" })).toBeVisible();
+    await expect(page.locator("form")).toContainText(`Legacy Batch Sand ${legacyTs}`);
+    await expect(page.locator("form")).toContainText(`Legacy Batch Compost ${legacyTs}`);
+    await expect(page.locator("form")).not.toContainText("No ingredients found");
+
+    const customerResponse = await testFetch("/api/customers", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Legacy Batch Customer ${legacyTs}`,
+        email: null,
+        phone: null,
+        notes: null,
+      }),
+    });
+    expect(customerResponse.status).toBe(201);
+    const customerBody = await customerResponse.json();
+    const salesOrderResponse = await testFetch("/api/sales-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        customerId: customerBody.id,
+        status: "open",
+        orderDate: "2026-04-25",
+        shipDate: "2026-04-25",
+        requestedDate: "2026-04-25",
+        notes: null,
+        confirmOversell: true,
+        lines: [
+          {
+            itemId: legacyProductCreate.body.id,
+            quantity: "5",
+            unitPrice: "60.00",
+          },
+        ],
+      }),
+    });
+    expect(salesOrderResponse.status).toBe(201);
+    const salesOrderBody = await salesOrderResponse.json();
+    const [salesOrderLine] = await db
+      .select({
+        id: salesOrderLines.id,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, salesOrderBody.id as string));
+    expect(salesOrderLine).toBeTruthy();
+
+    const editableIngredients = [
       createdIngredients.find((ingredient) => ingredient.sortOrder === 0),
       createdIngredients.find((ingredient) => ingredient.sortOrder === 1),
+    ];
+    if (!editableIngredients[0] || !editableIngredients[1]) {
+      throw new Error("Expected editable batch ingredient rows.");
+    }
+
+    const updateResponse = await testFetch(`/api/manufacturing-orders/${legacyOrderId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        salesOrderId: salesOrderBody.id,
+        salesOrderLineId: salesOrderLine.id,
+        plannedQuantity: "5",
+        plannedDate: null,
+        notes: "Open batch linked from edit",
+        groupRemainderChoices: [],
+        ingredients: editableIngredients.map((ingredient) => ({
+          itemId: ingredient.itemId,
+          quantityPerUnit: String(parseFloat(ingredient.quantityPerUnit)),
+        })),
+      }),
+    });
+    const updateBody = await updateResponse.json().catch(() => null);
+    expect(updateResponse.status, JSON.stringify(updateBody)).toBe(200);
+
+    const [linkedLegacyOrder] = await db
+      .select({
+        salesOrderId: manufacturingOrders.salesOrderId,
+        salesOrderLineId: manufacturingOrders.salesOrderLineId,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, legacyOrderId));
+    expect(linkedLegacyOrder.salesOrderId).toBe(salesOrderBody.id);
+    expect(linkedLegacyOrder.salesOrderLineId).toBe(salesOrderLine.id);
+
+    const linkedIngredients = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, legacyOrderId));
+    expect(linkedIngredients).toHaveLength(6);
+    expect(
+      linkedIngredients.every((ingredient) => ingredient.manufacturingOrderBatchId != null)
+    ).toBe(true);
+
+    const draftTemplateIngredients = [
+      linkedIngredients.find((ingredient) => ingredient.sortOrder === 0),
+      linkedIngredients.find((ingredient) => ingredient.sortOrder === 1),
     ];
     if (!draftTemplateIngredients[0] || !draftTemplateIngredients[1]) {
       throw new Error("Expected batch ingredients to seed legacy template rows.");
