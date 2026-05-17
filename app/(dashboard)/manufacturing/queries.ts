@@ -232,6 +232,29 @@ type ExecutionIngredientRow = {
   constraints: BomComponentConstraint[];
 };
 
+type EditableManufacturingIngredientSnapshotRow = {
+  id: string;
+  itemId: string;
+  itemName: string;
+  itemSku: string | null;
+  itemType: string;
+  unitName: string;
+  quantityPerUnit: string;
+  consumptionMode: string;
+  basisOutputQuantity: string | null;
+  batchScalingMode: string | null;
+  groupRemainderPolicy: string | null;
+  chosenGroupRemainderHandling: string | null;
+  calculatedBatchCount: string | null;
+  calculatedGroupCount: string | null;
+  plannedQuantity: string;
+  pickedQuantity: string;
+  pickStatus: ManufacturingPickStatus;
+  actualQuantity: string | null;
+  actualCostTotal: string | null;
+  sortOrder: number;
+};
+
 type ExecutionBatchRow = {
   id: string;
   batchNumber: number;
@@ -1218,52 +1241,10 @@ async function prepareUpdatedIngredientsInTx(
   }
 
   const bomRows = await getBomRevisionComponentsInTx(tx, bomRevisionId);
-  const existingRows = await tx
-    .select({
-      sortOrder: manufacturingOrderIngredients.sortOrder,
-    })
-    .from(manufacturingOrderIngredients)
-    .where(
-      and(
-        eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrderId),
-        sql`${manufacturingOrderIngredients.manufacturingOrderBatchId} IS NULL`
-      )
-    )
-    .orderBy(asc(manufacturingOrderIngredients.sortOrder));
-  const editableRows =
-    existingRows.length > 0
-      ? existingRows
-      : (
-          await tx
-            .select({
-              sortOrder: manufacturingOrderIngredients.sortOrder,
-              batchNumber: manufacturingOrderBatches.batchNumber,
-            })
-            .from(manufacturingOrderIngredients)
-            .innerJoin(
-              manufacturingOrderBatches,
-              eq(
-                manufacturingOrderIngredients.manufacturingOrderBatchId,
-                manufacturingOrderBatches.id
-              )
-            )
-            .where(
-              eq(
-                manufacturingOrderIngredients.manufacturingOrderId,
-                manufacturingOrderId
-              )
-            )
-            .orderBy(
-              asc(manufacturingOrderIngredients.sortOrder),
-              asc(manufacturingOrderBatches.batchNumber)
-            )
-        ).reduce<Array<{ sortOrder: number }>>((rows, row) => {
-          if (!rows.some((existingRow) => existingRow.sortOrder === row.sortOrder)) {
-            rows.push({ sortOrder: row.sortOrder });
-          }
-
-          return rows;
-        }, []);
+  const editableRows = await getEditableManufacturingIngredientSnapshotInTx(
+    tx,
+    manufacturingOrderId
+  );
 
   if (
     bomRows.length !== submittedIngredients.length ||
@@ -1318,33 +1299,10 @@ async function prepareLegacyUpdatedIngredientsInTx(
   groupRemainderChoices: GroupRemainderChoice[] | undefined,
   submittedIngredients: UpdateManufacturingOrder["ingredients"]
 ): Promise<ValidatedIngredient[]> {
-  const existingRows = await tx
-    .select({
-      id: manufacturingOrderIngredients.id,
-      itemId: manufacturingOrderIngredients.itemId,
-      itemName: manufacturingOrderIngredients.itemName,
-      itemSku: manufacturingOrderIngredients.itemSku,
-      itemType: manufacturingOrderIngredients.itemType,
-      unitName: manufacturingOrderIngredients.unitName,
-      quantityPerUnit: trimScale(manufacturingOrderIngredients.quantityPerUnit).as(
-        "quantityPerUnit"
-      ),
-      consumptionMode: manufacturingOrderIngredients.consumptionMode,
-      basisOutputQuantity: trimScaleNullable(
-        manufacturingOrderIngredients.basisOutputQuantity
-      ).as("basisOutputQuantity"),
-      batchScalingMode: manufacturingOrderIngredients.batchScalingMode,
-      groupRemainderPolicy: manufacturingOrderIngredients.groupRemainderPolicy,
-      sortOrder: manufacturingOrderIngredients.sortOrder,
-    })
-    .from(manufacturingOrderIngredients)
-    .where(
-      and(
-        eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrderId),
-        sql`${manufacturingOrderIngredients.manufacturingOrderBatchId} IS NULL`
-      )
-    )
-    .orderBy(asc(manufacturingOrderIngredients.sortOrder));
+  const existingRows = await getEditableManufacturingIngredientSnapshotInTx(
+    tx,
+    manufacturingOrderId
+  );
 
   if (existingRows.length !== submittedIngredients.length) {
     throw new ManufacturingError(
@@ -1528,6 +1486,155 @@ async function getLotAgeAvailabilityInTx(
     ineligible: normalizeQuantityNumber(ineligible),
     nextEligibleDate,
   };
+}
+
+async function getEditableManufacturingIngredientSnapshotInTx(
+  tx: Tx,
+  manufacturingOrderId: string
+): Promise<EditableManufacturingIngredientSnapshotRow[]> {
+  const templateRows = await tx
+    .select({
+      id: manufacturingOrderIngredients.id,
+      itemId: manufacturingOrderIngredients.itemId,
+      itemName: manufacturingOrderIngredients.itemName,
+      itemSku: manufacturingOrderIngredients.itemSku,
+      itemType: manufacturingOrderIngredients.itemType,
+      unitName: manufacturingOrderIngredients.unitName,
+      quantityPerUnit: trimScale(manufacturingOrderIngredients.quantityPerUnit).as(
+        "quantityPerUnit"
+      ),
+      consumptionMode: manufacturingOrderIngredients.consumptionMode,
+      basisOutputQuantity: trimScaleNullable(
+        manufacturingOrderIngredients.basisOutputQuantity
+      ).as("basisOutputQuantity"),
+      batchScalingMode: manufacturingOrderIngredients.batchScalingMode,
+      groupRemainderPolicy: manufacturingOrderIngredients.groupRemainderPolicy,
+      chosenGroupRemainderHandling:
+        manufacturingOrderIngredients.chosenGroupRemainderHandling,
+      calculatedBatchCount: trimScaleNullable(
+        manufacturingOrderIngredients.calculatedBatchCount
+      ).as("calculatedBatchCount"),
+      calculatedGroupCount: trimScaleNullable(
+        manufacturingOrderIngredients.calculatedGroupCount
+      ).as("calculatedGroupCount"),
+      plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
+        "plannedQuantity"
+      ),
+      pickedQuantity: trimScale(manufacturingOrderIngredients.pickedQuantity).as(
+        "pickedQuantity"
+      ),
+      pickStatus: manufacturingOrderIngredients.pickStatus,
+      actualQuantity: trimScaleNullable(manufacturingOrderIngredients.actualQuantity).as(
+        "actualQuantity"
+      ),
+      actualCostTotal: trimScaleNullable(
+        manufacturingOrderIngredients.actualCostTotal
+      ).as("actualCostTotal"),
+      sortOrder: manufacturingOrderIngredients.sortOrder,
+    })
+    .from(manufacturingOrderIngredients)
+    .where(
+      and(
+        eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrderId),
+        sql`${manufacturingOrderIngredients.manufacturingOrderBatchId} IS NULL`
+      )
+    )
+    .orderBy(asc(manufacturingOrderIngredients.sortOrder));
+
+  if (templateRows.length > 0) {
+    return templateRows.map((row) => ({
+      ...row,
+      pickStatus: row.pickStatus as ManufacturingPickStatus,
+    }));
+  }
+
+  const batchRows = await tx
+    .select({
+      id: manufacturingOrderIngredients.id,
+      itemId: manufacturingOrderIngredients.itemId,
+      itemName: manufacturingOrderIngredients.itemName,
+      itemSku: manufacturingOrderIngredients.itemSku,
+      itemType: manufacturingOrderIngredients.itemType,
+      unitName: manufacturingOrderIngredients.unitName,
+      quantityPerUnit: trimScale(manufacturingOrderIngredients.quantityPerUnit).as(
+        "quantityPerUnit"
+      ),
+      consumptionMode: manufacturingOrderIngredients.consumptionMode,
+      basisOutputQuantity: trimScaleNullable(
+        manufacturingOrderIngredients.basisOutputQuantity
+      ).as("basisOutputQuantity"),
+      batchScalingMode: manufacturingOrderIngredients.batchScalingMode,
+      groupRemainderPolicy: manufacturingOrderIngredients.groupRemainderPolicy,
+      chosenGroupRemainderHandling:
+        manufacturingOrderIngredients.chosenGroupRemainderHandling,
+      calculatedBatchCount: trimScaleNullable(
+        manufacturingOrderIngredients.calculatedBatchCount
+      ).as("calculatedBatchCount"),
+      calculatedGroupCount: trimScaleNullable(
+        manufacturingOrderIngredients.calculatedGroupCount
+      ).as("calculatedGroupCount"),
+      plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
+        "plannedQuantity"
+      ),
+      pickedQuantity: trimScale(manufacturingOrderIngredients.pickedQuantity).as(
+        "pickedQuantity"
+      ),
+      pickStatus: manufacturingOrderIngredients.pickStatus,
+      actualQuantity: trimScaleNullable(manufacturingOrderIngredients.actualQuantity).as(
+        "actualQuantity"
+      ),
+      actualCostTotal: trimScaleNullable(
+        manufacturingOrderIngredients.actualCostTotal
+      ).as("actualCostTotal"),
+      sortOrder: manufacturingOrderIngredients.sortOrder,
+      batchNumber: manufacturingOrderBatches.batchNumber,
+    })
+    .from(manufacturingOrderIngredients)
+    .innerJoin(
+      manufacturingOrderBatches,
+      eq(
+        manufacturingOrderIngredients.manufacturingOrderBatchId,
+        manufacturingOrderBatches.id
+      )
+    )
+    .where(eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrderId))
+    .orderBy(
+      asc(manufacturingOrderIngredients.sortOrder),
+      asc(manufacturingOrderBatches.batchNumber)
+    );
+
+  const rows: EditableManufacturingIngredientSnapshotRow[] = [];
+
+  for (const row of batchRows) {
+    if (rows.some((ingredient) => ingredient.sortOrder === row.sortOrder)) {
+      continue;
+    }
+
+    rows.push({
+      id: row.id,
+      itemId: row.itemId,
+      itemName: row.itemName,
+      itemSku: row.itemSku,
+      itemType: row.itemType,
+      unitName: row.unitName,
+      quantityPerUnit: row.quantityPerUnit,
+      consumptionMode: row.consumptionMode,
+      basisOutputQuantity: row.basisOutputQuantity,
+      batchScalingMode: row.batchScalingMode,
+      groupRemainderPolicy: row.groupRemainderPolicy,
+      chosenGroupRemainderHandling: row.chosenGroupRemainderHandling,
+      calculatedBatchCount: row.calculatedBatchCount,
+      calculatedGroupCount: row.calculatedGroupCount,
+      plannedQuantity: row.plannedQuantity,
+      pickedQuantity: row.pickedQuantity,
+      pickStatus: row.pickStatus as ManufacturingPickStatus,
+      actualQuantity: row.actualQuantity,
+      actualCostTotal: row.actualCostTotal,
+      sortOrder: row.sortOrder,
+    });
+  }
+
+  return rows;
 }
 
 async function getTemplateIngredientsInTx(tx: Tx, orderId: string) {
@@ -3417,92 +3524,8 @@ export async function getManufacturingOrderEditData(
       return null;
     }
 
-    const ingredients = await tx
-      .select({
-        itemId: manufacturingOrderIngredients.itemId,
-        itemName: manufacturingOrderIngredients.itemName,
-        itemSku: manufacturingOrderIngredients.itemSku,
-        itemType: manufacturingOrderIngredients.itemType,
-        unitName: manufacturingOrderIngredients.unitName,
-        quantityPerUnit: trimScale(manufacturingOrderIngredients.quantityPerUnit).as(
-          "quantityPerUnit"
-        ),
-        consumptionMode: manufacturingOrderIngredients.consumptionMode,
-        basisOutputQuantity: trimScaleNullable(
-          manufacturingOrderIngredients.basisOutputQuantity
-        ).as("basisOutputQuantity"),
-        batchScalingMode: manufacturingOrderIngredients.batchScalingMode,
-        groupRemainderPolicy: manufacturingOrderIngredients.groupRemainderPolicy,
-        chosenGroupRemainderHandling:
-          manufacturingOrderIngredients.chosenGroupRemainderHandling,
-        calculatedBatchCount: trimScaleNullable(
-          manufacturingOrderIngredients.calculatedBatchCount
-        ).as("calculatedBatchCount"),
-        calculatedGroupCount: trimScaleNullable(
-          manufacturingOrderIngredients.calculatedGroupCount
-        ).as("calculatedGroupCount"),
-        sortOrder: manufacturingOrderIngredients.sortOrder,
-      })
-      .from(manufacturingOrderIngredients)
-      .where(
-        and(
-          eq(manufacturingOrderIngredients.manufacturingOrderId, id),
-          sql`${manufacturingOrderIngredients.manufacturingOrderBatchId} IS NULL`
-        )
-      )
-      .orderBy(asc(manufacturingOrderIngredients.sortOrder));
     const editableIngredients =
-      ingredients.length > 0
-        ? ingredients
-        : (
-            await tx
-              .select({
-                itemId: manufacturingOrderIngredients.itemId,
-                itemName: manufacturingOrderIngredients.itemName,
-                itemSku: manufacturingOrderIngredients.itemSku,
-                itemType: manufacturingOrderIngredients.itemType,
-                unitName: manufacturingOrderIngredients.unitName,
-                quantityPerUnit: trimScale(
-                  manufacturingOrderIngredients.quantityPerUnit
-                ).as("quantityPerUnit"),
-                consumptionMode: manufacturingOrderIngredients.consumptionMode,
-                basisOutputQuantity: trimScaleNullable(
-                  manufacturingOrderIngredients.basisOutputQuantity
-                ).as("basisOutputQuantity"),
-                batchScalingMode: manufacturingOrderIngredients.batchScalingMode,
-                groupRemainderPolicy:
-                  manufacturingOrderIngredients.groupRemainderPolicy,
-                chosenGroupRemainderHandling:
-                  manufacturingOrderIngredients.chosenGroupRemainderHandling,
-                calculatedBatchCount: trimScaleNullable(
-                  manufacturingOrderIngredients.calculatedBatchCount
-                ).as("calculatedBatchCount"),
-                calculatedGroupCount: trimScaleNullable(
-                  manufacturingOrderIngredients.calculatedGroupCount
-                ).as("calculatedGroupCount"),
-                sortOrder: manufacturingOrderIngredients.sortOrder,
-                batchNumber: manufacturingOrderBatches.batchNumber,
-              })
-              .from(manufacturingOrderIngredients)
-              .innerJoin(
-                manufacturingOrderBatches,
-                eq(
-                  manufacturingOrderIngredients.manufacturingOrderBatchId,
-                  manufacturingOrderBatches.id
-                )
-              )
-              .where(eq(manufacturingOrderIngredients.manufacturingOrderId, id))
-              .orderBy(
-                asc(manufacturingOrderIngredients.sortOrder),
-                asc(manufacturingOrderBatches.batchNumber)
-              )
-          ).reduce<typeof ingredients>((rows, row) => {
-            if (!rows.some((ingredient) => ingredient.sortOrder === row.sortOrder)) {
-              rows.push(row);
-            }
-
-            return rows;
-          }, []);
+      await getEditableManufacturingIngredientSnapshotInTx(tx, id);
 
     const bomRows =
       order.bomRevisionId == null
