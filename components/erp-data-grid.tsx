@@ -21,6 +21,7 @@ import {
   type IRowNode,
   type RowDragEndEvent,
   type RowClassRules,
+  type RowHeightParams,
   type SortChangedEvent,
   type SelectionChangedEvent,
 } from "ag-grid-community";
@@ -83,6 +84,9 @@ export type ERPDataGridProps<TData extends { id: string }> = {
   resetRowDataOnUpdate?: boolean;
   columnHoverHighlight?: boolean;
   rowClassRules?: RowClassRules<TData>;
+  isFullWidthRow?: (row: TData) => boolean;
+  fullWidthCellRenderer?: (row: TData) => ReactNode;
+  getRowHeight?: (row: TData) => number | undefined | null;
   onGridReady?: (event: GridReadyEvent<TData>) => void;
   onFirstDataRendered?: (event: FirstDataRenderedEvent<TData>) => void;
 };
@@ -194,6 +198,9 @@ export function ERPDataGrid<TData extends { id: string }>({
   resetRowDataOnUpdate = false,
   columnHoverHighlight = false,
   rowClassRules,
+  isFullWidthRow,
+  fullWidthCellRenderer,
+  getRowHeight,
   onGridReady,
   onFirstDataRendered,
 }: ERPDataGridProps<TData>) {
@@ -403,6 +410,24 @@ export function ERPDataGrid<TData extends { id: string }>({
           columnHoverHighlight={columnHoverHighlight}
           quickFilterText={enableQuickFilter ? searchValue : undefined}
           rowClassRules={rowClassRules}
+          isFullWidthRow={
+            isFullWidthRow
+              ? (params: { rowNode: IRowNode<TData> }) =>
+                  params.rowNode.data ? isFullWidthRow(params.rowNode.data) : false
+              : undefined
+          }
+          fullWidthCellRenderer={
+            fullWidthCellRenderer
+              ? (params: { data: TData | undefined }) =>
+                  params.data ? fullWidthCellRenderer(params.data) : null
+              : undefined
+          }
+          getRowHeight={
+            getRowHeight
+              ? (params: RowHeightParams<TData>) =>
+                  params.data ? getRowHeight(params.data) ?? null : null
+              : undefined
+          }
           rowSelection={rowSelection}
           isRowSelectable={
             isRowSelectable
