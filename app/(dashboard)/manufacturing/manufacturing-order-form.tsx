@@ -335,7 +335,7 @@ export function ManufacturingOrderForm({
         displayName: item.displayName,
         sku: null,
         itemType: item.itemType,
-        unitName: item.unit,
+        unitName: item.unit ?? "units",
       });
     });
 
