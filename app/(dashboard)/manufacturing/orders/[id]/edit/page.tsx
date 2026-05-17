@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireModuleWriteAccess } from "@/lib/dal/auth";
+import { getAvailableComponents } from "@/app/(dashboard)/inventory/queries";
 import { ManufacturingOrderForm } from "@/app/(dashboard)/manufacturing/manufacturing-order-form";
 import {
   getManufacturingOrderEditData,
@@ -19,12 +20,16 @@ export default async function EditManufacturingOrderPage({
     redirect("/manufacturing/orders");
   }
 
-  const salesLineOptions = await getManufacturingSalesLineOptions(order.productId);
+  const [ingredientItemOptions, salesLineOptions] = await Promise.all([
+    getAvailableComponents(order.productId),
+    getManufacturingSalesLineOptions(order.productId),
+  ]);
 
   return (
     <div className="mx-auto w-full max-w-5xl py-8">
       <ManufacturingOrderForm
         initialData={order}
+        ingredientItemOptions={ingredientItemOptions}
         salesLineOptions={salesLineOptions}
       />
     </div>
