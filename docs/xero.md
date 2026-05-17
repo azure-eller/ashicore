@@ -16,8 +16,9 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
 ## Where things live
 
 - **OAuth + token refresh** — `lib/xero/client.ts`. `getAuthedXeroClient`
-  locks the connection row `FOR UPDATE`, decrypts stored tokens, refreshes if
-  the token is near expiry, and persists the rotated token pair encrypted.
+  locks the connection row `FOR UPDATE`, decrypts stored tokens using the row's
+  `token_encryption_key_id`, refreshes if the token is near expiry, and
+  persists the rotated token pair encrypted with the active key.
 - **Sign up with Xero** — `/api/xero/sign-up` starts the App Store acquisition
   OAuth flow. `/api/xero/callback` stores a short-lived encrypted signup intent,
   then Better Auth endpoints under `/api/auth/xero-signup/*` create a
@@ -65,6 +66,22 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
 - **Retry cron** — `lib/xero/retry-failed-pushes.ts`, surfaced at
   `GET /api/internal/xero-retry`. Per-org cap of 25 candidates per run,
   per-row cap of 5 attempts. Creates only — never email.
+
+## Token encryption keys
+
+Production supports multi-key decrypt with `XERO_TOKEN_ENCRYPTION_KEYS` and
+active-key writes with `XERO_TOKEN_ENCRYPTION_KEY_ID`. Keep
+`XERO_TOKEN_ENCRYPTION_KEY` only as a legacy/local fallback.
+
+Rotate keys with the operator script:
+
+```bash
+pnpm rotate:xero-token-key -- --environment production --apply
+```
+
+The script updates Vercel env, pauses for production redeploy, rotates DB rows,
+verifies every Xero row, gates old-key retirement, and reminds you to redeploy
+again. See `docs/xero-security-evidence.md`.
 
 ## Required scopes
 

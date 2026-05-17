@@ -109,8 +109,14 @@ async function persistTokenSet(
 
 function resolveStoredTokenPair(row: ConnectionRow): StoredTokenPair {
   return {
-    accessToken: decryptXeroToken(row.accessTokenCiphertext),
-    refreshToken: decryptXeroToken(row.refreshTokenCiphertext),
+    accessToken: decryptXeroToken(
+      row.accessTokenCiphertext,
+      row.tokenEncryptionKeyId
+    ),
+    refreshToken: decryptXeroToken(
+      row.refreshTokenCiphertext,
+      row.tokenEncryptionKeyId
+    ),
   };
 }
 

@@ -23,6 +23,7 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui, TanStack Query, rea
 - `pnpm test:reconciliation` — run inventory reconciliation Playwright specs
 - `pnpm db:local:setup` — auto-start local Postgres if needed, then create this worktree's local DB, `app_user`, env, and run migrations
 - `pnpm dev:seed-user` — create/update the canonical local login (`test@test.com` / `TestPassword123!`) in `test-paonia-soil-co`, then idempotently load Paonia-style dev data
+- `pnpm rotate:xero-token-key -- --environment production --apply` — operator-run Xero token encryption key rotation; see `docs/xero-security-evidence.md`
 - `pnpm load:paonia` — load the Paonia pilot-customer catalog (units, items, BOMs, opening stock) into the resolved org. Supports `--org <ref>`, `--dry-run`, `--sales-2026`, `--customers-only`.
 - `pnpm load:paonia:dry-run` — plan-only run of the Paonia loader; no writes
 - `pnpm load:paonia:reset -- --confirm <org-slug>` — wipe all customer data in the resolved org. Requires the typed-back org slug; blocked in `NODE_ENV=production` unless `--i-know-what-im-doing`. Add `--dry-run` to preview row counts.
@@ -65,6 +66,7 @@ When you discover a new pattern or gotcha:
 | Auth, roles, team invites | `docs/auth-team.md` |
 | Production launch, auth protection, observability | `docs/production-ops.md` |
 | Xero App Store / partner readiness | `docs/xero-partner-readiness.md` |
+| Xero security evidence / key rotation | `docs/xero-security-evidence.md` |
 | Manufacturing orders | `docs/manufacturing.md` |
 | Sales orders, customers, shipping | `docs/sales.md` |
 | Purchasing, suppliers, receiving | `docs/purchasing.md` |
@@ -534,6 +536,14 @@ const baseUrl = process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL
 ### Xero PO emails
 
 Xero has no API endpoint to email purchase orders. Fetch the Xero-rendered PDF, send it through `sendTransactionalEmail`, and track `xero_po_email_status`.
+
+### Xero token key rotation
+
+Xero token encryption supports `XERO_TOKEN_ENCRYPTION_KEYS` plus active `XERO_TOKEN_ENCRYPTION_KEY_ID`. Rotate only with the operator script:
+
+```bash
+pnpm rotate:xero-token-key -- --environment production --apply
+```
 
 ### Accounting PO imports
 

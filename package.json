@@ -13,6 +13,7 @@
     "dev:seed-user": "tsx scripts/seed-dev-user.ts",
     "xero:smoke": "tsx scripts/xero-smoke.ts",
     "verify:xero-token-crypto": "tsx scripts/verify-xero-token-crypto.ts",
+    "rotate:xero-token-key": "tsx scripts/rotate-xero-token-key.ts",
     "load:paonia": "tsx scripts/load/paonia.ts",
     "load:paonia:dry-run": "tsx scripts/load/paonia.ts --dry-run",
     "load:paonia:reset": "tsx scripts/load/paonia.ts --reset",

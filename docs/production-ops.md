@@ -51,6 +51,25 @@ In local and CI environments without Resend configured, the app writes transacti
 
 Playwright also forces outbox mode with `.tmp/email-outbox-only` during `test/global-setup.ts`. This avoids linked-worktree cases where the dev server inherited repo-root Resend vars before the test process started.
 
+## Xero Token Key Rotation
+
+Use `pnpm rotate:xero-token-key -- --environment production --apply` for
+operator-run Xero token encryption key rotation. The deployed app must not
+manage its own master token-encryption secret.
+
+Deployment sequence:
+
+1. Script updates Vercel production env with old + new keys and the new active
+   `XERO_TOKEN_ENCRYPTION_KEY_ID`.
+2. Redeploy/restart production so runtime can decrypt with both keys.
+3. Script rotates `integrations.connections` accounting token rows and verifies
+   all rows decrypt under the active key.
+4. Script requires `retire <oldKeyId>` before removing the old key.
+5. Script removes the legacy `XERO_TOKEN_ENCRYPTION_KEY` fallback.
+6. Redeploy/restart production again so runtime no longer has the old key.
+
+See `docs/xero-security-evidence.md` for the evidence/runbook details.
+
 ## Vercel Auth Protection Checklist
 
 For launch, auth abuse protection is infra-owned rather than app-owned. Before launch, verify Vercel-side controls cover:

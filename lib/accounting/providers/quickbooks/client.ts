@@ -237,8 +237,14 @@ export async function getAuthedQuickBooksConnection(orgId: string) {
       throw new QuickBooksError("QuickBooks is not connected for this organization.", 409);
     }
 
-    const accessToken = decryptAccountingToken(existing.accessTokenCiphertext);
-    const refreshToken = decryptAccountingToken(existing.refreshTokenCiphertext);
+    const accessToken = decryptAccountingToken(
+      existing.accessTokenCiphertext,
+      existing.tokenEncryptionKeyId
+    );
+    const refreshToken = decryptAccountingToken(
+      existing.refreshTokenCiphertext,
+      existing.tokenEncryptionKeyId
+    );
     const expiresInMs = existing.tokenExpiresAt.getTime() - Date.now();
     if (expiresInMs <= 5 * 60 * 1000) {
       getAccountingTokenEncryptionKeyId();

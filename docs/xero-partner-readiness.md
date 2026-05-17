@@ -10,27 +10,28 @@ read_when:
 This is the tracker for moving Ashicore's Xero integration from pilot-ready to
 partner-review-ready.
 
-## Current PR: encrypted token storage
+## Token storage and rotation
 
 Xero requires secure storage of Xero data, non-exposure of OAuth tokens and
 customer-identifying information, and encrypted persistent storage of refresh
-tokens using a symmetric algorithm with AES-128 or greater preferred. This PR
+tokens using a symmetric algorithm with AES-128 or greater preferred. The app
 encrypts both access and refresh tokens.
 
-- Store encrypted tokens in `xero.xero_connections`.
-- Drop legacy plaintext token columns.
-- Use one active encryption key from `XERO_TOKEN_ENCRYPTION_KEY`.
-- Store `token_encryption_key_id` for future rotation and auditability.
-- Multi-key decrypt / active-key rotation is not implemented in this PR.
-- Existing Xero connections are removed during migration and must reconnect.
+- Store encrypted tokens in `integrations.connections`.
+- Use multi-key decrypt from `XERO_TOKEN_ENCRYPTION_KEYS`.
+- Use active-key encrypt from `XERO_TOKEN_ENCRYPTION_KEY_ID`.
+- Store `token_encryption_key_id` for decrypt routing and auditability.
+- Rotate keys with `pnpm rotate:xero-token-key -- --environment production --apply`.
+- Keep `docs/xero-security-evidence.md` current for partner-review evidence.
 
 Rollout:
 
-1. Set `XERO_TOKEN_ENCRYPTION_KEY` and `XERO_TOKEN_ENCRYPTION_KEY_ID` in production.
-2. Deploy migration and code together.
-3. Reconnect the pilot customer in Xero settings.
-4. Verify the new row has `refresh_token_ciphertext` populated.
-5. Smoke test the connected Xero tenant.
+1. Configure production with `XERO_TOKEN_ENCRYPTION_KEYS` and active
+   `XERO_TOKEN_ENCRYPTION_KEY_ID`.
+2. Redeploy production after env changes.
+3. Run the rotation script to re-encrypt rows and verify.
+4. Retire the old key only after script verification.
+5. Redeploy production after old-key retirement.
 
 ## Certification blockers
 
@@ -38,7 +39,7 @@ Rollout:
   route; see `docs/xero-support-listing.md`.
 - **Login security** — native MFA is required for every Ashicore account, with authenticator-app and email-code options. Xero requires strong customer authentication with minimum two-step authentication or SSO, and strongly recommends Sign in with Xero.
 - **Audit logging** — application access logs plus event-based actions. Logs should include date/time, user or process, event description, success/failure, source, and applicable equipment/location. Retain long enough for investigation, usually at least one year, and keep logs immutable and secure.
-- **Security packet** — document hosting, encryption at rest, key management, access control, vulnerability management, monitoring, breach reporting, subprocessors, privacy policy, and support ownership.
+- **Security packet** — document hosting, encryption at rest, key management, access control, vulnerability management, monitoring, breach reporting, subprocessors, privacy policy, and support ownership. Current evidence lives in `docs/xero-security-evidence.md`.
 - **Support/listing docs** — setup guide, disconnect guide, data-flow diagram, field mapping, FAQ, privacy/support links, pricing/plan details, and marketplace copy/assets.
 - **Customer validation evidence** — collect if requested during partner review.
 
