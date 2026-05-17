@@ -1230,10 +1230,44 @@ async function prepareUpdatedIngredientsInTx(
       )
     )
     .orderBy(asc(manufacturingOrderIngredients.sortOrder));
+  const editableRows =
+    existingRows.length > 0
+      ? existingRows
+      : (
+          await tx
+            .select({
+              sortOrder: manufacturingOrderIngredients.sortOrder,
+              batchNumber: manufacturingOrderBatches.batchNumber,
+            })
+            .from(manufacturingOrderIngredients)
+            .innerJoin(
+              manufacturingOrderBatches,
+              eq(
+                manufacturingOrderIngredients.manufacturingOrderBatchId,
+                manufacturingOrderBatches.id
+              )
+            )
+            .where(
+              eq(
+                manufacturingOrderIngredients.manufacturingOrderId,
+                manufacturingOrderId
+              )
+            )
+            .orderBy(
+              asc(manufacturingOrderIngredients.sortOrder),
+              asc(manufacturingOrderBatches.batchNumber)
+            )
+        ).reduce<Array<{ sortOrder: number }>>((rows, row) => {
+          if (!rows.some((existingRow) => existingRow.sortOrder === row.sortOrder)) {
+            rows.push({ sortOrder: row.sortOrder });
+          }
+
+          return rows;
+        }, []);
 
   if (
     bomRows.length !== submittedIngredients.length ||
-    existingRows.length !== submittedIngredients.length
+    editableRows.length !== submittedIngredients.length
   ) {
     throw new ManufacturingError(
       "Ingredient rows cannot be added or removed after the order is created",
@@ -1244,7 +1278,7 @@ async function prepareUpdatedIngredientsInTx(
   const bomBySortOrder = new Map(bomRows.map((row) => [row.sortOrder, row]));
   const choices = groupChoiceMap(groupRemainderChoices);
 
-  return existingRows.map((existingRow, index) => {
+  return editableRows.map((existingRow, index) => {
     const row = bomBySortOrder.get(existingRow.sortOrder);
     if (!row) {
       throw new ManufacturingError("The order BOM snapshot is missing.", 400);
@@ -3417,6 +3451,58 @@ export async function getManufacturingOrderEditData(
         )
       )
       .orderBy(asc(manufacturingOrderIngredients.sortOrder));
+    const editableIngredients =
+      ingredients.length > 0
+        ? ingredients
+        : (
+            await tx
+              .select({
+                itemId: manufacturingOrderIngredients.itemId,
+                itemName: manufacturingOrderIngredients.itemName,
+                itemSku: manufacturingOrderIngredients.itemSku,
+                itemType: manufacturingOrderIngredients.itemType,
+                unitName: manufacturingOrderIngredients.unitName,
+                quantityPerUnit: trimScale(
+                  manufacturingOrderIngredients.quantityPerUnit
+                ).as("quantityPerUnit"),
+                consumptionMode: manufacturingOrderIngredients.consumptionMode,
+                basisOutputQuantity: trimScaleNullable(
+                  manufacturingOrderIngredients.basisOutputQuantity
+                ).as("basisOutputQuantity"),
+                batchScalingMode: manufacturingOrderIngredients.batchScalingMode,
+                groupRemainderPolicy:
+                  manufacturingOrderIngredients.groupRemainderPolicy,
+                chosenGroupRemainderHandling:
+                  manufacturingOrderIngredients.chosenGroupRemainderHandling,
+                calculatedBatchCount: trimScaleNullable(
+                  manufacturingOrderIngredients.calculatedBatchCount
+                ).as("calculatedBatchCount"),
+                calculatedGroupCount: trimScaleNullable(
+                  manufacturingOrderIngredients.calculatedGroupCount
+                ).as("calculatedGroupCount"),
+                sortOrder: manufacturingOrderIngredients.sortOrder,
+                batchNumber: manufacturingOrderBatches.batchNumber,
+              })
+              .from(manufacturingOrderIngredients)
+              .innerJoin(
+                manufacturingOrderBatches,
+                eq(
+                  manufacturingOrderIngredients.manufacturingOrderBatchId,
+                  manufacturingOrderBatches.id
+                )
+              )
+              .where(eq(manufacturingOrderIngredients.manufacturingOrderId, id))
+              .orderBy(
+                asc(manufacturingOrderIngredients.sortOrder),
+                asc(manufacturingOrderBatches.batchNumber)
+              )
+          ).reduce<typeof ingredients>((rows, row) => {
+            if (!rows.some((ingredient) => ingredient.sortOrder === row.sortOrder)) {
+              rows.push(row);
+            }
+
+            return rows;
+          }, []);
 
     const bomRows =
       order.bomRevisionId == null
@@ -3427,7 +3513,7 @@ export async function getManufacturingOrderEditData(
 
     return {
       ...order,
-      ingredients: ingredients.map((ingredient) => {
+      ingredients: editableIngredients.map((ingredient) => {
         const bomRow = bomBySortOrder.get(ingredient.sortOrder);
         return {
           itemId: ingredient.itemId,
