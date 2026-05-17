@@ -97,10 +97,13 @@ Do not wrap request-auth helpers that read `headers()` in React `cache()`. Membe
   dashboard or API access.
 - Users with MFA enabled complete `/two-factor` after password sign-in unless
   the device is trusted.
-- Supported methods are authenticator-app TOTP and email OTP. TOTP remains the
-  stronger default; email OTP is available for lower-friction setup/sign-in.
-- Better Auth owns TOTP secrets, encrypted backup codes, email OTP verification
-  records, and the 30-day trusted device cookie through the two-factor plugin.
+- Supported method is email OTP. Authenticator-app TOTP and backup-code UI are
+  intentionally hidden until the product supports recovery/setup clearly.
+- Better Auth owns the MFA-enabled user flag, email OTP verification records,
+  and the 30-day trusted device cookie through the two-factor plugin.
+- Send email OTP through `/api/auth/mfa/send-code`, not Better Auth's
+  `/two-factor/send-otp`; the Better Auth endpoint logs delivery failures but
+  still returns success.
 - Keep `/two-factor` public in `proxy.ts`; Better Auth removes the normal
   session cookie while a 2FA challenge is pending and uses a signed temporary
   two-factor cookie instead.

@@ -136,6 +136,8 @@ export const POST = apiHandler(async (request) => {
   const code = generateOtp();
   const context = await auth.$context;
 
+  // Better Auth's send-otp endpoint can report success after email delivery
+  // fails. Own the send path so the UI only shows success after Resend accepts.
   await context.internalAdapter.createVerificationValue({
     value: `${hashOtp(code)}:0`,
     identifier: `2fa-otp-${challenge.key}`,

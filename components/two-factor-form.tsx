@@ -20,16 +20,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
 
-type VerificationMethod = "authenticator" | "email" | "backup";
-
 export function TwoFactorForm({ next = "/" }: { next?: string }) {
   const router = useRouter();
   const [code, setCode] = useState("");
-  const [method, setMethod] = useState<VerificationMethod>("authenticator");
+  const [codeSent, setCodeSent] = useState(false);
   const [trustDevice, setTrustDevice] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
 
   async function sendEmailCode() {
@@ -50,8 +48,8 @@ export function TwoFactorForm({ next = "/" }: { next?: string }) {
       return;
     }
 
-    setMethod("email");
     setCode("");
+    setCodeSent(true);
     setNotice("Verification code sent.");
     setSendingEmail(false);
   }
@@ -59,27 +57,16 @@ export function TwoFactorForm({ next = "/" }: { next?: string }) {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    setLoading(true);
+    setVerifying(true);
 
-    const result =
-      method === "backup"
-        ? await authClient.twoFactor.verifyBackupCode({
-            code,
-            trustDevice,
-          })
-        : method === "email"
-          ? await authClient.twoFactor.verifyOtp({
-              code,
-              trustDevice,
-            })
-          : await authClient.twoFactor.verifyTotp({
-              code,
-              trustDevice,
-            });
+    const result = await authClient.twoFactor.verifyOtp({
+      code,
+      trustDevice,
+    });
 
     if (result.error) {
       setError(result.error.message ?? "Invalid verification code.");
-      setLoading(false);
+      setVerifying(false);
       return;
     }
 
@@ -96,17 +83,29 @@ export function TwoFactorForm({ next = "/" }: { next?: string }) {
         <form onSubmit={handleSubmit}>
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor="two-factor-code">
-                {method === "backup" ? "Backup code" : "Verification code"}
-              </FieldLabel>
+              <FieldLabel htmlFor="two-factor-code">Email code</FieldLabel>
               <Input
                 id="two-factor-code"
-                inputMode={method === "backup" ? "text" : "numeric"}
+                inputMode="numeric"
                 autoComplete="one-time-code"
                 required
                 value={code}
                 onChange={(event) => setCode(event.target.value)}
               />
+            </Field>
+            <Field>
+              <Button
+                type="button"
+                variant={codeSent ? "outline" : "default"}
+                onClick={sendEmailCode}
+                disabled={sendingEmail || verifying}
+              >
+                {sendingEmail
+                  ? "Sending..."
+                  : codeSent
+                    ? "Resend code"
+                    : "Send code to email"}
+              </Button>
             </Field>
             <Field orientation="horizontal">
               <Checkbox
@@ -118,56 +117,16 @@ export function TwoFactorForm({ next = "/" }: { next?: string }) {
                 Trust this device for 30 days
               </FieldLabel>
             </Field>
-            <Field orientation="horizontal">
-              <Checkbox
-                id="two-factor-email-code"
-                checked={method === "email"}
-                onCheckedChange={(value) => {
-                  if (value === true) {
-                    void sendEmailCode();
-                    return;
-                  }
-
-                  setMethod("authenticator");
-                  setCode("");
-                  setNotice(null);
-                }}
-              />
-              <FieldLabel htmlFor="two-factor-email-code" className="font-normal">
-                Email me a code
-              </FieldLabel>
-            </Field>
-            <Field>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={sendEmailCode}
-                disabled={sendingEmail}
-              >
-                {sendingEmail ? "Sending..." : "Send email code"}
-              </Button>
-            </Field>
-            <Field orientation="horizontal">
-              <Checkbox
-                id="two-factor-backup-code"
-                checked={method === "backup"}
-                onCheckedChange={(value) => {
-                  setMethod(value === true ? "backup" : "authenticator");
-                  setCode("");
-                  setNotice(null);
-                }}
-              />
-              <FieldLabel htmlFor="two-factor-backup-code" className="font-normal">
-                Use a backup code
-              </FieldLabel>
-            </Field>
             {notice ? (
               <FieldDescription className="text-center">{notice}</FieldDescription>
             ) : null}
             {error ? <FieldError>{error}</FieldError> : null}
             <Field>
-              <Button type="submit" disabled={loading}>
-                {loading ? "Verifying..." : "Verify"}
+              <Button
+                type="submit"
+                disabled={verifying || sendingEmail || !code.trim()}
+              >
+                {verifying ? "Verifying..." : "Verify"}
               </Button>
               <FieldDescription className="text-center">
                 <a href="/sign-in">Use a different account</a>
