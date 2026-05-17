@@ -267,6 +267,7 @@ const evidence = buildRotationEvidenceMarkdown({
     newKeyId: "new",
     newKey: "abcd...wxyz",
     accountingConnectionRowsAffected: 2,
+    signupIntentRowsAffected: 1,
     initialDecryptFailures: 0,
   },
   status: "retired",

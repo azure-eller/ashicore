@@ -6,6 +6,8 @@ import {
   getValidXeroSignupIntent,
   markXeroSignupIntentClaimed,
   persistXeroSignupConnection,
+  revertConsumingXeroSignupIntentToPending,
+  startConsumingXeroSignupIntent,
 } from "./signup-intents";
 
 const signupIntentQuery = z.object({
@@ -59,54 +61,82 @@ export function xeroSignupAuthPlugin() {
           metadata: { openapi: { description: "Complete Xero App Store signup." } },
         },
         async (ctx) => {
-          const intent = await getValidXeroSignupIntent(intentLookup(ctx.query));
-          if (!intent) {
+          // Peek so we can early-redirect to the link flow without burning the
+          // single-use claim if the user already exists in Better Auth.
+          const previewIntent = await getValidXeroSignupIntent(
+            intentLookup(ctx.query)
+          );
+          if (!previewIntent) {
             throw ctx.redirect(signupErrorRedirect("expired"));
           }
 
           const existing = await ctx.context.internalAdapter.findUserByEmail(
-            intent.email
+            previewIntent.email
           );
           if (existing?.user) {
             throw ctx.redirect(signupLinkRedirect(ctx.query.intent, ctx.query.token));
           }
 
-          const createdUser = await ctx.context.internalAdapter.createUser({
-            email: intent.email,
-            name: intent.name,
-            image: null,
-            emailVerified: true,
-          });
-          if (!createdUser) {
-            throw ctx.redirect(signupErrorRedirect("user_create_failed"));
+          // Atomic claim. Two concurrent requests with the same token cannot
+          // both win this UPDATE; the loser sees no row and bails out cleanly.
+          const intent = await startConsumingXeroSignupIntent(
+            intentLookup(ctx.query)
+          );
+          if (!intent) {
+            throw ctx.redirect(signupErrorRedirect("expired"));
           }
 
-          const createdOrg = await createPasswordlessOwnerOrg({
-            userId: createdUser.id,
-            tenantName: intent.tenantName,
-          });
-          const connectionResult = await persistXeroSignupConnection(
-            createdOrg.id,
-            intent
-          );
-          if (!connectionResult.ok) {
-            throw ctx.redirect(await redirectForConnectionResult(connectionResult));
+          let intentSettled = false;
+          try {
+            const createdUser = await ctx.context.internalAdapter.createUser({
+              email: intent.email,
+              name: intent.name,
+              image: null,
+              emailVerified: true,
+            });
+            if (!createdUser) {
+              intentSettled = true;
+              await revertConsumingXeroSignupIntentToPending(intent.id);
+              throw ctx.redirect(signupErrorRedirect("user_create_failed"));
+            }
+
+            const createdOrg = await createPasswordlessOwnerOrg({
+              userId: createdUser.id,
+              tenantName: intent.tenantName,
+            });
+            const connectionResult = await persistXeroSignupConnection(
+              createdOrg.id,
+              intent
+            );
+            if (!connectionResult.ok) {
+              intentSettled = true;
+              await revertConsumingXeroSignupIntentToPending(intent.id);
+              throw ctx.redirect(
+                await redirectForConnectionResult(connectionResult)
+              );
+            }
+
+            const session = await ctx.context.internalAdapter.createSession(
+              createdUser.id,
+              false,
+              { activeOrganizationId: createdOrg.id },
+              true
+            );
+            await setSessionCookie(ctx, { user: createdUser, session });
+            await markXeroSignupIntentClaimed({
+              id: intent.id,
+              userId: createdUser.id,
+              organizationId: createdOrg.id,
+            });
+            intentSettled = true;
+
+            throw ctx.redirect(mfaSetupRedirect(settingsRedirect()));
+          } catch (error) {
+            if (!intentSettled) {
+              await revertConsumingXeroSignupIntentToPending(intent.id);
+            }
+            throw error;
           }
-
-          const session = await ctx.context.internalAdapter.createSession(
-            createdUser.id,
-            false,
-            { activeOrganizationId: createdOrg.id },
-            true
-          );
-          await setSessionCookie(ctx, { user: createdUser, session });
-          await markXeroSignupIntentClaimed({
-            id: intent.id,
-            userId: createdUser.id,
-            organizationId: createdOrg.id,
-          });
-
-          throw ctx.redirect(mfaSetupRedirect(settingsRedirect()));
         }
       ),
       linkXeroSignup: createAuthEndpoint(
@@ -117,8 +147,12 @@ export function xeroSignupAuthPlugin() {
           metadata: { openapi: { description: "Link Xero App Store signup." } },
         },
         async (ctx) => {
-          const intent = await getValidXeroSignupIntent(intentLookup(ctx.query));
-          if (!intent) {
+          // Peek: avoid burning the atomic claim before all auth/email checks
+          // pass — the link flow may legitimately redirect to /sign-in.
+          const previewIntent = await getValidXeroSignupIntent(
+            intentLookup(ctx.query)
+          );
+          if (!previewIntent) {
             throw ctx.redirect(signupErrorRedirect("expired"));
           }
 
@@ -127,7 +161,7 @@ export function xeroSignupAuthPlugin() {
             throw ctx.redirect(signInRedirect(ctx.query.intent, ctx.query.token));
           }
 
-          if (session.user.email.toLowerCase() !== intent.email) {
+          if (session.user.email.toLowerCase() !== previewIntent.email) {
             throw ctx.redirect(signupErrorRedirect("email_mismatch"));
           }
 
@@ -136,18 +170,38 @@ export function xeroSignupAuthPlugin() {
             throw ctx.redirect(signupErrorRedirect("active_org_required"));
           }
 
-          const connectionResult = await persistXeroSignupConnection(orgId, intent);
-          if (!connectionResult.ok) {
-            throw ctx.redirect(await redirectForConnectionResult(connectionResult));
+          const intent = await startConsumingXeroSignupIntent(
+            intentLookup(ctx.query)
+          );
+          if (!intent) {
+            throw ctx.redirect(signupErrorRedirect("expired"));
           }
 
-          await markXeroSignupIntentClaimed({
-            id: intent.id,
-            userId: session.user.id,
-            organizationId: orgId,
-          });
+          let intentSettled = false;
+          try {
+            const connectionResult = await persistXeroSignupConnection(orgId, intent);
+            if (!connectionResult.ok) {
+              intentSettled = true;
+              await revertConsumingXeroSignupIntentToPending(intent.id);
+              throw ctx.redirect(
+                await redirectForConnectionResult(connectionResult)
+              );
+            }
 
-          throw ctx.redirect(settingsRedirect());
+            await markXeroSignupIntentClaimed({
+              id: intent.id,
+              userId: session.user.id,
+              organizationId: orgId,
+            });
+            intentSettled = true;
+
+            throw ctx.redirect(settingsRedirect());
+          } catch (error) {
+            if (!intentSettled) {
+              await revertConsumingXeroSignupIntentToPending(intent.id);
+            }
+            throw error;
+          }
         }
       ),
     },

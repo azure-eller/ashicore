@@ -40,6 +40,13 @@ type XeroTokenRow = {
   refresh_token_ciphertext: string;
 };
 
+type SignupIntentTokenRow = {
+  id: string;
+  token_encryption_key_id: string | null;
+  access_token_ciphertext: string;
+  refresh_token_ciphertext: string;
+};
+
 type RotationSummary = {
   totalConnections: number;
   rowsScanned: number;
@@ -61,6 +68,7 @@ type RotationTargetEvidence = {
   newKeyId: string;
   newKey: string;
   accountingConnectionRowsAffected: number;
+  signupIntentRowsAffected: number;
   initialDecryptFailures: number;
 };
 
@@ -515,6 +523,176 @@ async function verifyRows(pool: Pool, activeKeyId: string) {
   return { summary, rows };
 }
 
+async function loadSignupIntentRows(pool: Pool): Promise<{
+  totalIntents: number;
+  rows: SignupIntentTokenRow[];
+}> {
+  // Include `consuming` so the per-row `select for update` below serialises
+  // against any in-flight `persistXeroSignupConnection` — without this, a
+  // consume that lands between rotation and retirement would copy old-key
+  // ciphertext into integrations.connections behind the script's back.
+  const total = await pool.query<{ count: string }>(
+    `select count(*)::text as count
+       from system.xero_signup_intents
+      where status in ('pending', 'consuming')
+        and expires_at > now()`
+  );
+  const rows = await pool.query<SignupIntentTokenRow>(
+    `select id,
+            token_encryption_key_id,
+            access_token_ciphertext,
+            refresh_token_ciphertext
+       from system.xero_signup_intents
+      where status in ('pending', 'consuming')
+        and expires_at > now()
+      order by id`
+  );
+  return {
+    totalIntents: Number(total.rows[0]?.count ?? "0"),
+    rows: rows.rows,
+  };
+}
+
+function decryptSignupIntentRow(row: SignupIntentTokenRow) {
+  return {
+    accessToken: decryptXeroToken(
+      row.access_token_ciphertext,
+      row.token_encryption_key_id
+    ),
+    refreshToken: decryptXeroToken(
+      row.refresh_token_ciphertext,
+      row.token_encryption_key_id
+    ),
+  };
+}
+
+async function rotateSignupIntentRows(
+  pool: Pool,
+  rows: SignupIntentTokenRow[],
+  activeKeyId: string
+) {
+  const summary: RotationSummary = {
+    totalConnections: 0,
+    rowsScanned: rows.length,
+    rowsRotated: 0,
+    rowsAlreadyActive: 0,
+    rowsSkipped: 0,
+    decryptFailures: 0,
+    verifyFailures: 0,
+  };
+
+  for (let index = 0; index < rows.length; index += BATCH_SIZE) {
+    const batch = rows.slice(index, index + BATCH_SIZE);
+
+    for (const candidate of batch) {
+      if (candidate.token_encryption_key_id === activeKeyId) {
+        summary.rowsAlreadyActive += 1;
+        continue;
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query("begin");
+        const locked = await client.query<SignupIntentTokenRow>(
+          `select id,
+                  token_encryption_key_id,
+                  access_token_ciphertext,
+                  refresh_token_ciphertext
+             from system.xero_signup_intents
+            where id = $1
+              and status in ('pending', 'consuming')
+              and expires_at > now()
+            for update`,
+          [candidate.id]
+        );
+        const row = locked.rows[0];
+        if (!row) {
+          summary.rowsSkipped += 1;
+          await client.query("rollback");
+          continue;
+        }
+
+        if (row.token_encryption_key_id === activeKeyId) {
+          summary.rowsAlreadyActive += 1;
+          await client.query("commit");
+          continue;
+        }
+
+        let tokens: ReturnType<typeof decryptSignupIntentRow>;
+        try {
+          tokens = decryptSignupIntentRow(row);
+        } catch {
+          summary.decryptFailures += 1;
+          await client.query("rollback");
+          continue;
+        }
+
+        const accessToken = encryptXeroToken(tokens.accessToken);
+        const refreshToken = encryptXeroToken(tokens.refreshToken);
+        if (
+          accessToken.keyId !== activeKeyId ||
+          refreshToken.keyId !== activeKeyId
+        ) {
+          throw new Error("Encrypted token key id did not match active key id.");
+        }
+
+        await client.query(
+          `update system.xero_signup_intents
+              set access_token_ciphertext = $1,
+                  refresh_token_ciphertext = $2,
+                  token_encryption_key_id = $3,
+                  updated_at = now()
+            where id = $4`,
+          [
+            accessToken.ciphertext,
+            refreshToken.ciphertext,
+            activeKeyId,
+            row.id,
+          ]
+        );
+        await client.query("commit");
+        summary.rowsRotated += 1;
+      } catch (error) {
+        await client.query("rollback").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+  }
+
+  return summary;
+}
+
+async function verifySignupIntentRows(pool: Pool, activeKeyId: string) {
+  const { totalIntents, rows } = await loadSignupIntentRows(pool);
+  const summary: RotationSummary = {
+    totalConnections: 0,
+    rowsScanned: rows.length,
+    rowsRotated: 0,
+    rowsAlreadyActive: 0,
+    rowsSkipped: Math.max(totalIntents - rows.length, 0),
+    decryptFailures: 0,
+    verifyFailures: 0,
+  };
+
+  for (const row of rows) {
+    try {
+      decryptSignupIntentRow(row);
+    } catch {
+      summary.decryptFailures += 1;
+    }
+
+    if (row.token_encryption_key_id === activeKeyId) {
+      summary.rowsAlreadyActive += 1;
+    } else {
+      summary.verifyFailures += 1;
+    }
+  }
+
+  return { summary, rows };
+}
+
 function printSummary(
   title: string,
   summary: RotationSummary,
@@ -580,6 +758,7 @@ export function buildRotationEvidenceMarkdown(params: {
     `- New key id: ${params.target.newKeyId}`,
     `- New key: ${params.target.newKey}`,
     `- Accounting connection rows affected: ${params.target.accountingConnectionRowsAffected}`,
+    `- Pending Xero signup intent rows affected: ${params.target.signupIntentRowsAffected}`,
     `- Initial decrypt failures: ${params.target.initialDecryptFailures}`,
     "",
   ];
@@ -655,6 +834,17 @@ async function main() {
         return true;
       }
     }).length;
+    const initialSignupIntents = await loadSignupIntentRows(pool);
+    const initialSignupIntentFailures = initialSignupIntents.rows.filter(
+      (row) => {
+        try {
+          decryptSignupIntentRow(row);
+          return false;
+        } catch {
+          return true;
+        }
+      }
+    ).length;
     const targetEvidence: RotationTargetEvidence = {
       generatedAt: new Date().toISOString(),
       vercelOrg: project.orgId,
@@ -666,7 +856,8 @@ async function main() {
       newKeyId,
       newKey: redactSecret(newKey),
       accountingConnectionRowsAffected: initial.rows.length,
-      initialDecryptFailures: initialFailures,
+      signupIntentRowsAffected: initialSignupIntents.rows.length,
+      initialDecryptFailures: initialFailures + initialSignupIntentFailures,
     };
 
     console.log("Resolved rotation target");
@@ -679,7 +870,10 @@ async function main() {
     console.log(`New key id: ${newKeyId}`);
     console.log(`New key: ${redactSecret(newKey)}`);
     console.log(`Accounting connection rows affected: ${initial.rows.length}`);
-    console.log(`Initial decrypt failures: ${initialFailures}`);
+    console.log(
+      `Pending Xero signup intent rows affected: ${initialSignupIntents.rows.length}`
+    );
+    console.log(`Initial decrypt failures: ${initialFailures + initialSignupIntentFailures}`);
 
     if (!args.apply) {
       const verify = await verifyRows(pool, oldKeyId);
@@ -689,7 +883,21 @@ async function main() {
           (row) => row.token_encryption_key_id === newKeyId
         ).length,
       };
+      const verifyIntents = await verifySignupIntentRows(pool, oldKeyId);
+      const dryRunIntentSummary = {
+        ...verifyIntents.summary,
+        rowsAlreadyActive: initialSignupIntents.rows.filter(
+          (row) => row.token_encryption_key_id === newKeyId
+        ).length,
+      };
       printSummary("Dry-run complete", dryRunSummary, oldKeyId, newKeyId, false);
+      printSummary(
+        "Dry-run complete (signup intents)",
+        dryRunIntentSummary,
+        oldKeyId,
+        newKeyId,
+        false
+      );
       if (evidenceFile) {
         writeEvidenceFile(
           evidenceFile,
@@ -702,6 +910,11 @@ async function main() {
                 summary: dryRunSummary,
                 retired: false,
               },
+              {
+                title: "Dry-run complete (signup intents)",
+                summary: dryRunIntentSummary,
+                retired: false,
+              },
             ],
             notes: ["No writes performed."],
           })
@@ -711,7 +924,7 @@ async function main() {
       return;
     }
 
-    if (initialFailures > 0) {
+    if (initialFailures > 0 || initialSignupIntentFailures > 0) {
       throw new Error(
         "One or more existing accounting token rows could not be decrypted with the configured keys; no writes were performed."
       );
@@ -746,13 +959,35 @@ async function main() {
       decryptFailures: rotated.decryptFailures + verify.summary.decryptFailures,
     };
 
+    const rotatedIntents = await rotateSignupIntentRows(
+      pool,
+      initialSignupIntents.rows,
+      newKeyId
+    );
+    const verifyIntents = await verifySignupIntentRows(pool, newKeyId);
+    const combinedIntentSummary: RotationSummary = {
+      ...verifyIntents.summary,
+      rowsRotated: rotatedIntents.rowsRotated,
+      decryptFailures:
+        rotatedIntents.decryptFailures + verifyIntents.summary.decryptFailures,
+    };
+
     if (
       combinedSummary.decryptFailures > 0 ||
-      combinedSummary.verifyFailures > 0
+      combinedSummary.verifyFailures > 0 ||
+      combinedIntentSummary.decryptFailures > 0 ||
+      combinedIntentSummary.verifyFailures > 0
     ) {
       printSummary(
         "Rotation finished with verification failures",
         combinedSummary,
+        oldKeyId,
+        newKeyId,
+        false
+      );
+      printSummary(
+        "Rotation finished with verification failures (signup intents)",
+        combinedIntentSummary,
         oldKeyId,
         newKeyId,
         false
@@ -767,6 +1002,12 @@ async function main() {
               {
                 title: "Rotation finished with verification failures",
                 summary: combinedSummary,
+                retired: false,
+              },
+              {
+                title:
+                  "Rotation finished with verification failures (signup intents)",
+                summary: combinedIntentSummary,
                 retired: false,
               },
             ],
@@ -784,6 +1025,13 @@ async function main() {
       newKeyId,
       false
     );
+    printSummary(
+      "Xero signup intent token rotation complete",
+      combinedIntentSummary,
+      oldKeyId,
+      newKeyId,
+      false
+    );
     if (evidenceFile) {
       writeEvidenceFile(
         evidenceFile,
@@ -794,6 +1042,11 @@ async function main() {
             {
               title: "Xero token key rotation complete",
               summary: combinedSummary,
+              retired: false,
+            },
+            {
+              title: "Xero signup intent token rotation complete",
+              summary: combinedIntentSummary,
               retired: false,
             },
           ],
@@ -808,6 +1061,91 @@ async function main() {
       "Verification passed. Confirm old-key retirement from Vercel env.",
       `retire ${oldKeyId}`
     );
+
+    // Final pass right before retirement. A Xero signup intent that landed
+    // in `consuming` after the first rotation pass could have completed via
+    // persistXeroSignupConnection during the operator confirmations above,
+    // creating an integrations.connections row whose tokens are still under
+    // the old key. Re-rotate any such rows and re-verify before retiring
+    // the old key so we never strip away a key that live data still needs.
+    const preRetireConnections = await loadRows(pool);
+    const preRetireSignupIntents = await loadSignupIntentRows(pool);
+    const finalConnectionRotation = await rotateRows(
+      pool,
+      preRetireConnections.rows,
+      newKeyId
+    );
+    const finalSignupIntentRotation = await rotateSignupIntentRows(
+      pool,
+      preRetireSignupIntents.rows,
+      newKeyId
+    );
+    const finalConnectionVerify = await verifyRows(pool, newKeyId);
+    const finalSignupIntentVerify = await verifySignupIntentRows(pool, newKeyId);
+
+    const finalConnectionSummary: RotationSummary = {
+      ...finalConnectionVerify.summary,
+      rowsRotated: finalConnectionRotation.rowsRotated,
+      decryptFailures:
+        finalConnectionRotation.decryptFailures +
+        finalConnectionVerify.summary.decryptFailures,
+    };
+    const finalSignupIntentSummary: RotationSummary = {
+      ...finalSignupIntentVerify.summary,
+      rowsRotated: finalSignupIntentRotation.rowsRotated,
+      decryptFailures:
+        finalSignupIntentRotation.decryptFailures +
+        finalSignupIntentVerify.summary.decryptFailures,
+    };
+
+    if (
+      finalConnectionSummary.decryptFailures > 0 ||
+      finalConnectionSummary.verifyFailures > 0 ||
+      finalSignupIntentSummary.decryptFailures > 0 ||
+      finalSignupIntentSummary.verifyFailures > 0
+    ) {
+      printSummary(
+        "Pre-retirement re-verification failed",
+        finalConnectionSummary,
+        oldKeyId,
+        newKeyId,
+        false
+      );
+      printSummary(
+        "Pre-retirement re-verification failed (signup intents)",
+        finalSignupIntentSummary,
+        oldKeyId,
+        newKeyId,
+        false
+      );
+      if (evidenceFile) {
+        writeEvidenceFile(
+          evidenceFile,
+          buildRotationEvidenceMarkdown({
+            target: targetEvidence,
+            status: "failed",
+            summaries: [
+              {
+                title: "Pre-retirement re-verification failed",
+                summary: finalConnectionSummary,
+                retired: false,
+              },
+              {
+                title: "Pre-retirement re-verification failed (signup intents)",
+                summary: finalSignupIntentSummary,
+                retired: false,
+              },
+            ],
+            notes: [
+              "A live consume during operator confirmations left rows on the old key. The old key was NOT retired. Re-run with --apply once the rotated rows verify cleanly.",
+            ],
+          })
+        );
+      }
+      throw new Error(
+        "Pre-retirement re-verification failed; old key was not retired."
+      );
+    }
 
     const retiredConfig: KeyConfig = {
       ...nextConfig,
@@ -833,6 +1171,13 @@ async function main() {
       newKeyId,
       true
     );
+    printSummary(
+      "Xero signup intent token rotation complete",
+      combinedIntentSummary,
+      oldKeyId,
+      newKeyId,
+      true
+    );
     if (evidenceFile) {
       writeEvidenceFile(
         evidenceFile,
@@ -846,8 +1191,28 @@ async function main() {
               retired: false,
             },
             {
+              title: "Xero signup intent token rotation complete",
+              summary: combinedIntentSummary,
+              retired: false,
+            },
+            {
+              title: "Pre-retirement re-rotation (connections)",
+              summary: finalConnectionSummary,
+              retired: false,
+            },
+            {
+              title: "Pre-retirement re-rotation (signup intents)",
+              summary: finalSignupIntentSummary,
+              retired: false,
+            },
+            {
               title: "Xero token key rotation complete",
               summary: combinedSummary,
+              retired: true,
+            },
+            {
+              title: "Xero signup intent token rotation complete",
+              summary: combinedIntentSummary,
               retired: true,
             },
           ],
