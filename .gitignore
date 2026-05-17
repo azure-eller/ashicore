@@ -54,6 +54,7 @@ next-env.d.ts
 # local agent/tooling artifacts
 /.claude/
 /.tmp/
+/.xero-evidence/
 /entities.json
 /mempalace.yaml
 /scripts/peek-*.ts

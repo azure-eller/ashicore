@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
@@ -18,6 +18,7 @@ type Args = {
   apply: boolean;
   environment: string | null;
   envFile: string | null;
+  evidenceFile: string | null;
   newKeyId: string | null;
   newKey: string | null;
 };
@@ -49,13 +50,29 @@ type RotationSummary = {
   verifyFailures: number;
 };
 
+type RotationTargetEvidence = {
+  generatedAt: string;
+  vercelOrg: string;
+  vercelProject: string;
+  environment: string;
+  database: string;
+  databaseUrl: string;
+  oldKeyId: string;
+  newKeyId: string;
+  newKey: string;
+  accountingConnectionRowsAffected: number;
+  initialDecryptFailures: number;
+};
+
 const BATCH_SIZE = 25;
+const DEFAULT_EVIDENCE_DIR = ".xero-evidence";
 
 export function parseArgs(argv: string[]): Args {
   const args: Args = {
     apply: false,
     environment: null,
     envFile: null,
+    evidenceFile: null,
     newKeyId: null,
     newKey: null,
   };
@@ -74,6 +91,12 @@ export function parseArgs(argv: string[]): Args {
       if (!next) throw new Error("--env-file requires a value.");
       args.envFile = next;
       index += 1;
+    } else if (arg === "--evidence-file") {
+      if (!next) throw new Error("--evidence-file requires a value.");
+      args.evidenceFile = next;
+      index += 1;
+    } else if (arg === "--no-evidence-file") {
+      args.evidenceFile = "";
     } else if (arg === "--new-key-id") {
       if (!next) throw new Error("--new-key-id requires a value.");
       args.newKeyId = next;
@@ -101,6 +124,8 @@ Options:
   --apply                 Perform Vercel env and DB writes. Default is dry-run.
   --environment <name>    Required. Must be production for apply mode.
   --env-file <path>       Load env from a local file instead of vercel env pull.
+  --evidence-file <path>  Write redacted evidence to this file.
+  --no-evidence-file      Disable evidence file output.
   --new-key-id <id>       Optional explicit new key id.
   --new-key <base64>      Optional explicit 32-byte base64 key.`);
 }
@@ -288,6 +313,10 @@ function generateKeyId() {
 
 function generateKey() {
   return randomBytes(32).toString("base64");
+}
+
+function defaultEvidenceFilePath(newKeyId: string) {
+  return join(DEFAULT_EVIDENCE_DIR, `xero-token-key-rotation-${newKeyId}.md`);
 }
 
 export function redactSecret(value: string | null | undefined) {
@@ -505,6 +534,91 @@ function printSummary(
   console.log(`Old key retired: ${retired ? "yes" : "no"}`);
 }
 
+function summaryLines(
+  summary: RotationSummary,
+  oldKeyId: string,
+  newKeyId: string,
+  retired: boolean
+) {
+  return [
+    `Old key id: ${oldKeyId}`,
+    `New key id: ${newKeyId}`,
+    `Rows scanned: ${summary.rowsScanned}`,
+    `Rows rotated: ${summary.rowsRotated}`,
+    `Rows already active: ${summary.rowsAlreadyActive}`,
+    `Rows skipped: ${summary.rowsSkipped}`,
+    `Decrypt failures: ${summary.decryptFailures}`,
+    `Verify failures: ${summary.verifyFailures}`,
+    `Old key retired: ${retired ? "yes" : "no"}`,
+  ];
+}
+
+export function buildRotationEvidenceMarkdown(params: {
+  target: RotationTargetEvidence;
+  status: "dry_run" | "rotated" | "retired" | "failed";
+  summaries: Array<{
+    title: string;
+    summary: RotationSummary;
+    retired: boolean;
+  }>;
+  notes?: string[];
+}) {
+  const lines = [
+    "# Xero Token Key Rotation Evidence",
+    "",
+    `Generated at: ${params.target.generatedAt}`,
+    `Status: ${params.status}`,
+    "",
+    "## Target",
+    "",
+    `- Vercel org: ${params.target.vercelOrg}`,
+    `- Vercel project: ${params.target.vercelProject}`,
+    `- Environment: ${params.target.environment}`,
+    `- Database: ${params.target.database}`,
+    `- Database URL: ${params.target.databaseUrl}`,
+    `- Old active key id: ${params.target.oldKeyId}`,
+    `- New key id: ${params.target.newKeyId}`,
+    `- New key: ${params.target.newKey}`,
+    `- Accounting connection rows affected: ${params.target.accountingConnectionRowsAffected}`,
+    `- Initial decrypt failures: ${params.target.initialDecryptFailures}`,
+    "",
+  ];
+
+  for (const entry of params.summaries) {
+    lines.push(`## ${entry.title}`, "");
+    for (const line of summaryLines(
+      entry.summary,
+      params.target.oldKeyId,
+      params.target.newKeyId,
+      entry.retired
+    )) {
+      lines.push(`- ${line}`);
+    }
+    lines.push("");
+  }
+
+  if (params.notes?.length) {
+    lines.push("## Notes", "");
+    for (const note of params.notes) {
+      lines.push(`- ${note}`);
+    }
+    lines.push("");
+  }
+
+  lines.push(
+    "This evidence file is generated from redacted script output. It does not include token plaintext, token ciphertext, full secrets, or full database URLs.",
+    ""
+  );
+
+  return lines.join("\n");
+}
+
+function writeEvidenceFile(path: string, contents: string) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, contents, { encoding: "utf8", mode: 0o600 });
+  console.log(`\nWrote redacted evidence file: ${path}`);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   requireProductionTarget(args);
@@ -519,6 +633,10 @@ async function main() {
   const newKey = args.newKey ?? generateKey();
   const nextConfig = createNextKeyConfig(currentConfig, newKeyId, newKey);
   const databaseUrl = env.DATABASE_URL;
+  const evidenceFile =
+    args.evidenceFile === ""
+      ? null
+      : args.evidenceFile ?? defaultEvidenceFilePath(newKeyId);
 
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required; use the owner/admin database URL.");
@@ -537,6 +655,19 @@ async function main() {
         return true;
       }
     }).length;
+    const targetEvidence: RotationTargetEvidence = {
+      generatedAt: new Date().toISOString(),
+      vercelOrg: project.orgId,
+      vercelProject: project.projectId,
+      environment: args.environment!,
+      database: databaseHostAndName(databaseUrl),
+      databaseUrl: redactDatabaseUrl(databaseUrl),
+      oldKeyId,
+      newKeyId,
+      newKey: redactSecret(newKey),
+      accountingConnectionRowsAffected: initial.rows.length,
+      initialDecryptFailures: initialFailures,
+    };
 
     console.log("Resolved rotation target");
     console.log(`Vercel org: ${project.orgId}`);
@@ -552,18 +683,30 @@ async function main() {
 
     if (!args.apply) {
       const verify = await verifyRows(pool, oldKeyId);
-      printSummary(
-        "Dry-run complete",
-        {
-          ...verify.summary,
-          rowsAlreadyActive: initial.rows.filter(
-            (row) => row.token_encryption_key_id === newKeyId
-          ).length,
-        },
-        oldKeyId,
-        newKeyId,
-        false
-      );
+      const dryRunSummary = {
+        ...verify.summary,
+        rowsAlreadyActive: initial.rows.filter(
+          (row) => row.token_encryption_key_id === newKeyId
+        ).length,
+      };
+      printSummary("Dry-run complete", dryRunSummary, oldKeyId, newKeyId, false);
+      if (evidenceFile) {
+        writeEvidenceFile(
+          evidenceFile,
+          buildRotationEvidenceMarkdown({
+            target: targetEvidence,
+            status: "dry_run",
+            summaries: [
+              {
+                title: "Dry-run complete",
+                summary: dryRunSummary,
+                retired: false,
+              },
+            ],
+            notes: ["No writes performed."],
+          })
+        );
+      }
       console.log("\nNo writes performed. Re-run with --apply to rotate.");
       return;
     }
@@ -614,6 +757,23 @@ async function main() {
         newKeyId,
         false
       );
+      if (evidenceFile) {
+        writeEvidenceFile(
+          evidenceFile,
+          buildRotationEvidenceMarkdown({
+            target: targetEvidence,
+            status: "failed",
+            summaries: [
+              {
+                title: "Rotation finished with verification failures",
+                summary: combinedSummary,
+                retired: false,
+              },
+            ],
+            notes: ["Verification failed; old key was not retired."],
+          })
+        );
+      }
       throw new Error("Verification failed; old key was not retired.");
     }
 
@@ -624,6 +784,25 @@ async function main() {
       newKeyId,
       false
     );
+    if (evidenceFile) {
+      writeEvidenceFile(
+        evidenceFile,
+        buildRotationEvidenceMarkdown({
+          target: targetEvidence,
+          status: "rotated",
+          summaries: [
+            {
+              title: "Xero token key rotation complete",
+              summary: combinedSummary,
+              retired: false,
+            },
+          ],
+          notes: [
+            "Rows were re-encrypted and verified, but the old key had not been retired yet.",
+          ],
+        })
+      );
+    }
 
     await promptExact(
       "Verification passed. Confirm old-key retirement from Vercel env.",
@@ -654,6 +833,30 @@ async function main() {
       newKeyId,
       true
     );
+    if (evidenceFile) {
+      writeEvidenceFile(
+        evidenceFile,
+        buildRotationEvidenceMarkdown({
+          target: targetEvidence,
+          status: "retired",
+          summaries: [
+            {
+              title: "Xero token key rotation complete",
+              summary: combinedSummary,
+              retired: false,
+            },
+            {
+              title: "Xero token key rotation complete",
+              summary: combinedSummary,
+              retired: true,
+            },
+          ],
+          notes: [
+            "Production must be redeployed or restarted after old-key retirement so the old key is removed from runtime.",
+          ],
+        })
+      );
+    }
     console.log("\nRedeploy/restart production again so the old key is removed from runtime.");
   } finally {
     await pool.end();

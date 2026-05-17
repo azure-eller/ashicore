@@ -7,6 +7,7 @@ import {
   resetXeroTokenEncryptionKeyForTests,
 } from "@/lib/xero/token-crypto";
 import {
+  buildRotationEvidenceMarkdown,
   createNextKeyConfig,
   parseArgs,
   parseKeyConfig,
@@ -203,6 +204,31 @@ assert.deepEqual(parseArgs(["--environment", "production", "--apply"]), {
   apply: true,
   environment: "production",
   envFile: null,
+  evidenceFile: null,
+  newKeyId: null,
+  newKey: null,
+});
+assert.deepEqual(
+  parseArgs([
+    "--environment",
+    "production",
+    "--evidence-file",
+    "/tmp/xero-rotation.md",
+  ]),
+  {
+    apply: false,
+    environment: "production",
+    envFile: null,
+    evidenceFile: "/tmp/xero-rotation.md",
+    newKeyId: null,
+    newKey: null,
+  }
+);
+assert.deepEqual(parseArgs(["--environment", "production", "--no-evidence-file"]), {
+  apply: false,
+  environment: "production",
+  envFile: null,
+  evidenceFile: "",
   newKeyId: null,
   newKey: null,
 });
@@ -229,5 +255,39 @@ assert.equal(
   redactDatabaseUrl("postgresql://user:password@example.com:5432/erp"),
   "postgresql://[redacted]@example.com:5432/erp"
 );
+const evidence = buildRotationEvidenceMarkdown({
+  target: {
+    generatedAt: "2026-05-17T00:00:00.000Z",
+    vercelOrg: "team_123",
+    vercelProject: "prj_123",
+    environment: "production",
+    database: "example.com/erp",
+    databaseUrl: "postgresql://[redacted]@example.com:5432/erp",
+    oldKeyId: "old",
+    newKeyId: "new",
+    newKey: "abcd...wxyz",
+    accountingConnectionRowsAffected: 2,
+    initialDecryptFailures: 0,
+  },
+  status: "retired",
+  summaries: [
+    {
+      title: "Xero token key rotation complete",
+      retired: true,
+      summary: {
+        totalConnections: 2,
+        rowsScanned: 2,
+        rowsRotated: 2,
+        rowsAlreadyActive: 2,
+        rowsSkipped: 0,
+        decryptFailures: 0,
+        verifyFailures: 0,
+      },
+    },
+  ],
+});
+assert.match(evidence, /Status: retired/);
+assert.match(evidence, /Database URL: postgresql:\/\/\[redacted\]@example.com:5432\/erp/);
+assert.doesNotMatch(evidence, /password/);
 
 console.log("Xero token crypto verification passed.");

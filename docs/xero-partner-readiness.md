@@ -22,6 +22,8 @@ encrypts both access and refresh tokens.
 - Use active-key encrypt from `XERO_TOKEN_ENCRYPTION_KEY_ID`.
 - Store `token_encryption_key_id` for decrypt routing and auditability.
 - Rotate keys with `pnpm rotate:xero-token-key -- --environment production --apply`.
+- Rotation writes redacted evidence to `.xero-evidence/` by default; pass
+  `--evidence-file <path>` to store it with the partner packet.
 - Keep `docs/xero-security-evidence.md` current for partner-review evidence.
 
 Rollout:
