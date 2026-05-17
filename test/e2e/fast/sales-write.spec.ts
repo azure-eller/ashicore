@@ -77,11 +77,22 @@ async function openAllocationManagerFromMatrix(params: {
   await page.getByText("Pool coverage").first().click();
   await expect(page.getByRole("dialog", { name: /Allocate/ })).toHaveCount(0);
 
+  const orderRow = page.getByRole("row").filter({ hasText: orderNumber }).first();
+  await expect(orderRow).toBeVisible();
+
   const allocateButton = page
     .getByRole("button", { name: new RegExp(`^Allocate ${escapeRegExp(itemName)}$`) })
     .first();
   await expect(allocateButton).toBeVisible();
-  await allocateButton.click();
+  const buttonBox = await allocateButton.boundingBox();
+  const rowBox = await orderRow.boundingBox();
+  if (!buttonBox || !rowBox) {
+    throw new Error("Unable to locate allocation matrix cell.");
+  }
+  await page.mouse.click(
+    buttonBox.x + buttonBox.width / 2,
+    rowBox.y + rowBox.height / 2
+  );
 
   const sheet = page.getByRole("dialog", {
     name: new RegExp(`Allocate ${escapeRegExp(itemName)}`),
@@ -3471,7 +3482,8 @@ test.describe("Sales write-path smoke", () => {
 
     await page.goto(`/sales/orders/${webShipOrderId}`);
     const shipmentRow = page.getByRole("row", { name: /Planned/ });
-    await shipmentRow.getByRole("button", { name: "Ship", exact: true }).click();
+    await shipmentRow.getByRole("button", { name: /Actions for/ }).click();
+    await page.getByRole("menuitem", { name: "Ship", exact: true }).click();
 
     const dialog = page.getByRole("alertdialog", { name: "Ship this shipment?" });
     await expect(dialog).toBeVisible();

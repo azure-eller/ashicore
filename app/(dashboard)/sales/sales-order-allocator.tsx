@@ -49,7 +49,7 @@ export type AllocatorProduct = {
 };
 
 export type AllocationTarget = {
-  order: SalesOrderListRow;
+  order: Pick<SalesOrderListRow, "id" | "orderNumber" | "customerName">;
   line: SalesOrderListLine & { id: string };
   product: AllocatorProduct;
   targetQty: string;
@@ -257,9 +257,11 @@ export function AllocatorCell({
 export function AllocationSourceDialog({
   target,
   onOpenChange,
+  onSaved,
 }: {
   target: AllocationTarget | null;
   onOpenChange: (open: boolean) => void;
+  onSaved?: () => void;
 }) {
   const workspaceQuery = useQuery({
     queryKey: [
@@ -327,7 +329,10 @@ export function AllocationSourceDialog({
                 .join("|")}`}
               target={target}
               workspace={workspace}
-              onSaved={() => onOpenChange(false)}
+              onSaved={() => {
+                onSaved?.();
+                onOpenChange(false);
+              }}
               onCancel={() => onOpenChange(false)}
             />
           )

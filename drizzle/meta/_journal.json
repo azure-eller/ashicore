@@ -729,6 +729,13 @@
       "when": 1778976221520,
       "tag": "0103_mandatory_mfa",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1779057753288,
+      "tag": "0104_sales_shipment_delivery_date",
+      "breakpoints": true
     }
   ]
 }

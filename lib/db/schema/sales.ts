@@ -547,6 +547,7 @@ export const salesShipments = salesSchema
         .notNull()
         .default("delivery"),
       scheduledDate: date("scheduled_date", { mode: "string" }),
+      deliveryDate: date("delivery_date", { mode: "string" }),
       shippedAt: timestamp("shipped_at", { withTimezone: true }),
       notes: text("notes"),
       customerFreightChargeAmount: numeric("customer_freight_charge_amount", {

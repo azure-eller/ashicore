@@ -12,6 +12,7 @@ import {
   ArrowLeft01Icon,
   Delete02Icon,
   HelpCircleIcon,
+  MoreVerticalIcon,
   PencilEdit02Icon,
 } from "@hugeicons/core-free-icons";
 import {
@@ -44,6 +45,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import {
@@ -99,6 +108,10 @@ import {
 } from "@/lib/schemas/sales-orders";
 import { ManufacturingOrderStatusBadge } from "@/app/(dashboard)/manufacturing/status-badge";
 import { SalesOrderStatusBadge } from "./status-badge";
+import {
+  AllocationSourceDialog,
+  type AllocationTarget,
+} from "./sales-order-allocator";
 import { buildSalesOrderLineRemovalPayload } from "./order-line-removal";
 import { CreateManufacturingOrdersDialog } from "./create-manufacturing-orders-dialog";
 import type {
@@ -128,6 +141,7 @@ type ShipmentFormState = {
   idempotencyKey: string;
   fulfillmentType: "delivery" | "pickup";
   scheduledDate: string;
+  deliveryDate: string;
   notes: string;
   quantities: Record<string, string>;
 };
@@ -177,13 +191,6 @@ const COST_STATUS_LABELS: Record<SalesShipmentCostStatus, string> = {
   actual: "Actual",
 };
 
-function marginStatusLabel(status: SalesMarginSummary["costStatus"]) {
-  if (status === "actual") return "Actual";
-  if (status === "estimated") return "Estimated";
-  if (status === "mixed") return "Mixed";
-  return "Unknown";
-}
-
 function emptyShipmentCostLine(): ShipmentCostFormLine {
   return {
     costType: "freight",
@@ -213,6 +220,7 @@ function buildShipmentFormState(
     idempotencyKey: `sales-shipment-${shipment ? "update" : "create"}:${crypto.randomUUID()}`,
     fulfillmentType: shipment?.fulfillmentType ?? "delivery",
     scheduledDate: shipment?.scheduledDate ?? order.shipDate ?? "",
+    deliveryDate: shipment?.deliveryDate ?? order.requestedDate ?? "",
     notes: shipment?.notes ?? "",
     quantities,
   };
@@ -240,6 +248,7 @@ function shipmentPayloadFromState(state: ShipmentFormState) {
   return {
     fulfillmentType: state.fulfillmentType,
     scheduledDate: state.scheduledDate || null,
+    deliveryDate: state.deliveryDate || null,
     notes: state.notes || null,
     lines: Object.entries(state.quantities).flatMap(([salesOrderLineId, quantity]) => {
       const trimmedQuantity = quantity.trim();
@@ -913,6 +922,9 @@ function ShippingPanel({
   createOrderInvoicePending: boolean;
   createShipmentInvoicePending: boolean;
 }) {
+  const queryClient = useQueryClient();
+  const [allocationTarget, setAllocationTarget] =
+    useState<AllocationTarget | null>(null);
   const shipToLines = formatAddressLines({
     line1: order.shipLine1,
     line2: order.shipLine2,
@@ -925,6 +937,54 @@ function ShippingPanel({
     (shipment) => shipment.status === "shipped"
   ).length;
   const activeShipmentCount = order.shipments.length;
+  const orderLineById = new Map(order.lines.map((line) => [line.id, line]));
+
+  function openShipmentLineAllocation(
+    shipment: SalesShipmentRow,
+    line: SalesShipmentRow["lines"][number]
+  ) {
+    const orderLine = orderLineById.get(line.salesOrderLineId);
+    const variantLabel =
+      orderLine?.attrs && orderLine.attrs.length > 0
+        ? orderLine.attrs.join(" / ")
+        : line.itemName;
+
+    setAllocationTarget({
+      order: {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+      },
+      line: {
+        id: line.id,
+        allocationDemandType: "sales_shipment_line",
+        salesOrderLineId: line.salesOrderLineId,
+        salesShipmentLineId: line.id,
+        shipmentId: shipment.id,
+        shipmentNumber: shipment.shipmentNumber,
+        itemId: line.itemId,
+        masterName: orderLine?.masterName ?? line.itemName,
+        attrs: orderLine?.attrs ?? [],
+        itemSku: line.itemSku,
+        quantity: line.quantity,
+        remainingQty: line.quantity,
+        allocatedQty: line.allocatedQty ?? "0",
+        shortQty: line.shortQty ?? line.quantity,
+        sourceSummary: line.sourceSummary ?? "-",
+        allocationStatus: line.allocationStatus ?? "short",
+        unitName: line.unitName,
+      },
+      product: {
+        itemId: line.itemId,
+        label: line.itemName,
+        familyLabel: orderLine?.masterName ?? line.itemName,
+        variantLabel,
+        sku: line.itemSku,
+        unitName: line.unitName,
+      },
+      targetQty: line.quantity,
+    });
+  }
 
   return (
     <div className="space-y-3">
@@ -993,11 +1053,9 @@ function ShippingPanel({
               <TableRow>
                 <TableHead>Shipment</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Scheduled</TableHead>
+                <TableHead>Fulfillment</TableHead>
                 <TableHead>Lines</TableHead>
                 <TableHead className="text-right">Revenue</TableHead>
-                <TableHead className="text-right">COGS</TableHead>
                 <TableHead className="text-right">Ship Cost</TableHead>
                 <TableHead className="text-right">Margin</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -1019,9 +1077,14 @@ function ShippingPanel({
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    {shipment.fulfillmentType === "pickup" ? "Pickup" : "Delivery"}
+                    <div>{shipment.fulfillmentType === "pickup" ? "Pickup" : "Delivery"}</div>
+                    <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 font-mono text-xs tabular-nums text-muted-foreground">
+                      <span className="font-sans">Ship</span>
+                      <span>{formatDate(shipment.scheduledDate)}</span>
+                      <span className="font-sans">Deliver</span>
+                      <span>{formatDate(shipment.deliveryDate)}</span>
+                    </div>
                   </TableCell>
-                  <TableCell>{formatDate(shipment.scheduledDate)}</TableCell>
                   <TableCell>
                     <div className="flex flex-col gap-1">
                       {shipment.lines.map((line) => (
@@ -1042,12 +1105,6 @@ function ShippingPanel({
                     {money(shipment.marginSummary.productRevenue)}
                   </TableCell>
                   <TableCell className="text-right font-mono tabular-nums">
-                    <div>{money(shipment.marginSummary.productCogs)}</div>
-                    <div className="font-sans text-xs text-muted-foreground">
-                      {marginStatusLabel(shipment.marginSummary.costStatus)}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right font-mono tabular-nums">
                     {money(shipment.marginSummary.shipmentCosts)}
                   </TableCell>
                   <TableCell className="text-right font-mono tabular-nums">
@@ -1057,75 +1114,106 @@ function ShippingPanel({
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-1.5">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          window.open(
-                            `/api/sales-orders/${order.id}/shipments/${shipment.id}/bol`,
-                            "_blank",
-                            "noopener,noreferrer"
-                          );
-                        }}
-                      >
-                        View BOL
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onEditCosts(shipment)}
-                      >
-                        Costs
-                      </Button>
-                      {shipment.status === "shipped" ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
                         <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onCreateShipmentInvoice(shipment)}
-                          disabled={
-                            createShipmentInvoicePending ||
-                            !canCreateShipmentInvoice
-                          }
+                          variant="outline"
+                          size="icon"
+                          aria-label={`Actions for ${shipment.shipmentNumber}`}
                         >
-                          {shipment.xeroPushStatus === "pushed"
-                            ? "Invoice created"
-                            : "Create invoice"}
+                          <HugeiconsIcon icon={MoreVerticalIcon} strokeWidth={2} />
                         </Button>
-                      ) : null}
-                      {shipment.status === "planned" ? (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onShipShipment(shipment)}
-                            disabled={shipShipmentPending}
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="end"
+                        className="bg-popover text-popover-foreground"
+                      >
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            window.open(
+                              `/api/sales-orders/${order.id}/shipments/${shipment.id}/bol`,
+                              "_blank",
+                              "noopener,noreferrer"
+                            );
+                          }}
+                        >
+                          View BOL
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => onEditCosts(shipment)}>
+                          Costs
+                        </DropdownMenuItem>
+                        {shipment.status === "planned" &&
+                        shipment.lines.length > 0 ? (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel>Allocate</DropdownMenuLabel>
+                            {shipment.lines.map((line) => (
+                              <DropdownMenuItem
+                                key={line.id}
+                                onSelect={() =>
+                                  openShipmentLineAllocation(shipment, line)
+                                }
+                              >
+                                {line.itemName}
+                              </DropdownMenuItem>
+                            ))}
+                          </>
+                        ) : null}
+                        {shipment.status === "shipped" ? (
+                          <DropdownMenuItem
+                            onSelect={() => onCreateShipmentInvoice(shipment)}
+                            disabled={
+                              createShipmentInvoicePending ||
+                              !canCreateShipmentInvoice
+                            }
                           >
-                            Ship
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onEditShipment(shipment)}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onDeleteShipment(shipment)}
-                            disabled={deleteShipmentPending}
-                          >
-                            Delete
-                          </Button>
-                        </>
-                      ) : null}
-                    </div>
+                            {shipment.xeroPushStatus === "pushed"
+                              ? "Invoice created"
+                              : "Create invoice"}
+                          </DropdownMenuItem>
+                        ) : null}
+                        {shipment.status === "planned" ? (
+                          <>
+                            <DropdownMenuItem
+                              onSelect={() => onShipShipment(shipment)}
+                              disabled={shipShipmentPending}
+                            >
+                              Ship
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onSelect={() => onEditShipment(shipment)}
+                            >
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onSelect={() => onDeleteShipment(shipment)}
+                              disabled={deleteShipmentPending}
+                            >
+                              Delete
+                            </DropdownMenuItem>
+                          </>
+                        ) : null}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+          <AllocationSourceDialog
+            target={allocationTarget}
+            onOpenChange={(open) => {
+              if (!open) setAllocationTarget(null);
+            }}
+            onSaved={() => {
+              void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+              void queryClient.invalidateQueries({
+                queryKey: ["sales-order-detail", order.id],
+              });
+              void queryClient.invalidateQueries({ queryKey: ["items"] });
+            }}
+          />
         </div>
       ) : (
         <EmptyPanel
@@ -2098,7 +2186,7 @@ export function OrderDetail({
                 shipmentMutation.mutate(shipmentForm);
               }}
             >
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Type</label>
                   <Select
@@ -2120,11 +2208,20 @@ export function OrderDetail({
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Scheduled Date</label>
+                  <label className="text-sm font-medium">Ship Date</label>
                   <DatePicker
                     value={shipmentForm.scheduledDate}
                     onChange={(value) =>
                       setShipmentForm({ ...shipmentForm, scheduledDate: value })
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Delivery Date</label>
+                  <DatePicker
+                    value={shipmentForm.deliveryDate}
+                    onChange={(value) =>
+                      setShipmentForm({ ...shipmentForm, deliveryDate: value })
                     }
                   />
                 </div>
@@ -2478,44 +2575,44 @@ export function OrderDetail({
         />
       ) : null}
 
-	      <AlertDialog
-	        open={negativeStockWarning != null}
-	        onOpenChange={(open) => {
-	          if (!open) setNegativeStockWarning(null);
-	        }}
-	      >
-	        <AlertDialogContent className="bg-background text-foreground">
-	          <AlertDialogHeader>
-	            <AlertDialogTitle>Ship with negative stock?</AlertDialogTitle>
-	            <AlertDialogDescription>
-	              {negativeStockWarning
-	                ? `${negativeStockWarning.warning.itemName} is short by ${formatQuantity(
-	                    String(negativeStockWarning.warning.shortage)
-	                  )}. Continuing will record negative inventory.`
-	                : "Continuing will record negative inventory."}
-	            </AlertDialogDescription>
-	          </AlertDialogHeader>
-	          <AlertDialogFooter>
-	            <AlertDialogCancel>Back</AlertDialogCancel>
-	            <AlertDialogAction
-	              disabled={shipShipmentMutation.isPending}
-	              onClick={() => {
-	                if (!negativeStockWarning) return;
-	                shipShipmentMutation.mutate({
-	                  shipmentId: negativeStockWarning.shipmentId,
-	                  idempotencyKey: negativeStockWarning.idempotencyKey,
-	                  confirmNegativeStock: true,
-	                });
-	              }}
-	            >
-	              {shipShipmentMutation.isPending ? "Shipping..." : "Ship Anyway"}
-	            </AlertDialogAction>
-	          </AlertDialogFooter>
-	        </AlertDialogContent>
-	      </AlertDialog>
+      <AlertDialog
+        open={negativeStockWarning != null}
+        onOpenChange={(open) => {
+          if (!open) setNegativeStockWarning(null);
+        }}
+      >
+        <AlertDialogContent className="bg-background text-foreground">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ship with negative stock?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {negativeStockWarning
+                ? `${negativeStockWarning.warning.itemName} is short by ${formatQuantity(
+                    String(negativeStockWarning.warning.shortage)
+                  )}. Continuing will record negative inventory.`
+                : "Continuing will record negative inventory."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={shipShipmentMutation.isPending}
+              onClick={() => {
+                if (!negativeStockWarning) return;
+                shipShipmentMutation.mutate({
+                  shipmentId: negativeStockWarning.shipmentId,
+                  idempotencyKey: negativeStockWarning.idempotencyKey,
+                  confirmNegativeStock: true,
+                });
+              }}
+            >
+              {shipShipmentMutation.isPending ? "Shipping..." : "Ship Anyway"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-	      <AlertDialog
-	        open={shipmentToShip != null}
+      <AlertDialog
+        open={shipmentToShip != null}
         onOpenChange={(open) => {
           if (!open) {
             setShipmentToShip(null);

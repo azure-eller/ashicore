@@ -179,12 +179,12 @@ export function BillOfLadingDocument({
             <Text style={styles.metaLine}>Shipped: {shippedDisplay}</Text>
             {order.scheduledDate && (
               <Text style={styles.metaLine}>
-                Scheduled: {new Date(`${order.scheduledDate}T00:00:00`).toLocaleDateString("en-US")}
+                Ship date: {new Date(`${order.scheduledDate}T00:00:00`).toLocaleDateString("en-US")}
               </Text>
             )}
             {order.requestedDate && (
               <Text style={styles.metaLine}>
-                Requested: {new Date(`${order.requestedDate}T00:00:00`).toLocaleDateString("en-US")}
+                Delivery date: {new Date(`${order.requestedDate}T00:00:00`).toLocaleDateString("en-US")}
               </Text>
             )}
           </View>
