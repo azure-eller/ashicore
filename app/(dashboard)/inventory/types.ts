@@ -1,7 +1,5 @@
 export const ITEM_TYPES = ["product", "material"] as const;
 export type ItemType = (typeof ITEM_TYPES)[number];
-export const INVENTORY_PRODUCT_VIEWS = ["products"] as const;
-export type InventoryProductView = (typeof INVENTORY_PRODUCT_VIEWS)[number];
 
 // Maps each item type to its URL segment. Use this instead of `${itemType}s` string append.
 export const ITEM_TYPE_SEGMENTS: Record<ItemType, string> = {
@@ -65,11 +63,6 @@ export type ItemRow = {
   revenue30d: string | null;
   createdAt: Date;
   subRows?: ItemRow[];
-};
-
-export type InventoryTabCounts = {
-  products: number;
-  materials: number;
 };
 
 export const REPLENISHMENT_STATUS_VALUES = [

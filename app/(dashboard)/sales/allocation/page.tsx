@@ -4,7 +4,7 @@ import {
   SalesAllocationTable,
   type AllocationPoolRow,
 } from "@/app/(dashboard)/sales/sales-allocation-table";
-import { withAuthedOrgContext } from "@/lib/dal/auth";
+import { getAuthedMemberContext, withAuthedOrgContext } from "@/lib/dal/auth";
 import { getAllocationWorkspaceInTx } from "@/lib/inventory/allocation/read-model";
 import OrdersTableLoading from "../orders-table-loading";
 
@@ -17,7 +17,10 @@ export default function SalesAllocationPage() {
 }
 
 async function SalesAllocationData() {
-  const orders = await getSalesOrders();
+  const [context, orders] = await Promise.all([
+    getAuthedMemberContext(),
+    getSalesOrders(),
+  ]);
   const initialPools = await getInitialAllocationPools(
     orders.flatMap((order) =>
       order.lines
@@ -25,7 +28,13 @@ async function SalesAllocationData() {
         .map((line) => line.itemId)
     )
   );
-  return <SalesAllocationTable initialData={orders} initialPools={initialPools} />;
+  return (
+    <SalesAllocationTable
+      initialData={orders}
+      initialPools={initialPools}
+      organizationId={context.orgId}
+    />
+  );
 }
 
 function toQuantity(value: string | number | null | undefined) {

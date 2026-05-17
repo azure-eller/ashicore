@@ -1,23 +1,34 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import { getColumns } from "./columns";
-import type { InventoryProductView, ItemRow, ItemType } from "./types";
+import type { ItemRow, ItemType } from "./types";
 import { ITEM_TYPE_SEGMENTS } from "./types";
 
 interface DataTableProps {
   initialData: ItemRow[];
   itemType: ItemType;
-  view?: InventoryProductView;
+  organizationId: string;
 }
 
-export function DataTable({ initialData, itemType, view }: DataTableProps) {
+export function DataTable({
+  initialData,
+  itemType,
+  organizationId,
+}: DataTableProps) {
+  const queryClient = useQueryClient();
   const columns = useMemo(() => getColumns(itemType), [itemType]);
   const isProduct = itemType === "product";
-  const queryKey = isProduct
-    ? ["items", itemType, view ?? "products"]
-    : ["items", itemType];
+  const queryKey = useMemo(
+    () => ["items", organizationId, itemType],
+    [itemType, organizationId]
+  );
+
+  useEffect(() => {
+    queryClient.setQueryData(queryKey, initialData);
+  }, [initialData, queryClient, queryKey]);
 
   return (
     <ERPDataGridList
@@ -26,9 +37,6 @@ export function DataTable({ initialData, itemType, view }: DataTableProps) {
       queryKey={queryKey}
       queryFn={async () => {
         const params = new URLSearchParams({ itemType });
-        if (isProduct && view) {
-          params.set("view", view);
-        }
         const response = await fetch(`/api/items?${params}`);
         if (!response.ok) {
           throw new Error("Failed to fetch items.");
@@ -42,7 +50,7 @@ export function DataTable({ initialData, itemType, view }: DataTableProps) {
       emptyMessage={isProduct ? "No items yet." : "No materials yet."}
       deleteAction={{
         endpoint: "/api/items",
-        invalidateQueryKeys: [["items", itemType]],
+        invalidateQueryKeys: [["items"]],
         defaultErrorMessage: "Failed to delete items.",
         confirmTitle: (count) =>
           `Delete ${count} item${count !== 1 ? "s" : ""}?`,

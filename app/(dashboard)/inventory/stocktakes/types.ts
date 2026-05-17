@@ -54,7 +54,6 @@ export function buildStocktakeName(scope: StocktakeScope, date = new Date()) {
 
 function formatStocktakeScopeTypeLabel(itemType: StocktakeScopeItemType) {
   if (itemType === "material") return "Materials";
-  if (itemType === "subassembly") return "Sub Assemblies";
   return "Products";
 }
 

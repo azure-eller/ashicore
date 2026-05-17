@@ -201,12 +201,6 @@ test.describe("inventory visibility", () => {
     await expect(page.getByText(/\d+ variants?/)).toHaveCount(0);
   });
 
-  test("redirects old Sub-assemblies route to Products", async ({ page }) => {
-    await page.goto("/inventory/sub-assemblies");
-    await page.waitForURL("**/inventory/products");
-    await expect(page.getByLabel("Search items")).toBeVisible();
-  });
-
   test("toggling sellable marks a product internal but keeps it in Products", async ({ page, db }) => {
     await page.goto(`/inventory/products/${sellableOnlyId}/edit`);
     await expect(page.getByRole("heading", { name: "Edit Product" })).toBeVisible();

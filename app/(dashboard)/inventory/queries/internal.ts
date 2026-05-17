@@ -87,8 +87,6 @@ import type { InsertUnitDefinition } from "@/lib/schemas/units";
 import { DomainError } from "@/lib/errors/domain-error";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type {
-  InventoryProductView,
-  InventoryTabCounts,
   ItemRow,
   ItemType,
 } from "../types";
@@ -559,7 +557,6 @@ async function createBomRevisionInTx(
 
 export async function getItems(filters?: {
   itemType?: ItemType;
-  view?: InventoryProductView;
 }): Promise<ItemRow[]> {
   return measureObservedOperation(
     "inventory.get_items",
@@ -845,35 +842,12 @@ export async function getItems(filters?: {
     {
       extra: {
         itemType: filters?.itemType ?? null,
-        view: filters?.view ?? null,
       },
       successData: (rows) => ({
         rowCount: rows.length,
       }),
     }
   );
-}
-
-export async function getInventoryTabCounts(): Promise<InventoryTabCounts> {
-  return withAuthedOrgContext(async (tx) => {
-    const [counts] = await tx
-      .select({
-        products: sql<number>`COUNT(*) FILTER (
-          WHERE ${items.itemType} = 'product'
-            AND ${items.isMaster} = false
-        )::int`,
-        materials: sql<number>`COUNT(*) FILTER (
-          WHERE ${items.itemType} = 'material'
-        )::int`,
-      })
-      .from(items)
-      .where(isNull(items.deletedAt));
-
-    return {
-      products: Number(counts?.products ?? 0),
-      materials: Number(counts?.materials ?? 0),
-    };
-  });
 }
 
 export async function getItem(id: string) {

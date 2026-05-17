@@ -846,9 +846,11 @@ function HiddenColumnsMenu({
 export function SalesAllocationTable({
   initialData,
   initialPools,
+  organizationId,
 }: {
   initialData: SalesOrderListRow[];
   initialPools?: AllocationPoolRow[];
+  organizationId: string;
 }) {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
@@ -871,9 +873,9 @@ export function SalesAllocationTable({
     initialData,
   });
   const { data: inventory = [] } = useQuery({
-    queryKey: ["items", "product", "products"],
+    queryKey: ["items", organizationId, "product"],
     queryFn: () =>
-      apiJson<ItemRow[]>("/api/items?itemType=product&view=products", {
+      apiJson<ItemRow[]>("/api/items?itemType=product", {
         fallbackError: "Failed to fetch product inventory.",
       }).then((rows) => rows.filter((row) => row.sellable === true)),
     initialData: [] as ItemRow[],

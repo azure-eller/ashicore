@@ -2357,7 +2357,7 @@ test.describe("Sales write-path smoke", () => {
     expect(orderResult.status).toBe(201);
     const constrainedOrderId = orderResult.body.id as string;
 
-    const productsResponse = await testFetch("/api/items?itemType=product&view=products");
+    const productsResponse = await testFetch("/api/items?itemType=product");
     expect(productsResponse.status).toBe(200);
     const products = (await productsResponse.json()) as Array<{
       id: string;
@@ -2385,7 +2385,7 @@ test.describe("Sales write-path smoke", () => {
       .where(eq(inventoryLotBalances.itemId, materialId));
 
     const agedProductsResponse = await testFetch(
-      "/api/items?itemType=product&view=products"
+      "/api/items?itemType=product"
     );
     expect(agedProductsResponse.status).toBe(200);
     const agedProducts = (await agedProductsResponse.json()) as Array<{
@@ -2570,7 +2570,7 @@ test.describe("Sales write-path smoke", () => {
     const pricing = await pricingResponse.json();
     expect(pricing.estimatedUnitCost).toBe("5");
 
-    const productsResponse = await testFetch("/api/items?itemType=product&view=products");
+    const productsResponse = await testFetch("/api/items?itemType=product");
     expect(productsResponse.status).toBe(200);
     const products = (await productsResponse.json()) as Array<{
       id: string;
@@ -2641,7 +2641,7 @@ test.describe("Sales write-path smoke", () => {
     const pricing = await pricingResponse.json();
     expect(pricing.estimatedUnitCost).toBe("10");
 
-    const productsResponse = await testFetch("/api/items?itemType=product&view=products");
+    const productsResponse = await testFetch("/api/items?itemType=product");
     expect(productsResponse.status).toBe(200);
     const products = (await productsResponse.json()) as Array<{
       id: string;

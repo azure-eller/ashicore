@@ -1,9 +1,8 @@
 import type { Locator, Page } from "@playwright/test";
 import dotenv from "dotenv";
-import { isNull, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { test as base, expect } from "@playwright/test";
 import { db as appDb } from "../../lib/db";
-import { items } from "../../lib/db/schema";
 import { parseCookie, readTestEnv } from "../helpers/test-env";
 
 dotenv.config({ path: ".env.local" });
@@ -154,63 +153,6 @@ export async function filterList(
   const input = page.getByLabel(label);
   await input.fill(value);
   await expect(input).toHaveValue(value);
-}
-
-export async function getInventoryTabCount(
-  page: Page,
-  label: "Products" | "Materials" | "Sub-assemblies"
-): Promise<number> {
-  const navText = await page.locator("header nav").innerText();
-  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = navText.match(new RegExp(`${escapedLabel}\\s*(\\d+)`));
-
-  if (!match) {
-    throw new Error(`Could not find inventory tab count for ${label}. Nav text: ${navText}`);
-  }
-
-  return Number.parseInt(match[1], 10);
-}
-
-export async function getExpectedInventoryTabCounts(db: TestDb): Promise<{
-  products: number;
-  materials: number;
-  subAssemblies: number;
-}> {
-  const currentBomUsageExists = sql`
-    EXISTS (
-      SELECT 1
-      FROM inventory.bom_revision_components brc
-      INNER JOIN inventory.bom_revisions br ON br.id = brc.bom_revision_id
-      INNER JOIN inventory.items parent_item ON parent_item.id = br.product_id
-      WHERE brc.component_id = ${items.id}
-        AND br.is_current = true
-        AND parent_item.deleted_at IS NULL
-    )
-  `;
-  const [counts] = await db
-    .select({
-      products: sql<number>`COUNT(*) FILTER (
-        WHERE ${items.itemType} = 'product'
-          AND ${items.isMaster} = false
-          AND ${items.sellable} = true
-      )::int`,
-      materials: sql<number>`COUNT(*) FILTER (
-        WHERE ${items.itemType} = 'material'
-      )::int`,
-      subAssemblies: sql<number>`COUNT(*) FILTER (
-        WHERE ${items.itemType} = 'product'
-          AND ${items.isMaster} = false
-          AND (${items.sellable} = false OR ${currentBomUsageExists})
-      )::int`,
-    })
-    .from(items)
-    .where(isNull(items.deletedAt));
-
-  return {
-    products: Number(counts?.products ?? 0),
-    materials: Number(counts?.materials ?? 0),
-    subAssemblies: Number(counts?.subAssemblies ?? 0),
-  };
 }
 
 export async function selectDate(

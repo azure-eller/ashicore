@@ -3,11 +3,7 @@ import { z } from "zod";
 import { stocktakes } from "@/lib/db/schema";
 import { nullableString } from "./shared";
 
-export const STOCKTAKE_SCOPE_ITEM_TYPES = [
-  "material",
-  "product",
-  "subassembly",
-] as const;
+export const STOCKTAKE_SCOPE_ITEM_TYPES = ["material", "product"] as const;
 export type StocktakeScopeItemType = (typeof STOCKTAKE_SCOPE_ITEM_TYPES)[number];
 
 export const STOCKTAKE_SCOPES = ["all", ...STOCKTAKE_SCOPE_ITEM_TYPES] as const;
@@ -29,7 +25,7 @@ export function buildStocktakeCategoryScope(
 function normalizeStocktakeScope(value: string) {
   const trimmed = value.trim();
 
-  const categoryMatch = /^(material|product|subassembly):category:(.+)$/u.exec(trimmed);
+  const categoryMatch = /^(material|product):category:(.+)$/u.exec(trimmed);
   if (categoryMatch) {
     return buildStocktakeCategoryScope(
       categoryMatch[1] as StocktakeScopeItemType,
@@ -45,7 +41,7 @@ export function isStocktakeScope(value: string): value is StocktakeScope {
     return true;
   }
 
-  const categoryMatch = /^(material|product|subassembly):category:(.+)$/u.exec(value);
+  const categoryMatch = /^(material|product):category:(.+)$/u.exec(value);
   return categoryMatch != null && categoryMatch[2].trim().length > 0;
 }
 
@@ -64,7 +60,7 @@ export function parseStocktakeScope(scope: StocktakeScope):
     };
   }
 
-  const categoryMatch = /^(material|product|subassembly):category:(.+)$/u.exec(scope);
+  const categoryMatch = /^(material|product):category:(.+)$/u.exec(scope);
   if (!categoryMatch) {
     return { kind: "all" };
   }

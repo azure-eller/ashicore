@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { DataTable } from "../data-table";
 import DataTableLoading from "../data-table-loading";
 import { getItems } from "../queries";
+import { getAuthedMemberContext } from "@/lib/dal/auth";
 
 export default function ProductsPage() {
   return (
@@ -12,6 +13,16 @@ export default function ProductsPage() {
 }
 
 async function ProductsData() {
-  const items = await getItems({ itemType: "product", view: "products" });
-  return <DataTable initialData={items} itemType="product" view="products" />;
+  const [context, items] = await Promise.all([
+    getAuthedMemberContext(),
+    getItems({ itemType: "product" }),
+  ]);
+
+  return (
+    <DataTable
+      initialData={items}
+      itemType="product"
+      organizationId={context.orgId}
+    />
+  );
 }

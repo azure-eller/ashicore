@@ -19,12 +19,6 @@ const migratedListPages = [
     header: "Name",
   },
   {
-    path: "/inventory/sub-assemblies",
-    searchLabel: "Search items",
-    addLabel: "New Product",
-    header: "Name",
-  },
-  {
     path: "/manufacturing/orders",
     searchLabel: "Search manufacturing orders",
     addLabel: "New Order",
