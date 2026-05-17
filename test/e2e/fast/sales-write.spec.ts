@@ -856,6 +856,221 @@ test.describe("Sales write-path smoke", () => {
     expect(plannedShipmentLine.quantity).toBe("4.0000");
   });
 
+  test("editing an order with preserved allocations does not double-count reservations", async ({
+    db,
+  }) => {
+    const preserveCustomerResult = await createCustomer({
+      name: `Fast Preserve Allocation Customer ${ts}`,
+      email: `fast-preserve-alloc-${ts}@example.com`,
+    });
+    expect(preserveCustomerResult.status).toBe(201);
+    const preserveCustomerId = preserveCustomerResult.body.id as string;
+
+    const preserveItemResult = await createItem({
+      name: `Fast Preserve Allocation Material ${ts}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-PRESERVE-ALLOC-${ts}`,
+      category: `Fast Sales ${ts}`,
+      description: "Material for preserved-allocation reservation regression",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: "10",
+      stock: "20",
+      safetyStock: "0",
+    });
+    expect(preserveItemResult.status).toBe(201);
+    const preserveItemId = preserveItemResult.body.id as string;
+
+    const preserveOrderResult = await createSalesOrder({
+      customerId: preserveCustomerId,
+      status: "open",
+      shipDate: null,
+      requestedDate: "2026-05-25",
+      lines: [{ itemId: preserveItemId, quantity: "5", unitPrice: "10" }],
+    });
+    expect(preserveOrderResult.status).toBe(201);
+    const preserveOrderId = preserveOrderResult.body.id as string;
+
+    const [initialLine] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, preserveOrderId));
+
+    const [openingLot] = await db
+      .select({ id: lots.id })
+      .from(lots)
+      .where(eq(lots.itemId, preserveItemId))
+      .limit(1);
+    expect(openingLot).toBeTruthy();
+
+    await db.insert(stockAllocations).values({
+      organizationId: getOrgId(),
+      demandType: "sales_order_line",
+      demandId: initialLine.id,
+      itemId: preserveItemId,
+      sourceType: "inventory_lot",
+      sourceId: openingLot.id,
+      quantity: "5",
+      status: "active",
+      demandLabelSnapshot: "Preserved across edit",
+      sourceLabelSnapshot: "Opening stock",
+    });
+
+    const editResponse = await updateSalesOrder(preserveOrderId, {
+      customerId: preserveCustomerId,
+      status: "open",
+      shipDate: null,
+      requestedDate: "2026-05-25",
+      notes: "Preserved allocation edit",
+      lines: [{ itemId: preserveItemId, quantity: "5", unitPrice: "10" }],
+    });
+    expect(editResponse.status).toBe(200);
+
+    const [lineAfterEdit] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, preserveOrderId));
+    expect(lineAfterEdit.id).not.toBe(initialLine.id);
+
+    const [preservedAllocation] = await db
+      .select({
+        demandId: stockAllocations.demandId,
+        quantity: stockAllocations.quantity,
+        status: stockAllocations.status,
+      })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.itemId, preserveItemId),
+          eq(stockAllocations.status, "active")
+        )
+      );
+    expect(preservedAllocation.demandId).toBe(lineAfterEdit.id);
+    expect(parseFloat(preservedAllocation.quantity)).toBe(5);
+
+    const [lineReservation] = await db
+      .select({ quantity: inventoryReservationsSummary.quantity })
+      .from(inventoryReservationsSummary)
+      .where(
+        and(
+          eq(inventoryReservationsSummary.itemId, preserveItemId),
+          eq(inventoryReservationsSummary.referenceType, "sales_order_line"),
+          eq(inventoryReservationsSummary.referenceId, lineAfterEdit.id)
+        )
+      );
+    expect(parseFloat(lineReservation.quantity)).toBe(5);
+
+    const [balanceAfterEdit] = await db
+      .select({
+        committedQty: inventoryItemBalances.committedQty,
+        demandQty: inventoryItemBalances.demandQty,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, preserveItemId));
+    expect(parseFloat(balanceAfterEdit.committedQty)).toBe(5);
+    expect(parseFloat(balanceAfterEdit.demandQty)).toBe(5);
+  });
+
+  test("editing an order with preserved allocations does not orphan shipment-line reservation summaries", async ({
+    db,
+  }) => {
+    const orphanCustomerResult = await createCustomer({
+      name: `Fast Orphan Reservation Customer ${ts}`,
+      email: `fast-orphan-res-${ts}@example.com`,
+    });
+    expect(orphanCustomerResult.status).toBe(201);
+    const orphanCustomerId = orphanCustomerResult.body.id as string;
+
+    const orphanItemResult = await createItem({
+      name: `Fast Orphan Reservation Material ${ts}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-ORPHAN-RES-${ts}`,
+      category: `Fast Sales ${ts}`,
+      description: "Material for orphan reservation regression",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: "10",
+      stock: "20",
+      safetyStock: "0",
+    });
+    expect(orphanItemResult.status).toBe(201);
+    const orphanItemId = orphanItemResult.body.id as string;
+
+    const orphanOrderResult = await createSalesOrder({
+      customerId: orphanCustomerId,
+      status: "open",
+      shipDate: "2026-05-26",
+      requestedDate: "2026-05-26",
+      lines: [{ itemId: orphanItemId, quantity: "5", unitPrice: "10" }],
+    });
+    expect(orphanOrderResult.status).toBe(201);
+    const orphanOrderId = orphanOrderResult.body.id as string;
+
+    const [initialOrphanLine] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, orphanOrderId));
+
+    const [orphanLot] = await db
+      .select({ id: lots.id })
+      .from(lots)
+      .where(eq(lots.itemId, orphanItemId))
+      .limit(1);
+    expect(orphanLot).toBeTruthy();
+
+    await db.insert(stockAllocations).values({
+      organizationId: getOrgId(),
+      demandType: "sales_order_line",
+      demandId: initialOrphanLine.id,
+      itemId: orphanItemId,
+      sourceType: "inventory_lot",
+      sourceId: orphanLot.id,
+      quantity: "5",
+      status: "active",
+      demandLabelSnapshot: "Preserved across edit with shipment",
+      sourceLabelSnapshot: "Opening stock",
+    });
+
+    const orphanEditResponse = await updateSalesOrder(orphanOrderId, {
+      customerId: orphanCustomerId,
+      status: "open",
+      shipDate: "2026-05-26",
+      requestedDate: "2026-05-26",
+      notes: "Orphan reservation edit",
+      lines: [{ itemId: orphanItemId, quantity: "5", unitPrice: "10" }],
+    });
+    expect(orphanEditResponse.status).toBe(200);
+
+    const summaryRows = await db
+      .select({
+        referenceId: inventoryReservationsSummary.referenceId,
+        quantity: inventoryReservationsSummary.quantity,
+      })
+      .from(inventoryReservationsSummary)
+      .where(
+        and(
+          eq(inventoryReservationsSummary.itemId, orphanItemId),
+          eq(inventoryReservationsSummary.referenceType, "sales_order_line")
+        )
+      );
+    const orphanRow = summaryRows.find(
+      (row) => row.referenceId === initialOrphanLine.id
+    );
+    expect(orphanRow).toBeUndefined();
+
+    const [balanceAfterOrphanEdit] = await db
+      .select({ committedQty: inventoryItemBalances.committedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, orphanItemId));
+    const totalLineReservation = summaryRows.reduce(
+      (sum, row) => sum + parseFloat(row.quantity),
+      0
+    );
+    expect(parseFloat(balanceAfterOrphanEdit.committedQty)).toBe(
+      totalLineReservation
+    );
+  });
+
   test("allocation manager does not count unallocated available stock as allocated", async ({
     page,
   }) => {

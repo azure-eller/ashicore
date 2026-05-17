@@ -1653,6 +1653,9 @@ async function moveReplacedSalesLineAllocationsInTx(
   const existingLines = [...params.existingLines].sort(
     (left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0)
   );
+  // `sales_order_lines_order_item_uidx` enforces a single line per (order,
+  // item), so each existing line maps to at most one new line for the same
+  // item — no need for greedy fan-out here.
   for (const existingLine of existingLines) {
     const replacements = insertedByItemId.get(existingLine.itemId);
     const replacement = replacements?.shift();
@@ -6134,6 +6137,24 @@ export async function updateSalesOrder(
            existingShipmentRows.map((shipment) => shipment.id)
          )
        );
+    }
+
+    // cancelShipmentLineAllocationsInTx moves shipment-bucket allocations back
+    // to the SO-line bucket and re-syncs reservations against the existing line
+    // ids — but those lines are about to be hard-deleted. Zero the reservation
+    // summary now so the deleted lines don't leave orphaned committedQty.
+    if (existingShipmentRows.length > 0 && existingLines.length > 0) {
+      await releaseReservationForSalesLineInTx(tx, {
+        organizationId: orgId,
+        salesOrderId: id,
+        actorUserId: userId,
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          "edit-open-order-release-post-shipment"
+        ),
+        reason: "edited",
+        salesOrderLineIds: existingLines.map((line) => line.id),
+      });
     }
 
     await tx.delete(salesOrderLines).where(eq(salesOrderLines.salesOrderId, id));

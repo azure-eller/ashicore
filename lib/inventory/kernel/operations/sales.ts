@@ -81,6 +81,28 @@ export async function reserveForSalesInTx(
   const availableByItem = new Map<string, number>();
   const reservationLines: typeof deltas = [];
 
+  const lineIds = params.lines.map((line) => line.salesOrderLineId);
+  const existingReservationRows =
+    lineIds.length > 0
+      ? await tx
+          .select({
+            referenceId: inventoryReservationsSummary.referenceId,
+            quantity: inventoryReservationsSummary.quantity,
+          })
+          .from(inventoryReservationsSummary)
+          .where(
+            and(
+              eq(inventoryReservationsSummary.organizationId, params.organizationId),
+              eq(inventoryReservationsSummary.locationId, location.id),
+              eq(inventoryReservationsSummary.referenceType, "sales_order_line"),
+              inArray(inventoryReservationsSummary.referenceId, lineIds)
+            )
+          )
+      : [];
+  const existingReservationByLineId = new Map(
+    existingReservationRows.map((row) => [row.referenceId, parseFloat(row.quantity)])
+  );
+
   for (const line of params.lines) {
     if (!availableByItem.has(line.itemId)) {
       availableByItem.set(
@@ -94,17 +116,25 @@ export async function reserveForSalesInTx(
     }
 
     const available = availableByItem.get(line.itemId) ?? 0;
-    const reservedQuantity = roundQuantity(
-      Math.min(Math.max(available, 0), line.quantity)
+    const existingReservation =
+      existingReservationByLineId.get(line.salesOrderLineId) ?? 0;
+    // Allocations preserved across an edit leave a non-zero reservation for the line.
+    // Add only the delta needed to reach line.quantity so we never double-reserve.
+    const reserveDelta = roundQuantity(
+      Math.min(Math.max(line.quantity - existingReservation, 0), Math.max(available, 0))
     );
-    if (reservedQuantity > 0) {
+    if (reserveDelta > 0) {
       reservationLines.push({
         itemId: line.itemId,
         referenceType: "sales_order_line",
         referenceId: line.salesOrderLineId,
-        quantity: reservedQuantity,
+        quantity: reserveDelta,
       });
-      availableByItem.set(line.itemId, roundQuantity(available - reservedQuantity));
+      availableByItem.set(line.itemId, roundQuantity(available - reserveDelta));
+      existingReservationByLineId.set(
+        line.salesOrderLineId,
+        roundQuantity(existingReservation + reserveDelta)
+      );
     }
   }
 
