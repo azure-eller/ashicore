@@ -932,26 +932,41 @@ function AllocationProductCell({
   const allocationLabel = cell
     ? `${compactQuantity(cell.alloc)} / ${compactQuantity(cell.demand)}`
     : "0 / 0";
-
   return (
-    <button
-      type="button"
-      className={styles.allocationCell}
-      data-selected={isSelected ? "true" : undefined}
-      onClick={() => {
-        if (cell) onOpenAllocation(data, cell);
-      }}
-      aria-label={`Allocate ${product.label}`}
-      title={allocationLabel}
-    >
-      <span className={styles.miniSquare} data-status={status} aria-hidden="true" />
-      <span className={styles.allocationCellText}>
-        <span>{cell ? compactQuantity(cell.alloc) : "0"}</span>
-        <span className={styles.allocationCellQty}>
-          / {cell ? compactQuantity(cell.demand) : "0"}
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={styles.allocationCell}
+          data-selected={isSelected ? "true" : undefined}
+          onClick={() => {
+            if (cell) onOpenAllocation(data, cell);
+          }}
+          aria-label={`Allocate ${product.label}`}
+        >
+          <span
+            className={styles.miniSquare}
+            data-status={status}
+            aria-hidden="true"
+          />
+          <span className={styles.allocationCellText}>
+            <span>{cell ? compactQuantity(cell.alloc) : "0"}</span>
+            <span className={styles.allocationCellQty}>
+              / {cell ? compactQuantity(cell.demand) : "0"}
+            </span>
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        className="flex-col items-start gap-(--space-1) whitespace-nowrap px-(--space-4) py-(--space-2)"
+      >
+        <span className="font-medium">{product.label}</span>
+        <span className="font-mono text-muted-foreground">
+          {allocationLabel}
         </span>
-      </span>
-    </button>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

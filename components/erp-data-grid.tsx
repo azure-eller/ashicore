@@ -48,9 +48,9 @@ const erpGridTheme = themeQuartz.withParams({
   rowBorder: true,
   rowHoverColor: "var(--color-accent-soft)",
   selectedRowBackgroundColor: "var(--color-accent-soft)",
-  tooltipBackgroundColor: "var(--color-ink)",
-  tooltipBorder: "1px solid var(--color-ink)",
-  tooltipTextColor: "var(--color-bg)",
+  tooltipBackgroundColor: "var(--color-surface)",
+  tooltipBorder: "1px solid var(--color-line)",
+  tooltipTextColor: "var(--color-ink)",
   wrapperBorderRadius: 0,
 });
 
