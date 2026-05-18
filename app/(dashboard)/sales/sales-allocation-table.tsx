@@ -73,7 +73,7 @@ const OPEN_SALES_STATUSES = ["open"] as const;
 const STANDALONE_FAMILY_LABEL = "Standalone Products";
 const ORDER_COL_WIDTH = 240;
 const SHIP_COL_WIDTH = 96;
-const PRODUCT_COL_WIDTH = 96;
+const PRODUCT_COL_WIDTH = 112;
 
 const COLLAPSED_WEEKS_KEY = "ashicore.allocation.collapsedWeeks";
 const UNPLANNED_OPEN_KEY = "ashicore.allocation.unplannedOpen";
@@ -929,6 +929,9 @@ function AllocationProductCell({
 
   const isSelected =
     selected?.rowId === data.id && selected.colId === product.itemId;
+  const allocationLabel = cell
+    ? `${compactQuantity(cell.alloc)} / ${compactQuantity(cell.demand)}`
+    : "0 / 0";
 
   return (
     <button
@@ -939,6 +942,7 @@ function AllocationProductCell({
         if (cell) onOpenAllocation(data, cell);
       }}
       aria-label={`Allocate ${product.label}`}
+      title={allocationLabel}
     >
       <span className={styles.miniSquare} data-status={status} aria-hidden="true" />
       <span className={styles.allocationCellText}>
@@ -1680,8 +1684,8 @@ export function SalesAllocationTable({
                   colId: productColId(product.itemId),
                   headerName: product.variantLabel,
                   width: PRODUCT_COL_WIDTH,
-                  minWidth: 84,
-                  maxWidth: 160,
+                  minWidth: 104,
+                  maxWidth: 176,
                   sortable: false,
                   suppressMovable: true,
                   headerComponent: VariantHeader,
