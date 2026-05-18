@@ -1,0 +1,78 @@
+{
+  "verdict": "revise",
+  "score": {
+    "groundedness": 4,
+    "completeness": 5,
+    "business_relevance": 5,
+    "non_duplication": 5,
+    "downstream_utility": 3
+  },
+  "critical_issues": [
+    {
+      "id": "C2-residual",
+      "where": "evidence[1] (line 5), inferences[0] (line 18), inferences[1] (line 19), S15 interaction_plan (line 907), S15 flakiness_risks (line 936), S15 new_helpers_recommended (line 949), S17 interaction_plan (line 1025), S17 flakiness_risks (line 1052), S17 new_helpers_recommended (line 1064), S27 interaction_plan (line 1576), S27 flakiness_risks (line 1599), review_focus[5] (line 1787), notes_for_phase_5[0] (line 1795)",
+      "what": "The corrected mechanic was added to structured_output.repo_patterns.idempotency_helper (line 33) and to the top-level summary — both correctly describe `${operationName}:${randomUUID()}` per-call distinct keys. However, MANY supporting fields throughout the file still propagate the original WRONG mental model: that testFetch's body-fingerprint would 'collapse' identical-body POSTs into a same-key replay. Examples of stale text still present:\n  - evidence[1] (line 5): 'auto-applies createIdempotencyHeaders ... using body sha256 fingerprint' (without correcting that the unique key is randomUUID, not the body hash)\n  - inferences[0] (line 18): 'specs that retry the SAME body (S17 replay, S22 dead-write replay) will get the SAME key automatically' — this is the EXACT opposite of the truth\n  - inferences[1] (line 19): 'testFetch normally auto-fingerprints' as if override is required to defeat collapse\n  - S15 line 936: 'collapsing them into a same-key replay' — wrong\n  - S15 line 949: helper described as 'bypass the auto-fingerprint' — wrong framing\n  - S17 line 1052: 'relying on testFetch's body-fingerprint would give same key auto-replay' — wrong\n  - S27 line 1576/1599: '...to defeat testFetch's auto-fingerprint replay' — wrong\n  - review_focus line 1787 and notes_for_phase_5 line 1795: both still tell Phase 5 the wrong default behavior\n\nA literal-minded Phase 5 reading inferences[0] or notes_for_phase_5[0] will build the wrong mental model and may write code (e.g. raw http bypass for distinct-key cases) that is unnecessary, or skip explicit-key overrides for same-key replays thinking testFetch already does it.",
+      "fix": "Do a find/replace pass to remove the false 'collapse' / 'auto-fingerprint replay' framing. Concretely:\n  1. evidence[1] symbol field: replace 'using body sha256 fingerprint' with 'using `${operationName}:${randomUUID()}` per call (body sha256 is namespace only, not the unique key)'\n  2. inferences[0]: rewrite to 'testFetch's createIdempotencyHeaders assigns DISTINCT random keys per call by default. Specs that intend SAME-KEY REPLAY (S17 confirm replay, S18 bulk-confirm replay, S19 complete replay, S22 dead-write replay) MUST explicitly set options.headers[\"Idempotency-Key\"]=K1 on BOTH calls — otherwise each call gets a fresh randomUUID and the assertion target (idempotent no-op) is not exercised. Specs that intend DISTINCT-KEY parallel (S15, S24, S27) can rely on the default; explicit keys are belt-and-suspenders only.'\n  3. inferences[1]: drop 'testFetch normally auto-fingerprints' — replace with 'testFetch's default already gives distinct random keys, but specs should still pass explicit Idempotency-Keys to make the intent unambiguous in the test source.'\n  4. S15 interaction_plan line 907: change 'so the auto-fingerprint does not collapse them into a single replay' to 'making the distinct-key intent explicit (testFetch defaults to randomUUID per call but explicit keys document the test intent)'\n  5. S15 flakiness_risks line 936: change to 'testFetch defaults to a per-call randomUUID Idempotency-Key (no body-based collapse), but Phase 5 should still pass explicit distinct keys to make the BR-8b test intent obvious from the spec source.'\n  6. S15 new_helpers_recommended line 949: change 'wrapper that sets Idempotency-Key explicitly to bypass the auto-fingerprint' to 'wrapper that sets a specified Idempotency-Key explicitly (testFetch's default is randomUUID; this helper makes the key choice visible at the call site).'\n  7. S17 interaction_plan line 1025: change 'override the auto-fingerprint' to 'forced same-key replay; without this explicit header testFetch would assign a fresh randomUUID and the replay would be a different idempotency key entirely.'\n  8. S17 flakiness_risks line 1052: rewrite to 'Phase 5 MUST explicitly set Idempotency-Key='K1' on BOTH POSTs — testFetch's default randomUUID would give DIFFERENT keys, so without the override the second call would NOT replay the first (the wrong assertion target).'\n  9. S17 new_helpers_recommended line 1064: change 'wrapper bypassing the auto-fingerprint' to 'wrapper that sets an explicit Idempotency-Key (the default randomUUID would NOT replay).'\n  10. S27 interaction_plan line 1576: drop 'to defeat testFetch's auto-fingerprint replay' — replace with '(testFetch's default randomUUID would already give distinct keys; explicit keys make the intent visible).'\n  11. S27 flakiness_risks line 1599: rewrite to 'Phase 5 should pass explicit distinct Idempotency-Keys to make the natural-retry intent visible in the spec; the default would also give distinct keys but readers cannot tell from the source.'\n  12. review_focus[5] line 1787: rewrite to 'Verify same-key replay specs (S17, S18, S19) explicitly set options.headers[Idempotency-Key]=K1 on BOTH calls. Verify distinct-key specs (S15, S22, S24, S27) make the distinct-key intent visible at the call site.'\n  13. notes_for_phase_5[0] line 1795: rewrite to 'testFetch auto-applies createIdempotencyHeaders for non-GET methods; the auto key is `${operationName}:${randomUUID()}` per call (distinct random keys by default). Same-key replay (S17/S18/S19) REQUIRES explicit options.headers[Idempotency-Key]=K1 on both calls. Distinct-key parallel (S15/S24/S27) can rely on default but should still pass explicit keys for source-level clarity.'\n\nNote: the actual interaction_plan steps that say 'POST ... with explicit Idempotency-Key=K1' are CORRECT — the operational guidance is right, only the surrounding rationale text propagates the wrong mental model."
+    }
+  ],
+  "important_improvements": [],
+  "missing_items": [],
+  "unsafe_assumptions": [],
+  "rewrite_instructions": [
+    "Address C2-residual by doing the 13-step find/replace pass above. The corrected paragraph in repo_patterns.idempotency_helper (line 33) is the canonical reference; align all other text to that mechanic. No new content is needed — just remove stale 'collapse', 'auto-fingerprint replay', 'bypass auto-fingerprint' language and replace with the 'distinct-keys-by-default + explicit-key-required-for-same-key-replay' framing."
+  ],
+  "revised_output": null,
+  "prior_findings_verification": {
+    "C1_items_expectedQty": {
+      "status": "fully_addressed",
+      "evidence": "Grep across test-specs.json returns zero matches for items.expectedQty / items.committedQty / items.onHandQty / items.demandQty. All references rewritten to inventoryItemBalances.expectedQty with explicit SUM-across-locations language (lines 62, 82, 315, 320, 338, 400, 442-446, 462, 634, 647-649, 1146, 1574, 1587). Test names for S01 (line 44) and S06 (line 427) updated. repo_patterns and review_focus also updated."
+    },
+    "C2_idempotency_mechanic": {
+      "status": "partially_addressed",
+      "evidence": "structured_output.repo_patterns.idempotency_helper (line 33) and the top-level summary both correctly describe `${operationName}:${randomUUID()}` per-call semantics. However, 13 supporting fields still propagate the wrong 'collapse' / 'auto-fingerprint replay' mental model. See critical_issue C2-residual."
+    },
+    "C3_salesOrders_cancelledAt": {
+      "status": "fully_addressed",
+      "evidence": "S22 interaction_plan (line 1296) now reads 'salesOrders columns (status, deletedAt)' with explicit note '(Note: salesOrders has NO cancelledAt column; a cancelled SO conceptually = deletedAt IS NOT NULL.)'. Only one remaining 'cancelledAt' mention is in S26 line 1530 'salesOrders has no separate cancelledAt column' — used correctly as a negative assertion (no such column exists). Summary REVISION CORRECTIONS (2) also documents the cancelledAt→deletedAt convention."
+    },
+    "C4_S04b_setup_vs_interaction": {
+      "status": "fully_addressed",
+      "evidence": "S04b setup_requirements.seed_data line 310 reads 'Pick exactly ONE ingredient on M1 (MO is now in MO_WORK_STARTED state — pick allocations exist, MO still status=open)'. S04b interaction_plan line 318 reads 'Pick the REMAINING ingredients on M1 via POST .../pick'. The rewrite ordering (capture Q0 → PUT SO line rewrite → confirm snapshot stays stale → pick remaining → complete → capture Q1 → attempt DELETEs) follows the rubric flow exactly."
+    },
+    "C5_override_mechanism": {
+      "status": "fully_addressed",
+      "evidence": "repo_patterns.idempotency_helper paragraph (line 33) explicitly states 'createIdempotencyHeaders preserves caller-supplied keys (only sets when absent), so options.headers[Idempotency-Key]=K1 is the standard override mechanism — no raw fetch needed.' Top-level summary REVISION CORRECTIONS (3) also documents this."
+    },
+    "M1_S26_DB_state_discriminator": {
+      "status": "fully_addressed",
+      "evidence": "S26 interaction_plan lines 1515-1519 includes the explicit DB readback step ('SELECT id, deletedAt, notes FROM manufacturingOrders WHERE id=$moId') and the 3-way (actually 4-way including the impossible-combo) outcome classification by post-state. assertion_plan side_effects (lines 1528-1532) restates the classification as concrete asserts."
+    },
+    "M2_S04b_expectedQty_assertion": {
+      "status": "fully_addressed",
+      "evidence": "S04b side_effects line 338 now reads 'Q1 = Q0 - plannedQuantity (SUM(inventoryItemBalances.expectedQty) for product-A DROPS by exactly the MO's plannedQuantity at completion — consistent with recomputeExpectedQty + S06: a completed MO no longer contributes inbound supply because the output has arrived as on-hand)'. This matches S06's directional assertion."
+    },
+    "I4_S29_failure_message": {
+      "status": "fully_addressed",
+      "evidence": "S29 has a new top-level 'failure_message_intent' field (line 1717) giving Phase 5 the exact wrap-pattern: 'expect(response.status, `S29 BR-1 production-gap check: current contract is 200 ... If you see this test FAIL with response.status==4xx ... the production fix has landed.`)' plus a 4-step follow-up checklist."
+    }
+  },
+  "additional_findings": {
+    "summary_quality": "The REVISION CORRECTIONS block in the top-level summary correctly identifies all three fix areas (DB columns, cancelledAt, idempotency mechanic). The fixed text in repo_patterns.idempotency_helper is high quality — it explicitly cites lib/api/idempotency-client.ts:8, gives the three implication branches (a)(b)(c), and names the override mechanism. The defect is that this corrected paragraph was added in isolation rather than as a sweeping find/replace across all surrounding text.",
+    "non_critical_consistency_checks": {
+      "no_remaining_items_dotQty_references": true,
+      "salesOrders_cancelledAt_purged": true,
+      "S04b_one_pick_then_rewrite_then_remaining": true,
+      "S26_post_state_classification_explicit": true,
+      "S29_self_documenting_failure_intent_present": true,
+      "S04b_expectedQty_drops_on_complete": true
+    },
+    "lane_distribution_recount": {
+      "fast_specs": ["S07", "S08", "S09", "S10", "S18", "S20", "S22", "S25"],
+      "fast_count": 8,
+      "slow_count": 23,
+      "total": 31,
+      "matches_scenarios_json": true
+    },
+    "downstream_utility_risk": "Medium — the 13 stale 'collapse/auto-fingerprint replay' sites give Phase 5 mixed signals. A careful Phase 5 reader will trust repo_patterns.idempotency_helper (line 33) as canonical and ignore the contradictory framing elsewhere. A literal-minded Phase 5 reading inferences[0] (line 18) or notes_for_phase_5[0] (line 1795) first may build the wrong mental model. Fixable with one mechanical find/replace pass."
+  }
+}

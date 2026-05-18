@@ -1,0 +1,163 @@
+{
+  "verdict": "pass",
+  "score": {
+    "groundedness": 5,
+    "completeness": 5,
+    "business_relevance": 5,
+    "non_duplication": 5,
+    "downstream_utility": 5
+  },
+  "summary": "Re-review of revised state-model.json against the prior verdict (state-model-review.json @ revise). All five critical issues (CI-1..CI-5) and all six important improvements (II-1..II-6), plus both missing-items (MI-1, MI-2) and both unsafe-assumptions (UA-1, UA-2) are addressed with substantive, code-grounded revisions. Spot-checks of the new citations confirm: (a) lib/inventory/kernel/operations/manufacturing.ts:381-426 does write inventoryEvents with eventType='manufacturing_ingredient_consumption' on pick (verified — `consumeLotAllocationsForDemandInTx` and `consumeStockFifoInTx` both pass eventType='manufacturing_ingredient_consumption'), which makes T13b_unreachable correct and T13a's batch-mode-only reachability constraint accurate; (b) lib/db/schema/inventory-idempotency.ts:29-32 has the unique index on (organizationId, idempotencyKey) exactly as cited, supporting T02/T23/T27's ledger-row-count observable; (c) app/api/sales-orders/bulk-confirm/route.ts:12 calls requireIdempotencyKey('bulkConfirmSalesOrders'), and bulkConfirmSalesOrders DAL at sales/queries.ts:7597-7623 wraps payload in beginInventoryOperationInTx with the replay branch at 7609-7611 — T27 is faithful; (d) deleteManufacturingOrdersInTx at queries.ts:6379-6500 has the exact four-tier finalized guard the model describes (status/completedAt/actualQuantity at 6379-6391, completed-batch at 6393-6420, ingredient.actualQuantity at 6422-6444, consumption-event at 6446-6500) — T13a's guards and T13b_unreachable's failure_mode citations are line-accurate; (e) FOR UPDATE at manufacturing/queries.ts:3674 and the refresh-conflict guard at 3720-3752 are present exactly as cited, supporting T05's anti-duplication observable. The T13a/T13b split correctly resolves the prior reachability paradox: startBatch (T10) advances `manufacturingOrderBatches.status` from 'pending' to 'in_progress' WITHOUT writing consumption events, so a batch-started-but-not-picked MO can still be cancelled; pickIngredient (T09) writes consumption events synchronously, so a pick-induced MO_WORK_STARTED MO cannot be cancelled (T13b_unreachable). Confirmed by reading lib/inventory/kernel/operations/manufacturing.ts:381-426. T18b and T19b are reachable through the state graph (CLAIM_STALE_SNAPSHOT is entered via T16 or T21, and the new transitions provide the missing outbound edges). T27 (bulkConfirmSalesOrders) is fully grounded in code and schema. T24's demotion to 'MO_ACTIVE (outcome experimentally unknown)' is an acceptable hedge — the model commits enough for downstream test generation (predicts two rows, cites the absence of all four guard layers: route Idempotency-Key, DAL replay wrap, validateSalesLineLinkInTx existing_active_mo check, and DB unique constraint on salesOrderLineId) while flagging Phase 4 must run the empirical POST-twice test to confirm. The only minor residual: T24's observable_changes still asserts 'two MO rows result' as the expected outcome, which is slightly more committal than the to_state's 'experimentally unknown' phrasing, but the failure_mode block explicitly covers the alternative branch, so downstream test design can handle both outcomes. Overall verdict: pass. All scores >= 5.",
+  "critical_issues": [],
+  "important_improvements": [],
+  "missing_items": [],
+  "unsafe_assumptions": [],
+  "rewrite_instructions": [],
+  "revised_output": null,
+  "prior_issue_verification": [
+    {
+      "id": "CI-1",
+      "status": "addressed",
+      "evidence_path": "structured_output.transitions[T05].observable_changes[3-5]",
+      "notes": "T05 now has three explicit anti-duplication observables: 'count of non-deleted manufacturingOrders rows for each salesOrderLineId is exactly 1' at observable_changes[3], the 'second concurrent caller observes either 409 ... OR 201 {created:[], skipped:[...]}' branching at observable_changes[4], and the 'SELECT COUNT(*) ... stays at 1' DB anti-observable at observable_changes[5]. FOR UPDATE at queries.ts:3674 cited at guards[1]. Confirmed in source at /home/aeller/Projects/erp/.worktrees/erp-test-coverage-so-mo/app/(dashboard)/manufacturing/queries.ts:3673-3674."
+    },
+    {
+      "id": "CI-2",
+      "status": "addressed",
+      "evidence_path": "structured_output.transitions[T19b], structured_output.transitions[T18b], structured_output.states[CLAIM_STALE_SNAPSHOT].invariants",
+      "notes": "T19b adds CLAIM_STALE_SNAPSHOT → CLAIM_UNCLAIMED via deleteMO (state-model.json:1113-1146) with the same finalized-guard preconditions as T12/T13a. T18b adds CLAIM_STALE_SNAPSHOT → CLAIM_FINALIZED_MO via completeMO (state-model.json:1148-1178). CLAIM_STALE_SNAPSHOT.invariants now enumerate all three outbound edges: T17 (rebind), T19b (cancel reopens), T18b (complete makes permanent). Source verification confirms the DELETE handler at app/api/manufacturing-orders/[id]/route.ts:45-59 and the absence of validateSalesLineLinkInTx in the completion path (only at queries.ts:3561 create and 3887 update)."
+    },
+    {
+      "id": "CI-3",
+      "status": "addressed",
+      "evidence_path": "structured_output.transitions[T13a], structured_output.transitions[T13b_unreachable], structured_output.transitions[T09].observable_changes[2-3]",
+      "notes": "T13 split into T13a (batch-mode startBatch entry, no consumption events yet, confidence high) and T13b_unreachable (pick-induced, blocked by consumption-event guard). T09's observable corrected to 'pickedQuantity advanced' (verified at queries.ts:6174-6182) with explicit note that actualQuantity is NOT advanced on pick. T09 also now lists the manufacturing_ingredient_consumption event as a permanent-block observable. Code verification: lib/inventory/kernel/operations/manufacturing.ts:381-426 writes consumption events on every pick (confirmed via direct read — both heldConsumed via consumeLotAllocationsForDemandInTx and fifoConsumed via consumeStockFifoInTx pass eventType='manufacturing_ingredient_consumption'). The 6446-6500 guard in deleteManufacturingOrdersInTx refuses delete on any such event for the MO, its batches, or its ingredients — confirmed via direct read. T13a's batch-mode-only reachability is correct because T10 (startBatch) does not write consumption events."
+    },
+    {
+      "id": "CI-4",
+      "status": "addressed",
+      "evidence_path": "structured_output.transitions[T02].observable_changes[3-4], structured_output.transitions[T23].observable_changes[1-3], structured_output.transitions[T24].observable_changes[5]",
+      "notes": "T02 adds 'SELECT COUNT(*) FROM inventory.inventory_idempotency_claims WHERE operation_name=confirmSalesOrder AND idempotency_key=$key returns 1' with citation to the unique index at lib/db/schema/inventory-idempotency.ts:29-32 (verified — uniqueIndex 'inventory_idempotency_claims_org_key_uidx' on (organizationId, idempotencyKey) is present exactly there). T23 has the parallel observable for createSalesOrder. T24 has the symmetric anti-observable 'SELECT COUNT(*) FROM manufacturingOrders WHERE salesOrderLineId=$line AND deletedAt IS NULL can return > 1', which makes the BR-8a/BR-8b idempotency asymmetry directly assertable in downstream tests."
+    },
+    {
+      "id": "CI-5",
+      "status": "addressed",
+      "evidence_path": "structured_output.actions[bulkConfirmSalesOrders], structured_output.transitions[T27]",
+      "notes": "bulkConfirmSalesOrders action added (state-model.json:420-432) with POST /api/sales-orders/bulk-confirm and idempotency_key_required=true. T27 transition added (state-model.json:1330-1359) with full idempotency-replay observables and BR-7 no-op invariant. Endpoint and DAL verified: /home/aeller/Projects/erp/.worktrees/erp-test-coverage-so-mo/app/api/sales-orders/bulk-confirm/route.ts:12 has requireIdempotencyKey('bulkConfirmSalesOrders'); bulkConfirmSalesOrders DAL at sales/queries.ts:7597-7623 has the beginInventoryOperationInTx wrap and replay branch at 7609-7611 exactly as cited; bulkConfirmSalesOrdersSchema at lib/schemas/sales-orders.ts:233-237 verified. GAP-idempotency-replay-bulkConfirmSO retained as a test-value pointer to T27."
+    },
+    {
+      "id": "II-1",
+      "status": "addressed",
+      "evidence_path": "structured_output.transitions[T_OUT_OF_SCOPE_SO_DONE_FULLSHIP]",
+      "notes": "Stub transition added at state-model.json:1361-1387 with out_of_scope=true flag. Cites shipSalesOrder at sales/queries.ts:7419-7435 (verified — line 7423 sets status:'done' on the salesOrders update) and shipSalesShipment at 7172-7185. SO_DONE state's entry_conditions also updated to reference this transition explicitly. Downstream tests now have a documented path to drive SO_OPEN→SO_DONE."
+    },
+    {
+      "id": "II-2",
+      "status": "addressed",
+      "evidence_path": "structured_output.transitions[T13a].confidence, structured_output.transitions[T13b_unreachable].confidence",
+      "notes": "T13a is now confidence:'high' (was T13 medium). The split itself, combined with the explicit code citations, addresses the reachability concern. T13b_unreachable is confidence:'high' for its 'unreachable from pick' claim."
+    },
+    {
+      "id": "II-3",
+      "status": "addressed",
+      "evidence_path": "structured_output.transitions[T09].state_transition_confidence, structured_output.transitions[T09].side_effects_confidence, structured_output.transitions[T10] (same pattern)",
+      "notes": "T09 and T10 now carry state_transition_confidence:'high' plus side_effects_confidence:'medium' as separate fields. The outer 'confidence' field stays at 'high'. This calibration matches the codebase: the MO_ACTIVE → MO_WORK_STARTED transition is directly observable via the edit:work_started guard at queries.ts:3877-3882, which is well-evidenced."
+    },
+    {
+      "id": "II-4",
+      "status": "partially_addressed",
+      "evidence_path": "structured_output.transitions[T24]",
+      "notes": "T24 to_state changed to 'MO_ACTIVE (outcome experimentally unknown)'. The observable_changes block carries an extensive Phase 4 verification flag explaining what the model predicts ('two MO rows result from rapid duplicate POST') and why (cites absence of all four guard layers: route handler at app/api/manufacturing-orders/route.ts:32-44 has no requireIdempotencyKey — verified, createManufacturingOrderInTx has no beginInventoryOperationInTx wrap, validateSalesLineLinkInTx has no existing_active_mo check, manufacturingOrders has no uniqueIndex on salesOrderLineId — verified via grep of lib/db/schema/manufacturing.ts: only uniqueIndex on (organizationId, orderNumber) and (active_priority_rank)). The failure_modes block covers the alternative branch where the second commit unexpectedly fails. Acceptable hedge for downstream test design. Minor residual: observable_changes[0] asserts 'two MO rows result' as the expected outcome more committally than the to_state phrasing — but the failure_mode block balances this, and GAP-idempotency-gap-single-create explicitly marks Phase 4 must run the empirical experiment. Not blocking."
+    },
+    {
+      "id": "II-5",
+      "status": "addressed",
+      "evidence_path": "structured_output.state_coverage_gaps[GAP-claim-finalized-permanent]",
+      "notes": "Added at state-model.json:1597-1606. Documents BR-1 terminality with three concrete test assertions: (a) bulk preview permanently returns existing_active_mo, (b) DELETE returns 400 with production-history error, (c) existing_active_mo filter still matches because status IN ('open','done'). Cites queries.ts:6379-6391 (verified — the finalized guard at those lines refuses delete when status!='open' OR completedAt!=null OR actualQuantity>0)."
+    },
+    {
+      "id": "II-6",
+      "status": "addressed",
+      "evidence_path": "structured_output.state_coverage_gaps[GAP-different-itemId-rewrite].concern",
+      "notes": "Concern text updated to cross-reference T19b (cancel-MO recovery), T13b_unreachable (recovery blocked once picks exist), and T18b (forced finalization with stale snapshot becomes terminal). Also cross-refs GAP-claim-finalized-permanent. The verified_by list now includes T19b, T13b_unreachable, T18b as evidence rows."
+    },
+    {
+      "id": "MI-1",
+      "status": "addressed",
+      "evidence_path": "structured_output.transitions[T18b]",
+      "notes": "T18b added (state-model.json:1148-1178). Observable: 'manufacturingOrders.status=done, completedAt SET, salesOrderLineId still points at a deleted salesOrderLines row'. Cites the absence of validateSalesLineLinkInTx in the complete path (only at queries.ts:3561 create and queries.ts:3887 update — verified via grep), which means staleness is invisible to the complete flow. Worst-case combination of BR-1 terminality and BR-2 snapshot drift correctly captured."
+    },
+    {
+      "id": "MI-2",
+      "status": "addressed",
+      "evidence_path": "structured_output.transitions[T18b].side_effects, structured_output.states[CLAIM_STALE_SNAPSHOT].invariants",
+      "notes": "T18b's side_effects field explicitly captures the cross-state interaction: 'Worst-case combination of BR-1 terminality (deleteManufacturingOrdersInTx refuses finalized MO at queries.ts:6379-6391) and BR-2 snapshot drift — no code path can repair the snapshot afterward'. The complete-from-stale-snapshot path is now an explicit transition (T18b), not just inferred."
+    },
+    {
+      "id": "UA-1",
+      "status": "addressed",
+      "evidence_path": "structured_output.transitions[T09].observable_changes[2-3], structured_output.transitions[T13b_unreachable].failure_modes, structured_output.transitions[T13a].guards",
+      "notes": "Code verification I performed directly: lib/inventory/kernel/operations/manufacturing.ts:381-426 writes inventoryEvents with eventType='manufacturing_ingredient_consumption' on every pick via both consumeLotAllocationsForDemandInTx (heldConsumed) at lines 381-395 and consumeStockFifoInTx (fifoConsumed) at lines 405-426. Confirmed eventType='manufacturing_ingredient_consumption' on lines 388 and 412. This means: (a) T09's observable is correct (pick DOES write consumption events), (b) T13b_unreachable is correct (pick-induced MO_WORK_STARTED is permanently uncancellable via DELETE because the 6446-6500 guard fires), (c) T13a's preconditions correctly require batch-mode entry via startBatch (T10 cite at state-model.json:865 explicitly notes 'No manufacturing_ingredient_consumption events written at this point'). UA-1 fully resolved."
+    },
+    {
+      "id": "UA-2",
+      "status": "partially_addressed",
+      "evidence_path": "structured_output.transitions[T24].to_state, structured_output.transitions[T24].failure_modes, structured_output.state_coverage_gaps[GAP-idempotency-gap-single-create]",
+      "notes": "T24's to_state is now 'MO_ACTIVE (outcome experimentally unknown)' — addresses the assertion-vs-evidence mismatch UA-2 flagged. Failure_modes block explicitly covers the 'second commit unexpectedly fails' branch and notes 'Currently the model does NOT predict this'. The gap entry GAP-idempotency-gap-single-create elevates this to a Phase 4 experimental verification target with test_value:'High'. Residual: observable_changes[0] reads more committally than the to_state, but the contradictory predictions are now visible to downstream code generators, who can write the test as 'EXPECT either two rows OR a 4xx/5xx on the second call' and let the experiment commit the contract direction. Acceptable for downstream test generation."
+    }
+  ],
+  "spot_checks": [
+    {
+      "claim": "lib/inventory/kernel/operations/manufacturing.ts:381-426 writes manufacturing_ingredient_consumption events on pick",
+      "verified": true,
+      "notes": "Lines 381-395 call consumeLotAllocationsForDemandInTx with eventType='manufacturing_ingredient_consumption' (line 388). Lines 405-426 call consumeStockFifoInTx with same eventType (line 412). Both unconditionally write events when allocations occur."
+    },
+    {
+      "claim": "app/(dashboard)/manufacturing/queries.ts:6446-6500 refuses delete when any manufacturing_ingredient_consumption inventoryEvent exists for the MO/batch/ingredient",
+      "verified": true,
+      "notes": "Read confirms exact structure: queries.ts:6446-6493 selects from inventoryEvents joined to manufacturingOrders via three OR'd join predicates covering referenceType IN ('manufacturing_order', 'manufacturing_batch', 'manufacturing_order_ingredient'), filtered by eventType='manufacturing_ingredient_consumption' and manufacturingOrders.id in the input set. Lines 6495-6499 return the canonical error message 'Cannot delete manufacturing order {N} because finalized ingredient consumption has already been recorded. Production history must be preserved.' Exact match to T13b_unreachable's cited failure mode."
+    },
+    {
+      "claim": "lib/db/schema/inventory-idempotency.ts:29-32 has uniqueIndex on (organizationId, idempotencyKey)",
+      "verified": true,
+      "notes": "Read confirms uniqueIndex('inventory_idempotency_claims_org_key_uidx').on(table.organizationId, table.idempotencyKey) at lines 29-32. The cite is exact. This supports T02/T23/T27's 'exactly one row per key' observable."
+    },
+    {
+      "claim": "app/(dashboard)/manufacturing/queries.ts:3674 has FOR UPDATE on the salesOrders row",
+      "verified": true,
+      "notes": "Read confirms .for('update') at line 3674 on the salesOrders select inside createManufacturingOrdersFromSalesOrderInTx. Refresh-conflict guards at 3720-3752 also verified (lines 3725-3730 throw 409 'Selected manufacturing orders changed. Refresh and try again.' for invalidLine, 3737-3741 for quantity, 3747-3751 for group choice). T05's anti-duplication observables are line-accurate."
+    },
+    {
+      "claim": "completeMO path does NOT call validateSalesLineLinkInTx (so stale snapshots persist into MO_DONE)",
+      "verified": true,
+      "notes": "grep -n 'validateSalesLineLinkInTx' app/(dashboard)/manufacturing/queries.ts returns only three matches: definition at line 729, call inside createManufacturingOrderInTx at line 3561, call inside updateManufacturingOrder at line 3887. No call inside completeMO (lines 5300-5600+). T18b's claim that 'completeManufacturingOrder does NOT call validateSalesLineLinkInTx — link is not revalidated at completion' is correct."
+    }
+  ],
+  "reachability_audits": [
+    {
+      "transition": "T13a (MO_WORK_STARTED → MO_CANCELLED via deleteMO, batch-mode entry only)",
+      "reachable": true,
+      "path": "T07 createUnlinkedMO (batch-mode product) → MO_ACTIVE → T10 startBatch → MO_WORK_STARTED (with one in_progress batch, no picks yet) → T13a deleteMO succeeds because no manufacturing_ingredient_consumption events exist yet. Cancellation passes the 6379-6391, 6393-6420, 6422-6444, and 6446-6500 guards. Confirmed via reading queries.ts:6379-6500."
+    },
+    {
+      "transition": "T13b_unreachable (MO_WORK_STARTED → MO_CANCELLED via deleteMO, pick-induced entry)",
+      "reachable": false,
+      "path": "T07 createUnlinkedMO → MO_ACTIVE → T09 pickIngredient → MO_WORK_STARTED (with pickAllocations AND manufacturing_ingredient_consumption events). T13b cancel attempt fails at queries.ts:6446-6500 guard. The model correctly classifies this as an unreachable target via the public API."
+    },
+    {
+      "transition": "T18b (CLAIM_STALE_SNAPSHOT → CLAIM_FINALIZED_MO via completeMO)",
+      "reachable": true,
+      "path": "T15 createSingleLinkedMO → CLAIM_ACTIVE_MO → T09 pickIngredient → MO_WORK_STARTED (still CLAIM_ACTIVE_MO) → T21 updateSalesOrder rewrites linked line (silent) → MO_WORK_STARTED carrying CLAIM_STALE_SNAPSHOT → T18b complete (all ingredients now picked) → CLAIM_FINALIZED_MO with stale snapshot retained. Reachability confirmed by absence of validateSalesLineLinkInTx in the complete path."
+    },
+    {
+      "transition": "T19b (CLAIM_STALE_SNAPSHOT → CLAIM_UNCLAIMED via deleteMO)",
+      "reachable": true,
+      "path": "T15 createSingleLinkedMO → CLAIM_ACTIVE_MO (MO_ACTIVE, no picks yet) → T16 updateSalesOrder rewrites line with no matching productId replacement → MO_ACTIVE carrying CLAIM_STALE_SNAPSHOT → T19b deleteMO succeeds because no consumption events, no completed batches, no ingredient.actualQuantity > 0. Snapshot row deleted with MO; line returns to CLAIM_UNCLAIMED."
+    },
+    {
+      "transition": "T27 (SO_OPEN → SO_OPEN via bulkConfirmSalesOrders)",
+      "reachable": true,
+      "path": "Endpoint exists at app/api/sales-orders/bulk-confirm/route.ts:1-23 (verified via direct read). DAL at sales/queries.ts:7597-7623 wraps with beginInventoryOperationInTx and finishInventoryOperationInTx (verified). Schema at lib/schemas/sales-orders.ts:233-237 requires non-empty ids[] (verified). Idempotency-Key required at route.ts:12 (verified)."
+    }
+  ]
+}

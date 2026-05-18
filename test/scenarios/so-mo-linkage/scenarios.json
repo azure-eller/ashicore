@@ -1,0 +1,1715 @@
+{
+  "summary": "Phase 3 revised scenario set for the sales-order ↔ manufacturing-order (SO↔MO) linkage contract — 31 scenarios across 6 risk categories. Revised to fix the critic's S04 picking-vs-cancel error (verified: pickManufacturingIngredientInTx at lib/inventory/kernel/operations/manufacturing.ts:319 DOES write inventoryEvents with eventType='manufacturing_ingredient_consumption' at lines 388 and 412, and the MO delete guard at queries.ts:6446-6500 checks eventType without subtype discrimination — so picks DO block delete and S04's premise stands). Adds S04b to exercise T18b (the worst-case CLAIM_FINALIZED_MO terminal-stuck path). Demotes S02 and S05 from P0 → P1; keeps S01/S03/S04/S04b/S11/S12 at P0. Moves S13 and S14 from fast → slow (multi-step setup). Adds positive control to S14. Pre-commits S15 to T24's modeled outcome (both POSTs return 201 with distinct MO ids) and pins the no-idempotency-claim invariant. S16 winner/loser identified by response shape via Promise.allSettled. S17 adds inventoryEvents/stockAllocations no-op negative assertion. S20 cites PUT /api/items/[id] as the BOM mutation path. Adds 11 challenge-driven scenarios: S21 bulk MO DELETE atomic-fail, S22 bulkConfirmSalesOrders dead-write contract pin, S23 BR-6 second branch cross-SO shared allocation, S24 cross-endpoint bulk-vs-single race, S25 item soft-delete when MO is cancelled (T26 + cancelled-MO inverse), S26 parallel PUT+DELETE on same MO, S27 PUT natural-idempotency, S28 moveReplacedSalesLineAllocationsInTx multi-line pairing, S29 BR-1 violation via PUT/edit-add-link (CONFIRMED PRODUCTION GAP — see notes_for_phase_4), S30 stale-form unsaved-changes (no create-time snapshot fallback). Strengthens S01 with exact expectedQty delta, S04 with the picks-do-write-consumption-events evidence pin, S10 with concrete inventory-effect assertions, S15 with set-equality assertion on response.id vs DB id. Lane split per CLAUDE.md (Playwright-only): 8 fast + 23 slow. Every audit-named gap (1–5) plus the 11 challenge critical_gaps maps to ≥1 scenario.",
+  "evidence": [
+    {
+      "file": "test/scenarios/so-mo-linkage/state-model.json",
+      "symbol": "transitions T01–T27, T13b_unreachable, T18b, T19b, T_OUT_OF_SCOPE_SO_DONE_FULLSHIP",
+      "reason": "Authoritative transition vocabulary cited by each scenario."
+    },
+    {
+      "file": "test/scenarios/so-mo-linkage/contract.json",
+      "symbol": "business_rules BR-1 through BR-10, risk_areas RA-2a/2b/2c, RA-3, RA-5, RA-6, RA-7, RA-10, RA-11, RA-12",
+      "reason": "Authoritative business-rule and risk-area vocabulary cited by each scenario."
+    },
+    {
+      "file": "test/scenarios/so-mo-linkage/scenarios-review.json",
+      "symbol": "critic critical_issues, important_improvements, unsafe_assumptions, rewrite_instructions",
+      "reason": "Drives all S04-onward revisions in this file."
+    },
+    {
+      "file": "test/scenarios/so-mo-linkage/scenarios-challenge.json",
+      "symbol": "challenge critical_gaps (1–11), weak_scenarios (S01/S04/S10/S15), assumptions_not_tested",
+      "reason": "Drives the 11 new scenarios S21–S30 (S30 covers two challenge gaps merged where they overlap)."
+    },
+    {
+      "file": "lib/inventory/kernel/operations/manufacturing.ts",
+      "symbol": "pickManufacturingIngredientInTx writes eventType='manufacturing_ingredient_consumption'",
+      "lines": "388, 412",
+      "reason": "Verifies the critic's S04 claim is FALSE — picking does write consumption events; the MO delete guard at queries.ts:6446-6500 checks eventType only, so picks DO block delete. S04's stuck-stale-after-pick premise holds."
+    },
+    {
+      "file": "app/(dashboard)/manufacturing/queries.ts",
+      "symbol": "validateSalesLineLinkInTx has no existing_active_mo check",
+      "lines": "729-819",
+      "reason": "Confirmed code defect on edit-add-link path. PUTting a sales-link onto a previously-unlinked MO bypasses BR-1's one-time-claim invariant. Drives S29 (P0)."
+    },
+    {
+      "file": "test/e2e/slow/manufacturing-order.spec.ts",
+      "symbol": "createCustomer / createSalesOrder / createMOFromSalesLine helpers, db-fixture reads",
+      "reason": "Established slow-lane pattern reused by all new scenarios."
+    },
+    {
+      "file": "test/e2e/fixtures.ts",
+      "symbol": "db fixture (RLS-scoped Drizzle proxy)",
+      "reason": "All DB assertions go through this fixture; no mocking."
+    }
+  ],
+  "inferences": [
+    {
+      "claim": "Picking DOES write manufacturing_ingredient_consumption events. Verified by reading pickManufacturingIngredientInTx at lib/inventory/kernel/operations/manufacturing.ts:319 — it writes eventType='manufacturing_ingredient_consumption' at lines 388 and 412 (subtype 'manufacturing_pick'). The MO delete guard at queries.ts:6446-6500 filters by eventType only and does NOT discriminate by subtype. Therefore picks block MO delete. S04 retains its stuck-after-pick premise.",
+      "based_on": ["lib/inventory/kernel/operations/manufacturing.ts:388,412", "app/(dashboard)/manufacturing/queries.ts:6446-6500"],
+      "confidence": "high"
+    },
+    {
+      "claim": "validateSalesLineLinkInTx is the only link guard reached by both create and update, and it has no existing_active_mo check anywhere in lines 729-819. Therefore PUTting a sales-link onto a previously-unlinked MO can claim a sales line already claimed by another active MO. BR-1's one-time-claim invariant is enforceable only by the bulk-from-SO preview (which filters out existing_active_mo lines); both single-create POST and edit-PUT bypass it. S29 will catch this code defect.",
+      "based_on": ["app/(dashboard)/manufacturing/queries.ts:729-819", "lib/manufacturing/sales-order-manufacturability.ts existing_active_mo skip reason scoped to preview only"],
+      "confidence": "high"
+    },
+    {
+      "claim": "T24 (single-create duplicate POST without Idempotency-Key) — per the critic's correct demand, the test must pre-commit to the modeled outcome (both POSTs return 201 with distinct MO ids and 2 MO rows result), not assert an EITHER-OR union. Defensive union assertions cannot catch regressions because they pass whatever happens. S15 now asserts the union of the BR-8b documented gap (no idempotency, no unique index, no existing_active_mo) tightly, by set-equality between response ids and DB ids.",
+      "based_on": ["scenarios-review.json critical_issues for S15", "state-model.json T24 medium-confidence prediction"],
+      "confidence": "high"
+    },
+    {
+      "claim": "BR-10's confirmOversell:false / confirmShortage:false rejection paths do not exist on the create endpoints. Tests must assert the flag is silently ignored — there is no reject branch to test. S10 additionally pins concrete inventory effects (items.committedQty / items.demandQty deltas) so a regression that silently changes the contract to 'no reservation when stock=0' would be observable.",
+      "based_on": ["contract.json:BR-10", "challenge weak_scenarios S10 inventory-effect strengthening"],
+      "confidence": "high"
+    },
+    {
+      "claim": "RA-2c (SO line rewrite while MO has picks) and T18b (complete MO with stale snapshot) are TWO distinct stuck-stale states with different escape paths. RA-2c (S04) reaches MO_WORK_STARTED; cancel still blocks because consumption events exist. T18b (S04b) reaches MO_DONE; cancel blocks for a different reason (production output recorded) and SO delete is PERMANENTLY stuck. Both deserve coverage.",
+      "based_on": ["state-model.json T18b vs T13b_unreachable", "challenge critical_gaps #3 T18b uncovered"],
+      "confidence": "high"
+    }
+  ],
+  "unknowns": [
+    "Whether the second commit of T24's duplicate POST race actually succeeds at the DB layer or hits an undocumented unique-violation. S15 asserts the BR-8b modeled outcome (both 201, two rows) tightly via set-equality; if the experiment shows otherwise, the test fails loudly and the contract gets revised.",
+    "Whether the BR-1 PUT/edit-add-link path (S29) currently allows the double-claim or fails for an undocumented reason. The Phase 4 test must run the experiment and assert the modeled outcome (PUT succeeds, two MO rows exist on the same lineId, BR-1 violated). If the PUT is rejected, the contract must be updated to add an existing_active_mo check at queries.ts:729-819 (the test pins the gap).",
+    "Whether allocation row transitions for the sales_order_line → sales_shipment_line bucket move correctly preserve a sales-linked MO's downstream supply claim. Out of scope for Run 1; flagged in coverage_summary for Run 2.",
+    "Whether moveReplacedSalesLineAllocationsInTx's pairing strategy is itemId+sortOrder vs itemId-only. S28 asserts the observable many-to-many migration outcome by sortOrder ordering; if the assertion fails, the implementation strategy must be documented in the contract."
+  ],
+  "structured_output": {
+    "scenario_groups": [
+      {
+        "risk_category": "cross_feature",
+        "why_this_category_matters": "SO↔MO is by definition cross-feature: a sales order line is a snapshot reference on a manufacturing order. The 948c155e regression class lives entirely here — direct sales-linked single-MO create silently dropping ids or skipping BOM ingredient seeding. This category also covers the BR-1 one-time-claim invariant that spans both modules and the T18b worst-case terminal-stuck path.",
+        "scenarios": [
+          {
+            "id": "S01",
+            "title": "Direct sales-linked single MO create attaches both ids, seeds ingredients with correct quantities, and increments items.expectedQty by exactly plannedQuantity",
+            "narrative": "From /manufacturing/orders/new, with the user picking a sales order then a specific sales-order line, the form must submit to POST /api/manufacturing-orders with both salesOrderId AND salesOrderLineId set. The created MO row must persist (a) salesOrderId, (b) salesOrderLineId, (c) salesOrderNumber + salesCustomerName snapshots, AND (d) manufacturingOrderIngredients rows seeded from the product's active BOM with QUANTITIES matching the BOM components' consumption mode and basisOutputQuantity (per multiplyQuantity scaling). Pre-948c155e the form silently nulled both ids and left ingredients empty — this is the exact regression class to lock in. The expectedQty assertion uses an exact delta (before vs after equals plannedQuantity), not a vague 'reflects' check.",
+            "lane": "slow",
+            "setup": [
+              "Create a customer via /api/customers.",
+              "Create a product item with an active BOM that has >=2 ingredient rows of differing consumption modes (e.g., per_output_unit qty=1, per_batch qty=9) via /api/items + bom editor.",
+              "Create an open sales order with one line for that product, quantity=4.",
+              "Capture items.expectedQty for the product BEFORE the MO create (call it Q0).",
+              "Sign in as the canonical test user (Playwright fixture)."
+            ],
+            "trigger_sequence": [
+              "Navigate to /manufacturing/orders/new",
+              "Pick the sales order from the Sales Order combobox",
+              "Pick the sales order line from the Sales Order Line combobox",
+              "Confirm form auto-populated productId and plannedQuantity from the line",
+              "Submit the Create Order button"
+            ],
+            "expected_user_outcomes": [
+              "Redirect to /manufacturing/orders/[id] with the newly created MO visible",
+              "Form does NOT redirect to bulk-from-SO preview mode (single create routed to /api/manufacturing-orders, not /api/sales-orders/:id/manufacturing-orders)"
+            ],
+            "expected_side_effects": [
+              "manufacturingOrders row exists with salesOrderId = SO id, salesOrderLineId = picked line id, salesOrderNumber/salesCustomerName populated, productId = line.itemId, plannedQuantity = line.quantity",
+              "manufacturingOrderIngredients rows count equals the product's active BOM ingredient count (>=2), AND each row's quantityToConsume equals multiplyQuantity(bomComponent.quantityPerOutputUnit, plannedQuantity) for per_output_unit, or the basisOutputQuantity-scaled value for per_batch/per_group",
+              "Subsequent GET /api/sales-orders/[id]/manufacturing-orders returns the line with status='skipped' skipReason='existing_active_mo'",
+              "items.expectedQty for the product equals Q0 + plannedQuantity (exact delta, trimmed to 4-decimal precision)"
+            ],
+            "priority": "P0",
+            "scores": {
+              "business_criticality": 5,
+              "bug_finding_potential": 5,
+              "regression_risk": 5
+            },
+            "target_transitions": ["T06", "T15"],
+            "target_business_rules": ["BR-3", "BR-1"],
+            "target_risk_areas": ["RA-6"],
+            "target_bug_classes": [
+              "mutation error not surfaced",
+              "stale data persisted",
+              "derived value drift",
+              "invalid transition allowed"
+            ],
+            "audit_gaps_covered": [
+              "Audit cross-cutting: 'No SO-confirm ↔ MO-release race' (this is the create-time link surface that race depends on)",
+              "GAP-stale-spec-948c155e: replaces the existing manufacturing-order.spec.ts:462-475 assertion that still expects a 400",
+              "Challenge weak_scenarios S01 strengthening: exact expectedQty delta + ingredient quantity assertion"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx", "symbol": "handleSalesLineChange + mutationFn", "lines": "523-606, 721-762", "reason": "Single sales-linked create routed correctly post-948c155e." },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "createManufacturingOrderInTx (sales-link guard removed)", "lines": "3552-3598" },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "prepareCreateIngredientsInTx ingredient seeding via multiplyQuantity", "lines": "821-880" },
+              { "file": "CLAUDE.md", "symbol": "Postgres numeric fields — trimScale and 4-decimal formatting", "reason": "Drives the trimmed-precision expectedQty assertion." }
+            ],
+            "why_prioritized": "Exact regression class fixed by commit 948c155e and named as a P0 audit gap. The existing stale assertion in manufacturing-order.spec.ts:462-475 actively misrepresents the contract. Strengthened with exact expectedQty delta per challenge weak_scenarios S01."
+          },
+          {
+            "id": "S02",
+            "title": "Bulk Create-MOs-from-SO creates one MO per will_create line and skips non-manufacturable lines correctly",
+            "narrative": "The Create MOs dialog on the SO detail page submits to POST /api/sales-orders/:id/manufacturing-orders with the selected will_create line ids. The DAL must (a) lock the salesOrders row FOR UPDATE, (b) insert exactly one MO per selected will_create line with the link snapshot, (c) echo skipReasons for unselected/skip-reason lines in the response. Lines covered by stock on hand, lines with no active BOM, lines for inactive products, lines for non-products, and lines already claimed by a non-deleted MO must each surface with their canonical skipReason and skipMessage.",
+            "lane": "slow",
+            "setup": [
+              "Create a customer.",
+              "Create two product items, both with active BOMs.",
+              "Create one material item.",
+              "Create an open sales order with three lines: (a) Product-A with BOM, (b) Product-B with BOM, (c) the material (non_product).",
+              "For Product-B, set finished-goods stock so it covers the ordered quantity (stock_on_hand skip)."
+            ],
+            "trigger_sequence": [
+              "Navigate to /sales/orders/[id]",
+              "Open the Create MOs dialog",
+              "Verify the dialog preview shows Product-A as 'will_create', Product-B as 'skipped' with stock_on_hand message, and the material line as 'skipped' with non_product message",
+              "Submit Create N order(s)"
+            ],
+            "expected_user_outcomes": [
+              "Dialog returns success with 'Created 1 manufacturing order' or similar",
+              "Sales order detail page now lists one linked MO"
+            ],
+            "expected_side_effects": [
+              "Exactly ONE manufacturingOrders row is inserted with salesOrderLineId = Product-A line id",
+              "No MO row is inserted for the Product-B line (stock_on_hand) or the material line (non_product)",
+              "GET /api/sales-orders/[id]/manufacturing-orders now returns Product-A line as skipReason='existing_active_mo', Product-B unchanged as stock_on_hand, material unchanged as non_product",
+              "Created MO's snapshot columns: salesOrderNumber matches SO orderNumber, salesCustomerName matches customer name"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 4,
+              "bug_finding_potential": 3,
+              "regression_risk": 4
+            },
+            "target_transitions": ["T05", "T14"],
+            "target_business_rules": ["BR-1", "BR-3", "BR-4"],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "invalid transition allowed",
+              "derived value drift",
+              "stale data persisted"
+            ],
+            "audit_gaps_covered": [
+              "Existing slow spec asserts dialog opens but never submits — this scenario closes the submission + DB-verification half of that surface."
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "createManufacturingOrdersFromSalesOrderInTx + FOR UPDATE + skipReasons", "lines": "3656-3812" },
+              { "file": "lib/manufacturing/sales-order-manufacturability.ts", "symbol": "SALES_ORDER_MANUFACTURING_SKIP_REASONS + getSkipMessage", "lines": "17-23, 55-68" }
+            ],
+            "why_prioritized": "Baseline cross-feature happy-path for the bulk flow. Demoted from P0 → P1 per critic: valuable as a baseline but not a 'would catch a production bug today' scenario in the same league as the silent-drift class."
+          },
+          {
+            "id": "S03",
+            "title": "BR-2 same-itemId SO line rewrite: linked MO snapshot rebinds on next MO edit (form re-uses the OLD stale line id)",
+            "narrative": "When a draft SO is edited (updateSalesOrder hard-deletes and re-inserts all lines), a linked MO's salesOrderLineId column still points at the old (deleted) line id (CLAIM_STALE_SNAPSHOT). The MO edit form loads MO.salesOrderLineId from the DB — which is the OLD (deleted) id, NOT a fresh one. On submit, validateSalesLineLinkInTx's isUnchangedSnapshot check (queries.ts:750-753) matches (existingSnapshot.salesOrderId === values.salesOrderId AND existingSnapshot.salesOrderLineId === values.salesOrderLineId), and the fallback rebinds to the new line id that shares the same productId. Allocation row migration via moveReplacedSalesLineAllocationsInTx must also have moved active allocations from old line ids to new line ids by itemId+sortOrder. The Phase 4 test MUST resubmit the stale id verbatim — do NOT manually swap to a new line id in the edit payload, because the fallback only runs when isUnchangedSnapshot is true.",
+            "lane": "slow",
+            "setup": [
+              "Create a customer + product with active BOM.",
+              "Create an open SO with one line for the product, qty=5, unitPrice=10.",
+              "Create a linked MO via /api/manufacturing-orders with both ids set (S01 path).",
+              "Verify pre-condition: MO row's salesOrderLineId = original line id."
+            ],
+            "trigger_sequence": [
+              "PUT /api/sales-orders/[id] with the same itemId but quantity=7 (hard-delete + re-insert produces a new line id)",
+              "Query DB to confirm: old line id no longer in salesOrderLines, MO's salesOrderLineId STILL = old id (stale snapshot state)",
+              "Read the MO row via GET /api/manufacturing-orders/[moId] to capture the stale salesOrderLineId the form would carry",
+              "PUT /api/manufacturing-orders/[moId] with the SAME body the form would send — including the OLD (stale) salesOrderLineId and salesOrderId, no other changes — to trigger the isUnchangedSnapshot fallback"
+            ],
+            "expected_user_outcomes": [
+              "MO save succeeds (200)"
+            ],
+            "expected_side_effects": [
+              "After SO edit, before MO save: MO.salesOrderLineId still equals the OLD line id, but old line id no longer exists in salesOrderLines",
+              "After MO save: MO.salesOrderLineId rebinds to the NEW line id (same productId)",
+              "stockAllocations active rows for the sales line have migrated from old line id to new line id (sourceType='sales_order_line', sourceId = new line id)"
+            ],
+            "priority": "P0",
+            "scores": {
+              "business_criticality": 5,
+              "bug_finding_potential": 5,
+              "regression_risk": 4
+            },
+            "target_transitions": ["T16", "T17"],
+            "target_business_rules": ["BR-2"],
+            "target_risk_areas": ["RA-2a"],
+            "target_bug_classes": [
+              "stale data persisted",
+              "invalid transition allowed",
+              "derived value drift"
+            ],
+            "audit_gaps_covered": [
+              "Audit cross-cutting: 'The MO ↔ SO snapshot rewrite path is tested only by manual DB mutation.' This scenario exercises the natural drift path.",
+              "Critic missing_items: 'do NOT manually change the salesOrderLineId in the edit payload — the form must resubmit the stale id so the rebind branch triggers'"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/sales/queries.ts", "symbol": "updateSalesOrder hard-delete + insert + moveReplacedSalesLineAllocationsInTx", "lines": "6139-6165" },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "validateSalesLineLinkInTx isUnchangedSnapshot fallback at 750-811", "lines": "750-811" }
+            ],
+            "why_prioritized": "The 948c155e regression class touched the same snapshot/rebind surface; same-itemId rewrite is the most common operational path and is currently tested only by manual DB null."
+          },
+          {
+            "id": "S04",
+            "title": "RA-2c stuck-stale: SO line rewrite while linked MO is in MO_WORK_STARTED produces stuck snapshot, blocks SO delete, blocks MO cancel via consumption-event guard",
+            "narrative": "Once an MO has at least one pickAllocation row, updateManufacturingOrder is blocked by edit:work_started (queries.ts:3877-3882) — so the snapshot fallback cannot rebind a stale link via T17. updateSalesOrder does not query MO pick state, so an SO line rewrite during MO_WORK_STARTED succeeds silently. The MO is now in CLAIM_STALE_SNAPSHOT. Picking DOES write manufacturing_ingredient_consumption inventoryEvents (verified at lib/inventory/kernel/operations/manufacturing.ts:388,412 with subtype 'manufacturing_pick'), and the MO delete guard at queries.ts:6446-6500 filters by eventType only (no subtype discrimination) — so cancel is BLOCKED. A subsequent deleteSalesOrder is refused by BR-6 drift guard. This is the worst-case for the 948c155e regression class — there is NO automatic remediation from MO_WORK_STARTED. The only path out is T18b (complete the MO), which is covered by S04b.",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product with active BOM + raw material lots seeded to stock.",
+              "Create an open SO with one line for the product.",
+              "Create a linked MO (single-link single-mode).",
+              "POST /api/manufacturing-orders/[moId]/ingredients/[ingredientId]/pick to create at least one pickAllocation row — MO enters MO_WORK_STARTED and pickManufacturingIngredientInTx writes a manufacturing_ingredient_consumption inventoryEvent."
+            ],
+            "trigger_sequence": [
+              "PUT /api/sales-orders/[id] with same itemId but quantity changed (re-insert produces a new line id)",
+              "Attempt DELETE /api/sales-orders/[id]",
+              "Attempt DELETE /api/manufacturing-orders/[moId] — expected 400 finalized guard (because picks wrote manufacturing_ingredient_consumption events)",
+              "Re-attempt DELETE /api/sales-orders/[id] to confirm the stuck state"
+            ],
+            "expected_user_outcomes": [
+              "SO PUT returns 200 (no guard exists)",
+              "First SO DELETE returns 400/4xx with the canonical 'manufacturing order {N} is linked to the order but not to a matching active sales line. Remove or repair the manufacturing link first.' message",
+              "MO DELETE returns 400 with the finalized 'finalized ingredient consumption has already been recorded' guard message",
+              "Second SO DELETE STILL returns 400 with the drift error (truly stuck without T18b)"
+            ],
+            "expected_side_effects": [
+              "After SO PUT: old line id removed from salesOrderLines; MO.salesOrderLineId still points at the old id",
+              "After first SO DELETE attempt: salesOrders.deletedAt remains NULL",
+              "After MO DELETE attempt: manufacturingOrders.deletedAt remains NULL (consumption-event guard blocks)",
+              "Test ends in stuck-stale state with MO in MO_WORK_STARTED; the T18b terminal-permanent path is exercised separately by S04b"
+            ],
+            "priority": "P0",
+            "scores": {
+              "business_criticality": 5,
+              "bug_finding_potential": 5,
+              "regression_risk": 5
+            },
+            "target_transitions": ["T21", "T20", "T13b_unreachable"],
+            "target_business_rules": ["BR-2", "BR-6"],
+            "target_risk_areas": ["RA-2c"],
+            "target_bug_classes": [
+              "stale data persisted",
+              "invalid transition allowed",
+              "async race condition"
+            ],
+            "audit_gaps_covered": [
+              "Audit gap #2: MO ↔ SO snapshot rewrite via direct DB mutation in existing specs — natural drift path replacing the manual-DB-null fake.",
+              "Audit cross-cutting: 'no test rewrites the SO line while the linked MO is released or has picks attached'"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/sales/queries.ts", "symbol": "updateSalesOrder — no pick-state query", "lines": "6056-6266" },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "edit:work_started guard + finalized consumption-event guard", "lines": "3877-3882, 6446-6500" },
+              { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "pickManufacturingIngredientInTx writes manufacturing_ingredient_consumption", "lines": "319, 388, 412", "reason": "Verifies picks write the events the MO delete guard reads — closing the critic's S04 contradiction." },
+              { "file": "app/(dashboard)/sales/queries.ts", "symbol": "deleteSalesLinkedManufacturingOrdersInTx drift guard", "lines": "2367-2375" }
+            ],
+            "why_prioritized": "Highest-impact silent regression class; audit explicitly names this as P0 gap. No existing test exercises the natural drift path."
+          },
+          {
+            "id": "S04b",
+            "title": "T18b CLAIM_FINALIZED_MO terminal stuck: complete MO with stale snapshot — SO delete and MO cancel are permanently refused",
+            "narrative": "Drive the RA-2c stuck-stale state through to T18b: pick all remaining ingredients then COMPLETE the MO. completeManufacturingOrder has no validateSalesLineLinkInTx call, so the stale salesOrderLineId snapshot is preserved verbatim through completion. After T18b: (a) MO is in MO_DONE with status='done', completedAt SET, actualQuantity > 0, salesOrderLineId still pointing at a deleted salesOrderLines row; (b) DELETE /api/sales-orders/[id] returns 400 with the BR-6 drift error, FOREVER; (c) DELETE /api/manufacturing-orders/[mo] returns 400 with the production-output-recorded finalized guard, FOREVER. This documents the worst-case terminal-stuck state explicitly so a regression that adds the snapshot refresh at completion (rescuing the SO delete) or softens the finalized guard would be caught at the test layer.",
+            "lane": "slow",
+            "setup": [
+              "Reproduce S04 setup through the point where MO is in MO_WORK_STARTED with picks, SO line was rewritten with a DIFFERENT itemId (so snapshot fallback finds no replacement), and MO.salesOrderLineId points at the deleted line id.",
+              "Note: use different itemId rewrite (S04 used same itemId quantity-change; S04b deliberately uses different-itemId rewrite so no fallback replacement is possible, mirroring S11's drift path)."
+            ],
+            "trigger_sequence": [
+              "Finish picking all remaining ingredients via POST /api/manufacturing-orders/[mo]/ingredients/[ing]/pick (with Idempotency-Keys per BR-8a)",
+              "POST /api/manufacturing-orders/[mo]/complete with Idempotency-Key",
+              "Query DB: assert MO.status='done', completedAt SET, actualQuantity > 0, salesOrderLineId equals the OLD deleted line id, and the old line id is NOT in salesOrderLines",
+              "Attempt DELETE /api/sales-orders/[id] → expect 400 with BR-6 drift error",
+              "Attempt DELETE /api/manufacturing-orders/[mo] → expect 400 with the production-output finalized error",
+              "Re-attempt both DELETEs to confirm both errors are stable (terminal)"
+            ],
+            "expected_user_outcomes": [
+              "Complete returns 200; MO row in MO_DONE state",
+              "First SO DELETE returns 400 with the BR-6 drift error citing MO's orderNumber",
+              "MO DELETE returns 400 with the production-output finalized guard ('Cannot delete manufacturing order {N} because production output has already been recorded')",
+              "Both errors repeat identically on re-attempt — terminal stuck"
+            ],
+            "expected_side_effects": [
+              "salesOrders.deletedAt remains NULL across all attempts (SO delete permanently blocked)",
+              "manufacturingOrders.deletedAt remains NULL across all attempts (MO delete permanently blocked)",
+              "MO.salesOrderLineId still points at the deleted line id (no snapshot refresh at completion)",
+              "items.expectedQty for the product unchanged from pre-complete state (no double-decrement)",
+              "GET /api/sales-orders/[id]/manufacturing-orders preview reports the original line as existing_active_mo (stale skipReason)"
+            ],
+            "priority": "P0",
+            "scores": {
+              "business_criticality": 5,
+              "bug_finding_potential": 5,
+              "regression_risk": 5
+            },
+            "target_transitions": ["T21", "T18b", "T22", "T20"],
+            "target_business_rules": ["BR-2", "BR-6", "BR-1"],
+            "target_risk_areas": ["RA-2c"],
+            "target_bug_classes": [
+              "stale data persisted",
+              "invalid transition allowed",
+              "data corruption (silent)",
+              "irreversible terminal state"
+            ],
+            "audit_gaps_covered": [
+              "Challenge critical_gaps #3: T18b stuck-permanent path — the audit's most-cited gap.",
+              "Critic missing_items: 'If S04 is rewritten as option B, add a new slow scenario S04b that covers T18b → CLAIM_FINALIZED_MO with drift.'"
+            ],
+            "evidence": [
+              { "file": "test/scenarios/so-mo-linkage/state-model.json", "symbol": "T18b transition", "reason": "Named in transitions list as the terminal-stuck path." },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "completeManufacturingOrder has no validateSalesLineLinkInTx call", "reason": "Only create (3561) and update (3829-3997) call validateSalesLineLinkInTx. Complete path does not re-validate." },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "deleteManufacturingOrdersInTx production-output guard", "lines": "6379-6391" },
+              { "file": "app/(dashboard)/sales/queries.ts", "symbol": "deleteSalesLinkedManufacturingOrdersInTx drift guard", "lines": "2367-2375" }
+            ],
+            "why_prioritized": "Worst-case terminal-stuck path; the audit's most-cited gap; previously excluded from S04 with no replacement coverage. Production data corruption risk if regressed (the snapshot refresh fix would silently rescue the SO delete but break the audit trail)."
+          },
+          {
+            "id": "S05",
+            "title": "Sales-linked MO cancellation reopens the salesOrderLineId claim (BR-1 cancel-reopens)",
+            "narrative": "When an active (MO_ACTIVE, no picks yet) sales-linked MO is soft-deleted, the existing_active_mo filter no longer matches (deletedAt IS NOT NULL), so the SO line transitions CLAIM_ACTIVE_MO → CLAIM_UNCLAIMED. The Create MOs dialog must show the line as will_create again, and a second bulk POST must succeed and create a fresh MO for that line. This validates BR-1's cancel-reopens path that the audit notes is uncovered in slow specs.",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product with active BOM.",
+              "Create open SO with one line.",
+              "Bulk-create MOs from the SO (creates MO1 linked to the line)."
+            ],
+            "trigger_sequence": [
+              "Confirm preview shows the line as skipReason='existing_active_mo'",
+              "DELETE /api/manufacturing-orders/[mo1Id]",
+              "GET /api/sales-orders/[id]/manufacturing-orders",
+              "Bulk POST /api/sales-orders/[id]/manufacturing-orders again with the same line id"
+            ],
+            "expected_user_outcomes": [
+              "First DELETE returns 200 {success: true} (no picks → finalized guard passes)",
+              "Second preview returns the line back to status='will_create'",
+              "Second bulk POST returns 201 with one created MO for the line"
+            ],
+            "expected_side_effects": [
+              "MO1: deletedAt SET; cancelledAt may be SET (released path) or NULL",
+              "MO2: new row, deletedAt NULL, salesOrderLineId = same line id",
+              "Both rows persist with the same salesOrderLineId (DB has no unique constraint on that column) — the existing_active_mo filter is what enforces the claim",
+              "items.expectedQty recomputed once on cancel, again on second create"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 4,
+              "bug_finding_potential": 4,
+              "regression_risk": 4
+            },
+            "target_transitions": ["T12", "T19", "T14"],
+            "target_business_rules": ["BR-1"],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "invalid transition allowed",
+              "stale data persisted"
+            ],
+            "audit_gaps_covered": [
+              "evidence.json suspected_risk_areas: 'cancelled→reopen case appears uncovered by the slow specs'"
+            ],
+            "evidence": [
+              { "file": "lib/manufacturing/sales-order-manufacturability.ts", "symbol": "existing_active_mo (deletedAt IS NULL)", "lines": "222-235" },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "deleteManufacturingOrdersInTx cancel path", "lines": "6555-6612" }
+            ],
+            "why_prioritized": "BR-1 has three sub-states; cancel-reopens is the only one not covered by existing slow specs. Demoted from P0 → P1 per critic: audit-uncovered but not silently broken in production."
+          },
+          {
+            "id": "S06",
+            "title": "BR-1 permanent claim: completed MO cannot be cancelled, line remains permanently skipped, items.expectedQty drops to pre-MO baseline",
+            "narrative": "Once an MO completes (status='done', completedAt SET, actualQuantity>0), deleteManufacturingOrdersInTx refuses to soft-delete (finalized guard at queries.ts:6379-6391). The existing_active_mo filter accepts status='done' (status IN ('open','done')), so the line stays permanently skipReason='existing_active_mo'. recomputeExpectedQty must drop items.expectedQty by the MO's plannedQuantity once the MO transitions to done (only released-but-not-done MOs contribute to expectedQty). There is no admin override and no claim-release endpoint.",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product + raw material (lots seeded).",
+              "Create open SO with one line for the product, plannedQuantity Q.",
+              "Capture items.expectedQty for the product as Q_pre (the baseline before MO release).",
+              "Single-link MO create + release (so items.expectedQty rises to Q_pre + Q) + pick all ingredients + complete (drives MO_NONE → MO_ACTIVE → MO_WORK_STARTED → MO_DONE)."
+            ],
+            "trigger_sequence": [
+              "POST /api/manufacturing-orders/[id]/complete",
+              "Query items.expectedQty for the product",
+              "GET /api/sales-orders/[salesOrderId]/manufacturing-orders preview",
+              "Attempt DELETE /api/manufacturing-orders/[id]",
+              "Attempt bulk POST /api/sales-orders/[salesOrderId]/manufacturing-orders for the same line id"
+            ],
+            "expected_user_outcomes": [
+              "Complete returns 200; MO row has status='done', completedAt SET, actualQuantity > 0",
+              "Preview returns the line with status='skipped' skipReason='existing_active_mo' — permanently",
+              "DELETE on the done MO returns 400 with the canonical 'Cannot delete manufacturing order {N} because production output has already been recorded' message",
+              "Bulk POST returns 400 disabledReason='All manufacturable lines already have linked manufacturing orders.' OR the line surfaces in skipped[] with reason='existing_active_mo'"
+            ],
+            "expected_side_effects": [
+              "manufacturingOrders.deletedAt remains NULL after the rejected delete",
+              "existing_active_mo filter still matches: status IN ('open','done') AND deletedAt IS NULL → claim holds",
+              "items.expectedQty equals Q_pre exactly after completion (MO_DONE no longer contributes to expectedQty; recomputeExpectedQty has dropped its plannedQuantity contribution)"
+            ],
+            "priority": "P2",
+            "scores": {
+              "business_criticality": 4,
+              "bug_finding_potential": 3,
+              "regression_risk": 3
+            },
+            "target_transitions": ["T11", "T18", "T22"],
+            "target_business_rules": ["BR-1"],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "invalid transition allowed",
+              "stale data persisted",
+              "derived value drift"
+            ],
+            "audit_gaps_covered": [
+              "GAP-claim-finalized-permanent: 'CLAIM_FINALIZED_MO is terminal per BR-1's in-practice clarifier.' No existing slow spec asserts the permanent-claim contract end-to-end.",
+              "Critic missing_items: 'S06 — assert items.expectedQty drops to 0 after complete'"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "deleteManufacturingOrdersInTx finalized guard", "lines": "6379-6391" },
+              { "file": "lib/manufacturing/sales-order-manufacturability.ts", "symbol": "existing_active_mo accepts status='done'", "lines": "222-235" },
+              { "file": "CLAUDE.md", "symbol": "Manufacturing — items.expectedQty drops MO_DONE contribution via recomputeExpectedQty", "reason": "Drives the expectedQty drop assertion." }
+            ],
+            "why_prioritized": "GAP-claim-finalized-permanent is explicitly flagged as high test value but lower urgency than the silent-drift gaps."
+          }
+        ]
+      },
+      {
+        "risk_category": "validation",
+        "why_this_category_matters": "Validation drifts between client schemas, server schemas, and DAL guards are how the 948c155e bug class persists across re-implementations. The contract identifies several explicit client/server splits and create-time flag dead weights (BR-10).",
+        "scenarios": [
+          {
+            "id": "S07",
+            "title": "Direct sales-linked create with only one of (salesOrderId, salesOrderLineId) set returns 400 link_incomplete",
+            "narrative": "validateSalesLineLinkInTx throws ManufacturingError(400, 'Sales order link is incomplete') with field error 'Select a valid sales order line' when exactly one of the two ids is present in the payload. The client schema does not enforce both-or-neither, so this is exercised via a hand-crafted POST to /api/manufacturing-orders. Asserting this surface prevents future regressions where someone accepts a half-link and silently nulls the other id.",
+            "lane": "fast",
+            "setup": [
+              "Create customer + product with active BOM.",
+              "Create open SO with one line for the product."
+            ],
+            "trigger_sequence": [
+              "POST /api/manufacturing-orders with productId set, salesOrderId = SO id, salesOrderLineId = null, plannedQuantity set, ingredients seeded",
+              "Read response status + body"
+            ],
+            "expected_user_outcomes": [
+              "Response status 400",
+              "Response body: { error: 'Sales order link is incomplete', errors: { salesOrderLineId: ['Select a valid sales order line'] } }"
+            ],
+            "expected_side_effects": [
+              "NO new manufacturingOrders row inserted (count unchanged after the request)"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 3,
+              "bug_finding_potential": 4,
+              "regression_risk": 3
+            },
+            "target_transitions": ["T06 (blocked branch)"],
+            "target_business_rules": ["BR-3"],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "validation bypass",
+              "mutation error not surfaced"
+            ],
+            "audit_gaps_covered": [
+              "Client/server validation split named in contract.json client_server_validation_splits[].field_group='salesOrderId / salesOrderLineId one-null-one-set' (no current spec covers this)"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "validateSalesLineLinkInTx one-null-one-set check", "lines": "742-748" }
+            ],
+            "why_prioritized": "Fast-lane regression for a server-side guard that the client cannot enforce alone."
+          },
+          {
+            "id": "S08",
+            "title": "Sales-linked create with mismatched line.itemId vs productId returns 404 link_missing",
+            "narrative": "validateSalesLineLinkInTx requires the resolved sales-order-line's itemId to equal the payload's productId. When the caller pairs a productId with a line for a DIFFERENT product, the DAL throws 404 'Sales order line not found' with field error 'Select an active sales order line for this product'. This guards against a UI bug where the form retains a stale productId after a sales-line picker swap.",
+            "lane": "fast",
+            "setup": [
+              "Create customer + two distinct products (A, B), both with active BOMs.",
+              "Create open SO with one line for Product-A."
+            ],
+            "trigger_sequence": [
+              "POST /api/manufacturing-orders with productId = Product-B's id (not Product-A), salesOrderId = SO id, salesOrderLineId = the Product-A line id, plannedQuantity set, ingredients seeded from Product-B's BOM"
+            ],
+            "expected_user_outcomes": [
+              "Response status 404",
+              "Response errors field contains 'Select an active sales order line for this product'"
+            ],
+            "expected_side_effects": [
+              "No new manufacturingOrders row inserted"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 3,
+              "bug_finding_potential": 4,
+              "regression_risk": 3
+            },
+            "target_transitions": ["T06 (blocked branch — link_missing)"],
+            "target_business_rules": ["BR-3"],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "validation bypass",
+              "mutation error not surfaced"
+            ],
+            "audit_gaps_covered": [
+              "Client/server validation split named in contract.json messages map key='validate:link_missing'"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "validateSalesLineLinkInTx itemId === productId check", "lines": "729-819 (esp. 814-818)" }
+            ],
+            "why_prioritized": "Fast-lane single-write coverage for a validation that the client UI tries to keep in sync but can drift on stale picker state."
+          },
+          {
+            "id": "S09",
+            "title": "Create MO for product with empty active BOM returns 400 bom_required",
+            "narrative": "prepareCreateIngredientsInTx throws ManufacturingError(400, 'Products need a BOM before creating a manufacturing order') when the product's active BOM has zero non-deleted components. The product picker in the UI filters such products out (BR-4 two-layer enforcement), so this scenario exercises the API-level backstop with a hand-crafted POST. Applies to both unlinked and sales-linked create.",
+            "lane": "fast",
+            "setup": [
+              "Create a product item with NO active BOM (or with all BOM components soft-deleted)."
+            ],
+            "trigger_sequence": [
+              "POST /api/manufacturing-orders with productId = the no-BOM product, salesOrderId = null, salesOrderLineId = null, plannedQuantity set, ingredients = []"
+            ],
+            "expected_user_outcomes": [
+              "Response status 400",
+              "Response error message contains 'Products need a BOM'"
+            ],
+            "expected_side_effects": [
+              "No new manufacturingOrders row inserted"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 3,
+              "bug_finding_potential": 3,
+              "regression_risk": 3
+            },
+            "target_transitions": ["T07 (blocked branch)"],
+            "target_business_rules": ["BR-3", "BR-4"],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "validation bypass"
+            ],
+            "audit_gaps_covered": [
+              "Backstop for BR-4 product-picker filter; never tested at the API level."
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "prepareCreateIngredientsInTx bom_required", "lines": "821-836" }
+            ],
+            "why_prioritized": "Defends the two-layer BR-4 contract against a UI bypass."
+          },
+          {
+            "id": "S10",
+            "title": "BR-10: confirmOversell:false on SO create and confirmShortage:false on MO create are silently ignored AND inventory effects still apply (no reject branch, dead flags)",
+            "narrative": "createSalesOrder accepts the confirmOversell flag in the body but never reads it; createManufacturingOrderInTx accepts confirmShortage but never reads it. Both endpoints unconditionally proceed to reserve stock (SO) or write ingredient demand (MO) without a shortage-rejection branch. Tests that expect 400/409 stock-shortage responses from these create endpoints are testing nonexistent behavior. This scenario locks in the current contract: even with insufficient stock and the flags set to false, both POSTs return 201 AND the concrete inventory writes still occur (committedQty for SO, demandQty/expectedQty for MO). The test value is preventing a future regression where someone adds a partial reject and breaks idempotent reload flows (Paonia data loader, mobile companion app retries).",
+            "lane": "fast",
+            "setup": [
+              "Create customer + product with active BOM + raw material with ZERO on-hand stock.",
+              "Ensure product's stock is also zero (would trigger oversell on SO confirm)."
+            ],
+            "trigger_sequence": [
+              "Capture items.committedQty for the product (call it C0) and items.demandQty + items.expectedQty for the raw material (call them D0, E0).",
+              "POST /api/sales-orders with one line for the product, qty=10, body { ..., confirmOversell: false }",
+              "POST /api/manufacturing-orders with productId set, body { ..., confirmShortage: false, ingredients: [{ itemId: zero-stock material, quantityPerUnit: '5' }] }"
+            ],
+            "expected_user_outcomes": [
+              "SO POST returns 201 with new id (no shortage rejection)",
+              "MO POST returns 201 with new id (no shortage rejection)"
+            ],
+            "expected_side_effects": [
+              "salesOrders row exists with status='open'",
+              "manufacturingOrders row exists with status='open'",
+              "After SO create: items.committedQty for the product equals C0 + 10 exactly (reservation written even with zero on-hand)",
+              "After MO create: items.demandQty (or the demand summary view) for the raw material equals D0 + (5 × MO.plannedQuantity), and items.expectedQty for the MO's product equals (prior product expectedQty) + plannedQuantity",
+              "No inventoryEvents row with eventType indicating rejection — the reject branch does not exist"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 3,
+              "bug_finding_potential": 4,
+              "regression_risk": 4
+            },
+            "target_transitions": ["T01", "T07"],
+            "target_business_rules": ["BR-10", "BR-7"],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "validation bypass",
+              "derived value drift"
+            ],
+            "audit_gaps_covered": [
+              "Audit gap #4: 'confirmOversell:false / confirmShortage:false rejection paths (BR-10 — capture that no reject branch exists; scenario asserts the flag is silently ignored on create)'",
+              "Challenge weak_scenarios S10 strengthening: assert concrete inventory deltas (committedQty, demandQty, expectedQty) — not just the 201 envelope"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/sales/queries.ts", "symbol": "createSalesOrder (no confirmOversell branch)", "lines": "5911-6017" },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "createManufacturingOrderInTx (no confirmShortage branch)", "lines": "3552-3598" }
+            ],
+            "why_prioritized": "Pinned by the audit's gap #4. Locks in the current contract direction so a future regression that adds a reject branch is caught at the test layer."
+          }
+        ]
+      },
+      {
+        "risk_category": "state_transitions",
+        "why_this_category_matters": "Cross-feature transitions between SO_OPEN / SO_DELETED and MO_ACTIVE / MO_WORK_STARTED / MO_DONE / MO_CANCELLED are guarded by multiple stacked DAL functions. Any regression that breaks a guard or weakens a transition's invariant is hard to detect without explicit assertions on the state tuple.",
+        "scenarios": [
+          {
+            "id": "S11",
+            "title": "BR-6 first branch: SO delete with linked MO carrying drift (salesOrderLineId pointing outside SO's current lines) is blocked",
+            "narrative": "deleteSalesLinkedManufacturingOrdersInTx locks all linked MOs and refuses with 'manufacturing order {N} is linked to the order but not to a matching active sales line. Remove or repair the manufacturing link first.' when any linked MO's salesOrderLineId is NULL or points outside the SO's current line ids. The existing slow spec at sales-order.spec.ts:1297-1410 manually nulls the column via DB; this scenario exercises the natural path (SO line rewrite with different itemId, so no replacement found).",
+            "lane": "slow",
+            "setup": [
+              "Create customer + two products A and B, both with active BOMs.",
+              "Create open SO with one line for Product-A.",
+              "Single-link MO create on the Product-A line."
+            ],
+            "trigger_sequence": [
+              "PUT /api/sales-orders/[id] replacing the Product-A line with a Product-B line (different itemId — fallback in validateSalesLineLinkInTx will not find a replacement)",
+              "Confirm MO.salesOrderLineId points at the old (deleted) Product-A line",
+              "Attempt DELETE /api/sales-orders/[id]"
+            ],
+            "expected_user_outcomes": [
+              "PUT returns 200",
+              "DELETE returns 400 with the canonical drift message"
+            ],
+            "expected_side_effects": [
+              "salesOrders.deletedAt remains NULL",
+              "MO row unchanged: salesOrderLineId still equals the deleted Product-A line id"
+            ],
+            "priority": "P0",
+            "scores": {
+              "business_criticality": 5,
+              "bug_finding_potential": 4,
+              "regression_risk": 4
+            },
+            "target_transitions": ["T16", "T20"],
+            "target_business_rules": ["BR-2", "BR-6"],
+            "target_risk_areas": ["RA-2b"],
+            "target_bug_classes": [
+              "stale data persisted",
+              "invalid transition allowed"
+            ],
+            "audit_gaps_covered": [
+              "GAP-different-itemId-rewrite: natural path for RA-2b; existing test uses manual DB null."
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/sales/queries.ts", "symbol": "deleteSalesLinkedManufacturingOrdersInTx drift guard (first branch)", "lines": "2339-2406" }
+            ],
+            "why_prioritized": "Replaces the manual-DB-null fake with a natural workflow path; same regression class as 948c155e."
+          },
+          {
+            "id": "S12",
+            "title": "BR-5: Item soft-delete refused when item is productId or ingredient of an open MO (single + bulk, atomic-fail)",
+            "narrative": "deleteItem (single) and deleteItems (bulk) both refuse when an open, non-deleted MO references the item as productId OR via manufacturingOrderIngredients.itemId. The single path returns {deleted:false, usedInActiveManufacturing:true}; the bulk path returns 400 'Cannot delete: one or more items are used by open manufacturing orders.' Coverage is symmetric across single/bulk and product/ingredient roles. Bulk is atomic-fail: even if one of the ids has no MO references, it is NOT soft-deleted.",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product with active BOM containing >=1 ingredient material.",
+              "Create open SO + bulk-create MO from the SO (so MO is in MO_ACTIVE with both productId and ingredient references).",
+              "Create one extra unrelated item (no MO refs) for the bulk atomicity check."
+            ],
+            "trigger_sequence": [
+              "DELETE /api/items/[productId] (single delete on the product) → expect blocked with 200 + payload",
+              "DELETE /api/items/[materialId] (single delete on an ingredient material) → expect blocked with 200 + payload",
+              "DELETE /api/items with body { ids: [productId, materialId, freshUnrelatedItemId] } → expect bulk block 400"
+            ],
+            "expected_user_outcomes": [
+              "Single product delete: 200 with { deleted: false, usedInActiveManufacturing: true } (pin exact body shape)",
+              "Single material delete: 200 with same payload",
+              "Bulk delete: 400 with 'Cannot delete: one or more items are used by open manufacturing orders.'"
+            ],
+            "expected_side_effects": [
+              "items.deletedAt remains NULL for product, material, AND the unrelated test item — bulk is atomic-fail (the unrelated item is the critical observable)"
+            ],
+            "priority": "P0",
+            "scores": {
+              "business_criticality": 5,
+              "bug_finding_potential": 3,
+              "regression_risk": 4
+            },
+            "target_transitions": ["T25"],
+            "target_business_rules": ["BR-5"],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "deletion blocking via foreign key references",
+              "validation bypass"
+            ],
+            "audit_gaps_covered": [
+              "BR-5 symmetric coverage flagged in state-model.json review_focus.",
+              "Challenge assumptions_not_tested: 'single-delete returns 200 with payload flag — different semantics from bulk; no scenario asserts the exact status+body shape.'"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/inventory/queries/internal.ts", "symbol": "deleteItem + deleteItems active MO guard", "lines": "1139-1160, 1271-1296" }
+            ],
+            "why_prioritized": "Foundational cross-feature delete guard; production data corruption risk if regressed."
+          },
+          {
+            "id": "S13",
+            "title": "updateManufacturingOrder blocked once MO is in MO_WORK_STARTED (pick has occurred)",
+            "narrative": "Once any ingredient is picked, edit:work_started (queries.ts:3877-3882) blocks updateManufacturingOrder with 400 'Orders cannot be edited after picking or batch work starts.' This is the guard that creates the RA-2c stuck-stale state. Must be asserted on its own to lock in the contract. Moved to slow lane per critic — setup requires customer + product + material + lots + SO + sales-linked MO + pick (6+ setup steps, 3+ API mutations to reach pre-condition).",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product + raw material with lots seeded.",
+              "Create open SO + single-link MO + pick one ingredient (so MO is in MO_WORK_STARTED)."
+            ],
+            "trigger_sequence": [
+              "PUT /api/manufacturing-orders/[id] with any payload change (e.g. update notes)"
+            ],
+            "expected_user_outcomes": [
+              "Response status 400",
+              "Response error message: 'Orders cannot be edited after picking or batch work starts.'"
+            ],
+            "expected_side_effects": [
+              "manufacturingOrders row unchanged (no notes update applied)"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 4,
+              "bug_finding_potential": 3,
+              "regression_risk": 4
+            },
+            "target_transitions": ["MO_WORK_STARTED blocked-update"],
+            "target_business_rules": [],
+            "target_risk_areas": ["RA-2c"],
+            "target_bug_classes": [
+              "invalid transition allowed",
+              "disabled-state regression"
+            ],
+            "audit_gaps_covered": [
+              "Specific guard cited by S04 RA-2c story but never asserted in isolation."
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "updateManufacturingOrder edit:work_started guard", "lines": "3877-3882" }
+            ],
+            "why_prioritized": "Foundational guard. Re-laned to slow because picked-MO setup is multi-step; cannot satisfy CLAUDE.md's fast-lane single-write criteria."
+          }
+        ]
+      },
+      {
+        "risk_category": "permissions",
+        "why_this_category_matters": "Sales and Manufacturing module roles guard separate sets of mutations. A leak from sales-write to manufacturing-write (or vice versa) would let a sales-only user create or cancel MOs, breaking the cross-feature trust boundary.",
+        "scenarios": [
+          {
+            "id": "S14",
+            "title": "Bulk Create MOs from SO requires module:manufacturing write (not just sales write) + positive control as admin",
+            "narrative": "Even though the endpoint lives at /api/sales-orders/[id]/manufacturing-orders, it is gated by assertModuleWriteAccess('manufacturing'). A user with module:sales write but no module:manufacturing write must receive a 403. Without a positive control (same POST as admin returns 201 immediately afterwards), a regression that 403s everyone would still pass this test. Moved to slow lane per critic — secondary user creation requires invite + accept + role assignment (the pattern in team-management.spec.ts).",
+            "lane": "slow",
+            "setup": [
+              "Use the team-management.spec.ts pattern: as the canonical admin user, create an invite with sales_operator preset (module:sales write, no module:manufacturing write), accept the invite as a secondary user, and assign the preset roles via the API.",
+              "Create customer + product with active BOM + open SO as the canonical admin user."
+            ],
+            "trigger_sequence": [
+              "Sign in as the sales-only user.",
+              "POST /api/sales-orders/[id]/manufacturing-orders with the will_create line ids → expect 403.",
+              "Sign back in as the canonical admin user.",
+              "POST /api/sales-orders/[id]/manufacturing-orders with the same will_create line ids → expect 201 (positive control)."
+            ],
+            "expected_user_outcomes": [
+              "Sales-only response: 403 (verify against the exact apiHandler shape — AuthorizationError mapped status)",
+              "Admin response: 201 with one created MO id"
+            ],
+            "expected_side_effects": [
+              "After 403: no new manufacturingOrders row inserted; SO preview line still status='will_create' (claim not made)",
+              "After 201: exactly one manufacturingOrders row inserted; SO preview line transitions to status='skipped' skipReason='existing_active_mo'"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 4,
+              "bug_finding_potential": 3,
+              "regression_risk": 3
+            },
+            "target_transitions": ["T05 (blocked branch — permissions)", "T05 (allowed branch — admin)"],
+            "target_business_rules": [],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "permission leak",
+              "disabled-state regression (positive control)"
+            ],
+            "audit_gaps_covered": [
+              "Cross-module permission boundary not currently tested in slow specs.",
+              "Critic important_improvements: 'Missing negative assertion completeness — add positive control'"
+            ],
+            "evidence": [
+              { "file": "app/api/sales-orders/[id]/manufacturing-orders/route.ts", "symbol": "POST assertModuleWriteAccess('manufacturing')", "lines": "26-40" },
+              { "file": "test/e2e/slow/team-management.spec.ts", "symbol": "secondary-user invite + accept + role-assignment pattern", "reason": "Pattern reused for the secondary user setup." }
+            ],
+            "why_prioritized": "Trust-boundary regression catcher. Re-laned to slow because secondary-user creation cannot fit in the fast lane's single-write criteria."
+          }
+        ]
+      },
+      {
+        "risk_category": "concurrency_and_idempotency",
+        "why_this_category_matters": "BR-8a/BR-8b describe an idempotency asymmetry: SO write paths and MO terminal operations (complete, pick, batch complete) require Idempotency-Key, but POST /api/manufacturing-orders and POST /api/sales-orders/[id]/manufacturing-orders do NOT. RA-11 (replay safety for confirm) and RA-12 (FOR UPDATE serialization on bulk create) define the only two concurrency primitives. T24 anti-duplication is experimental and must be observed before committing the contract.",
+        "scenarios": [
+          {
+            "id": "S15",
+            "title": "T24 anti-duplication observable: rapid duplicate POST /api/manufacturing-orders without Idempotency-Key creates TWO MO rows with distinct ids on the same sales line, and writes ZERO idempotency claims",
+            "narrative": "POST /api/manufacturing-orders does NOT require Idempotency-Key; validateSalesLineLinkInTx does NOT check existing_active_mo; the DB has no unique constraint on (salesOrderLineId). The state-model's T24 predicts two MO rows result from rapid duplicate POSTs claiming the same salesOrderLineId. Per the critic, the test must pre-commit to this modeled outcome (both 201, two distinct MO ids, two DB rows) rather than assert a defensive union. Negative assertion: no inventory_idempotency_claims row is written for the createManufacturingOrder operation (BR-8b non-idempotent endpoint).",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product with active BOM + open SO with one line for the product."
+            ],
+            "trigger_sequence": [
+              "Construct two identical POST /api/manufacturing-orders payloads with both ids set and ingredients seeded",
+              "Fire both requests in parallel via Promise.all without any Idempotency-Key header",
+              "Extract response.id from each 201 response body",
+              "Query SELECT id FROM manufacturingOrders WHERE salesOrderLineId=$line AND deletedAt IS NULL"
+            ],
+            "expected_user_outcomes": [
+              "BOTH responses return 201 (T24 modeled outcome — no idempotency, no unique index, no existing_active_mo check)",
+              "The two response.id values are DISTINCT (no phantom dedup / replay)"
+            ],
+            "expected_side_effects": [
+              "Set equality: the set of DB ids exactly equals the set of response.ids (both size 2, both distinct)",
+              "Both rows have distinct orderNumbers (sequence-allocated)",
+              "SELECT COUNT(*) FROM inventory.inventory_idempotency_claims WHERE operation_name LIKE 'createManufacturingOrder%' for the test org returns 0 (negative assertion: BR-8b non-idempotent endpoint contract)",
+              "Subsequent GET preview returns the line skipReason='existing_active_mo' (filter matches because at least one MO exists)"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 4,
+              "bug_finding_potential": 5,
+              "regression_risk": 5
+            },
+            "target_transitions": ["T24"],
+            "target_business_rules": ["BR-1", "BR-8b"],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "async race condition",
+              "validation bypass",
+              "duplicate row inserted"
+            ],
+            "audit_gaps_covered": [
+              "Audit gap #1: 'No SO-confirm ↔ MO-release race (covered by RA-12 + T05 anti-duplication observable)'",
+              "GAP-idempotency-gap-single-create: 'Phase 4 must run the experimental POST-twice test'",
+              "Critic important_improvements S15 strengthening: pre-commit to modeled outcome + no-idempotency-claim negative assertion",
+              "Challenge weak_scenarios S15 strengthening: set-equality on response.id vs DB id (catches phantom dedup)"
+            ],
+            "evidence": [
+              { "file": "app/api/manufacturing-orders/route.ts", "symbol": "POST handler — no requireIdempotencyKey", "lines": "32-44" },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "validateSalesLineLinkInTx — no existing_active_mo check", "lines": "729-819" }
+            ],
+            "why_prioritized": "Largest concurrent gap named in the audit; defines the dedup contract for retry-prone clients (mobile companion app)."
+          },
+          {
+            "id": "S16",
+            "title": "RA-12: Parallel bulk Create-MOs-from-SO calls against the same SO serialize via FOR UPDATE; loser identified by response shape, never by promise-index",
+            "narrative": "createManufacturingOrdersFromSalesOrderInTx acquires FOR UPDATE on the salesOrders row (queries.ts:3674). Two parallel POSTs to /api/sales-orders/[id]/manufacturing-orders with overlapping line ids must serialize: the second caller, on lock release, runs the refresh-conflict guard (queries.ts:3720-3752) and returns either 409 'Selected manufacturing orders changed. Refresh and try again.' OR 201 {created:[], skipped:[...existing_active_mo]}. The line must NEVER be multiply-claimed via this path. Phase 4 MUST identify the winner by response shape (status 201 with created.length===2), not by Promise resolution order — lock acquisition order is undefined.",
+            "lane": "slow",
+            "setup": [
+              "Create customer + two products A and B, both with active BOMs.",
+              "Create open SO with two lines: Product-A and Product-B (both will_create)."
+            ],
+            "trigger_sequence": [
+              "Construct two identical bulk POST payloads, both selecting BOTH line ids",
+              "Fire both POSTs in parallel via Promise.allSettled",
+              "Identify winner: response with status===201 AND body.created.length===2",
+              "Identify loser: the OTHER response (either 409 with refresh_required, or 201 with body.created.length===0 and both lines in body.skipped[])"
+            ],
+            "expected_user_outcomes": [
+              "Exactly one response is the winner (status 201, created.length===2, skipped.length===0)",
+              "Exactly one response is the loser: EITHER status 409 with error matching 'Selected manufacturing orders changed. Refresh and try again.' OR status 201 with created.length===0 AND skipped contains BOTH line ids with reason='existing_active_mo'",
+              "Never both winners (no overlapping created arrays)"
+            ],
+            "expected_side_effects": [
+              "SELECT COUNT(*) FROM manufacturingOrders WHERE salesOrderLineId IN ($lineA, $lineB) AND deletedAt IS NULL returns exactly 2 (one per line)",
+              "Neither line has a duplicate non-deleted MO"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 4,
+              "bug_finding_potential": 5,
+              "regression_risk": 4
+            },
+            "target_transitions": ["T05"],
+            "target_business_rules": ["BR-1", "BR-8b"],
+            "target_risk_areas": ["RA-12"],
+            "target_bug_classes": [
+              "async race condition",
+              "invalid transition allowed"
+            ],
+            "audit_gaps_covered": [
+              "Audit gap #1: 'No SO-confirm ↔ MO-release race (covered by RA-12 + T05 anti-duplication observable)'",
+              "GAP-parallel-bulk-RA12 in state-model.json",
+              "Critic important_improvements: winner/loser by response shape, not Promise index"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "FOR UPDATE on salesOrders", "lines": "3674" },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "refresh-conflict guard", "lines": "3720-3752" }
+            ],
+            "why_prioritized": "The only concurrency primitive the linkage relies on; if it regresses, double-claims become possible at scale."
+          },
+          {
+            "id": "S17",
+            "title": "RA-11: confirmSalesOrder idempotency replay returns cached body, writes exactly one claim row, and is a true no-op on inventory state",
+            "narrative": "POST /api/sales-orders/[id]/confirm uses requireIdempotencyKey + beginInventoryOperationInTx. The first call locks the SO row and returns {id}; subsequent calls with the same key short-circuit via the replay branch and return the cached envelope without re-acquiring the lock OR re-writing inventory state. Tests must verify (a) both calls return 200 with identical body, (b) SO status remains 'open' across both calls, (c) SELECT COUNT(*) FROM inventory.inventory_idempotency_claims WHERE operationName='confirmSalesOrder' AND idempotencyKey=$key returns exactly 1, AND (d) the BR-7 no-op invariant: inventoryEvents row counts and stockAllocations row counts for the SO are unchanged between calls.",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product + open SO."
+            ],
+            "trigger_sequence": [
+              "Capture row counts BEFORE first confirm: SELECT COUNT(*) FROM inventoryEvents WHERE referenceType='sales_order' AND referenceId=$so; SELECT COUNT(*) FROM stockAllocations WHERE demandType='sales_order_line' AND demandId IN ($soLineIds); SELECT COUNT(*) FROM inventory.inventory_idempotency_claims WHERE operationName='confirmSalesOrder'",
+              "POST /api/sales-orders/[id]/confirm with Idempotency-Key='K1' (first call)",
+              "Capture row counts after first call",
+              "POST /api/sales-orders/[id]/confirm with Idempotency-Key='K1' AGAIN (replay)",
+              "POST /api/sales-orders/[id]/confirm with Idempotency-Key='K2' (different key)",
+              "Capture final row counts"
+            ],
+            "expected_user_outcomes": [
+              "Both K1 calls return 200 with identical body { id: salesOrderId }",
+              "K2 call returns 200 with the same body"
+            ],
+            "expected_side_effects": [
+              "salesOrders.status remains 'open' across all calls (no column mutation per BR-7)",
+              "SELECT COUNT(*) ... WHERE operationName='confirmSalesOrder' AND idempotencyKey=K1 returns 1",
+              "SELECT COUNT(*) ... WHERE operationName='confirmSalesOrder' AND idempotencyKey=K2 returns 1",
+              "Total of 2 claim rows for this confirm operation in inventory_idempotency_claims",
+              "Negative assertion (BR-7 invariant): inventoryEvents row count for the SO is unchanged between K1.first and K1.replay (replay does not double-write)",
+              "Negative assertion: stockAllocations row count for the SO is unchanged between K1.first and K1.replay (replay does not double-reserve)"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 4,
+              "bug_finding_potential": 4,
+              "regression_risk": 3
+            },
+            "target_transitions": ["T02", "T23"],
+            "target_business_rules": ["BR-7", "BR-8a"],
+            "target_risk_areas": ["RA-11"],
+            "target_bug_classes": [
+              "async race condition",
+              "mutation error not surfaced"
+            ],
+            "audit_gaps_covered": [
+              "Audit gap #5: 'Idempotency replay for SO confirm transition and MO complete (RA-11 + T02 + T23 + T24 + T27)'",
+              "GAP-idempotency-replay-confirmSO in state-model.json",
+              "Critic important_improvements: 'Add negative assertions: salesOrderLines / stockAllocations / inventoryEvents rows unchanged across both calls — BR-7 no-op invariant'"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/sales/queries.ts", "symbol": "confirmSalesOrder beginInventoryOperationInTx wrap", "lines": "7553-7595" },
+              { "file": "app/api/sales-orders/[id]/confirm/route.ts", "symbol": "requireIdempotencyKey", "lines": "10-29" }
+            ],
+            "why_prioritized": "Audit-named gap #5; replay safety regression in checkout flows would cause Paonia / POS retries to double-effect. Strengthened with BR-7 no-op negative assertion."
+          },
+          {
+            "id": "S18",
+            "title": "T27: bulkConfirmSalesOrders idempotency replay returns cached {confirmedCount} and writes exactly one claim row",
+            "narrative": "POST /api/sales-orders/bulk-confirm uses the same beginInventoryOperationInTx replay pattern as confirmSalesOrder. First call writes a row with operationName='bulkConfirmSalesOrders' and returns {confirmedCount: ids.length}; replay with the same key returns the cached envelope. Per BR-7, no SO column is mutated, so this also asserts the no-op invariant.",
+            "lane": "fast",
+            "setup": [
+              "Create customer + two open SOs."
+            ],
+            "trigger_sequence": [
+              "POST /api/sales-orders/bulk-confirm with Idempotency-Key='K1' and ids=[SO1, SO2] twice (sequentially)"
+            ],
+            "expected_user_outcomes": [
+              "Both calls return 200 with { confirmedCount: 2 } (identical body)"
+            ],
+            "expected_side_effects": [
+              "Both SO rows: status='open' unchanged, no column mutated",
+              "SELECT COUNT(*) ... WHERE operationName='bulkConfirmSalesOrders' AND idempotencyKey='K1' returns 1"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 3,
+              "bug_finding_potential": 3,
+              "regression_risk": 3
+            },
+            "target_transitions": ["T27"],
+            "target_business_rules": ["BR-7", "BR-8a"],
+            "target_risk_areas": ["RA-11"],
+            "target_bug_classes": [
+              "mutation error not surfaced"
+            ],
+            "audit_gaps_covered": [
+              "GAP-idempotency-replay-bulkConfirmSO; complements S17 for the bulk surface."
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/sales/queries.ts", "symbol": "bulkConfirmSalesOrders replay pattern", "lines": "7597-7623" },
+              { "file": "app/api/sales-orders/bulk-confirm/route.ts", "symbol": "requireIdempotencyKey", "lines": "10-12" }
+            ],
+            "why_prioritized": "Symmetric to S17; cheap fast-lane assertion of the bulk replay surface."
+          },
+          {
+            "id": "S19",
+            "title": "MO complete is idempotency-replay safe: retry with same key returns cached envelope, exactly one done MO + one claim row + one output lot",
+            "narrative": "POST /api/manufacturing-orders/[id]/complete uses requireIdempotencyKey('completeManufacturingOrder'). First call transitions MO_WORK_STARTED → MO_DONE, sets status='done', completedAt, actualQuantity, writes a manufacturing_output inventoryEvent, and creates an output lot. Retry with same key must return cached body without flipping status twice, without writing duplicate output lots, and without re-recomputing items.expectedQty. SELECT COUNT(*) FROM inventory.inventory_idempotency_claims WHERE operationName='completeManufacturingOrder' AND idempotencyKey=$key must return 1.",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product + raw material with lots seeded.",
+              "Create open SO + single-link MO + pick all ingredients (so MO is in MO_WORK_STARTED with all picks complete)."
+            ],
+            "trigger_sequence": [
+              "POST /api/manufacturing-orders/[id]/complete with Idempotency-Key='K1'",
+              "POST /api/manufacturing-orders/[id]/complete with Idempotency-Key='K1' AGAIN (replay)"
+            ],
+            "expected_user_outcomes": [
+              "First call returns 200 with success body",
+              "Second call returns 200 with identical body (cached replay)"
+            ],
+            "expected_side_effects": [
+              "manufacturingOrders row: status='done', completedAt SET, actualQuantity > 0 — UNCHANGED across the two calls",
+              "Exactly one output lot row created (no duplicate)",
+              "SELECT COUNT(*) ... WHERE operationName='completeManufacturingOrder' AND idempotencyKey='K1' returns 1",
+              "items.expectedQty unchanged across the two calls (no double-decrement)"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 4,
+              "bug_finding_potential": 4,
+              "regression_risk": 4
+            },
+            "target_transitions": ["T11", "T18"],
+            "target_business_rules": ["BR-8a"],
+            "target_risk_areas": ["RA-11"],
+            "target_bug_classes": [
+              "async race condition",
+              "stale data persisted",
+              "duplicate row inserted"
+            ],
+            "audit_gaps_covered": [
+              "Audit cross-cutting: 'Idempotency claims are tested for ship, release, confirm-create, SO delete, but NOT for SO confirm transition or MO complete.'",
+              "Audit gap #5: 'Idempotency replay for SO confirm transition and MO complete'"
+            ],
+            "evidence": [
+              { "file": "app/api/manufacturing-orders/[id]/complete/route.ts", "symbol": "requireIdempotencyKey('completeManufacturingOrder')", "lines": "12-14" }
+            ],
+            "why_prioritized": "Audit-named gap #5; MO complete is the only inventory-mutating MO terminal not currently tested for replay."
+          }
+        ]
+      },
+      {
+        "risk_category": "dirty_state",
+        "why_this_category_matters": "Form state mismatch (stale productMap, stale BOM rows, stale salesOrderLineId held across tabs) was part of the 948c155e bug — handleSalesLineChange now seeds ingredients from the current product's BOM. The 409 bom_changed contract guards the BOM-row-count drift case. Tab-A-vs-tab-B stale-form scenarios (S30) exercise the unsaved-changes class.",
+        "scenarios": [
+          {
+            "id": "S20",
+            "title": "RA-3: MO create rejected with 409 bom_changed when submitted ingredient row count differs from current active BOM (BOM mutated via PUT /api/items/[id])",
+            "narrative": "prepareCreateIngredientsInTx throws ManufacturingError(409, 'The product BOM changed. Reload and try again.') when the count of submitted ingredient rows does not match the count of non-deleted active BOM components. The BOM mutation path is PUT /api/items/[productId] with a {bom: [...]} field in the body (verified at app/api/items/[id]/route.ts:17-66 — the updateItemSchema body accepts a 'bom' array and the DAL replaces the active BOM revision via the bom-editor flow). This guards the case where the user picks a sales line, the form seeds ingredients from the BOM, the user opens a second tab and edits the BOM (adds/removes a component), then submits the create from the first tab.",
+            "lane": "fast",
+            "setup": [
+              "Create customer + product with active BOM containing exactly 2 ingredient rows.",
+              "Capture ingredient seed payload from the original BOM (2 rows)."
+            ],
+            "trigger_sequence": [
+              "PUT /api/items/[productId] with body { ...current item fields, bom: [...original 2 rows, plus a third ingredient row for an existing material] } — this replaces the active BOM revision with the 3-row version",
+              "POST /api/manufacturing-orders with the 2-row ingredient payload (stale)"
+            ],
+            "expected_user_outcomes": [
+              "PUT returns 200 with the updated item",
+              "POST response status 409",
+              "POST response error message contains 'The product BOM changed. Reload and try again.'"
+            ],
+            "expected_side_effects": [
+              "No new manufacturingOrders row inserted"
+            ],
+            "priority": "P2",
+            "scores": {
+              "business_criticality": 3,
+              "bug_finding_potential": 3,
+              "regression_risk": 2
+            },
+            "target_transitions": ["T06 (bom_changed branch)"],
+            "target_business_rules": ["BR-3"],
+            "target_risk_areas": ["RA-3"],
+            "target_bug_classes": [
+              "stale data persisted",
+              "dirty state lost",
+              "validation bypass"
+            ],
+            "audit_gaps_covered": [
+              "RA-3 named in evidence.json suspected_risk_areas but no current test exercises the 409 bom_changed branch.",
+              "Critic important_improvements S20: 'specify the BOM mutation path — PUT /api/items/[id] with bom field'"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "prepareCreateIngredientsInTx bom_changed", "lines": "838-840" },
+              { "file": "app/api/items/[id]/route.ts", "symbol": "PUT updateItemSchema body accepts bom array", "lines": "17-66" }
+            ],
+            "why_prioritized": "Defends the BOM-drift contract; low likelihood but the only assertion of this 409 surface."
+          },
+          {
+            "id": "S30",
+            "title": "Stale-form unsaved-changes: MO create form holding stale salesOrderLineId after concurrent SO line rewrite fails with 404 link_missing (no snapshot fallback on CREATE path)",
+            "narrative": "validateSalesLineLinkInTx's snapshot fallback only runs when existingSnapshot is non-null AND isUnchangedSnapshot is true (queries.ts:750-811). On CREATE, createManufacturingOrderInTx calls validateSalesLineLinkInTx without the third (existingSnapshot) arg at queries.ts:3561 — so existingSnapshot is undefined and the fallback NEVER runs. This means: User A opens /manufacturing/orders/new in tab A, picks an SO + line, sees auto-populated form. Without submitting, User B (or the same user in tab B) PUTs the SO with the line rewritten (different itemId — or even same itemId, fallback still doesn't run on create). User A submits. POST /api/manufacturing-orders fails with 404 'Sales order line not found' even though a same-itemId replacement exists. This pins the create-time fallback absence so a regression that adds it (or that silently swaps to a new line id) is caught.",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product-A + product-B + active BOMs.",
+              "Create open SO with one line for product-A.",
+              "Read the SO line id (LINE_OLD) and the product-A BOM ingredient list."
+            ],
+            "trigger_sequence": [
+              "PUT /api/sales-orders/[id] with the line replaced by product-B (different itemId) — LINE_OLD is now deleted from salesOrderLines.",
+              "POST /api/manufacturing-orders with body { productId: product-A id, salesOrderId: SO id, salesOrderLineId: LINE_OLD, plannedQuantity, ingredients seeded from product-A's BOM }",
+              "Read response status + body"
+            ],
+            "expected_user_outcomes": [
+              "Response status 404",
+              "Response error message: 'Sales order line not found' (or canonical link_missing)",
+              "Response errors field contains 'Select an active sales order line for this product'",
+              "No new manufacturingOrders row inserted"
+            ],
+            "expected_side_effects": [
+              "manufacturingOrders count for the test org is unchanged after the failed POST"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 4,
+              "bug_finding_potential": 4,
+              "regression_risk": 3
+            },
+            "target_transitions": ["T06 (blocked branch — link_missing)"],
+            "target_business_rules": ["BR-2", "BR-3"],
+            "target_risk_areas": ["RA-2a"],
+            "target_bug_classes": [
+              "stale data persisted (form unsaved-state)",
+              "validation bypass",
+              "dirty state lost"
+            ],
+            "audit_gaps_covered": [
+              "Challenge critical_gaps #11: 'Stale-form unsaved-changes: form holding old salesOrderLineId after concurrent SO line rewrite — no snapshot fallback on create.'"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "validateSalesLineLinkInTx fallback only runs when isUnchangedSnapshot (which requires existingSnapshot non-null)", "lines": "750-811" },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "createManufacturingOrderInTx calls validateSalesLineLinkInTx WITHOUT the third existingSnapshot arg", "lines": "3561" }
+            ],
+            "why_prioritized": "Common operational tab-switching pattern; the asymmetry between create (no fallback) and update (fallback runs) is the kind of subtle contract gap that breaks under retry-prone clients (mobile app, multi-tab usage)."
+          }
+        ]
+      },
+      {
+        "risk_category": "atomicity_and_partial_failure",
+        "why_this_category_matters": "Bulk operations that fail partway through must roll back cleanly. The BR-5 item-side bulk-delete atomicity is asserted by S12; the MO-side mirror (bulk MO delete) and the SO-side bulk-confirm dead-write contract had no scenario coverage prior to this revision. The cross-SO shared-allocation guard (BR-6 second branch) is the other code-documented branch with zero coverage.",
+        "scenarios": [
+          {
+            "id": "S21",
+            "title": "Bulk DELETE /api/manufacturing-orders is atomic-fail: one finalized MO blocks deletion of clean MOs in the same batch",
+            "narrative": "deleteManufacturingOrdersInTx (queries.ts:6339-6612) returns {deletedIds: [], error: …} when ANY single MO in the bulk hits any of the 5 finalized guards (status!=open, completed batch, actualQuantity>0 ingredient, manufacturing_ingredient_consumption inventoryEvent, manufacturing_output inventoryEvent). Clean MOs in the same batch are NOT deleted (atomic-fail). A regression that silently changed bulk delete to partial-success (delete the healthy MOs, skip the finalized ones) would slip through every existing scenario. This is the manufacturing-side mirror of S12's BR-5 bulk-item atomicity.",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product + raw material with lots seeded.",
+              "Create MO-A as sales-linked to a fresh SO line, leave it in MO_ACTIVE (clean cancellable).",
+              "Create MO-B unlinked, pick all ingredients, complete it (MO_DONE — finalized via production output)."
+            ],
+            "trigger_sequence": [
+              "POST /api/manufacturing-orders bulk DELETE with body { ids: [MO-A, MO-B] }",
+              "Read response status + body",
+              "Query DB for both MO rows' deletedAt"
+            ],
+            "expected_user_outcomes": [
+              "Response status 400 with the finalized error message citing MO-B's orderNumber ('Cannot delete manufacturing order {N} because production output has already been recorded')",
+              "MO-A.deletedAt remains NULL — atomic fail (the critical observable)",
+              "MO-B.deletedAt remains NULL — finalized guard held"
+            ],
+            "expected_side_effects": [
+              "manufacturingOrders count for the test org is unchanged after the failed bulk DELETE",
+              "GET /api/sales-orders/[soId]/manufacturing-orders preview still reports MO-A's line as existing_active_mo"
+            ],
+            "priority": "P0",
+            "scores": {
+              "business_criticality": 5,
+              "bug_finding_potential": 4,
+              "regression_risk": 4
+            },
+            "target_transitions": ["T12 (blocked branch — atomic-fail)"],
+            "target_business_rules": ["BR-5"],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "atomic-fail regression to partial success",
+              "stale data persisted",
+              "invalid transition allowed"
+            ],
+            "audit_gaps_covered": [
+              "Challenge critical_gaps #1: 'Bulk MO DELETE atomicity gap — manufacturing-side mirror of S12.'"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "deleteManufacturingOrdersInTx finalized guards return early on first violation", "lines": "6379-6500" },
+              { "file": "app/api/manufacturing-orders/route.ts", "symbol": "DELETE handler propagates the error string", "lines": "19-30" }
+            ],
+            "why_prioritized": "Atomic-fail-to-partial-success is a silent data-loss regression class. The MO-side mirror of S12's BR-5 was completely uncovered."
+          },
+          {
+            "id": "S22",
+            "title": "bulkConfirmSalesOrders dead-write contract: returns ids.length even with duplicate, deleted, done, or nonexistent ids; no rows mutated; one claim row written",
+            "narrative": "bulkConfirmSalesOrders (queries.ts:7597-7623) does not validate ids — no SELECT against salesOrders, no row reads, no deduplication. It returns {confirmedCount: payload.ids.length} regardless. S18 covers the idempotency replay surface but does not assert this dead-write contract. A future regression that adds validation (e.g., counting only real open ids) would break the replay invariant because the cached payload would still echo the unvalidated count. Worse, the endpoint leaks an oracle: any caller can send N junk UUIDs and get N back. This scenario pins the no-validation contract.",
+            "lane": "fast",
+            "setup": [
+              "Create customer.",
+              "Create two open SOs (SO1, SO2).",
+              "Create one extra SO and soft-delete it (SO3 with deletedAt SET).",
+              "Generate one random UUID that does not match any row (UUID_FAKE)."
+            ],
+            "trigger_sequence": [
+              "Capture salesOrders columns for SO1, SO2, SO3 BEFORE the call.",
+              "POST /api/sales-orders/bulk-confirm with Idempotency-Key='K1' and body { ids: [SO1, SO2, SO1, SO3, UUID_FAKE] } (5-element array, includes duplicate, deleted, and nonexistent)",
+              "Read response body",
+              "Query salesOrders for each id's columns",
+              "Query inventory.inventory_idempotency_claims for the K1 row"
+            ],
+            "expected_user_outcomes": [
+              "Response status 200 with { confirmedCount: 5 } — pin the current no-validation contract"
+            ],
+            "expected_side_effects": [
+              "No salesOrders column mutated for any real id (status / cancelledAt / deletedAt unchanged for SO1, SO2, SO3)",
+              "Exactly one inventory_idempotency_claims row for operation_name='bulkConfirmSalesOrders', idempotencyKey='K1'"
+            ],
+            "priority": "P2",
+            "scores": {
+              "business_criticality": 3,
+              "bug_finding_potential": 4,
+              "regression_risk": 3
+            },
+            "target_transitions": ["T27"],
+            "target_business_rules": ["BR-7", "BR-10"],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "dead-write contract regression (silent validation added)",
+              "mutation error not surfaced",
+              "validation bypass"
+            ],
+            "audit_gaps_covered": [
+              "Challenge critical_gaps #2: 'bulkConfirmSalesOrders returns ids.length with zero validation — dead-write pinning.'"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/sales/queries.ts", "symbol": "bulkConfirmSalesOrders body returns confirmedCount: payload.ids.length", "lines": "7597-7623" },
+              { "file": "lib/schemas/sales-orders.ts", "symbol": "bulkConfirmSalesOrdersSchema only requires ids[] non-empty (min 1)", "reason": "Schema does not enforce uniqueness or existence; deduplication is not performed by the DAL either." }
+            ],
+            "why_prioritized": "Pinning the no-validation contract is the only defense against a silent regression that adds validation and breaks the idempotency replay."
+          },
+          {
+            "id": "S23",
+            "title": "BR-6 second branch: SO delete blocked when linked MO has active allocation pointing to a different SO's line",
+            "narrative": "deleteSalesLinkedManufacturingOrdersInTx (queries.ts:2378-2397) has a second guard branch that fires when a linked MO has a stockAllocations row with sourceType='manufacturing_order' and demandType='sales_order_line' pointing to a different SO's line id. S11 covers the FIRST branch (stale salesOrderLineId pointing outside SO). This scenario covers the SECOND branch — the cross-SO shared allocation case — with the canonical error string 'manufacturing order {N} is allocated to another sales order. Remove that allocation first.'",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product with active BOM.",
+              "Create SO-A and SO-B, both with confirmed lines for the product.",
+              "Create MO-1 linked to SO-A's line; release the MO (so its supply becomes allocatable).",
+              "Via the allocation API or a planning step, create a stockAllocations row with sourceType='manufacturing_order', sourceId=MO-1, demandType='sales_order_line', demandId=SO-B-lineId, status='active' (this represents the cross-SO supply redirect)."
+            ],
+            "trigger_sequence": [
+              "Attempt DELETE /api/sales-orders/SO-A",
+              "Read response status + body",
+              "Query salesOrders.deletedAt for SO-A"
+            ],
+            "expected_user_outcomes": [
+              "DELETE returns 400 with error string containing 'manufacturing order {orderNumber} is allocated to another sales order. Remove that allocation first.'",
+              "Error cites MO-1's orderNumber"
+            ],
+            "expected_side_effects": [
+              "SO-A.deletedAt remains NULL",
+              "MO-1 row unchanged",
+              "stockAllocations row unchanged"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 4,
+              "bug_finding_potential": 4,
+              "regression_risk": 3
+            },
+            "target_transitions": ["T20 (blocked branch — shared allocation)"],
+            "target_business_rules": ["BR-6"],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "deletion blocking via foreign key references",
+              "stale data persisted"
+            ],
+            "audit_gaps_covered": [
+              "Challenge critical_gaps #4: 'BR-6 second branch — cross-SO shared allocation drift, canonical error never asserted.'"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/sales/queries.ts", "symbol": "deleteSalesLinkedManufacturingOrdersInTx cross-SO allocation guard", "lines": "2378-2397" },
+              { "file": "test/scenarios/so-mo-linkage/contract.json", "symbol": "messages map so_delete:shared_allocation", "reason": "Canonical error explicitly listed in contract.json but never asserted." }
+            ],
+            "why_prioritized": "Only assertion of the second BR-6 branch; pins the canonical error string for the cross-SO supply-redirect case."
+          },
+          {
+            "id": "S24",
+            "title": "Cross-endpoint race: parallel bulk-from-SO + single-create against the same line — at most one MO should claim the line",
+            "narrative": "The state-model flags GAP-parallel-bulk-vs-single as 'no_guard_exists: true'. createManufacturingOrdersFromSalesOrderInTx (the bulk path) acquires FOR UPDATE on the salesOrders row at line 3674. validateSalesLineLinkInTx (the single-create path) does NOT acquire that lock — it issues a plain SELECT against (salesOrders, salesOrderLines) without .for('update'). Therefore the bulk and single paths can interleave on the same lineId. Per the contract direction, the result should be exactly 1 MO row claiming the line (BR-1's one-time-claim invariant). If the experiment yields 2, that is the cross-endpoint race the model flagged — the test fails loudly and the contract is updated to require an existing_active_mo check on the single-create path.",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product with active BOM + open SO with one line."
+            ],
+            "trigger_sequence": [
+              "Construct payload A: POST /api/sales-orders/[id]/manufacturing-orders with salesOrderLineIds=[lineId].",
+              "Construct payload B: POST /api/manufacturing-orders with both ids (sales-link single create) pointing at the same lineId, ingredients seeded.",
+              "Fire both POSTs in parallel via Promise.allSettled without Idempotency-Keys.",
+              "Read both response statuses + bodies.",
+              "Query SELECT COUNT(*) FROM manufacturingOrders WHERE salesOrderLineId=$line AND deletedAt IS NULL."
+            ],
+            "expected_user_outcomes": [
+              "EITHER one POST returns 201 and the other returns 409 / 4xx (an undocumented serialization holds — pin the gap)",
+              "OR both return 201 and two MO rows exist for the same lineId (cross-endpoint race observable — contract direction is 'BR-1 not enforced across single-create + bulk')",
+              "Test must assert one of these two outcomes and record which was observed in the assertion message — never both successes treated as 'expected'"
+            ],
+            "expected_side_effects": [
+              "SELECT COUNT(*) FROM manufacturingOrders WHERE salesOrderLineId=$line AND deletedAt IS NULL is either 1 or 2",
+              "If 2: both rows have distinct ids, distinct orderNumbers, both have salesOrderLineId pointing at the same lineId (BR-1 violated via cross-endpoint race — production bug to file)"
+            ],
+            "priority": "P1",
+            "scores": {
+              "business_criticality": 4,
+              "bug_finding_potential": 5,
+              "regression_risk": 4
+            },
+            "target_transitions": ["T05", "T24"],
+            "target_business_rules": ["BR-1", "BR-8b"],
+            "target_risk_areas": ["RA-12"],
+            "target_bug_classes": [
+              "async race condition",
+              "duplicate row inserted",
+              "validation bypass",
+              "cross-endpoint trust boundary violation"
+            ],
+            "audit_gaps_covered": [
+              "Challenge critical_gaps #5: 'GAP-parallel-bulk-vs-single — single create vs bulk concurrent.'"
+            ],
+            "evidence": [
+              { "file": "test/scenarios/so-mo-linkage/state-model.json", "symbol": "GAP-parallel-bulk-vs-single in state_coverage_gaps", "reason": "Explicitly named 'no_guard_exists: true'." },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "validateSalesLineLinkInTx — no FOR UPDATE on salesOrderLines", "lines": "729-819" },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "createManufacturingOrdersFromSalesOrderInTx FOR UPDATE on salesOrders only", "lines": "3674" }
+            ],
+            "why_prioritized": "Documented 'no_guard_exists' cross-endpoint race; closes a coverage gap S15+S16 don't address (homogeneous races, not heterogeneous)."
+          },
+          {
+            "id": "S25",
+            "title": "Item soft-delete succeeds when the item is referenced only by a cancelled MO (deletedAt SET): T26 inverse case",
+            "narrative": "deleteItem (queries/internal.ts:1139-1160) filters the manufacturing-references guard by status='open' AND deletedAt IS NULL. A cancelled MO has deletedAt SET, so the guard should NOT fire and the item should be soft-deletable. No scenario exercises this — T26 covers only the done-MO inverse. A regression that broadens the filter to remove the isNull(deletedAt) check would cause cancelled MOs to block item deletion forever (silent data lockup — customers can't clean up after cancelling orders).",
+            "lane": "fast",
+            "setup": [
+              "Create customer + product + material item.",
+              "Add the material to the product's active BOM as an ingredient row.",
+              "Create an unlinked MO that uses the material as an ingredient (via bulk-from-SO or direct create).",
+              "DELETE /api/manufacturing-orders/[mo] → soft-delete the MO (MO has no picks, no completion, so cancel succeeds).",
+              "Confirm MO row has deletedAt SET and status='open'."
+            ],
+            "trigger_sequence": [
+              "DELETE /api/items/[materialId]",
+              "Read response status + body",
+              "Query items.deletedAt for the material"
+            ],
+            "expected_user_outcomes": [
+              "Response status 200 with { deleted: true }",
+              "items.deletedAt SET on the material"
+            ],
+            "expected_side_effects": [
+              "Material row has deletedAt SET (non-null timestamp)",
+              "Product row unchanged (still references the deleted material in its BOM, but the BOM editor would surface a warning on next edit)"
+            ],
+            "priority": "P2",
+            "scores": {
+              "business_criticality": 3,
+              "bug_finding_potential": 3,
+              "regression_risk": 2
+            },
+            "target_transitions": ["T26 (cancelled-MO inverse)"],
+            "target_business_rules": ["BR-5"],
+            "target_risk_areas": ["RA-5"],
+            "target_bug_classes": [
+              "deletion blocking via foreign key references (false positive regression)",
+              "data lockup"
+            ],
+            "audit_gaps_covered": [
+              "Challenge critical_gaps #6: 'Item soft-delete when only a CANCELLED MO references the item — should be allowed.'"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/inventory/queries/internal.ts", "symbol": "deleteItem guard filters status='open' AND deletedAt IS NULL", "lines": "1139-1160" },
+              { "file": "test/scenarios/so-mo-linkage/state-model.json", "symbol": "T26 covers DONE MOs only", "reason": "Cancelled-only case (deletedAt SET) is not modeled." }
+            ],
+            "why_prioritized": "Asymmetric to S12. A regression that broadens the guard would silently block customers from cleaning up cancelled-order data."
+          }
+        ]
+      },
+      {
+        "risk_category": "concurrency_single_row",
+        "why_this_category_matters": "Same-MO and same-item parallel operations rely on row-level FOR UPDATE locks. Single-row concurrency is documented but never asserted; a regression that drops the lock on one path would cause silent data corruption (e.g., update commits ingredients into a now-deleted MO).",
+        "scenarios": [
+          {
+            "id": "S26",
+            "title": "Parallel PUT update and DELETE on the same MO serialize without ingredient orphans or self-consistent state",
+            "narrative": "updateManufacturingOrder (queries.ts:3834) acquires getLockedManufacturingOrderInTx (FOR UPDATE on the MO row). deleteManufacturingOrdersInTx also locks the MO row with .for('update') at line 6372. Both paths contend for the same lock; one wins, the other observes the post-state. A regression that dropped the lock on one path would cause update to commit ingredient demand into a now-deleted MO. This scenario pins the row-lock invariant: at most one MO row exists; if deletedAt is SET, the row is soft-deleted with cancellation side-effects; if deletedAt is NULL, the update's changes are persisted; never both.",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product + raw material.",
+              "Create open SO + sales-linked MO in MO_ACTIVE (no picks yet)."
+            ],
+            "trigger_sequence": [
+              "Construct PUT payload (e.g., notes change) and DELETE request for the same MO.",
+              "Fire both in parallel via Promise.allSettled.",
+              "Read both response statuses + bodies.",
+              "Query MO row state from DB."
+            ],
+            "expected_user_outcomes": [
+              "Exactly one of PUT/DELETE returns 200; the other returns either 404 (delete won, then PUT sees no row) OR 400 (update won, then delete sees a state-changed row — should not happen since update doesn't transition status, but pin the contract) OR 200 (both succeed serially with delete second)",
+              "The two responses cannot both fail and cannot conflict (e.g., one 200 + one 500 indicates corruption)"
+            ],
+            "expected_side_effects": [
+              "Exactly one manufacturingOrders row exists for the MO id",
+              "If deletedAt IS NOT NULL: the row's cancellation side-effects are present (cancelledAt may be SET, allocations cancelled)",
+              "If deletedAt IS NULL: the PUT's changes (notes update) are persisted",
+              "Never both: deletedAt SET AND PUT's changes applied (would indicate the update committed into a deleted row — silent data corruption)"
+            ],
+            "priority": "P2",
+            "scores": {
+              "business_criticality": 4,
+              "bug_finding_potential": 4,
+              "regression_risk": 3
+            },
+            "target_transitions": ["T12", "T16"],
+            "target_business_rules": [],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "async race condition",
+              "data corruption",
+              "stale data persisted"
+            ],
+            "audit_gaps_covered": [
+              "Challenge critical_gaps #7: 'Single-row parallel PUT + DELETE on same MO — race for last-writer-wins or 409.'"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "updateManufacturingOrder uses getLockedManufacturingOrderInTx", "lines": "3834" },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "deleteManufacturingOrdersInTx .for('update')", "lines": "6372" }
+            ],
+            "why_prioritized": "Documented in challenge as a corruption risk. Tests the row-lock invariant that two well-behaved paths agree on the same lock."
+          },
+          {
+            "id": "S27",
+            "title": "PUT /api/manufacturing-orders/[id] is naturally idempotent on retry: ingredient demand and allocations end in the same state",
+            "narrative": "PUT /api/manufacturing-orders/[id] has no requireIdempotencyKey (app/api/manufacturing-orders/[id]/route.ts:25-43). updateManufacturingOrder unconditionally calls cancelActiveStockAllocationsInTx + releaseIngredientReservationForManufacturingInTx + addIngredientDemandForManufacturingInTx every call (queries.ts:3939-3990). If the client retries the PUT (network blip, mobile app), the second call hard-deletes + re-inserts ingredient rows AGAIN, generating new ids, and re-cancels + re-issues allocations. The net inventory effect SHOULD be idempotent (cancel a thing then re-issue an equivalent thing = same final state), but no scenario asserts this. A regression that fails to cancel the previous active allocations would silently double-write demand.",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product + raw material + open SO + sales-linked MO in MO_ACTIVE.",
+              "Capture initial state: manufacturingOrderIngredients rows (count + itemIds), items.expectedQty for the product, stockAllocations active rows with demandType='manufacturing_order_ingredient' for each ingredient."
+            ],
+            "trigger_sequence": [
+              "PUT /api/manufacturing-orders/[mo] with the same body (e.g., the original ingredient payload + a notes field) — first call",
+              "PUT /api/manufacturing-orders/[mo] with the SAME body again (second call, no Idempotency-Key)",
+              "Query final state and compare row counts to the single-PUT expectation"
+            ],
+            "expected_user_outcomes": [
+              "Both PUTs return 200",
+              "Response bodies are not required to be byte-identical (ingredient row ids may differ between calls because update hard-deletes + re-inserts)"
+            ],
+            "expected_side_effects": [
+              "manufacturingOrderIngredients count equals the body's ingredient count exactly (no duplicates)",
+              "items.expectedQty for the product is unchanged from the single-PUT expectation (naturally idempotent)",
+              "stockAllocations active rows for each ingredient: exactly one active row per ingredient (the second PUT cancelled the first's, re-issued, but should not leave both active)",
+              "stockAllocations cancelled rows for each ingredient: exactly TWO (one per PUT) — pins the audit-trail expectation that each cancel writes a history row"
+            ],
+            "priority": "P2",
+            "scores": {
+              "business_criticality": 3,
+              "bug_finding_potential": 4,
+              "regression_risk": 3
+            },
+            "target_transitions": ["T16"],
+            "target_business_rules": ["BR-8b"],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "duplicate row inserted",
+              "derived value drift",
+              "async race condition (retry semantics)"
+            ],
+            "audit_gaps_covered": [
+              "Challenge critical_gaps #8: 'PUT /api/manufacturing-orders/[id] natural-idempotency on retry (no Idempotency-Key).'",
+              "GAP-idempotency-gap-MO-PUT-DELETE in state-model.json"
+            ],
+            "evidence": [
+              { "file": "app/api/manufacturing-orders/[id]/route.ts", "symbol": "PUT no requireIdempotencyKey", "lines": "25-43" },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "updateManufacturingOrder unconditional cancel + release + re-issue", "lines": "3939-3990" }
+            ],
+            "why_prioritized": "Retry-prone clients (mobile) hit this path. A regression that leaves both allocations active would silently double-write demand."
+          }
+        ]
+      },
+      {
+        "risk_category": "derived_values",
+        "why_this_category_matters": "moveReplacedSalesLineAllocationsInTx's pairing strategy is the only allocation-migration heuristic between SO edits and the linked MO snapshot. A regression here would silently misroute allocations between same-itemId lines.",
+        "scenarios": [
+          {
+            "id": "S28",
+            "title": "moveReplacedSalesLineAllocationsInTx preserves allocations when SO has multiple same-itemId lines and is rewritten",
+            "narrative": "moveReplacedSalesLineAllocationsInTx (queries.ts:1628-1712) pairs existing allocations to new lines by itemId + sortOrder via a per-itemId bucket + .shift() strategy. The single-line case is asserted by S03. The many-to-many case (multiple existing same-itemId lines, multiple new same-itemId lines) has no coverage. A regression that drops the sortOrder pairing and uses itemId-only would silently misroute allocations — affecting picking sequence, shipment plans, and downstream MO snapshot fallback.",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product (Product-A).",
+              "Create open SO with two lines for Product-A: (qty 5, sortOrder 0) and (qty 3, sortOrder 1).",
+              "Confirm both lines (so each gets an active stockAllocations row with demandType='sales_order_line', sourceType='stock' or similar).",
+              "Capture: SELECT demandId FROM stockAllocations WHERE demandType='sales_order_line' AND demandId IN ($oldLine0, $oldLine1) AND status='active' — should yield two rows."
+            ],
+            "trigger_sequence": [
+              "PUT /api/sales-orders/[id] with three Product-A lines: (qty 4, sortOrder 0), (qty 2, sortOrder 1), (qty 6, sortOrder 2)",
+              "Query final state: salesOrderLines (should have 3 new ids, old ids gone), stockAllocations active rows by demandId"
+            ],
+            "expected_user_outcomes": [
+              "PUT returns 200",
+              "Three new salesOrderLines rows exist with the new line ids (qty 4, qty 2, qty 6)",
+              "Two old line ids are gone from salesOrderLines"
+            ],
+            "expected_side_effects": [
+              "stockAllocations active rows for demandId=newLine0 and demandId=newLine1 exist (migrated from oldLine0 and oldLine1 in sortOrder order)",
+              "newLine2 has its own fresh active allocation row (from reserveForSalesInTx) but it is NOT a migrated allocation — the test can distinguish by checking the createdAt timestamp or by checking that exactly TWO old-line-id audit events show 'allocation_migrated' (or whatever the canonical audit event name is)",
+              "No active allocation row references an old (deleted) line id"
+            ],
+            "priority": "P2",
+            "scores": {
+              "business_criticality": 3,
+              "bug_finding_potential": 4,
+              "regression_risk": 3
+            },
+            "target_transitions": ["T16"],
+            "target_business_rules": ["BR-2"],
+            "target_risk_areas": ["RA-2a"],
+            "target_bug_classes": [
+              "stale data persisted",
+              "derived value drift",
+              "allocation misrouting"
+            ],
+            "audit_gaps_covered": [
+              "Challenge critical_gaps #9: 'moveReplacedSalesLineAllocationsInTx pairing strategy with multiple same-itemId lines.'"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/sales/queries.ts", "symbol": "moveReplacedSalesLineAllocationsInTx itemId + sortOrder + shift() pairing", "lines": "1628-1712" }
+            ],
+            "why_prioritized": "Documented unknown in the contract. S03 covers the trivial case; S28 covers the actual production case (multiple same-itemId lines)."
+          }
+        ]
+      },
+      {
+        "risk_category": "validation_bypass_via_edit_path",
+        "why_this_category_matters": "BR-1's one-time-claim invariant is enforced only by the bulk-from-SO preview's existing_active_mo filter. Both single-create POST and edit-PUT bypass it because validateSalesLineLinkInTx has no existing_active_mo check. This is a confirmed production code defect (see notes_for_phase_4 — verified by reading queries.ts:729-819).",
+        "scenarios": [
+          {
+            "id": "S29",
+            "title": "BR-1 violation via PUT/edit-add-link: attaching a sales line to a previously-unlinked MO does NOT honor existing_active_mo claim guard (confirmed production gap)",
+            "narrative": "Setup an SO with one line claimed by MO-A (CLAIM_ACTIVE_MO) and a separate unlinked MO-B for the same product. PUT /api/manufacturing-orders/MO-B with the salesOrderId + salesOrderLineId of the line already claimed by MO-A. Per the code at queries.ts:729-819, validateSalesLineLinkInTx checks line.itemId === productId, line.orderStatus === 'open', and line.deletedAt IS NULL — but it does NOT query manufacturingOrders for an existing claim. So the PUT succeeds and leaves the line claimed by BOTH MO-A and MO-B. This is a BR-1 violation reachable via the PUT path. The scenario asserts the modeled outcome (PUT succeeds, two MO rows on the same lineId) which would document the gap; if the PUT is somehow rejected, that indicates undocumented behavior worth pinning.",
+            "lane": "slow",
+            "setup": [
+              "Create customer + product with active BOM.",
+              "Create open SO with one line.",
+              "Create MO-A linked to the line via S01's path (CLAIM_ACTIVE_MO).",
+              "Create MO-B for the SAME product but UNLINKED (salesOrderId=null, salesOrderLineId=null)."
+            ],
+            "trigger_sequence": [
+              "PUT /api/manufacturing-orders/MO-B with body { salesOrderId: <SO id>, salesOrderLineId: <line id claimed by MO-A>, productId: <same product id>, plannedQuantity, ingredients seeded from BOM, ... }",
+              "Read response status + body",
+              "SELECT COUNT(*) FROM manufacturingOrders WHERE salesOrderLineId=$line AND deletedAt IS NULL",
+              "GET /api/sales-orders/[id]/manufacturing-orders preview"
+            ],
+            "expected_user_outcomes": [
+              "PUT returns 200 (current contract: BR-1 NOT enforced on the PUT path — this is the production gap)",
+              "If a future fix adds the existing_active_mo check, this test will fail with PUT returning 4xx; that failure must trigger a contract update (state-model.json T16 transition gains a precondition)"
+            ],
+            "expected_side_effects": [
+              "Post-PUT: TWO MO rows have salesOrderLineId pointing at the same line — BR-1 violated",
+              "MO-A row unchanged (still linked)",
+              "MO-B row now has salesOrderLineId = the claimed line id, salesOrderId = SO id, salesOrderNumber/salesCustomerName snapshots populated",
+              "Preview shows skipReason='existing_active_mo' for the line — but the line is multiply-claimed, so the skip reason is technically correct but the underlying claim count is 2",
+              "Test must record this observation as the BR-1 gap on the edit path and reference notes_for_phase_4 #10"
+            ],
+            "priority": "P0",
+            "scores": {
+              "business_criticality": 5,
+              "bug_finding_potential": 5,
+              "regression_risk": 5
+            },
+            "target_transitions": ["T16"],
+            "target_business_rules": ["BR-1"],
+            "target_risk_areas": [],
+            "target_bug_classes": [
+              "validation bypass (BR-1)",
+              "duplicate row inserted",
+              "invalid transition allowed",
+              "cross-endpoint trust boundary violation"
+            ],
+            "audit_gaps_covered": [
+              "Challenge critical_gaps #10: 'BR-1 violation via PUT/edit-add-link — validateSalesLineLinkInTx has no existing_active_mo check.'"
+            ],
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "updateManufacturingOrder calls validateSalesLineLinkInTx with the PUT-body link", "lines": "3887-3899" },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "validateSalesLineLinkInTx has no existing_active_mo check (verified by inspection)", "lines": "729-819" },
+              { "file": "lib/manufacturing/sales-order-manufacturability.ts", "symbol": "existing_active_mo skip reason scoped only to the bulk preview, not to validateSalesLineLinkInTx", "lines": "222-235" }
+            ],
+            "why_prioritized": "CONFIRMED PRODUCTION CODE DEFECT. validateSalesLineLinkInTx is the only link guard reached by both single-create POST and edit-PUT, and it has no existing_active_mo check. BR-1's one-time-claim invariant is enforced only by the bulk-from-SO preview filter — single-create and edit-add-link bypass it. Production data corruption risk: any user with module:manufacturing write can claim a sales line already claimed by another MO via the edit path."
+          }
+        ]
+      }
+    ],
+    "coverage_summary": {
+      "covered_risk_categories": [
+        "cross_feature",
+        "validation",
+        "state_transitions",
+        "permissions",
+        "concurrency_and_idempotency",
+        "dirty_state",
+        "atomicity_and_partial_failure",
+        "concurrency_single_row",
+        "derived_values",
+        "validation_bypass_via_edit_path"
+      ],
+      "intentionally_deprioritized": [
+        "async_errors as a standalone group: ManufacturingError / SalesError response shapes are asserted by S04, S07, S08, S11, S21, S23 as part of their primary assertions; a separate group would duplicate.",
+        "P3: T_OUT_OF_SCOPE_SO_DONE_FULLSHIP (SO_OPEN → SO_DONE via full-ship). The state-model.json marks this transition out-of-scope for the linkage contract; the shipment domain owns the assertion.",
+        "GAP-duplicate-loses-link (RA-10 duplicateManufacturingOrder nulls salesOrderId/salesOrderLineId): low priority per state-model.json; a single fast assertion would suffice but adds little signal."
+      ],
+      "not_covered_due_to_missing_evidence": [
+        "Allocation row transitions for sales_order_line → sales_shipment_line bucket move on shipment plan/create. Out of scope for the so-mo-linkage contract; will be covered by a future Run 2 (shipment allocation). Audit gap #3 is flagged here intentionally and deferred.",
+        "Whether validateSalesLineLinkInTx is invoked during MO release/pick (state-model.json unknowns). No scenarios assert this because the call site is not opened in evidence; if found in a later phase, S04 should be extended to assert snapshot drift at pick time.",
+        "Exact body of moveReplacedSalesLineAllocationsInTx (itemId-only vs itemId+sortOrder match). S28 asserts the observable migration outcome by sortOrder ordering; if the assertion fails, the implementation strategy must be documented in the contract.",
+        "RLS policy text on manufacturingOrders, salesOrders, salesOrderLines was not opened. Scenarios assume the db fixture readback is consistent with the API's RLS view."
+      ],
+      "audit_gaps_verification": {
+        "gap_1_so_confirm_mo_release_race": ["S15 (T24 anti-duplication for direct create — pre-commits to two distinct ids and no idempotency claims)", "S16 (RA-12 parallel bulk — winner/loser by response shape)", "S24 (cross-endpoint bulk-vs-single race)"],
+        "gap_2_mo_so_snapshot_rewrite_natural_path": ["S04 (RA-2c stuck stale via picks; consumption events block cancel)", "S04b (T18b CLAIM_FINALIZED_MO terminal-stuck via complete)", "S11 (BR-6 drift via different-itemId rewrite)", "S30 (stale-form on CREATE; no fallback)"],
+        "gap_3_allocation_bucket_transitions": ["Out of scope — deferred to Run 2 (documented in not_covered_due_to_missing_evidence)"],
+        "gap_4_confirmOversell_confirmShortage_no_op": ["S10 (BR-10 no-op contract with concrete inventory-effect assertions)"],
+        "gap_5_idempotency_replay_confirm_complete": ["S17 (confirmSalesOrder replay + BR-7 no-op negative assertion)", "S18 (bulkConfirmSalesOrders replay)", "S19 (completeManufacturingOrder replay)"]
+      },
+      "challenge_gap_verification": {
+        "gap_1_bulk_mo_delete_atomicity": "S21",
+        "gap_2_bulkConfirmSalesOrders_dead_write": "S22",
+        "gap_3_t18b_stuck_permanent": "S04b",
+        "gap_4_br6_second_branch_shared_allocation": "S23",
+        "gap_5_parallel_bulk_vs_single": "S24",
+        "gap_6_item_delete_cancelled_mo_inverse": "S25",
+        "gap_7_single_row_put_vs_delete_race": "S26",
+        "gap_8_put_natural_idempotency": "S27",
+        "gap_9_move_replaced_multi_line_pairing": "S28",
+        "gap_10_br1_violation_via_put": "S29",
+        "gap_11_stale_form_unsaved_changes": "S30"
+      },
+      "lane_distribution": {
+        "fast": ["S07", "S08", "S09", "S10", "S18", "S20", "S22", "S25"],
+        "slow": ["S01", "S02", "S03", "S04", "S04b", "S05", "S06", "S11", "S12", "S13", "S14", "S15", "S16", "S17", "S19", "S21", "S23", "S24", "S26", "S27", "S28", "S29", "S30"],
+        "fast_count": 8,
+        "slow_count": 23,
+        "total": 31
+      },
+      "priority_distribution": {
+        "P0": ["S01", "S03", "S04", "S04b", "S11", "S12", "S21", "S29"],
+        "P1": ["S02", "S05", "S07", "S08", "S09", "S10", "S13", "S14", "S15", "S16", "S17", "S18", "S19", "S23", "S24", "S30"],
+        "P2": ["S06", "S20", "S22", "S25", "S26", "S27", "S28"],
+        "P3": []
+      },
+      "scenario_count": 31
+    }
+  },
+  "review_focus": [
+    "Verify every audit-named gap (1–5) AND every challenge critical_gap (1–11) has at least one scenario citing it in audit_gaps_covered. Gap #3 is intentionally out of scope; confirm the deferral is explicit.",
+    "Verify S01 supersedes the stale manufacturing-order.spec.ts:462-475 assertion AND asserts exact expectedQty delta + ingredient quantity per BOM scaling.",
+    "Verify S04 retains its picks-block-cancel premise (picking DOES write manufacturing_ingredient_consumption events at lib/inventory/kernel/operations/manufacturing.ts:388,412) and that S04b covers the T18b complete-stale-MO terminal-stuck path separately.",
+    "Verify S15 pre-commits to T24's modeled outcome (BOTH 201, two distinct response.ids, set equality with DB ids, zero idempotency claims) — not a defensive union.",
+    "Verify S10 asserts concrete inventory deltas (committedQty, demandQty, expectedQty) — not just the 201 envelope.",
+    "Verify S16 identifies winner/loser by response shape (status===201 AND created.length===2), not by Promise resolution order.",
+    "Verify S17 asserts the BR-7 no-op invariant via row-count equality on inventoryEvents + stockAllocations before vs after replay.",
+    "Verify S20 cites PUT /api/items/[id] as the BOM mutation path.",
+    "Verify S14 includes a positive control (admin POST returns 201 immediately after the sales-only 403).",
+    "Verify S13 and S14 are slow (multi-step setup); S20, S22, S25 are appropriately fast.",
+    "Verify S29 (BR-1 violation via PUT) is P0 and that notes_for_phase_4 #10 flags it as a confirmed production code defect.",
+    "Verify the lane distribution stays within the targets (fast 6-10, slow 20-25). Current count: 8 fast + 23 slow = 31 total.",
+    "Verify no scenario uses 'released' or 'cancelled' as a status literal — the persisted enum is only 'open'|'done'. Status changes are observable via deletedAt/cancelledAt timestamps + completedAt.",
+    "Verify duplicate analysis: S04 vs S04b (work-started vs done — different terminal states); S11 vs S23 (BR-6 first vs second branch); S15 vs S24 (homogeneous single vs cross-endpoint); S26 vs S27 (PUT+DELETE race vs PUT retry).",
+    "Verify P0 calibration: S01, S03, S04, S04b, S11, S12, S21, S29 (the silent-regression and atomic-fail and confirmed-defect class). S02, S05 demoted to P1."
+  ],
+  "notes_for_phase_4": [
+    "Phase 4 must read scenarios-review.json AND scenarios-challenge.json before writing tests. The S04 picks-block-cancel issue was verified false (picks DO write consumption events at lib/inventory/kernel/operations/manufacturing.ts:388,412 with subtype 'manufacturing_pick'; MO delete guard at queries.ts:6446-6500 filters by eventType only, so the events block cancel).",
+    "Use test/helpers/api.ts for cross-test API helpers; use describe-level variables for intra-file sharing per CLAUDE.md.",
+    "All tests sign in as the canonical local user (test@test.com / TestPassword123!) unless explicitly creating a secondary user (S14 only — use the team-management.spec.ts invite+accept+role-assignment pattern).",
+    "Per CLAUDE.md, never use 'released' or 'cancelled' as a status literal — the persisted enum is only 'open'|'done'. Status changes are observable via deletedAt/cancelledAt timestamps + completedAt.",
+    "Per CLAUDE.md, never add new one-off story suites outside fast/, slow/, or auth-security.spec.ts. New so-mo-linkage scenarios should land in test/e2e/slow/manufacturing-order.spec.ts (extending the existing breadth model) or test/e2e/fast/manufacturing.spec.ts for the fast scenarios.",
+    "BR-1 PUT/edit-add-link gap (S29) IS A CONFIRMED PRODUCTION CODE DEFECT. validateSalesLineLinkInTx at app/(dashboard)/manufacturing/queries.ts:729-819 has no existing_active_mo check. Reading the function reveals only line.itemId === productId, line.orderStatus === 'open', and line.deletedAt IS NULL — no query against manufacturingOrders for an existing claim. This means: (a) the single-create POST path can claim a line already claimed by another MO (T24); (b) the edit-PUT path can attach a sales-link onto a previously-unlinked MO that claims a line already claimed by another MO. Both BR-1 violations. The bulk-from-SO preview's existing_active_mo filter at lib/manufacturing/sales-order-manufacturability.ts:222-235 is the only enforcement. Flag this to the user as a production bug discovery; the Phase 4 test for S29 should run the experiment, document the outcome, and if BR-1 is violated, file a Linear issue and propose adding an existing_active_mo check inside validateSalesLineLinkInTx.",
+    "Numeric assertions (S01 expectedQty, S06 expectedQty, S10 committedQty/demandQty) must use parseFloat() on the trimScale'd string per CLAUDE.md 'Postgres numeric fields' rule; do NOT compare strings directly.",
+    "Concurrency scenarios (S15, S16, S24, S26) must use Promise.allSettled and identify winner/loser by response shape — never by Promise resolution order. Lock acquisition order is undefined.",
+    "All idempotency scenarios assume the inventory.inventory_idempotency_claims unique index on (organizationId, operationName, idempotencyKey) exists; if a migration drops it, the COUNT assertion would still pass (single row observed) but production would race."
+  ]
+  ,
+  "production_bug_discovery": {
+    "title": "BR-1 one-time-claim invariant is not enforced on the single-create POST or edit-PUT paths",
+    "severity": "high",
+    "confirmed_by": "Read of app/(dashboard)/manufacturing/queries.ts:729-819 (validateSalesLineLinkInTx)",
+    "summary": "validateSalesLineLinkInTx is the only link guard reached by both POST /api/manufacturing-orders and PUT /api/manufacturing-orders/[id]. It checks line.itemId === productId, line.orderStatus === 'open', line.deletedAt IS NULL — but it does NOT query manufacturingOrders for an existing active claim. BR-1's one-time-claim invariant is enforced only by the bulk-from-SO preview filter at lib/manufacturing/sales-order-manufacturability.ts:222-235 (existing_active_mo). Therefore: (1) two parallel POSTs without Idempotency-Key can both 201 on the same sales line (S15 / T24); (2) a PUT can attach a sales-link onto a previously-unlinked MO and claim a line already claimed by another active MO (S29). Production data corruption: any user with module:manufacturing write can multiply-claim a sales line via the edit path.",
+    "scenarios_that_pin_the_defect": ["S15", "S24", "S29"],
+    "suggested_fix": "Add an existing_active_mo check inside validateSalesLineLinkInTx after the line-validity check and before returning the snapshot. Skip the check when isUnchangedSnapshot is true (the rebind path should not block self-rebinding). Otherwise: SELECT id FROM manufacturingOrders WHERE salesOrderLineId = values.salesOrderLineId AND deletedAt IS NULL AND status IN ('open', 'done') AND id != (the MO being updated, if any) — and if any rows match, throw ManufacturingError(409, 'This sales order line is already linked to another active manufacturing order')."
+  }
+}

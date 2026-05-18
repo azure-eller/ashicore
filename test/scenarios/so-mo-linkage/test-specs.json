@@ -1,0 +1,1805 @@
+{
+  "summary": "Phase 4 test specifications for the so-mo-linkage contract. 31 Playwright specs (8 fast + 23 slow) mapped 1:1 to Phase 3 scenarios. All specs use the existing repo conventions: test/e2e/fixtures.ts (custom test + db fixture, RLS-scoped Drizzle proxy), test/helpers/api.ts (testFetch + domain helpers), describe-level shared state for serial stories, Date.now() suffixes for collision-free names, parseFloat() on numeric strings, and Promise.allSettled for concurrent scenarios. REVISION CORRECTIONS: (1) DB column corrections — items table has NO expectedQty/committedQty/onHandQty/demandQty; those live on inventoryItemBalances (lib/db/schema/inventory-projections.ts:91-110), keyed by (organizationId, locationId, itemId); specs SUM these across locations. (2) salesOrders has NO cancelledAt column (lib/db/schema/sales.ts:31); a conceptually 'cancelled' SO = deletedAt IS NOT NULL. (3) testFetch idempotency mechanic — the auto-key is `${operationName}:${randomUUID()}` per call (lib/api/idempotency-client.ts:8); identical bodies get DISTINCT keys, so there is NO auto-replay-on-same-body. Same-key replay (S17/S18/S19) requires explicit options.headers['Idempotency-Key']. Two new spec files: test/e2e/fast/so-mo-linkage.spec.ts (8 specs) and test/e2e/slow/so-mo-linkage.spec.ts (23 specs, serial mode). The slow file groups describe blocks by risk_category. S29 is flagged experimental — it pins a confirmed production code defect (validateSalesLineLinkInTx has no existing_active_mo check at queries.ts:729-819); the spec asserts the current 'BR-1 violated via PUT' outcome and will fail loudly if a fix lands, forcing a contract update. S15 and S24 carry the same gap on the POST path (T24 modelled outcome). All concurrency specs use Promise.allSettled and identify winner/loser by response shape.",
+  "evidence": [
+    { "file": "test/e2e/fixtures.ts", "symbol": "test fixture + db proxy + runWithOrgContext set_config('app.current_org_id')", "reason": "All DB reads in specs flow through this RLS-scoped Drizzle proxy; no mocking." },
+    { "file": "test/helpers/api.ts", "symbol": "testFetch auto-applies createIdempotencyHeaders for non-GET methods; createIdempotencyHeaders sets `${operationName}:${randomUUID()}` (lib/api/idempotency-client.ts:8) — distinct per call, NOT a body-derived fingerprint", "lines": "135-177", "reason": "Critical pattern: identical bodies still get distinct keys by default. To force SAME-KEY replay (S17/S18/S19/S22), the spec MUST explicitly set options.headers['Idempotency-Key'] to a fixed value across both calls. For DISTINCT-KEY parallel races (S15/S16/S24), the default is already distinct — passing explicit headers is documentation, not correctness." },
+    { "file": "test/helpers/api.ts", "symbol": "createCustomer, createItem, createSalesOrder, createManufacturingOrder, confirmSalesOrder, completeManufacturingOrder, createUnit, updateItem, deleteItem, updateSalesOrder", "reason": "Existing helper surface — all specs prefer these over inline fetch calls." },
+    { "file": "test/e2e/slow/manufacturing-order.spec.ts", "symbol": "createCustomer, createSalesOrder, confirmSalesOrder, updateSalesOrder, createManufacturingOrder, createManufacturingOrdersFromSalesOrder, completeManufacturingOrder, pickAllManufacturingIngredients", "lines": "28-260", "reason": "Established local helpers in this file. Phase 5 may copy these patterns inline; the new so-mo-linkage spec files can declare similar local helpers OR import from test/helpers/api.ts where available." },
+    { "file": "test/e2e/slow/manufacturing-order.spec.ts", "symbol": "BOM-backed product + material + sales order setup pattern", "lines": "270-460", "reason": "Reuse pattern for S01–S06, S11–S14, S19, S21, S23, S26–S30. Materials must include lot-seeded stock when the spec picks ingredients." },
+    { "file": "test/e2e/fast/reservation-correctness.spec.ts", "symbol": "BOM scaling + per_output_unit vs per_batch ingredient quantity assertions", "reason": "Reference for S01 ingredient-quantity-per-BOM-mode assertions and S20 BOM-row-count drift." },
+    { "file": "test/e2e/auth-security.spec.ts AND test/e2e/team-management.spec.ts", "symbol": "Secondary user invite + accept + role assignment pattern (sales_operator preset)", "reason": "S14 reuses team-management.spec.ts:672 (sales operator invite applies the preset access on join). Secondary user must be created via invite flow; no test creates secondary users by direct DB writes." },
+    { "file": "lib/db/schema/inventory-projections.ts", "symbol": "inventoryItemBalances columns: onHandQty, committedQty, demandQty, expectedQty (numeric 18,4)", "lines": "91-110", "reason": "S01/S05/S06/S10/S15/S19/S25 numeric assertions use parseFloat on these string columns." },
+    { "file": "lib/db/schema/inventory-idempotency.ts", "symbol": "inventoryIdempotencyClaims with operationName + idempotencyKey unique index", "lines": "14-32", "reason": "S15/S17/S18/S19/S22 negative/positive claim COUNT assertions." },
+    { "file": "lib/db/schema/stock-allocations.ts", "symbol": "stockAllocations columns sourceType, sourceId, demandType, demandId, status", "lines": "43-95", "reason": "S03/S17/S23/S27/S28 allocation assertions." },
+    { "file": "lib/db/schema/manufacturing.ts", "symbol": "manufacturingOrders.salesOrderId, salesOrderLineId, salesOrderNumber, salesCustomerName + manufacturingOrderIngredients + manufacturingPickAllocations", "lines": "39-91, 109+, 263+", "reason": "Core columns asserted across S01–S30." },
+    { "file": "lib/db/schema/inventory-events.ts", "symbol": "inventoryEvents.eventType + referenceType + referenceId", "lines": "55-94", "reason": "S04, S04b, S17, S19 consumption/output event assertions." }
+  ],
+  "inferences": [
+    { "claim": "testFetch's automatic Idempotency-Key fingerprint means specs that retry the SAME body (S17 replay, S22 dead-write replay) will get the SAME key automatically — but specs that fire two DIFFERENT requests intending the same key, or specs that want NO key at all, must override headers explicitly. Phase 5 must therefore use options.headers to either (a) set an explicit shared key for forced-replay tests, (b) vary the key with a counter, OR (c) for S15/S24 'no-key duplicate POST', either rely on testFetch's deterministic fingerprint (which means S15 effectively tests 'same-key replay' rather than 'no-key duplicate') — OR pass a custom http request that omits createIdempotencyHeaders.", "based_on": ["test/helpers/api.ts:135-177"], "confidence": "high" },
+    { "claim": "For S15 and S24, the modelled outcome (T24: two distinct MO rows, both 201) requires DIFFERENT idempotency keys per request. testFetch's default behavior already provides distinct randomUUID-suffixed keys per call, so explicit headers are optional for correctness — but Phase 5 should pass explicit headers (e.g. `t24-${i}`) for documentation and to make the test intent unambiguous. This exercises the 'no shared key, no existing_active_mo guard' code path.", "based_on": ["test/helpers/api.ts:135-177", "lib/api/idempotency-client.ts:8", "scenarios.json S15 narrative"], "confidence": "high" },
+    { "claim": "Helper functions for sales-linked MO bulk creation (createManufacturingOrdersFromSalesOrder) already exist locally in test/e2e/slow/manufacturing-order.spec.ts:180-229. Phase 5 should copy them to the new so-mo-linkage spec file rather than refactoring the existing manufacturing-order.spec.ts file (to keep specs self-contained per CLAUDE.md).", "based_on": ["CLAUDE.md Testing section", "test/e2e/slow/manufacturing-order.spec.ts:180-229"], "confidence": "high" },
+    { "claim": "Cross-SO stockAllocations row creation for S23 needs a planning/allocation API path. The repo has app/api/planning/actions/*, but creating a direct sourceType='manufacturing_order' → demandType='sales_order_line' row pointing at a DIFFERENT SO's lineId is not exposed by a public API in the way the scenario assumes. Phase 5 will need to either (a) find the right planning action route, (b) drive the cross-SO allocation through the natural release + planning flow, or (c) write a direct DB insert through the db fixture (test-only, justified by the scenario being a guard contract pin). S23 lists this in new_helpers_recommended.", "based_on": ["scenarios.json S23 setup", "test/helpers/api.ts has no cross-SO allocation helper"], "confidence": "medium" }
+  ],
+  "unknowns": [
+    "Whether the dev server can sustain Promise.all parallelism on S15/S16/S24/S26 against the same DB row without secondary 5xx errors unrelated to the test. Phase 5 should add a single retry on transient connection errors but treat 5xx on the second request as a test failure.",
+    "Whether the team-management.spec.ts pattern can be safely reused inline from the new so-mo-linkage.spec.ts file without breaking the auth-org isolation (the test fixture uses one canonical session cookie). S14 may need to construct its own browser context with a fresh sign-in for the sales-only user; the answer must be confirmed in Phase 5 by reading team-management.spec.ts:672+ end-to-end.",
+    "Whether S23's cross-SO stockAllocations row can be created through the public planning API or whether a direct db.insert(stockAllocations) is the only practical path. Phase 5 should attempt the public API first; if no path exists, the direct DB insert is acceptable given the scenario is pinning a delete-guard contract."
+  ],
+  "structured_output": {
+    "repo_patterns": {
+      "fixture_shape": "Custom `test` from test/e2e/fixtures.ts exposes `db` (RLS-scoped Drizzle proxy via Proxy on `appDb` with set_config('app.current_org_id') per query) and `page` (Playwright Page with auto-injected test session cookie). Import: `import { test, expect } from '../fixtures'` (slow file uses `../fixtures`, fast file uses `../fixtures`). Always destructure { db, page } in the test function arg.",
+      "auth_pattern": "All requests authenticate via the canonical test user session cookie injected into every browser context by the fixture. testFetch() includes the cookie automatically; do NOT manually attach headers. Secondary users (S14 only) use the invite-and-join pattern from test/e2e/team-management.spec.ts:672+ — launch a fresh browser context with a new session cookie.",
+      "api_helpers": "test/helpers/api.ts exports: testFetch (low-level), createCustomer, createItem, updateItem, deleteItem, createUnit, createSalesOrder, updateSalesOrder, confirmSalesOrder, fulfillSalesOrder, createManufacturingOrder, releaseManufacturingOrder, completeManufacturingOrder, createPurchaseOrder, submitPurchaseOrder, receivePurchaseOrder, getOrgId, getUnitId, getBaseUrl, getSessionCookie. Each domain helper returns { status, body }. Use these over inline fetch calls.",
+      "idempotency_helper": "CORRECTED in revision: test/helpers/api.ts testFetch() auto-applies createIdempotencyHeaders() for any non-GET/HEAD method when the caller has NOT supplied Idempotency-Key. The actual key is `${operationName}:${randomUUID()}` (per lib/api/idempotency-client.ts:8). The body sha256 only namespaces the operationName; the unique key part is a per-call randomUUID. So distinct testFetch calls with identical bodies STILL get DISTINCT keys — there is no auto-replay-on-same-body. Implications for tests: (a) For SAME-KEY replay (S17 SO confirm replay, S18 bulk-confirm replay, S19 MO complete replay): the spec MUST explicitly set options.headers['Idempotency-Key']='K1' on BOTH calls. (b) For DISTINCT-KEY parallel (S15 single-create race, S24 cross-endpoint race): the default testFetch behavior already gives distinct keys; no override needed, but document the intent. (c) createIdempotencyHeaders preserves caller-supplied keys (only sets when absent), so options.headers['Idempotency-Key']='K1' is the standard override mechanism — no raw fetch needed.",
+      "db_assertion_pattern": "Domain tables imported from '../../../lib/db/schema' (relative from test/e2e/slow|fast). Use drizzle-orm helpers: eq, and, sql, inArray, isNull. Numeric columns return strings (e.g. '5.0000'); convert with parseFloat before arithmetic comparisons. Use trimScale via raw string comparison or parseFloat(...).toFixed(4) when comparing exact deltas.",
+      "shared_state_pattern": "test.describe.configure({ mode: 'serial' }) for files where tests depend on each other; share state via describe-level let/const variables, not via global helper functions. Each test file should be self-contained — never import shared helpers from another spec file.",
+      "naming_convention": "All created entities suffix names with Date.now() (e.g. `Linked MO Material ${ts}`). SKUs follow the form `MAT-NAME-${ts}` / `PROD-NAME-${ts}`. Customer names follow `Linked MO Customer ${ts}`. Avoid cross-spec name collisions even when serial.",
+      "concurrent_pattern": "Promise.allSettled for parallel races. Identify winner/loser by response shape (status, body.created.length, body.error) rather than by Promise resolution order — lock acquisition order is undefined under PG FOR UPDATE.",
+      "page_object_pattern": "No page-object classes. Page interactions use page.getByRole / getByLabel / getByPlaceholder / locator() directly inside each test. Form helpers (filterList, selectDate, getIdFromUrl) live in test/e2e/fixtures.ts.",
+      "common_setup_steps": "1. const ts = Date.now(); 2. const unitId = getUnitId(); 3. createItem(material) → seeded stock auto-creates a lot; 4. createItem(product, { bom: [...] }) seeds the active BOM revision; 5. createCustomer(name) returns id; 6. createSalesOrder({ customerId, lines: [...] }) returns SO id; 7. createManufacturingOrder({ productId, salesOrderId, salesOrderLineId, ingredients }) returns MO id; 8. read sales order line id via `db.select().from(salesOrderLines).where(eq(salesOrderLines.salesOrderId, soId))`.",
+      "lane_assignment_rule": "Fast: ≤60s, single-write, no role-switching, no concurrent retries (8 specs). Slow: serial story, multi-step setup, cross-route navigation, idempotency replay, concurrent races (23 specs)."
+    },
+    "test_specs": [
+      {
+        "test_name": "direct sales-linked single MO create attaches both ids, seeds ingredients with BOM-scaled quantities, and increments inventoryItemBalances.expectedQty by exactly plannedQuantity",
+        "scenario_id": "S01",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin the 948c155e regression class: direct sales-linked POST /api/manufacturing-orders must persist BOTH salesOrderId and salesOrderLineId, snapshot the order number + customer name, seed manufacturingOrderIngredients with BOM-scaled quantities, and increment inventoryItemBalances.expectedQty by exactly plannedQuantity.",
+        "setup_requirements": {
+          "fixtures": ["test", "db", "page"],
+          "preconditions": ["Canonical test user signed in via fixture", "getUnitId() returns the test org's default unit"],
+          "seed_data": [
+            "Material-A: itemType material, unitDefinitionId, stock 100, default purchase price set",
+            "Material-B: itemType material, stock 50",
+            "Product-P: itemType product, sellable true, BOM has two rows — Material-A with per_output_unit qty 1, Material-B with per_batch qty 9 / basisOutputQuantity 9 / batchScalingMode proportional",
+            "Customer C1 via createCustomer",
+            "Sales Order SO1 with one line for Product-P, quantity 4, unitPrice 45"
+          ],
+          "route": "/manufacturing/orders/new"
+        },
+        "interaction_plan": [
+          "Capture Q0 = parseFloat(inventoryItemBalances.expectedQty) for Product-P pre-create.",
+          "Navigate to /manufacturing/orders/new via page.goto.",
+          "Open the Sales Order combobox; type SO1's orderNumber; click the matching option.",
+          "Open the Sales Order Line combobox; click the single line option.",
+          "Confirm productId + plannedQuantity auto-populated from the line (expect plannedQuantity to read 4).",
+          "Click 'Create Order' button while awaiting POST /api/manufacturing-orders response with status 201.",
+          "Wait for URL to match /manufacturing/orders/[uuid] and capture moId via getIdFromUrl(page.url())."
+        ],
+        "assertion_plan": {
+          "visible_ui": [
+            "Redirected to /manufacturing/orders/<moId> with the MO order number heading",
+            "Sales Order link visible on the detail page header"
+          ],
+          "behavioral": [
+            "Form POST hits /api/manufacturing-orders (not /api/sales-orders/[id]/manufacturing-orders) — verify via page.waitForResponse pattern",
+            "Response status is 201"
+          ],
+          "side_effects": [
+            "DB: SELECT * FROM manufacturingOrders WHERE id=$moId — salesOrderId equals SO1.id, salesOrderLineId equals the captured line id, salesOrderNumber equals SO1.orderNumber, salesCustomerName equals C1.name, productId equals Product-P.id, plannedQuantity equals '4.0000'",
+            "DB: SELECT * FROM manufacturingOrderIngredients WHERE manufacturingOrderId=$moId returns exactly 2 rows; Material-A row has plannedQuantity '4.0000' (per_output_unit × 4) and quantityPerUnit '1.0000'; Material-B row has plannedQuantity '9.0000' (per_batch × ceil(4/9) basis-rounded) and quantityPerUnit reflects the BOM",
+            "DB: parseFloat(inventoryItemBalances.expectedQty) for Product-P equals Q0 + 4 (within 4-decimal precision)",
+            "API: GET /api/sales-orders/SO1.id/manufacturing-orders returns the line with status='skipped' and skipReason='existing_active_mo'"
+          ],
+          "negative_assertions": [
+            "Form does NOT redirect to a bulk-from-SO preview page — only /api/manufacturing-orders POST is fired",
+            "No second manufacturingOrders row inserted for SO1"
+          ]
+        },
+        "waiting_strategy": [
+          "await page.waitForResponse(r => r.url().endsWith('/api/manufacturing-orders') && r.request().method() === 'POST') and Promise.all the button click",
+          "await page.waitForURL(/\\/manufacturing\\/orders\\/[0-9a-f-]+$/)",
+          "await expect.poll for the inventoryItemBalances.expectedQty value when reading immediately after create (recompute is part of the transaction so a single read should suffice, but wrap in expect.poll with 5s timeout for safety)"
+        ],
+        "flakiness_risks": [
+          "BOM ingredient seeding: per_batch quantities round to BOM basisOutputQuantity, so 4 outputs at basis 9 yields one batch with 9 planned. Phase 5 must compute expected quantities from BOM math, not from raw plannedQuantity × quantityPerUnit.",
+          "expectedQty recompute timing — wrap the read in expect.poll if a stray read returns 0"
+        ],
+        "data_isolation_notes": [
+          "Use unique ts suffix for all 5 created entities (Material-A, Material-B, Product-P, Customer, SO orderNumber is server-generated so no collision)"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:getUnitId",
+          "test/e2e/fixtures.ts:getIdFromUrl"
+        ],
+        "new_helpers_recommended": [
+          "captureExpectedQty(db, itemId): Promise<number> — pulls inventoryItemBalances.expectedQty, parses to number, returns 0 if no row",
+          "readSalesOrderLineIds(db, salesOrderId): Promise<string[]> — used by many specs"
+        ]
+      },
+      {
+        "test_name": "bulk Create-MOs-from-SO creates one MO per will_create line and surfaces skip reasons for stock_on_hand and non_product",
+        "scenario_id": "S02",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin the bulk Create-MOs dialog submission contract: one MO per will_create line, skip reasons echoed verbatim for stock_on_hand and non_product, all atomically via FOR UPDATE on salesOrders.",
+        "setup_requirements": {
+          "fixtures": ["test", "db", "page"],
+          "preconditions": ["Canonical test user signed in"],
+          "seed_data": [
+            "Material-M (itemType material) with stock 0",
+            "Product-A (product with active BOM) stock 0",
+            "Product-B (product with active BOM) stock 100 (covers ordered qty)",
+            "Customer + SO with three lines: A qty 10, B qty 5, M qty 2 (non-product material line)"
+          ],
+          "route": "/sales/orders/<soId>"
+        },
+        "interaction_plan": [
+          "Navigate to /sales/orders/<soId>.",
+          "Open the Create MOs dialog (locator: button name 'Create MOs' or similar).",
+          "Assert the dialog preview lists Product-A as 'will_create', Product-B as 'skipped' with stock_on_hand message, Material-M as 'skipped' with non_product message.",
+          "Click Create N order(s) button (wait for POST /api/sales-orders/<soId>/manufacturing-orders response with status 201)."
+        ],
+        "assertion_plan": {
+          "visible_ui": [
+            "Dialog shows the will_create + skip preview rows",
+            "Success toast or dialog close with 'Created 1 manufacturing order' message"
+          ],
+          "behavioral": [
+            "POST /api/sales-orders/<soId>/manufacturing-orders returns 201 with body.created.length === 1 (Product-A's line) and body.skipped lists the other two with the canonical reasons"
+          ],
+          "side_effects": [
+            "DB: COUNT(*) manufacturingOrders WHERE salesOrderId=$soId AND deletedAt IS NULL equals 1",
+            "DB: the created MO row has salesOrderLineId equal to Product-A's line, salesOrderNumber matches SO1.orderNumber, salesCustomerName matches C1.name",
+            "API: GET /api/sales-orders/<soId>/manufacturing-orders returns Product-A line as skipReason='existing_active_mo' (newly claimed), Product-B line still skipReason='stock_on_hand', Material-M still 'non_product'"
+          ],
+          "negative_assertions": [
+            "No MO row inserted for the Product-B line or the Material-M line"
+          ]
+        },
+        "waiting_strategy": [
+          "await page.waitForResponse for the POST",
+          "await dialog close before reading DB"
+        ],
+        "flakiness_risks": [
+          "Dialog open/close timing — use locator.waitFor({ state: 'visible' }) explicitly",
+          "Product-B stock may need to be opened via a lot rather than the item stock field — verify via lot row before asserting skip reason"
+        ],
+        "data_isolation_notes": [
+          "Unique ts on every entity name including the SO's notes/identifier"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:testFetch (for the dialog response shape API GET)"
+        ],
+        "new_helpers_recommended": [
+          "openCreateMOsDialogAndSubmit(page, soId) — encapsulates dialog open + assert preview + submit"
+        ]
+      },
+      {
+        "test_name": "BR-2 same-itemId SO line rewrite triggers isUnchangedSnapshot fallback on MO save, rebinding salesOrderLineId to the new line id",
+        "scenario_id": "S03",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Exercise the natural BR-2 drift path: SO line rewrite hard-deletes the old line, MO row still points at the stale id. Resubmitting the stale id via PUT /api/manufacturing-orders/[id] triggers validateSalesLineLinkInTx's isUnchangedSnapshot rebind to the new same-itemId line.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product with active BOM + open SO with one line (qty 5, unitPrice 10) + sales-linked MO via S01's POST path"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Capture original salesOrderLineId from the SO (LINE_OLD).",
+          "PUT /api/sales-orders/<soId> with the SAME itemId but quantity 7 (forces hard-delete + re-insert → LINE_NEW).",
+          "Query DB to confirm LINE_OLD no longer in salesOrderLines AND manufacturingOrders.salesOrderLineId still equals LINE_OLD.",
+          "GET /api/manufacturing-orders/<moId> to read the current MO body and form payload shape.",
+          "PUT /api/manufacturing-orders/<moId> with the EXACT body (still carrying LINE_OLD as salesOrderLineId, same salesOrderId, no other field changes) — triggers isUnchangedSnapshot fallback path."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "First SO PUT returns 200",
+            "MO PUT (with stale LINE_OLD) returns 200 (rebind path succeeds)"
+          ],
+          "side_effects": [
+            "DB: After SO PUT, salesOrderLines has 1 row for the SO with id=LINE_NEW, qty='7.0000', no row for LINE_OLD",
+            "DB: After MO PUT, manufacturingOrders.salesOrderLineId equals LINE_NEW (rebound)",
+            "DB: stockAllocations active rows where demandType='sales_order_line' AND demandId=LINE_OLD: zero. demandId=LINE_NEW: at least one active row (migrated by moveReplacedSalesLineAllocationsInTx)"
+          ],
+          "negative_assertions": [
+            "No new MO row inserted; the existing MO is updated in place",
+            "MO's salesOrderId unchanged"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits on each fetch"
+        ],
+        "flakiness_risks": [
+          "Phase 5 must NOT manually substitute LINE_NEW into the MO PUT payload — the isUnchangedSnapshot guard requires the stale id to be passed verbatim to trigger the rebind branch (per scenario narrative)"
+        ],
+        "data_isolation_notes": [
+          "Unique ts on all entities"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:updateSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder",
+          "test/helpers/api.ts:testFetch (for PUT /api/manufacturing-orders/[id])"
+        ],
+        "new_helpers_recommended": [
+          "updateManufacturingOrder(id, body) helper in test/helpers/api.ts (currently absent)",
+          "readMOSnapshot(db, moId) — returns { salesOrderId, salesOrderLineId, salesOrderNumber, salesCustomerName, productId, plannedQuantity }"
+        ]
+      },
+      {
+        "test_name": "RA-2c stuck-stale after picks: SO line rewrite during MO_WORK_STARTED leaves stale snapshot, blocks SO delete via drift guard, blocks MO cancel via consumption-event guard",
+        "scenario_id": "S04",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin the worst-case 948c155e regression class: once picks write manufacturing_ingredient_consumption inventoryEvents, the MO cannot be edited (edit:work_started guard), the stale snapshot cannot be rebound, and both SO delete and MO cancel are blocked.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product with active BOM + raw material lots seeded for stock",
+            "Open SO with one line + sales-linked MO via S01 POST path",
+            "Pick AT LEAST ONE ingredient via POST /api/manufacturing-orders/<mo>/ingredients/<ing>/pick (MO transitions to MO_WORK_STARTED with a manufacturing_ingredient_consumption inventoryEvent)"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Capture: COUNT(*) FROM inventoryEvents WHERE referenceType='manufacturing_order' AND referenceId=$moId AND eventType='manufacturing_ingredient_consumption' — assert >= 1 before proceeding.",
+          "PUT /api/sales-orders/<soId> with same itemId but a quantity change (forces line hard-delete + re-insert).",
+          "DELETE /api/sales-orders/<soId> — expect 400 with drift error.",
+          "DELETE /api/manufacturing-orders/<moId> — expect 400 with finalized consumption-event guard.",
+          "DELETE /api/sales-orders/<soId> again — expect same 400 (terminal stuck)."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "SO PUT returns 200 (no pick-state guard on SO update)",
+            "First SO DELETE returns 400 with error containing 'is linked to the order but not to a matching active sales line' (BR-6 drift)",
+            "MO DELETE returns 400 with error containing 'finalized ingredient consumption' (consumption-event guard at queries.ts:6446-6500)",
+            "Second SO DELETE returns identical 400"
+          ],
+          "side_effects": [
+            "salesOrders.deletedAt remains NULL across all attempts",
+            "manufacturingOrders.deletedAt remains NULL",
+            "manufacturingOrders.salesOrderLineId still points at the now-deleted original LINE_OLD",
+            "salesOrderLines no longer has the old line id"
+          ],
+          "negative_assertions": [
+            "No automatic snapshot rebind occurs (the MO was in MO_WORK_STARTED so the edit guard blocks updateManufacturingOrder)"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [
+          "Picking must succeed before the SO rewrite — Phase 5 must read MO ingredient row id, then await the pick response 200 before driving the SO PUT",
+          "Material lot must have enough stock to cover the pick — seed defaultPurchasePrice + stock when creating the material"
+        ],
+        "data_isolation_notes": [
+          "Unique ts on all entities"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:updateSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder",
+          "test/helpers/api.ts:testFetch"
+        ],
+        "new_helpers_recommended": [
+          "pickAllManufacturingIngredients(moId) — copy from test/e2e/slow/manufacturing-order.spec.ts:241-260",
+          "pickOneIngredient(moId, ingredientId) — single-ingredient pick (S04 only picks one)"
+        ]
+      },
+      {
+        "test_name": "T18b terminal stuck: completing an MO with stale snapshot permanently blocks SO delete and MO cancel",
+        "scenario_id": "S04b",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin the T18b terminal-permanent path: the MO completes with a stale salesOrderLineId snapshot (different-itemId rewrite means no fallback target exists). Once status='done', SO delete is forever blocked by BR-6 drift, MO delete is forever blocked by production-output guard.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product-A with active BOM (>=2 ingredients) + product-B (different itemId so no fallback replacement) + raw materials with seeded lots",
+            "Open SO with one line for product-A (qty Q) + sales-linked MO M1 created via createManufacturingOrdersFromSalesOrder (CLAIM_ACTIVE_MO state)",
+            "Pick exactly ONE ingredient on M1 (MO is now in MO_WORK_STARTED state — pick allocations exist, MO still status='open')"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Capture Q0 = parseFloat(SUM(inventoryItemBalances.expectedQty)) for product-A pre-rewrite.",
+          "PUT /api/sales-orders/<soId> replacing the product-A line with a product-B line (DIFFERENT itemId — no rebind target; triggers T17 to CLAIM_STALE_SNAPSHOT).",
+          "Confirm MO.salesOrderLineId still equals the now-deleted product-A line id (snapshot drift preserved, no recovery).",
+          "Pick the REMAINING ingredients on M1 via POST /api/manufacturing-orders/<mo>/ingredients/<ing>/pick — verify picks still succeed despite stale snapshot (pick guards check MO state, not link freshness).",
+          "POST /api/manufacturing-orders/<mo>/complete with body { actualQuantity: Q } and explicit Idempotency-Key (testFetch auto-applies a randomUUID-suffixed key; that's fine for a single call).",
+          "Capture Q1 = parseFloat(SUM(inventoryItemBalances.expectedQty)) for product-A post-complete.",
+          "Attempt DELETE /api/sales-orders/<soId> — expect 400 BR-6 drift error.",
+          "Attempt DELETE /api/manufacturing-orders/<mo> — expect 400 production-output guard error.",
+          "Repeat both DELETEs to confirm terminal stability (identical 400s)."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Complete POST returns 200",
+            "Both DELETE attempts return 400 with their respective canonical messages",
+            "Repeat DELETEs return identical 400 (terminal)"
+          ],
+          "side_effects": [
+            "manufacturingOrders.status='done', completedAt SET, actualQuantity > 0",
+            "manufacturingOrders.salesOrderLineId equals the deleted product-A line id (no snapshot refresh at completion)",
+            "salesOrderLines has only the new product-B line; the old product-A line id is gone",
+            "salesOrders.deletedAt remains NULL across both attempts",
+            "manufacturingOrders.deletedAt remains NULL across both attempts",
+            "Q1 = Q0 - plannedQuantity (SUM(inventoryItemBalances.expectedQty) for product-A DROPS by exactly the MO's plannedQuantity at completion — consistent with recomputeExpectedQty + S06: a completed MO no longer contributes inbound supply because the output has arrived as on-hand)"
+          ],
+          "negative_assertions": [
+            "No third terminal state appears (the MO row is not silently restored or re-linked)",
+            "MO.salesOrderLineId is NOT cleared by completion (the stale snapshot persists — CLAIM_FINALIZED_MO is terminal-stuck, not terminal-cleared)"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits with expect.poll for the post-complete expectedQty read"
+        ],
+        "flakiness_risks": [
+          "Picking is multi-step — Phase 5 may need to fetch the execution endpoint to enumerate ingredient ids in order",
+          "The actualQuantity for complete must equal plannedQuantity exactly to avoid partial-complete branches"
+        ],
+        "data_isolation_notes": [
+          "Distinguish from S04 by using DIFFERENT-itemId rewrite (product-A → product-B)"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:updateSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder",
+          "test/helpers/api.ts:completeManufacturingOrder"
+        ],
+        "new_helpers_recommended": [
+          "pickAllManufacturingIngredients(moId)",
+          "captureExpectedQty(db, itemId)"
+        ]
+      },
+      {
+        "test_name": "cancelling a sales-linked MO reopens the line claim and a second bulk POST creates a fresh MO",
+        "scenario_id": "S05",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Exercise BR-1's cancel-reopens branch: soft-deleting an active sales-linked MO transitions the line CLAIM_ACTIVE_MO → CLAIM_UNCLAIMED, the preview shows will_create again, and a second bulk POST succeeds.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product with active BOM + open SO with one line",
+            "Bulk-create MO from the SO (creates MO1 linked to the line)"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Confirm preview returns the line with skipReason='existing_active_mo' (CLAIM_ACTIVE_MO state).",
+          "DELETE /api/manufacturing-orders/<mo1> — expect 200 {success: true} (no picks → finalized guard passes).",
+          "GET /api/sales-orders/<soId>/manufacturing-orders preview — expect line back to status='will_create'.",
+          "POST /api/sales-orders/<soId>/manufacturing-orders with the same line id — expect 201 with body.created.length=1."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "First DELETE returns 200 with success body",
+            "Second preview shows status='will_create'",
+            "Second bulk POST returns 201 with created.length=1"
+          ],
+          "side_effects": [
+            "MO1: deletedAt SET",
+            "MO2: new row, deletedAt NULL, salesOrderLineId = same line id",
+            "COUNT(*) manufacturingOrders WHERE salesOrderLineId=$lineId returns 2 (one deleted, one active) — no unique constraint on the column",
+            "inventoryItemBalances.expectedQty recomputed (SUM across locations): once on cancel (decrement MO1 contribution) and once on second create (increment MO2 contribution); net should be same as one active MO"
+          ],
+          "negative_assertions": [
+            "Preview does NOT report 'existing_active_mo' after the cancel (the filter requires deletedAt IS NULL)"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [
+          "Bulk POST helper differs from single POST — use the local createManufacturingOrdersFromSalesOrder pattern from test/e2e/slow/manufacturing-order.spec.ts:180-229"
+        ],
+        "data_isolation_notes": [
+          "Unique ts on all entities"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:testFetch"
+        ],
+        "new_helpers_recommended": [
+          "createManufacturingOrdersFromSalesOrder(soId, lineIds) — copy from manufacturing-order.spec.ts:180-229",
+          "captureExpectedQty(db, itemId)"
+        ]
+      },
+      {
+        "test_name": "BR-1 permanent claim: completed MO cannot be cancelled, line stays permanently skipped, inventoryItemBalances.expectedQty drops to pre-MO baseline on completion",
+        "scenario_id": "S06",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin the CLAIM_FINALIZED_MO permanent terminal state: status='done' MOs are blocked from delete by the production-output guard, the existing_active_mo filter accepts status='done', and recomputeExpectedQty drops the MO's plannedQuantity contribution exactly once on T18.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product with active BOM + raw materials with lots",
+            "Open SO with one line + sales-linked MO + release + pick all + complete"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Capture Q_pre = parseFloat(inventoryItemBalances.expectedQty) for the product BEFORE the MO is released. (Phase 5: the MO POST already increments expectedQty, so capture this BEFORE the createManufacturingOrder call.)",
+          "Create the MO (this raises SUM(inventoryItemBalances.expectedQty) across locations to Q_pre + plannedQuantity).",
+          "Pick all ingredients (no inventory effect on product's expectedQty).",
+          "POST /api/manufacturing-orders/<mo>/complete with actualQuantity = plannedQuantity.",
+          "Query SUM(inventoryItemBalances.expectedQty) across locations for product-A (Drizzle: sql`SUM(...)::numeric` or aggregate via reducer in JS).",
+          "GET /api/sales-orders/<soId>/manufacturing-orders preview.",
+          "Attempt DELETE /api/manufacturing-orders/<mo> — expect 400 production-output guard.",
+          "Attempt bulk POST /api/sales-orders/<soId>/manufacturing-orders for the same line id — expect 400 with 'All manufacturable lines already have linked manufacturing orders.' OR 201 with skipped[].reason='existing_active_mo'."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Complete returns 200",
+            "Preview returns line as skipReason='existing_active_mo'",
+            "MO DELETE returns 400 with production-output error",
+            "Second bulk POST returns 400 OR 201 with empty created[]"
+          ],
+          "side_effects": [
+            "manufacturingOrders.status='done', completedAt SET, actualQuantity > 0",
+            "manufacturingOrders.deletedAt remains NULL",
+            "parseFloat(inventoryItemBalances.expectedQty) for the product equals Q_pre exactly (within 4-decimal precision)"
+          ],
+          "negative_assertions": [
+            "No second MO row inserted for the line"
+          ]
+        },
+        "waiting_strategy": [
+          "expect.poll for the post-complete expectedQty read (recompute is in-tx but reads can race)"
+        ],
+        "flakiness_risks": [
+          "Capturing Q_pre at the right moment is critical — before the MO create increments expectedQty"
+        ],
+        "data_isolation_notes": [
+          "Unique ts on all entities"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder",
+          "test/helpers/api.ts:completeManufacturingOrder"
+        ],
+        "new_helpers_recommended": [
+          "captureExpectedQty(db, itemId)",
+          "pickAllManufacturingIngredients(moId)"
+        ]
+      },
+      {
+        "test_name": "direct sales-linked create with only one of salesOrderId/salesOrderLineId set returns 400 link_incomplete",
+        "scenario_id": "S07",
+        "lane": "fast",
+        "spec_file": "test/e2e/fast/so-mo-linkage.spec.ts",
+        "purpose": "Pin validateSalesLineLinkInTx's one-null-one-set guard: payload with salesOrderId set + salesOrderLineId null must 400 with field error 'Select a valid sales order line'.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product with active BOM + open SO with one line"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Capture COUNT(*) FROM manufacturingOrders for the test org before the POST.",
+          "POST /api/manufacturing-orders with body { productId, salesOrderId: <SO.id>, salesOrderLineId: null, plannedQuantity: '4', ingredients: [seeded from BOM] }."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Response status 400",
+            "Response body.error equals 'Sales order link is incomplete'",
+            "Response body.errors.salesOrderLineId includes 'Select a valid sales order line'"
+          ],
+          "side_effects": [],
+          "negative_assertions": [
+            "COUNT(*) FROM manufacturingOrders unchanged from pre-POST snapshot — no row inserted"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [],
+        "data_isolation_notes": [
+          "Unique ts"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder"
+        ],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "sales-linked create with mismatched line.itemId vs productId returns 404 link_missing",
+        "scenario_id": "S08",
+        "lane": "fast",
+        "spec_file": "test/e2e/fast/so-mo-linkage.spec.ts",
+        "purpose": "Pin validateSalesLineLinkInTx's itemId === productId guard: payload pairing productId=ProductB with a line for ProductA must 404 with 'Sales order line not found' and the field error 'Select an active sales order line for this product'.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + Product-A (with BOM) + Product-B (with BOM) + open SO with one line for Product-A"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "POST /api/manufacturing-orders with body { productId: Product-B.id, salesOrderId: <SO.id>, salesOrderLineId: <Product-A line id>, plannedQuantity: '4', ingredients seeded from Product-B's BOM }."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Response status 404",
+            "Response body.errors contains 'Select an active sales order line for this product' (under a salesOrderLineId or productId key per the DAL)"
+          ],
+          "side_effects": [],
+          "negative_assertions": [
+            "No new MO row inserted"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [],
+        "data_isolation_notes": [
+          "Unique ts"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder"
+        ],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "create MO for product with empty active BOM returns 400 bom_required",
+        "scenario_id": "S09",
+        "lane": "fast",
+        "spec_file": "test/e2e/fast/so-mo-linkage.spec.ts",
+        "purpose": "Pin prepareCreateIngredientsInTx's bom_required guard: a product with zero active BOM components must reject MO creation with 400 'Products need a BOM'.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Product with NO BOM (bom: []) — itemType product"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "POST /api/manufacturing-orders with body { productId, salesOrderId: null, salesOrderLineId: null, plannedQuantity: '4', ingredients: [] }."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Response status 400",
+            "Response body.error contains 'Products need a BOM'"
+          ],
+          "side_effects": [],
+          "negative_assertions": [
+            "No new MO row inserted"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [],
+        "data_isolation_notes": [
+          "Unique ts"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createManufacturingOrder"
+        ],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "BR-10 confirmOversell:false on SO create and confirmShortage:false on MO create are silently ignored and inventory effects still apply",
+        "scenario_id": "S10",
+        "lane": "fast",
+        "spec_file": "test/e2e/fast/so-mo-linkage.spec.ts",
+        "purpose": "Pin BR-10's no-op contract: both flags are accepted by Zod but never read by the DAL. The endpoints unconditionally succeed and write inventory effects (committedQty, demandQty, expectedQty).",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Material with stock 0 + product with active BOM (1 ingredient = the zero-stock material) and product stock 0",
+            "Customer"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Capture C0 = parseFloat(inventoryItemBalances.committedQty) for the product; D0 = parseFloat(inventoryItemBalances.demandQty) for the material; E0_product = parseFloat(inventoryItemBalances.expectedQty) for the product.",
+          "POST /api/sales-orders with one line for the product, qty 10, body { ..., confirmOversell: false } via createSalesOrder helper.",
+          "POST /api/manufacturing-orders with body { productId, plannedQuantity: '4', ingredients: [{ itemId: materialId, quantityPerUnit: '5' }], confirmShortage: false }."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "SO POST returns 201 with new id (no shortage rejection)",
+            "MO POST returns 201 with new id (no shortage rejection)"
+          ],
+          "side_effects": [
+            "salesOrders row inserted with status='open'",
+            "manufacturingOrders row inserted with status='open'",
+            "parseFloat(inventoryItemBalances.committedQty) for product equals C0 + 10 (within 4dp)",
+            "parseFloat(inventoryItemBalances.demandQty) for material equals D0 + (5 × MO plannedQuantity) (within 4dp)",
+            "parseFloat(inventoryItemBalances.expectedQty) for product equals E0_product + MO plannedQuantity (within 4dp)"
+          ],
+          "negative_assertions": [
+            "No inventoryEvents row indicates a rejection — there is no reject branch",
+            "No 4xx response from either endpoint"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits with expect.poll for the inventory balance reads"
+        ],
+        "flakiness_risks": [
+          "The createSalesOrder helper defaults confirmOversell to true — Phase 5 MUST explicitly pass confirmOversell: false in the data arg",
+          "The createManufacturingOrder helper accepts confirmShortage; default is false (correct for this scenario)"
+        ],
+        "data_isolation_notes": [
+          "Unique ts"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder"
+        ],
+        "new_helpers_recommended": [
+          "captureInventoryBalances(db, itemId): Promise<{ onHandQty: number, committedQty: number, demandQty: number, expectedQty: number }>"
+        ]
+      },
+      {
+        "test_name": "BR-6 first branch: SO delete with linked MO carrying drift (different-itemId rewrite) is blocked",
+        "scenario_id": "S11",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Exercise the natural-path BR-6 first branch: SO line rewrite with different itemId leaves the MO's salesOrderLineId pointing at a deleted id with no fallback target. SO delete must 400 with the canonical drift error.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + Product-A with BOM + Product-B with BOM + open SO with one line for Product-A + sales-linked MO on Product-A line"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "PUT /api/sales-orders/<soId> replacing the Product-A line with a Product-B line (different itemId — no fallback target).",
+          "Confirm DB: MO.salesOrderLineId still equals the deleted Product-A line id; salesOrderLines for the SO has only Product-B's new line id.",
+          "Attempt DELETE /api/sales-orders/<soId>."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "PUT returns 200",
+            "DELETE returns 400 with error matching /manufacturing order .* is linked to the order but not to a matching active sales line/"
+          ],
+          "side_effects": [
+            "salesOrders.deletedAt remains NULL",
+            "manufacturingOrders.salesOrderLineId unchanged (still pointing at deleted id)"
+          ],
+          "negative_assertions": [
+            "No automatic snapshot rebind (no Product-A line exists in the new SO line set)"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [],
+        "data_isolation_notes": [
+          "Unique ts"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:updateSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder"
+        ],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "BR-5: item soft-delete is refused for both productId and ingredient roles, single returns 200+payload, bulk returns 400 atomic-fail",
+        "scenario_id": "S12",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin BR-5 symmetric coverage: deleteItem (single) returns 200 with { deleted: false, usedInActiveManufacturing: true }; deleteItems (bulk) returns 400 with the canonical error and NO item is soft-deleted (atomic-fail).",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + Material-M + Product-P with BOM containing Material-M + open SO + bulk-created MO on Product-P line (MO is in MO_ACTIVE with both productId and ingredient references)",
+            "One extra unrelated item (Material-U) with no MO references"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "DELETE /api/items/<Product-P.id> — expect 200 with body { deleted: false, usedInActiveManufacturing: true }.",
+          "DELETE /api/items/<Material-M.id> — expect 200 with body { deleted: false, usedInActiveManufacturing: true }.",
+          "DELETE /api/items with body { ids: [Product-P.id, Material-M.id, Material-U.id] } — expect 400 with error 'Cannot delete: one or more items are used by open manufacturing orders.'"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Single product DELETE returns 200 with the exact payload shape",
+            "Single material DELETE returns 200 with the exact payload shape",
+            "Bulk DELETE returns 400 with the canonical message"
+          ],
+          "side_effects": [
+            "items.deletedAt IS NULL for Product-P (single delete blocked)",
+            "items.deletedAt IS NULL for Material-M (single delete blocked)",
+            "items.deletedAt IS NULL for Material-U (the critical atomic-fail observable — the unrelated item is NOT silently deleted by the bulk path)"
+          ],
+          "negative_assertions": [
+            "Bulk does NOT partially succeed for Material-U"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [],
+        "data_isolation_notes": [
+          "Unique ts"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:deleteItem",
+          "test/helpers/api.ts:testFetch (for bulk DELETE)"
+        ],
+        "new_helpers_recommended": [
+          "bulkDeleteItems(ids) — DELETE /api/items with JSON body { ids }",
+          "createManufacturingOrdersFromSalesOrder(soId)"
+        ]
+      },
+      {
+        "test_name": "updateManufacturingOrder is blocked once MO is in MO_WORK_STARTED (pick has occurred)",
+        "scenario_id": "S13",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin updateManufacturingOrder's edit:work_started guard: any PUT after at least one pick must 400 with 'Orders cannot be edited after picking or batch work starts.'",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product + raw material with lots + open SO + sales-linked MO + pick one ingredient (MO_WORK_STARTED)"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Capture the MO's notes value (NOTES_OLD).",
+          "PUT /api/manufacturing-orders/<mo> with the original body BUT notes changed to NOTES_NEW."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Response status 400",
+            "Response body.error contains 'Orders cannot be edited after picking or batch work starts.'"
+          ],
+          "side_effects": [
+            "manufacturingOrders.notes unchanged (still NOTES_OLD)"
+          ],
+          "negative_assertions": [
+            "No update applied to any other field"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [],
+        "data_isolation_notes": [
+          "Unique ts"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder",
+          "test/helpers/api.ts:testFetch (for PUT /api/manufacturing-orders/[id])"
+        ],
+        "new_helpers_recommended": [
+          "pickOneIngredient(moId, ingredientId)",
+          "updateManufacturingOrder helper (currently absent from test/helpers/api.ts)"
+        ]
+      },
+      {
+        "test_name": "bulk Create-MOs-from-SO requires module:manufacturing write — sales-only user gets 403; canonical admin gets 201 (positive control)",
+        "scenario_id": "S14",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin the cross-module trust boundary: even though the endpoint lives under /api/sales-orders, it is gated by assertModuleWriteAccess('manufacturing'). The positive control after the 403 catches any regression that 403s everyone.",
+        "setup_requirements": {
+          "fixtures": ["test", "db", "browser"],
+          "preconditions": [
+            "Canonical test user is org admin with full module access",
+            "Secondary user must be created via invite + accept + sales_operator preset (pattern from test/e2e/team-management.spec.ts:672+)"
+          ],
+          "seed_data": [
+            "Customer + product with active BOM + open SO with one line — created as canonical admin"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Launch a second browser context for the sales-only user (invite + accept flow per team-management.spec.ts:672+).",
+          "From the sales-only context, POST /api/sales-orders/<soId>/manufacturing-orders with body { salesOrderLineIds: [<lineId>] } — expect 403.",
+          "Read DB: COUNT(*) manufacturingOrders WHERE salesOrderLineId=$lineId returns 0.",
+          "From the canonical admin context (original fixture), POST /api/sales-orders/<soId>/manufacturing-orders with the same body — expect 201.",
+          "Read DB: COUNT(*) returns 1; preview returns line as skipReason='existing_active_mo'."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Sales-only response status 403 (AuthorizationError mapped)",
+            "Admin response status 201 with body.created.length=1"
+          ],
+          "side_effects": [
+            "After 403: COUNT(*) manufacturingOrders for the line returns 0",
+            "After 201: COUNT(*) returns 1; preview line transitions to skipReason='existing_active_mo'"
+          ],
+          "negative_assertions": [
+            "Sales-only response is NOT 401 (the user IS signed in)",
+            "Sales-only response does NOT create a MO row"
+          ]
+        },
+        "waiting_strategy": [
+          "Wait for invite-accept flow completion before issuing the sales-only POST",
+          "Sequential awaits on both POSTs"
+        ],
+        "flakiness_risks": [
+          "Secondary user invite + accept is multi-step — Phase 5 must copy the pattern from team-management.spec.ts:672+ verbatim and avoid drift",
+          "Two browser contexts mean two session cookies — testFetch as-is uses the fixture cookie; the secondary user requires its own request layer (raw fetch with secondary cookie OR a second testFetch variant)"
+        ],
+        "data_isolation_notes": [
+          "Unique ts on all entities; secondary user email also unique"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:testFetch (for admin path)"
+        ],
+        "new_helpers_recommended": [
+          "createSalesOperatorInvitee(browser, db) — copy from team-management.spec.ts:672+",
+          "salesOnlyTestFetch(path, options) — variant of testFetch with the sales-only user's session cookie"
+        ]
+      },
+      {
+        "test_name": "T24 anti-duplication: two parallel POST /api/manufacturing-orders with DIFFERENT idempotency keys create two distinct MO rows on the same sales line and write zero claim rows",
+        "scenario_id": "S15",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin BR-8b's documented gap (no idempotency, no unique index, no existing_active_mo check on single-create POST). Two parallel POSTs claiming the same salesOrderLineId both return 201 with distinct ids; the set of response ids equals the set of DB ids; no inventoryIdempotencyClaims row is written for createManufacturingOrder.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product with active BOM + open SO with one line"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Construct two identical request bodies (same productId, salesOrderId, salesOrderLineId, plannedQuantity, ingredients).",
+          "Issue two parallel POSTs via Promise.all with explicit DIFFERENT Idempotency-Key headers per request (e.g. `t24-${i}-${Date.now()}`). testFetch's default randomUUID suffix would already give distinct keys, but explicit keys make the test intent unambiguous. Each POST: testFetch('/api/manufacturing-orders', { method: 'POST', body: JSON.stringify(body), headers: { 'Idempotency-Key': key } }).",
+          "Extract response.id from each 201 response body.",
+          "Query DB: SELECT id FROM manufacturingOrders WHERE salesOrderLineId=$lineId AND deletedAt IS NULL.",
+          "Query DB: SELECT COUNT(*) FROM inventory.inventory_idempotency_claims WHERE operationName LIKE 'createManufacturingOrder%'."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Both responses have status 201",
+            "The two response.id values are DISTINCT",
+            "expect.poll until the DB query returns 2 rows (T24 modelled outcome)"
+          ],
+          "side_effects": [
+            "Set equality: new Set([responseA.id, responseB.id]) === new Set(dbRows.map(r => r.id)) (both size 2)",
+            "Both MO rows have distinct orderNumbers (sequence-allocated)",
+            "Both MO rows have salesOrderLineId equal to the same line id",
+            "COUNT(*) FROM inventory_idempotency_claims WHERE operationName='createManufacturingOrder' returns 0 (BR-8b: non-idempotent endpoint)",
+            "Subsequent GET /api/sales-orders/<soId>/manufacturing-orders returns skipReason='existing_active_mo'"
+          ],
+          "negative_assertions": [
+            "No phantom dedup — response.ids and DB ids are exactly the same set",
+            "No 409 / 4xx response from either POST"
+          ]
+        },
+        "waiting_strategy": [
+          "Promise.all on the two POSTs",
+          "expect.poll for the DB count = 2"
+        ],
+        "flakiness_risks": [
+          "testFetch's default produces a randomUUID-suffixed key per call (distinct by default — no body-collapse). Phase 5 should still set explicit Idempotency-Key headers per request to make the distinct-key intent visible in the test code",
+          "Race may resolve with same-millisecond clock — distinguish responses by their response.id ordering, not by Promise resolution order"
+        ],
+        "data_isolation_notes": [
+          "Unique ts on all entities; distinct Idempotency-Key per request"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:testFetch"
+        ],
+        "new_helpers_recommended": [
+          "postManufacturingOrderWithExplicitKey(body, key) — wrapper that sets Idempotency-Key explicitly so the test intent (whether forcing replay or asserting distinct keys) is visible at the call site"
+        ]
+      },
+      {
+        "test_name": "RA-12: parallel bulk Create-MOs-from-SO calls serialize via FOR UPDATE; winner returns created.length=2, loser returns 409 or 201 with skipped existing_active_mo",
+        "scenario_id": "S16",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin RA-12's only concurrency primitive: createManufacturingOrdersFromSalesOrderInTx acquires FOR UPDATE on salesOrders. Two parallel POSTs against the same SO with overlapping line ids must serialize so the line is never multiply-claimed. Winner/loser identified by response shape (body.created.length), never by Promise index.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + Product-A with BOM + Product-B with BOM + open SO with two lines (one each)"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Construct two identical bulk POST payloads, both selecting BOTH line ids.",
+          "Issue both via Promise.allSettled with explicit distinct Idempotency-Key headers.",
+          "Identify winner: the response with status===201 AND body.created.length===2 AND body.skipped.length===0.",
+          "Identify loser: the OTHER response (either status===409 with refresh_required error, OR status===201 with body.created.length===0 AND body.skipped.length===2 with reason='existing_active_mo').",
+          "Query DB: COUNT(*) FROM manufacturingOrders WHERE salesOrderLineId IN ($lineA, $lineB) AND deletedAt IS NULL."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Exactly one winner (status 201, created.length=2, skipped.length=0)",
+            "Exactly one loser (status 409 OR status 201 with created.length=0 and both lines in skipped with reason='existing_active_mo')",
+            "Never both winners (response.created arrays must not overlap)"
+          ],
+          "side_effects": [
+            "COUNT(*) FROM manufacturingOrders for the two lineIds returns exactly 2 (one per line)",
+            "Neither line has a duplicate non-deleted MO"
+          ],
+          "negative_assertions": [
+            "Phase 5 must NOT identify winner by Promise.allSettled resolution order — lock acquisition order is undefined"
+          ]
+        },
+        "waiting_strategy": [
+          "Promise.allSettled on the two POSTs",
+          "Assert by response shape only"
+        ],
+        "flakiness_risks": [
+          "Lock acquisition order is undefined — never assume first-resolved is the winner"
+        ],
+        "data_isolation_notes": [
+          "Unique ts on all entities; distinct Idempotency-Key per request"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:testFetch"
+        ],
+        "new_helpers_recommended": [
+          "postBulkMOsFromSO(soId, lineIds, key) — wrapper with explicit Idempotency-Key",
+          "identifyWinner(responses) — returns the response with status===201 and created.length===expected"
+        ]
+      },
+      {
+        "test_name": "RA-11: confirmSalesOrder idempotency replay returns cached body, writes exactly one claim row, and is a no-op on inventoryEvents + stockAllocations",
+        "scenario_id": "S17",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin RA-11 replay safety for confirmSalesOrder: same Idempotency-Key returns cached envelope; the replay does NOT double-write inventoryEvents or stockAllocations (BR-7 no-op invariant).",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product + open SO with one confirmed-ready line"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Read pre-counts: inventoryEvents rows WHERE referenceType='sales_order' AND referenceId=$soId; stockAllocations active rows WHERE demandType='sales_order_line' AND demandId IN (line ids); inventory_idempotency_claims rows WHERE operationName='confirmSalesOrder'.",
+          "POST /api/sales-orders/<soId>/confirm with explicit Idempotency-Key='K1' (override the default per-call randomUUID so both calls use the same key — this is what forces a replay).",
+          "Capture after-counts.",
+          "POST /api/sales-orders/<soId>/confirm AGAIN with Idempotency-Key='K1' (replay).",
+          "POST /api/sales-orders/<soId>/confirm with Idempotency-Key='K2' (different key).",
+          "Capture final counts."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Both K1 calls return 200 with identical body { id: <soId> }",
+            "K2 call returns 200 with the same body shape"
+          ],
+          "side_effects": [
+            "salesOrders.status remains 'open' across all calls (BR-7 no-op)",
+            "COUNT(*) inventory_idempotency_claims WHERE operationName='confirmSalesOrder' AND idempotencyKey='K1' equals 1",
+            "COUNT(*) inventory_idempotency_claims WHERE operationName='confirmSalesOrder' AND idempotencyKey='K2' equals 1",
+            "Total of 2 claim rows for this operation across the test"
+          ],
+          "negative_assertions": [
+            "inventoryEvents row count for the SO is unchanged between K1.first and K1.replay (no double-write)",
+            "stockAllocations row count for the SO is unchanged between K1.first and K1.replay (no double-reserve)"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits between the 3 calls"
+        ],
+        "flakiness_risks": [
+          "Phase 5 must explicitly set Idempotency-Key in options.headers per call — relying on testFetch's body-fingerprint would give same key auto-replay, which is the wrong assertion target (we need to demonstrate that explicit same-key replay is no-op)"
+        ],
+        "data_isolation_notes": [
+          "Unique ts on all entities; unique K1/K2 keys per test run"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:testFetch"
+        ],
+        "new_helpers_recommended": [
+          "confirmSalesOrderWithKey(soId, key) — wrapper that forces a specific Idempotency-Key (overrides testFetch's default randomUUID)"
+        ]
+      },
+      {
+        "test_name": "T27: bulkConfirmSalesOrders idempotency replay returns cached {confirmedCount} and writes exactly one claim row",
+        "scenario_id": "S18",
+        "lane": "fast",
+        "spec_file": "test/e2e/fast/so-mo-linkage.spec.ts",
+        "purpose": "Pin T27 replay safety + BR-7 no-op invariant for the bulk-confirm surface (symmetric to S17).",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + two open SOs"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "POST /api/sales-orders/bulk-confirm with explicit Idempotency-Key='K1' and body { ids: [SO1, SO2] }.",
+          "POST /api/sales-orders/bulk-confirm with the SAME Idempotency-Key='K1' and the same body (replay)."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Both calls return 200 with identical body { confirmedCount: 2 }"
+          ],
+          "side_effects": [
+            "Both salesOrders rows: status='open' unchanged, no column mutated",
+            "COUNT(*) inventory_idempotency_claims WHERE operationName='bulkConfirmSalesOrders' AND idempotencyKey='K1' equals 1"
+          ],
+          "negative_assertions": [
+            "No second claim row written for the replay"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [
+          "Same as S17 — explicit key needed"
+        ],
+        "data_isolation_notes": [
+          "Unique ts; unique K1 per test run"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:testFetch"
+        ],
+        "new_helpers_recommended": [
+          "bulkConfirmSalesOrders(ids, key) — wrapper with explicit key"
+        ]
+      },
+      {
+        "test_name": "completeManufacturingOrder is idempotency-replay safe: retry with same key returns cached body, exactly one done MO + one claim row + one output lot",
+        "scenario_id": "S19",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin RA-11 replay safety for completeManufacturingOrder: same key returns cached envelope; second call does not flip status twice, does not write a duplicate output lot, does not re-recompute expectedQty.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product + raw materials + open SO + sales-linked MO + pick all ingredients (MO_WORK_STARTED with all picks complete)"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Capture pre-state: expectedQty for product, COUNT(*) lots WHERE itemId=productId, COUNT(*) inventory_idempotency_claims for completeManufacturingOrder.",
+          "POST /api/manufacturing-orders/<mo>/complete with body { actualQuantity: plannedQty } and explicit Idempotency-Key='K1'.",
+          "POST /api/manufacturing-orders/<mo>/complete with the SAME body and SAME Idempotency-Key='K1' (replay)."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "First call returns 200",
+            "Second call returns 200 with body identical to the first"
+          ],
+          "side_effects": [
+            "manufacturingOrders row: status='done', completedAt SET, actualQuantity > 0 — UNCHANGED between the two reads",
+            "Exactly one lot row created for productId (no duplicate output lot)",
+            "Exactly one manufacturingOrderOutputs row",
+            "COUNT(*) inventory_idempotency_claims WHERE operationName='completeManufacturingOrder' AND idempotencyKey='K1' equals 1",
+            "parseFloat(SUM(inventoryItemBalances.expectedQty)) for the product is unchanged between the two reads (no double-decrement)"
+          ],
+          "negative_assertions": [
+            "No second output lot row inserted",
+            "No second inventoryEvents 'manufacturing_output' row"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits with expect.poll for the post-complete reads"
+        ],
+        "flakiness_risks": [
+          "Explicit key required (per S17 / repo_patterns idempotency_helper)"
+        ],
+        "data_isolation_notes": [
+          "Unique ts; unique K1"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder",
+          "test/helpers/api.ts:completeManufacturingOrder (but Phase 5 must wrap to set explicit key)"
+        ],
+        "new_helpers_recommended": [
+          "completeManufacturingOrderWithKey(moId, actualQty, key)",
+          "pickAllManufacturingIngredients(moId)"
+        ]
+      },
+      {
+        "test_name": "RA-3: MO create rejected with 409 bom_changed when submitted ingredient row count differs from current active BOM",
+        "scenario_id": "S20",
+        "lane": "fast",
+        "spec_file": "test/e2e/fast/so-mo-linkage.spec.ts",
+        "purpose": "Pin RA-3 bom_changed guard: 2-row ingredient payload submitted after the active BOM was mutated to 3 rows via PUT /api/items/[id] returns 409.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + Material-A + Material-B + Material-C + Product-P with active BOM = 2 rows [Material-A, Material-B]"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Capture the original 2-row ingredient payload from Product-P's BOM.",
+          "PUT /api/items/<Product-P.id> with body that includes bom: [3 rows including Material-A, Material-B, Material-C] — replaces the active BOM revision.",
+          "POST /api/manufacturing-orders with the original 2-row ingredient payload."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "PUT returns 200 with the updated item body",
+            "POST response status 409",
+            "POST response body.error contains 'The product BOM changed. Reload and try again.'"
+          ],
+          "side_effects": [
+            "No new manufacturingOrders row inserted"
+          ],
+          "negative_assertions": [
+            "PUT does not silently fail; the 3-row BOM is persisted"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [
+          "updateItem helper requires the full item body — Phase 5 must include the bom array shape correctly per updateItemSchema at app/api/items/[id]/route.ts:17-66"
+        ],
+        "data_isolation_notes": [
+          "Unique ts"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:updateItem",
+          "test/helpers/api.ts:createManufacturingOrder"
+        ],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "bulk DELETE /api/manufacturing-orders is atomic-fail: one finalized MO in the batch blocks deletion of clean MOs",
+        "scenario_id": "S21",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin BR-5's manufacturing-side mirror: bulk DELETE /api/manufacturing-orders returns 400 with the canonical finalized message and NO MO is soft-deleted (atomic-fail) when any single MO violates the finalized guards.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product + raw materials with lots",
+            "MO-A: sales-linked, in MO_ACTIVE (no picks, clean cancellable)",
+            "MO-B: unlinked, fully picked, completed (MO_DONE — finalized by production output)"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Issue bulk DELETE: testFetch('/api/manufacturing-orders', { method: 'DELETE', body: JSON.stringify({ ids: [MO-A.id, MO-B.id] }) }).",
+          "Read both MO rows' deletedAt from DB."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Response status 400",
+            "Response body.error matches /production output has already been recorded/ and cites MO-B's orderNumber"
+          ],
+          "side_effects": [
+            "MO-A.deletedAt IS NULL (the critical atomic-fail observable)",
+            "MO-B.deletedAt IS NULL (finalized guard held)",
+            "GET /api/sales-orders/<soId>/manufacturing-orders preview still reports MO-A's line as skipReason='existing_active_mo'"
+          ],
+          "negative_assertions": [
+            "MO-A was NOT silently soft-deleted by the bulk path"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [
+          "Completing MO-B requires a full pick + complete cycle — multi-step setup"
+        ],
+        "data_isolation_notes": [
+          "Unique ts"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder",
+          "test/helpers/api.ts:completeManufacturingOrder",
+          "test/helpers/api.ts:testFetch (for bulk DELETE)"
+        ],
+        "new_helpers_recommended": [
+          "bulkDeleteManufacturingOrders(ids)",
+          "pickAllManufacturingIngredients(moId)"
+        ]
+      },
+      {
+        "test_name": "bulkConfirmSalesOrders dead-write contract: returns ids.length even with duplicate/deleted/nonexistent ids; no rows mutated; one claim row",
+        "scenario_id": "S22",
+        "lane": "fast",
+        "spec_file": "test/e2e/fast/so-mo-linkage.spec.ts",
+        "purpose": "Pin the current no-validation contract: bulkConfirmSalesOrders returns {confirmedCount: ids.length} unconditionally; no salesOrders column is mutated; exactly one inventory_idempotency_claims row is written.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + two open SOs (SO1, SO2) + one soft-deleted SO (SO3 with deletedAt SET)",
+            "Generate one random UUID that does not match any row (UUID_FAKE)"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Capture salesOrders columns (status, deletedAt) for SO1, SO2, SO3 BEFORE. (Note: salesOrders has NO cancelledAt column; a 'cancelled' SO conceptually = deletedAt IS NOT NULL.)",
+          "POST /api/sales-orders/bulk-confirm with explicit Idempotency-Key='K1' and body { ids: [SO1, SO2, SO1, SO3, UUID_FAKE] } (5 ids, includes duplicate, deleted, nonexistent).",
+          "Read response body.",
+          "Read salesOrders columns AFTER for each known id.",
+          "Read inventory_idempotency_claims rows for K1."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Response status 200 with body { confirmedCount: 5 } (no validation; current contract)"
+          ],
+          "side_effects": [
+            "SO1, SO2, SO3 columns unchanged from pre-call snapshot",
+            "Exactly one inventory_idempotency_claims row exists for operationName='bulkConfirmSalesOrders' AND idempotencyKey='K1'"
+          ],
+          "negative_assertions": [
+            "No 4xx response (validation regression would surface here)"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [
+          "Phase 5 must source UUID_FAKE via crypto.randomUUID() to guarantee no collision"
+        ],
+        "data_isolation_notes": [
+          "Unique ts; unique K1"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:testFetch"
+        ],
+        "new_helpers_recommended": [
+          "softDeleteSalesOrder(soId) — DELETE /api/sales-orders/[id] (for SO3 setup)",
+          "bulkConfirmSalesOrders(ids, key)"
+        ]
+      },
+      {
+        "test_name": "BR-6 second branch: SO delete blocked when linked MO has active allocation pointing to a different SO's line",
+        "scenario_id": "S23",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin BR-6's second branch (cross-SO shared allocation): when MO-1 (linked to SO-A) has a stockAllocations row sourceType='manufacturing_order' demandType='sales_order_line' demandId=SO-B's line id, DELETE /api/sales-orders/SO-A returns 400 with the canonical 'allocated to another sales order' error.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product with active BOM + SO-A with confirmed line + SO-B with confirmed line",
+            "MO-1 linked to SO-A's line, released so supply is allocatable",
+            "Cross-SO stockAllocations row: sourceType='manufacturing_order', sourceId=MO-1.id, demandType='sales_order_line', demandId=SO-B's line id, status='active'"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Attempt DELETE /api/sales-orders/<SO-A.id>.",
+          "Read response status + body.",
+          "Read salesOrders.deletedAt for SO-A."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "DELETE returns 400 with error matching /manufacturing order .* is allocated to another sales order. Remove that allocation first./",
+            "Error message cites MO-1's orderNumber"
+          ],
+          "side_effects": [
+            "SO-A.deletedAt remains NULL",
+            "MO-1 row unchanged",
+            "stockAllocations row unchanged"
+          ],
+          "negative_assertions": [
+            "SO-A is NOT silently soft-deleted"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [
+          "Creating the cross-SO allocation row may require driving the natural planning flow (release MO + allocate against SO-B) OR a direct db.insert(stockAllocations) — Phase 5 should try the public planning API first (POST /api/planning/actions/manufacturing-order) and fall back to a direct insert via the db fixture if no path exists"
+        ],
+        "data_isolation_notes": [
+          "Unique ts on all entities"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:confirmSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder",
+          "test/helpers/api.ts:releaseManufacturingOrder"
+        ],
+        "new_helpers_recommended": [
+          "createCrossSOAllocation(db, { sourceMoId, demandSalesLineId }) — direct db.insert(stockAllocations) wrapper (test-only, justified by guard-pin)"
+        ]
+      },
+      {
+        "test_name": "cross-endpoint race: parallel bulk-from-SO + single-create against the same line — pin observed outcome",
+        "scenario_id": "S24",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin the GAP-parallel-bulk-vs-single race observable. Bulk path acquires FOR UPDATE on salesOrders; single-create POST does not. The two paths can interleave. Phase 4 contract direction: BR-1 violated → 2 MO rows on the same lineId (no_guard_exists). Test must assert the observed outcome (1 or 2) explicitly and surface the observed value via an explicit message.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product with active BOM + open SO with one line"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Construct payload A: bulk POST /api/sales-orders/<soId>/manufacturing-orders with salesOrderLineIds=[lineId].",
+          "Construct payload B: single POST /api/manufacturing-orders with both ids and ingredients seeded.",
+          "Issue both in parallel via Promise.allSettled with explicit distinct Idempotency-Keys.",
+          "Read both response statuses + bodies.",
+          "Query DB: COUNT(*) manufacturingOrders WHERE salesOrderLineId=$lineId AND deletedAt IS NULL."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "EITHER both responses 201 AND DB count===2 (cross-endpoint race observable; BR-1 violation contract pin)",
+            "OR one response 201 + one response 4xx AND DB count===1 (undocumented serialization holds; document in test failure message)",
+            "Phase 5 must assert ONE of these two outcomes and record which was observed; never treat both successes as expected without comment"
+          ],
+          "side_effects": [
+            "If DB count===2: both rows have distinct ids, distinct orderNumbers, salesOrderLineId equal — record this as the BR-1 cross-endpoint race",
+            "If DB count===1: only one MO row inserted; record the loser's error message"
+          ],
+          "negative_assertions": [
+            "DB count is NEVER zero (at least one POST must succeed)"
+          ]
+        },
+        "waiting_strategy": [
+          "Promise.allSettled",
+          "Explicit DB count assertion at the end"
+        ],
+        "flakiness_risks": [
+          "Cross-endpoint races have non-deterministic timing — Phase 5 should retry the scenario up to 5 times if the assertion fails AND the failure is the rare 'both 4xx' shape (which would indicate a different bug)",
+          "S24 is marked experimental — if the assertion fails with the rare both-4xx shape, file a Linear issue rather than retrying indefinitely"
+        ],
+        "data_isolation_notes": [
+          "Unique ts; distinct Idempotency-Keys"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:testFetch"
+        ],
+        "new_helpers_recommended": [
+          "postSingleMOWithLink(body, key)",
+          "postBulkMOsFromSO(soId, lineIds, key)"
+        ]
+      },
+      {
+        "test_name": "item soft-delete succeeds when item is referenced only by a cancelled MO (deletedAt SET): T26 inverse",
+        "scenario_id": "S25",
+        "lane": "fast",
+        "spec_file": "test/e2e/fast/so-mo-linkage.spec.ts",
+        "purpose": "Pin T26 inverse: deleteItem's guard filters status='open' AND deletedAt IS NULL. A cancelled MO has deletedAt SET, so the guard must NOT fire and the item must be soft-deletable.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + Product with active BOM (1 ingredient = Material-M) + unlinked MO using Material-M as ingredient",
+            "Cancel the MO via DELETE /api/manufacturing-orders/<mo> (no picks → cancel succeeds; MO has deletedAt SET, status='open')"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Confirm pre-state: manufacturingOrders.deletedAt IS NOT NULL for the cancelled MO.",
+          "DELETE /api/items/<Material-M.id>."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Response status 200 with body { deleted: true }"
+          ],
+          "side_effects": [
+            "items.deletedAt IS NOT NULL for Material-M (successfully soft-deleted)"
+          ],
+          "negative_assertions": [
+            "No 4xx response (a regression that broadens the guard to include cancelled MOs would surface here)"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [],
+        "data_isolation_notes": [
+          "Unique ts"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder",
+          "test/helpers/api.ts:deleteItem",
+          "test/helpers/api.ts:testFetch"
+        ],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "parallel PUT update and DELETE on the same MO serialize without ingredient orphans; final state is self-consistent",
+        "scenario_id": "S26",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin the row-lock invariant for same-MO PUT vs DELETE: both paths use FOR UPDATE on the MO row, so they serialize. Final state: exactly one row exists; either deletedAt SET (delete won) or PUT's changes applied (update won); never both.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product + raw material + open SO + sales-linked MO in MO_ACTIVE (no picks)"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Construct PUT payload with a notes change (NOTES_NEW).",
+          "Issue both in parallel via Promise.allSettled with explicit distinct Idempotency-Keys: testFetch(`/api/manufacturing-orders/${moId}`, { method: 'PUT', body: JSON.stringify(updateBody), headers }) AND testFetch(`/api/manufacturing-orders/${moId}`, { method: 'DELETE', headers }).",
+          "Read both response statuses + bodies.",
+          "Query MO row state from DB to determine outcome (the explicit DB-state discriminator): SELECT id, deletedAt, notes FROM manufacturingOrders WHERE id=$moId. The row state determines which path 'won':",
+          "  - deletedAt IS NOT NULL AND notes != NOTES_NEW → DELETE won (PUT either lost the race or saw the deleted row)",
+          "  - deletedAt IS NULL AND notes = NOTES_NEW → PUT won, DELETE either failed or was queued",
+          "  - deletedAt IS NOT NULL AND notes = NOTES_NEW → BOTH applied (PUT first, then DELETE); acceptable serial outcome",
+          "  - deletedAt IS NULL AND notes != NOTES_NEW → neither applied (impossible if at least one returned 200; would indicate test bug or DB rollback)"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Exactly one of PUT/DELETE returns 200; the other returns either 404 (delete won, PUT sees no row) OR 200 (both succeed serially with delete second) OR 400 (state-changed)",
+            "Both responses cannot both fail with 5xx (that would indicate corruption)",
+            "Phase 5 must classify the outcome by reading DB row state (per interaction_plan steps 4-8) and assert exactly one of the three valid combinations"
+          ],
+          "side_effects": [
+            "Exactly one manufacturingOrders row exists for the MO id (no duplicate)",
+            "If deletedAt IS NOT NULL: cancellation side-effects are present (allocations cancelled); salesOrders has no separate cancelledAt column",
+            "If deletedAt IS NULL: PUT's NOTES_NEW is persisted in manufacturingOrders.notes",
+            "Never the impossible combo: deletedAt IS NULL AND notes != NOTES_NEW (would indicate both writes were rolled back — corruption)"
+          ],
+          "negative_assertions": [
+            "No ingredient orphans (manufacturingOrderIngredients rows with no matching MO)"
+          ]
+        },
+        "waiting_strategy": [
+          "Promise.allSettled",
+          "DB readback at the end"
+        ],
+        "flakiness_risks": [
+          "Lock acquisition order is undefined — assertions must be by post-state, not by Promise resolution order"
+        ],
+        "data_isolation_notes": [
+          "Unique ts; distinct keys"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder",
+          "test/helpers/api.ts:testFetch"
+        ],
+        "new_helpers_recommended": [
+          "updateManufacturingOrder(id, body, key?)"
+        ]
+      },
+      {
+        "test_name": "PUT /api/manufacturing-orders/[id] is naturally idempotent on retry: ingredient demand and allocations end in the same state",
+        "scenario_id": "S27",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin the retry semantics for MO PUT (no requireIdempotencyKey): same body submitted twice produces the same net inventory state — no duplicate ingredient rows, no duplicate active allocations, two cancelled allocations in the audit trail.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product + raw material + open SO + sales-linked MO in MO_ACTIVE (no picks)"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Capture initial state: manufacturingOrderIngredients rows (count + itemIds); SUM(inventoryItemBalances.expectedQty) for product across locations; stockAllocations active rows WHERE demandType='manufacturing_order_ingredient' for each ingredient.",
+          "PUT /api/manufacturing-orders/<mo> with the original body + a notes field — first call.",
+          "PUT /api/manufacturing-orders/<mo> with the SAME body again — second call. testFetch's default already produces a distinct randomUUID-suffixed key per call; the second PUT inherently sees a different key. The test asserts natural-idempotency of the PUT path (same net DB state) despite the absence of requireIdempotencyKey on this route.",
+          "Read final state."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Both PUTs return 200",
+            "Response bodies need not be byte-identical (ingredient row ids may differ; update hard-deletes + re-inserts)"
+          ],
+          "side_effects": [
+            "manufacturingOrderIngredients count for the MO equals the body's ingredient count exactly (no duplicates)",
+            "parseFloat(SUM(inventoryItemBalances.expectedQty)) for product unchanged from single-PUT expectation",
+            "stockAllocations active rows for each ingredient: exactly one active row per ingredient (the second PUT cancelled the first's and re-issued)",
+            "stockAllocations cancelled rows for each ingredient: exactly TWO (one per PUT) — audit trail preserved"
+          ],
+          "negative_assertions": [
+            "Never two active stockAllocations rows for the same ingredient"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [
+          "Phase 5 should pass distinct Idempotency-Keys explicitly so the test asserts natural-idempotency of the PUT route — not idempotency-key-driven replay. testFetch's default randomUUID would also satisfy this, but explicit keys make the test intent clear"
+        ],
+        "data_isolation_notes": [
+          "Unique ts; distinct Idempotency-Keys per PUT"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder",
+          "test/helpers/api.ts:testFetch"
+        ],
+        "new_helpers_recommended": [
+          "updateManufacturingOrder(id, body, key?)"
+        ]
+      },
+      {
+        "test_name": "moveReplacedSalesLineAllocationsInTx preserves allocations when SO has multiple same-itemId lines and is rewritten",
+        "scenario_id": "S28",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin moveReplacedSalesLineAllocationsInTx's pairing strategy: itemId + sortOrder via per-itemId bucket .shift(). Multi-line same-itemId rewrite must migrate active allocations from old line ids to new line ids in sortOrder order; no allocation references a deleted old line id.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + Product-A (with active BOM)",
+            "Open SO with two lines for Product-A: line0 qty 5 sortOrder 0, line1 qty 3 sortOrder 1; CONFIRM both lines so each has an active stockAllocations row (demandType='sales_order_line')"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Capture pre-state: SELECT id, sortOrder FROM salesOrderLines WHERE salesOrderId=$soId ORDER BY sortOrder; SELECT id, demandId, createdAt FROM stockAllocations WHERE demandType='sales_order_line' AND demandId IN (line0, line1) AND status='active'.",
+          "PUT /api/sales-orders/<soId> with three Product-A lines: line0' qty 4 sortOrder 0, line1' qty 2 sortOrder 1, line2' qty 6 sortOrder 2.",
+          "Read post-state: salesOrderLines (should have 3 new ids), stockAllocations active rows."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "PUT returns 200"
+          ],
+          "side_effects": [
+            "Three new salesOrderLines rows exist for the SO (line0', line1', line2')",
+            "Old line0 and line1 ids are gone from salesOrderLines",
+            "stockAllocations active rows for demandId=line0' AND demandId=line1' exist (migrated from line0/line1 in sortOrder order)",
+            "line2' has its own fresh active allocation row (NOT a migration — distinguishable by createdAt timestamp later than line0'/line1')",
+            "No active stockAllocations row references line0 or line1 (the deleted ids)"
+          ],
+          "negative_assertions": [
+            "No active allocation row references an old (deleted) line id",
+            "Migration is by sortOrder pairing, not random — line0's allocation lands on line0', NOT on line1'"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [
+          "Distinguishing migrated vs fresh allocations may require comparing createdAt timestamps OR exact allocation id continuity — Phase 5 should compute the expected migration by ts pairing"
+        ],
+        "data_isolation_notes": [
+          "Unique ts"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:confirmSalesOrder",
+          "test/helpers/api.ts:updateSalesOrder"
+        ],
+        "new_helpers_recommended": [
+          "readActiveSalesLineAllocations(db, salesLineIds)"
+        ]
+      },
+      {
+        "test_name": "BR-1 violation via PUT/edit-add-link: attaching a sales line to a previously-unlinked MO bypasses existing_active_mo (confirmed production gap)",
+        "scenario_id": "S29",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin the confirmed production code defect: validateSalesLineLinkInTx at queries.ts:729-819 has no existing_active_mo check, so PUT /api/manufacturing-orders/[id] can attach a sales-link onto an unlinked MO and claim a line already claimed by another active MO. Asserts the modelled outcome (PUT 200, two MO rows on the same lineId, BR-1 violated).",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + product with active BOM + open SO with one line",
+            "MO-A: sales-linked to the line (CLAIM_ACTIVE_MO state)",
+            "MO-B: unlinked, same productId, salesOrderId=null, salesOrderLineId=null"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "PUT /api/manufacturing-orders/<MO-B.id> with body { salesOrderId: <SO.id>, salesOrderLineId: <line claimed by MO-A>, productId: <same product id>, plannedQuantity, ingredients seeded from BOM, ... } (full update body).",
+          "Read response status + body.",
+          "Query DB: SELECT id, salesOrderLineId, salesOrderId FROM manufacturingOrders WHERE salesOrderLineId=$lineId AND deletedAt IS NULL ORDER BY createdAt.",
+          "GET /api/sales-orders/<soId>/manufacturing-orders preview."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "PUT returns 200 (current contract: BR-1 NOT enforced on the PUT path — production gap)",
+            "If PUT returns 4xx: this test FAILS LOUDLY indicating the fix has landed — Phase 5 must record this as the expected fix outcome AND update the contract (state-model.json T16 transition gains an existing_active_mo precondition)"
+          ],
+          "side_effects": [
+            "Post-PUT: TWO manufacturingOrders rows have salesOrderLineId pointing at the same line (MO-A and MO-B) — BR-1 violated",
+            "MO-A row unchanged (still linked, same salesOrderLineId, status='open')",
+            "MO-B row now has salesOrderLineId = the claimed line id, salesOrderId = SO id, salesOrderNumber/salesCustomerName snapshots populated",
+            "Preview shows skipReason='existing_active_mo' for the line (filter matches because at least one MO exists — but underlying claim count is 2)"
+          ],
+          "negative_assertions": [
+            "MO-A.deletedAt remains NULL (PUT on MO-B does not touch MO-A)"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [
+          "S29 is EXPERIMENTAL — assertion shape is conditional on the production defect being present. Phase 5 must structure the assertions so a fix (PUT returns 4xx) causes a clear, actionable failure with a message pointing to the contract + suggested_fix in scenarios.json:production_bug_discovery.",
+          "Phase 5 must NOT skip this test if it fails — file a Linear issue referencing notes_for_phase_4 #10 and the production_bug_discovery block"
+        ],
+        "failure_message_intent": "Phase 5 must wrap the PUT response status assertion with a self-documenting message. Example:\n  expect(response.status, `S29 BR-1 production-gap check: current contract is 200 (BR-1 violated via PUT add-link, see validateSalesLineLinkInTx queries.ts:729-819). If you see this test FAIL with response.status==4xx (e.g., 409), the production fix has landed — congrats. Next steps: (1) update contract.json BR-1 to reflect enforcement on the PUT path; (2) update state-model.json T16 with the new existing_active_mo guard; (3) flip this test's expected status to the new 4xx value; (4) close the suggested_fix block in scenarios.json:production_bug_discovery.`).toBe(200);\nSimilarly, the duplicate-row count assertion should include a message naming the contract violation and pointing to the suggested fix.",
+        "data_isolation_notes": [
+          "Unique ts"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder",
+          "test/helpers/api.ts:testFetch"
+        ],
+        "new_helpers_recommended": [
+          "updateManufacturingOrder(id, body, key?)"
+        ]
+      },
+      {
+        "test_name": "stale-form unsaved-changes: MO create with stale salesOrderLineId after concurrent SO line rewrite fails with 404 link_missing (no snapshot fallback on CREATE path)",
+        "scenario_id": "S30",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
+        "purpose": "Pin the create-time absence of validateSalesLineLinkInTx's snapshot fallback. createManufacturingOrderInTx calls the validator without the existingSnapshot arg (queries.ts:3561), so the fallback never runs on CREATE. A stale salesOrderLineId from a tab-switch must result in 404 link_missing.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [],
+          "seed_data": [
+            "Customer + Product-A with active BOM + Product-B with active BOM + open SO with one line for Product-A"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Capture LINE_OLD = the SO line id for Product-A.",
+          "PUT /api/sales-orders/<soId> replacing the line with Product-B (different itemId — LINE_OLD is now deleted; no Product-A line exists).",
+          "POST /api/manufacturing-orders with body { productId: Product-A.id, salesOrderId: <SO.id>, salesOrderLineId: LINE_OLD, plannedQuantity, ingredients seeded from Product-A BOM } — simulates a stale form submission."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Response status 404",
+            "Response body.error contains 'Sales order line not found'",
+            "Response body.errors contains 'Select an active sales order line for this product'"
+          ],
+          "side_effects": [],
+          "negative_assertions": [
+            "COUNT(*) manufacturingOrders for the test org is unchanged from pre-POST snapshot (no MO created)",
+            "No snapshot fallback runs on CREATE — even though a same-itemId Product-A line could conceptually be invented later, the test confirms the asymmetry by NOT having any Product-A line at all"
+          ]
+        },
+        "waiting_strategy": [
+          "Sequential awaits"
+        ],
+        "flakiness_risks": [],
+        "data_isolation_notes": [
+          "Unique ts"
+        ],
+        "applicable_helpers": [
+          "test/helpers/api.ts:createItem",
+          "test/helpers/api.ts:createCustomer",
+          "test/helpers/api.ts:createSalesOrder",
+          "test/helpers/api.ts:updateSalesOrder",
+          "test/helpers/api.ts:createManufacturingOrder"
+        ],
+        "new_helpers_recommended": []
+      }
+    ]
+  },
+  "review_focus": [
+    "Verify every spec has lane='fast' OR lane='slow' (no schema/api/ui leakage from the phase-4 template).",
+    "Verify all 31 scenarios have exactly one matching spec (S01–S30, including S04b).",
+    "Verify the 8 fast specs in coverage_summary.lane_distribution.fast all land in test/e2e/fast/so-mo-linkage.spec.ts; the 23 slow in test/e2e/slow/so-mo-linkage.spec.ts.",
+    "Verify concurrency specs (S15, S16, S24, S26) explicitly use Promise.allSettled and identify winner/loser by response shape.",
+    "Verify idempotency specs (S15, S17, S18, S19, S22, S27) explicitly override testFetch's auto Idempotency-Key by setting options.headers — otherwise the test exercises the wrong semantics.",
+    "Verify S29 is marked experimental and the assertion_plan documents both branches (current bug: PUT 200 + two rows; future fix: PUT 4xx).",
+    "Verify every applicable_helpers entry exists in test/helpers/api.ts or test/e2e/fixtures.ts. New helpers (updateManufacturingOrder, bulkDeleteManufacturingOrders, bulkConfirmSalesOrders, postBulkMOsFromSO, captureExpectedQty, pickAllManufacturingIngredients, etc.) are listed in new_helpers_recommended for Phase 5 to inline.",
+    "Verify DB assertions use real Drizzle column names: items table has NO expectedQty column — read inventoryItemBalances.expectedQty SUMMED across locations for (organizationId, itemId); manufacturingOrders.salesOrderLineId; inventoryEvents.eventType; stockAllocations.demandType/demandId/sourceType/sourceId/status; inventoryIdempotencyClaims.operationName + idempotencyKey; salesOrders has deletedAt (no cancelledAt); a cancelled SO conceptually = deletedAt IS NOT NULL.",
+    "Verify numeric assertions use parseFloat (Postgres numeric returns strings per CLAUDE.md).",
+    "Verify S14's secondary user flow references team-management.spec.ts:672+ pattern, NOT a non-existent helper."
+  ],
+  "notes_for_phase_5": [
+    "testFetch in test/helpers/api.ts auto-applies Idempotency-Key via createIdempotencyHeaders. Specs S15/S17/S18/S19/S22/S27 require EXPLICIT Idempotency-Key headers passed via options.headers to either force same-key replay or distinct keys per request. The body-fingerprint auto-default would otherwise collapse same-body retries into a single key.",
+    "Both new spec files use test.describe.configure({ mode: 'serial' }) at the top because the seed data + DB state is shared across tests in the same describe.",
+    "All test names lead with a verb or property (no leading 'should').",
+    "Date.now() suffix is the only collision avoidance strategy — do not introduce extra randomness unless a specific spec requires UUID_FAKE.",
+    "When a new helper is recommended but doesn't yet exist (e.g. updateManufacturingOrder, bulkDeleteManufacturingOrders, captureExpectedQty), Phase 5 should inline the helper at the top of the new spec file under a 'Local helpers' comment block. Future extraction to test/helpers/linked-order.ts is OK but out of scope.",
+    "All Drizzle reads must include the org-context (the db fixture handles this automatically via set_config('app.current_org_id') per query — no manual scoping needed).",
+    "expect.poll is preferred over arbitrary setTimeout for any post-mutation DB read; bound polling to ≤15s.",
+    "S29 is flagged experimental in flakiness_risks. If the production fix lands between Phase 4 and Phase 5 execution, the assertion shape will need to flip; document both branches in the spec body so the failure message is self-explanatory.",
+    "Naming: the new spec files are test/e2e/fast/so-mo-linkage.spec.ts and test/e2e/slow/so-mo-linkage.spec.ts. Do NOT extend the existing manufacturing-order.spec.ts or sales-order.spec.ts — CLAUDE.md mandates self-contained spec files per scenario story."
+  ]
+}
