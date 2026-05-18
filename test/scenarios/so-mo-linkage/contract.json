@@ -1,0 +1,1578 @@
+{
+  "summary": "Phase 1 contract for the sales-order ↔ manufacturing-order (SO↔MO) linkage, revised after critic review. Captures the cross-cutting business contract enforced by the manufacturing-order form, the bulk Create-MOs dialog on the SO detail page, and the routes/DAL functions that own creation, edit, sales-link validation, soft-delete blocks, and the one-time-claim invariant on salesOrderLineId. Documents the persisted enum vocabulary ('open'|'done' + cancelledAt/completedAt/actualQuantity/deletedAt columns), the post-948c155e behavior where sales-linked single-MO creation is allowed and seeds ingredients from the BOM, the per-endpoint idempotency asymmetry (an enumerated map across all MO and SO endpoints), and the operationally-observable replay behavior of confirmSalesOrder via beginInventoryOperationInTx. Splits the SO-line-rewrite risk surface into three distinct cases (same-itemId rewrite, different-itemId rewrite, rewrite while linked MO has pick allocations) and adds parallel bulk-create-from-SO serialization. Notes that confirmOversell and confirmShortage are accepted by the create-time payloads but unused by createSalesOrder / createManufacturingOrderInTx — there is no 400/409 shortage path on create. Distinguishes facts (cited to file:lines) from inferences (reasoned from cited code) from unknowns (deferred to later phases).",
+  "evidence": [
+    {
+      "file": "lib/db/schema/manufacturing.ts",
+      "symbol": "manufacturingOrders columns: status, completedAt, cancelledAt, deletedAt, actualQuantity",
+      "lines": "54, 58, 69-71",
+      "reason": "Persisted status enum default is 'open'. The 'cancelled' and 'completed' conceptual states are encoded by cancelledAt / completedAt / actualQuantity / deletedAt columns rather than a status string."
+    },
+    {
+      "file": "lib/db/schema/manufacturing.ts",
+      "symbol": "manufacturingOrders.salesOrderLineId (no FK)",
+      "lines": "40-42",
+      "reason": "Comment explicitly documents the design: salesOrderLineId is a plain uuid snapshot without an FK so SO line hard-delete + re-insert during draft order edits does not violate constraints."
+    },
+    {
+      "file": "lib/schemas/manufacturing-orders.ts",
+      "symbol": "MANUFACTURING_ORDER_STATUSES",
+      "lines": "7-10",
+      "reason": "Persisted status enum is exactly ['open', 'done']."
+    },
+    {
+      "file": "lib/schemas/sales-orders.ts",
+      "symbol": "SALES_ORDER_STATUSES",
+      "lines": "12-13",
+      "reason": "Persisted SO status enum is exactly ['open', 'done']."
+    },
+    {
+      "file": "lib/schemas/sales-orders.ts",
+      "symbol": "baseSalesOrderSchema.status transform",
+      "lines": "127-130",
+      "reason": "Status field is forced to 'open' on insert regardless of caller input. There is no 'draft' status at the persistence layer."
+    },
+    {
+      "file": "lib/manufacturing/sales-order-manufacturability.ts",
+      "symbol": "existing_active_mo filter inside getSalesOrderManufacturingSummariesInTx",
+      "lines": "222-235",
+      "reason": "Filters manufacturingOrders WHERE salesOrderLineId IN (...) AND deletedAt IS NULL AND status IN ('open','done'). This is the persisted form of the salesOrderLineId one-time claim: a non-deleted MO whose status is 'open' or 'done' blocks reuse of that sales line."
+    },
+    {
+      "file": "lib/manufacturing/sales-order-manufacturability.ts",
+      "symbol": "SALES_ORDER_MANUFACTURING_SKIP_REASONS",
+      "lines": "17-23",
+      "reason": "Exported skip-reason enum exactly: ['non_product', 'inactive_product', 'no_active_bom', 'stock_on_hand', 'existing_active_mo']."
+    },
+    {
+      "file": "lib/manufacturing/sales-order-manufacturability.ts",
+      "symbol": "getSkipMessage",
+      "lines": "55-68",
+      "reason": "Canonical per-line skip messages shown in the dialog and preview."
+    },
+    {
+      "file": "lib/manufacturing/sales-order-manufacturability.ts",
+      "symbol": "getDisabledReason",
+      "lines": "70-110",
+      "reason": "Aggregates per-line skip reasons into a single disabledReason string the UI uses to hide/disable the Create MOs CTA."
+    },
+    {
+      "file": "lib/manufacturing/sales-order-manufacturability.ts",
+      "symbol": "stock_on_hand computation",
+      "lines": "273-313",
+      "reason": "Reservable on-hand at the default location minus demandOutsideSelection covers each line in order; lines whose ordered quantity is fully covered get skipReason='stock_on_hand', lines partially covered set manufacturingQuantity to the uncovered remainder, lines without coverage stay as the full ordered quantity."
+    },
+    {
+      "file": "app/(dashboard)/manufacturing/queries.ts",
+      "symbol": "validateSalesLineLinkInTx",
+      "lines": "729-819",
+      "reason": "Validates {salesOrderId, salesOrderLineId} as either fully null (unlinked), throws 400 'Sales order link is incomplete' for one-null-one-set, or looks up the line. Success requires deletedAt IS NULL, status='open', AND itemId === productId. When existingSnapshot matches the inbound link, falls back to ANY open line on the same SO with the same productId; if still no match, returns existingSnapshot unchanged."
+    },
+    {
+      "file": "app/(dashboard)/manufacturing/queries.ts",
+      "symbol": "createManufacturingOrderInTx",
+      "lines": "3552-3598",
+      "reason": "After commit 948c155e, no longer throws when salesOrderId/salesOrderLineId are set. Calls validateSalesLineLinkInTx then prepareCreateIngredientsInTx then insertManufacturingOrderInTx + activateManufacturingOrderInTx. Does NOT branch on payload.confirmShortage — the flag is parsed by the schema but never consumed at create time."
+    },
+    {
+      "file": "app/(dashboard)/manufacturing/queries.ts",
+      "symbol": "prepareCreateIngredientsInTx",
+      "lines": "821-836",
+      "reason": "Throws ManufacturingError 'Products need a BOM before creating a manufacturing order' (400) if the product's active BOM is empty; throws 'The product BOM changed. Reload and try again.' (409) if submitted ingredient row count does not match the BOM row count."
+    },
+    {
+      "file": "app/(dashboard)/manufacturing/queries.ts",
+      "symbol": "createManufacturingOrdersFromSalesOrderInTx",
+      "lines": "3656-3812",
+      "reason": "Locks the salesOrders row FOR UPDATE at line 3674. Refuses status!='open' with 400 'Only open sales orders can create manufacturing orders' (3680-3685). Refuses summaries with !hasManufacturableLines using disabledReason as the message. Inserts one MO per selected will_create line with salesLink snapshot {salesOrderId, salesOrderLineId, salesOrderNumber, customerName} and returns {created[], skipped[]}."
+    },
+    {
+      "file": "app/(dashboard)/manufacturing/queries.ts",
+      "symbol": "createManufacturingOrdersFromSalesOrderInTx refresh-conflict guards",
+      "lines": "3720-3752",
+      "reason": "Throws 409 'Selected manufacturing orders changed. Refresh and try again.' when any selected lineId is not 'will_create' in the recomputed summary; same shape for stale quantity overrides and stale group-remainder choices."
+    },
+    {
+      "file": "app/(dashboard)/manufacturing/queries.ts",
+      "symbol": "updateManufacturingOrder",
+      "lines": "3829-3997",
+      "reason": "Requires existing.status='open' (throws 400 'Only open orders can be edited'). Blocks when any pickAllocation or non-pending batch exists (400 'Orders cannot be edited after picking or batch work starts.'). Re-runs validateSalesLineLinkInTx with the existing snapshot to support snapshot-fallback re-link. Deletes and re-inserts all ingredients and updates salesOrderNumber/salesCustomerName snapshots."
+    },
+    {
+      "file": "app/(dashboard)/manufacturing/queries.ts",
+      "symbol": "getManufacturingProductTemplates BOM-empty filter",
+      "lines": "2977, 2987-2988",
+      "reason": "Picker source filters items WHERE itemType='product' AND deletedAt IS NULL AND isMaster=false, then filters out products with zero non-deleted active-BOM components via bomByProduct.get(product.id).length > 0."
+    },
+    {
+      "file": "app/(dashboard)/manufacturing/queries.ts",
+      "symbol": "getManufacturingSalesOrderOptions / getManufacturingSalesLineOptions / getManufacturingSalesOrderPreview",
+      "lines": "3027-3074, 3076-3118, 3120-3153",
+      "reason": "Picker sources return only open, non-deleted sales orders and their lines. getManufacturingSalesOrderPreview returns null for missing/deleted/status!='open' orders, producing the API 404."
+    },
+    {
+      "file": "app/(dashboard)/sales/queries.ts",
+      "symbol": "createSalesOrder",
+      "lines": "5911-6017",
+      "reason": "Inserts the SO with status='open' (forced by schema transform), hard-inserts salesOrderLines, then calls reserveForSalesInTx for the full insertedLines list — i.e. every newly-created SO has reservations against ATP. Auto-creates a planned planned shipment via upsertDefaultPlannedShipmentForOrderInTx when shipDate is set. Idempotency-keyed via beginInventoryOperationInTx / finishInventoryOperationInTx (5916-5921, 6009-6013). Does NOT branch on payload.confirmOversell — the flag is accepted by insertSalesOrderSchema but is never read by createSalesOrder."
+    },
+    {
+      "file": "app/(dashboard)/sales/queries.ts",
+      "symbol": "duplicateSalesOrder hard-codes confirmOversell=true",
+      "lines": "6050",
+      "reason": "duplicateSalesOrder reuses createSalesOrder via internal call and hardcodes confirmOversell:true. This is the only call site in the DAL that sets the flag; since createSalesOrder ignores it, the hardcoded value is a no-op."
+    },
+    {
+      "file": "app/(dashboard)/sales/queries.ts",
+      "symbol": "updateSalesOrder",
+      "lines": "6056-6241",
+      "reason": "Locks the SO, releases existing reservations, throws SalesError 'Done orders cannot be changed.' (400) if status='done', hard-deletes all salesOrderLines (6139), inserts new lines, calls moveReplacedSalesLineAllocationsInTx, re-reserves via reserveForSalesInTx, and refreshes the planned shipment. Does NOT inspect downstream MO pick state (no pickAllocations query in this function)."
+    },
+    {
+      "file": "app/(dashboard)/sales/queries.ts",
+      "symbol": "moveReplacedSalesLineAllocationsInTx call site",
+      "lines": "6156-6165",
+      "reason": "After re-inserting lines, allocations are migrated from old line ids to new line ids in the same itemId family (exact match strategy is in moveReplacedSalesLineAllocationsInTx — implementation not opened in this phase)."
+    },
+    {
+      "file": "app/(dashboard)/sales/queries.ts",
+      "symbol": "deleteSalesLinkedManufacturingOrdersInTx",
+      "lines": "2339-2406",
+      "reason": "On SO delete, locks linked MOs, refuses with the canonical 'manufacturing order {N} is linked to the order but not to a matching active sales line. Remove or repair the manufacturing link first.' error when any linked MO has salesOrderLineId NULL or pointing outside the SO's current line ids. Also rejects when a linked MO carries an active stockAllocation pointing to a different SO line."
+    },
+    {
+      "file": "app/(dashboard)/sales/queries.ts",
+      "symbol": "confirmSalesOrder",
+      "lines": "7553-7595",
+      "reason": "NOT a pure no-op. The function: (1) opens an idempotency replay via beginInventoryOperationInTx with operationName='confirmSalesOrder' and idempotencyKey from options (7563-7568); (2) returns the cached replay.result directly when replay.replayed is true, without re-acquiring the SO row lock (7570-7572); (3) only on first call does it run getLockedSalesOrderInTx and emit finishInventoryOperationInTx with the {id} result (7574-7591). At the SO state level no fields are mutated (status stays 'open'), but the inventory_operations idempotency table is written on the first call and reused on subsequent retries."
+    },
+    {
+      "file": "app/(dashboard)/sales/queries.ts",
+      "symbol": "bulkConfirmSalesOrders",
+      "lines": "7597-7623",
+      "reason": "Same idempotency replay pattern: beginInventoryOperationInTx → if replay return cached → otherwise return {confirmedCount: payload.ids.length} and call finishInventoryOperationInTx. Does not mutate state on first call either."
+    },
+    {
+      "file": "app/(dashboard)/inventory/queries/internal.ts",
+      "symbol": "deleteItem (single)",
+      "lines": "1139-1160",
+      "reason": "Soft-delete refuses with {deleted: false, usedInActiveManufacturing: true} when an open, non-deleted MO references the item as productId OR via manufacturingOrderIngredients.itemId."
+    },
+    {
+      "file": "app/(dashboard)/inventory/queries/internal.ts",
+      "symbol": "deleteItems (bulk)",
+      "lines": "1271-1296",
+      "reason": "Same MO guard for bulk delete with error 'Cannot delete: one or more items are used by open manufacturing orders.'"
+    },
+    {
+      "file": "app/api/items/route.ts",
+      "symbol": "DELETE / POST module guards",
+      "lines": "26-27, 39-40",
+      "reason": "DELETE and POST handlers call assertModuleWriteAccess('inventory', request.headers). Item bulk delete is gated by module:inventory write."
+    },
+    {
+      "file": "app/api/items/[id]/route.ts",
+      "symbol": "PUT / DELETE module guards",
+      "lines": "17-18, 93-94",
+      "reason": "Single PUT and DELETE handlers call assertModuleWriteAccess('inventory', request.headers). Item soft-delete (single) is gated by module:inventory write."
+    },
+    {
+      "file": "lib/schemas/manufacturing-orders.ts",
+      "symbol": "manufacturingOrderCreateFormSchema superRefine",
+      "lines": "156-208",
+      "reason": "Client-side: when salesOrderId is set, productId/plannedQuantity/ingredients become optional (bulk-from-SO mode). When unlinked, productId is required, plannedQuantity must be a positive decimal string, and ingredients require >=1 unique-itemId row."
+    },
+    {
+      "file": "lib/schemas/manufacturing-orders.ts",
+      "symbol": "insertManufacturingOrderSchema",
+      "lines": "111-151",
+      "reason": "Server-side payload: productId required (min 1), plannedQuantity positive decimal, ingredients >=1 unique-by-itemId rows, salesOrderId/salesOrderLineId are nullableString (so both null and both set are both legal; one-null-one-set is rejected by validateSalesLineLinkInTx). confirmShortage at 148 is accepted by the schema but never consumed by createManufacturingOrderInTx."
+    },
+    {
+      "file": "lib/schemas/manufacturing-orders.ts",
+      "symbol": "createManufacturingOrdersFromSalesOrderSchema",
+      "lines": "358-386",
+      "reason": "Bulk endpoint body: plannedDate nullable iso, salesOrderLineIds array min 1 (UUID), priorityRank, lineQuantities optional, groupRemainderChoices keyed by salesOrderLineId, notes."
+    },
+    {
+      "file": "lib/schemas/manufacturing-orders.ts",
+      "symbol": "ingredientsSchema",
+      "lines": "89-104",
+      "reason": "Requires >=1 ingredient row after blank-filter, rejects duplicate itemId with 'This ingredient is already on the order'."
+    },
+    {
+      "file": "app/api/sales-orders/route.ts",
+      "symbol": "POST / DELETE handlers (idempotency required)",
+      "lines": "20-22, 34-36",
+      "reason": "Both POST (createSalesOrders) and DELETE (deleteSalesOrders / bulk) call requireIdempotencyKey before invoking the DAL."
+    },
+    {
+      "file": "app/api/sales-orders/[id]/route.ts",
+      "symbol": "PUT / DELETE handlers (idempotency required)",
+      "lines": "25-27, 46-48",
+      "reason": "PUT (updateSalesOrder) and DELETE (single deleteSalesOrder) both call requireIdempotencyKey."
+    },
+    {
+      "file": "app/api/sales-orders/[id]/confirm/route.ts",
+      "symbol": "POST handler",
+      "lines": "10-29",
+      "reason": "Requires Idempotency-Key (requireIdempotencyKey at line 13); parses body with confirmSalesOrderSchema; returns 404 for missing order. The underlying confirmSalesOrder performs idempotency replay via beginInventoryOperationInTx."
+    },
+    {
+      "file": "app/api/sales-orders/[id]/manufacturing-orders/route.ts",
+      "symbol": "GET / POST",
+      "lines": "13-40",
+      "reason": "GET gated by assertModuleReadAccess('manufacturing'), returns preview or 404. POST gated by assertModuleWriteAccess('manufacturing'), does NOT call requireIdempotencyKey, parses body with createManufacturingOrdersFromSalesOrderSchema, returns 201 with {created, skipped}; ManufacturingError converted via toResponse()."
+    },
+    {
+      "file": "app/api/sales-orders/bulk-confirm/route.ts",
+      "symbol": "POST handler",
+      "lines": "10-12",
+      "reason": "Bulk confirm POST calls requireIdempotencyKey(request, 'bulkConfirmSalesOrders'). Idempotency required."
+    },
+    {
+      "file": "app/api/manufacturing-orders/route.ts",
+      "symbol": "POST / DELETE / GET handlers",
+      "lines": "13-44",
+      "reason": "GET and DELETE both call assertModuleReadAccess/WriteAccess but neither calls requireIdempotencyKey. POST also calls assertModuleWriteAccess only, no requireIdempotencyKey. Single import does NOT include requireIdempotencyKey."
+    },
+    {
+      "file": "app/api/manufacturing-orders/[id]/route.ts",
+      "symbol": "PUT / DELETE handlers",
+      "lines": "25-59",
+      "reason": "PUT parses body with updateManufacturingOrderSchema (which omits productId); DELETE returns 400/404/200 from result fields. Neither calls requireIdempotencyKey."
+    },
+    {
+      "file": "app/api/manufacturing-orders/[id]/complete/route.ts",
+      "symbol": "POST handler",
+      "lines": "12-14",
+      "reason": "Calls requireIdempotencyKey(request, 'completeManufacturingOrder'). Idempotency required."
+    },
+    {
+      "file": "app/api/manufacturing-orders/[id]/outputs/route.ts",
+      "symbol": "POST handler",
+      "lines": "11-13",
+      "reason": "Calls requireIdempotencyKey(request, 'recordManufacturingOutput'). Idempotency required."
+    },
+    {
+      "file": "app/api/manufacturing-orders/[id]/ingredients/[ingredientId]/pick/route.ts",
+      "symbol": "POST handler",
+      "lines": "10-12",
+      "reason": "Calls requireIdempotencyKey(request, 'pickManufacturingIngredient'). Idempotency required."
+    },
+    {
+      "file": "app/api/manufacturing-orders/[id]/batches/[batchId]/complete/route.ts",
+      "symbol": "POST handler",
+      "lines": "11-13",
+      "reason": "Calls requireIdempotencyKey(request, 'completeManufacturingBatch'). Idempotency required."
+    },
+    {
+      "file": "app/api/manufacturing-orders/[id]/batches/[batchId]/outputs/route.ts",
+      "symbol": "POST handler",
+      "lines": "11-13",
+      "reason": "Calls requireIdempotencyKey(request, 'recordManufacturingBatchOutput'). Idempotency required."
+    },
+    {
+      "file": "app/api/manufacturing-orders/[id]/duplicate/route.ts",
+      "symbol": "POST handler",
+      "lines": "9 (handler decl)",
+      "reason": "Handler does not call requireIdempotencyKey (no import of the helper in the file). Idempotency NOT required."
+    },
+    {
+      "file": "app/api/manufacturing-orders/[id]/priority/route.ts",
+      "symbol": "PATCH handler",
+      "lines": "10",
+      "reason": "Handler does not call requireIdempotencyKey. Idempotency NOT required."
+    },
+    {
+      "file": "app/api/manufacturing-orders/[id]/batches/[batchId]/start/route.ts",
+      "symbol": "POST handler",
+      "lines": "10",
+      "reason": "Handler does not call requireIdempotencyKey. Idempotency NOT required."
+    },
+    {
+      "file": "app/api/manufacturing-orders/[id]/ingredients/reorder/route.ts",
+      "symbol": "PATCH handler",
+      "lines": "10",
+      "reason": "Handler does not call requireIdempotencyKey. Idempotency NOT required."
+    },
+    {
+      "file": "app/api/manufacturing-orders/[id]/output-allocation/route.ts",
+      "symbol": "GET / PUT handlers",
+      "lines": "11-23",
+      "reason": "Neither handler calls requireIdempotencyKey. Idempotency NOT required (PUT)."
+    },
+    {
+      "file": "app/api/manufacturing-orders/priority-ranks/route.ts",
+      "symbol": "PATCH handler",
+      "lines": "10",
+      "reason": "Handler does not call requireIdempotencyKey. Idempotency NOT required."
+    },
+    {
+      "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx",
+      "symbol": "isSalesOrderMode + handleSalesLineChange + mutationFn",
+      "lines": "311-313, 384-385, 497-516, 523-606, 721-762",
+      "reason": "isSalesOrderMode is true exactly when !isEditing && salesOrderId is set && salesOrderLineId is null. In that mode the form fetches the preview and on submit POSTs to /api/sales-orders/:id/manufacturing-orders with the will_create line ids. When salesOrderLineId is also set (via handleSalesLineChange picking a specific line), the form is in single-create mode and POSTs to /api/manufacturing-orders with both ids in the payload. handleSalesLineChange forces productId, plannedQuantity, salesOrderId, salesOrderLineId, clears group remainder choices, and seeds ingredients from productMap.get(line.itemId).bom."
+    },
+    {
+      "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx",
+      "symbol": "ingredientOptions",
+      "lines": "315-378",
+      "reason": "Ingredient dropdown options merge (a) ingredientItemOptions from getAvailableComponents (all non-master items minus the selected product) and (b) BOM rows + alternates. After 948c155e, this allows non-BOM ingredients to be picked when editing the seeded list."
+    },
+    {
+      "file": "app/(dashboard)/sales/create-manufacturing-orders-dialog.tsx",
+      "symbol": "CreateManufacturingOrdersDialog mutation",
+      "lines": "95-263",
+      "reason": "Renders the SO-detail Create MOs dialog. Default selection is all 'will_create' lines; user can toggle, override per-line quantity, and resolve per-line group-remainder handling. Submits POST to /api/sales-orders/:id/manufacturing-orders. Default button label is 'Create MOs'."
+    },
+    {
+      "file": "git show 948c155e (queries.ts diff)",
+      "symbol": "removed sales-linked direct-create block",
+      "lines": "previously queries.ts:3469-3475",
+      "reason": "Commit 948c155e removed the early-return that threw 'Create sales-linked manufacturing orders from the sales order Create MOs flow.' (400) when salesOrderId or salesOrderLineId was set. Direct sales-linked single-MO creation via POST /api/manufacturing-orders is now allowed."
+    },
+    {
+      "file": "app/(dashboard)/manufacturing/queries.ts",
+      "symbol": "deleteManufacturingOrdersInTx finalized guard",
+      "lines": "6339-6612 (specifically 6379-6391)",
+      "reason": "Refuses soft-delete when status != 'open' OR completedAt is not null OR actualQuantity > 0 (6379-6391). Additional guards block when any batch is completed, any ingredient has actualQuantity > 0, or any inventory_event of type manufacturing_ingredient_consumption / manufacturing_output references the MO. Implication: in practice deletedAt is set only on cancelled OPEN MOs; a finalized (done) MO cannot be soft-deleted."
+    }
+  ],
+  "inferences": [
+    {
+      "claim": "An MO is conceptually 'cancelled' when deletedAt is non-null (cancelledAt is also set by cancelReleasedManufacturingOrderInTx, but the existing_active_mo claim filter keys on deletedAt). Conceptual 'completed' is status='open' (or 'done') with completedAt non-null and actualQuantity > 0; the persisted enum does not transition to a 'completed' literal.",
+      "based_on": [
+        "lib/manufacturing/sales-order-manufacturability.ts:222-235 (deletedAt IS NULL filter)",
+        "lib/db/schema/manufacturing.ts:54, 69-71",
+        "app/(dashboard)/manufacturing/queries.ts:6379-6391 (deleteManufacturingOrdersInTx blocks when completedAt!=null or actualQuantity>0)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Conceptual 'released' MO state is status='open' + deletedAt null + (a pickAllocation or non-pending batch has progressed). updateManufacturingOrder is blocked at exactly that transition.",
+      "based_on": [
+        "app/(dashboard)/manufacturing/queries.ts:3877-3882"
+      ],
+      "confidence": "medium"
+    },
+    {
+      "claim": "Whether the idempotency asymmetry between MO POST/PUT/DELETE (no key) and SO POST/PUT/DELETE/confirm (key required) is INTENTIONAL is uncertain. The presence/absence of requireIdempotencyKey calls is directly observable in code (high confidence); the intent is not documented in any comment.",
+      "based_on": [
+        "app/api/manufacturing-orders/route.ts:32-44 (no requireIdempotencyKey)",
+        "app/api/manufacturing-orders/[id]/route.ts:25-59 (no requireIdempotencyKey)",
+        "app/api/sales-orders/route.ts:34-47 (requireIdempotencyKey)",
+        "app/api/sales-orders/[id]/route.ts:25-63 (requireIdempotencyKey)"
+      ],
+      "confidence": "low"
+    },
+    {
+      "claim": "createSalesOrder reserves the full order against ATP via reserveForSalesInTx unconditionally. Since status is forced to 'open' on insert, every newly-created SO is in the reserving state — there is no 'draft non-reserving' SO at the persistence layer. confirmOversell is parsed by insertSalesOrderSchema but never consumed; there is no shortage-rejection path on create.",
+      "based_on": [
+        "lib/schemas/sales-orders.ts:127-130 (status transform to 'open')",
+        "app/(dashboard)/sales/queries.ts:5911-6017 (no confirmOversell branch; reserveForSalesInTx called unconditionally at 5971-5984)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "createManufacturingOrderInTx ignores payload.confirmShortage. The flag is accepted by the schema for type-compatibility with downstream operations (release/pick), but the create path has no 'shortage detected → require confirmation' branch. Tests that expect a 400/409 shortage response from POST /api/manufacturing-orders will not see one.",
+      "based_on": [
+        "app/(dashboard)/manufacturing/queries.ts:3552-3598 (no confirmShortage read)",
+        "lib/schemas/manufacturing-orders.ts:148, 170, 215 (schema accepts confirmShortage)"
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Confirmation of an SO is functionally non-mutating at the SO state level (status stays 'open'), but it is NOT a pure no-op: the function writes/reads the inventory_operations idempotency table via beginInventoryOperationInTx/finishInventoryOperationInTx so retries with the same Idempotency-Key return the cached result without re-acquiring getLockedSalesOrderInTx.",
+      "based_on": [
+        "app/(dashboard)/sales/queries.ts:7553-7595",
+        "lib/schemas/sales-orders.ts:127-130"
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "The post-948c155e form requires a product that has at least one BOM ingredient before single sales-linked create can succeed; if a sales line's product has no active BOM, the new-MO form will accept the line but the API will reject the create with 'Products need a BOM before creating a manufacturing order' (400). The bulk SO-driven path filters such products earlier with the 'no_active_bom' skip reason.",
+      "based_on": [
+        "app/(dashboard)/manufacturing/queries.ts:831-836 (prepareCreateIngredientsInTx)",
+        "lib/manufacturing/sales-order-manufacturability.ts:307-308 (no_active_bom skip)"
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "unknowns": [
+    "Exact join key used by moveReplacedSalesLineAllocationsInTx — itemId-match vs sortOrder-match vs both. Cited at call site but body not opened in Phase 0/1.",
+    "Whether `app_user` RLS lets the test fixture observe soft-deleted manufacturing/sales rows. Policies key on organizationId only, but full FORCE/policy text was not opened.",
+    "Body of activateManufacturingOrderInTx / addIngredientDemandForManufacturingInTx / cancelActiveStockAllocationsInTx / editExpectedFromManufacturingInTx — they are the side-effect helpers called from create/update; their exact ledger writes are out of scope for the linkage contract but matter for downstream tests.",
+    "Whether deleteManufacturingOrder (single) actually cascades through the same finalized-MO guard as deleteManufacturingOrdersInTx — call chain implies yes but not directly verified in Phase 0/1.",
+    "Whether the sales-order detail page hides Create MOs CTA only when hasManufacturableLines is false, or also when status='done' / deleted. CreateManufacturingOrdersDialog itself does not branch on order.status.",
+    "Whether beginInventoryOperationInTx is a no-op when idempotencyKey is null (the confirmSalesOrder code passes null when caller did not provide it). The replay-vs-first-call branching when no key is provided is not traced."
+  ],
+  "structured_output": {
+    "purpose": "Maintain a coherent link between an open sales order line and the manufacturing orders that fulfil it, so demand and supply stay traceable end-to-end across SO edits, bulk creation, single-line creation, completion, cancellation, and deletion. The linkage is a snapshot relationship (salesOrderId FK + salesOrderLineId uuid without FK + denormalized salesOrderNumber/salesCustomerName) that survives SO line rewrites and lets allocations migrate without breaking referential integrity.",
+    "domain_role": "Cross-cutting contract spanning sales (order CRUD + line rewrites + delete guard) and manufacturing (MO CRUD + bulk Create-MOs-from-SO + ingredient seeding from BOM). Also gates inventory item soft-delete (a referenced item cannot be removed while an open MO uses it as product or ingredient). Sits between the SO create-time reservation flow and the MO release/picking/completion flow, and is the source of the 'one MO per sales line' invariant.",
+    "inputs": {
+      "props": [
+        {
+          "name": "ManufacturingOrderForm.productTemplates",
+          "shape": "ManufacturingProductTemplate[]",
+          "source": "getManufacturingProductTemplates (only products with non-empty active BOM, itemType='product', non-deleted, non-master)",
+          "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:182, app/(dashboard)/manufacturing/queries.ts:2977,2987-2988"
+        },
+        {
+          "name": "ManufacturingOrderForm.ingredientItemOptions",
+          "shape": "Array<{id, name, displayName, itemType, unit}>",
+          "source": "getAvailableComponents() — all non-master items minus the selected product",
+          "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:183-189,315-340"
+        },
+        {
+          "name": "ManufacturingOrderForm.salesLineOptions",
+          "shape": "ManufacturingSalesLineOption[]",
+          "source": "getManufacturingSalesLineOptions — open, non-deleted SO lines, optionally filtered by productId",
+          "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:190,311-313, app/(dashboard)/manufacturing/queries.ts:3120-3153"
+        },
+        {
+          "name": "ManufacturingOrderForm.salesOrderOptions",
+          "shape": "ManufacturingSalesOrderOption[]",
+          "source": "getManufacturingSalesOrderOptions — open, non-deleted SOs with manufacturable-line counts and disabledReason",
+          "file": "app/(dashboard)/manufacturing/queries.ts:3027-3074"
+        },
+        {
+          "name": "ManufacturingOrderForm.initialData",
+          "shape": "ManufacturingOrderEditData (carries salesOrderId, salesOrderLineId, salesOrderNumber, salesCustomerName, ingredients with consumption-mode snapshots)",
+          "source": "getManufacturingOrderEditData",
+          "file": "app/(dashboard)/manufacturing/types.ts:312-359"
+        },
+        {
+          "name": "ManufacturingOrderForm.initialSalesOrderId",
+          "shape": "string | null",
+          "source": "URL query param when arriving from the SO detail page",
+          "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:179,241"
+        },
+        {
+          "name": "ManufacturingOrderForm.initialSalesOrderPreview",
+          "shape": "ManufacturingSalesOrderPreview | null",
+          "source": "SSR fetch of getManufacturingSalesOrderPreview used to hydrate the preview query without a network round-trip",
+          "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:180,497-516"
+        },
+        {
+          "name": "CreateManufacturingOrdersDialog props",
+          "shape": "{salesOrderId, initialOrder, openManufacturingOrders, initialLineQuantities, initialPlannedDate, ...}",
+          "source": "Sales order detail page renders one dialog instance per SO",
+          "file": "app/(dashboard)/sales/create-manufacturing-orders-dialog.tsx:48-73"
+        }
+      ],
+      "context": [
+        {
+          "name": "Organization scope",
+          "detail": "All DAL functions run inside withAuthedOrgContext which sets app.current_org_id; the manufacturingOrders and salesOrders tables have RLS policies keyed on that setting.",
+          "file": "lib/db/schema/manufacturing.ts:99-104, lib/db/with-org-context.ts"
+        },
+        {
+          "name": "Test fixture db proxy",
+          "detail": "Playwright fixture exposes the same RLS-scoped Drizzle path the runtime uses, so test assertions read the same rows the form sees.",
+          "file": "test/e2e/fixtures.ts:36-136"
+        }
+      ],
+      "store_dependencies": [
+        {
+          "name": "TanStack Query queryKeys",
+          "keys": [
+            "['manufacturing-sales-order-preview', salesOrderId]",
+            "['sales-order', salesOrderId]",
+            "['manufacturing-orders']",
+            "['items']",
+            "['sales-orders']"
+          ],
+          "detail": "The MO form and the Create MOs dialog invalidate these on success so SO and MO list/detail UIs refresh without a full reload.",
+          "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:637-647, app/(dashboard)/sales/create-manufacturing-orders-dialog.tsx:248-262"
+        }
+      ],
+      "api_dependencies": [
+        {
+          "method": "POST",
+          "path": "/api/sales-orders",
+          "auth": "assertModuleWriteAccess('sales')",
+          "idempotency": "Idempotency-Key REQUIRED via requireIdempotencyKey('createSalesOrder')",
+          "schema": "insertSalesOrderSchema",
+          "file": "app/api/sales-orders/route.ts:34-47"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/sales-orders (bulk)",
+          "auth": "assertModuleWriteAccess('sales')",
+          "idempotency": "Idempotency-Key REQUIRED via requireIdempotencyKey('deleteSalesOrders')",
+          "schema": "bulkDeleteSchema",
+          "file": "app/api/sales-orders/route.ts:20-22"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/sales-orders/[id]",
+          "auth": "assertModuleWriteAccess('sales')",
+          "idempotency": "Idempotency-Key REQUIRED via requireIdempotencyKey('updateSalesOrder')",
+          "schema": "updateSalesOrderSchema",
+          "file": "app/api/sales-orders/[id]/route.ts:25-27"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/sales-orders/[id]",
+          "auth": "assertModuleWriteAccess('sales')",
+          "idempotency": "Idempotency-Key REQUIRED via requireIdempotencyKey('deleteSalesOrder')",
+          "behavior": "Soft-deletes SO after running deleteSalesLinkedManufacturingOrdersInTx — drift in linked MOs blocks the delete with the canonical 'not to a matching active sales line' error.",
+          "file": "app/api/sales-orders/[id]/route.ts:46-63, app/(dashboard)/sales/queries.ts:7625-7730"
+        },
+        {
+          "method": "POST",
+          "path": "/api/sales-orders/[id]/confirm",
+          "auth": "assertModuleWriteAccess('sales')",
+          "idempotency": "Idempotency-Key REQUIRED via requireIdempotencyKey('confirmSalesOrder')",
+          "schema": "confirmSalesOrderSchema",
+          "behavior": "Idempotency-replayed stub via beginInventoryOperationInTx: first call locks the SO row and returns {id}; subsequent calls with the same Idempotency-Key return the cached result without re-acquiring the lock. No SO field is mutated on first call (status stays 'open').",
+          "file": "app/api/sales-orders/[id]/confirm/route.ts:10-29, app/(dashboard)/sales/queries.ts:7553-7595"
+        },
+        {
+          "method": "POST",
+          "path": "/api/sales-orders/bulk-confirm",
+          "auth": "assertModuleWriteAccess('sales')",
+          "idempotency": "Idempotency-Key REQUIRED via requireIdempotencyKey('bulkConfirmSalesOrders')",
+          "behavior": "Same replay pattern as confirmSalesOrder. Returns {confirmedCount}.",
+          "file": "app/api/sales-orders/bulk-confirm/route.ts:10-12, app/(dashboard)/sales/queries.ts:7597-7623"
+        },
+        {
+          "method": "GET",
+          "path": "/api/sales-orders/[id]/manufacturing-orders",
+          "auth": "assertModuleReadAccess('manufacturing')",
+          "returns": "ManufacturingSalesOrderPreview or 404 when SO missing/deleted/status!='open'",
+          "file": "app/api/sales-orders/[id]/manufacturing-orders/route.ts:13-24"
+        },
+        {
+          "method": "POST",
+          "path": "/api/sales-orders/[id]/manufacturing-orders",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key NOT required",
+          "schema": "createManufacturingOrdersFromSalesOrderSchema",
+          "returns": "201 {created: Array<{salesOrderLineId, manufacturingOrderId, orderNumber}>, skipped: Array<{salesOrderLineId, reason}>}",
+          "file": "app/api/sales-orders/[id]/manufacturing-orders/route.ts:26-40"
+        },
+        {
+          "method": "POST",
+          "path": "/api/manufacturing-orders",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key NOT required (gap vs SO POST)",
+          "schema": "insertManufacturingOrderSchema",
+          "returns": "201 {id}",
+          "file": "app/api/manufacturing-orders/route.ts:32-44"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/manufacturing-orders (bulk)",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key NOT required",
+          "schema": "bulkDeleteSchema",
+          "returns": "400 {error} on finalized guard, 200 {result} otherwise",
+          "file": "app/api/manufacturing-orders/route.ts:19-30"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/manufacturing-orders/[id]",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key NOT required",
+          "schema": "updateManufacturingOrderSchema (omits productId)",
+          "returns": "200 {id} or 404",
+          "file": "app/api/manufacturing-orders/[id]/route.ts:25-43"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/manufacturing-orders/[id]",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key NOT required",
+          "returns": "400 {error} (finalized-MO guard), 404 {error: 'Order not found'}, 200 {success: true}",
+          "file": "app/api/manufacturing-orders/[id]/route.ts:45-59"
+        },
+        {
+          "method": "POST",
+          "path": "/api/manufacturing-orders/[id]/complete",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key REQUIRED via requireIdempotencyKey('completeManufacturingOrder')",
+          "file": "app/api/manufacturing-orders/[id]/complete/route.ts:12-14"
+        },
+        {
+          "method": "POST",
+          "path": "/api/manufacturing-orders/[id]/outputs",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key REQUIRED via requireIdempotencyKey('recordManufacturingOutput')",
+          "file": "app/api/manufacturing-orders/[id]/outputs/route.ts:11-13"
+        },
+        {
+          "method": "POST",
+          "path": "/api/manufacturing-orders/[id]/ingredients/[ingredientId]/pick",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key REQUIRED via requireIdempotencyKey('pickManufacturingIngredient')",
+          "file": "app/api/manufacturing-orders/[id]/ingredients/[ingredientId]/pick/route.ts:10-12"
+        },
+        {
+          "method": "POST",
+          "path": "/api/manufacturing-orders/[id]/batches/[batchId]/complete",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key REQUIRED via requireIdempotencyKey('completeManufacturingBatch')",
+          "file": "app/api/manufacturing-orders/[id]/batches/[batchId]/complete/route.ts:11-13"
+        },
+        {
+          "method": "POST",
+          "path": "/api/manufacturing-orders/[id]/batches/[batchId]/outputs",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key REQUIRED via requireIdempotencyKey('recordManufacturingBatchOutput')",
+          "file": "app/api/manufacturing-orders/[id]/batches/[batchId]/outputs/route.ts:11-13"
+        },
+        {
+          "method": "POST",
+          "path": "/api/manufacturing-orders/[id]/batches/[batchId]/start",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key NOT required",
+          "file": "app/api/manufacturing-orders/[id]/batches/[batchId]/start/route.ts:10"
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/manufacturing-orders/[id]/priority",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key NOT required",
+          "file": "app/api/manufacturing-orders/[id]/priority/route.ts:10"
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/manufacturing-orders/[id]/ingredients/reorder",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key NOT required",
+          "file": "app/api/manufacturing-orders/[id]/ingredients/reorder/route.ts:10"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/manufacturing-orders/[id]/output-allocation",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key NOT required",
+          "file": "app/api/manufacturing-orders/[id]/output-allocation/route.ts:23"
+        },
+        {
+          "method": "POST",
+          "path": "/api/manufacturing-orders/[id]/duplicate",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key NOT required",
+          "file": "app/api/manufacturing-orders/[id]/duplicate/route.ts:9"
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/manufacturing-orders/priority-ranks",
+          "auth": "assertModuleWriteAccess('manufacturing')",
+          "idempotency": "Idempotency-Key NOT required",
+          "file": "app/api/manufacturing-orders/priority-ranks/route.ts:10"
+        }
+      ],
+      "permissions": [
+        {
+          "scope": "Reading manufacturing data (preview, options, MO detail)",
+          "role": "module:manufacturing read",
+          "file": "lib/dal/auth.ts via assertModuleReadAccess"
+        },
+        {
+          "scope": "Creating / editing / deleting manufacturing orders, including bulk-from-SO and all execution sub-routes",
+          "role": "module:manufacturing write",
+          "file": "app/api/manufacturing-orders/route.ts:20,33, app/api/manufacturing-orders/[id]/route.ts:26,46, app/api/sales-orders/[id]/manufacturing-orders/route.ts:27"
+        },
+        {
+          "scope": "Creating / editing / deleting / confirming sales orders (including bulk confirm)",
+          "role": "module:sales write",
+          "file": "app/api/sales-orders/route.ts:21,35, app/api/sales-orders/[id]/route.ts:26,47, app/api/sales-orders/[id]/confirm/route.ts:12, app/api/sales-orders/bulk-confirm/route.ts:11"
+        },
+        {
+          "scope": "Soft-delete inventory items (single and bulk)",
+          "role": "module:inventory write",
+          "file": "app/api/items/route.ts:27,40 and app/api/items/[id]/route.ts:18,94"
+        }
+      ],
+      "routing": [
+        {
+          "path": "/manufacturing/orders/new",
+          "detail": "Renders ManufacturingOrderForm; may carry ?salesOrderId= so the form lands in bulk-from-SO mode."
+        },
+        {
+          "path": "/manufacturing/orders/[id]/edit",
+          "detail": "Renders ManufacturingOrderForm with initialData; edit path only re-validates the sales link via snapshot fallback."
+        },
+        {
+          "path": "/sales/orders/[id]",
+          "detail": "Sales order detail page renders CreateManufacturingOrdersDialog plus a list of linkedManufacturingOrders."
+        }
+      ]
+    },
+    "client_server_validation_splits": [
+      {
+        "field_group": "Sales-link required fields when salesOrderId is set",
+        "client": "manufacturingOrderCreateFormSchema (lib/schemas/manufacturing-orders.ts:156-211) makes productId, plannedQuantity, and ingredients OPTIONAL when salesOrderId is set (superRefine short-circuit at 172-175).",
+        "server": "insertManufacturingOrderSchema (lib/schemas/manufacturing-orders.ts:111-151) requires productId.min(1), positive plannedQuantity, and ingredients>=1 unique-itemId rows REGARDLESS of salesOrderId. A client submitting to POST /api/manufacturing-orders in 'bulk-from-SO mode' without ingredients would be rejected at server schema parse.",
+        "effect": "The UI avoids this mismatch by routing bulk-mode submissions to POST /api/sales-orders/:id/manufacturing-orders instead of POST /api/manufacturing-orders (manufacturing-order-form.tsx:523-606)."
+      },
+      {
+        "field_group": "salesOrderId / salesOrderLineId one-null-one-set",
+        "client": "Client schema accepts either nullable string on each field independently; there is no 'both-or-neither' superRefine.",
+        "server": "validateSalesLineLinkInTx (app/(dashboard)/manufacturing/queries.ts:729-819) throws ManufacturingError(400, 'Sales order link is incomplete') with field-error 'Select a valid sales order line' when exactly one of the two ids is set.",
+        "effect": "An inconsistent form state passes client validation but fails server validation. Tests can exercise this via a hand-crafted POST."
+      },
+      {
+        "field_group": "productId in bulk-from-SO mode",
+        "client": "Client schema makes productId optional when salesOrderId is set (bulk path resolves productId server-side per line).",
+        "server": "insertManufacturingOrderSchema requires productId.min(1). createManufacturingOrdersFromSalesOrderSchema (the bulk endpoint) does NOT require productId at all — the bulk DAL resolves it from each salesOrderLine.",
+        "effect": "Bulk-mode submissions must hit the SO-scoped POST; submitting to /api/manufacturing-orders without productId returns 400."
+      },
+      {
+        "field_group": "confirmOversell on SO create",
+        "client": "Sales order form passes confirmOversell:true when user dismisses an oversell dialog (sales/order-form.tsx).",
+        "server": "insertSalesOrderSchema accepts the flag; createSalesOrder ignores it. No shortage rejection path exists on create.",
+        "effect": "Tests asserting that confirmOversell:false produces a 400/409 shortage response are testing behavior that does not exist on the create path."
+      },
+      {
+        "field_group": "confirmShortage on MO create",
+        "client": "MO form passes confirmShortage:true when user dismisses a shortage dialog.",
+        "server": "insertManufacturingOrderSchema accepts the flag (lib/schemas/manufacturing-orders.ts:148); createManufacturingOrderInTx ignores it. The flag is consumed in release/pick paths, not create.",
+        "effect": "Tests asserting that confirmShortage:false produces a 400/409 shortage response on POST /api/manufacturing-orders are testing behavior that does not exist on the create path."
+      }
+    ],
+    "outputs": {
+      "views": [
+        {
+          "view": "ManufacturingOrderForm bulk-from-SO mode",
+          "rendered_when": "!isEditing && salesOrderId set && salesOrderLineId null",
+          "shows": "Read-only sales-order header, per-line preview rows (will_create / skipped with skipMessage), group-remainder choice selects per line, plannedDate, notes, Create N Order(s) button"
+        },
+        {
+          "view": "ManufacturingOrderForm single-create mode",
+          "rendered_when": "!isEditing && (no salesOrderId OR (salesOrderId AND salesOrderLineId set))",
+          "shows": "Product picker, optional sales-order + sales-line pickers, plannedQuantity, ingredient editable line items, plannedDate, notes, Create Order button"
+        },
+        {
+          "view": "ManufacturingOrderForm edit mode",
+          "rendered_when": "initialData is set",
+          "shows": "Read-only product summary, optional sales-order/line link controls populated from initialData, ingredient editable line items derived from current MO snapshot, Save Changes button"
+        },
+        {
+          "view": "CreateManufacturingOrdersDialog",
+          "rendered_when": "SO detail page renders it; trigger button labeled 'Create MOs' by default",
+          "shows": "Preview rows (will_create selected by default, skipped grouped separately), per-line quantity inputs, per-line group-remainder choice selects, plannedDate, Submit button labeled 'Create N order(s)'"
+        }
+      ],
+      "conditional_ui": [
+        {
+          "condition": "salesOrderPreview.hasManufacturableLines is false",
+          "effect": "Form Create button disabled (salesOrderModeDisabled flag); CTA hidden; disabledReason string surfaces in dialog/preview",
+          "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:765-767, lib/manufacturing/sales-order-manufacturability.ts:70-110"
+        },
+        {
+          "condition": "Order status='done'",
+          "effect": "updateSalesOrder throws SalesError 'Done orders cannot be changed.' (400)",
+          "file": "app/(dashboard)/sales/queries.ts:6105-6107"
+        },
+        {
+          "condition": "Existing snapshot matches inbound link but the original SO line no longer exists",
+          "effect": "validateSalesLineLinkInTx looks up ANY open line on the same SO with same productId and returns it (snapshot fallback re-link)",
+          "file": "app/(dashboard)/manufacturing/queries.ts:788-811"
+        },
+        {
+          "condition": "MO update with pickAllocations or non-pending batches present",
+          "effect": "Throws 'Orders cannot be edited after picking or batch work starts.' (400)",
+          "file": "app/(dashboard)/manufacturing/queries.ts:3877-3882"
+        }
+      ],
+      "disabled_states": [
+        {
+          "control": "Submit (Create button) in bulk-from-SO mode",
+          "disabled_when": "previewQuery.isLoading OR !salesOrderPreview.hasManufacturableLines",
+          "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:801, 765-767"
+        },
+        {
+          "control": "Sales-line picker options",
+          "disabled_when": "Filtered to lines whose salesOrderId matches the currently selected sales order; switching SO clears salesOrderLineId/productId/plannedQuantity/ingredients",
+          "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:311-313, 674-702"
+        }
+      ],
+      "messages": [
+        {
+          "key": "skip:non_product",
+          "text": "Only product lines can create manufacturing orders.",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:56-57"
+        },
+        {
+          "key": "skip:inactive_product",
+          "text": "Product is inactive or deleted.",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:58-59"
+        },
+        {
+          "key": "skip:no_active_bom",
+          "text": "Product has no active BOM ingredients.",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:60-61"
+        },
+        {
+          "key": "skip:stock_on_hand",
+          "text": "Finished goods stock covers this sales line.",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:62-63"
+        },
+        {
+          "key": "skip:existing_active_mo",
+          "text": "A linked manufacturing order already exists.",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:64-65"
+        },
+        {
+          "key": "disabledReason:empty",
+          "text": "This order has no product lines to manufacture.",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:72-73,83-84"
+        },
+        {
+          "key": "disabledReason:all_existing_mo",
+          "text": "All manufacturable lines already have linked manufacturing orders.",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:90"
+        },
+        {
+          "key": "disabledReason:stock_covers_all",
+          "text": "Finished goods stock covers every manufacturable line.",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:97"
+        },
+        {
+          "key": "disabledReason:no_bom_products",
+          "text": "No active BOM-backed products remain on this order.",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:106"
+        },
+        {
+          "key": "disabledReason:default",
+          "text": "No manufacturable lines remain on this order.",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:109"
+        },
+        {
+          "key": "validate:link_incomplete",
+          "text": "Sales order link is incomplete (field error: 'Select a valid sales order line')",
+          "status": 400,
+          "file": "app/(dashboard)/manufacturing/queries.ts:742-748"
+        },
+        {
+          "key": "validate:link_missing",
+          "text": "Sales order line not found (field error: 'Select an active sales order line for this product')",
+          "status": 404,
+          "file": "app/(dashboard)/manufacturing/queries.ts:814-818"
+        },
+        {
+          "key": "bom_required",
+          "text": "Products need a BOM before creating a manufacturing order",
+          "status": 400,
+          "file": "app/(dashboard)/manufacturing/queries.ts:831-836"
+        },
+        {
+          "key": "bom_changed",
+          "text": "The product BOM changed. Reload and try again.",
+          "status": 409,
+          "file": "app/(dashboard)/manufacturing/queries.ts:838-840"
+        },
+        {
+          "key": "bulk:so_not_open",
+          "text": "Only open sales orders can create manufacturing orders",
+          "status": 400,
+          "file": "app/(dashboard)/manufacturing/queries.ts:3680-3685"
+        },
+        {
+          "key": "bulk:refresh_required",
+          "text": "Selected manufacturing orders changed. Refresh and try again.",
+          "status": 409,
+          "file": "app/(dashboard)/manufacturing/queries.ts:3725-3730"
+        },
+        {
+          "key": "edit:not_open",
+          "text": "Only open orders can be edited",
+          "status": 400,
+          "file": "app/(dashboard)/manufacturing/queries.ts:3840-3842"
+        },
+        {
+          "key": "edit:work_started",
+          "text": "Orders cannot be edited after picking or batch work starts.",
+          "status": 400,
+          "file": "app/(dashboard)/manufacturing/queries.ts:3877-3882"
+        },
+        {
+          "key": "so_delete:linked_drift",
+          "text": "Cannot delete this sales order because manufacturing order {N} is linked to the order but not to a matching active sales line. Remove or repair the manufacturing link first.",
+          "status": "returned via SalesError chain from deleteSalesOrder",
+          "file": "app/(dashboard)/sales/queries.ts:2373-2375"
+        },
+        {
+          "key": "so_delete:shared_allocation",
+          "text": "Cannot delete this sales order because manufacturing order {N} is allocated to another sales order. Remove that allocation first.",
+          "file": "app/(dashboard)/sales/queries.ts:2395-2397"
+        },
+        {
+          "key": "so_update:done",
+          "text": "Done orders cannot be changed.",
+          "status": 400,
+          "file": "app/(dashboard)/sales/queries.ts:6105-6107"
+        },
+        {
+          "key": "item_delete:active_mo (single)",
+          "text": "(returned object) {deleted: false, usedInActiveManufacturing: true}",
+          "file": "app/(dashboard)/inventory/queries/internal.ts:1158-1160"
+        },
+        {
+          "key": "item_delete:active_mo (bulk)",
+          "text": "Cannot delete: one or more items are used by open manufacturing orders.",
+          "file": "app/(dashboard)/inventory/queries/internal.ts:1290-1295"
+        }
+      ],
+      "loading_states": [
+        {
+          "state": "previewQuery.isLoading in bulk-from-SO mode",
+          "effect": "Create button disabled; preview table empty",
+          "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:497-516,765-767"
+        },
+        {
+          "state": "mutation.isPending",
+          "effect": "Submit button shows 'Creating...' or 'Saving...'",
+          "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:768-780"
+        }
+      ],
+      "empty_states": [
+        {
+          "state": "summary.lines.length === 0 (SO with no lines or no product lines)",
+          "effect": "disabledReason='This order has no product lines to manufacture.', hasManufacturableLines=false, dialog Create button hidden/disabled",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:71-73"
+        },
+        {
+          "state": "All lines have skipReason='existing_active_mo'",
+          "effect": "disabledReason='All manufacturable lines already have linked manufacturing orders.'",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:86-91"
+        }
+      ],
+      "derived_values": [
+        {
+          "name": "manufacturableLineCount",
+          "definition": "Count of summary.lines with status='will_create'",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:352-360"
+        },
+        {
+          "name": "hasManufacturableLines",
+          "definition": "manufacturableLineCount > 0",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:355-356"
+        },
+        {
+          "name": "disabledReason",
+          "definition": "null when hasManufacturableLines; otherwise the canonical string from getDisabledReason()",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:357-359"
+        },
+        {
+          "name": "manufacturingQuantity per line",
+          "definition": "Defaults to line.quantity. When partial stock covers some of the line, it is reduced to the uncovered remainder. Lines fully covered get status='skipped' / skipReason='stock_on_hand'.",
+          "file": "lib/manufacturing/sales-order-manufacturability.ts:273-313"
+        },
+        {
+          "name": "isSalesOrderMode",
+          "definition": "!isEditing && watchedSalesOrderId != null && watchedSalesOrderLineId == null",
+          "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:384-385"
+        },
+        {
+          "name": "salesOrderLineIds (form-local)",
+          "definition": "editSalesLineOptions filtered to lines whose salesOrderId equals watchedSalesOrderId",
+          "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:311-313"
+        },
+        {
+          "name": "MO snapshot (salesOrderId, salesOrderLineId, salesOrderNumber, salesCustomerName)",
+          "definition": "Written by insertManufacturingOrderInTx from validateSalesLineLinkInTx result; refreshed on update from validateSalesLineLinkInTx result; nulled out when the user clears the link.",
+          "file": "app/(dashboard)/manufacturing/queries.ts:3552-3598, 3915-3933"
+        }
+      ]
+    },
+    "user_actions": [
+      {
+        "action": "Create a sales order",
+        "where": "/sales/orders/new",
+        "effect": "POST /api/sales-orders inserts the SO with status='open' (schema-forced) and unconditionally reserves the full order against ATP via reserveForSalesInTx. Auto-creates a planned shipment when shipDate is set. confirmOversell is accepted by the schema but not read by the DAL — no shortage rejection path exists at create time.",
+        "evidence": "app/(dashboard)/sales/queries.ts:5911-6017, lib/schemas/sales-orders.ts:127-130"
+      },
+      {
+        "action": "POST /api/sales-orders/[id]/confirm (replay-safe acknowledgement)",
+        "where": "Sales list / detail page acknowledgement action",
+        "effect": "Calls confirmSalesOrder, which runs beginInventoryOperationInTx and returns {id} on first call (after acquiring getLockedSalesOrderInTx) or the cached result on retry with the same Idempotency-Key. No SO field is mutated. Tests that retry with the same key should observe identical 200 responses and exactly one inventory_operations row.",
+        "evidence": "app/(dashboard)/sales/queries.ts:7553-7595, app/api/sales-orders/[id]/confirm/route.ts:10-29"
+      },
+      {
+        "action": "Open Create MOs dialog from the SO detail page",
+        "where": "/sales/orders/[id]",
+        "effect": "Fetches /api/sales-orders/:id/manufacturing-orders for the preview. CTA hidden when hasManufacturableLines is false.",
+        "evidence": "app/(dashboard)/sales/create-manufacturing-orders-dialog.tsx:95-263"
+      },
+      {
+        "action": "Bulk-create MOs from one SO",
+        "where": "Create MOs dialog or new-MO form in bulk-from-SO mode",
+        "effect": "POSTs to /api/sales-orders/:id/manufacturing-orders with selected will_create lineIds. The DAL locks the salesOrders row FOR UPDATE, recomputes the summary, refuses 409 'Selected manufacturing orders changed.' if any selected line is no longer will_create, then inserts one MO per remaining selected line with a snapshot link. Returns {created, skipped}.",
+        "evidence": "app/(dashboard)/manufacturing/queries.ts:3656-3812, app/(dashboard)/sales/create-manufacturing-orders-dialog.tsx:226-247"
+      },
+      {
+        "action": "Create a single sales-linked MO",
+        "where": "/manufacturing/orders/new with both Sales Order and Sales Order Line pickers chosen",
+        "effect": "POSTs to /api/manufacturing-orders with both salesOrderId and salesOrderLineId set; ingredients are seeded from the BOM (post-948c155e). Accepted as long as the link resolves to an open SO line whose itemId matches productId. Server rejects with 400 bom_required if the product BOM is empty, or 409 bom_changed if the submitted ingredient row count does not match the active BOM row count (e.g. BOM was edited after the picker rendered).",
+        "evidence": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:523-606,721-762, app/(dashboard)/manufacturing/queries.ts:3552-3598, 821-836"
+      },
+      {
+        "action": "Create an unlinked MO",
+        "where": "/manufacturing/orders/new with product chosen, no SO link",
+        "effect": "POSTs to /api/manufacturing-orders with salesOrderId=null; ingredients populated from BOM; product picker excludes products whose active BOM has no non-deleted components.",
+        "evidence": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:704-719, app/(dashboard)/manufacturing/queries.ts:2987-2988"
+      },
+      {
+        "action": "Edit a linked MO",
+        "where": "/manufacturing/orders/[id]/edit",
+        "effect": "PUT /api/manufacturing-orders/:id. Allowed only while status='open' and no pick/batch work has progressed. The sales link is re-validated with snapshot fallback so SO line rewrites do not orphan the MO.",
+        "evidence": "app/(dashboard)/manufacturing/queries.ts:3829-3997, 729-819"
+      },
+      {
+        "action": "Edit an open SO with line changes (same items)",
+        "where": "/sales/orders/[id]/edit",
+        "effect": "Hard-deletes and re-inserts all salesOrderLines. moveReplacedSalesLineAllocationsInTx migrates active allocations from old to new line ids when itemId matches. A linked MO's snapshot is preserved; on next MO edit/save, validateSalesLineLinkInTx re-binds salesOrderLineId via the snapshot-fallback lookup. updateSalesOrder does NOT inspect downstream MO pick state, so the SO update succeeds even when the linked MO already has pickAllocations (the snapshot rebind is deferred until the MO edit attempt, which is blocked by edit:work_started).",
+        "evidence": "app/(dashboard)/sales/queries.ts:6056-6241, app/(dashboard)/manufacturing/queries.ts:788-811, 3877-3882"
+      },
+      {
+        "action": "Delete a sales order with a linked MO",
+        "where": "/sales/orders/[id] delete action",
+        "effect": "Locks linked MOs, refuses with 'not to a matching active sales line' if any linked MO's salesOrderLineId is null or not in current line ids, or 'allocated to another sales order' if a shared allocation exists. Otherwise the linked MOs are soft-deleted alongside the SO (subject to deleteManufacturingOrdersInTx's finalized-MO guards).",
+        "evidence": "app/(dashboard)/sales/queries.ts:2339-2406, 7625-7730"
+      },
+      {
+        "action": "Soft-delete an item used by an open MO",
+        "where": "Inventory list / item detail",
+        "effect": "Gated by module:inventory write (assertModuleWriteAccess('inventory')). Blocked when the item is productId or an ingredient itemId on any non-deleted, status='open' MO. Single delete returns {deleted:false, usedInActiveManufacturing:true}; bulk delete returns 'Cannot delete: one or more items are used by open manufacturing orders.'",
+        "evidence": "app/(dashboard)/inventory/queries/internal.ts:1139-1160,1271-1296, app/api/items/route.ts:26-27, app/api/items/[id]/route.ts:93-94"
+      },
+      {
+        "action": "Cancel/soft-delete a sales-linked MO",
+        "where": "/manufacturing/orders/[id] delete action",
+        "effect": "Sets deletedAt (and cancelledAt for released/cancelled paths). Reopens the salesOrderLineId one-time claim, so the SO line returns to status='will_create' in the next preview.",
+        "evidence": "app/(dashboard)/manufacturing/queries.ts:6339-6612, lib/manufacturing/sales-order-manufacturability.ts:222-235"
+      }
+    ],
+    "business_rules": [
+      {
+        "id": "BR-1",
+        "rule": "salesOrderLineId is a one-time claim. A non-cancelled, non-deleted MO (deletedAt IS NULL AND status IN ('open','done')) blocks the creation of another MO linked to that same sales line. In practice deletedAt is set only on cancelled OPEN MOs because deleteManufacturingOrdersInTx refuses to soft-delete a finalized MO (status='done' OR completedAt!=null OR actualQuantity>0 — see queries.ts:6379-6391). So the claim-reopening path is realized through cancellation of an open MO, not through deletion of a completed MO.",
+        "evidence": [
+          {
+            "file": "lib/manufacturing/sales-order-manufacturability.ts",
+            "symbol": "existing_active_mo filter inside getSalesOrderManufacturingSummariesInTx",
+            "lines": "222-235",
+            "reason": "Filter shape WHERE salesOrderLineId IN (...) AND deletedAt IS NULL AND status IN ('open','done')"
+          },
+          {
+            "file": "lib/manufacturing/sales-order-manufacturability.ts",
+            "symbol": "SALES_ORDER_MANUFACTURING_SKIP_REASONS, getSkipMessage",
+            "lines": "17-23, 55-68",
+            "reason": "Returns skipReason='existing_active_mo' / 'A linked manufacturing order already exists.'"
+          },
+          {
+            "file": "app/(dashboard)/manufacturing/queries.ts",
+            "symbol": "createManufacturingOrdersFromSalesOrderInTx",
+            "lines": "3691-3696, 3754-3760",
+            "reason": "When the recomputed summary has no manufacturable lines (e.g. existing claim covers all), POST is rejected with disabledReason 'All manufacturable lines already have linked manufacturing orders.'"
+          },
+          {
+            "file": "app/(dashboard)/manufacturing/queries.ts",
+            "symbol": "deleteManufacturingOrdersInTx finalized guard",
+            "lines": "6379-6391",
+            "reason": "Refuses soft-delete when status != 'open' OR completedAt != null OR actualQuantity > 0 — a finalized MO cannot transition to deletedAt-set, so it remains a permanent claim-holder."
+          }
+        ],
+        "confidence": "high",
+        "type": "fact"
+      },
+      {
+        "id": "BR-2",
+        "rule": "Re-link on SO line rewrite is preserved when the rewritten SO still contains a line with the same productId. updateSalesOrder hard-deletes and re-inserts all salesOrderLines, moveReplacedSalesLineAllocationsInTx migrates active allocations from old line ids to new line ids by itemId, and on the next MO edit validateSalesLineLinkInTx falls back to ANY open line on the same SO with the same productId so the MO snapshot rebinds to the new line id. The fallback runs only when isUnchangedSnapshot is true.",
+        "evidence": [
+          {
+            "file": "app/(dashboard)/sales/queries.ts",
+            "symbol": "updateSalesOrder hard-delete + insert + moveReplacedSalesLineAllocationsInTx",
+            "lines": "6139, 6141-6154, 6156-6165",
+            "reason": "Line ids are intentionally replaced. Allocation migration is the call to moveReplacedSalesLineAllocationsInTx with old + new line lists."
+          },
+          {
+            "file": "app/(dashboard)/manufacturing/queries.ts",
+            "symbol": "validateSalesLineLinkInTx snapshot fallback",
+            "lines": "750-811",
+            "reason": "Fallback runs only when isUnchangedSnapshot is true, looking up replacement lines by salesOrderId + productId. Returns existingSnapshot if no replacement found."
+          },
+          {
+            "file": "lib/db/schema/manufacturing.ts",
+            "symbol": "salesOrderLineId column (no FK)",
+            "lines": "40-42",
+            "reason": "Comment explicitly documents the design choice that enables re-insert without FK violations."
+          }
+        ],
+        "confidence": "high",
+        "type": "fact"
+      },
+      {
+        "id": "BR-3",
+        "rule": "Sales-linked single MO creation seeds ingredients from the product's active BOM (post-948c155e). When the user picks a sales line via the new-MO form, handleSalesLineChange forces productId, plannedQuantity, salesOrderId, and salesOrderLineId, and writes ingredients from productMap.get(line.itemId).bom. The form merges this seed with ingredientItemOptions (from getAvailableComponents()) so non-BOM ingredients can also be picked. The server's createManufacturingOrderInTx accepts the payload regardless of sales link presence — the previous explicit-block guard was removed.",
+        "evidence": [
+          {
+            "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx",
+            "symbol": "handleSalesLineChange",
+            "lines": "721-762",
+            "reason": "Seeds form.ingredients from productMap.get(selected.itemId).bom when a sales line is picked."
+          },
+          {
+            "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx",
+            "symbol": "ingredientOptions merge",
+            "lines": "315-378",
+            "reason": "Options merge getAvailableComponents() (ingredientItemOptions) with BOM rows and alternates so the picker is not restricted to the BOM."
+          },
+          {
+            "file": "app/(dashboard)/manufacturing/queries.ts",
+            "symbol": "createManufacturingOrderInTx (post-948c155e)",
+            "lines": "3552-3598",
+            "reason": "Sales-link guard removed; validateSalesLineLinkInTx is the only check on the link."
+          },
+          {
+            "file": "git show 948c155e",
+            "symbol": "removed direct-create guard",
+            "lines": "previously queries.ts:3469-3475",
+            "reason": "Commit diff shows the explicit block 'Create sales-linked manufacturing orders from the sales order Create MOs flow.' was deleted."
+          }
+        ],
+        "confidence": "high",
+        "type": "fact"
+      },
+      {
+        "id": "BR-4",
+        "rule": "The new-MO product picker filters out products whose active BOM has no non-deleted ingredients. getManufacturingProductTemplates returns products WHERE itemType='product' AND deletedAt IS NULL AND isMaster=false, then filters out any whose bomByProduct entry is empty.",
+        "evidence": [
+          {
+            "file": "app/(dashboard)/manufacturing/queries.ts",
+            "symbol": "getManufacturingProductTemplates BOM-empty filter",
+            "lines": "2977, 2987-2988",
+            "reason": "products.filter((product) => (bomByProduct.get(product.id) ?? []).length > 0) — empty BOMs are excluded from the picker."
+          },
+          {
+            "file": "app/(dashboard)/manufacturing/queries.ts",
+            "symbol": "prepareCreateIngredientsInTx server-side guard",
+            "lines": "831-836",
+            "reason": "Backstop: if a caller bypasses the picker and submits with an empty BOM, API rejects 400 'Products need a BOM before creating a manufacturing order'."
+          }
+        ],
+        "confidence": "high",
+        "type": "fact"
+      },
+      {
+        "id": "BR-5",
+        "rule": "Items used as productId OR as an ingredient itemId on any open MO (status='open' AND deletedAt IS NULL) cannot be soft-deleted. Applies to both single and bulk delete paths. Item delete endpoints are also gated by module:inventory write at the route layer.",
+        "evidence": [
+          {
+            "file": "app/(dashboard)/inventory/queries/internal.ts",
+            "symbol": "deleteItem (single)",
+            "lines": "1139-1160",
+            "reason": "Joins manufacturingOrders LEFT JOIN manufacturingOrderIngredients, WHERE deletedAt IS NULL AND status='open' AND (productId = id OR ingredient itemId = id). Returns {deleted: false, usedInActiveManufacturing: true}."
+          },
+          {
+            "file": "app/(dashboard)/inventory/queries/internal.ts",
+            "symbol": "deleteItems (bulk)",
+            "lines": "1271-1296",
+            "reason": "Same query shape applied to inArray(ids). Returns error 'Cannot delete: one or more items are used by open manufacturing orders.'"
+          },
+          {
+            "file": "app/api/items/route.ts",
+            "symbol": "DELETE guard",
+            "lines": "26-27",
+            "reason": "Bulk DELETE handler calls assertModuleWriteAccess('inventory', request.headers)."
+          },
+          {
+            "file": "app/api/items/[id]/route.ts",
+            "symbol": "DELETE guard",
+            "lines": "93-94",
+            "reason": "Single DELETE handler calls assertModuleWriteAccess('inventory', _req.headers)."
+          }
+        ],
+        "confidence": "high",
+        "type": "fact"
+      },
+      {
+        "id": "BR-6",
+        "rule": "SO delete with linked MO drift is blocked. deleteSalesLinkedManufacturingOrdersInTx locks all non-deleted MOs linked by salesOrderId and refuses with the canonical 'Cannot delete this sales order because manufacturing order {N} is linked to the order but not to a matching active sales line. Remove or repair the manufacturing link first.' error when any linked MO has salesOrderLineId NULL or pointing to a line not in the SO's current line ids. Also refuses when any linked MO has an active stockAllocation pointing to a different SO line.",
+        "evidence": [
+          {
+            "file": "app/(dashboard)/sales/queries.ts",
+            "symbol": "deleteSalesLinkedManufacturingOrdersInTx",
+            "lines": "2339-2406",
+            "reason": "Drift detection at 2367-2375; cross-SO allocation detection at 2378-2397."
+          },
+          {
+            "file": "app/(dashboard)/sales/queries.ts",
+            "symbol": "deleteSalesOrder caller",
+            "lines": "7625-7730",
+            "reason": "Calls deleteSalesLinkedManufacturingOrdersInTx as part of the SO-delete pipeline."
+          }
+        ],
+        "confidence": "high",
+        "type": "fact"
+      },
+      {
+        "id": "BR-7",
+        "rule": "Sales orders reserve their full ordered quantity at creation. createSalesOrder forces status to 'open' on insert and then calls reserveForSalesInTx for every inserted line. confirmOversell is accepted by insertSalesOrderSchema but never consumed by createSalesOrder — there is no shortage-rejection path at create time. confirmSalesOrder is NOT a pure no-op: it runs beginInventoryOperationInTx (operationName='confirmSalesOrder') and finishInventoryOperationInTx so retries with the same Idempotency-Key replay the cached {id} without re-acquiring getLockedSalesOrderInTx, but it never mutates SO fields (status remains 'open' from creation). The CLAUDE.md narrative 'confirmed orders reserve the full order' is enforced at create time because every persisted SO is already 'open'; the /confirm endpoint exists only as an operationally-replay-safe acknowledgement surface.",
+        "evidence": [
+          {
+            "file": "lib/schemas/sales-orders.ts",
+            "symbol": "status transform",
+            "lines": "127-130",
+            "reason": "z.enum(['open','done']).optional().transform(() => 'open' as const) forces status to 'open' on insert regardless of input."
+          },
+          {
+            "file": "app/(dashboard)/sales/queries.ts",
+            "symbol": "createSalesOrder reservation",
+            "lines": "5911-6017 (specifically 5942 status='open' insert, 5971-5984 reserveForSalesInTx call)",
+            "reason": "Reservation runs unconditionally on the inserted lines; no confirmOversell branch exists."
+          },
+          {
+            "file": "app/(dashboard)/sales/queries.ts",
+            "symbol": "confirmSalesOrder",
+            "lines": "7553-7595",
+            "reason": "Wraps beginInventoryOperationInTx at 7563-7568, returns replay.result at 7570-7572, runs getLockedSalesOrderInTx + finishInventoryOperationInTx only on first call. No SO field mutated."
+          }
+        ],
+        "confidence": "high",
+        "type": "fact"
+      },
+      {
+        "id": "BR-8a",
+        "rule": "Idempotency-keyed endpoints (Idempotency-Key REQUIRED). Sales: POST /api/sales-orders, DELETE /api/sales-orders (bulk), PUT /api/sales-orders/[id], DELETE /api/sales-orders/[id], POST /api/sales-orders/[id]/confirm, POST /api/sales-orders/bulk-confirm, plus the shipment/ship/duplicate/fulfillment-plan/accounting-push routes (out of scope for this contract). Manufacturing: POST /api/manufacturing-orders/[id]/complete, POST /api/manufacturing-orders/[id]/outputs, POST /api/manufacturing-orders/[id]/ingredients/[ingredientId]/pick, POST /api/manufacturing-orders/[id]/batches/[batchId]/complete, POST /api/manufacturing-orders/[id]/batches/[batchId]/outputs. Verified by literal presence of requireIdempotencyKey() in each route handler.",
+        "evidence": [
+          {
+            "file": "app/api/sales-orders/route.ts",
+            "symbol": "POST / bulk DELETE",
+            "lines": "20-22, 34-36",
+            "reason": "requireIdempotencyKey calls for 'deleteSalesOrders' and 'createSalesOrder'."
+          },
+          {
+            "file": "app/api/sales-orders/[id]/route.ts",
+            "symbol": "PUT / DELETE",
+            "lines": "25-27, 46-48",
+            "reason": "requireIdempotencyKey for 'updateSalesOrder' and 'deleteSalesOrder'."
+          },
+          {
+            "file": "app/api/sales-orders/[id]/confirm/route.ts",
+            "symbol": "POST",
+            "lines": "10-13",
+            "reason": "requireIdempotencyKey('confirmSalesOrder')."
+          },
+          {
+            "file": "app/api/sales-orders/bulk-confirm/route.ts",
+            "symbol": "POST",
+            "lines": "10-12",
+            "reason": "requireIdempotencyKey('bulkConfirmSalesOrders')."
+          },
+          {
+            "file": "app/api/manufacturing-orders/[id]/complete/route.ts",
+            "symbol": "POST",
+            "lines": "12-14",
+            "reason": "requireIdempotencyKey('completeManufacturingOrder')."
+          },
+          {
+            "file": "app/api/manufacturing-orders/[id]/outputs/route.ts",
+            "symbol": "POST",
+            "lines": "11-13",
+            "reason": "requireIdempotencyKey('recordManufacturingOutput')."
+          },
+          {
+            "file": "app/api/manufacturing-orders/[id]/ingredients/[ingredientId]/pick/route.ts",
+            "symbol": "POST",
+            "lines": "10-12",
+            "reason": "requireIdempotencyKey('pickManufacturingIngredient')."
+          },
+          {
+            "file": "app/api/manufacturing-orders/[id]/batches/[batchId]/complete/route.ts",
+            "symbol": "POST",
+            "lines": "11-13",
+            "reason": "requireIdempotencyKey('completeManufacturingBatch')."
+          },
+          {
+            "file": "app/api/manufacturing-orders/[id]/batches/[batchId]/outputs/route.ts",
+            "symbol": "POST",
+            "lines": "11-13",
+            "reason": "requireIdempotencyKey('recordManufacturingBatchOutput')."
+          }
+        ],
+        "confidence": "high",
+        "type": "fact"
+      },
+      {
+        "id": "BR-8b",
+        "rule": "Non-idempotent endpoints (Idempotency-Key NOT required). Manufacturing core CRUD: POST /api/manufacturing-orders, DELETE /api/manufacturing-orders (bulk), PUT /api/manufacturing-orders/[id], DELETE /api/manufacturing-orders/[id]. Manufacturing execution/admin: POST /api/manufacturing-orders/[id]/batches/[batchId]/start, PATCH /api/manufacturing-orders/[id]/priority, PATCH /api/manufacturing-orders/[id]/ingredients/reorder, PUT /api/manufacturing-orders/[id]/output-allocation, POST /api/manufacturing-orders/[id]/duplicate, PATCH /api/manufacturing-orders/priority-ranks. Sales-scoped bulk MO create: POST /api/sales-orders/[id]/manufacturing-orders. Verified by absence of requireIdempotencyKey() in each handler. The presence/absence is a hard fact; whether the gap is intentional is not stated in code.",
+        "evidence": [
+          {
+            "file": "app/api/manufacturing-orders/route.ts",
+            "symbol": "POST / DELETE / GET",
+            "lines": "13-44",
+            "reason": "Import line does not include requireIdempotencyKey; no call in any handler."
+          },
+          {
+            "file": "app/api/manufacturing-orders/[id]/route.ts",
+            "symbol": "PUT / DELETE",
+            "lines": "25-59",
+            "reason": "No requireIdempotencyKey import or call."
+          },
+          {
+            "file": "app/api/manufacturing-orders/[id]/batches/[batchId]/start/route.ts",
+            "symbol": "POST",
+            "lines": "10",
+            "reason": "No requireIdempotencyKey."
+          },
+          {
+            "file": "app/api/manufacturing-orders/[id]/priority/route.ts",
+            "symbol": "PATCH",
+            "lines": "10",
+            "reason": "No requireIdempotencyKey."
+          },
+          {
+            "file": "app/api/manufacturing-orders/[id]/ingredients/reorder/route.ts",
+            "symbol": "PATCH",
+            "lines": "10",
+            "reason": "No requireIdempotencyKey."
+          },
+          {
+            "file": "app/api/manufacturing-orders/[id]/output-allocation/route.ts",
+            "symbol": "PUT",
+            "lines": "23",
+            "reason": "No requireIdempotencyKey."
+          },
+          {
+            "file": "app/api/manufacturing-orders/[id]/duplicate/route.ts",
+            "symbol": "POST",
+            "lines": "9",
+            "reason": "No requireIdempotencyKey."
+          },
+          {
+            "file": "app/api/manufacturing-orders/priority-ranks/route.ts",
+            "symbol": "PATCH",
+            "lines": "10",
+            "reason": "No requireIdempotencyKey."
+          },
+          {
+            "file": "app/api/sales-orders/[id]/manufacturing-orders/route.ts",
+            "symbol": "POST",
+            "lines": "26-40",
+            "reason": "No requireIdempotencyKey call — bulk-from-SO MO creation is not key-gated even though createManufacturingOrdersFromSalesOrderInTx FOR UPDATE-locks the SO row."
+          }
+        ],
+        "confidence": "high",
+        "type": "fact"
+      },
+      {
+        "id": "BR-9",
+        "rule": "Idempotency-asymmetry intent is undocumented. The DAL functions createSalesOrder, updateSalesOrder, deleteSalesOrder, confirmSalesOrder all wrap beginInventoryOperationInTx — the SO write-path is designed for replay. The MO write-path (POST /api/manufacturing-orders, PUT, DELETE) is NOT wrapped in beginInventoryOperationInTx in the same way, and the routes do not call requireIdempotencyKey. Whether this asymmetry is intentional (e.g. because activateManufacturingOrderInTx is naturally idempotent on the resulting state) or an oversight is not stated in any code comment or doc that was opened in Phase 0/1.",
+        "evidence": [
+          {
+            "file": "app/(dashboard)/sales/queries.ts",
+            "symbol": "createSalesOrder beginInventoryOperationInTx wrap",
+            "lines": "5916-5921, 6009-6013",
+            "reason": "SO create writes to inventory_operations on first call and replays on retry."
+          },
+          {
+            "file": "app/(dashboard)/manufacturing/queries.ts",
+            "symbol": "createManufacturingOrderInTx (no beginInventoryOperationInTx wrap)",
+            "lines": "3552-3598",
+            "reason": "MO create does not consult the inventory_operations table at all."
+          }
+        ],
+        "confidence": "low",
+        "type": "inference (intent unknown)"
+      },
+      {
+        "id": "BR-10",
+        "rule": "Create-time shortage flags are dead weight. createSalesOrder unconditionally reserves the full order at insert time; confirmOversell on the body is accepted by insertSalesOrderSchema but is not consumed by createSalesOrder. createManufacturingOrderInTx similarly does not branch on confirmShortage. Both flags are accepted by their respective schemas but the only DAL surfaces that read them are downstream release/pick/duplicate flows. Tests that expect a 400/409 stock-shortage response from POST /api/sales-orders or POST /api/manufacturing-orders are checking behavior that does not exist on the create paths.",
+        "evidence": [
+          {
+            "file": "app/(dashboard)/sales/queries.ts",
+            "symbol": "createSalesOrder body (no confirmOversell branch)",
+            "lines": "5911-6017",
+            "reason": "Function body contains no reference to confirmOversell; the only places the flag is read in the file are duplicateSalesOrder (hardcoded true at 6050) and confirmSalesOrder's idempotency payload (purely informational at 7567)."
+          },
+          {
+            "file": "app/(dashboard)/manufacturing/queries.ts",
+            "symbol": "createManufacturingOrderInTx (no confirmShortage branch)",
+            "lines": "3552-3598",
+            "reason": "Function body contains no reference to confirmShortage; the only place the flag is read in the file is duplicateManufacturingOrder (hardcoded false at 3652)."
+          },
+          {
+            "file": "lib/schemas/sales-orders.ts",
+            "symbol": "insertSalesOrderSchema accepts confirmOversell",
+            "lines": "117-198",
+            "reason": "Schema accepts the flag for type-compatibility with downstream operations but does not enforce it."
+          },
+          {
+            "file": "lib/schemas/manufacturing-orders.ts",
+            "symbol": "insertManufacturingOrderSchema accepts confirmShortage",
+            "lines": "148",
+            "reason": "Schema accepts the flag at create; createManufacturingOrderInTx does not consume it."
+          }
+        ],
+        "confidence": "high",
+        "type": "fact"
+      }
+    ],
+    "side_effects": [
+      {
+        "name": "insertManufacturingOrderInTx → activateManufacturingOrderInTx",
+        "writes": [
+          "manufacturingOrders row (orderNumber, snapshots, salesOrderId, salesOrderLineId, salesOrderNumber, salesCustomerName, requestedQuantity, plannedQuantity, status='open', manufacturingMode, etc.)",
+          "manufacturingOrderIngredients rows",
+          "ingredient demand bookkeeping for planning (items.expectedQty recompute via downstream helpers)"
+        ],
+        "file": "app/(dashboard)/manufacturing/queries.ts:3552-3598, 3656-3812"
+      },
+      {
+        "name": "updateManufacturingOrder",
+        "writes": [
+          "Updates manufacturingOrders snapshot columns including salesOrderId/salesOrderLineId/salesOrderNumber/salesCustomerName",
+          "Deletes and re-inserts manufacturingOrderIngredients",
+          "Cancels existing stockAllocations for ingredients (cancelActiveStockAllocationsInTx)",
+          "Releases ingredient reservations (releaseIngredientReservationForManufacturingInTx)",
+          "Adds fresh ingredient demand (addIngredientDemandForManufacturingInTx)",
+          "Recomputes expected supply via editExpectedFromManufacturingInTx",
+          "Deletes and rebuilds manufacturingOrderBatches for batch-mode orders"
+        ],
+        "file": "app/(dashboard)/manufacturing/queries.ts:3829-3997"
+      },
+      {
+        "name": "createSalesOrder",
+        "writes": [
+          "salesOrders row with status='open'",
+          "salesOrderLines rows",
+          "Reservations via reserveForSalesInTx",
+          "Default planned shipment via upsertDefaultPlannedShipmentForOrderInTx (when shipDate set)",
+          "inventory_operations idempotency row via beginInventoryOperationInTx/finishInventoryOperationInTx"
+        ],
+        "file": "app/(dashboard)/sales/queries.ts:5911-6017"
+      },
+      {
+        "name": "updateSalesOrder",
+        "writes": [
+          "Releases existing reservations",
+          "Cancels existing shipment-line allocations",
+          "Deletes and re-inserts salesOrderLines",
+          "Migrates active stock allocations via moveReplacedSalesLineAllocationsInTx",
+          "Re-reserves the order",
+          "Refreshes planned shipment",
+          "inventory_operations idempotency row"
+        ],
+        "file": "app/(dashboard)/sales/queries.ts:6056-6241"
+      },
+      {
+        "name": "confirmSalesOrder",
+        "writes": [
+          "inventory_operations idempotency row keyed by operationName='confirmSalesOrder' and the caller-provided Idempotency-Key (first call only).",
+          "No SO column mutated on first call; subsequent retries with the same key replay the cached {id} result."
+        ],
+        "file": "app/(dashboard)/sales/queries.ts:7553-7595"
+      },
+      {
+        "name": "deleteSalesOrder → deleteSalesLinkedManufacturingOrdersInTx → deleteManufacturingOrdersInTx",
+        "writes": [
+          "Soft-deletes the salesOrders row",
+          "Soft-deletes linked manufacturingOrders rows (subject to finalized-MO guards)",
+          "Cancels stockAllocations and ingredient reservations on the linked MOs"
+        ],
+        "file": "app/(dashboard)/sales/queries.ts:2339-2406,7625-7730 ; app/(dashboard)/manufacturing/queries.ts:6339-6612"
+      },
+      {
+        "name": "TanStack Query cache invalidations",
+        "writes": [
+          "['manufacturing-orders'], ['items'], ['sales-orders'] after MO create/edit",
+          "['sales-order', salesOrderId], ['manufacturing-sales-order-preview', salesOrderId] after bulk Create MOs"
+        ],
+        "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:637-647, app/(dashboard)/sales/create-manufacturing-orders-dialog.tsx:248-262"
+      }
+    ],
+    "risk_areas": [
+      {
+        "id": "RA-1",
+        "area": "salesOrderLineId one-time claim — cancellation reopens the claim",
+        "concern": "Filter at lib/manufacturing/sales-order-manufacturability.ts:222-235 uses deletedAt IS NULL AND status IN ('open','done'). A cancelled (soft-deleted) MO does not block a new MO for that SO line. The completed case (status='open' or 'done', deletedAt null) is covered by an existing test (manufacturing-order.spec.ts:736-848); the cancelled→reopen case appears uncovered. Concurrent cancel + new create is also untested."
+      },
+      {
+        "id": "RA-2a",
+        "area": "Same-itemId SO-line rewrite — snapshot fallback re-link succeeds",
+        "concern": "When updateSalesOrder rewrites lines and the new line has the SAME itemId as the original, the next MO edit (which re-runs validateSalesLineLinkInTx with the existing snapshot) follows the fallback path (queries.ts:788-811) and re-binds salesOrderLineId to the new line id. Allocations migrate via moveReplacedSalesLineAllocationsInTx. This is the happy-path Phase-948c155e supports. Existing test covers it (manufacturing-order.spec.ts:850-907) for the typical case but does not cover concurrent rewrite + MO edit/release."
+      },
+      {
+        "id": "RA-2b",
+        "area": "Different-itemId SO-line rewrite — snapshot drift blocks SO delete",
+        "concern": "If the rewritten SO line has a DIFFERENT itemId, validateSalesLineLinkInTx's fallback finds no replacement (filters by salesOrderId + productId), the MO snapshot persists pointing at the now-deleted old line id, and any subsequent attempt to deleteSalesOrder hits deleteSalesLinkedManufacturingOrdersInTx's drift check (queries.ts:2367-2375) and is refused with 'manufacturing order {N} is linked to the order but not to a matching active sales line. Remove or repair the manufacturing link first.' Existing coverage is via manual db.update (sales-order.spec.ts:1297-1410), not via an actual line-rewrite. Cite app/(dashboard)/sales/queries.ts:6056-6241 (no MO-pick-state check on SO update) and app/(dashboard)/manufacturing/queries.ts:788-811 (productId-only fallback)."
+      },
+      {
+        "id": "RA-2c",
+        "area": "SO-line rewrite while linked MO has pickAllocations or non-pending batches",
+        "concern": "updateSalesOrder does NOT inspect downstream MO pick state — the SO update succeeds even when the linked MO has pickAllocations or active batches. The MO's salesOrderLineId snapshot continues to point at the deleted old line id until the next MO edit attempt, which is blocked by edit:work_started (queries.ts:3877-3882). The MO therefore stays linked at the snapshot level but cannot rebind via validateSalesLineLinkInTx (which only runs on MO edit). Net effect: a stale snapshot persists invisibly; SO delete is blocked by drift detection until the MO is finalized or cancelled. This is the 948c155e regression class. Cite app/(dashboard)/sales/queries.ts:6056-6241 (no pickAllocations check on SO update) and app/(dashboard)/manufacturing/queries.ts:3877-3882 (MO edit guard)."
+      },
+      {
+        "id": "RA-3",
+        "area": "BOM-edited-between-form-load-and-submit (sales-linked direct create)",
+        "concern": "After 948c155e, POST /api/manufacturing-orders with both ids set goes through prepareCreateIngredientsInTx, which expects the submitted ingredient row count to match the current BOM row count exactly. The form seeds ingredients from productMap at form-load time and does NOT subscribe to BOM revisions. If the BOM is edited (component added/removed) between form load and submit, the create returns 409 bom_changed and the user must reload. This is a regression surface specific to the new pathway."
+      },
+      {
+        "id": "RA-4",
+        "area": "Idempotency gap on POST /api/manufacturing-orders",
+        "concern": "Unlike POST /api/sales-orders, the MO POST does not require an Idempotency-Key and does not replay through beginInventoryOperationInTx. Client retries can create duplicate MOs that each take a salesOrderLineId one-time-claim — the second insert succeeds because the first's existing_active_mo only blocks the SUBSEQUENT Create-MOs flow, not parallel single-create posts. The same gap applies to PUT and DELETE on /api/manufacturing-orders/[id]. Whether the gap is intentional is undocumented; see BR-9."
+      },
+      {
+        "id": "RA-5",
+        "area": "Item soft-delete only blocks status='open' MOs",
+        "concern": "deleteItem / deleteItems both filter status='open'. A 'done' MO (status='done' OR a completed open MO via completedAt) does not block deletion. The CLAUDE.md description 'Items used by draft or released MOs' translates to the open-status guard only — completed MOs do not protect their referenced items. Item delete is gated by module:inventory write at the route layer (app/api/items/route.ts:27,40 and app/api/items/[id]/route.ts:18,94); a user without that role cannot exercise this path at all."
+      },
+      {
+        "id": "RA-6",
+        "area": "Stale Playwright spec",
+        "concern": "test/e2e/slow/manufacturing-order.spec.ts:462-475 ('blocks direct sales-linked creation') still asserts the old 400 'Create sales-linked manufacturing orders' guard removed by 948c155e. The expected new behavior is 201 with both ids set on the inserted MO row. Downstream phases must replace this assertion."
+      },
+      {
+        "id": "RA-7",
+        "area": "Status-name drift between CLAUDE.md and persisted enum",
+        "concern": "CLAUDE.md narrates 'draft|released|completed|cancelled' for MOs and 'draft|confirmed|partially_shipped' for SOs, but the schema and DAL operate on 'open'|'done' plus the dated columns. Test assertions must use the persisted enum literals; downstream phases should not assert status='cancelled' or status='completed' literals."
+      },
+      {
+        "id": "RA-8",
+        "area": "Confirm endpoint behavior is replay-stub, not state-mutating",
+        "concern": "confirmSalesOrder runs beginInventoryOperationInTx + finishInventoryOperationInTx but never mutates SO fields. Tests that assert state changes after /confirm rely on side effects of the open→open transition (i.e. nothing changes at the SO level). Downstream phases that mean 'confirm the order' should treat 'createSalesOrder' as already-confirming. See RA-11 for the replay assertion surface."
+      },
+      {
+        "id": "RA-9",
+        "area": "Lock-order asymmetry between SO rewrite and MO operations",
+        "concern": "validateSalesLineLinkInTx does NOT FOR UPDATE the sales-order line. createManufacturingOrdersFromSalesOrderInTx FOR UPDATEs only the salesOrders row (queries.ts:3674). updateSalesOrder hard-deletes lines without locking dependent manufacturingOrders. A concurrent 'rewrite SO line' + 'create MO from SO' could race; behavior is not directly tested."
+      },
+      {
+        "id": "RA-10",
+        "area": "Duplicate MO loses sales link",
+        "concern": "duplicateManufacturingOrder (queries.ts:3608-3653) explicitly sets salesOrderId/salesOrderLineId to null. Users assuming 'duplicate' carries the link will see the duplicate unlinked. Not currently tested in slow specs."
+      },
+      {
+        "id": "RA-11",
+        "area": "SO confirm idempotency replay",
+        "concern": "Posting twice to /api/sales-orders/[id]/confirm with the same Idempotency-Key replays through beginInventoryOperationInTx (sales/queries.ts:7563-7591) and returns the cached {id} on the second call without re-running getLockedSalesOrderInTx. Risk surface: (a) a stale Idempotency-Key could be silently swallowed and the caller never observes that the SO was already 'confirmed'; (b) if the first call partial-failed before finishInventoryOperationInTx wrote the result, the second call's replay state is implementation-defined. Tests should assert (i) both responses are 200, (ii) exactly one inventory_operations row exists for the operationName+key pair, and (iii) the SO status remains 'open' across both calls. Different Idempotency-Keys must each produce their own inventory_operations row."
+      },
+      {
+        "id": "RA-12",
+        "area": "Parallel bulk Create-MOs-from-SO submissions — row-lock serialization",
+        "concern": "createManufacturingOrdersFromSalesOrderInTx acquires FOR UPDATE on the salesOrders row at lib/../manufacturing/queries.ts:3663-3674, so concurrent POSTs to /api/sales-orders/[id]/manufacturing-orders against the same SO serialize at that lock. The second caller sees the recomputed summary with existing_active_mo for any line the first caller claimed, and either returns {created:[], skipped:[...existing_active_mo]} silently or returns 409 'Selected manufacturing orders changed. Refresh and try again.' (queries.ts:3720-3730) depending on whether its original payload still includes those lines. No FOR UPDATE is acquired on salesOrderLines or on items, so a parallel /api/manufacturing-orders single-create POST against a different SO line can interleave inside the bulk path. Not directly tested."
+      }
+    ]
+  },
+  "review_focus": [
+    "Verify that BR-1 is captured exactly as the deletedAt IS NULL AND status IN ('open','done') filter and that the 'in practice' note about deleteManufacturingOrdersInTx:6379-6391 is preserved — finalized MOs cannot reach deletedAt-set, so the claim-reopening path is only via cancellation of open MOs.",
+    "Verify that BR-2 distinguishes the same-itemId rewrite (re-link succeeds, RA-2a) from different-itemId rewrite (drift, SO delete blocked, RA-2b) and that the pickAllocations interleave (RA-2c) is captured as the 948c155e regression class.",
+    "Confirm the post-948c155e behavior in BR-3: direct sales-linked single-MO create via POST /api/manufacturing-orders is allowed and the form seeds ingredients from the BOM. Any reference to the old 400 'Create sales-linked manufacturing orders' guard must be flagged as stale (RA-6).",
+    "Verify BR-4's two-layer enforcement: picker filter (no_active_bom hides the product) AND API backstop ('Products need a BOM before creating a manufacturing order' on submit). Downstream scenarios may exercise either layer.",
+    "Verify BR-5 applies symmetrically to single and bulk delete and to both productId and ingredient itemId references on status='open' MOs, AND that the route layer requires module:inventory write for both single and bulk item delete.",
+    "Verify BR-6 cites both drift errors (NULL or out-of-line-set salesOrderLineId AND shared cross-SO allocation).",
+    "Verify BR-7 captures confirmSalesOrder as idempotency-keyed (beginInventoryOperationInTx replay) rather than a pure no-op; tests should not assume the function does nothing.",
+    "Verify BR-8a / BR-8b enumerate every endpoint by name with the right requireIdempotencyKey verdict. Downstream phases must not generalize 'MO endpoints are all unkeyed' or 'SO endpoints are all keyed' — the truth is the explicit list.",
+    "Verify BR-9 marks the intent-of-asymmetry as low confidence (inference) while BR-8a/BR-8b stay high confidence (fact). Downstream phases must not de-prioritize BR-8 because BR-9 is low-confidence.",
+    "Verify BR-10 explicitly says confirmOversell and confirmShortage have no effect on the create paths. Tests asserting 400/409 shortage responses from POST /api/sales-orders or POST /api/manufacturing-orders are testing nonexistent behavior and should not be planned.",
+    "Verify RA-11 (confirm replay) and RA-12 (parallel bulk-from-SO) are present and cite the replay function (sales/queries.ts:7563-7591) and the FOR UPDATE lock (manufacturing/queries.ts:3674) respectively.",
+    "Verify the permissions input table includes module:inventory write for item soft-delete and cites both single and bulk routes.",
+    "Verify no user_action or rule references 'draft SO' — the persisted vocabulary is 'open' / 'done', and pre-create state is 'no row'."
+  ]
+}
