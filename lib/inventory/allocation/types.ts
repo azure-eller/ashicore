@@ -2,6 +2,10 @@ export type AllocationDemandType = "sales_order_line" | "sales_shipment_line";
 
 export type AllocationSourceType = "inventory_lot" | "manufacturing_order";
 
+export type AllocationSourceClaimDemandType =
+  | AllocationDemandType
+  | "manufacturing_order_ingredient";
+
 export type AllocationDemandRef = {
   demandType: AllocationDemandType;
   demandId: string;
@@ -21,6 +25,19 @@ export type AllocationAssignment = AllocationDemandRef &
     demandLabel: string;
     salesOrderId: string | null;
   };
+
+export type AllocationSourceClaim = AllocationSourceRef & {
+  demandType: AllocationSourceClaimDemandType;
+  demandId: string;
+  itemId: string;
+  quantity: string;
+  status: "active";
+  sourceLabel: string;
+  demandLabel: string;
+  contextLabel: string | null;
+  requiredDate: string | null;
+  href: string | null;
+};
 
 export type AllocationDemandRow = AllocationDemandRef & {
   demandKey: `${AllocationDemandType}:${string}`;
@@ -65,6 +82,7 @@ export type AllocationWorkspace = {
   demands: AllocationDemandRow[];
   sources: AllocationSourceRow[];
   assignments: AllocationAssignment[];
+  sourceClaims: AllocationSourceClaim[];
   totals: {
     openQty: string;
     allocatedQty: string;

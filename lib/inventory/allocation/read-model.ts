@@ -1,7 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   items,
+  manufacturingOrderIngredients,
+  manufacturingOrders,
   salesOrderLines,
   salesOrders,
   salesShipmentLines,
@@ -18,6 +20,7 @@ import type {
   AllocationAssignment,
   AllocationDemandRef,
   AllocationDemandRow,
+  AllocationSourceClaim,
   AllocationWorkspace,
 } from "./types";
 import { demandKey, sourceKey } from "./types";
@@ -163,6 +166,71 @@ async function loadAssignmentsForItemInTx(
     }));
 }
 
+async function loadProductionClaimsForItemInTx(
+  tx: Tx,
+  params: { organizationId: string; itemId: string }
+) {
+  const rows = await tx
+    .select({
+      demandId: stockAllocations.demandId,
+      sourceType: stockAllocations.sourceType,
+      sourceId: stockAllocations.sourceId,
+      itemId: stockAllocations.itemId,
+      quantity: trimScale(stockAllocations.quantity).as("quantity"),
+      sourceLabelSnapshot: stockAllocations.sourceLabelSnapshot,
+      manufacturingOrderId: manufacturingOrders.id,
+      orderNumber: manufacturingOrders.orderNumber,
+      productName: manufacturingOrders.productName,
+      plannedDate: manufacturingOrders.plannedDate,
+    })
+    .from(stockAllocations)
+    .innerJoin(
+      manufacturingOrderIngredients,
+      eq(stockAllocations.demandId, manufacturingOrderIngredients.id)
+    )
+    .innerJoin(
+      manufacturingOrders,
+      eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrders.id)
+    )
+    .where(
+      and(
+        eq(stockAllocations.organizationId, params.organizationId),
+        eq(stockAllocations.itemId, params.itemId),
+        eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
+        eq(stockAllocations.status, "active"),
+        eq(manufacturingOrders.status, "open"),
+        isNull(manufacturingOrders.deletedAt)
+      )
+    );
+
+  return rows
+    .filter(
+      (row): row is typeof row & {
+        sourceType: AllocationSourceClaim["sourceType"];
+        sourceId: string;
+      } =>
+        (row.sourceType === "inventory_lot" ||
+          row.sourceType === "manufacturing_order") &&
+        row.sourceId != null
+    )
+    .map(
+      (row): AllocationSourceClaim => ({
+        demandType: "manufacturing_order_ingredient",
+        demandId: row.demandId,
+        sourceType: row.sourceType,
+        sourceId: row.sourceId,
+        itemId: row.itemId,
+        quantity: row.quantity,
+        status: "active",
+        demandLabel: row.orderNumber,
+        contextLabel: row.productName,
+        requiredDate: row.plannedDate,
+        href: `/manufacturing/orders/${row.manufacturingOrderId}`,
+        sourceLabel: row.sourceLabelSnapshot ?? row.sourceId,
+      })
+    );
+}
+
 export async function getAllocationWorkspaceInTx(
   tx: Tx,
   params: {
@@ -231,6 +299,31 @@ export async function getAllocationWorkspaceInTx(
     assignment.demandLabel =
       demandLabels.get(demandKey(assignment)) ?? assignment.demandLabel;
   });
+  const productionClaims = (await loadProductionClaimsForItemInTx(tx, {
+    organizationId: params.organizationId,
+    itemId,
+  })).map((claim) => ({
+    ...claim,
+    sourceLabel: sourceLabels.get(sourceKey(claim)) ?? claim.sourceLabel,
+  }));
+  const sourceClaims: AllocationSourceClaim[] = [
+    ...assignments.map((assignment) => {
+      const demand = demandAdapterRows.find(
+        (row) => demandKey(row) === demandKey(assignment)
+      );
+      return {
+        ...assignment,
+        contextLabel: demand?.contextLabel ?? null,
+        requiredDate: demand?.requiredDate ?? null,
+        href: assignment.salesOrderId
+          ? `/sales/orders/${assignment.salesOrderId}`
+          : assignment.demandType === "sales_order_line" && demand?.parentDemandId
+            ? `/sales/orders/${demand.parentDemandId}`
+            : null,
+      };
+    }),
+    ...productionClaims,
+  ];
 
   const assignmentsByDemand = new Map<string, AllocationAssignment[]>();
   for (const assignment of assignments) {
@@ -286,6 +379,7 @@ export async function getAllocationWorkspaceInTx(
     demands,
     sources,
     assignments,
+    sourceClaims,
     totals: {
       openQty: quantityString(totals.openQty),
       allocatedQty: quantityString(totals.allocatedQty),

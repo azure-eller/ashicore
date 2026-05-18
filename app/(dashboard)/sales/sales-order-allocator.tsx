@@ -26,6 +26,7 @@ import styles from "./sales-order-allocator.module.css";
 import { demandKey } from "@/lib/inventory/allocation/types";
 import type {
   AllocationAssignment,
+  AllocationSourceClaim,
   AllocationSourceRow,
   AllocationSourceType,
   AllocationWorkspace,
@@ -133,7 +134,7 @@ function sourceMetaLabel(source: AllocationSourceRow) {
 }
 
 function isPrimaryAssignment(
-  assignment: AllocationAssignment,
+  assignment: AllocationAssignment | AllocationSourceClaim,
   workspace: AllocationWorkspace
 ) {
   return (
@@ -469,16 +470,16 @@ function AllocationSourceEditor({
     setDraft(next);
   }
 
-  const demandsByKey = new Map(
-    workspace.demands.map((demand) => [demandKey(demand), demand])
+  const claimsBySource = (workspace.sourceClaims ?? workspace.assignments).reduce(
+    (groups, assignment) => {
+      if (isPrimaryAssignment(assignment, workspace)) return groups;
+      const bucket = groups.get(sourceInputKey(assignment)) ?? [];
+      bucket.push(assignment);
+      groups.set(sourceInputKey(assignment), bucket);
+      return groups;
+    },
+    new Map<string, Array<AllocationAssignment | AllocationSourceClaim>>()
   );
-  const claimsBySource = workspace.assignments.reduce((groups, assignment) => {
-    if (isPrimaryAssignment(assignment, workspace)) return groups;
-    const bucket = groups.get(sourceInputKey(assignment)) ?? [];
-    bucket.push(assignment);
-    groups.set(sourceInputKey(assignment), bucket);
-    return groups;
-  }, new Map<string, AllocationAssignment[]>());
 
   function saveIfAllowed() {
     if (saveMutation.isPending || !hasChanges) return;
@@ -593,17 +594,35 @@ function AllocationSourceEditor({
                       ) : (
                         <ul className={styles.claimList} role="list">
                           {claims.map((claim) => {
-                            const demand = demandsByKey.get(demandKey(claim));
-                            const due = demand?.requiredDate
-                              ? formatDate(demand.requiredDate)
-                              : null;
-                            const customer = demand?.contextLabel ?? null;
+                            const demand =
+                              claim.demandType === "sales_order_line" ||
+                              claim.demandType === "sales_shipment_line"
+                                ? workspace.demands.find(
+                                    (row) => demandKey(row) === demandKey(claim)
+                                  )
+                                : null;
+                            const due =
+                              "requiredDate" in claim && claim.requiredDate
+                                ? formatDate(claim.requiredDate)
+                                : demand?.requiredDate
+                                  ? formatDate(demand.requiredDate)
+                                  : null;
+                            const customer =
+                              "contextLabel" in claim
+                                ? claim.contextLabel
+                                : demand?.contextLabel ?? null;
                             const orderId =
                               demand?.salesOrderId ??
-                              claim.salesOrderId ??
+                              ("salesOrderId" in claim ? claim.salesOrderId : null) ??
                               (claim.demandType === "sales_order_line"
                                 ? demand?.parentDemandId ?? null
                                 : null);
+                            const href =
+                              "href" in claim && claim.href
+                                ? claim.href
+                                : orderId
+                                  ? `/sales/orders/${orderId}`
+                                  : null;
                             const tooltip = `${formatQuantity(claim.quantity)} reserved for ${claim.demandLabel}${customer ? ` — ${customer}` : ""}${due ? `, due ${due}` : ""}.`;
 
                             return (
@@ -619,9 +638,9 @@ function AllocationSourceEditor({
                                   </TooltipTrigger>
                                   <TooltipContent side="top">{tooltip}</TooltipContent>
                                 </Tooltip>
-                                {orderId ? (
+                                {href ? (
                                   <Link
-                                    href={`/sales/orders/${orderId}`}
+                                    href={href}
                                     target="_blank"
                                     className={styles.claimOrder}
                                   >

@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   inventoryLotBalances,
   lots,
+  manufacturingOrderIngredients,
   manufacturingOrders,
   salesOrderLines,
   salesOrders,
@@ -79,6 +80,18 @@ async function getActiveSourceAllocationsForItemInTx(
                 AND ${salesShipments.status} = 'planned'
                 AND ${salesOrders.status} = 'open'
                 AND ${salesOrders.deletedAt} IS NULL
+            )
+          )
+          OR (
+            ${stockAllocations.demandType} = 'manufacturing_order_ingredient'
+            AND EXISTS (
+              SELECT 1
+              FROM ${manufacturingOrderIngredients}
+              INNER JOIN ${manufacturingOrders}
+                ON ${manufacturingOrders.id} = ${manufacturingOrderIngredients.manufacturingOrderId}
+              WHERE ${manufacturingOrderIngredients.id} = ${stockAllocations.demandId}
+                AND ${manufacturingOrders.status} = 'open'
+                AND ${manufacturingOrders.deletedAt} IS NULL
             )
           )
         )`
