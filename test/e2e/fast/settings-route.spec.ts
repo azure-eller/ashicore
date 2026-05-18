@@ -32,6 +32,19 @@ test("settings renders in the default fast smoke lane", async ({ page }) => {
     await firstRecipient.click();
   }
 
+  const graphLabel = `Fast report graph ${Date.now().toString(36)}`;
+  await page.getByRole("button", { name: "Add graph" }).click();
+  await page.getByLabel("Label").last().fill(graphLabel);
+  await page.getByLabel("Unit").last().fill("Tote");
+  await page.getByLabel("Product/SKU contains").last().fill("Nutrient");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Daily Manufacturing Report" })
+  ).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Configure daily manufacturing report" }).click();
+  await expect(page.getByLabel("Label").last()).toHaveValue(graphLabel);
+
   const manualSendRequest = page.waitForRequest((request) =>
     request.url().endsWith("/api/reports/daily-manufacturing/manual-send")
   );

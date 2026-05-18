@@ -146,7 +146,25 @@ export async function updateDailyManufacturingReportSchedule(
       await tx.insert(reportRecipients).values(recipientRows);
     }
 
-    return { id: schedule.id };
+    const memberRows = await tx
+      .select({
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+      })
+      .from(member)
+      .innerJoin(user, eq(member.userId, user.id))
+      .where(eq(member.organizationId, orgId))
+      .orderBy(asc(user.name), asc(user.email));
+
+    return {
+      schedule: {
+        ...schedule,
+        config: normalizeDailyManufacturingReportConfig(schedule.config),
+      },
+      members: memberRows,
+      recipientUserIds: recipientRows.map((row) => row.userId),
+    };
   });
 }
 

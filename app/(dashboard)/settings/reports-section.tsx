@@ -125,20 +125,17 @@ export function ReportsSection({
 
   const saveMutation = useMutation({
     mutationFn: async (nextState: FormState) =>
-      apiJson<{ id: string }>("/api/report-schedules/daily-manufacturing", {
-        method: "PUT",
-        body: nextState,
-        fallbackError: "Failed to save report settings.",
-      }),
+      apiJson<DailyManufacturingReportScheduleData>(
+        "/api/report-schedules/daily-manufacturing",
+        {
+          method: "PUT",
+          body: nextState,
+          fallbackError: "Failed to save report settings.",
+        }
+      ),
     onMutate: () => setFormError(null),
-    onSuccess: async () => {
-      const nextData = await queryClient.fetchQuery({
-        queryKey: ["daily-manufacturing-report-schedule"],
-        queryFn: () =>
-          apiJson<DailyManufacturingReportScheduleData>(
-            "/api/report-schedules/daily-manufacturing"
-          ),
-      });
+    onSuccess: (nextData) => {
+      queryClient.setQueryData(["daily-manufacturing-report-schedule"], nextData);
       setFormState(toFormState(nextData));
     },
     onError: (error) => {
