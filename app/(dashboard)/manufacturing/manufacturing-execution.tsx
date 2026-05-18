@@ -96,6 +96,16 @@ function getDiscreteRequirementMath(
   return `${formatQuantity(execution.plannedQuantity)} x ${formatQuantity(ingredient.quantityPerUnit)} ${ingredient.unitName}`;
 }
 
+function getRemainingQuantityNumber(plannedQuantity: string, pickedQuantity: string) {
+  const planned = Number(plannedQuantity);
+  const picked = Number(pickedQuantity);
+  if (!Number.isFinite(planned) || !Number.isFinite(picked)) {
+    return 0;
+  }
+
+  return Math.max(0, planned - picked);
+}
+
 export type IngredientActualInput = {
   ingredientId: string;
   actualConsumedQuantity: string;
@@ -170,38 +180,40 @@ function CompleteDialog({
         </DialogHeader>
 
         <div className="space-y-5 py-2">
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="actual-output">
-              Actual Output
-            </label>
-            <Input
-              id="actual-output"
-              inputMode="decimal"
-              value={actualQuantity}
-              onChange={(event) => setActualQuantity(event.target.value)}
-            />
-          </div>
+          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_11rem]">
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="actual-output">
+                Actual Output
+              </label>
+              <Input
+                id="actual-output"
+                inputMode="decimal"
+                value={actualQuantity}
+                onChange={(event) => setActualQuantity(event.target.value)}
+              />
+            </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="output-disposition">
-              <TooltipHeader label="Output Disposition" tooltip={OUTPUT_DISPOSITION_TOOLTIP} />
-            </label>
-            <Select
-              value={outputDisposition}
-              onValueChange={(value) =>
-                setOutputDisposition(value as OutputDispositionInput)
-              }
-            >
-              <SelectTrigger id="output-disposition">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="available">Available</SelectItem>
-                  <SelectItem value="blocked">Blocked</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="output-disposition">
+                <TooltipHeader label="Output Disposition" tooltip={OUTPUT_DISPOSITION_TOOLTIP} />
+              </label>
+              <Select
+                value={outputDisposition}
+                onValueChange={(value) =>
+                  setOutputDisposition(value as OutputDispositionInput)
+                }
+              >
+                <SelectTrigger id="output-disposition">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="available">Available</SelectItem>
+                    <SelectItem value="blocked">Blocked</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {isBatchMode && ingredients.length > 0 && (
@@ -457,6 +469,8 @@ export function ManufacturingExecution({
   const [optimisticStartedBatchId, setOptimisticStartedBatchId] = useState<string | null>(null);
   const [completeError, setCompleteError] = useState<string | null>(null);
   const [completeOpen, setCompleteOpen] = useState(false);
+  const [openCompleteAfterPicking, setOpenCompleteAfterPicking] = useState(false);
+  const [isPickingForCompletion, setIsPickingForCompletion] = useState(false);
   const [reorderError, setReorderError] = useState<string | null>(null);
   const [optimisticIngredientIds, setOptimisticIngredientIds] = useState<
     string[] | null
@@ -486,6 +500,18 @@ export function ManufacturingExecution({
     execution.currentBatch?.status === "in_progress" ||
     execution.currentBatchId === optimisticStartedBatchId;
   const canReorderStatus = execution.status === "open";
+  const remainingIngredients = orderedIngredients.filter(
+    (ingredient) =>
+      getRemainingQuantityNumber(
+        ingredient.plannedQuantity,
+        ingredient.pickedQuantity
+      ) > 0
+  );
+  const canCompleteBatchAfterPicking =
+    execution.manufacturingMode === "batch" &&
+    execution.currentBatch != null &&
+    canPick &&
+    remainingIngredients.length > 0;
 
   const refreshExecutionScreen = useCallback(() => {
     startTransition(() => {
@@ -500,6 +526,44 @@ export function ManufacturingExecution({
     ]);
     refreshExecutionScreen();
   }, [queryClient, refreshExecutionScreen]);
+
+  useEffect(() => {
+    if (openCompleteAfterPicking && execution.canComplete) {
+      setOpenCompleteAfterPicking(false);
+      setCompleteOpen(true);
+    }
+  }, [execution.canComplete, openCompleteAfterPicking]);
+
+  const pickIngredientForExecution = useCallback(
+    async (input: {
+      ingredientId: string;
+      confirmRequirementOverride?: boolean;
+      confirmNegativeStock?: boolean;
+    }) => {
+      const response = await fetch(
+        `/api/manufacturing-orders/${execution.id}/ingredients/${input.ingredientId}/pick`,
+        {
+          method: "POST",
+          headers: createIdempotencyHeaders("manufacturing-pick", {
+            "Content-Type": "application/json",
+          }),
+          body: JSON.stringify({
+            confirmRequirementOverride: input.confirmRequirementOverride,
+            confirmNegativeStock: input.confirmNegativeStock,
+          }),
+        }
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw {
+          status: response.status,
+          message: body?.error ?? "Failed to mark ingredient done.",
+          shortage: body?.shortage as ManufacturingReleaseWarningPayload | undefined,
+        };
+      }
+    },
+    [execution.id]
+  );
 
   useEffect(() => {
     if (execution.status !== "open") {
@@ -560,32 +624,12 @@ export function ManufacturingExecution({
   });
 
   const pickMutation = useMutation({
-	    mutationFn: async (input: {
-	      ingredientId: string;
-	      confirmRequirementOverride?: boolean;
-	      confirmNegativeStock?: boolean;
-	    }) => {
-      const response = await fetch(
-        `/api/manufacturing-orders/${execution.id}/ingredients/${input.ingredientId}/pick`,
-        {
-          method: "POST",
-          headers: createIdempotencyHeaders("manufacturing-pick", {
-            "Content-Type": "application/json",
-          }),
-	          body: JSON.stringify({
-	            confirmRequirementOverride: input.confirmRequirementOverride,
-	            confirmNegativeStock: input.confirmNegativeStock,
-	          }),
-        }
-      );
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw {
-          status: response.status,
-          message: body?.error ?? "Failed to mark ingredient done.",
-          shortage: body?.shortage as ManufacturingReleaseWarningPayload | undefined,
-        };
-      }
+    mutationFn: async (input: {
+      ingredientId: string;
+      confirmRequirementOverride?: boolean;
+      confirmNegativeStock?: boolean;
+    }) => {
+      await pickIngredientForExecution(input);
       return input.ingredientId;
     },
     onMutate: (input) => {
@@ -663,6 +707,57 @@ export function ManufacturingExecution({
     const nextIngredients = moveIngredient(orderedIngredients, fromIndex, toIndex);
     setOptimisticIngredientIds(nextIngredients.map((ingredient) => ingredient.id));
     reorderMutation.mutate(nextIngredients.map((ingredient) => ingredient.id));
+  }
+
+  async function handleCompleteClick() {
+    if (execution.canComplete) {
+      setCompleteOpen(true);
+      return;
+    }
+
+    if (!canCompleteBatchAfterPicking) {
+      return;
+    }
+
+    setCompleteError(null);
+    setPickError(null);
+    setPickWarning(null);
+    setIsPickingForCompletion(true);
+    let currentIngredientId: string | null = null;
+
+    try {
+      for (const ingredient of remainingIngredients) {
+        currentIngredientId = ingredient.id;
+        setPickingIngredientId(ingredient.id);
+        await pickIngredientForExecution({ ingredientId: ingredient.id });
+      }
+      setPickingIngredientId(null);
+      setOpenCompleteAfterPicking(true);
+      await refreshData();
+    } catch (error) {
+      const pickErrorValue = error as {
+        status?: number;
+        message?: string;
+        shortage?: ManufacturingReleaseWarningPayload;
+      };
+      const ingredientId = currentIngredientId ?? remainingIngredients[0]?.id;
+      if (pickErrorValue.status === 409 && pickErrorValue.shortage && ingredientId) {
+        setPickWarning({
+          ingredientId,
+          warning: pickErrorValue.shortage,
+        });
+      } else if (ingredientId) {
+        setPickError({
+          id: ingredientId,
+          message: pickErrorValue.message ?? "Failed to mark ingredient done.",
+        });
+      } else {
+        setCompleteError(pickErrorValue.message ?? "Failed to pick ingredients.");
+      }
+      setPickingIngredientId(null);
+    } finally {
+      setIsPickingForCompletion(false);
+    }
   }
 
   const completeOrderMutation = useMutation({
@@ -919,7 +1014,11 @@ export function ManufacturingExecution({
                   canReorder={canReorderIngredients}
                   canPick={canPick}
                   isCompleting={isCompleting}
-                  isPickPending={pickMutation.isPending || reorderMutation.isPending}
+                  isPickPending={
+                    pickMutation.isPending ||
+                    isPickingForCompletion ||
+                    reorderMutation.isPending
+                  }
                   pickingIngredientId={pickingIngredientId}
                   pickError={pickError}
                   onPick={(ingredientId) =>
@@ -934,10 +1033,18 @@ export function ManufacturingExecution({
         <div className="flex justify-end">
           <Button
             size="lg"
-            disabled={!execution.canComplete || isCompleting}
-            onClick={() => setCompleteOpen(true)}
+            disabled={
+              isCompleting ||
+              isPickingForCompletion ||
+              (!execution.canComplete && !canCompleteBatchAfterPicking)
+            }
+            onClick={handleCompleteClick}
           >
-            {execution.manufacturingMode === "batch" ? "Complete Batch" : "Complete Order"}
+            {isPickingForCompletion
+              ? "Picking Ingredients..."
+              : execution.manufacturingMode === "batch"
+                ? "Complete Batch"
+                : "Complete Order"}
           </Button>
         </div>
 

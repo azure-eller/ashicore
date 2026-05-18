@@ -58,6 +58,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Table,
   TableBody,
@@ -151,6 +152,9 @@ type ApiError = {
   errors?: Record<string, string[]>;
 };
 
+type OrderSource = "stock" | "sales";
+type BatchQuantityMode = "batches" | "output";
+
 function formatSalesOrderLabel(
   value: string,
   salesOrderMap: Map<string, ManufacturingSalesOrderOption>
@@ -201,6 +205,11 @@ export function ManufacturingOrderForm({
     ? `/manufacturing/orders/${initialData.id}`
     : "/manufacturing/orders";
   const [formError, setFormError] = useState<string | null>(null);
+  const [orderSource, setOrderSource] = useState<OrderSource>(
+    initialSalesOrderId ? "sales" : "stock"
+  );
+  const [batchQuantityMode, setBatchQuantityMode] =
+    useState<BatchQuantityMode>("batches");
   const todayDate = todayInTimeZone(timeZone);
   const formResolver = zodResolver(
     isEditing ? updateManufacturingOrderSchema : manufacturingOrderCreateFormSchema
@@ -381,8 +390,9 @@ export function ManufacturingOrderForm({
     control: form.control,
     name: "salesOrderLineId",
   });
+  const isSalesOrderSource = !isEditing && orderSource === "sales";
   const isSalesOrderMode =
-    !isEditing && watchedSalesOrderId != null && watchedSalesOrderLineId == null;
+    isSalesOrderSource && watchedSalesOrderId != null && watchedSalesOrderLineId == null;
 
   useEffect(() => {
     if (!watchedProductId || isSalesOrderMode) return;
@@ -415,7 +425,11 @@ export function ManufacturingOrderForm({
   const batchYield = isEditing
     ? initialData?.expectedBatchYield != null ? parseFloat(initialData.expectedBatchYield) : null
     : firstBatchBasis != null ? parseFloat(firstBatchBasis) : null;
-  const isManualBatchCreate = false;
+  const isManualBatchCreate =
+    !isEditing &&
+    !isSalesOrderSource &&
+    isBatchMode &&
+    batchQuantityMode === "batches";
 
   // Manual batch creation enters batch count; existing/edit flows enter output quantity.
   const batchCalc = (() => {
@@ -428,9 +442,12 @@ export function ManufacturingOrderForm({
     const plannedOutput = isManualBatchCreate ? numberOfBatches * batchYield : entered;
     return { numberOfBatches, plannedOutput };
   })();
+  const effectiveOutputQuantity = batchCalc
+    ? normalizeNumeric(batchCalc.plannedOutput)
+    : watchedPlannedQuantity ?? "";
   const groupSummaries = summarizeGroupRemainders(
     selectedBomRows,
-    watchedPlannedQuantity ?? ""
+    effectiveOutputQuantity
   );
   const groupChoiceMap = new Map(
     (watchedGroupRemainderChoices ?? []).map((choice) => [
@@ -701,12 +718,36 @@ export function ManufacturingOrderForm({
     });
   };
 
+  const handleOrderSourceChange = (nextSource: OrderSource) => {
+    if (nextSource === orderSource) return;
+    setOrderSource(nextSource);
+    form.setValue("salesOrderId", null, {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
+    form.setValue("salesOrderLineId", null, {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
+    form.setValue("productId", "");
+    form.setValue("plannedQuantity", "");
+    form.setValue("groupRemainderChoices", []);
+    form.setValue("ingredients", []);
+  };
+
   const handleProductChange = (productId: string) => {
     const template = productMap.get(productId);
+    const hasBatchBom =
+      template?.bom.some((row) => row.consumptionMode === "per_batch") ?? false;
+    const nextBatchYield = template?.bom.find(
+      (row) => row.consumptionMode === "per_batch" && row.basisOutputQuantity != null
+    )?.basisOutputQuantity;
+
     form.setValue("productId", productId, { shouldValidate: true });
     form.setValue("salesOrderId", null);
     form.setValue("salesOrderLineId", null);
-    form.setValue("plannedQuantity", "");
+    setBatchQuantityMode(hasBatchBom ? "batches" : "output");
+    form.setValue("plannedQuantity", hasBatchBom ? "1" : "");
     form.setValue("groupRemainderChoices", []);
     form.setValue(
       "ingredients",
@@ -716,6 +757,30 @@ export function ManufacturingOrderForm({
       })),
       { shouldValidate: true, shouldDirty: true }
     );
+
+    if (hasBatchBom && nextBatchYield != null) {
+      form.trigger("plannedQuantity");
+    }
+  };
+
+  const handleBatchQuantityModeChange = (nextMode: BatchQuantityMode) => {
+    if (nextMode === batchQuantityMode || batchYield == null || batchYield <= 0) {
+      return;
+    }
+
+    const current = Number(watchedPlannedQuantity ?? "");
+    const nextQuantity =
+      Number.isFinite(current) && current > 0
+        ? nextMode === "output"
+          ? normalizeNumeric(current * batchYield)
+          : normalizeNumeric(current / batchYield)
+        : "";
+
+    setBatchQuantityMode(nextMode);
+    form.setValue("plannedQuantity", nextQuantity, {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
   };
 
   const handleSalesLineChange = (salesOrderLineId: string) => {
@@ -763,8 +828,10 @@ export function ManufacturingOrderForm({
 
   const ingredientsError = getFieldArrayError(form.formState.errors.ingredients);
   const salesOrderModeDisabled =
-    isSalesOrderMode &&
-    (!salesOrderPreview?.hasManufacturableLines || previewQuery.isLoading);
+    isSalesOrderSource &&
+    (watchedSalesOrderId == null ||
+      (isSalesOrderMode &&
+        (!salesOrderPreview?.hasManufacturableLines || previewQuery.isLoading)));
   const createButtonLabel = isEditing
     ? mutation.isPending
       ? "Saving..."
@@ -852,6 +919,28 @@ export function ManufacturingOrderForm({
           >
             <FieldGroup>
               {!isEditing && (
+                <Field>
+                  <FieldLabel>Order source</FieldLabel>
+                  <ToggleGroup
+                    type="single"
+                    variant="segmented"
+                    size="sm"
+                    value={orderSource}
+                    onValueChange={(value) => {
+                      if (value === "stock" || value === "sales") {
+                        handleOrderSourceChange(value);
+                      }
+                    }}
+                    aria-label="Choose manufacturing order source"
+                    className="max-w-full flex-wrap bg-muted p-(--space-1)"
+                  >
+                    <ToggleGroupItem value="stock">Make to stock</ToggleGroupItem>
+                    <ToggleGroupItem value="sales">Sales order</ToggleGroupItem>
+                  </ToggleGroup>
+                </Field>
+              )}
+
+              {isSalesOrderSource && (
                 <Controller
                   control={form.control}
                   name="salesOrderId"
@@ -966,6 +1055,7 @@ export function ManufacturingOrderForm({
               )}
 
               {!isSalesOrderMode &&
+                (!isSalesOrderSource || watchedSalesOrderLineId != null) &&
                 (isEditing ? (
                   <>
                     <Field>
@@ -1073,81 +1163,104 @@ export function ManufacturingOrderForm({
                       )}
                     />
 
-                    <Controller
-                      control={form.control}
-                      name="salesOrderLineId"
-                      render={({ field, fieldState }) => (
-                        <Field data-invalid={fieldState.invalid}>
-                          <FieldLabel htmlFor={field.name}>
-                            <TooltipHeader
-                              label="Sales Order Line"
-                              tooltip={MANUFACTURING_SALES_ORDER_TOOLTIP}
-                            />
-                          </FieldLabel>
-                          <Combobox
-                            items={salesLineIds}
-                            value={field.value ?? ""}
-                            onValueChange={(value) =>
-                              handleSalesLineChange(value ?? "")
-                            }
-                            itemToStringLabel={(value) =>
-                              formatSalesLineLabel(value, salesLineMap)
-                            }
-                          >
-                            <ComboboxInput
-                              id={field.name}
-                              placeholder="Search active sales lines..."
-                              showClear
-                            />
-                            <ComboboxContent className="bg-popover text-popover-foreground">
-                              <ComboboxEmpty>No matching sales lines found</ComboboxEmpty>
-                              <ComboboxList>
-                                {(id: string) => {
-                                  const line = salesLineMap.get(id);
-                                  return (
-                                    <ComboboxItem key={id} value={id}>
-                                      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                        <span className="truncate">
-                                          {line?.salesOrderNumber} - {line?.customerName}
-                                        </span>
-                                        <span className="text-xs text-muted-foreground">
-                                          {line
-                                            ? `${line.quantity} ${line.unitName} • ${line.itemName}`
-                                            : ""}
-                                        </span>
-                                      </div>
-                                    </ComboboxItem>
-                                  );
-                                }}
-                              </ComboboxList>
-                            </ComboboxContent>
-                          </Combobox>
-                          {fieldState.invalid && (
-                            <FieldError errors={[fieldState.error]} />
-                          )}
-                        </Field>
-                      )}
-                    />
+                    {isSalesOrderSource && (
+                      <Controller
+                        control={form.control}
+                        name="salesOrderLineId"
+                        render={({ field, fieldState }) => (
+                          <Field data-invalid={fieldState.invalid}>
+                            <FieldLabel htmlFor={field.name}>
+                              <TooltipHeader
+                                label="Sales Order Line"
+                                tooltip={MANUFACTURING_SALES_ORDER_TOOLTIP}
+                              />
+                            </FieldLabel>
+                            <Combobox
+                              items={salesLineIds}
+                              value={field.value ?? ""}
+                              onValueChange={(value) =>
+                                handleSalesLineChange(value ?? "")
+                              }
+                              itemToStringLabel={(value) =>
+                                formatSalesLineLabel(value, salesLineMap)
+                              }
+                            >
+                              <ComboboxInput
+                                id={field.name}
+                                placeholder="Search active sales lines..."
+                                showClear
+                              />
+                              <ComboboxContent className="bg-popover text-popover-foreground">
+                                <ComboboxEmpty>No matching sales lines found</ComboboxEmpty>
+                                <ComboboxList>
+                                  {(id: string) => {
+                                    const line = salesLineMap.get(id);
+                                    return (
+                                      <ComboboxItem key={id} value={id}>
+                                        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                          <span className="truncate">
+                                            {line?.salesOrderNumber} - {line?.customerName}
+                                          </span>
+                                          <span className="text-xs text-muted-foreground">
+                                            {line
+                                              ? `${line.quantity} ${line.unitName} • ${line.itemName}`
+                                              : ""}
+                                          </span>
+                                        </div>
+                                      </ComboboxItem>
+                                    );
+                                  }}
+                                </ComboboxList>
+                              </ComboboxContent>
+                            </Combobox>
+                            {fieldState.invalid && (
+                              <FieldError errors={[fieldState.error]} />
+                            )}
+                          </Field>
+                        )}
+                      />
+                    )}
                   </>
                 ))}
 
               <div className="grid gap-4 md:grid-cols-2">
-                {!isSalesOrderMode && (
+                {!isSalesOrderMode &&
+                  (!isSalesOrderSource || watchedSalesOrderLineId != null) && (
                   <Controller
                     control={form.control}
                     name="plannedQuantity"
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel htmlFor={field.name}>
-                          {isManualBatchCreate ? (
-                            "Batches"
-                          ) : (
-                            <TooltipHeader
-                              label="Planned Quantity"
-                              tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP}
-                            />
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <FieldLabel htmlFor={field.name}>
+                            {isManualBatchCreate ? (
+                              "Batches"
+                            ) : (
+                              <TooltipHeader
+                                label="Planned Quantity"
+                                tooltip={MANUFACTURING_PLANNED_QTY_TOOLTIP}
+                              />
+                            )}
+                          </FieldLabel>
+                          {!isEditing && !isSalesOrderSource && isBatchMode && (
+                            <ToggleGroup
+                              type="single"
+                              variant="segmented"
+                              size="sm"
+                              value={batchQuantityMode}
+                              onValueChange={(value) => {
+                                if (value === "batches" || value === "output") {
+                                  handleBatchQuantityModeChange(value);
+                                }
+                              }}
+                              aria-label="Choose quantity entry mode"
+                              className="bg-muted p-(--space-1)"
+                            >
+                              <ToggleGroupItem value="batches">Batches</ToggleGroupItem>
+                              <ToggleGroupItem value="output">Output</ToggleGroupItem>
+                            </ToggleGroup>
                           )}
-                        </FieldLabel>
+                        </div>
                         <Input
                           {...field}
                           id={field.name}
@@ -1163,17 +1276,28 @@ export function ManufacturingOrderForm({
                   />
                 )}
 
-                {!isSalesOrderMode && isBatchMode && batchCalc && (
+                {!isSalesOrderMode &&
+                  (!isSalesOrderSource || watchedSalesOrderLineId != null) &&
+                  isBatchMode &&
+                  batchCalc && (
                   <div className="col-span-full border border-dashed px-4 py-3">
                     <p className="text-sm text-muted-foreground">
                       <span className="font-medium text-foreground">{batchCalc.numberOfBatches} batch{batchCalc.numberOfBatches === 1 ? "" : "es"}</span>
                       {" of up to "}
                       {formatQuantity(String(batchYield))} {selectedProduct?.unitName ?? initialData?.unitName ?? "units"}
+                      {isManualBatchCreate ? (
+                        <>
+                          {"; "}
+                          {formatQuantity(String(batchCalc.plannedOutput))} planned output
+                        </>
+                      ) : null}
                     </p>
                   </div>
                 )}
 
-                {!isSalesOrderMode && groupSummaries.length > 0 && (
+                {!isSalesOrderMode &&
+                  (!isSalesOrderSource || watchedSalesOrderLineId != null) &&
+                  groupSummaries.length > 0 && (
                   <div className="col-span-full space-y-3 rounded-lg border border-dashed px-4 py-3">
                     <p className="text-sm font-medium">Grouped materials</p>
                     {groupSummaries.map((summary) => {
@@ -1385,7 +1509,7 @@ export function ManufacturingOrderForm({
                 )}
               </FieldGroup>
             </CreateSection>
-          ) : (
+          ) : !isSalesOrderSource || watchedSalesOrderLineId != null ? (
             <CreateSection
               title="Ingredients"
               action={
@@ -1425,7 +1549,7 @@ export function ManufacturingOrderForm({
                       const plannedTotal = (() => {
                         if (!bomRow) return "\u2014";
                         const calculation = calculateConsumptionRequirement({
-                          outputQuantity: watchedPlannedQuantity ?? "",
+                          outputQuantity: effectiveOutputQuantity,
                           quantity: quantityPerUnit,
                           consumptionMode: bomRow.consumptionMode as ConsumptionMode,
                           basisOutputQuantity: bomRow.basisOutputQuantity,
@@ -1555,7 +1679,7 @@ export function ManufacturingOrderForm({
                 {ingredientsError && <FieldError>{ingredientsError}</FieldError>}
               </FieldGroup>
             </CreateSection>
-          )}
+          ) : null}
 
           <CreateSection
             title="Notes"

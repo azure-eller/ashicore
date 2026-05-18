@@ -385,6 +385,118 @@ test.describe("Manufacturing write-path smoke", () => {
     });
   });
 
+  test("spreads grouped materials across batch execution rows", async ({ db }) => {
+    const groupBatchTs = Date.now();
+    const processMaterialResult = await createItem({
+      name: `Fast Group Batch Process ${groupBatchTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-GROUP-BATCH-PROCESS-${groupBatchTs}`,
+      category: `Fast Group Batch ${groupBatchTs}`,
+      description: null,
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "100",
+      safetyStock: "0",
+      bom: [],
+    });
+    const groupedMaterialResult = await createItem({
+      name: `Fast Group Batch Pallet ${groupBatchTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-GROUP-BATCH-PALLET-${groupBatchTs}`,
+      category: `Fast Group Batch ${groupBatchTs}`,
+      description: null,
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "20",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(processMaterialResult.status).toBe(201);
+    expect(groupedMaterialResult.status).toBe(201);
+    const processMaterialId = processMaterialResult.body.id as string;
+    const groupedMaterialId = groupedMaterialResult.body.id as string;
+
+    const productResult = await createItem({
+      name: `Fast Group Batch Product ${groupBatchTs}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-GROUP-BATCH-PROD-${groupBatchTs}`,
+      category: `Fast Group Batch ${groupBatchTs}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "0",
+      safetyStock: "0",
+      typicalBatchSize: "8.75",
+      bom: [
+        {
+          componentId: processMaterialId,
+          quantity: "1",
+          consumptionMode: "per_batch",
+          basisOutputQuantity: "8.75",
+          batchScalingMode: "full_batches_only",
+        },
+        {
+          componentId: groupedMaterialId,
+          quantity: "1",
+          consumptionMode: "per_group",
+          basisOutputQuantity: "3",
+          groupRemainderPolicy: "create_partial_group",
+        },
+      ],
+    });
+    expect(productResult.status).toBe(201);
+
+    const orderResult = await createManufacturingOrder({
+      productId: productResult.body.id as string,
+      plannedQuantity: "26.25",
+      ingredients: [
+        { itemId: processMaterialId, quantityPerUnit: "1" },
+        { itemId: groupedMaterialId, quantityPerUnit: "1" },
+      ],
+    });
+    expect(orderResult.status).toBe(201);
+
+    const batches = await db
+      .select()
+      .from(manufacturingOrderBatches)
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, orderResult.body.id))
+      .orderBy(asc(manufacturingOrderBatches.batchNumber));
+    expect(batches).toHaveLength(3);
+
+    const groupedRows = await db
+      .select({
+        batchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
+        plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+        calculatedGroupCount: manufacturingOrderIngredients.calculatedGroupCount,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(
+        and(
+          eq(manufacturingOrderIngredients.manufacturingOrderId, orderResult.body.id),
+          eq(manufacturingOrderIngredients.itemId, groupedMaterialId)
+        )
+      )
+      .orderBy(asc(manufacturingOrderIngredients.id));
+
+    expect(groupedRows).toHaveLength(3);
+    expect(groupedRows.map((row) => row.batchId).sort()).toEqual(
+      batches.map((batch) => batch.id).sort()
+    );
+    expect(groupedRows.map((row) => row.plannedQuantity)).toEqual([
+      "3.0000",
+      "3.0000",
+      "3.0000",
+    ]);
+    expect(groupedRows.map((row) => row.calculatedGroupCount)).toEqual([
+      "3.0000",
+      "3.0000",
+      "3.0000",
+    ]);
+  });
+
   test("ignores product compatibility mode when BOM has no batch lines", async ({ db }) => {
     const compatTs = Date.now();
     const materialResult = await createItem({
@@ -891,7 +1003,7 @@ test.describe("Manufacturing write-path smoke", () => {
     await productInput.fill(batchProductName);
     await page.getByRole("option", { name: new RegExp(batchProductName) }).click();
 
-    await page.getByLabel("Planned Quantity").fill("6");
+    await page.getByLabel("Batches").fill("3");
     await expect(page.getByText("3 batches")).toBeVisible();
     await expect(page.getByText(/of up to 2 test-unit-/)).toBeVisible();
     await expect(page.getByRole("row", { name: new RegExp(batchSandName) })).toContainText("9");
@@ -970,7 +1082,13 @@ test.describe("Manufacturing write-path smoke", () => {
     await page.getByRole("link", { name: "Execute" }).click();
     await page.waitForURL(`**/manufacturing/orders/${batchOrderId}/execute`);
 
-    const runBatch = async (output: string, expectedActual: string, expectedExpected: string) => {
+    const runBatch = async (
+      output: string,
+      expectedActual: string,
+      expectedExpected: string,
+      options: { pickBeforeComplete?: boolean } = {}
+    ) => {
+      const pickBeforeComplete = options.pickBeforeComplete ?? true;
       await page.getByRole("button", { name: "Start Batch" }).click();
 
       const sandCard = page
@@ -982,50 +1100,53 @@ test.describe("Manufacturing write-path smoke", () => {
         .filter({ hasText: batchCompostName })
         .first();
 
-      await sandCard.getByRole("button", { name: "Mark Done", exact: true }).click();
-      await compostCard.getByRole("button", { name: "Mark Done", exact: true }).click();
+      if (pickBeforeComplete) {
+        await sandCard.getByRole("button", { name: "Mark Done", exact: true }).click();
+        await compostCard.getByRole("button", { name: "Mark Done", exact: true }).click();
 
-      await expect
-        .poll(
-          async () => {
-            const [currentBatch] = await db
-              .select({ id: manufacturingOrderBatches.id })
-              .from(manufacturingOrderBatches)
-              .where(
-                and(
-                  eq(manufacturingOrderBatches.manufacturingOrderId, batchOrderId),
-                  eq(manufacturingOrderBatches.status, "in_progress")
+        await expect
+          .poll(
+            async () => {
+              const [currentBatch] = await db
+                .select({ id: manufacturingOrderBatches.id })
+                .from(manufacturingOrderBatches)
+                .where(
+                  and(
+                    eq(manufacturingOrderBatches.manufacturingOrderId, batchOrderId),
+                    eq(manufacturingOrderBatches.status, "in_progress")
+                  )
                 )
-              )
-              .limit(1);
+                .limit(1);
 
-            if (!currentBatch) return false;
+              if (!currentBatch) return false;
 
-            const rows = await db
-              .select({
-                plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
-                pickedQuantity: manufacturingOrderIngredients.pickedQuantity,
-              })
-              .from(manufacturingOrderIngredients)
-              .where(
-                eq(
-                  manufacturingOrderIngredients.manufacturingOrderBatchId,
-                  currentBatch.id
-                )
+              const rows = await db
+                .select({
+                  plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+                  pickedQuantity: manufacturingOrderIngredients.pickedQuantity,
+                })
+                .from(manufacturingOrderIngredients)
+                .where(
+                  eq(
+                    manufacturingOrderIngredients.manufacturingOrderBatchId,
+                    currentBatch.id
+                  )
+                );
+
+              return (
+                rows.length > 0 &&
+                rows.every((row) => row.pickedQuantity === row.plannedQuantity)
               );
-
-            return (
-              rows.length > 0 &&
-              rows.every((row) => row.pickedQuantity === row.plannedQuantity)
-            );
-          },
-          { timeout: 15_000 }
-        )
-        .toBe(true);
+            },
+            { timeout: 15_000 }
+          )
+          .toBe(true);
+      }
 
       await page.reload();
       await expect(page.getByRole("button", { name: "Complete Batch" })).toBeEnabled();
       await page.getByRole("button", { name: "Complete Batch" }).click();
+      await expect(page.getByLabel("Actual Output")).toBeVisible({ timeout: 15_000 });
       await page.getByLabel("Actual Output").fill(output);
       await page.getByRole("button", { name: "Confirm" }).click();
 
@@ -1057,7 +1178,7 @@ test.describe("Manufacturing write-path smoke", () => {
         });
     };
 
-    await runBatch("2", "2.0000", "4.0000");
+    await runBatch("2", "2.0000", "4.0000", { pickBeforeComplete: false });
     await runBatch("1.5", "3.5000", "2.5000");
     await runBatch("2.2", "5.7000", "0.0000");
 

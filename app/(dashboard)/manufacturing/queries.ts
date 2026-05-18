@@ -1940,30 +1940,28 @@ async function ensureBatchExecutionRowsInTx(
       ),
     });
 
-  const batchIngredientInputs = insertedBatches.flatMap((batch, batchIndex) =>
+  const batchIngredientInputs = insertedBatches.flatMap((batch) =>
     templateIngredients.map((ingredient) => {
-      const batchCalculation =
-        ingredient.consumptionMode === "per_group"
-          ? {
-              plannedQuantity:
-                batchIndex === 0 ? ingredient.plannedQuantity : "0",
-              calculatedBatchCount: null,
-              calculatedGroupCount:
-                batchIndex === 0 ? ingredient.calculatedGroupCount : null,
-              chosenGroupRemainderHandling:
-                batchIndex === 0
-                  ? ingredient.chosenGroupRemainderHandling
-                  : null,
-            }
-          : applyConsumptionCalculation({
-              quantityPerUnit: ingredient.quantityPerUnit,
-              outputQuantity: Number(batch.plannedQuantity),
-              consumptionMode: ingredient.consumptionMode,
-              basisOutputQuantity: ingredient.basisOutputQuantity,
-              batchScalingMode: ingredient.batchScalingMode,
-              groupRemainderPolicy: ingredient.groupRemainderPolicy,
-              choices: new Map(),
-            });
+      const batchGroupChoices =
+        ingredient.consumptionMode === "per_group" &&
+        ingredient.basisOutputQuantity != null &&
+        ingredient.chosenGroupRemainderHandling != null
+          ? new Map([
+              [
+                makeGroupChoiceKey(ingredient.basisOutputQuantity),
+                ingredient.chosenGroupRemainderHandling as GroupRemainderHandling,
+              ],
+            ])
+          : new Map<string, GroupRemainderHandling>();
+      const batchCalculation = applyConsumptionCalculation({
+        quantityPerUnit: ingredient.quantityPerUnit,
+        outputQuantity: Number(batch.plannedQuantity),
+        consumptionMode: ingredient.consumptionMode,
+        basisOutputQuantity: ingredient.basisOutputQuantity,
+        batchScalingMode: ingredient.batchScalingMode,
+        groupRemainderPolicy: ingredient.groupRemainderPolicy,
+        choices: batchGroupChoices,
+      });
 
       return {
         constraints: ingredient.constraints,
