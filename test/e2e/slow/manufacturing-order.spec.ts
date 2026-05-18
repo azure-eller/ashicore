@@ -149,34 +149,6 @@ async function createManufacturingOrder(payload: {
   return body.id as string;
 }
 
-async function createLinkedManufacturingOrderExpectingFailure(payload: {
-  productId: string;
-  plannedQuantity: string;
-  plannedDate?: string | null;
-  notes?: string | null;
-  salesOrderId: string;
-  salesOrderLineId: string;
-  ingredients: Array<{ itemId: string; quantityPerUnit: string }>;
-}) {
-  const response = await testFetch("/api/manufacturing-orders", {
-    method: "POST",
-    body: JSON.stringify({
-      productId: payload.productId,
-      salesOrderId: payload.salesOrderId,
-      salesOrderLineId: payload.salesOrderLineId,
-      plannedQuantity: payload.plannedQuantity,
-      plannedDate: payload.plannedDate ?? null,
-      notes: payload.notes ?? null,
-      ingredients: payload.ingredients,
-      confirmShortage: false,
-    }),
-  });
-  const body = await response.json().catch(() => null);
-
-  expect(response.status).toBe(400);
-  expect(body?.error).toContain("Create sales-linked manufacturing orders");
-}
-
 async function createManufacturingOrdersFromSalesOrder(payload: {
   salesOrderId: string;
   plannedDate?: string | null;
@@ -459,20 +431,15 @@ test.describe("Manufacturing order flow", () => {
     expect(productRow?.committedQty ?? "0.0000").toBe("0.0000");
   });
 
-  test("blocks direct sales-linked creation through the manual manufacturing API", async () => {
-    await createLinkedManufacturingOrderExpectingFailure({
-      productId,
-      salesOrderId,
-      salesOrderLineId,
-      plannedQuantity: "5",
-      plannedDate: "2026-04-25",
-      notes: "Legacy direct linked create should fail",
-      ingredients: [
-        { itemId: sandId, quantityPerUnit: "2" },
-        { itemId: compostId, quantityPerUnit: "1" },
-      ],
-    });
-  });
+  // The legacy "blocks direct sales-linked creation" test was deleted:
+  // commit 948c155e removed the 400 guard from createManufacturingOrderInTx
+  // and now allows direct sales-linked creation, seeding ingredients from
+  // the BOM. The post-948c155e contract is covered by S01 in
+  // test/e2e/slow/so-mo-linkage.spec.ts (direct sales-linked single MO
+  // create attaches both ids, seeds ingredients with BOM-scaled
+  // quantities, and increments inventoryItemBalances.expectedQty). The
+  // helper createLinkedManufacturingOrderExpectingFailure is now unused;
+  // also removed below.
 
   test("creates an open manufacturing order, then links it from edit with BOM snapshots intact", async ({
     page,
