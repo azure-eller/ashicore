@@ -832,6 +832,10 @@ export function ManufacturingOrderForm({
     (watchedSalesOrderId == null ||
       (isSalesOrderMode &&
         (!salesOrderPreview?.hasManufacturableLines || previewQuery.isLoading)));
+  const showManualQuantityFields =
+    !isSalesOrderMode && (!isSalesOrderSource || watchedSalesOrderLineId != null);
+  const showBatchSummary = showManualQuantityFields && isBatchMode && batchCalc;
+  const showGroupSummary = showManualQuantityFields && groupSummaries.length > 0;
   const createButtonLabel = isEditing
     ? mutation.isPending
       ? "Saving..."
@@ -1223,9 +1227,8 @@ export function ManufacturingOrderForm({
                   </>
                 ))}
 
-              <div className="grid gap-4 md:grid-cols-2">
-                {!isSalesOrderMode &&
-                  (!isSalesOrderSource || watchedSalesOrderLineId != null) && (
+              <div className="grid gap-4 md:grid-cols-[minmax(14rem,1fr)_minmax(18rem,1.2fr)_minmax(12rem,0.85fr)] md:items-start">
+                {showManualQuantityFields && (
                   <Controller
                     control={form.control}
                     name="plannedQuantity"
@@ -1276,97 +1279,94 @@ export function ManufacturingOrderForm({
                   />
                 )}
 
-                {!isSalesOrderMode &&
-                  (!isSalesOrderSource || watchedSalesOrderLineId != null) &&
-                  isBatchMode &&
-                  batchCalc && (
-                  <div className="col-span-full border border-dashed px-4 py-3">
-                    <p className="text-sm text-muted-foreground">
-                      <span className="font-medium text-foreground">{batchCalc.numberOfBatches} batch{batchCalc.numberOfBatches === 1 ? "" : "es"}</span>
-                      {" of up to "}
-                      {formatQuantity(String(batchYield))} {selectedProduct?.unitName ?? initialData?.unitName ?? "units"}
-                      {isManualBatchCreate ? (
-                        <>
-                          {"; "}
-                          {formatQuantity(String(batchCalc.plannedOutput))} planned output
-                        </>
-                      ) : null}
-                    </p>
-                  </div>
-                )}
+                {(showBatchSummary || showGroupSummary) && (
+                  <div className="space-y-2 md:pt-[1.85rem]">
+                    {showBatchSummary && (
+                      <p className="text-[length:var(--text-sm)] text-muted-foreground">
+                        <span className="font-medium text-foreground">
+                          {batchCalc.numberOfBatches} batch
+                          {batchCalc.numberOfBatches === 1 ? "" : "es"}
+                        </span>
+                        {" of up to "}
+                        {formatQuantity(String(batchYield))}{" "}
+                        {selectedProduct?.unitName ?? initialData?.unitName ?? "units"}
+                        {isManualBatchCreate ? (
+                          <>
+                            {"; "}
+                            {formatQuantity(String(batchCalc.plannedOutput))} planned
+                            output
+                          </>
+                        ) : null}
+                      </p>
+                    )}
 
-                {!isSalesOrderMode &&
-                  (!isSalesOrderSource || watchedSalesOrderLineId != null) &&
-                  groupSummaries.length > 0 && (
-                  <div className="col-span-full space-y-3 rounded-lg border border-dashed px-4 py-3">
-                    <p className="text-sm font-medium">Grouped materials</p>
-                    {groupSummaries.map((summary) => {
-                      const fixedPolicies = [...summary.policies];
-                      const hasMixedFixedPolicies =
-                        !summary.requiresChoice && fixedPolicies.length > 1;
-                      const currentChoice = summary.requiresChoice
-                        ? groupChoiceMap.get(summary.basisOutputQuantity) ??
-                          "leave_loose"
-                        : fixedPolicies.includes("create_partial_group")
-                          ? "create_partial_group"
-                          : "leave_loose";
-                      const hasRemainder =
-                        parseFloat(summary.remainderQuantity) > 0;
-                      const groupCount =
-                        !hasRemainder || currentChoice === "leave_loose"
-                          ? summary.fullGroupCount
-                          : summary.fullGroupCount + 1;
+                    {showGroupSummary
+                      ? groupSummaries.map((summary) => {
+                          const fixedPolicies = [...summary.policies];
+                          const hasMixedFixedPolicies =
+                            !summary.requiresChoice && fixedPolicies.length > 1;
+                          const currentChoice = summary.requiresChoice
+                            ? groupChoiceMap.get(summary.basisOutputQuantity) ??
+                              "leave_loose"
+                            : fixedPolicies.includes("create_partial_group")
+                              ? "create_partial_group"
+                              : "leave_loose";
+                          const hasRemainder =
+                            parseFloat(summary.remainderQuantity) > 0;
+                          const groupCount =
+                            !hasRemainder || currentChoice === "leave_loose"
+                              ? summary.fullGroupCount
+                              : summary.fullGroupCount + 1;
 
-                      return (
-                        <div
-                          key={summary.basisOutputQuantity}
-                          className="grid gap-3 md:grid-cols-[1fr_auto]"
-                        >
-                          <div className="text-sm text-muted-foreground">
-                            <span className="font-medium text-foreground">
-                              {groupCount} group{groupCount === 1 ? "" : "s"}
-                            </span>
-                            {" of "}
-                            {formatQuantity(summary.basisOutputQuantity)}{" "}
-                            {selectedProduct?.unitName ?? initialData?.unitName ?? "units"}
-                            {hasRemainder ? (
-                              <>
-                                {"; "}
-                                {formatQuantity(summary.remainderQuantity)} leftover
-                              </>
-                            ) : null}
-                            {hasMixedFixedPolicies ? (
-                              <>
-                                {"; mixed leftover policies"}
-                              </>
-                            ) : null}
-                          </div>
-                          {summary.requiresChoice ? (
-                            <Select
-                              value={currentChoice}
-                              onValueChange={(value) =>
-                                setGroupChoice(
-                                  summary.basisOutputQuantity,
-                                  value as GroupRemainderHandling
-                                )
-                              }
+                          return (
+                            <div
+                              key={summary.basisOutputQuantity}
+                              className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[length:var(--text-sm)] text-muted-foreground"
                             >
-                              <SelectTrigger className="w-56">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="leave_loose">
-                                  Leave loose
-                                </SelectItem>
-                                <SelectItem value="create_partial_group">
-                                  Create partial group
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
-                          ) : null}
-                        </div>
-                      );
-                    })}
+                              <span>
+                                <span className="font-medium text-foreground">
+                                  {groupCount} group{groupCount === 1 ? "" : "s"}
+                                </span>
+                                {" of "}
+                                {formatQuantity(summary.basisOutputQuantity)}{" "}
+                                {selectedProduct?.unitName ??
+                                  initialData?.unitName ??
+                                  "units"}
+                                {hasRemainder ? (
+                                  <>
+                                    {"; "}
+                                    {formatQuantity(summary.remainderQuantity)} leftover
+                                  </>
+                                ) : null}
+                                {hasMixedFixedPolicies ? "; mixed policies" : null}
+                              </span>
+                              {summary.requiresChoice ? (
+                                <Select
+                                  value={currentChoice}
+                                  onValueChange={(value) =>
+                                    setGroupChoice(
+                                      summary.basisOutputQuantity,
+                                      value as GroupRemainderHandling
+                                    )
+                                  }
+                                >
+                                  <SelectTrigger className="h-(--height-input-sm) w-44">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="leave_loose">
+                                      Leave loose
+                                    </SelectItem>
+                                    <SelectItem value="create_partial_group">
+                                      Create partial group
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              ) : null}
+                            </div>
+                          );
+                        })
+                      : null}
                   </div>
                 )}
 
