@@ -806,7 +806,8 @@ async function validateSalesLineLinkInTx(
         eq(salesOrders.id, values.salesOrderId),
         eq(salesOrderLines.id, values.salesOrderLineId)
       )
-    );
+    )
+    .for("update");
 
   if (
     line &&
@@ -844,7 +845,8 @@ async function validateSalesLineLinkInTx(
           eq(salesOrders.status, "open"),
           eq(salesOrderLines.itemId, values.productId)
         )
-      );
+      )
+      .for("update");
 
     if (replacementLine) {
       await assertNoOtherActiveMoClaimsLineInTx(

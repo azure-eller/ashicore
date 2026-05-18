@@ -1175,33 +1175,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
   });
 
   test.describe("concurrency_and_idempotency: parallel and replay safety", () => {
-    // PRODUCTION BUG (S15 — separate from BR-1 gap): Postgres deadlock
-    // (error code 40P01, transaction-level) on concurrent POST
-    // /api/manufacturing-orders. Confirmed via dev server log on
-    // 2026-05-18 (requestId af5a7438-…): "Process X waits for ShareLock
-    // on transaction Y; blocked by process Z" during ingredient INSERT
-    // FK checks.
-    //
-    // lockItemsInTx (lib/inventory/kernel/locking.ts:49) orders by item.id
-    // ASC for deterministic lock order, but earlier or later work in
-    // createManufacturingOrderInTx (validateActiveIngredientItemsInTx,
-    // FK ShareLocks during INSERT, expected-supply event writes,
-    // idempotency claim insert) acquires locks in non-deterministic
-    // order, creating a deadlock window when two POSTs interleave.
-    //
-    // User-visible symptom: clicking "Create MO" twice rapidly (or two
-    // ops on separate tabs) yields a 500 Internal Server Error on one
-    // of the calls. This is a real, reproducible production-class bug
-    // that exists on main, independent of the BR-1 enforcement gap in
-    // #350.
-    //
-    // Fix options: (a) audit all locks in createManufacturingOrderInTx
-    // and enforce deterministic order, OR (b) wrap the route handler in
-    // a 40P01 retry that transparently re-runs the transaction.
-    //
-    // Re-`test.fixme`'d for now; once the deadlock is resolved this
-    // test should pass as written and pin the contract.
-    test.fixme("T24 anti-duplication: two parallel POST /api/manufacturing-orders with DIFFERENT idempotency keys create two distinct MO rows on the same sales line and write zero claim rows", async ({
+    test("T24 anti-duplication: two parallel POST /api/manufacturing-orders with DIFFERENT idempotency keys serializes the sales-line claim", async ({
       db,
     }) => {
       const ts = Date.now();
@@ -1244,11 +1218,24 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       const bodyA = await respA.json().catch(() => null);
       const bodyB = await respB.json().catch(() => null);
 
-      expect(respA.status, JSON.stringify(bodyA)).toBe(201);
-      expect(respB.status, JSON.stringify(bodyB)).toBe(201);
-      expect(bodyA?.id).toBeTruthy();
-      expect(bodyB?.id).toBeTruthy();
-      expect(bodyA.id).not.toBe(bodyB.id);
+      const decoded = [
+        { status: respA.status, body: bodyA },
+        { status: respB.status, body: bodyB },
+      ];
+      const winner = decoded.find((response) => response.status === 201);
+      const loser = decoded.find((response) => response !== winner);
+      expect(winner, JSON.stringify(decoded)).toBeTruthy();
+      expect(loser, JSON.stringify(decoded)).toBeTruthy();
+      expect(winner!.body?.id).toBeTruthy();
+      expect(loser!.status, JSON.stringify(decoded)).toBe(409);
+      expect(loser!.body?.error ?? "").toMatch(
+        /already linked to manufacturing order/i
+      );
+      expect(loser!.body?.errors?.salesOrderLineId ?? []).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/already has an active manufacturing order/i),
+        ])
+      );
 
       await expect
         .poll(
@@ -1266,7 +1253,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
           },
           { timeout: 5_000 }
         )
-        .toBe(2);
+        .toBe(1);
 
       const dbRows = await db
         .select({ id: manufacturingOrders.id, orderNumber: manufacturingOrders.orderNumber })
@@ -1277,12 +1264,8 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
             isNull(manufacturingOrders.deletedAt)
           )
         );
-      const responseIds = new Set([bodyA.id, bodyB.id]);
-      const dbIds = new Set(dbRows.map((r) => r.id));
-      expect(responseIds).toEqual(dbIds);
-
-      const orderNumbers = new Set(dbRows.map((r) => r.orderNumber));
-      expect(orderNumbers.size).toBe(2);
+      expect(dbRows).toHaveLength(1);
+      expect(dbRows[0]!.id).toBe(winner!.body.id);
 
       const claims = await db
         .select({ id: inventoryIdempotencyClaims.id })
