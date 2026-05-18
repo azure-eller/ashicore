@@ -2092,10 +2092,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
   });
 
   test.describe("validation_bypass_via_edit_path: BR-1 production gap and stale form", () => {
-    // Diagnostic pin only. This documents the current production gap, but
-    // must not merge as a green expectation because the correct fix is a 409.
-    // PR #350 flips this to an active regression test for the fixed contract.
-    test.fixme("BR-1 violation via PUT/edit-add-link: attaching a sales line to a previously-unlinked MO bypasses existing_active_mo (confirmed production gap)", async ({
+    test("BR-1 enforcement via PUT/edit-add-link: attaching a sales line that's already claimed by another active MO returns 409 (post-fix)", async ({
       db,
     }) => {
       const ts = Date.now();
@@ -2112,7 +2109,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       });
       const [soLine] = await readSalesOrderLines(db, soId);
 
-      // MO-A: sales-linked.
+      // MO-A: sales-linked — first claim on this line.
       const moAId = await createManufacturingOrderLocal({
         productId: product,
         salesOrderId: soId,
@@ -2128,6 +2125,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
         ingredients: [{ itemId: mat, quantityPerUnit: "1" }],
       });
 
+      // Attempt to attach MO-B to the already-claimed sales line.
       const putRes = await testFetch(`/api/manufacturing-orders/${moBId}`, {
         method: "PUT",
         body: JSON.stringify({
@@ -2144,17 +2142,23 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       const putBody = await putRes.json().catch(() => null);
 
       const FAILURE_MSG =
-        "S29 BR-1 production-gap check: current contract is 200 (BR-1 violated via PUT add-link, see validateSalesLineLinkInTx queries.ts:729-819). " +
-        "If you see this test FAIL with response.status==4xx (e.g., 409), the production fix has landed — congrats. " +
-        "Next steps: (1) update contract.json BR-1 to reflect enforcement on the PUT path; " +
-        "(2) update state-model.json T16 with the new existing_active_mo guard; " +
-        "(3) flip this test's expected status to the new 4xx value; " +
-        "(4) close the suggested_fix block in scenarios.json:production_bug_discovery. " +
-        `Observed body: ${JSON.stringify(putBody)}.`;
-      expect(putRes.status, FAILURE_MSG).toBe(200);
+        "S29 BR-1 enforcement check: PUT add-link onto an already-claimed sales line must return 409. " +
+        "If you see this test FAIL with response.status==200, BR-1 has regressed — the existing_active_mo " +
+        "check in validateSalesLineLinkInTx (manufacturing/queries.ts) has been removed or bypassed. " +
+        `Observed: status=${putRes.status} body=${JSON.stringify(putBody)}.`;
+      expect(putRes.status, FAILURE_MSG).toBe(409);
+      expect(putBody?.error ?? "").toMatch(
+        /already linked to manufacturing order/i
+      );
+      expect(putBody?.errors?.salesOrderLineId ?? []).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(/already has an active manufacturing order/i),
+        ])
+      );
 
-      const dupRows = await db
-        .select({ id: manufacturingOrders.id, salesOrderId: manufacturingOrders.salesOrderId })
+      // Exactly one MO remains claimed on the line (MO-A); MO-B never grabbed it.
+      const claimedRows = await db
+        .select({ id: manufacturingOrders.id })
         .from(manufacturingOrders)
         .where(
           and(
@@ -2162,22 +2166,18 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
             isNull(manufacturingOrders.deletedAt)
           )
         );
-      expect(
-        dupRows.length,
-        `S29 duplicate-row count: BR-1 contract violation expected 2 MOs on the same lineId. Observed ${dupRows.length}. If 1, the fix has landed; if 0, the SO line was never claimed (test setup bug).`
-      ).toBe(2);
+      expect(claimedRows).toHaveLength(1);
+      expect(claimedRows[0]!.id).toBe(moAId);
 
       // MO-A remains unchanged.
       const moA = await readMO(db, moAId);
       expect(moA.deletedAt).toBeNull();
       expect(moA.salesOrderLineId).toBe(soLine.id);
 
-      // MO-B snapshot now populated.
+      // MO-B remains unclaimed.
       const moB = await readMO(db, moBId);
-      expect(moB.salesOrderId).toBe(soId);
-      expect(moB.salesOrderLineId).toBe(soLine.id);
-      expect(moB.salesOrderNumber).not.toBeNull();
-      expect(moB.salesCustomerName).not.toBeNull();
+      expect(moB.salesOrderId).toBeNull();
+      expect(moB.salesOrderLineId).toBeNull();
     });
 
     test("stale-form unsaved-changes: MO create with stale salesOrderLineId after concurrent SO line rewrite fails with 404 link_missing (no snapshot fallback on CREATE path)", async ({
