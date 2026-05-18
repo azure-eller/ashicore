@@ -85,6 +85,7 @@ test.describe("so-mo-linkage fast smokes", () => {
     const productResult = await createItem({
       name: `S07 Product ${ts}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `S07-PROD-${ts}`,
       category: `S07 Linked ${ts}`,
@@ -167,6 +168,7 @@ test.describe("so-mo-linkage fast smokes", () => {
     const productAResult = await createItem({
       name: `S08 Product A ${ts}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `S08-PROD-A-${ts}`,
       category: `S08 Linked ${ts}`,
@@ -183,6 +185,7 @@ test.describe("so-mo-linkage fast smokes", () => {
     const productBResult = await createItem({
       name: `S08 Product B ${ts}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `S08-PROD-B-${ts}`,
       category: `S08 Linked ${ts}`,
@@ -253,6 +256,7 @@ test.describe("so-mo-linkage fast smokes", () => {
     const productResult = await createItem({
       name: `S09 No-BOM Product ${ts}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `S09-PROD-${ts}`,
       category: `S09 Linked ${ts}`,
@@ -283,7 +287,19 @@ test.describe("so-mo-linkage fast smokes", () => {
     });
     expect(response.status).toBe(400);
     const body = await response.json();
-    expect(body.error).toContain("Products need a BOM");
+    // BR-4: an empty `ingredients: []` array is rejected at the schema layer
+    // (cleanedIngredientRowsSchema.refine rows.length >= 1), so the response
+    // carries the field-level "At least one ingredient is required" message.
+    // The deeper DAL "Products need a BOM" guard at manufacturing/queries.ts:833
+    // only fires when ingredients pass schema validation. Either path is a 400
+    // that asserts the BR-4 contract; the test allows either.
+    const ingredientErrors = body?.errors?.ingredients ?? [];
+    const bodyErrorString = typeof body?.error === "string" ? body.error : "";
+    const combined = [...ingredientErrors, bodyErrorString].join(" ");
+    expect(
+      /At least one ingredient is required|Products need a BOM/i.test(combined),
+      `Expected BR-4 rejection, got: ${JSON.stringify(body)}`,
+    ).toBe(true);
 
     const afterRows = await db
       .select({ id: manufacturingOrders.id, productId: manufacturingOrders.productId })
@@ -320,6 +336,7 @@ test.describe("so-mo-linkage fast smokes", () => {
     const productResult = await createItem({
       name: `S10 Zero Product ${ts}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `S10-PROD-${ts}`,
       category: `S10 Linked ${ts}`,
@@ -387,12 +404,19 @@ test.describe("so-mo-linkage fast smokes", () => {
     expect(moRow.status).toBe("open");
 
     // Inventory effects landed (poll because projection updates are async).
+    // Note: with 0 product stock, reserveForSalesInTx commits only what's available
+    // (Math.min(available, requested) at lib/inventory/kernel/operations/sales.ts).
+    // So productCommitted stays at 0; the full order quantity lands in demandQty.
+    // The contract pin is: demand rises by the FULL order (10), committed rises
+    // only by the reservable portion (0 here). confirmOversell: false did NOT
+    // block the SO create — that's the BR-10 assertion.
     await expect
       .poll(
         async () => {
           const productBal = await readBalance(productId);
           const materialBal = await readBalance(materialId);
           return {
+            productDemand: productBal.demandQty.toFixed(4),
             productCommitted: productBal.committedQty.toFixed(4),
             productExpected: productBal.expectedQty.toFixed(4),
             materialDemand: materialBal.demandQty.toFixed(4),
@@ -401,7 +425,8 @@ test.describe("so-mo-linkage fast smokes", () => {
         { timeout: 15_000 }
       )
       .toEqual({
-        productCommitted: (beforeProduct.committedQty + 10).toFixed(4),
+        productDemand: (beforeProduct.demandQty + 10).toFixed(4),
+        productCommitted: beforeProduct.committedQty.toFixed(4),
         productExpected: (beforeProduct.expectedQty + 4).toFixed(4),
         materialDemand: (beforeMaterial.demandQty + 5 * 4).toFixed(4),
       });
@@ -559,6 +584,7 @@ test.describe("so-mo-linkage fast smokes", () => {
     const productResult = await createItem({
       name: productName,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `S20-PROD-${ts}`,
       category: `S20 Linked ${ts}`,
@@ -591,7 +617,6 @@ test.describe("so-mo-linkage fast smokes", () => {
       description: null,
       defaultPurchasePrice: null,
       defaultSellingPrice: "30.00",
-      sellable: true,
       manufacturingMode: "discrete",
       expectedBatchYield: null,
       safetyStock: "0",
@@ -766,6 +791,7 @@ test.describe("so-mo-linkage fast smokes", () => {
     const productResult = await createItem({
       name: `S25 Product ${ts}`,
       itemType: "product",
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `S25-PROD-${ts}`,
       category: `S25 Linked ${ts}`,
