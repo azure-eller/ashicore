@@ -46,13 +46,16 @@ test.describe("global inventory and manufacturing invariants", () => {
   test("invariant: lot quantity conservation — every lot has non-negative quantity and item balances reconcile with lot sums", async ({
     db,
   }) => {
-    // Per-lot: lots.quantity must never be negative for any lot in the org.
+    // Per-lot: ordinary lots must never be negative. Intentional
+    // negative-stock overrides create NEG-* synthetic lots with negative
+    // quantity; those are valid so the conservation check below covers them.
     const negativeLots = await db
       .select({ id: lots.id, itemId: lots.itemId, quantity: lots.quantity })
       .from(lots)
       .where(
         and(
           eq(lots.organizationId, orgId),
+          sql`${lots.lotNumber} NOT LIKE 'NEG-%'`,
           sql`${lots.quantity}::numeric < 0`
         )
       );
@@ -117,8 +120,8 @@ test.describe("global inventory and manufacturing invariants", () => {
     // projected expectedQty must be 0. A non-zero expectedQty with no
     // supplier is a sign that recomputeExpectedQty missed a status
     // transition somewhere. MO contribution = non-deleted +
-    // non-completed. PO contribution = non-deleted across all statuses
-    // (the recompute logic figures out which contribute by status).
+    // non-completed. PO contribution = active ordered/partial lines with
+    // remaining stock quantity.
     const orphans = await db.execute(sql`
       WITH balance_expected AS (
         SELECT item_id, SUM(expected_qty)::numeric AS total
@@ -140,6 +143,11 @@ test.describe("global inventory and manufacturing invariants", () => {
         JOIN purchasing.purchase_orders po ON po.id = pol.purchase_order_id
         WHERE po.organization_id = ${orgId}
           AND po.deleted_at IS NULL
+          AND po.status IN ('ordered', 'partial')
+          AND ROUND(
+            (pol.stock_quantity_ordered - pol.stock_quantity_received)::numeric,
+            4
+          ) > 0
       )
       SELECT be.item_id, ROUND(be.total, 4) AS expected_qty
       FROM balance_expected be
