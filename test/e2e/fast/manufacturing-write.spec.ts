@@ -17,7 +17,6 @@ import {
   createItem,
   createManufacturingOrder,
   createUnit,
-  completeManufacturingOrder,
   getUnitId,
   testFetch,
 } from "../../helpers/api";
@@ -98,6 +97,7 @@ test.describe("Manufacturing write-path smoke", () => {
     await productInput.click();
     await productInput.fill(productName);
     await page.getByRole("option", { name: new RegExp(productName) }).click();
+    await expect(productInput).toHaveValue(productName);
 
     await page.getByLabel("Planned Quantity").fill("5");
     await selectDate(page, page.getByLabel("Planned Date"), "2026-04-25");
@@ -800,6 +800,7 @@ test.describe("Manufacturing write-path smoke", () => {
   });
 
   test("direct order completion records manufacturing output detail", async ({
+    page,
     db,
   }) => {
     const directTs = Date.now();
@@ -844,20 +845,32 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(order.status).toBe(201);
     const directOrderId = order.body.id as string;
 
-    const [ingredient] = await db
-      .select({ id: manufacturingOrderIngredients.id })
-      .from(manufacturingOrderIngredients)
-      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, directOrderId));
-    expect(ingredient).toBeTruthy();
-
-    const pickResponse = await testFetch(
-      `/api/manufacturing-orders/${directOrderId}/ingredients/${ingredient.id}/pick`,
-      { method: "POST" }
-    );
-    expect(pickResponse.status).toBe(200);
-
-    const complete = await completeManufacturingOrder(directOrderId, "4");
-    expect(complete.status).toBe(200);
+    await page.goto(`/manufacturing/orders/${directOrderId}/execute`);
+    const [pickRemainingResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response
+            .url()
+            .endsWith(
+              `/api/manufacturing-orders/${directOrderId}/ingredients/pick-remaining`
+            )
+      ),
+      page.getByRole("button", { name: "Complete Order" }).click(),
+    ]);
+    expect(pickRemainingResponse.status()).toBe(200);
+    await expect(page.getByLabel("Actual Output")).toBeVisible({ timeout: 15_000 });
+    await page.getByLabel("Actual Output").fill("4");
+    const [completeResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith(`/api/manufacturing-orders/${directOrderId}/complete`)
+      ),
+      page.getByRole("button", { name: "Confirm" }).click(),
+    ]);
+    expect(completeResponse.status()).toBe(200);
+    await expect(page.getByRole("button", { name: "Complete Order" })).toHaveCount(0);
 
     const outputRows = await db
       .select({
@@ -1145,7 +1158,23 @@ test.describe("Manufacturing write-path smoke", () => {
 
       await page.reload();
       await expect(page.getByRole("button", { name: "Complete Batch" })).toBeEnabled();
-      await page.getByRole("button", { name: "Complete Batch" }).click();
+      if (pickBeforeComplete) {
+        await page.getByRole("button", { name: "Complete Batch" }).click();
+      } else {
+        const [pickRemainingResponse] = await Promise.all([
+          page.waitForResponse(
+            (response) =>
+              response.request().method() === "POST" &&
+              response
+                .url()
+                .endsWith(
+                  `/api/manufacturing-orders/${batchOrderId}/ingredients/pick-remaining`
+                )
+          ),
+          page.getByRole("button", { name: "Complete Batch" }).click(),
+        ]);
+        expect(pickRemainingResponse.status()).toBe(200);
+      }
       await expect(page.getByLabel("Actual Output")).toBeVisible({ timeout: 15_000 });
       await page.getByLabel("Actual Output").fill(output);
       await page.getByRole("button", { name: "Confirm" }).click();

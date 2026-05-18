@@ -282,7 +282,6 @@ export function ManufacturingOrderForm({
     () =>
       productTemplates.map((product) => ({
         ...product,
-        displayName: product.name,
         itemType: "product",
       })),
     [productTemplates]

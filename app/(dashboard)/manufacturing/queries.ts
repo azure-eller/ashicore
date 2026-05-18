@@ -37,7 +37,12 @@ import {
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
-import { normalizeNumeric, normalizeNumericScale, resolveVariantDisplay } from "@/lib/format";
+import {
+  formatVariantDisplay,
+  normalizeNumeric,
+  normalizeNumericScale,
+  resolveVariantDisplay,
+} from "@/lib/format";
 import { inferItemVisual } from "@/components/inventory-visuals/infer-item-visual";
 import {
   getBomRevisionComponentsInTx,
@@ -3126,10 +3131,15 @@ export async function getManufacturingProductTemplates(): Promise<
   >
 > {
   return withAuthedOrgContext(async (tx) => {
+    const masterItems = alias(items, "master_items");
     const products = await tx
       .select({
         id: items.id,
         name: items.name,
+        parentId: items.parentId,
+        variantAttrs: items.variantAttrs,
+        masterName: masterItems.name,
+        masterVariantAxes: masterItems.variantAxes,
         sku: items.sku,
         unitName: unitDefinitions.name,
         typicalBatchSize: trimScaleNullable(items.typicalBatchSize).as(
@@ -3141,6 +3151,7 @@ export async function getManufacturingProductTemplates(): Promise<
       })
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+      .leftJoin(masterItems, eq(items.parentId, masterItems.id))
       .where(and(eq(items.itemType, "product"), isNull(items.deletedAt), eq(items.isMaster, false)))
       .orderBy(items.name);
 
@@ -3158,9 +3169,24 @@ export async function getManufacturingProductTemplates(): Promise<
         const batchBasis = bomRows.find(
           (row) => row.consumptionMode === "per_batch" && row.basisOutputQuantity != null
         )?.basisOutputQuantity;
+        const masterVariantAxes = (product.masterVariantAxes as string[] | null) ?? [];
+        const displayName =
+          product.parentId != null && product.masterName != null && masterVariantAxes.length > 0
+            ? formatVariantDisplay(
+                product.masterName,
+                (product.variantAttrs as Record<string, string>) ?? {},
+                masterVariantAxes
+              )
+            : product.name;
 
         return {
-          ...product,
+          id: product.id,
+          name: product.name,
+          displayName,
+          sku: product.sku,
+          unitName: product.unitName,
+          typicalBatchSize: product.typicalBatchSize,
+          typicalGroupSize: product.typicalGroupSize,
           manufacturingMode: batchBasis == null ? "discrete" : "batch",
           expectedBatchYield: batchBasis == null ? null : normalizeNumeric(Number(batchBasis)),
           bom: bomRows.map((row) => ({
@@ -6498,6 +6524,58 @@ export async function pickManufacturingIngredient(
   });
 }
 
+export async function pickRemainingManufacturingIngredients(
+  orderId: string,
+  options?: {
+    idempotencyKey?: string;
+    confirmRequirementOverride?: boolean;
+    confirmNegativeStock?: boolean;
+  }
+): Promise<{ ids: string[] }> {
+  const execution = await getManufacturingExecutionDetail(orderId);
+
+  if (!execution) {
+    throw new ManufacturingError("Order not found", 404);
+  }
+
+  if (execution.status !== "open") {
+    throw new ManufacturingError("Only open orders can be picked", 400);
+  }
+
+  if (
+    execution.manufacturingMode === "batch" &&
+    execution.currentBatch?.status === "pending"
+  ) {
+    throw new ManufacturingError(
+      `Start batch ${execution.currentBatch.batchNumber} before marking ingredients done.`,
+      400
+    );
+  }
+
+  const remainingIngredients = execution.ingredients.filter(
+    (ingredient) =>
+      getRemainingQuantityNumber(
+        ingredient.plannedQuantity,
+        ingredient.pickedQuantity
+      ) > 0
+  );
+  const pickedIds: string[] = [];
+
+  for (const ingredient of remainingIngredients) {
+    await pickManufacturingIngredient(orderId, ingredient.id, {
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        options?.idempotencyKey,
+        `pick-remaining:${ingredient.id}`
+      ) ?? undefined,
+      confirmRequirementOverride: options?.confirmRequirementOverride,
+      confirmNegativeStock: options?.confirmNegativeStock,
+    });
+    pickedIds.push(ingredient.id);
+  }
+
+  return { ids: pickedIds };
+}
+
 export async function getManufacturingExecutionDetail(
   orderId: string
 ): Promise<ManufacturingExecutionDetail | null> {
@@ -6566,24 +6644,25 @@ export async function getManufacturingExecutionDetail(
               }))
             ),
       canComplete:
-        recordedOutputQuantity > 0
+        order.status === "open" &&
+        (recordedOutputQuantity > 0
           ? true
           : order.manufacturingMode === "batch"
-          ? currentBatch != null &&
-            ingredients.every(
-              (ingredient) =>
-                getRemainingQuantityNumber(
-                  ingredient.plannedQuantity,
-                  ingredient.pickedQuantity
-                ) <= 0
-            )
-          : ingredients.every(
-              (ingredient) =>
-                getRemainingQuantityNumber(
-                  ingredient.plannedQuantity,
-                  ingredient.pickedQuantity
-                ) <= 0
-            ),
+            ? currentBatch != null &&
+              ingredients.every(
+                (ingredient) =>
+                  getRemainingQuantityNumber(
+                    ingredient.plannedQuantity,
+                    ingredient.pickedQuantity
+                  ) <= 0
+              )
+            : ingredients.every(
+                (ingredient) =>
+                  getRemainingQuantityNumber(
+                    ingredient.plannedQuantity,
+                    ingredient.pickedQuantity
+                  ) <= 0
+              )),
       currentBatchId: currentBatch?.id ?? null,
       currentBatch: currentBatch,
       batches,

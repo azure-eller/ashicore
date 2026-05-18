@@ -38,6 +38,10 @@ export function inventoryItemSearchText(option: InventoryItemComboboxOption) {
     .join(" ");
 }
 
+export function inventoryItemDisplayText(option: InventoryItemComboboxOption) {
+  return option.displayName ?? option.name;
+}
+
 function itemTypeLabel(itemType: string) {
   return itemType === "material"
     ? "Material"
@@ -59,6 +63,7 @@ export function InventoryItemCombobox<TOption extends InventoryItemComboboxOptio
   contentClassName,
   createLinks = [],
   getSearchText = inventoryItemSearchText,
+  getDisplayText = inventoryItemDisplayText,
   getSecondaryText,
   renderSecondary,
   showTypeBadge = false,
@@ -75,6 +80,7 @@ export function InventoryItemCombobox<TOption extends InventoryItemComboboxOptio
   contentClassName?: string;
   createLinks?: ComboboxCreateLink[];
   getSearchText?: (option: TOption) => string;
+  getDisplayText?: (option: TOption) => string;
   getSecondaryText?: (option: TOption) => string | null;
   renderSecondary?: (option: TOption) => ReactNode;
   showTypeBadge?: boolean;
@@ -89,7 +95,12 @@ export function InventoryItemCombobox<TOption extends InventoryItemComboboxOptio
       onValueChange={(nextValue) => onValueChange(nextValue ?? null)}
       itemToStringLabel={(id) => {
         const option = optionMap.get(id);
-        return option ? getSearchText(option) : "";
+        return option ? getDisplayText(option) : "";
+      }}
+      filter={(id, query) => {
+        const option = optionMap.get(id);
+        if (!option) return false;
+        return getSearchText(option).toLocaleLowerCase().includes(query.toLocaleLowerCase());
       }}
     >
       <ComboboxInput

@@ -75,6 +75,20 @@ const dashboardNavModules: DashboardNavModule[] = [
     ],
   },
   {
+    title: "Manufacturing",
+    baseHref: "/manufacturing",
+    href: "/manufacturing/orders",
+    icon: FactoryIcon,
+    module: "manufacturing",
+    items: [
+      {
+        title: "Manufacturing Orders",
+        href: "/manufacturing/orders",
+        icon: FactoryIcon,
+      },
+    ],
+  },
+  {
     title: "Inventory",
     baseHref: "/inventory",
     href: "/inventory/products",
@@ -100,20 +114,6 @@ const dashboardNavModules: DashboardNavModule[] = [
         icon: ShoppingBag01Icon,
       },
       { title: "Suppliers", href: "/purchasing/suppliers", icon: TruckIcon },
-    ],
-  },
-  {
-    title: "Manufacturing",
-    baseHref: "/manufacturing",
-    href: "/manufacturing/orders",
-    icon: FactoryIcon,
-    module: "manufacturing",
-    items: [
-      {
-        title: "Manufacturing Orders",
-        href: "/manufacturing/orders",
-        icon: FactoryIcon,
-      },
     ],
   },
 ];

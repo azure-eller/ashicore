@@ -8,6 +8,7 @@ import type { BomComponentConstraint } from "@/lib/bom/constraints";
 export type ManufacturingProductOption = {
   id: string;
   name: string;
+  displayName: string;
   sku: string | null;
   unitName: string;
   manufacturingMode: string;

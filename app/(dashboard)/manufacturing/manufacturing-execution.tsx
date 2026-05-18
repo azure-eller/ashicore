@@ -508,10 +508,18 @@ export function ManufacturingExecution({
       ) > 0
   );
   const canCompleteBatchAfterPicking =
-    execution.manufacturingMode === "batch" &&
+    execution.status === "open" &&
     execution.currentBatch != null &&
     canPick &&
     remainingIngredients.length > 0;
+  const canCompleteOrderAfterPicking =
+    execution.status === "open" &&
+    execution.manufacturingMode === "discrete" &&
+    canPick &&
+    remainingIngredients.length > 0;
+  const canCompleteAfterPicking =
+    canCompleteBatchAfterPicking || canCompleteOrderAfterPicking;
+  const showCompleteAction = execution.status === "open";
 
   const refreshExecutionScreen = useCallback(() => {
     startTransition(() => {
@@ -564,6 +572,27 @@ export function ManufacturingExecution({
     },
     [execution.id]
   );
+
+  const pickRemainingIngredientsForCompletion = useCallback(async () => {
+    const response = await fetch(
+      `/api/manufacturing-orders/${execution.id}/ingredients/pick-remaining`,
+      {
+        method: "POST",
+        headers: createIdempotencyHeaders("manufacturing-pick-remaining", {
+          "Content-Type": "application/json",
+        }),
+        body: JSON.stringify({}),
+      }
+    );
+    const body = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw {
+        status: response.status,
+        message: body?.error ?? "Failed to mark ingredients done.",
+        shortage: body?.shortage as ManufacturingReleaseWarningPayload | undefined,
+      };
+    }
+  }, [execution.id]);
 
   useEffect(() => {
     if (execution.status !== "open") {
@@ -715,7 +744,7 @@ export function ManufacturingExecution({
       return;
     }
 
-    if (!canCompleteBatchAfterPicking) {
+    if (!canCompleteAfterPicking) {
       return;
     }
 
@@ -726,11 +755,8 @@ export function ManufacturingExecution({
     let currentIngredientId: string | null = null;
 
     try {
-      for (const ingredient of remainingIngredients) {
-        currentIngredientId = ingredient.id;
-        setPickingIngredientId(ingredient.id);
-        await pickIngredientForExecution({ ingredientId: ingredient.id });
-      }
+      currentIngredientId = remainingIngredients[0]?.id ?? null;
+      await pickRemainingIngredientsForCompletion();
       setPickingIngredientId(null);
       setOpenCompleteAfterPicking(true);
       await refreshData();
@@ -1030,23 +1056,25 @@ export function ManufacturingExecution({
           </SortableReorder>
         </div>
 
-        <div className="flex justify-end">
-          <Button
-            size="lg"
-            disabled={
-              isCompleting ||
-              isPickingForCompletion ||
-              (!execution.canComplete && !canCompleteBatchAfterPicking)
-            }
-            onClick={handleCompleteClick}
-          >
-            {isPickingForCompletion
-              ? "Picking Ingredients..."
-              : execution.manufacturingMode === "batch"
-                ? "Complete Batch"
-                : "Complete Order"}
-          </Button>
-        </div>
+        {showCompleteAction && (
+          <div className="flex justify-end">
+            <Button
+              size="lg"
+              disabled={
+                isCompleting ||
+                isPickingForCompletion ||
+                (!execution.canComplete && !canCompleteAfterPicking)
+              }
+              onClick={handleCompleteClick}
+            >
+              {isPickingForCompletion
+                ? "Picking Ingredients..."
+                : execution.manufacturingMode === "batch"
+                  ? "Complete Batch"
+                  : "Complete Order"}
+            </Button>
+          </div>
+        )}
 
         <AlertDialog
           open={pickWarning != null}
