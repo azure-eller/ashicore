@@ -87,6 +87,7 @@ type AllocationProduct = AllocatorProduct & {
   allocatedQty: number;
   reservationSummaries: string[];
   isStandalone: boolean;
+  hasActiveDemand: boolean;
 };
 
 export type AllocationPoolRow = {
@@ -223,25 +224,72 @@ function flattenProducts(items: ItemRow[]) {
   );
 }
 
+function getInventoryProducts(inventory: ItemRow[]) {
+  return inventory.flatMap((item): AllocationProduct[] => {
+    const toStandaloneProduct = (row: ItemRow): AllocationProduct => ({
+      itemId: row.id,
+      label: row.displayName || row.name,
+      familyLabel: STANDALONE_FAMILY_LABEL,
+      variantLabel: row.displayName || row.name,
+      sku: row.sku ?? null,
+      unitName: row.unit ?? "units",
+      stockQty: parseQuantity(row.availableQty),
+      incomingQty: parseQuantity(row.expectedQty),
+      allocatedQty: 0,
+      reservationSummaries: [],
+      isStandalone: true,
+      hasActiveDemand: false,
+    });
+
+    if (item.subRows && item.subRows.length > 0) {
+      return item.subRows
+        .filter((variant) => variant.sellable === true)
+        .map((variant) => ({
+          itemId: variant.id,
+          label: variant.displayName || variant.name,
+          familyLabel: item.displayName || item.name,
+          variantLabel:
+            variant.variantAttrs && Object.keys(variant.variantAttrs).length > 0
+              ? Object.values(variant.variantAttrs).join(" ")
+              : variant.displayName || variant.name,
+          sku: variant.sku ?? null,
+          unitName: variant.unit ?? item.unit ?? "units",
+          stockQty: parseQuantity(variant.availableQty),
+          incomingQty: parseQuantity(variant.expectedQty),
+          allocatedQty: 0,
+          reservationSummaries: [],
+          isStandalone: false,
+          hasActiveDemand: false,
+        }));
+    }
+
+    if (item.sellable !== true || item.isMaster) return [];
+    return [toStandaloneProduct(item)];
+  });
+}
+
 function getInventoryById(items: ItemRow[]) {
   return new Map(flattenProducts(items).map((item) => [item.id, item]));
 }
 
 function getAllocatorProducts(orders: SalesOrderListRow[], inventory: ItemRow[]) {
+  const productsById = new Map(
+    getInventoryProducts(inventory).map((product) => [product.itemId, product])
+  );
   const inventoryById = getInventoryById(inventory);
-  const byId = new Map<string, AllocationProduct>();
 
   orders.forEach((order) => {
     if (!isOpenSalesOrder(order)) return;
 
     order.lines.forEach((line) => {
       if (line.itemType !== "product") return;
-      if (byId.has(line.itemId)) return;
 
+      const existing = productsById.get(line.itemId);
       const inventoryItem = inventoryById.get(line.itemId);
       const isStandalone = line.attrs.length === 0;
 
-      byId.set(line.itemId, {
+      productsById.set(line.itemId, {
+        ...existing,
         itemId: line.itemId,
         label: productLabel(line),
         familyLabel: isStandalone ? STANDALONE_FAMILY_LABEL : line.masterName,
@@ -253,11 +301,15 @@ function getAllocatorProducts(orders: SalesOrderListRow[], inventory: ItemRow[])
         allocatedQty: 0,
         reservationSummaries: [],
         isStandalone,
+        hasActiveDemand: true,
       });
     });
   });
 
-  return [...byId.values()].sort((left, right) => {
+  return [...productsById.values()].sort((left, right) => {
+    if (left.hasActiveDemand !== right.hasActiveDemand) {
+      return left.hasActiveDemand ? -1 : 1;
+    }
     if (left.isStandalone !== right.isStandalone) {
       return left.isStandalone ? 1 : -1;
     }
@@ -729,6 +781,18 @@ function buildGridRows({
   return { topRows, bodyRows };
 }
 
+function getRowsInScope(
+  rows: AllocationRow[],
+  collapsedWeeks: Set<string>,
+  unplannedOpen: boolean
+) {
+  return rows.filter((row) => {
+    if (row.demandTypeLabel === "Unplanned demand") return unplannedOpen;
+    if (!row.shipDate) return !collapsedWeeks.has("no-date");
+    return !collapsedWeeks.has(isoWeekMondayOf(row.shipDate));
+  });
+}
+
 function formatRefreshedAgo(ms: number | null) {
   if (ms == null) return "just now";
   const minutes = Math.floor(ms / 60_000);
@@ -793,7 +857,6 @@ function OrderIdentityCell({
   data,
 }: ICellRendererParams<SalesAllocationGridRow>) {
   if (!data) return null;
-
   if (data.rowType === "coverage") {
     return (
       <div className={styles.coverageIdentityCell}>
@@ -990,6 +1053,7 @@ function SectionBannerRow({
         <button
           type="button"
           className={styles.sectionToggle}
+          aria-label={`${collapsed ? "Expand" : "Collapse"} ${data.label}`}
           aria-expanded={!collapsed}
           aria-controls={`week-section:${data.weekKey}`}
           onClick={() => onToggleWeek(data.weekKey)}
@@ -1015,6 +1079,7 @@ function SectionBannerRow({
       <button
         type="button"
         className={styles.sectionToggle}
+        aria-label={`${unplannedOpen ? "Collapse" : "Expand"} Unplanned demand`}
         aria-expanded={unplannedOpen}
         aria-controls="unplanned-section"
         onClick={onToggleUnplanned}
@@ -1293,6 +1358,9 @@ export function SalesAllocationTable({
     readLocalStorageJson<boolean>(UNPLANNED_OPEN_KEY, true)
   );
   const [hiddenFamilies, setHiddenFamilies] = useState<Set<string>>(new Set());
+  const [shownExtraProductIds, setShownExtraProductIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [nowTick, setNowTick] = useState(() => Date.now());
 
   useEffect(() => {
@@ -1315,6 +1383,8 @@ export function SalesAllocationTable({
         fallbackError: "Failed to fetch product inventory.",
       }).then((rows) => rows.filter((row) => row.sellable === true)),
     initialData: [] as ItemRow[],
+    staleTime: 0,
+    refetchOnMount: "always",
   });
   const preferenceQuery = useQuery({
     queryKey: ["sales-orders-allocator-preference"],
@@ -1457,17 +1527,26 @@ export function SalesAllocationTable({
       productsWithPools.filter(
         (product) =>
           !hiddenProductIdSet.has(product.itemId) &&
-          !hiddenFamilies.has(product.familyLabel)
+          !hiddenFamilies.has(product.familyLabel) &&
+          (product.hasActiveDemand || shownExtraProductIds.has(product.itemId))
       ),
-    [productsWithPools, hiddenProductIdSet, hiddenFamilies]
+    [productsWithPools, hiddenProductIdSet, hiddenFamilies, shownExtraProductIds]
   );
   const allRows = useMemo(
     () => buildRows(orders, productsWithPools),
     [orders, productsWithPools]
   );
+  const searchedRows = useMemo(
+    () => getFilteredRows(allRows, search),
+    [allRows, search]
+  );
+  const searchedRowsInScope = useMemo(
+    () => getRowsInScope(searchedRows, collapsedWeeks, unplannedOpen),
+    [collapsedWeeks, searchedRows, unplannedOpen]
+  );
   const coverageById = useMemo(
-    () => getCoverage(visibleProducts, allRows),
-    [visibleProducts, allRows]
+    () => getCoverage(visibleProducts, searchedRowsInScope),
+    [visibleProducts, searchedRowsInScope]
   );
 
   // When the user toggles "variants short" we narrow the variant columns to those
@@ -1480,9 +1559,12 @@ export function SalesAllocationTable({
   }, [activeFilter, visibleProducts, coverageById]);
 
   const filteredRows = useMemo(() => {
-    const searched = getFilteredRows(allRows, search);
-    return applyRibbonFilter(searched, activeFilter, coverageById);
-  }, [allRows, search, activeFilter, coverageById]);
+    return applyRibbonFilter(searchedRows, activeFilter, coverageById);
+  }, [searchedRows, activeFilter, coverageById]);
+  const filteredRowsInScope = useMemo(
+    () => getRowsInScope(filteredRows, collapsedWeeks, unplannedOpen),
+    [collapsedWeeks, filteredRows, unplannedOpen]
+  );
 
   const familiesAll = useMemo(() => {
     const seen = new Set<string>();
@@ -1501,10 +1583,10 @@ export function SalesAllocationTable({
     [filteredRows, coverageById, collapsedWeeks, unplannedOpen]
   );
 
-  const orderRowCount = filteredRows.length;
+  const orderRowCount = filteredRowsInScope.length;
   const totals = useMemo(
     () =>
-      filteredRows.reduce(
+      filteredRowsInScope.reduce(
         (acc, row) => {
           const progress = rowProgress(row);
           const late = getRowLateState(row);
@@ -1520,7 +1602,7 @@ export function SalesAllocationTable({
         },
         { late: 0, complete: 0, shortLines: 0, lines: 0, alloc: 0, demand: 0 }
       ),
-    [filteredRows]
+    [filteredRowsInScope]
   );
   const variantsShort = useMemo(
     () =>
@@ -1538,12 +1620,20 @@ export function SalesAllocationTable({
   }, [nowTick, poolsUpdatedAt, ordersUpdatedAt]);
 
   const highlightedOrderId = searchParams.get("highlightOrderId");
-  const hiddenProducts = allProducts.filter((product) =>
-    hiddenProductIdSet.has(product.itemId)
+  const hiddenProducts = productsWithPools.filter(
+    (product) =>
+      hiddenProductIdSet.has(product.itemId) ||
+      (!product.hasActiveDemand && !shownExtraProductIds.has(product.itemId))
   );
 
   const hideColumn = useCallback(
     (productId: string) => {
+      setShownExtraProductIds((current) => {
+        if (!current.has(productId)) return current;
+        const next = new Set(current);
+        next.delete(productId);
+        return next;
+      });
       preferenceMutation.mutate([...new Set([...hiddenProductIds, productId])]);
     },
     [hiddenProductIds, preferenceMutation]
@@ -1551,14 +1641,18 @@ export function SalesAllocationTable({
 
   const restoreColumn = useCallback(
     (productId: string) => {
+      setShownExtraProductIds((current) => new Set([...current, productId]));
       preferenceMutation.mutate(hiddenProductIds.filter((id) => id !== productId));
     },
     [hiddenProductIds, preferenceMutation]
   );
 
   const showAllColumns = useCallback(() => {
+    setShownExtraProductIds(
+      new Set(productsWithPools.map((product) => product.itemId))
+    );
     preferenceMutation.mutate([]);
-  }, [preferenceMutation]);
+  }, [preferenceMutation, productsWithPools]);
 
   const toggleWeek = useCallback((weekKey: string) => {
     setCollapsedWeeks((previous) => {
@@ -1645,11 +1739,15 @@ export function SalesAllocationTable({
     const api = gridApiRef.current;
     if (!api) return;
 
-    const productId = getProductColumnToReveal(filteredRows, visibleProducts, search);
+    const productId = getProductColumnToReveal(
+      filteredRowsInScope,
+      visibleProducts,
+      search
+    );
     if (!productId) return;
 
     api.ensureColumnVisible(productColId(productId), "middle");
-  }, [filteredRows, search, visibleProducts]);
+  }, [filteredRowsInScope, search, visibleProducts]);
 
   const columns = useMemo<
     Array<ColDef<SalesAllocationGridRow> | ColGroupDef<SalesAllocationGridRow>>
@@ -1702,7 +1800,7 @@ export function SalesAllocationTable({
                   minWidth: 104,
                   maxWidth: 176,
                   sortable: false,
-                  suppressMovable: true,
+                  suppressMovable: false,
                   headerComponent: VariantHeader,
                   headerComponentParams: { product, onHide: hideColumn },
                   cellRenderer: (

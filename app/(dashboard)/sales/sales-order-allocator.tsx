@@ -594,11 +594,18 @@ function AllocationSourceEditor({
                       ) : (
                         <ul className={styles.claimList} role="list">
                           {claims.map((claim) => {
-                            const demand =
+                            const claimDemandRef =
                               claim.demandType === "sales_order_line" ||
                               claim.demandType === "sales_shipment_line"
+                                ? {
+                                    demandType: claim.demandType,
+                                    demandId: claim.demandId,
+                                  }
+                                : null;
+                            const demand =
+                              claimDemandRef != null
                                 ? workspace.demands.find(
-                                    (row) => demandKey(row) === demandKey(claim)
+                                    (row) => demandKey(row) === demandKey(claimDemandRef)
                                   )
                                 : null;
                             const due =

@@ -1488,6 +1488,110 @@ test.describe("Sales write-path smoke", () => {
     ]);
   });
 
+  test("allocation matrix collapse scopes demand math and exposes inactive products", async ({
+    page,
+  }) => {
+    const suffix = `${ts}-ALLOC-SCOPE`;
+    const customerResult = await createCustomer({
+      name: `Fast Scope Customer ${suffix}`,
+      email: `fast-scope-${suffix}@example.com`,
+    });
+    expect(customerResult.status).toBe(201);
+    const customerId = customerResult.body.id as string;
+
+    const componentResult = await createItem({
+      name: `Fast Scope Component ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-SCOPE-COMP-${suffix}`,
+      category: `Fast Scope ${suffix}`,
+      description: "Component for allocation collapse scope product",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "30",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(componentResult.status).toBe(201);
+    const componentId = componentResult.body.id as string;
+
+    const productResult = await createItem({
+      name: `Fast Scope Product ${suffix}`,
+      itemType: "product",
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-SCOPE-${suffix}`,
+      category: `Fast Scope ${suffix}`,
+      description: "Product for allocation collapse scope coverage",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "20",
+      safetyStock: "0",
+      bom: [{ componentId, quantity: "1" }],
+    });
+    expect(productResult.status).toBe(201);
+    const productId = productResult.body.id as string;
+
+    const hiddenProductName = `Fast Hidden Scope Product ${suffix}`;
+    const hiddenProductResult = await createItem({
+      name: hiddenProductName,
+      itemType: "product",
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-HIDDEN-SCOPE-${suffix}`,
+      category: `Fast Scope ${suffix}`,
+      description: "Sellable product with no active sales demand",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "4",
+      safetyStock: "0",
+      bom: [{ componentId, quantity: "1" }],
+    });
+    expect(hiddenProductResult.status).toBe(201);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const datedOrder = await createSalesOrder({
+      customerId,
+      status: "open",
+      shipDate: today,
+      lines: [{ itemId: productId, quantity: "7", unitPrice: "10" }],
+      shipments: plannedShipmentForItems({
+        shipDate: today,
+        lines: [{ itemId: productId, quantity: "7" }],
+      }),
+    });
+    expect(datedOrder.status).toBe(201);
+
+    const unplannedOrder = await createSalesOrder({
+      customerId,
+      status: "open",
+      shipDate: null,
+      lines: [{ itemId: productId, quantity: "5", unitPrice: "10" }],
+    });
+    expect(unplannedOrder.status).toBe(201);
+
+    await page.goto("/sales/allocation");
+    await page.getByLabel("Search sales allocations").fill(suffix);
+    await expect(
+      page.getByText("Pool vs. demand · 2 orders, 2 short of 2 lines")
+    ).toBeVisible();
+    await expect(page.getByText("20/12")).toBeVisible();
+
+    await page
+      .getByRole("button", { name: /Collapse Unplanned demand/ })
+      .click();
+    await expect(
+      page.getByText("Pool vs. demand · 1 orders, 1 short of 1 lines")
+    ).toBeVisible();
+    await expect(page.getByText("20/7")).toBeVisible();
+
+    const hiddenMenu = page.getByRole("button", { name: /hidden/ });
+    await expect(hiddenMenu).toBeVisible();
+    await hiddenMenu.click();
+    await expect(page.getByRole("menuitem", { name: new RegExp(hiddenProductName) })).toBeVisible();
+    await page.keyboard.press("Escape");
+  });
+
   test("allocation read model bridges existing reservations and respects explicit zero", async ({
     db,
   }) => {
