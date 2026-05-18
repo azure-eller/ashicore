@@ -1975,7 +1975,7 @@ export function OrderDetail({
             <div className="min-w-0 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl font-semibold tracking-tight">
-                  {order.orderNumber}
+                  {order.orderNumber} {order.customerName}
                 </h1>
                 <SalesOrderStatusBadge status={order.status} />
                 <Badge

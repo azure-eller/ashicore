@@ -425,6 +425,9 @@ test.describe("Sales write-path smoke", () => {
     await page.goto("/sales/orders/new");
     await expect(page.getByText("Add Sales Order")).toBeVisible();
 
+    const customOrderNumber = `SO-CUSTOM-${ts}`;
+    await page.getByLabel("Sales order #").fill(customOrderNumber);
+
     const customerInput = page.getByPlaceholder("Search customers...");
     await customerInput.click();
     await customerInput.pressSequentially(customerName);
@@ -467,13 +470,17 @@ test.describe("Sales write-path smoke", () => {
     await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
     orderId = getIdFromUrl(page.url());
     await expect(
-      page.getByRole("heading", { level: 1, name: /SO-\d{4}-\d{4}/ })
+      page.getByRole("heading", {
+        level: 1,
+        name: `${customOrderNumber} ${customerName}`,
+      })
     ).toBeVisible({ timeout: 15_000 });
 
     const [order] = await db.select().from(salesOrders).where(eq(salesOrders.id, orderId));
     expect(order.customerId).toBe(customerId);
     expect(order.customerProjectId).toBe(crmProjectId);
     expect(order.customerName).toBe(customerName);
+    expect(order.orderNumber).toBe(customOrderNumber);
     expect(order.status).toBe("open");
     expect(order.orderDate).toBe("2026-04-01");
     expect(order.shipDate).toBe("2026-04-15");
@@ -494,7 +501,10 @@ test.describe("Sales write-path smoke", () => {
 
     await page.goto(`/sales/orders/${orderId}`);
     await expect(
-      page.getByRole("heading", { level: 1, name: order.orderNumber })
+      page.getByRole("heading", {
+        level: 1,
+        name: `${order.orderNumber} ${customerName}`,
+      })
     ).toBeVisible();
     await expect(page.getByRole("link", { name: customerName })).toBeVisible();
     await expect(page.getByRole("link", { name: `Example Construction ${ts}` })).toBeVisible();
@@ -593,6 +603,47 @@ test.describe("Sales write-path smoke", () => {
       .where(eq(salesShipments.salesOrderId, orderId));
     expect(shipments).toHaveLength(1);
     expect(shipments[0].scheduledDate).toBe("2026-04-15");
+  });
+
+  test("auto-generates numbers and rejects duplicate custom sales order numbers", async () => {
+    const autoOrderResult = await createSalesOrder({
+      customerId,
+      status: "open",
+      orderDate: "2026-04-02",
+      requestedDate: "2026-04-16",
+      lines: [{ itemId: productId, quantity: "1", unitPrice: "34.99" }],
+    });
+    expect(autoOrderResult.status).toBe(201);
+    await expect(
+      getSalesOrderNumber(autoOrderResult.body.id as string)
+    ).resolves.toMatch(/^SO-\d{4}-\d{4}$/);
+
+    const duplicateOrderNumber = `SO-DUP-${ts}`;
+    const firstCustomResult = await createSalesOrder({
+      orderNumber: duplicateOrderNumber,
+      customerId,
+      status: "open",
+      orderDate: "2026-04-03",
+      requestedDate: "2026-04-17",
+      lines: [{ itemId: productId, quantity: "1", unitPrice: "34.99" }],
+    });
+    expect(firstCustomResult.status).toBe(201);
+    await expect(
+      getSalesOrderNumber(firstCustomResult.body.id as string)
+    ).resolves.toBe(duplicateOrderNumber);
+
+    const duplicateResult = await createSalesOrder({
+      orderNumber: duplicateOrderNumber,
+      customerId,
+      status: "open",
+      orderDate: "2026-04-04",
+      requestedDate: "2026-04-18",
+      lines: [{ itemId: productId, quantity: "1", unitPrice: "34.99" }],
+    });
+    expect(duplicateResult.status).toBe(400);
+    expect(duplicateResult.body.errors.orderNumber).toContain(
+      "A sales order with this number already exists."
+    );
   });
 
   test("creating without a ship date creates unplanned demand without a shipment", async ({
@@ -946,17 +997,25 @@ test.describe("Sales write-path smoke", () => {
     expect((await confirmSalesOrder(editOrderId)).status).toBe(200);
 
     const [orderBeforeEdit] = await db
-      .select({ orderNumber: salesOrders.orderNumber })
+      .select({
+        orderNumber: salesOrders.orderNumber,
+        customerName: salesOrders.customerName,
+      })
       .from(salesOrders)
       .where(eq(salesOrders.id, editOrderId));
 
     await page.goto(`/sales/orders/${editOrderId}`);
     await expect(
-      page.getByRole("heading", { level: 1, name: orderBeforeEdit.orderNumber })
+      page.getByRole("heading", {
+        level: 1,
+        name: `${orderBeforeEdit.orderNumber} ${orderBeforeEdit.customerName}`,
+      })
     ).toBeVisible();
     await page.getByRole("link", { name: "Edit", exact: true }).click();
     await page.waitForURL(`**/sales/orders/${editOrderId}/edit`);
 
+    const editedOrderNumber = `SO-EDIT-${ts}`;
+    await page.getByLabel("Sales order #").fill(editedOrderNumber);
     await page.locator('input[placeholder="0"]').first().fill("4");
     await page
       .getByLabel(`Shipment quantity for Fast Confirmed Edit Material ${ts}`)
@@ -971,15 +1030,23 @@ test.describe("Sales write-path smoke", () => {
     await page.getByRole("button", { name: "Save Changes" }).click();
     expect((await updateOrderResponsePromise).status()).toBe(200);
     await page.waitForURL(`**/sales/orders/${editOrderId}`);
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: `${editedOrderNumber} ${orderBeforeEdit.customerName}`,
+      })
+    ).toBeVisible();
 
     const [orderAfterEdit] = await db
       .select({
+        orderNumber: salesOrders.orderNumber,
         status: salesOrders.status,
         notes: salesOrders.notes,
         totalAmount: salesOrders.totalAmount,
       })
       .from(salesOrders)
       .where(eq(salesOrders.id, editOrderId));
+    expect(orderAfterEdit.orderNumber).toBe(editedOrderNumber);
     expect(orderAfterEdit.status).toBe("open");
     expect(orderAfterEdit.notes).toBe("Confirmed order edited after approval");
     expect(orderAfterEdit.totalAmount).toBe("48.00");

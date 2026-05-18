@@ -1,6 +1,5 @@
 import "server-only";
 
-import { get } from "@vercel/blob";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import {
   PurchaseOrder,
@@ -35,6 +34,7 @@ import {
   accountingAuditErrorMetadata,
   tryRecordAccountingAuditEvent,
 } from "@/lib/accounting/audit-events";
+import { getPrivateBlobForDownload } from "@/lib/blob-storage";
 import { buildAccountingDocumentEmail } from "@/lib/email/accounting-documents";
 import { sendTransactionalEmail } from "@/lib/email/send";
 import { getAuthedXeroClient } from "./client";
@@ -402,8 +402,8 @@ function sanitizePdfFileSegment(value: string): string {
 }
 
 async function blobToBuffer(blobUrl: string): Promise<Buffer> {
-  const blob = await get(blobUrl, { access: "private" });
-  if (!blob || blob.statusCode !== 200 || !blob.stream) {
+  const blob = await getPrivateBlobForDownload(blobUrl);
+  if (!blob) {
     throw new XeroError("Attachment file could not be read from storage.", 404);
   }
 

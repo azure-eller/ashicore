@@ -1171,77 +1171,99 @@ export function OrderForm({
           >
             <SalesOrderSection title="Order details">
               <FieldGroup className="gap-5">
-                <Controller
-                  control={form.control}
-                  name="customerId"
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel className="w-full">
-                        <FieldLabelWithMarker required>
-                          Customer
-                        </FieldLabelWithMarker>
-                      </FieldLabel>
-                      <EntityCombobox
-                        options={customers}
-                        value={field.value ?? ""}
-                        onValueChange={(value) => {
-                          const nextValue = value ?? "";
-                          field.onChange(nextValue);
-                          form.setValue("customerProjectId", null, {
-                            shouldDirty: true,
-                            shouldValidate: true,
-                          });
-                          if (!nextValue) return;
+                <div className="grid gap-5 lg:grid-cols-[minmax(13rem,0.55fr)_minmax(0,1.45fr)]">
+                  <Controller
+                    control={form.control}
+                    name="orderNumber"
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel htmlFor={field.name} className="w-full">
+                          Sales order #
+                        </FieldLabel>
+                        <Input
+                          {...field}
+                          id={field.name}
+                          value={field.value ?? ""}
+                          placeholder="Assigned on save"
+                          aria-invalid={fieldState.invalid}
+                        />
+                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                      </Field>
+                    )}
+                  />
 
-                          const nextShipAddress = getShipAddressFromCustomer(
-                            customerMap.get(nextValue)
-                          );
-                          if (
-                            !nextShipAddress ||
-                            isShipAddressBlank(nextShipAddress) ||
-                            isShipAddressDefaultOnly(nextShipAddress)
-                          ) {
-                            return;
-                          }
+                  <Controller
+                    control={form.control}
+                    name="customerId"
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel className="w-full">
+                          <FieldLabelWithMarker required>
+                            Customer
+                          </FieldLabelWithMarker>
+                        </FieldLabel>
+                        <EntityCombobox
+                          options={customers}
+                          value={field.value ?? ""}
+                          onValueChange={(value) => {
+                            const nextValue = value ?? "";
+                            field.onChange(nextValue);
+                            form.setValue("customerProjectId", null, {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            });
+                            if (!nextValue) return;
 
-                          const currentShipAddress = getShipAddressFromValues(
-                            form.getValues()
-                          );
-                          const canReplaceShipAddress =
-                            isShipAddressBlank(currentShipAddress) ||
-                            isShipAddressDefaultOnly(currentShipAddress) ||
-                            shipAddressesEqual(
-                              currentShipAddress,
-                              lastAutoFilledShipAddressRef.current
+                            const nextShipAddress = getShipAddressFromCustomer(
+                              customerMap.get(nextValue)
                             );
+                            if (
+                              !nextShipAddress ||
+                              isShipAddressBlank(nextShipAddress) ||
+                              isShipAddressDefaultOnly(nextShipAddress)
+                            ) {
+                              return;
+                            }
 
-                          if (!canReplaceShipAddress) {
-                            return;
-                          }
+                            const currentShipAddress = getShipAddressFromValues(
+                              form.getValues()
+                            );
+                            const canReplaceShipAddress =
+                              isShipAddressBlank(currentShipAddress) ||
+                              isShipAddressDefaultOnly(currentShipAddress) ||
+                              shipAddressesEqual(
+                                currentShipAddress,
+                                lastAutoFilledShipAddressRef.current
+                              );
 
-                          setShipAddress(form.setValue, nextShipAddress);
-                          lastAutoFilledShipAddressRef.current = nextShipAddress;
-                        }}
-                        placeholder="Search customers..."
-                        emptyMessage="No customers found"
-                        createLinks={[
-                          {
-                            href: "/sales/customers/new",
-                            label: "Create customer",
-                          },
-                        ]}
-                      />
-                      {field.value ? (
-                        <Button variant="link" size="sm" className="h-auto px-0" asChild>
-                          <Link href={`/sales/customers/${field.value}`} target="_blank">
-                            Open customer
-                          </Link>
-                        </Button>
-                      ) : null}
-                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                    </Field>
-                  )}
-                />
+                            if (!canReplaceShipAddress) {
+                              return;
+                            }
+
+                            setShipAddress(form.setValue, nextShipAddress);
+                            lastAutoFilledShipAddressRef.current = nextShipAddress;
+                          }}
+                          placeholder="Search customers..."
+                          emptyMessage="No customers found"
+                          createLinks={[
+                            {
+                              href: "/sales/customers/new",
+                              label: "Create customer",
+                            },
+                          ]}
+                        />
+                        {field.value ? (
+                          <Button variant="link" size="sm" className="h-auto px-0" asChild>
+                            <Link href={`/sales/customers/${field.value}`} target="_blank">
+                              Open customer
+                            </Link>
+                          </Button>
+                        ) : null}
+                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                      </Field>
+                    )}
+                  />
+                </div>
 
                 <Controller
                   control={form.control}
@@ -1298,27 +1320,7 @@ export function OrderForm({
                   onEdit={openEditAddressDialog}
                 />
 
-                <div className="grid gap-4 md:grid-cols-3">
-                  <Controller
-                    control={form.control}
-                    name="orderNumber"
-                    render={({ field, fieldState }) => (
-                      <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel htmlFor={field.name} className="w-full">
-                          Order Number
-                        </FieldLabel>
-                        <Input
-                          {...field}
-                          id={field.name}
-                          value={field.value ?? ""}
-                          placeholder="Assigned on save"
-                          aria-invalid={fieldState.invalid}
-                        />
-                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                      </Field>
-                    )}
-                  />
-
+                <div className="grid gap-4 md:grid-cols-2">
                   <Controller
                     control={form.control}
                     name="orderDate"

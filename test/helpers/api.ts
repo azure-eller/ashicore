@@ -426,6 +426,7 @@ export async function createSupplier(data: {
  * POST /api/sales-orders
  */
 export async function createSalesOrder(data: {
+  orderNumber?: string | null;
   customerId: string;
   status?: string;
   orderDate?: string;
@@ -452,6 +453,7 @@ export async function createSalesOrder(data: {
   const res = await testFetch("/api/sales-orders", {
     method: "POST",
     body: JSON.stringify({
+      ...(data.orderNumber !== undefined ? { orderNumber: data.orderNumber } : {}),
       customerId: data.customerId,
       status: data.status ?? "open",
       orderDate:
@@ -476,6 +478,7 @@ export async function createSalesOrder(data: {
 export async function updateSalesOrder(
   id: string,
   data: {
+    orderNumber?: string | null;
     customerId: string;
     status?: string;
     orderDate?: string;
@@ -503,6 +506,7 @@ export async function updateSalesOrder(
   const res = await testFetch(`/api/sales-orders/${id}`, {
     method: "PUT",
     body: JSON.stringify({
+      ...(data.orderNumber !== undefined ? { orderNumber: data.orderNumber } : {}),
       customerId: data.customerId,
       status: data.status ?? "open",
       orderDate:

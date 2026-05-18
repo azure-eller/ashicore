@@ -1,7 +1,8 @@
-import { del, get } from "@vercel/blob";
+import { del } from "@vercel/blob";
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
+import { getPrivateBlobForDownload } from "@/lib/blob-storage";
 import { customerProjectFileRenameSchema } from "@/lib/schemas/customer-crm";
 import {
   deleteCustomerProjectFile,
@@ -35,9 +36,9 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
 
-  const blob = await get(file.blobUrl, { access: "private" });
+  const blob = await getPrivateBlobForDownload(file.blobUrl);
 
-  if (!blob || blob.statusCode !== 200 || !blob.stream) {
+  if (!blob) {
     return NextResponse.json({ error: "File not found" }, { status: 404 });
   }
 
