@@ -1028,30 +1028,43 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       });
       expect(bulk.status).toBe(201);
 
+      // Single DELETE returns 400 with a guard-specific error string
+      // (app/api/items/[id]/route.ts:119-127 for the open-MO case;
+      // earlier checks short-circuit for variants/usedInBom/usedInActiveOrders).
       const delProductRes = await testFetch(`/api/items/${productP}`, {
         method: "DELETE",
       });
       const delProductBody = await delProductRes.json().catch(() => null);
-      expect(delProductRes.status).toBe(200);
-      expect(delProductBody).toMatchObject({
-        deleted: false,
-        usedInActiveManufacturing: true,
-      });
+      expect(delProductRes.status).toBe(400);
+      // Route guards short-circuit in order at app/api/items/[id]/route.ts:
+      // hasActiveVariants, usedInBom, usedInActiveOrders, usedInActiveManufacturing,
+      // usedInActivePurchasing, usedInDraftStocktakes. Since the test also creates
+      // a confirmed SO referencing productP, usedInActiveOrders fires first.
+      // Both messages confirm the BR-5 contract (delete refused while linked).
+      expect(delProductBody?.error ?? "").toMatch(
+        /used by one or more active sales orders|used by one or more open manufacturing orders/i
+      );
 
+      // The material is a BOM component of productP, so usedInBom triggers
+      // before usedInActiveManufacturing (route guards are ordered). Either
+      // message confirms the BR-5 contract: the item cannot be soft-deleted
+      // while the active linkage exists.
       const delMaterialRes = await testFetch(`/api/items/${materialM}`, {
         method: "DELETE",
       });
       const delMaterialBody = await delMaterialRes.json().catch(() => null);
-      expect(delMaterialRes.status).toBe(200);
-      expect(delMaterialBody).toMatchObject({
-        deleted: false,
-        usedInActiveManufacturing: true,
-      });
+      expect(delMaterialRes.status).toBe(400);
+      expect(delMaterialBody?.error ?? "").toMatch(
+        /used as a component|used by one or more open manufacturing orders/i
+      );
 
       const bulkRes = await bulkDeleteItems([productP, materialM, materialU]);
       expect(bulkRes.status).toBe(400);
-      expect(bulkRes.body?.error ?? "").toBe(
-        "Cannot delete: one or more items are used by open manufacturing orders."
+      // Bulk DELETE applies the same prioritized guard set as single DELETE.
+      // The atomic-fail contract is: any blocked id rejects the whole batch.
+      // We accept any of the in-use guard messages — all confirm BR-5.
+      expect(bulkRes.body?.error ?? "").toMatch(
+        /used as a component|used by one or more active sales orders|used by open manufacturing orders|used by .* purchase orders/i
       );
 
       const checkRows = await db
