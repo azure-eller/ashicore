@@ -2092,7 +2092,10 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
   });
 
   test.describe("validation_bypass_via_edit_path: BR-1 production gap and stale form", () => {
-    test("BR-1 violation via PUT/edit-add-link: attaching a sales line to a previously-unlinked MO bypasses existing_active_mo (confirmed production gap)", async ({
+    // Diagnostic pin only. This documents the current production gap, but
+    // must not merge as a green expectation because the correct fix is a 409.
+    // PR #350 flips this to an active regression test for the fixed contract.
+    test.fixme("BR-1 violation via PUT/edit-add-link: attaching a sales line to a previously-unlinked MO bypasses existing_active_mo (confirmed production gap)", async ({
       db,
     }) => {
       const ts = Date.now();
