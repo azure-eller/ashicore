@@ -7,6 +7,7 @@ import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import {
   Controller,
+  useFieldArray,
   useForm,
   useWatch,
   type Control,
@@ -17,6 +18,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  Add01Icon,
   ArrowLeft01Icon,
   InformationCircleIcon,
 } from "@hugeicons/core-free-icons";
@@ -54,7 +56,10 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import {
+  EditableLineGrid,
   EditableLineGridCell,
+  EditableLineGridRemoveButton,
+  EditableLineGridRow,
 } from "@/components/editable-line-grid";
 import { EditableLineItems } from "@/components/editable-line-items";
 import { EntityCombobox } from "@/components/entity-combobox";
@@ -95,7 +100,6 @@ import { AddressFields } from "@/components/address-fields";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import {
   REQUESTED_DATE_TOOLTIP,
-  SALES_ORDER_SHIP_DATE_TOOLTIP,
   SALES_ORDER_DATE_TOOLTIP,
   ESTIMATED_MARGIN_TOOLTIP,
   SALES_LINE_QTY_TOOLTIP,
@@ -236,8 +240,11 @@ function SalesOrderSection({
 
 const SALES_ORDER_LINE_GRID_COLUMNS =
   "minmax(13rem, 1.7fr) minmax(4.75rem, 0.45fr) minmax(7rem, 0.75fr) minmax(6rem, 0.6fr) minmax(5.75rem, 0.5fr) minmax(5.25rem, 0.45fr)";
+const SALES_ORDER_SHIPMENT_GRID_COLUMNS =
+  "minmax(7.5rem, 0.75fr) minmax(7.5rem, 0.75fr) minmax(6rem, 0.55fr) minmax(18rem, 1.7fr) minmax(8rem, 0.8fr) 2.25rem";
 
 type OrderFormValues = z.input<typeof insertSalesOrderSchema>;
+type OrderFormShipment = NonNullable<OrderFormValues["shipments"]>[number];
 type AddressDialogValues = z.input<typeof createAddressEntrySchema>;
 const NO_PROJECT_VALUE = "__no_project__";
 const ADD_SHIPPING_ADDRESS_VALUE = "__add_shipping_address__";
@@ -294,6 +301,53 @@ function isBlankSalesOrderLine(line: OrderFormValues["lines"][number] | undefine
   const quantity = line?.quantity?.trim() ?? "";
   const unitPrice = line?.unitPrice?.trim() ?? "";
   return itemId === "" && quantity === "" && unitPrice === "";
+}
+
+function createBlankShipment(): OrderFormShipment {
+  return {
+    fulfillmentType: "delivery",
+    scheduledDate: null,
+    deliveryDate: null,
+    notes: null,
+    lines: [],
+  };
+}
+
+function getShipmentLineQuantity(
+  shipment: OrderFormShipment | undefined,
+  itemId: string
+) {
+  return shipment?.lines?.find((line) => line.itemId === itemId)?.quantity ?? "";
+}
+
+function setShipmentLineQuantityInForm(
+  form: ReturnType<typeof useForm<OrderFormValues>>,
+  shipmentIndex: number,
+  itemId: string,
+  quantity: string
+) {
+  const currentLines = form.getValues(`shipments.${shipmentIndex}.lines`) ?? [];
+  const nextQuantity = quantity.trim();
+  const existingIndex = currentLines.findIndex((line) => line.itemId === itemId);
+  const nextLines = [...currentLines];
+
+  if (nextQuantity === "") {
+    if (existingIndex >= 0) {
+      nextLines.splice(existingIndex, 1);
+    }
+  } else if (existingIndex >= 0) {
+    nextLines[existingIndex] = {
+      ...nextLines[existingIndex],
+      quantity: nextQuantity,
+    };
+  } else {
+    nextLines.push({ itemId, quantity: nextQuantity });
+  }
+
+  form.setValue(`shipments.${shipmentIndex}.lines`, nextLines, {
+    shouldDirty: true,
+    shouldValidate: true,
+  });
 }
 
 type ApiError = {
@@ -586,7 +640,7 @@ export function OrderForm({
           customerProjectId: initialData.customerProjectId,
           status: initialData.status,
           orderDate: initialData.orderDate,
-          shipDate: initialData.shipDate,
+          shipDate: null,
           requestedDate: initialData.requestedDate,
           notes: initialData.notes,
           shipLine1: initialData.shipLine1,
@@ -599,6 +653,16 @@ export function OrderForm({
             itemId: line.itemId,
             quantity: line.quantity,
             unitPrice: line.unitPrice,
+          })),
+          shipments: initialData.shipments.map((shipment) => ({
+            fulfillmentType: shipment.fulfillmentType,
+            scheduledDate: shipment.scheduledDate,
+            deliveryDate: shipment.deliveryDate,
+            notes: shipment.notes,
+            lines: shipment.lines.map((line) => ({
+              itemId: line.itemId,
+              quantity: line.quantity,
+            })),
           })),
           confirmOversell: false,
         }
@@ -617,6 +681,14 @@ export function OrderForm({
   const watchedLines = useWatch({
     control: form.control,
     name: "lines",
+  });
+  const watchedShipments = useWatch({
+    control: form.control,
+    name: "shipments",
+  });
+  const shipmentFields = useFieldArray({
+    control: form.control,
+    name: "shipments",
   });
   const watchedShipAddress = useWatch({
     control: form.control,
@@ -779,6 +851,30 @@ export function OrderForm({
   const lineCount = (watchedLines ?? []).filter(
     (line) => !isBlankSalesOrderLine(line)
   ).length;
+  const shipmentOrderLines = useMemo(
+    () =>
+      (watchedLines ?? [])
+        .map((line, index) => ({
+          index,
+          itemId: line?.itemId?.trim() ?? "",
+          label:
+            line?.itemId && itemMap.get(line.itemId)
+              ? itemMap.get(line.itemId)?.displayName ?? `Line ${index + 1}`
+              : `Line ${index + 1}`,
+          orderedQty: line?.quantity ?? null,
+        }))
+        .filter((line) => line.itemId && parsePositive(line.orderedQty) != null),
+    [itemMap, watchedLines]
+  );
+  const shipmentCount = (watchedShipments ?? []).filter((shipment) => {
+    if (!shipment) return false;
+    return Boolean(
+      shipment.scheduledDate ||
+        shipment.deliveryDate ||
+        shipment.notes ||
+        shipment.lines?.some((line) => line.quantity)
+    );
+  }).length;
 
   const orderSummary = useMemo(() => {
     let cogs = 0;
@@ -1011,6 +1107,7 @@ export function OrderForm({
   );
 
   const linesError = getFieldArrayError(form.formState.errors.lines);
+  const shipmentsError = getFieldArrayError(form.formState.errors.shipments);
 
   if (!isHydrated) {
     return (
@@ -1201,7 +1298,7 @@ export function OrderForm({
                   onEdit={openEditAddressDialog}
                 />
 
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="grid gap-4 md:grid-cols-3">
                   <Controller
                     control={form.control}
                     name="orderNumber"
@@ -1246,37 +1343,12 @@ export function OrderForm({
 
                   <Controller
                     control={form.control}
-                    name="shipDate"
-                    render={({ field, fieldState }) => (
-                      <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel htmlFor={field.name} className="w-full">
-                          <FieldLabelWithMarker required>
-                            <TooltipHeader
-                              label="Ship Date"
-                              tooltip={SALES_ORDER_SHIP_DATE_TOOLTIP}
-                            />
-                          </FieldLabelWithMarker>
-                        </FieldLabel>
-                        <DatePicker
-                          id={field.name}
-                          value={field.value ?? ""}
-                          onChange={(value) => field.onChange(value || null)}
-                          onBlur={field.onBlur}
-                          aria-invalid={fieldState.invalid}
-                        />
-                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                      </Field>
-                    )}
-                  />
-
-                  <Controller
-                    control={form.control}
                     name="requestedDate"
                     render={({ field, fieldState }) => (
                       <Field data-invalid={fieldState.invalid}>
                         <FieldLabel htmlFor={field.name} className="w-full">
                           <TooltipHeader
-                            label="Delivery Date"
+                            label="Requested Date"
                             tooltip={REQUESTED_DATE_TOOLTIP}
                           />
                         </FieldLabel>
@@ -1385,6 +1457,196 @@ export function OrderForm({
                   />
                 )}
               />
+            </section>
+
+            <section className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-4 px-1">
+                <h2 className="text-base font-semibold">Shipments</h2>
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {shipmentCount} planned
+                </span>
+              </div>
+              <div className="flex flex-col gap-4">
+                <EditableLineGrid
+                  columns={SALES_ORDER_SHIPMENT_GRID_COLUMNS}
+                  minWidth="64rem"
+                  headers={[
+                    <TableHeaderLabel key="ship-date" label="Ship Date" required />,
+                    <TableHeaderLabel
+                      key="delivery-date"
+                      label="Delivery Date"
+                      required
+                    />,
+                    "Type",
+                    "Quantities",
+                    "Notes",
+                    <span key="actions" />,
+                  ]}
+                >
+                  {shipmentFields.fields.length === 0 ? (
+                    <div
+                      role="row"
+                      className="grid min-w-0 grid-cols-(--editable-line-grid-columns)"
+                    >
+                      <div
+                        role="cell"
+                        className="col-span-full px-[var(--table-cell-px)] py-8 text-center text-sm text-muted-foreground"
+                      >
+                        No shipments planned
+                      </div>
+                    </div>
+                  ) : (
+                    shipmentFields.fields.map((field, shipmentIndex) => {
+                      const shipment = watchedShipments?.[shipmentIndex];
+                      return (
+                        <EditableLineGridRow key={field.id}>
+                          <EditableLineGridCell>
+                            <Controller
+                              control={form.control}
+                              name={`shipments.${shipmentIndex}.scheduledDate`}
+                              render={({ field: dateField, fieldState }) => (
+                                <Field data-invalid={fieldState.invalid}>
+                                  <DatePicker
+                                    id={dateField.name}
+                                    value={dateField.value ?? ""}
+                                    onChange={(value) => dateField.onChange(value || null)}
+                                    onBlur={dateField.onBlur}
+                                    aria-label={`Ship date for shipment ${shipmentIndex + 1}`}
+                                    aria-invalid={fieldState.invalid}
+                                  />
+                                  {fieldState.invalid ? (
+                                    <FieldError errors={[fieldState.error]} />
+                                  ) : null}
+                                </Field>
+                              )}
+                            />
+                          </EditableLineGridCell>
+                          <EditableLineGridCell>
+                            <Controller
+                              control={form.control}
+                              name={`shipments.${shipmentIndex}.deliveryDate`}
+                              render={({ field: dateField, fieldState }) => (
+                                <Field data-invalid={fieldState.invalid}>
+                                  <DatePicker
+                                    id={dateField.name}
+                                    value={dateField.value ?? ""}
+                                    onChange={(value) => dateField.onChange(value || null)}
+                                    onBlur={dateField.onBlur}
+                                    aria-label={`Delivery date for shipment ${shipmentIndex + 1}`}
+                                    aria-invalid={fieldState.invalid}
+                                  />
+                                  {fieldState.invalid ? (
+                                    <FieldError errors={[fieldState.error]} />
+                                  ) : null}
+                                </Field>
+                              )}
+                            />
+                          </EditableLineGridCell>
+                          <EditableLineGridCell>
+                            <Controller
+                              control={form.control}
+                              name={`shipments.${shipmentIndex}.fulfillmentType`}
+                              render={({ field: typeField, fieldState }) => (
+                                <Field data-invalid={fieldState.invalid}>
+                                  <Select
+                                    value={typeField.value ?? "delivery"}
+                                    onValueChange={typeField.onChange}
+                                  >
+                                    <SelectTrigger aria-invalid={fieldState.invalid}>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="delivery">Delivery</SelectItem>
+                                      <SelectItem value="pickup">Pickup</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                  {fieldState.invalid ? (
+                                    <FieldError errors={[fieldState.error]} />
+                                  ) : null}
+                                </Field>
+                              )}
+                            />
+                          </EditableLineGridCell>
+                          <EditableLineGridCell className="items-start">
+                            <div className="grid w-full gap-2">
+                              {shipmentOrderLines.length === 0 ? (
+                                <span className="text-sm text-muted-foreground">
+                                  Add items first
+                                </span>
+                              ) : (
+                                shipmentOrderLines.map((line) => (
+                                  <label
+                                    key={line.itemId}
+                                    className="grid grid-cols-[minmax(0,1fr)_5.5rem] items-center gap-2"
+                                  >
+                                    <span className="min-w-0 truncate text-xs text-muted-foreground">
+                                      {line.label}
+                                    </span>
+                                    <Input
+                                      type="number"
+                                      inputMode="decimal"
+                                      min="0"
+                                      step="0.0001"
+                                      value={getShipmentLineQuantity(
+                                        shipment,
+                                        line.itemId
+                                      )}
+                                      onChange={(event) =>
+                                        setShipmentLineQuantityInForm(
+                                          form,
+                                          shipmentIndex,
+                                          line.itemId,
+                                          event.target.value
+                                        )
+                                      }
+                                      aria-label={`Shipment quantity for ${line.label}`}
+                                    />
+                                  </label>
+                                ))
+                              )}
+                            </div>
+                          </EditableLineGridCell>
+                          <EditableLineGridCell>
+                            <Controller
+                              control={form.control}
+                              name={`shipments.${shipmentIndex}.notes`}
+                              render={({ field: notesField, fieldState }) => (
+                                <Field data-invalid={fieldState.invalid}>
+                                  <Input
+                                    {...notesField}
+                                    value={notesField.value ?? ""}
+                                    aria-invalid={fieldState.invalid}
+                                  />
+                                  {fieldState.invalid ? (
+                                    <FieldError errors={[fieldState.error]} />
+                                  ) : null}
+                                </Field>
+                              )}
+                            />
+                          </EditableLineGridCell>
+                          <EditableLineGridCell align="center">
+                            <EditableLineGridRemoveButton
+                              label="Delete shipment"
+                              onClick={() => shipmentFields.remove(shipmentIndex)}
+                            />
+                          </EditableLineGridCell>
+                        </EditableLineGridRow>
+                      );
+                    })
+                  )}
+                </EditableLineGrid>
+                {shipmentsError ? <FieldError>{shipmentsError}</FieldError> : null}
+                <div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => shipmentFields.append(createBlankShipment())}
+                  >
+                    <HugeiconsIcon icon={Add01Icon} strokeWidth={2} />
+                    Add shipment
+                  </Button>
+                </div>
+              </div>
             </section>
 
             <SalesOrderSection title="Notes">

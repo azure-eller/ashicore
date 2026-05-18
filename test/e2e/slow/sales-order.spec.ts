@@ -41,6 +41,13 @@ async function createDraftSalesOrder(payload: {
     quantity: string;
     unitPrice: string;
   }>;
+  shipments?: Array<{
+    fulfillmentType: "delivery" | "pickup";
+    scheduledDate: string;
+    deliveryDate: string;
+    notes?: string | null;
+    lines: Array<{ itemId: string; quantity: string }>;
+  }>;
 }) {
   const response = await testFetch("/api/sales-orders", {
     method: "POST",
@@ -48,10 +55,11 @@ async function createDraftSalesOrder(payload: {
       customerId: payload.customerId,
       status: "open",
       orderDate: payload.orderDate ?? "2026-04-01",
-      shipDate: payload.shipDate ?? payload.requestedDate ?? "2026-04-20",
+      shipDate: payload.shipDate ?? null,
       requestedDate: payload.requestedDate ?? null,
       notes: payload.notes ?? null,
       lines: payload.lines,
+      shipments: payload.shipments ?? [],
       confirmOversell: payload.confirmOversell ?? false,
     }),
   });
@@ -61,6 +69,23 @@ async function createDraftSalesOrder(payload: {
   expect(body?.id).toBeTruthy();
 
   return body.id as string;
+}
+
+function plannedShipmentForItems(params: {
+  shipDate: string;
+  deliveryDate?: string | null;
+  lines: Array<{ itemId: string; quantity: string }>;
+  notes?: string | null;
+}) {
+  return [
+    {
+      fulfillmentType: "delivery" as const,
+      scheduledDate: params.shipDate,
+      deliveryDate: params.deliveryDate ?? params.shipDate,
+      notes: params.notes ?? null,
+      lines: params.lines,
+    },
+  ];
 }
 
 async function deleteSalesOrderByApi(orderId: string) {
@@ -441,10 +466,9 @@ test.describe("Sales order flow", () => {
     await selectDate(page, page.getByLabel("Order Date"), expectedOrderDate);
     await selectDate(
       page,
-      page.getByLabel("Delivery Date"),
+      page.getByLabel("Requested Date"),
       expectedRequestedDate
     );
-    await selectDate(page, page.getByLabel("Ship Date"), expectedShipDate);
 
     const itemInput = page.getByPlaceholder("Search items...").first();
     await itemInput.click();
@@ -461,6 +485,19 @@ test.describe("Sales order flow", () => {
     await expect(row2.locator('input[placeholder="0.00"]').first()).toHaveValue("10.8");
     await expect(row2.getByText("Suggested $10.80")).toBeVisible();
 
+    await page.getByRole("button", { name: "Add shipment" }).click();
+    await selectDate(
+      page,
+      page.getByLabel("Ship date for shipment 1"),
+      expectedShipDate
+    );
+    await selectDate(
+      page,
+      page.getByLabel("Delivery date for shipment 1"),
+      expectedRequestedDate
+    );
+    await page.getByLabel(`Shipment quantity for ${primaryProductName}`).fill("3");
+    await page.getByLabel(`Shipment quantity for ${secondaryProductName}`).fill("5");
     await page.getByLabel("Notes").fill("Full lifecycle test order");
 
     await page.getByRole("button", { name: "Create Order" }).click();
@@ -473,7 +510,7 @@ test.describe("Sales order flow", () => {
     await expect(page.getByText(customerName)).toBeVisible();
     await expect(page.getByText(primaryProductName, { exact: true })).toBeVisible();
     await expect(page.getByText(secondaryProductName, { exact: true })).toBeVisible();
-    await expect(page.getByText(expectedRequestedDateLabel)).toBeVisible();
+    await expect(page.getByText(expectedRequestedDateLabel).first()).toBeVisible();
     await expect(page.getByText("$158.97", { exact: true }).first()).toBeVisible();
     await page.getByRole("button", { name: /^Line Items/ }).click();
     const lineItemsTable = page.locator("#sales-order-panel-lines table").first();
@@ -568,11 +605,14 @@ test.describe("Sales order flow", () => {
     await expect(page.getByLabel("Order Date")).toContainText(
       expectedOrderDatePickerLabel
     );
-    await expect(page.getByLabel("Delivery Date")).toContainText(
+    await expect(page.getByLabel("Requested Date")).toContainText(
       expectedRequestedDatePickerLabel
     );
-    await expect(page.getByLabel("Ship Date")).toContainText(
+    await expect(page.getByLabel("Ship date for shipment 1")).toContainText(
       expectedShipDatePickerLabel
+    );
+    await expect(page.getByLabel("Delivery date for shipment 1")).toContainText(
+      expectedRequestedDatePickerLabel
     );
     await expect(page.getByLabel("Notes")).toHaveValue("Full lifecycle test order");
 
@@ -1034,6 +1074,10 @@ test.describe("Sales order flow", () => {
           unitPrice: "34.99",
         },
       ],
+      shipments: plannedShipmentForItems({
+        shipDate: "2026-04-20",
+        lines: [{ itemId: primaryProductId, quantity: "3" }],
+      }),
     });
 
     const confirmResponse = await testFetch(
@@ -1233,6 +1277,15 @@ test.describe("Sales order flow", () => {
           unitPrice: "12.00",
         },
       ],
+      shipments: plannedShipmentForItems({
+        shipDate: "2026-04-20",
+        lines: [
+          {
+            itemId: staleConsumptionItemResult.body.id as string,
+            quantity: "1",
+          },
+        ],
+      }),
     });
 
     const confirmResponse = await testFetch(
@@ -1469,6 +1522,19 @@ test.describe("Sales order flow", () => {
           unitPrice: "9.00",
         },
       ],
+      shipments: plannedShipmentForItems({
+        shipDate: "2026-04-19",
+        lines: [
+          {
+            itemId: shortItemResult.body.id as string,
+            quantity: "8",
+          },
+          {
+            itemId: zeroLineItemResult.body.id as string,
+            quantity: "5",
+          },
+        ],
+      }),
     });
 
     const confirmResponse = await testFetch(
@@ -1541,7 +1607,10 @@ test.describe("Sales order flow", () => {
     await page.goto(`/sales/orders/${partialOrderId}`);
     await expect(page.locator("main")).not.toContainText("remaining quantities were closed");
     await expect(page.locator("main")).toContainText(createdShipment.shipmentNumber);
-    await expect(page.getByRole("button", { name: "View BOL" }).first()).toBeVisible();
+    await page
+      .getByRole("button", { name: `Actions for ${createdShipment.shipmentNumber}` })
+      .click();
+    await expect(page.getByRole("menuitem", { name: "View BOL" })).toBeVisible();
   });
 
   /* ================================================================ */

@@ -36,6 +36,15 @@ function formatFieldErrors(errors: Record<string, string[]>) {
   return Object.values(errors).flat()[0] ?? "Invalid request.";
 }
 
+function formatZodFieldErrors(error: z.ZodError) {
+  const errors: Record<string, string[]> = {};
+  for (const issue of error.issues) {
+    const field = issue.path.length > 0 ? issue.path.join(".") : "form";
+    errors[field] = [...(errors[field] ?? []), issue.message];
+  }
+  return errors;
+}
+
 export function apiHandler<TArgs extends unknown[]>(
   fn: (request: Request, ...args: TArgs) => Promise<NextResponse>
 ) {
@@ -87,7 +96,7 @@ export function apiHandler<TArgs extends unknown[]>(
           return finalizeResponse(response);
         }
         if (error instanceof z.ZodError) {
-          const errors = error.flatten().fieldErrors;
+          const errors = formatZodFieldErrors(error);
           return finalizeResponse(
             NextResponse.json(
               { error: formatFieldErrors(errors), errors, requestId },

@@ -66,6 +66,15 @@ async function createDraftSalesOrder(params: {
         unitPrice: "9.00",
       },
     ],
+    shipments: [
+      {
+        fulfillmentType: "delivery",
+        scheduledDate: "2026-04-15",
+        deliveryDate: "2026-04-15",
+        notes: null,
+        lines: [{ itemId: params.itemId, quantity: params.quantity }],
+      },
+    ],
   });
 
   expect(result.status).toBe(201);

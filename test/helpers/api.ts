@@ -432,6 +432,16 @@ export async function createSalesOrder(data: {
   shipDate?: string | null;
   requestedDate?: string | null;
   notes?: string | null;
+  shipments?: Array<{
+    fulfillmentType?: "delivery" | "pickup";
+    scheduledDate: string | null;
+    deliveryDate: string | null;
+    notes?: string | null;
+    lines: Array<{
+      itemId: string;
+      quantity: string;
+    }>;
+  }>;
   lines: Array<{
     itemId: string;
     quantity: string;
@@ -446,16 +456,13 @@ export async function createSalesOrder(data: {
       status: data.status ?? "open",
       orderDate:
         data.orderDate ??
-        data.shipDate ??
         data.requestedDate ??
         "2026-04-15",
-      shipDate:
-        data.shipDate === undefined
-          ? data.requestedDate ?? "2026-04-15"
-          : data.shipDate,
+      shipDate: data.shipDate ?? null,
       requestedDate: data.requestedDate ?? null,
       notes: data.notes ?? null,
       lines: data.lines,
+      shipments: data.shipments ?? [],
       confirmOversell: data.confirmOversell ?? true,
     }),
   });
@@ -475,6 +482,16 @@ export async function updateSalesOrder(
     shipDate?: string | null;
     requestedDate?: string | null;
     notes?: string | null;
+    shipments?: Array<{
+      fulfillmentType?: "delivery" | "pickup";
+      scheduledDate: string | null;
+      deliveryDate: string | null;
+      notes?: string | null;
+      lines: Array<{
+        itemId: string;
+        quantity: string;
+      }>;
+    }>;
     lines: Array<{
       itemId: string;
       quantity: string;
@@ -490,16 +507,13 @@ export async function updateSalesOrder(
       status: data.status ?? "open",
       orderDate:
         data.orderDate ??
-        data.shipDate ??
         data.requestedDate ??
         "2026-04-15",
-      shipDate:
-        data.shipDate === undefined
-          ? data.requestedDate ?? "2026-04-15"
-          : data.shipDate,
+      shipDate: data.shipDate ?? null,
       requestedDate: data.requestedDate ?? null,
       notes: data.notes ?? null,
       lines: data.lines,
+      shipments: data.shipments ?? [],
       confirmOversell: data.confirmOversell ?? true,
     }),
   });

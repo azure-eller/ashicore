@@ -144,6 +144,23 @@ async function saveSalesAllocation(params: {
   return { response, body };
 }
 
+function plannedShipmentForItems(params: {
+  shipDate: string;
+  deliveryDate?: string | null;
+  lines: Array<{ itemId: string; quantity: string }>;
+  notes?: string | null;
+}) {
+  return [
+    {
+      fulfillmentType: "delivery" as const,
+      scheduledDate: params.shipDate,
+      deliveryDate: params.deliveryDate ?? params.shipDate,
+      notes: params.notes ?? null,
+      lines: params.lines,
+    },
+  ];
+}
+
 test.describe("Sales write-path smoke", () => {
   test.describe.configure({ mode: "serial" });
 
@@ -416,8 +433,7 @@ test.describe("Sales write-path smoke", () => {
     await page.getByRole("option", { name: new RegExp(`Example Construction ${ts}`) }).click();
 
     await selectDate(page, page.getByLabel("Order Date"), "2026-04-01");
-    await selectDate(page, page.getByLabel("Ship Date"), "2026-04-15");
-    await selectDate(page, page.getByLabel("Delivery Date"), "2026-04-15");
+    await selectDate(page, page.getByLabel("Requested Date"), "2026-04-15");
 
     const itemInput = page.getByPlaceholder("Search items...").first();
     await itemInput.click();
@@ -425,6 +441,18 @@ test.describe("Sales write-path smoke", () => {
     await page.getByRole("option", { name: new RegExp(productName) }).click();
     await page.locator('input[placeholder="0"]').first().fill("3");
     await page.locator('input[placeholder="0.00"]').first().fill("34.99");
+    await page.getByRole("button", { name: "Add shipment" }).click();
+    await selectDate(
+      page,
+      page.getByLabel("Ship date for shipment 1"),
+      "2026-04-15"
+    );
+    await selectDate(
+      page,
+      page.getByLabel("Delivery date for shipment 1"),
+      "2026-04-15"
+    );
+    await page.getByLabel(`Shipment quantity for ${productName}`).fill("3");
     await page.getByLabel("Notes").fill(orderNote);
 
     const [createOrderResponse] = await Promise.all([
@@ -552,7 +580,7 @@ test.describe("Sales write-path smoke", () => {
     await expect(page.getByText("Confirm the order before shipping.")).toHaveCount(0);
     await expect(page.getByText("Failed to confirm order.")).toHaveCount(0);
     await expect(
-      page.getByText("Set a sales invoice account code before creating Xero invoices.")
+      page.getByText("Xero is connected. Set the sales invoice account code before creating Xero invoices.")
     ).toBeVisible();
     await expect(page.getByRole("link", { name: "Open settings" })).toHaveAttribute(
       "href",
@@ -580,6 +608,7 @@ test.describe("Sales write-path smoke", () => {
         requestedDate: null,
         notes: null,
         lines: [{ itemId: productId, quantity: "1", unitPrice: "34.99" }],
+        shipments: [],
       }),
     });
     expect(createResponse.status).toBe(201);
@@ -622,6 +651,7 @@ test.describe("Sales write-path smoke", () => {
         requestedDate: null,
         notes: null,
         lines: [],
+        shipments: [],
       }),
     });
     expect(createResponse.status).toBe(400);
@@ -629,23 +659,139 @@ test.describe("Sales write-path smoke", () => {
     expect(body.error).toBe("Sales order must have at least one line item");
   });
 
-  test("saving a ship date before the order date returns a readable error", async () => {
+  test("saving a shipment delivery date before the ship date returns a readable error", async () => {
     const createResponse = await testFetch("/api/sales-orders", {
       method: "POST",
       body: JSON.stringify({
         customerId,
         status: "open",
         orderDate: "2026-04-10",
-        shipDate: "2026-04-09",
+        shipDate: null,
         requestedDate: "2026-04-11",
         notes: null,
         lines: [{ itemId: productId, quantity: "1", unitPrice: "34.99" }],
+        shipments: [
+          {
+            fulfillmentType: "delivery",
+            scheduledDate: "2026-04-12",
+            deliveryDate: "2026-04-11",
+            notes: null,
+            lines: [{ itemId: productId, quantity: "1" }],
+          },
+        ],
       }),
     });
     expect(createResponse.status).toBe(400);
     const body = await createResponse.json();
-    expect(body.error).toBe("Ship date cannot be before order date");
-    expect(body.errors.shipDate[0]).toBe("Ship date cannot be before order date");
+    expect(body.error).toBe("Delivery date cannot be before ship date");
+    expect(body.errors["shipments.0.deliveryDate"][0]).toBe(
+      "Delivery date cannot be before ship date"
+    );
+  });
+
+  test("explicit shipment rows create separately and can all be cleared on edit", async ({
+    db,
+  }) => {
+    const suffix = `${ts}-EXPLICIT-SHIP`;
+    const explicitCustomerResult = await createCustomer({
+      name: `Fast Explicit Shipment Customer ${suffix}`,
+    });
+    expect(explicitCustomerResult.status).toBe(201);
+    const explicitItemResult = await createItem({
+      name: `Fast Explicit Shipment Product ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-EXPLICIT-SHIP-${suffix}`,
+      category: `Fast Explicit Shipment ${suffix}`,
+      description: "Material for explicit shipment row coverage",
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: "34.99",
+      stock: "10",
+      safetyStock: "0",
+    });
+    expect(explicitItemResult.status).toBe(201);
+    const explicitCustomerId = explicitCustomerResult.body.id as string;
+    const explicitItemId = explicitItemResult.body.id as string;
+
+    const createResponse = await createSalesOrder({
+      customerId: explicitCustomerId,
+      status: "open",
+      orderDate: "2026-04-01",
+      requestedDate: "2026-04-20",
+      lines: [{ itemId: explicitItemId, quantity: "5", unitPrice: "34.99" }],
+      shipments: [
+        {
+          fulfillmentType: "delivery",
+          scheduledDate: "2026-04-10",
+          deliveryDate: "2026-04-12",
+          notes: "First planned shipment",
+          lines: [{ itemId: explicitItemId, quantity: "2" }],
+        },
+        {
+          fulfillmentType: "pickup",
+          scheduledDate: "2026-04-18",
+          deliveryDate: "2026-04-20",
+          notes: "Second planned shipment",
+          lines: [{ itemId: explicitItemId, quantity: "3" }],
+        },
+      ],
+    });
+    expect(createResponse.status).toBe(201);
+    const explicitOrderId = createResponse.body.id as string;
+
+    const createdShipments = await db
+      .select({
+        shipmentNumber: salesShipments.shipmentNumber,
+        fulfillmentType: salesShipments.fulfillmentType,
+        scheduledDate: salesShipments.scheduledDate,
+        lineQuantity: salesShipmentLines.quantity,
+      })
+      .from(salesShipments)
+      .innerJoin(
+        salesShipmentLines,
+        eq(salesShipmentLines.salesShipmentId, salesShipments.id)
+      )
+      .where(eq(salesShipments.salesOrderId, explicitOrderId))
+      .orderBy(asc(salesShipments.sequence));
+
+    expect(createdShipments).toMatchObject([
+      {
+        shipmentNumber: expect.stringMatching(/-S1$/),
+        fulfillmentType: "delivery",
+        scheduledDate: "2026-04-10",
+        lineQuantity: "2.0000",
+      },
+      {
+        shipmentNumber: expect.stringMatching(/-S2$/),
+        fulfillmentType: "pickup",
+        scheduledDate: "2026-04-18",
+        lineQuantity: "3.0000",
+      },
+    ]);
+
+    const clearResponse = await updateSalesOrder(explicitOrderId, {
+      customerId: explicitCustomerId,
+      status: "open",
+      orderDate: "2026-04-01",
+      shipDate: null,
+      requestedDate: "2026-04-20",
+      notes: null,
+      lines: [{ itemId: explicitItemId, quantity: "5", unitPrice: "34.99" }],
+      shipments: [],
+    });
+    expect(clearResponse.status).toBe(200);
+
+    const remainingShipments = await db
+      .select({ id: salesShipments.id })
+      .from(salesShipments)
+      .where(eq(salesShipments.salesOrderId, explicitOrderId));
+    expect(remainingShipments).toHaveLength(0);
+
+    const [order] = await db
+      .select({ shipDate: salesOrders.shipDate })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, explicitOrderId));
+    expect(order.shipDate).toBeNull();
   });
 
   test("duplicates a sales order from the detail actions", async ({ page, db }) => {
@@ -790,6 +936,10 @@ test.describe("Sales write-path smoke", () => {
       shipDate: "2026-04-18",
       requestedDate: "2026-04-18",
       lines: [{ itemId: editItemId, quantity: "2", unitPrice: "12" }],
+      shipments: plannedShipmentForItems({
+        shipDate: "2026-04-18",
+        lines: [{ itemId: editItemId, quantity: "2" }],
+      }),
     });
     expect(editOrderResult.status).toBe(201);
     const editOrderId = editOrderResult.body.id as string;
@@ -808,6 +958,9 @@ test.describe("Sales write-path smoke", () => {
     await page.waitForURL(`**/sales/orders/${editOrderId}/edit`);
 
     await page.locator('input[placeholder="0"]').first().fill("4");
+    await page
+      .getByLabel(`Shipment quantity for Fast Confirmed Edit Material ${ts}`)
+      .fill("4");
     await page.getByLabel("Notes").fill("Confirmed order edited after approval");
 
     const updateOrderResponsePromise = page.waitForResponse(
@@ -1193,7 +1346,12 @@ test.describe("Sales write-path smoke", () => {
     const tokenOrderResult = await createSalesOrder({
       customerId: tokenCustomerId,
       status: "open",
+      shipDate: "2026-05-12",
       lines: [{ itemId: tokenMaterialId, quantity: "6", unitPrice: "10" }],
+      shipments: plannedShipmentForItems({
+        shipDate: "2026-05-12",
+        lines: [{ itemId: tokenMaterialId, quantity: "6" }],
+      }),
     });
     expect(tokenOrderResult.status).toBe(201);
     const tokenOrderId = tokenOrderResult.body.id as string;
@@ -1497,6 +1655,10 @@ test.describe("Sales write-path smoke", () => {
       status: "open",
       shipDate: "2026-05-18",
       lines: [{ itemId: itemResult.body.id, quantity: "10", unitPrice: "10" }],
+      shipments: plannedShipmentForItems({
+        shipDate: "2026-05-18",
+        lines: [{ itemId: itemResult.body.id, quantity: "10" }],
+      }),
     });
     expect(orderResult.status).toBe(201);
 
@@ -1579,6 +1741,10 @@ test.describe("Sales write-path smoke", () => {
       status: "open",
       shipDate: "2026-05-19",
       lines: [{ itemId: itemResult.body.id, quantity: "10", unitPrice: "10" }],
+      shipments: plannedShipmentForItems({
+        shipDate: "2026-05-19",
+        lines: [{ itemId: itemResult.body.id, quantity: "10" }],
+      }),
     });
     expect(orderResult.status).toBe(201);
 
@@ -1786,7 +1952,7 @@ test.describe("Sales write-path smoke", () => {
     ]);
   });
 
-  test("adding a ship date creates a planned shipment and pulls unplanned allocation", async ({
+  test("adding a planned shipment on edit pulls unplanned allocation", async ({
     db,
   }) => {
     const suffix = `${ts}-SHIP-DATE-PULL`;
@@ -1857,8 +2023,12 @@ test.describe("Sales write-path smoke", () => {
       orderDate: "2026-05-01",
       shipDate: "2026-05-24",
       requestedDate: null,
-      notes: "Ship date added after allocation",
+      notes: "Shipment added after allocation",
       lines: [{ itemId: itemResult.body.id, quantity: "8", unitPrice: "10" }],
+      shipments: plannedShipmentForItems({
+        shipDate: "2026-05-24",
+        lines: [{ itemId: itemResult.body.id, quantity: "8" }],
+      }),
     });
     expect(updateResult.status).toBe(200);
 
@@ -1936,6 +2106,10 @@ test.describe("Sales write-path smoke", () => {
       status: "open",
       shipDate: "2026-05-20",
       lines: [{ itemId: itemResult.body.id, quantity: "6", unitPrice: "10" }],
+      shipments: plannedShipmentForItems({
+        shipDate: "2026-05-20",
+        lines: [{ itemId: itemResult.body.id, quantity: "6" }],
+      }),
     });
     expect(orderResult.status).toBe(201);
 
@@ -2084,6 +2258,10 @@ test.describe("Sales write-path smoke", () => {
       status: "open",
       requestedDate: "2026-06-10",
       lines: [{ itemId: productId, quantity: "5", unitPrice: "10" }],
+      shipments: plannedShipmentForItems({
+        shipDate: "2026-06-10",
+        lines: [{ itemId: productId, quantity: "5" }],
+      }),
     });
     expect(orderResult.status).toBe(201);
     const orderId = orderResult.body.id as string;
@@ -2216,6 +2394,10 @@ test.describe("Sales write-path smoke", () => {
       status: "open",
       shipDate: "2026-05-22",
       lines: [{ itemId: itemResult.body.id, quantity: "6", unitPrice: "10" }],
+      shipments: plannedShipmentForItems({
+        shipDate: "2026-05-22",
+        lines: [{ itemId: itemResult.body.id, quantity: "6" }],
+      }),
     });
     expect(orderResult.status).toBe(201);
 
@@ -2350,6 +2532,10 @@ test.describe("Sales write-path smoke", () => {
       status: "open",
       shipDate: "2026-05-23",
       lines: [{ itemId: itemResult.body.id, quantity: "2", unitPrice: "10" }],
+      shipments: plannedShipmentForItems({
+        shipDate: "2026-05-23",
+        lines: [{ itemId: itemResult.body.id, quantity: "2" }],
+      }),
     });
     expect(orderResult.status).toBe(201);
 
@@ -2442,6 +2628,10 @@ test.describe("Sales write-path smoke", () => {
       status: "open",
       shipDate: "2026-05-21",
       lines: [{ itemId, quantity: "50", unitPrice: "10" }],
+      shipments: plannedShipmentForItems({
+        shipDate: "2026-05-21",
+        lines: [{ itemId, quantity: "50" }],
+      }),
     });
     expect(orderResult.status).toBe(201);
 
@@ -2655,12 +2845,21 @@ test.describe("Sales write-path smoke", () => {
       customerId,
       status: "open",
       confirmOversell: true,
+      orderDate: "2026-06-01",
       shipDate: "2026-06-02",
       requestedDate: "2026-06-05",
       lines: [
         { itemId: firstProductId, quantity: "2", unitPrice: "10" },
         { itemId: secondProductId, quantity: "3", unitPrice: "10" },
       ],
+      shipments: plannedShipmentForItems({
+        shipDate: "2026-06-02",
+        deliveryDate: "2026-06-05",
+        lines: [
+          { itemId: firstProductId, quantity: "2" },
+          { itemId: secondProductId, quantity: "3" },
+        ],
+      }),
     });
     expect(orderResult.status).toBe(201);
     const fulfillmentOrderId = orderResult.body.id as string;
@@ -3742,6 +3941,10 @@ test.describe("Sales write-path smoke", () => {
       customerId: webShipCustomerId,
       status: "open",
       lines: [{ itemId: webShipProductId, quantity: "2", unitPrice: "10" }],
+      shipments: plannedShipmentForItems({
+        shipDate: "2026-04-15",
+        lines: [{ itemId: webShipProductId, quantity: "2" }],
+      }),
     });
     expect(orderResult.status).toBe(201);
     const webShipOrderId = orderResult.body.id as string;
@@ -3869,6 +4072,10 @@ test.describe("Sales write-path smoke", () => {
             unitPrice: "10",
           },
         ],
+        shipments: plannedShipmentForItems({
+          shipDate: "2026-04-23",
+          lines: [{ itemId: itemResult.body.id, quantity: "8" }],
+        }),
       }),
     });
     expect(orderResponse.status).toBe(201);
@@ -3974,6 +4181,10 @@ test.describe("Sales write-path smoke", () => {
             unitPrice: "10",
           },
         ],
+        shipments: plannedShipmentForItems({
+          shipDate: "2026-04-24",
+          lines: [{ itemId: itemResult.body.id, quantity: "4" }],
+        }),
       }),
     });
     expect(orderResponse.status).toBe(201);

@@ -659,6 +659,17 @@ export type SalesOrderEditData = {
     pricingBreakLabel: string | null;
     isPriceOverridden: boolean;
   }>;
+  shipments: Array<{
+    id: string;
+    fulfillmentType: "delivery" | "pickup";
+    scheduledDate: string | null;
+    deliveryDate: string | null;
+    notes: string | null;
+    lines: Array<{
+      itemId: string;
+      quantity: string;
+    }>;
+  }>;
 };
 
 export type NegativeStockWarningPayload = {

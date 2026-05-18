@@ -112,6 +112,7 @@ The Sales Allocation tab is the authoritative manual allocation surface.
 - a sales order is the commercial object; a sales shipment is the physical fulfillment object
 - confirmed order reservation/demand covers the full ordered quantity
 - draft shipments do not reserve additional inventory; they allocate planned slices of existing order demand
+- sales order create/edit accepts explicit planned shipments; order-level `shipDate` is derived from planned shipments and must not auto-create one from order dates
 - `remaining_to_ship = ordered_qty - shipped_qty - cancelled_qty`
 - `unplanned_remaining = remaining_to_ship - sum(draft shipment planned_qty)`
 - backend validation enforces draft planned quantity plus shipped quantity cannot exceed ordered quantity minus cancelled quantity

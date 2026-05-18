@@ -114,6 +114,135 @@ const cleanedLinesSchema = z
     });
   });
 
+const rawOrderShipmentLineSchema = z.object({
+  itemId: z.string().default(""),
+  quantity: nullableString,
+});
+
+type RawOrderShipmentLine = z.input<typeof rawOrderShipmentLineSchema>;
+
+const rawOrderShipmentSchema = z.object({
+  fulfillmentType: z.enum(SALES_SHIPMENT_FULFILLMENT_TYPES).default("delivery"),
+  scheduledDate: nullableString,
+  deliveryDate: nullableString,
+  notes: nullableString,
+  lines: z.array(rawOrderShipmentLineSchema).default([]),
+});
+
+type RawOrderShipment = z.input<typeof rawOrderShipmentSchema>;
+
+function isBlankShipmentLine(line: RawOrderShipmentLine) {
+  const itemId = typeof line.itemId === "string" ? line.itemId.trim() : "";
+  const quantity = line.quantity?.trim() ?? "";
+  return itemId === "" && quantity === "";
+}
+
+function isBlankShipment(shipment: RawOrderShipment) {
+  const scheduledDate = shipment.scheduledDate?.trim() ?? "";
+  const deliveryDate = shipment.deliveryDate?.trim() ?? "";
+  const notes = shipment.notes?.trim() ?? "";
+  const lines = shipment.lines ?? [];
+  return (
+    scheduledDate === "" &&
+    deliveryDate === "" &&
+    notes === "" &&
+    lines.every(isBlankShipmentLine)
+  );
+}
+
+const cleanedOrderShipmentsSchema = z
+  .array(rawOrderShipmentSchema)
+  .default([])
+  .transform((shipments) =>
+    shipments
+      .filter((shipment) => !isBlankShipment(shipment))
+      .map((shipment) => ({
+        ...shipment,
+        lines: shipment.lines.filter((line) => !isBlankShipmentLine(line)),
+      }))
+  )
+  .superRefine((shipments, ctx) => {
+    shipments.forEach((shipment, index) => {
+      if (!shipment.scheduledDate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Ship date is required",
+          path: [index, "scheduledDate"],
+        });
+      } else if (!isValidIsoDate(shipment.scheduledDate)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Ship date must be a real date in YYYY-MM-DD format",
+          path: [index, "scheduledDate"],
+        });
+      }
+
+      if (!shipment.deliveryDate) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Delivery date is required",
+          path: [index, "deliveryDate"],
+        });
+      } else if (!isValidIsoDate(shipment.deliveryDate)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Delivery date must be a real date in YYYY-MM-DD format",
+          path: [index, "deliveryDate"],
+        });
+      }
+
+      if (
+        shipment.scheduledDate &&
+        shipment.deliveryDate &&
+        shipment.deliveryDate < shipment.scheduledDate
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Delivery date cannot be before ship date",
+          path: [index, "deliveryDate"],
+        });
+      }
+
+      if (shipment.lines.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "At least one shipment quantity is required",
+          path: [index, "lines"],
+        });
+      }
+
+      const seen = new Set<string>();
+      shipment.lines.forEach((line, lineIndex) => {
+        const itemId = line.itemId.trim();
+        const quantity = line.quantity?.trim() ?? "";
+
+        if (!itemId) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Item is required",
+            path: [index, "lines", lineIndex, "itemId"],
+          });
+        } else if (seen.has(itemId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "This item is already included",
+            path: [index, "lines", lineIndex, "itemId"],
+          });
+        }
+        seen.add(itemId);
+
+        const parsed = Number(quantity);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Quantity must be greater than 0",
+            path: [index, "lines", lineIndex, "quantity"],
+          });
+        }
+      });
+    });
+  });
+
 const baseSalesOrderSchema = createInsertSchema(salesOrders, {
   orderNumber: nullableString.refine(
     (value) => value == null || value.length <= 32,
@@ -163,6 +292,7 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
 })
   .extend({
     lines: cleanedLinesSchema,
+    shipments: cleanedOrderShipmentsSchema,
     confirmOversell: z.boolean().optional(),
   })
   .superRefine((values, ctx) => {
@@ -193,6 +323,45 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
         path: ["requestedDate"],
       });
     }
+
+    const orderQtyByItemId = new Map<string, number>();
+    values.lines.forEach((line) => {
+      orderQtyByItemId.set(line.itemId, Number(line.quantity));
+    });
+
+    const shipmentQtyByItemId = new Map<string, number>();
+    values.shipments.forEach((shipment, shipmentIndex) => {
+      shipment.lines.forEach((line, lineIndex) => {
+        if (!orderQtyByItemId.has(line.itemId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Shipment item must be on the order",
+            path: ["shipments", shipmentIndex, "lines", lineIndex, "itemId"],
+          });
+          return;
+        }
+
+        shipmentQtyByItemId.set(
+          line.itemId,
+          (shipmentQtyByItemId.get(line.itemId) ?? 0) + Number(line.quantity)
+        );
+      });
+    });
+
+    shipmentQtyByItemId.forEach((quantity, itemId) => {
+      const orderQty = orderQtyByItemId.get(itemId) ?? 0;
+      if (quantity <= orderQty) return;
+
+      values.shipments.forEach((shipment, shipmentIndex) => {
+        const lineIndex = shipment.lines.findIndex((line) => line.itemId === itemId);
+        if (lineIndex < 0) return;
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Shipment quantities cannot exceed ordered quantity",
+          path: ["shipments", shipmentIndex, "lines", lineIndex, "quantity"],
+        });
+      });
+    });
   });
 
 export const insertSalesOrderSchema = baseSalesOrderSchema;
@@ -365,5 +534,6 @@ export const salesOrderDefaultValues: InsertSalesOrder = {
       unitPrice: null,
     },
   ],
+  shipments: [],
   confirmOversell: false,
 };
