@@ -1175,15 +1175,32 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
   });
 
   test.describe("concurrency_and_idempotency: parallel and replay safety", () => {
-    // FIXME(S15-race): Under actual parallel load, one POST returns 500 with
-    // a transaction-conflict requestId instead of both returning 201 as the
-    // T24 modelled outcome predicted. This is meaningful: the BR-1 enforcement
-    // gap still exists (no `existing_active_mo` check in validateSalesLineLinkInTx
-    // at queries.ts:729-819) but the absence of a cleaner reject path means
-    // concurrent callers occasionally see internal errors rather than two
-    // valid MO rows. Skipping pending decision: relax assertions to accept
-    // (both 201, 2 rows) OR (one 201 + one 500, 1 row), or add proper
-    // BR-1 enforcement and pin the new 4xx outcome.
+    // PRODUCTION BUG (S15 — separate from BR-1 gap): Postgres deadlock
+    // (error code 40P01, transaction-level) on concurrent POST
+    // /api/manufacturing-orders. Confirmed via dev server log on
+    // 2026-05-18 (requestId af5a7438-…): "Process X waits for ShareLock
+    // on transaction Y; blocked by process Z" during ingredient INSERT
+    // FK checks.
+    //
+    // lockItemsInTx (lib/inventory/kernel/locking.ts:49) orders by item.id
+    // ASC for deterministic lock order, but earlier or later work in
+    // createManufacturingOrderInTx (validateActiveIngredientItemsInTx,
+    // FK ShareLocks during INSERT, expected-supply event writes,
+    // idempotency claim insert) acquires locks in non-deterministic
+    // order, creating a deadlock window when two POSTs interleave.
+    //
+    // User-visible symptom: clicking "Create MO" twice rapidly (or two
+    // ops on separate tabs) yields a 500 Internal Server Error on one
+    // of the calls. This is a real, reproducible production-class bug
+    // that exists on main, independent of the BR-1 enforcement gap in
+    // #350.
+    //
+    // Fix options: (a) audit all locks in createManufacturingOrderInTx
+    // and enforce deterministic order, OR (b) wrap the route handler in
+    // a 40P01 retry that transparently re-runs the transaction.
+    //
+    // Re-`test.fixme`'d for now; once the deadlock is resolved this
+    // test should pass as written and pin the contract.
     test.fixme("T24 anti-duplication: two parallel POST /api/manufacturing-orders with DIFFERENT idempotency keys create two distinct MO rows on the same sales line and write zero claim rows", async ({
       db,
     }) => {
@@ -1274,12 +1291,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       expect(claims).toHaveLength(0);
     });
 
-    // FIXME(S16-race): Observed loser response is 400 with
-    // "All manufacturable lines already have linked manufacturing orders."
-    // — a third valid outcome the modelled set (409 or 201+skipped) didn't
-    // anticipate. The contract still holds (only one bulk POST creates rows,
-    // FOR UPDATE serialized), but the loser-shape needs widening.
-    test.fixme("RA-12: parallel bulk Create-MOs-from-SO calls serialize via FOR UPDATE; winner returns created.length=2, loser returns 409 or 201 with skipped existing_active_mo", async ({
+    test("RA-12: parallel bulk Create-MOs-from-SO calls serialize via FOR UPDATE; winner returns created.length=2, loser returns 409/400/201-with-skipped", async ({
       db,
     }) => {
       const ts = Date.now();
@@ -1341,8 +1353,22 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       expect(winner, JSON.stringify(decoded)).toBeTruthy();
       expect(loser, JSON.stringify(decoded)).toBeTruthy();
 
+      // Observed loser responses across runs:
+      //   - 409 (transient lock conflict surfaced)
+      //   - 201 with skipped: [{reason: 'existing_active_mo'}, ...] and
+      //     created: []
+      //   - 400 with error "All manufacturable lines already have linked
+      //     manufacturing orders." (when the second caller sees the rows
+      //     already created by the winner)
+      // All three confirm the contract: FOR UPDATE serialized; only one
+      // bulk POST created rows; the loser was refused or skipped.
       const loserValid =
         loser!.status === 409 ||
+        (loser!.status === 400 &&
+          typeof loser!.body?.error === "string" &&
+          /already have linked manufacturing orders|existing_active_mo/i.test(
+            loser!.body.error
+          )) ||
         (loser!.status === 201 &&
           (loser!.body?.created ?? []).length === 0 &&
           (loser!.body?.skipped ?? []).every(
