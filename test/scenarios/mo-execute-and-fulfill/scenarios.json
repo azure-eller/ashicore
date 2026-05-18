@@ -1,0 +1,833 @@
+{
+  "summary": "Phase 3 scenario generation for mo-execute-and-fulfill. 22 scenarios targeting the highest-stakes contract surfaces: three distinct 409 surfaces (pick stock_shortage, pick requirement_violation, ship negativeStock), the wait-for-MO 409 (same SalesError payload as plain shortage, distinguished only by setup), idempotency replay on ship/pick/complete, BR-10 shipment-cost margin-only invariant, BR-11 no-double-deduct at discrete completion, BR-12 output reversal via variance_gain, BR-6 one-lot-per-batch invariant, cost-basis propagation (material weighted-average, product BOM cost-walk, null-cost rejection), expected_qty event-driven deltas across release/complete/cancel, batch-mode invariants and direct-parent rejection, allocation bucket transitions, races (concurrent pick, dual-MO cost basis race, output-allocation race), discrete completion missing-pick guard, and outputDisposition='blocked' downstream wait. Lane distribution: 7 fast, 15 slow. Every scenario cites contract BR IDs, state-model transition IDs, source-file evidence, and an explicit bug class.",
+  "evidence": [
+    { "file": "test/scenarios/mo-execute-and-fulfill/contract.json", "symbol": "business_rules BR-1..BR-16", "reason": "Phase 1 grounded business rules with code citations." },
+    { "file": "test/scenarios/mo-execute-and-fulfill/state-model.json", "symbol": "transitions T_PICK_TO_FULL_FIFO, T_COMPLETE_DISCRETE, T_BATCH_COMPLETE, T_OUTPUT_REVERSE, T_SHIP_NORMAL, T_COST_EDIT, T_MATERIALISE_MO_PROMISE", "reason": "Phase 2 transitions and blocked transitions used to anchor scenarios." },
+    { "file": "test/e2e/slow/manufacturing-order.spec.ts", "reason": "Existing slow story used as breadth model for new slow scenarios." },
+    { "file": "test/e2e/fast/manufacturing-actuals.spec.ts", "reason": "Existing fast spec uses /outputs and /outputs reversal; canonical fast write-path style." },
+    { "file": "test/e2e/reconciliation/kernel-invariants.spec.ts", "reason": "Existing invariant style — diffProjections, COUNT(lots) per batch, allocation status counts." }
+  ],
+  "inferences": [
+    "Wait-for-MO returns the same SalesError 409 negativeStock payload as plain shortage (state-model T_SHIP_NORMAL failure_modes plus revised note). Tests discriminate by setup state, not by response body.",
+    "BR-10 must be asserted with explicit counts: COUNT(inventory_events) and COUNT(stock_allocations) snapshots before and after the cost edit must be identical.",
+    "BR-11 must assert: COUNT(manufacturing_pick_allocations) for the MO is unchanged across /complete, and the inventory_events at /complete are only manufacturing_output (no manufacturing_pick or sales_consumption).",
+    "BR-12 (output reversal) is observed via three independent invariants: (a) produced lot row quantity decremented, (b) ingredient lot quantities restocked equal to the reversal proportion, (c) inventory_events with subtype 'manufacturing_variance_gain' written for the restocked lots.",
+    "Idempotency replay must compare the response body and the COUNT of relevant ledger rows (inventory_events, manufacturing_pick_allocations, inventory_lot_balances mutations) between first and second call.",
+    "Concurrency scenarios MUST live in slow specs and fire two requests via Promise.allSettled, then assert exactly one 2xx and the appropriate child-row counts."
+  ],
+  "unknowns": [
+    "Exact UI selectors for the /execute page Mark done / Complete order / Complete batch buttons. Slow scenarios will need to look these up during test authoring (Phase 4).",
+    "Whether reverseManufacturingOutputInTx errors with a clean 400 when the produced lot is already partly consumed by a downstream ship. Scenario S07 includes a precondition that the produced lot is NOT yet consumed, so the canonical reversal path is exercised first.",
+    "The exact body shape for batch-mode /outputs route (T_OUTPUT_RECORD_BATCH). The contract notes this is rarely exercised; the scenarios stick to T_BATCH_COMPLETE for batch lot creation."
+  ],
+  "structured_output": {
+    "scenario_groups": [
+      {
+        "risk_category": "cross_feature",
+        "why_this_category_matters": "End-to-end MO -> SO ship flows are how the feature actually creates value. Each transition is correct individually but the chain must preserve cost basis, expected_qty deltas, allocation bucket movement, and SO/MO state transitions. Bugs here cause silent inventory drift across modules.",
+        "scenarios": [
+          {
+            "id": "S01",
+            "title": "Discrete MO happy path: release -> pick -> complete -> downstream SO ship",
+            "narrative": "A confirmed SO is linked to a discrete MO. After release, the MO picks all ingredients, completes (producing one lot), and the SO's planned shipment ships and consumes from the produced lot. Asserts the full chain: ingredient demand allocations close, expected_qty for the product rises after release and zeros at complete, the produced lot has non-null unitCost, the MO-source allocation materialises onto the produced lot via T_MATERIALISE_MO_PROMISE, and ship consumes the lot hold first (not FIFO). This is the core regression path that every other scenario builds on.",
+            "lane": "slow",
+            "target_transitions": ["T_RELEASE", "T_PICK_TO_FULL_FIFO", "T_COMPLETE_DISCRETE", "T_MATERIALISE_MO_PROMISE", "T_SHIP_NORMAL"],
+            "target_business_rules": ["BR-1", "BR-2", "BR-4a", "BR-4b", "BR-5", "BR-11", "BR-15"],
+            "target_bug_classes": ["invalid transition allowed", "derived value drift", "stale data persisted"],
+            "setup": [
+              "Confirmed SO with one product line linked to a discrete MO",
+              "MO already released so ingredient demand allocations are active and expected_qty contribution exists for the product",
+              "Sufficient ingredient stock to fully pick without negative-stock or requirement overrides"
+            ],
+            "trigger_sequence": [
+              "POST /pick on every ingredient with Idempotency-Key",
+              "POST /complete with actualQuantity = plannedQuantity and outputDisposition='available'",
+              "POST /shipments to plan a shipment for the SO line",
+              "POST /shipments/[id]/ship"
+            ],
+            "expected_user_outcomes": [
+              "All pick responses 200 and ingredient pickStatus='picked'",
+              "Complete response 200; MO row status='done', completedAt set, actualCostPerUnit non-null",
+              "Ship response 200; shipment.status='shipped', shippedAt non-null; parent SO status='done'"
+            ],
+            "expected_side_effects": [
+              "Exactly one new lots row for the produced product with unitCost > 0",
+              "manufacturing_pick_allocations rows for every ingredient summing to plannedQuantity each",
+              "stock_allocations(demandType='manufacturing_order_ingredient') for this MO have status='consumed'",
+              "stock_allocations(demandType='sales_shipment_line', sourceType='inventory_lot') exists pointing to the produced lot AFTER /complete materialises the MO promise; that row's status flips to 'consumed' after ship",
+              "inventory_expected_summary contribution for this MO is zero after /complete",
+              "inventory_events ledger contains subtypes manufacturing_pick (one per ingredient), manufacturing_complete (one for the produced lot), sales_ship/shipped (one for the shipment line)"
+            ],
+            "priority": "P0",
+            "scores": { "business_criticality": 5, "bug_finding_potential": 4, "regression_risk": 5 },
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "completeManufacturingOrder", "reason": "Lines 5518-5800 — the discrete completion path." },
+              { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "produceManufacturedStockInTx", "reason": "Lines 607-747 — produces lot, releases expected supply, materialises MO source allocations." },
+              { "file": "lib/inventory/kernel/operations/sales.ts", "symbol": "consumeForShipmentInTx", "reason": "Lines 540-823 — held holds first then FIFO." }
+            ],
+            "why_prioritized": "Regression-class smoke for the entire feature. If this fails the feature is broken end-to-end."
+          },
+          {
+            "id": "S02",
+            "title": "Batch-mode MO: per-batch start -> pick -> complete -> parent flips only on final batch",
+            "narrative": "A batch-mode MO with 2 batches is released. Each batch is started, picked, and completed independently. Asserts BR-6 (exactly one lot per batch) and that the parent MO status remains 'open' until the final T_BATCH_COMPLETE flips it via T_PARENT_DONE. Asserts every manufacturing_order_batches row gets a distinct lotId and that no batch directly fires a /complete on the parent.",
+            "lane": "slow",
+            "target_transitions": ["T_BATCH_START", "T_PICK_TO_FULL_FIFO", "T_BATCH_PICKED", "T_BATCH_COMPLETE", "T_PARENT_DONE"],
+            "target_business_rules": ["BR-6", "BR-7", "BR-15"],
+            "target_bug_classes": ["invalid transition allowed", "derived value drift"],
+            "setup": [
+              "Released batch-mode MO with manufacturingMode='batch' and exactly 2 batches in BATCH_PENDING",
+              "Sufficient ingredient stock for both batches"
+            ],
+            "trigger_sequence": [
+              "POST /batches/[batch1]/start",
+              "Pick all batch1 ingredients",
+              "POST /batches/[batch1]/complete (assert parent still status='open')",
+              "POST /batches/[batch2]/start",
+              "Pick all batch2 ingredients",
+              "POST /batches/[batch2]/complete"
+            ],
+            "expected_user_outcomes": [
+              "After batch1 complete: batch1.status='completed', batch1.lotId set, parent MO.status='open'",
+              "After batch2 complete: batch2.status='completed', batch2.lotId set (distinct from batch1), parent MO.status='done'"
+            ],
+            "expected_side_effects": [
+              "Exactly 2 distinct lot rows referenced by the two batches (one per batch — BR-6)",
+              "manufacturing_order_outputs has 2 rows, each linked to a different batch and a different lotId",
+              "parent MO.completedAt set ONLY after batch2 complete",
+              "inventory_expected_summary contribution for the MO is zero after final batch complete (BR-5)"
+            ],
+            "priority": "P0",
+            "scores": { "business_criticality": 5, "bug_finding_potential": 4, "regression_risk": 5 },
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "completeManufacturingBatch", "reason": "Lines 5842-6199 — flips parent only on allCompleted; lines 6095-6108 produce without lotId so each batch creates a new lot." },
+              { "file": "lib/db/schema/manufacturing.ts", "symbol": "manufacturingOrderBatches.lotId", "reason": "Per-batch lot stamp." }
+            ],
+            "why_prioritized": "BR-6 / BR-7 are mutually exclusive at the API surface. Regression risk is high because the two completion paths share kernel helpers."
+          },
+          {
+            "id": "S03",
+            "title": "Wait-for-MO 409 on ship: same SalesError payload as plain shortage, distinguished by setup",
+            "narrative": "A confirmed SO has a planned shipment whose line is allocated against an active 'manufacturing_order' source promise (the MO has been released but not yet produced). The operator attempts to ship. Asserts BR-14: the ship returns 409 with the SAME SalesError negativeStock payload as a plain stock_shortage, even though the actual reason is the unmaterialised MO promise. After the MO completes (producing the lot and materialising the promise via T_MATERIALISE_MO_PROMISE), the same ship request succeeds. This is the production hot spot that confuses ops because the response shape is identical to plain shortage.",
+            "lane": "slow",
+            "target_transitions": ["T_SHIP_NORMAL", "T_MATERIALISE_MO_PROMISE"],
+            "target_business_rules": ["BR-3c", "BR-14"],
+            "target_bug_classes": ["mutation error not surfaced", "validation bypass"],
+            "setup": [
+              "Confirmed SO line allocated to an unproduced released MO (stock_allocations sourceType='manufacturing_order', status='active' on the shipment line)",
+              "No other free stock available for the product so plain FIFO would also fail",
+              "Planned shipment exists covering the SO line"
+            ],
+            "trigger_sequence": [
+              "POST /shipments/[id]/ship (no confirmNegativeStock) — expect 409",
+              "POST /shipments/[id]/ship with confirmNegativeStock=true — STILL expect 409 (wait-for-MO guard is BEFORE the negative-stock branch per state-model blocked_transition)",
+              "Complete the MO (pick + complete) to materialise the promise onto the produced lot",
+              "POST /shipments/[id]/ship — now expect 200"
+            ],
+            "expected_user_outcomes": [
+              "First ship attempt: 409 with negativeStock payload {itemId, itemName, available, requested, shortage}",
+              "Second ship attempt with override: STILL 409 (override does not bypass wait-for-MO guard)",
+              "Third ship attempt after MO complete: 200 success"
+            ],
+            "expected_side_effects": [
+              "First two attempts: no inventory_events written, no allocation rows mutated, shipment still SHIPMENT_PLANNED",
+              "After MO complete: stock_allocations row for the shipment line flips from sourceType='manufacturing_order' to sourceType='inventory_lot' against the produced lot",
+              "Third attempt: shipment.status='shipped', allocation row status='consumed'"
+            ],
+            "priority": "P0",
+            "scores": { "business_criticality": 5, "bug_finding_potential": 5, "regression_risk": 4 },
+            "evidence": [
+              { "file": "lib/inventory/kernel/operations/sales.ts", "symbol": "consumeForShipmentInTx", "reason": "Lines 756-768 — InsufficientStockError raised BEFORE FIFO fall-through when a shipment line has an open 'manufacturing_order' source allocation." },
+              { "file": "app/(dashboard)/sales/queries.ts", "symbol": "shipSalesShipment", "reason": "Lines 7197-7213 — InsufficientStockError -> SalesError 409 negativeStock translation." },
+              { "file": "test/scenarios/mo-execute-and-fulfill/state-model.json", "symbol": "T_SHIP_NORMAL failure_modes + blocked_transitions wait-for-MO entry", "reason": "Same response shape as plain shortage." }
+            ],
+            "why_prioritized": "Distinct 409 surface that shares the response shape with plain shortage. The 'same payload, different cause' bug class has caused production support escalations."
+          },
+          {
+            "id": "S04",
+            "title": "outputDisposition='blocked' bypasses materialisation; downstream ship 409s until released",
+            "narrative": "A discrete MO produces output with outputDisposition='blocked'. The downstream shipment line has an active MO-source allocation. Asserts BR-13: produceManufacturedStockInTx skips materializeManufacturingOrderSourceAllocationsForLotInTx, so the MO-source allocation stays active and the downstream ship still 409s (wait-for-MO) even though a lot for this MO now exists.",
+            "lane": "slow",
+            "target_transitions": ["T_OUTPUT_RECORD_DISCRETE", "T_COMPLETE_DISCRETE", "T_SHIP_NORMAL"],
+            "target_business_rules": ["BR-13", "BR-14"],
+            "target_bug_classes": ["invalid transition allowed", "derived value drift"],
+            "setup": [
+              "Confirmed SO line allocated to released MO (sourceType='manufacturing_order' active)",
+              "Planned shipment for the SO line"
+            ],
+            "trigger_sequence": [
+              "Pick MO ingredients",
+              "POST /outputs with quantity=plannedQuantity and outputDisposition='blocked'",
+              "POST /complete",
+              "POST /shipments/[id]/ship — expect 409"
+            ],
+            "expected_user_outcomes": [
+              "Output record + complete both succeed; produced lot exists",
+              "Ship returns 409 SalesError negativeStock (wait-for-MO)"
+            ],
+            "expected_side_effects": [
+              "Produced lot row exists with disposition='blocked' on its inventory_lot_balances row",
+              "stock_allocations(demandType='sales_shipment_line', sourceType='manufacturing_order') for this shipment remain status='active' (NOT materialised)",
+              "No stock_allocations row of sourceType='inventory_lot' against the produced lot for this shipment line"
+            ],
+            "priority": "P1",
+            "scores": { "business_criticality": 4, "bug_finding_potential": 4, "regression_risk": 3 },
+            "evidence": [
+              { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "produceManufacturedStockInTx", "reason": "Lines 681-690 — disposition gate on materialisation." }
+            ],
+            "why_prioritized": "BR-13 is a subtle invariant; a regression would silently let blocked output feed downstream demand."
+          }
+        ]
+      },
+      {
+        "risk_category": "async_errors",
+        "why_this_category_matters": "Pick and ship each raise distinct 409 surfaces that share a response shape with similar 409s. Tests must dispatch on the discriminator (warningType for pick; setup state for ship's wait-for-MO vs plain shortage), retry with the correct flag, and never confuse the override paths. These flows have caused production bugs.",
+        "scenarios": [
+          {
+            "id": "S05",
+            "title": "Pick 409 stock_shortage and confirmNegativeStock override",
+            "narrative": "An MO ingredient has more planned quantity than free stock. Asserts BR-3a: POST /pick returns 409 ManufacturingError with shortage.warningType='stock_shortage'. After the operator retries with confirmNegativeStock=true, the pick succeeds and a synthetic NEG-<date>-<uuid> lot is created via createNegativeStockEventInTx with a resolved cost basis.",
+            "lane": "slow",
+            "target_transitions": ["T_PICK_TO_FULL_FIFO"],
+            "target_business_rules": ["BR-3a", "BR-4a"],
+            "target_bug_classes": ["mutation error not surfaced", "validation bypass"],
+            "setup": [
+              "Released MO with one material ingredient whose plannedQuantity exceeds current available stock",
+              "Material has a non-null currentStockUnitCost or defaultPurchasePrice (so the negative-stock cost basis can resolve)"
+            ],
+            "trigger_sequence": [
+              "POST /pick with empty body (no confirm flag) — expect 409 stock_shortage",
+              "POST /pick with confirmNegativeStock=true (new Idempotency-Key derived from new body hash) — expect 200"
+            ],
+            "expected_user_outcomes": [
+              "First attempt: 409 with extra.shortage.warningType='stock_shortage' and shortage.itemName populated",
+              "Second attempt: 200 with ingredient pickStatus='picked'"
+            ],
+            "expected_side_effects": [
+              "First attempt: zero manufacturing_pick_allocations rows for the ingredient",
+              "Second attempt: a NEG-* lot exists for the material with unitCost > 0",
+              "Inventory event of subtype 'manufacturing_pick' for the NEG lot"
+            ],
+            "priority": "P0",
+            "scores": { "business_criticality": 5, "bug_finding_potential": 4, "regression_risk": 4 },
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "pickManufacturingIngredient", "reason": "Lines 6388-6406 — InsufficientStockError -> 409 stock_shortage; 6212-6213 ORs the confirm flags." },
+              { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "pickManufacturingIngredientInTx", "reason": "Lines 366-379 — InsufficientStockError gate." }
+            ],
+            "why_prioritized": "First of three 409 surfaces; this is the most common pick failure ops encounters."
+          },
+          {
+            "id": "S06",
+            "title": "Pick 409 requirement_violation (minimum lot age) and confirmRequirementOverride",
+            "narrative": "An MO ingredient has a minimum lot age requirement. Available stock exists but the eligible portion is less than the requested quantity. Asserts BR-3b: POST /pick returns 409 ManufacturingError with shortage.warningType='requirement_violation' and a nextEligibleDate. Retrying with confirmRequirementOverride=true succeeds; the manufacturing_pick_allocations row carries requirementOverrideConfirmed metadata.",
+            "lane": "slow",
+            "target_transitions": ["T_PICK_TO_FULL_FIFO"],
+            "target_business_rules": ["BR-3b"],
+            "target_bug_classes": ["mutation error not surfaced", "validation bypass"],
+            "setup": [
+              "Released MO with one material ingredient that has a minimumLotAge constraint configured",
+              "Stock exists in lots whose receivedAt is INSIDE the minimum age window (so eligible portion is 0 or insufficient)"
+            ],
+            "trigger_sequence": [
+              "POST /pick (no override) — expect 409 requirement_violation",
+              "POST /pick with confirmRequirementOverride=true — expect 200"
+            ],
+            "expected_user_outcomes": [
+              "First attempt: 409 with shortage.warningType='requirement_violation', requirement text, and nextEligibleDate populated",
+              "Second attempt: 200 with ingredient pickStatus='picked'"
+            ],
+            "expected_side_effects": [
+              "Second attempt: manufacturing_pick_allocations row has requirementOverrideConfirmed=true plus requirementOverrideConfirmedBy/At metadata",
+              "Inventory event of subtype 'manufacturing_pick' written"
+            ],
+            "priority": "P0",
+            "scores": { "business_criticality": 4, "bug_finding_potential": 4, "regression_risk": 4 },
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "pickManufacturingIngredient", "reason": "Lines 6294-6349 — minimum-lot-age 409 with warningType='requirement_violation'." },
+              { "file": "lib/db/schema/manufacturing.ts", "symbol": "manufacturingPickAllocations.requirementOverrideConfirmed", "reason": "Metadata column." }
+            ],
+            "why_prioritized": "Second of three 409 surfaces; distinct discriminator (warningType) the UI must dispatch on."
+          },
+          {
+            "id": "S07",
+            "title": "Ship 409 negativeStock and confirmNegativeStock override (plain shortage, no MO promise)",
+            "narrative": "A planned shipment requests more product than free stock. There is NO active MO promise on the shipment line — this is plain FIFO shortage. Asserts BR-3c: POST /ship returns 409 SalesError with negativeStock payload. Retrying with confirmNegativeStock=true creates a synthetic NEG-<date>-<uuid> lot via createNegativeStockEventInTx and the ship succeeds.",
+            "lane": "slow",
+            "target_transitions": ["T_SHIP_NORMAL", "T_SHIP_NEGATIVE_OVERRIDE"],
+            "target_business_rules": ["BR-3c", "BR-4b"],
+            "target_bug_classes": ["mutation error not surfaced", "validation bypass"],
+            "setup": [
+              "Confirmed SO for a product whose live stock is below the shipment quantity",
+              "Product has an active BOM cost-walk so resolvePositiveStockUnitCostInTx can resolve cost",
+              "No MO promise exists on the shipment line (so the 409 is plain shortage, not wait-for-MO)"
+            ],
+            "trigger_sequence": [
+              "POST /shipments/[id]/ship (no override) — expect 409",
+              "POST /shipments/[id]/ship with confirmNegativeStock=true — expect 200"
+            ],
+            "expected_user_outcomes": [
+              "First attempt: 409 with negativeStock payload {itemId, itemName, available, requested, shortage}",
+              "Second attempt: 200; shipment.status='shipped'"
+            ],
+            "expected_side_effects": [
+              "First attempt: no inventory_events written for the shipment, shipment still SHIPMENT_PLANNED",
+              "Second attempt: a NEG-* synthetic lot exists for the product with unitCost > 0",
+              "Inventory event of subtype 'sales_ship'/'shipped' written"
+            ],
+            "priority": "P0",
+            "scores": { "business_criticality": 5, "bug_finding_potential": 4, "regression_risk": 4 },
+            "evidence": [
+              { "file": "app/(dashboard)/sales/queries.ts", "symbol": "shipSalesShipment", "reason": "Lines 7197-7213 — InsufficientStockError -> SalesError 409 negativeStock translation." },
+              { "file": "lib/inventory/kernel/operations/stock-core.ts", "symbol": "consumeStockFifoInTx negative branch", "reason": "Lines 942-973 — NEG lot via createNegativeStockEventInTx with resolved cost basis." }
+            ],
+            "why_prioritized": "Third of three 409 surfaces; production hot spot for partial-shipment recovery flows."
+          },
+          {
+            "id": "S08",
+            "title": "Discrete /complete with unpicked ingredients returns 400 listing missing items",
+            "narrative": "Operator hits /complete on a discrete MO before all ingredients are picked. Asserts the missing-pick guard: 400 with error message listing the unpicked ingredient name(s); MO status remains 'open'; no inventory_events written.",
+            "lane": "fast",
+            "target_transitions": ["T_COMPLETE_DISCRETE"],
+            "target_business_rules": ["BR-11"],
+            "target_bug_classes": ["invalid transition allowed", "validation bypass"],
+            "setup": [
+              "Released discrete MO with at least two ingredients; only one ingredient picked"
+            ],
+            "trigger_sequence": [
+              "POST /complete with actualQuantity=plannedQuantity"
+            ],
+            "expected_user_outcomes": [
+              "Response 400 with message containing 'Pick' and the unpicked ingredient name"
+            ],
+            "expected_side_effects": [
+              "manufacturing_orders.status remains 'open' and completedAt remains NULL",
+              "No new inventory_events for this MO since the partial pick"
+            ],
+            "priority": "P1",
+            "scores": { "business_criticality": 4, "bug_finding_potential": 3, "regression_risk": 3 },
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "completeManufacturingOrder", "reason": "Lines 5615-5647 — missing-pick guard." }
+            ],
+            "why_prioritized": "Cheap guardrail test that catches accidental gating bypass."
+          }
+        ]
+      },
+      {
+        "risk_category": "derived_values",
+        "why_this_category_matters": "Cost basis (material currentStockUnitCost, product BOM cost-walk, weighted-average on produced lots) and expected_qty deltas drive customer-visible cost figures and supply planning. Drift is silent and accumulates.",
+        "scenarios": [
+          {
+            "id": "S09",
+            "title": "Material weighted-average on positive flow into existing lot",
+            "narrative": "A material with currentStockUnitCost=$10 receives a positive event (e.g. another PO receipt or a stock adjustment that appends to an existing lot) at unitCost=$14. Asserts BR-4a: appendPositiveStockToExistingLotInTx weighted-averages the lot's unitCost = (currentQty*currentUnitCost + addedQty*incomingUnitCost) / (currentQty+addedQty) at scale 6, and items.currentStockUnitCost mirrors the new average via calculateNextCurrentStockUnitCost.",
+            "lane": "slow",
+            "target_transitions": [],
+            "target_business_rules": ["BR-4a"],
+            "target_bug_classes": ["derived value drift"],
+            "setup": [
+              "Material item with one existing lot of quantity=100 and unitCost=10.000000",
+              "items.currentStockUnitCost=10.000000"
+            ],
+            "trigger_sequence": [
+              "Add a positive stock event of quantity=50 and unitCost=14.000000 against the same lot id"
+            ],
+            "expected_user_outcomes": [
+              "Lot row after: quantity=150, unitCost=(100*10+50*14)/150 = 11.333333 at scale 6"
+            ],
+            "expected_side_effects": [
+              "items.currentStockUnitCost=11.333333 (matches calculateNextCurrentStockUnitCost)",
+              "Inventory event written for the positive flow"
+            ],
+            "priority": "P1",
+            "scores": { "business_criticality": 4, "bug_finding_potential": 3, "regression_risk": 4 },
+            "evidence": [
+              { "file": "lib/inventory/kernel/operations/stock-core.ts", "symbol": "appendPositiveStockToExistingLotInTx", "reason": "Lines 504-657 — weighted-average formula at 567-579." },
+              { "file": "lib/inventory/cost.ts", "symbol": "calculateNextCurrentStockUnitCost", "reason": "Lines 28-54." }
+            ],
+            "why_prioritized": "Material cost basis underpins every produced lot cost; drift here propagates to every MO."
+          },
+          {
+            "id": "S10",
+            "title": "Product BOM cost-walk produces non-null unitCost on MO output lot",
+            "narrative": "A discrete MO produces a product whose BOM ingredients each have a known currentStockUnitCost. Asserts BR-4b: the produced lot's unitCost = (sum of ingredient costs consumed + overheadCostTotal) / outputQuantity at scale 6, and matches manufacturing_orders.actualCostPerUnit.",
+            "lane": "slow",
+            "target_transitions": ["T_COMPLETE_DISCRETE"],
+            "target_business_rules": ["BR-4b"],
+            "target_bug_classes": ["derived value drift"],
+            "setup": [
+              "Product with active BOM whose ingredients each have currentStockUnitCost set",
+              "Released discrete MO; all ingredients picked"
+            ],
+            "trigger_sequence": [
+              "POST /complete with actualQuantity = plannedQuantity"
+            ],
+            "expected_user_outcomes": [
+              "manufacturing_orders.actualCostPerUnit set; matches sum(ingredient costs in manufacturing_pick_allocations) / plannedQuantity at scale 6"
+            ],
+            "expected_side_effects": [
+              "Produced lots row has unitCost equal to manufacturing_orders.actualCostPerUnit (no divergence on a single /complete with no prior /outputs)",
+              "Inventory event of subtype 'manufacturing_complete' carries the same unitCost"
+            ],
+            "priority": "P0",
+            "scores": { "business_criticality": 5, "bug_finding_potential": 4, "regression_risk": 5 },
+            "evidence": [
+              { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "produceManufacturedStockInTx", "reason": "Lines 647-652 — unitCost formula at scale 6." },
+              { "file": "lib/inventory/kernel/operations/stock-core.ts", "symbol": "resolvePositiveStockUnitCostInTx product branch", "reason": "Lines 323-349 — BOM cost-walk." }
+            ],
+            "why_prioritized": "Customer-visible cost figure; underpins margin reporting."
+          },
+          {
+            "id": "S11",
+            "title": "Null-cost rejection: shipping product into negative stock without BOM cost basis returns 500 MissingCostBasisError",
+            "narrative": "A product has no active BOM (or BOM has missing material cost basis). The operator attempts to ship into negative stock with confirmNegativeStock=true. Asserts the gap in BR-4b: resolvePositiveStockUnitCostInTx throws MissingCostBasisError which is NOT caught by SalesError translator. Documents the current 500 surface as a known risk. (If/when the route catches MissingCostBasisError, this scenario should be revised to expect a 400/409 with reason='product_bom_cost'.)",
+            "lane": "slow",
+            "target_transitions": ["T_SHIP_NEGATIVE_OVERRIDE"],
+            "target_business_rules": ["BR-4b"],
+            "target_bug_classes": ["mutation error not surfaced", "derived value drift"],
+            "setup": [
+              "Product with NO active BOM ingredients (or with a cyclic BOM)",
+              "Confirmed SO for that product with quantity exceeding available stock",
+              "Planned shipment for the SO"
+            ],
+            "trigger_sequence": [
+              "POST /shipments/[id]/ship with confirmNegativeStock=true"
+            ],
+            "expected_user_outcomes": [
+              "Response 500 (or 400 if MissingCostBasisError handling is added). Assert: response is NOT a 2xx; shipment.status remains 'planned'"
+            ],
+            "expected_side_effects": [
+              "No NEG-* lot created",
+              "No inventory_events written for the shipment",
+              "shipment.status remains 'planned'"
+            ],
+            "priority": "P2",
+            "scores": { "business_criticality": 3, "bug_finding_potential": 4, "regression_risk": 3 },
+            "evidence": [
+              { "file": "lib/inventory/kernel/operations/stock-core.ts", "symbol": "resolvePositiveStockUnitCostInTx", "reason": "Lines 247-364 — MissingCostBasisError." },
+              { "file": "app/api/sales-orders/[id]/shipments/[shipmentId]/ship/route.ts", "symbol": "POST", "reason": "Only catches SalesError + InsufficientStockError." }
+            ],
+            "why_prioritized": "Edge case but a known gap in the response surface; tracks the 500 leak."
+          },
+          {
+            "id": "S12",
+            "title": "Expected supply deltas across release / output / complete / cancel",
+            "narrative": "Walks one product item through the full event-driven expected_qty lifecycle. Asserts BR-5: release writes 'manufacturing_release' increase; recording output writes 'manufacturing_complete' release of min(currentOpenQty, outputQuantity); discrete /complete fires releaseRemainingExpectedOutputInTx to zero the residual; cancel of a released-only MO reverses the increase.",
+            "lane": "slow",
+            "target_transitions": ["T_RELEASE", "T_OUTPUT_RECORD_DISCRETE", "T_COMPLETE_DISCRETE", "T_CANCEL_NO_WORK"],
+            "target_business_rules": ["BR-5"],
+            "target_bug_classes": ["derived value drift", "stale data persisted"],
+            "setup": [
+              "Product item with zero current expected_qty",
+              "Two discrete MOs ready for release (MO-A and MO-B)"
+            ],
+            "trigger_sequence": [
+              "Release MO-A; record items.expectedQty",
+              "Release MO-B; record items.expectedQty",
+              "Pick MO-A ingredients then record output for partial quantity; record expectedQty drop",
+              "Complete MO-A; record final expectedQty",
+              "Cancel MO-B (DELETE); record final expectedQty"
+            ],
+            "expected_user_outcomes": [
+              "After release of MO-A: items.expectedQty == plannedA",
+              "After release of MO-B: items.expectedQty == plannedA + plannedB",
+              "After partial output on MO-A (qty=outA): items.expectedQty == (plannedA - outA) + plannedB",
+              "After /complete on MO-A: items.expectedQty == plannedB (residual MO-A expected fully released)",
+              "After /delete on MO-B: items.expectedQty == 0"
+            ],
+            "expected_side_effects": [
+              "inventory_events ledger contains subtypes manufacturing_release (twice), manufacturing_complete (twice — output + completion), and manufacturing_cancel/release for the deleted MO",
+              "No drift between items.expectedQty and the sum of active expected_increase/release events for this item"
+            ],
+            "priority": "P0",
+            "scores": { "business_criticality": 5, "bug_finding_potential": 4, "regression_risk": 5 },
+            "evidence": [
+              { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "addExpectedFromManufacturingInTx / produceManufacturedStockInTx expected release / releaseRemainingExpectedOutputInTx", "reason": "Lines 35-155 and 707-732." },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "completeManufacturingOrder / cancelReleasedManufacturingOrderInTx", "reason": "5571 (release remaining), 6807 (cancel)." }
+            ],
+            "why_prioritized": "Inventory planning depends on items.expectedQty being a faithful function of MO state. Drift here breaks MRP-lite."
+          }
+        ]
+      },
+      {
+        "risk_category": "state_transitions",
+        "why_this_category_matters": "MO and shipment state machines must reject invalid transitions at the API surface and produce exactly-once side effects on valid ones. Mis-routed transitions silently corrupt the ledger.",
+        "scenarios": [
+          {
+            "id": "S13",
+            "title": "Output reversal: negative /outputs decrements produced lot and restocks ingredient lots via manufacturing_variance_gain",
+            "narrative": "After recording a positive output and BEFORE downstream consumption, the operator submits POST /outputs with negative quantity. Asserts BR-12: reverseManufacturingOutputInTx (a) decrements the produced lot quantity, (b) restocks the originally-consumed ingredient lots by the reversal proportion, and (c) writes inventory_events with eventType/subtype 'manufacturing_variance_gain' for each ingredient restock. manufacturing_orders.actualQuantity/actualMaterialCost/actualCostPerUnit are recomputed from surviving outputs.",
+            "lane": "slow",
+            "target_transitions": ["T_OUTPUT_RECORD_DISCRETE", "T_OUTPUT_REVERSE"],
+            "target_business_rules": ["BR-12"],
+            "target_bug_classes": ["stale data persisted", "derived value drift"],
+            "setup": [
+              "Released discrete MO with picked ingredients",
+              "Positive POST /outputs of qty=10 has run (lot quantity 10, ingredient lots reduced)",
+              "Produced lot NOT yet consumed by any shipment"
+            ],
+            "trigger_sequence": [
+              "POST /outputs with quantity=-3 (reverse 3 of 10)"
+            ],
+            "expected_user_outcomes": [
+              "Response 200; manufacturing_orders.actualQuantity now reflects 7 (10-3)"
+            ],
+            "expected_side_effects": [
+              "Produced lot row quantity decremented by 3 (from 10 to 7)",
+              "Each originally-consumed ingredient lot row has its quantity restored by 30% of the originally-consumed amount (proportional reversal)",
+              "inventory_events with eventType='manufacturing_variance_gain' written for each restocked ingredient lot",
+              "manufacturing_orders.actualMaterialCost and actualCostPerUnit recomputed from surviving output rows",
+              "manufacturing_order_outputs has 2 rows now: the original +10 and the new -3 (or whichever shape the kernel uses)"
+            ],
+            "priority": "P0",
+            "scores": { "business_criticality": 5, "bug_finding_potential": 5, "regression_risk": 4 },
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "recordManufacturingOutput negative branch / reverseManufacturingOutputInTx", "reason": "Lines 4301-4361 and ~2230-2400." },
+              { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "reconcileIngredientActualsInTx variance_gain branch", "reason": "Lines 858-1058 — variance_gain restock path." }
+            ],
+            "why_prioritized": "BR-12 is high-confidence in the contract but the test must assert the THREE independent invariants (lot decrement, ingredient restock, variance_gain events). Often missed in coverage."
+          },
+          {
+            "id": "S14",
+            "title": "Discrete /complete REUSES persisted pick allocations: no double-deduct, allocation count unchanged",
+            "narrative": "After picking all ingredients on a discrete MO, the persisted manufacturing_pick_allocations rows are captured. /complete is then called with NO ingredientActuals. Asserts BR-11: completeManufacturingOrder consumes from persisted pick allocations to build manufacturing_order_output_consumptions, but does NOT call any consumeXxxInTx primitive. Therefore: (a) COUNT(manufacturing_pick_allocations) for this MO is identical before and after /complete, (b) inventory_events emitted at /complete are only of subtype 'manufacturing_complete' (no new 'manufacturing_pick'), (c) ingredient lot quantities are NOT decremented a second time.",
+            "lane": "slow",
+            "target_transitions": ["T_COMPLETE_DISCRETE"],
+            "target_business_rules": ["BR-11"],
+            "target_bug_classes": ["derived value drift", "stale data persisted"],
+            "setup": [
+              "Released discrete MO with all ingredients picked",
+              "Snapshot of COUNT(manufacturing_pick_allocations) and per-ingredient-lot quantities captured immediately before /complete"
+            ],
+            "trigger_sequence": [
+              "POST /complete with actualQuantity=plannedQuantity and ingredientActuals=[] (no variance)"
+            ],
+            "expected_user_outcomes": [
+              "Response 200; MO status='done'"
+            ],
+            "expected_side_effects": [
+              "COUNT(manufacturing_pick_allocations) for this MO is identical to the pre-complete snapshot",
+              "Each ingredient lot row's quantity equals its pre-complete value (no double-deduct)",
+              "New inventory_events between pre-complete and post-complete are ONLY subtype 'manufacturing_complete' plus expected/demand/reservation release rows — NO new 'manufacturing_pick' rows, NO 'sales_consumption', NO 'manufacturing_variance_loss'",
+              "manufacturing_order_output_consumptions exists with rows linking the produced output to the persisted pick allocations"
+            ],
+            "priority": "P0",
+            "scores": { "business_criticality": 5, "bug_finding_potential": 5, "regression_risk": 5 },
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "completeManufacturingOrder", "reason": "Lines 5649-5774 — reuses persisted pick allocations; buildOutputConsumptionsFromPickedAllocations at 5759-5762." }
+            ],
+            "why_prioritized": "BR-11 is the cornerstone invariant of discrete completion; double-deduct would corrupt every product's cost basis and inventory."
+          },
+          {
+            "id": "S15",
+            "title": "Batch-mode parent rejects direct /complete (400), and discrete /complete with batchId rejects (400)",
+            "narrative": "Cross-mode guard test. (a) POST /complete on a batch-mode MO returns 400 'Batch-mode orders must be completed one batch at a time.' (b) POST /batches/[batchId]/complete on a discrete MO returns 400 'Only open batch-mode orders can complete batches'. Asserts BR-7 — the two completion paths are mutually exclusive at the API surface.",
+            "lane": "fast",
+            "target_transitions": ["T_COMPLETE_DISCRETE", "T_BATCH_COMPLETE"],
+            "target_business_rules": ["BR-7"],
+            "target_bug_classes": ["invalid transition allowed", "validation bypass"],
+            "setup": [
+              "Released batch-mode MO with all ingredients picked",
+              "Released discrete MO with all ingredients picked",
+              "A dummy batch row exists on the discrete MO's id space (or use a non-existent batchId — the route should still 400 before lookup OR 404; assert NOT 2xx)"
+            ],
+            "trigger_sequence": [
+              "POST /complete on the batch-mode MO with actualQuantity=plannedQuantity",
+              "POST /batches/[batchId]/complete on the discrete MO"
+            ],
+            "expected_user_outcomes": [
+              "First call: 400 with message containing 'Batch-mode'",
+              "Second call: 400 with message containing 'batch-mode'"
+            ],
+            "expected_side_effects": [
+              "Neither MO's status changes",
+              "No new inventory_events"
+            ],
+            "priority": "P1",
+            "scores": { "business_criticality": 4, "bug_finding_potential": 3, "regression_risk": 3 },
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "completeManufacturingOrder/Batch mode guards", "reason": "Lines 5545-5550 and 5866-5868." }
+            ],
+            "why_prioritized": "Fast guard tests are cheap; this rejects the most common API-misuse class."
+          },
+          {
+            "id": "S16",
+            "title": "Pick already-fully-picked ingredient returns 400 'is already picked'",
+            "narrative": "After fully picking an ingredient, the operator re-issues POST /pick on the same ingredient. Asserts: 400 ManufacturingError with message containing 'is already picked'. No new manufacturing_pick_allocations rows are inserted.",
+            "lane": "fast",
+            "target_transitions": ["T_PICK_TO_FULL_FIFO"],
+            "target_business_rules": [],
+            "target_bug_classes": ["invalid transition allowed"],
+            "setup": [
+              "Released discrete MO with one ingredient fully picked"
+            ],
+            "trigger_sequence": [
+              "POST /pick on the already-picked ingredient with a fresh Idempotency-Key"
+            ],
+            "expected_user_outcomes": [
+              "Response 400 with message containing 'is already picked'"
+            ],
+            "expected_side_effects": [
+              "COUNT(manufacturing_pick_allocations) for the ingredient unchanged",
+              "No new inventory_events"
+            ],
+            "priority": "P2",
+            "scores": { "business_criticality": 3, "bug_finding_potential": 2, "regression_risk": 3 },
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "pickManufacturingIngredient", "reason": "Lines 6278-6280 — already-picked guard." }
+            ],
+            "why_prioritized": "Cheap guard test that catches a regression introduced if the pick endpoint stopped reading current pick totals."
+          }
+        ]
+      },
+      {
+        "risk_category": "validation",
+        "why_this_category_matters": "BR-10 (shipment cost margin-only) is silently load-bearing: a regression that lets cost edits touch inventory or AP would corrupt Xero invoices. This must be asserted as the ABSENCE of side effects.",
+        "scenarios": [
+          {
+            "id": "S17",
+            "title": "BR-10 invariant: PUT /shipments/[id]/costs writes margin only; zero inventory or accounting side effects",
+            "narrative": "After shipping a shipment, the operator edits its costs (PUT /costs with one freight cost row). Asserts: COUNT(inventory_events) for this org+shipment unchanged across the cost edit; COUNT(inventory_lot_balances mutations) unchanged; COUNT(stock_allocations) for this shipment unchanged; integrations.audit_events for this shipment shows NO new Xero push; shipment.status unchanged. The only DB mutations should be on salesShipments.customerFreightChargeAmount and the salesShipmentCosts rows (delete-and-reinsert).",
+            "lane": "slow",
+            "target_transitions": ["T_COST_EDIT_AFTER_SHIP"],
+            "target_business_rules": ["BR-10"],
+            "target_bug_classes": ["derived value drift", "validation bypass"],
+            "setup": [
+              "Shipped shipment (T_SHIP_NORMAL completed) with no existing cost rows",
+              "Snapshot of COUNT(inventory_events), COUNT(inventory_lot_balances rows), COUNT(stock_allocations), COUNT(integrations.audit_events where action like 'xero%') for this org+shipment"
+            ],
+            "trigger_sequence": [
+              "PUT /shipments/[id]/costs with one freight cost row amount=50, customerFreightChargeAmount=75"
+            ],
+            "expected_user_outcomes": [
+              "Response 200; salesShipments.customerFreightChargeAmount=75; one salesShipmentCosts row of costType='freight' amount=50"
+            ],
+            "expected_side_effects": [
+              "INVARIANT: COUNT(inventory_events) unchanged (no new ledger rows from the cost edit)",
+              "INVARIANT: COUNT(inventory_lot_balances rows for this org/item) unchanged",
+              "INVARIANT: COUNT(stock_allocations for this shipment) unchanged",
+              "INVARIANT: no new rows in integrations.audit_events for Xero push action codes",
+              "INVARIANT: salesShipments.status='shipped' unchanged; shippedAt unchanged"
+            ],
+            "priority": "P0",
+            "scores": { "business_criticality": 5, "bug_finding_potential": 4, "regression_risk": 5 },
+            "evidence": [
+              { "file": "app/(dashboard)/sales/queries.ts", "symbol": "updateSalesShipmentCosts", "reason": "Lines 6921-6981 — margin-only writes." },
+              { "file": "test/scenarios/mo-execute-and-fulfill/state-model.json", "symbol": "T_COST_EDIT_AFTER_SHIP + blocked_transition EditShipmentCosts side-effect", "reason": "Side-effect-free invariant." }
+            ],
+            "why_prioritized": "A regression here silently corrupts Xero. The test asserts the ABSENCE of side effects, which is exactly the kind of bug humans miss in PR review."
+          },
+          {
+            "id": "S18",
+            "title": "Output schema accepts non-zero quantity (positive or negative) and rejects zero",
+            "narrative": "Schema-level guard for recordManufacturingOutputSchema. Asserts: quantity='0' (or '0.0000') returns 400 schema validation error; quantity='-5' (negative reversal) passes schema and routes to reverseManufacturingOutputInTx; quantity='5' (positive) passes schema and routes to produceManufacturedStockInTx.",
+            "lane": "fast",
+            "target_transitions": ["T_OUTPUT_RECORD_DISCRETE", "T_OUTPUT_REVERSE"],
+            "target_business_rules": [],
+            "target_bug_classes": ["validation bypass"],
+            "setup": [
+              "Released discrete MO with all ingredients picked"
+            ],
+            "trigger_sequence": [
+              "POST /outputs with quantity='0' — expect 400",
+              "POST /outputs with quantity='5' — expect 200",
+              "POST /outputs with quantity='-3' — expect 200 (reversal path)"
+            ],
+            "expected_user_outcomes": [
+              "First call: 400 with schema validation error",
+              "Second call: 200 with output recorded",
+              "Third call: 200 with reversal applied"
+            ],
+            "expected_side_effects": [
+              "First call: no manufacturing_order_outputs row inserted",
+              "Second call: one new positive output row",
+              "Third call: one new negative output row, ingredient restocks via manufacturing_variance_gain"
+            ],
+            "priority": "P2",
+            "scores": { "business_criticality": 3, "bug_finding_potential": 3, "regression_risk": 2 },
+            "evidence": [
+              { "file": "lib/schemas/manufacturing-orders.ts", "symbol": "recordManufacturingOutputSchema", "reason": "Lines 319-334 — quantity is non-zero string, negatives allowed." }
+            ],
+            "why_prioritized": "Schema-level guard catches Zod misconfiguration."
+          }
+        ]
+      },
+      {
+        "risk_category": "concurrency_and_idempotency",
+        "why_this_category_matters": "The production hot spots are ship/pick/complete replays and concurrent MOs/picks. Mis-handled idempotency double-effects the ledger; mis-locked rows let two transactions both succeed and corrupt cost basis. All three replay paths must be tested.",
+        "scenarios": [
+          {
+            "id": "S19",
+            "title": "Idempotent ship replay: same key returns cached body; ledger unchanged",
+            "narrative": "POST /shipments/[id]/ship with Idempotency-Key K. After 200, POST again with the SAME K and SAME body. Asserts: second call returns 200 with identical response body; COUNT(inventory_events) for this shipment is unchanged between first and second call; shipment.shippedAt is unchanged (the original timestamp). Then POST with the SAME K but a DIFFERENT body (e.g. flip confirmNegativeStock) — asserts 409 IdempotencyConflictError.",
+            "lane": "slow",
+            "target_transitions": ["T_SHIP_NORMAL"],
+            "target_business_rules": ["BR-9"],
+            "target_bug_classes": ["async race condition", "stale data persisted"],
+            "setup": [
+              "Confirmed SO with planned shipment and sufficient free stock for one line",
+              "Idempotency-Key K captured for replay"
+            ],
+            "trigger_sequence": [
+              "POST /ship with key K, body B — capture response body R1",
+              "POST /ship with key K, body B again — capture response body R2",
+              "POST /ship with key K, body B' (changed confirmNegativeStock) — capture response R3"
+            ],
+            "expected_user_outcomes": [
+              "R1 = 200 with successful ship body",
+              "R2 = 200 with R2.body === R1.body (cached envelope)",
+              "R3 = 409 IdempotencyConflictError"
+            ],
+            "expected_side_effects": [
+              "COUNT(inventory_events) for this shipment is identical between after-R1 and after-R2",
+              "COUNT(inventory_lot_balances mutations) identical",
+              "shipment.shippedAt identical between after-R1 and after-R2"
+            ],
+            "priority": "P0",
+            "scores": { "business_criticality": 5, "bug_finding_potential": 4, "regression_risk": 5 },
+            "evidence": [
+              { "file": "lib/inventory/kernel/idempotency.ts", "symbol": "beginInventoryOperationInTx / claimInventoryIdempotencyInTx", "reason": "Unique (orgId, idempotencyKey); pending envelope -> cached body; mismatched paramsHash -> IdempotencyConflictError." },
+              { "file": "app/(dashboard)/sales/queries.ts", "symbol": "shipSalesShipment idempotency payload", "reason": "Lines 7315-7319 — payload includes confirmNegativeStock + syncAccounting." }
+            ],
+            "why_prioritized": "Production hot spot. UI ship retries are common; double-effect would silently double-decrement stock."
+          },
+          {
+            "id": "S20",
+            "title": "Idempotent pick + complete replay: same key returns cached body; no double-deduct",
+            "narrative": "Replay test for pick and complete. (a) POST /pick K1 then POST /pick K1 — second returns cached 200; pick allocations unchanged. (b) POST /complete K2 then POST /complete K2 — second returns cached 200; status='done' unchanged; no second produced lot; actualQuantity unchanged.",
+            "lane": "slow",
+            "target_transitions": ["T_PICK_TO_FULL_FIFO", "T_COMPLETE_DISCRETE"],
+            "target_business_rules": ["BR-9"],
+            "target_bug_classes": ["async race condition", "stale data persisted"],
+            "setup": [
+              "Released discrete MO ready for pick"
+            ],
+            "trigger_sequence": [
+              "POST /pick with key K1 on ingredient I",
+              "POST /pick with key K1 on ingredient I again",
+              "POST /pick on remaining ingredients normally",
+              "POST /complete with key K2",
+              "POST /complete with key K2 again"
+            ],
+            "expected_user_outcomes": [
+              "Both /pick K1 calls return 200 with identical bodies",
+              "Both /complete K2 calls return 200 with identical bodies"
+            ],
+            "expected_side_effects": [
+              "COUNT(manufacturing_pick_allocations) for ingredient I after second K1 == after first K1",
+              "COUNT(manufacturing_order_outputs) for the MO after second K2 == after first K2",
+              "Exactly one produced lot row for the MO",
+              "manufacturing_orders.actualQuantity stable across the replay"
+            ],
+            "priority": "P0",
+            "scores": { "business_criticality": 5, "bug_finding_potential": 4, "regression_risk": 5 },
+            "evidence": [
+              { "file": "app/api/manufacturing-orders/[id]/ingredients/[ingredientId]/pick/route.ts", "symbol": "POST requireIdempotencyKey", "reason": "Line 12." },
+              { "file": "app/api/manufacturing-orders/[id]/complete/route.ts", "symbol": "POST requireIdempotencyKey", "reason": "Line 14." }
+            ],
+            "why_prioritized": "Idempotency replay is the universal safety net; if it fails, every other operation could double-effect on retry."
+          },
+          {
+            "id": "S21",
+            "title": "Concurrent pick on same ingredient: row lock serialises; exactly one succeeds",
+            "narrative": "Two simultaneous POST /pick requests on the same ingredient (different Idempotency-Keys). The DAL locks the ingredient row FOR UPDATE. Asserts: exactly ONE response is 200; the OTHER is 400 'is already picked'; COUNT(manufacturing_pick_allocations) for the ingredient equals the picks the winning call wrote (not double); ingredient pickStatus='picked' once.",
+            "lane": "slow",
+            "target_transitions": ["T_PICK_TO_FULL_FIFO"],
+            "target_business_rules": ["BR-15"],
+            "target_bug_classes": ["async race condition"],
+            "setup": [
+              "Released discrete MO with one ingredient unpicked",
+              "Sufficient stock for one full pick (so both could theoretically succeed if not serialised)"
+            ],
+            "trigger_sequence": [
+              "Fire two POST /pick requests in parallel via Promise.allSettled with different Idempotency-Keys",
+              "Wait for both to settle"
+            ],
+            "expected_user_outcomes": [
+              "Exactly one response has status 200",
+              "The other has status 400 with message containing 'is already picked'"
+            ],
+            "expected_side_effects": [
+              "COUNT(manufacturing_pick_allocations) for the ingredient equals the FIRST winner's allocation count (not double)",
+              "Ingredient row pickStatus='picked' (exactly once)",
+              "No partial pick state visible"
+            ],
+            "priority": "P1",
+            "scores": { "business_criticality": 4, "bug_finding_potential": 5, "regression_risk": 4 },
+            "evidence": [
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "pickManufacturingIngredient FOR UPDATE", "reason": "Lines 6246-6267 — row lock prevents double-pick." },
+              { "file": "test/scenarios/mo-execute-and-fulfill/state-model.json", "symbol": "state_coverage_gaps Concurrent pick", "reason": "Explicit gap identified." }
+            ],
+            "why_prioritized": "Concurrency invariants must be tested in real Postgres; mocks would not surface lock-ordering bugs."
+          },
+          {
+            "id": "S22",
+            "title": "Concurrent /complete on two MOs producing into the same product: cost basis weighted-average reconciles regardless of completion order",
+            "narrative": "MO-A and MO-B both complete and produce into the same product (separate lots in this case because batch-mode creates distinct lots per batch, but the items.currentStockUnitCost weighted-average covers both lots). Lock ordering on items.id via lockItemsInTx serialises the two transactions. Asserts: after both complete, items.currentStockUnitCost equals the cumulative weighted average across both produced lot quantities and costs, regardless of which MO commits first. COUNT(lots) added equals 2 (one per MO). No deadlock observed.",
+            "lane": "slow",
+            "target_transitions": ["T_COMPLETE_DISCRETE"],
+            "target_business_rules": ["BR-4a", "BR-4b", "BR-15"],
+            "target_bug_classes": ["async race condition", "derived value drift"],
+            "setup": [
+              "Two released discrete MOs (MO-A, MO-B) producing into the same product item",
+              "Both MOs fully picked with non-zero ingredient costs",
+              "Snapshot of items.currentStockUnitCost before both completes"
+            ],
+            "trigger_sequence": [
+              "Fire POST /complete on MO-A and POST /complete on MO-B in parallel via Promise.allSettled"
+            ],
+            "expected_user_outcomes": [
+              "Both responses are 200"
+            ],
+            "expected_side_effects": [
+              "Exactly two new lot rows for the product (one per MO)",
+              "items.currentStockUnitCost equals the cumulative weighted average: (qtyA*costA + qtyB*costB) / (qtyA + qtyB) at scale 6",
+              "Both inventory_events of subtype 'manufacturing_complete' exist with idempotency_key non-null",
+              "No transaction failed due to deadlock"
+            ],
+            "priority": "P1",
+            "scores": { "business_criticality": 4, "bug_finding_potential": 5, "regression_risk": 4 },
+            "evidence": [
+              { "file": "lib/inventory/kernel/locking.ts", "symbol": "lockItemsInTx INVENTORY_LOCK_SPECS", "reason": "Sorts itemIds before locking; deadlock-free." },
+              { "file": "lib/inventory/cost.ts", "symbol": "calculateNextCurrentStockUnitCost", "reason": "Weighted-average accumulator." },
+              { "file": "test/scenarios/mo-execute-and-fulfill/state-model.json", "symbol": "state_coverage_gaps Cost-basis race", "reason": "Explicit gap identified." }
+            ],
+            "why_prioritized": "Cost basis race is the kind of bug that only manifests under concurrency in production; deterministic tests guard the lock ordering."
+          }
+        ]
+      }
+    ],
+    "coverage_summary": {
+      "covered_risk_categories": [
+        "cross_feature (S01, S02, S03, S04)",
+        "async_errors (S05 pick stock_shortage, S06 pick requirement_violation, S07 ship negativeStock, S08 missing-pick guard)",
+        "derived_values (S09 material weighted-average, S10 product BOM cost, S11 null-cost rejection, S12 expected_qty deltas)",
+        "state_transitions (S13 output reversal, S14 no-double-deduct, S15 mode-rejection, S16 already-picked guard)",
+        "validation (S17 cost margin-only, S18 schema guard)",
+        "concurrency_and_idempotency (S19 ship replay, S20 pick+complete replay, S21 concurrent pick, S22 dual-MO cost race)"
+      ],
+      "intentionally_deprioritized": [
+        "MO duplicate route — out of scope per Phase 0 (so-mo-linkage)",
+        "Sales order single-shot ship (no shipment row) via shipSalesOrder — same SalesError translation as shipSalesShipment; S07 covers the shape",
+        "Xero push side-effect asymmetry on replay — gap identified in state-model state_coverage_gaps but priority=low; out of slow lane to keep scope focused",
+        "Batch-mode /outputs route (T_OUTPUT_RECORD_BATCH) — contract notes this is rarely exercised; S02 covers batch lot creation via T_BATCH_COMPLETE which is the canonical path",
+        "saveManufacturingOutputAllocation race with /ship — flagged in state-model as a real-world concurrency risk but PUT /output-allocation is not Idempotency-Key gated; covered conceptually in S04 (disposition gate) and the slow stories' allocation tab assertions",
+        "Reverse output of an already-shipped produced lot — gap identified in state-model; treated as an edge case requiring downstream consumption setup; deferred to a follow-up scenario set"
+      ],
+      "not_covered_due_to_missing_evidence": [
+        "Exact UI selectors for the /execute page Mark done / Complete order / Complete batch / Record output buttons. Slow scenarios assume Phase 4 (test authoring) will look these up against manufacturing-execution.tsx directly.",
+        "reverseManufacturingOutputInTx line-by-line behaviour for already-consumed-by-ship produced lots (Phase 1 confidence note on BR-12)",
+        "Whether batch-mode partial-completion expected supply residual is exactly zero on final batch (state-model gap noted; S12 indirectly exercises via discrete completion but a dedicated batch-residual scenario would require deeper expected_supply event-log assertions)"
+      ]
+    }
+  },
+  "review_focus": [
+    "Are the three 409 surfaces (S05 stock_shortage, S06 requirement_violation, S07 negativeStock) each clearly distinguished by the discriminator the scenario asserts (warningType for pick, negativeStock payload presence for ship), and does S03 explicitly note that wait-for-MO uses the SAME response shape as plain shortage so the test must discriminate by setup?",
+    "Is BR-11 (no double deduct at /complete) asserted with the three independent invariants — COUNT(pick_allocations) unchanged, ingredient lot quantities unchanged, no 'manufacturing_pick' events post-complete — rather than a single weak assertion?",
+    "Is BR-12 (output reversal) asserted with the three independent invariants — produced lot quantity decremented, ingredient lots restocked, variance_gain events written — and does the scenario explicitly require the lot to NOT yet be consumed downstream?",
+    "Is BR-10 (cost margin-only) asserted as the ABSENCE of side effects (COUNT(inventory_events) unchanged, COUNT(stock_allocations) unchanged, no Xero audit row) and not as the presence of the cost rows alone?",
+    "Are idempotency replays asserted on response BODY equality AND on ledger COUNT stability, and does the mismatched-key replay (S19) explicitly expect IdempotencyConflictError?",
+    "Are concurrency scenarios (S21, S22) using Promise.allSettled with at-most-one-2xx assertions, and asserting child-row counts rather than relying on timing?",
+    "Lane distribution: 7 fast (S08, S15, S16, S18) + others? Let me count: fast = S08, S15, S16, S18 = 4 fast. Slow = S01,S02,S03,S04,S05,S06,S07,S09,S10,S11,S12,S13,S14,S17,S19,S20,S21,S22 = 18 slow. Total 22. This skews slow; consider whether S05/S06 first-call 409 (no override) could be fast write-path smoke (form submit + DB assertion). Reviewer should confirm fast lane sufficiency vs the 6-10 target.",
+    "Are any scenarios duplicating coverage? S05 + S07 both cover negative-stock override on different surfaces — distinct because they exercise different DAL paths (pickManufacturingIngredient vs shipSalesShipment) and different domain errors (ManufacturingError vs SalesError)."
+  ]
+}

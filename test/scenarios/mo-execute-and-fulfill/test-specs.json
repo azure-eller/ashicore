@@ -1,0 +1,1213 @@
+{
+  "summary": "Phase 4 test specs for mo-execute-and-fulfill. 24 Playwright e2e specs (no Vitest, no mocks, no @testing-library) — 6 fast write-path smoke specs + 18 slow operational stories. Each spec maps 1:1 to a scenario S01-S24 (S23/S24 added per critic), uses the repo's `test`/`db`/`testFetch` fixtures, hits the real API with the seeded org's session cookie, and asserts DB state via the RLS-scoped `db` fixture. Idempotency-Key semantics are critical: `testFetch` derives a deterministic key from method+path+body fingerprint, so same body = same key by default. For SAME-KEY replay tests we override headers explicitly; for race scenarios we use Promise.allSettled and identify winners by response shape, not array order. Critic findings applied inline: S06 demoted to P1, S11 tightened to status===500 with TODO flag-flip note, S15 split (batch-mode parent rejection retained, discrete+batchId case dropped), S23 + S24 added as fast first-attempt 409 representatives.",
+  "evidence": [
+    { "file": "test/e2e/fixtures.ts", "symbol": "test, expect, TestDb", "reason": "Custom test with RLS-scoped db fixture and auto-injected session cookie." },
+    { "file": "test/helpers/api.ts", "symbol": "testFetch, createItem, createCustomer, createSalesOrder, confirmSalesOrder, createManufacturingOrder, releaseManufacturingOrder, completeManufacturingOrder", "reason": "Auth + idempotency-key helpers (key derived from method:path:bodyFingerprint) and DAL wrappers." },
+    { "file": "test/e2e/slow/manufacturing-order.spec.ts", "symbol": "pickAllManufacturingIngredients, createManufacturingOrder, releaseManufacturingOrder", "reason": "Breadth model: serial domain story with per-test data sharing via describe-level lets." },
+    { "file": "test/e2e/fast/manufacturing-actuals.spec.ts", "symbol": "batch start + pick + complete + variance assertions", "reason": "Canonical fast-write-path style for batch/pick/complete + variance event assertions." },
+    { "file": "test/e2e/slow/partial-sales-shipments.spec.ts", "symbol": "shipment plan + costs + ship + DB invariants", "reason": "Canonical pattern for shipment cost + ship flow." },
+    { "file": "test/e2e/reconciliation/kernel-invariants.spec.ts", "symbol": "postJsonWithKey, deleteWithKey, key(label, ts), withTestOrg, diffProjections", "reason": "Idempotency-key replay patterns with explicit header override and per-test deterministic keys." },
+    { "file": "test/e2e/reconciliation/global-invariants.spec.ts", "symbol": "global invariants (5)", "reason": "Companion invariant spec shipping with this PR series — referenced for snapshot-and-diff style." }
+  ],
+  "inferences": [
+    "testFetch derives Idempotency-Key as `test:METHOD:path:bodyFingerprint` (helpers/api.ts 138-151). For same-key replay you MUST override headers explicitly with `Idempotency-Key: 'K1'`. For different-key on same body, override is also required since the default is body-derived.",
+    "Race scenarios (S21, S22) settle in non-deterministic order. Identify winner/loser by response.status and response.body, never by array index.",
+    "BR-10 absence assertions use `COUNT(*)` snapshots filtered by orgId+shipmentId+timestamp boundary. The test must snapshot BEFORE the cost edit and re-snapshot AFTER, asserting equality.",
+    "BR-12 reversal scenarios MUST assert: produced lot.quantity decremented, ingredient lots restocked, inventory_events with eventType='manufacturing_variance_gain' present — three independent invariants with a self-documenting failure message.",
+    "Products in tests must be created with `sellable: true` to appear on sales order lines (createItem helper passes through; default in schema is false).",
+    "Dates (orderDate, shipDate) must be computed at call time from `new Date()` so they don't go stale as the calendar rolls."
+  ],
+  "unknowns": [
+    "Exact UI selectors for /execute Mark done / Complete order / Start batch buttons. These specs are API-first (no UI navigation required for the assertions); slow specs that visit /execute should look up selectors against manufacturing-execution.tsx during test authoring.",
+    "Whether the /api/manufacturing-orders/[id]/execution GET endpoint always lists ingredients in BOM order; the existing pickAllManufacturingIngredients helper iterates whatever order is returned, which is sufficient for the assertion semantics here.",
+    "Exact API path for the materializeManufacturingOutputAllocationFromExistingOutputInTx side-effect on second /complete after a prior /outputs call — not exercised in this batch beyond S04 which uses outputDisposition='blocked' to bypass it."
+  ],
+  "structured_output": {
+    "repo_patterns": {
+      "fixtures": [
+        "import { test, expect } from '../fixtures';  // custom test with auto-injected session cookie + RLS-scoped `db` fixture",
+        "Use `test.describe.configure({ mode: 'serial' })` for any spec where tests share data via describe-level `let` variables.",
+        "Use the `db` fixture for all DB assertions — it uses app_user with RLS, same security path as the app."
+      ],
+      "api_helpers": [
+        "testFetch(path, options) — auto-includes Origin, Cookie, Content-Type; derives Idempotency-Key from `test:METHOD:path:bodyFingerprint`. Override via `headers: { 'Idempotency-Key': 'K1' }` for same-key replay or distinct-key races.",
+        "createItem({ ..., sellable: true }) — sellable defaults to false; products on sales order lines must opt in.",
+        "createCustomer({ name }) — minimum payload; returns { status, body: { id } }.",
+        "createSalesOrder({ customerId, lines, shipments?, ... }) — orderDate/shipDate must be computed via new Date() at call time.",
+        "confirmSalesOrder(orderId, { confirmOversell }) — required to move SO from draft into 'open' state with reservations.",
+        "createManufacturingOrder({ productId, plannedQuantity, ingredients, confirmShortage: true }) — confirmShortage=true to bypass insufficient-stock guard at create time.",
+        "releaseManufacturingOrder(orderId, { confirmShortage: true }) — required to enter the execute-and-fulfill surface.",
+        "completeManufacturingOrder(orderId, actualQuantity, { outputDisposition? }) — wraps POST /complete; specs needing extra body fields (ingredientActuals, confirmNegativeStock) must call testFetch directly."
+      ],
+      "db_assertion_patterns": [
+        "Numeric columns return strings — use parseFloat() or formatQuantity() for comparisons; never compare strings of trimmed-vs-untrimmed scale.",
+        "Filter master rows with isNull(items.deletedAt) when asserting against soft-deleted entities.",
+        "Aggregate snapshots: const beforeCount = (await db.select({ c: sql<string>`COUNT(*)` }).from(inventoryEvents).where(...))[0].c — then after, assert equality.",
+        "Subtype + reference filter: select where eq(inventoryEvents.eventType, 'manufacturing_variance_gain') AND eq(inventoryEvents.referenceType, 'manufacturing_order') AND eq(inventoryEvents.referenceId, orderId).",
+        "Stock allocation snapshots: select where eq(stockAllocations.demandType, 'sales_shipment_line') AND eq(stockAllocations.demandId, shipmentLineId)."
+      ],
+      "idempotency_helpers": [
+        "Default behaviour: same body -> same derived key -> server replay returns cached envelope.",
+        "Explicit same-key replay (S19/S20): pass `headers: { 'Idempotency-Key': 'K1' }` on BOTH calls.",
+        "Distinct-key replay (S05/S07 first-vs-second attempt with different body): testFetch will derive different keys automatically because the body fingerprint changes between attempts.",
+        "Mismatched-key 409 (S19 third call): pass `headers: { 'Idempotency-Key': 'K1' }` with a CHANGED body — server detects paramsHash mismatch -> IdempotencyConflictError 409."
+      ],
+      "race_patterns": [
+        "Fire concurrent requests via Promise.allSettled. After settle, identify winner by response.status===2xx and loser by response.status===4xx or by checking body.error. Do NOT identify by array order.",
+        "Lock-serialised races (S21): exactly-one-2xx assertion via a count of fulfilled-with-status-200 promises.",
+        "Cost-basis commutativity (S22): compute expected items.currentStockUnitCost INDEPENDENT of completion order via the running weighted-average formula."
+      ],
+      "common_setup": [
+        "Use `Date.now()` + `Math.random().toString(36)` suffixes on every created entity name to avoid collisions between parallel workers.",
+        "Compute dates via `new Date()` and offset with `+ N * 24 * 60 * 60 * 1000` for future ship dates.",
+        "All material defaults: `defaultPurchasePrice: '<non-null>'` so cost basis can resolve on positive flows.",
+        "All product defaults: `sellable: true` and BOM with at least one non-deleted ingredient line — otherwise the new-MO product picker rejects."
+      ],
+      "naming_conventions": [
+        "Test names: short verb phrase, no leading 'should'. Match the scenario title.",
+        "Variables shared across serial tests: declared at the `test.describe` block as `let varName: string` and assigned in the first test.",
+        "Fixture suffix: `_${ts}` or `_${Date.now()}` on every name/sku to keep parallel-worker isolation."
+      ]
+    },
+    "test_specs": [
+      {
+        "test_name": "drives discrete MO release -> pick -> complete -> downstream SO ship end-to-end",
+        "scenario_id": "S01",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "End-to-end regression smoke for the entire feature: cost basis non-null on produced lot, MO promise materialises onto produced lot, shipment consumes lot hold first, expected_qty zeros at complete, parent SO flips to done after ship.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Material item with stock and defaultPurchasePrice set so cost basis resolves",
+            "Product item with sellable=true and BOM referencing the material",
+            "Customer fixture",
+            "Confirmed sales order linked to the product",
+            "Manufacturing order created and released (confirmShortage: true) linked to the SO line"
+          ],
+          "seed_data": [
+            "Material: stock='200', defaultPurchasePrice='2.00'",
+            "Product: sellable=true, bom=[{componentId: materialId, quantity: '2'}]",
+            "Sales order: 1 line of product qty='10' unitPrice='50.00', confirmed",
+            "Manufacturing order: plannedQuantity='10', ingredients=[{itemId: materialId, quantityPerUnit: '2'}], released"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Fetch /api/manufacturing-orders/[id]/execution to enumerate ingredient ids",
+          "For each ingredient: POST /api/manufacturing-orders/[id]/ingredients/[ingredientId]/pick with body '{}' (testFetch derives Idempotency-Key automatically)",
+          "POST /api/manufacturing-orders/[id]/complete body { actualQuantity: '10', outputDisposition: 'available' }",
+          "Plan shipment: POST /api/sales-orders/[id]/shipments body { fulfillmentType: 'delivery', scheduledDate: <date+7d>, deliveryDate: <date+7d>, lines: [{ salesOrderLineId, quantity: '10' }] }",
+          "POST /api/sales-orders/[id]/shipments/[shipmentId]/ship body { syncAccounting: false }"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Every pick response status === 200; body has ingredient id matching url",
+            "Complete response status === 200",
+            "Plan-shipment response status in {200, 201}",
+            "Ship response status === 200"
+          ],
+          "side_effects": [
+            "manufacturingOrderIngredients.pickStatus === 'picked' for every ingredient row of the MO",
+            "manufacturingOrders.status === 'done' and completedAt non-null after /complete",
+            "manufacturingOrders.actualCostPerUnit non-null and > 0",
+            "Exactly one lots row exists with itemId === productId and unitCost > 0",
+            "stockAllocations where demandType==='manufacturing_order_ingredient' AND demandId IN ingredients of this MO -> all rows have status==='consumed'",
+            "stockAllocations where demandType==='sales_shipment_line' AND demandId === shipmentLineId -> at least one row has sourceType==='inventory_lot' pointing to the produced lot after /complete (materialisation step)",
+            "After ship: stockAllocations for this shipment-line all rows status==='consumed'",
+            "salesShipments.status === 'shipped' and shippedAt non-null",
+            "salesOrders.status === 'done' (single-line order, fully shipped)",
+            "inventoryEvents has rows with eventType==='manufacturing_ingredient_consumption' (one per ingredient) AND eventType==='manufacturing_output' AND eventType==='sales_consumption' for the shipped lot",
+            "inventoryItemBalances.expectedQty for productId returns to 0 after /complete (residual released)"
+          ],
+          "negative_assertions": [
+            "No row of stockAllocations(demandType='sales_shipment_line', demandId=shipmentLineId, sourceType='manufacturing_order', status='active') remains after the MO completes (materialisation should replace it)",
+            "Ship does NOT 409 — the materialised lot hold satisfies the shipment line"
+          ]
+        },
+        "waiting_strategy": [
+          "Each testFetch awaits before the next call — no implicit polling required.",
+          "After /complete + before /ship, no UI poll is needed since API calls are synchronous; assertions read DB directly via `db` fixture."
+        ],
+        "flakiness_risks": [
+          "Date drift if shipDate is hardcoded; compute via `new Date()` + offset.",
+          "Allocation row counts can drift if a parallel worker mutates the same product — keep names/SKUs unique with ts+random suffix.",
+          "Order of inventoryEvents rows depends on transaction insert order; assert by COUNT and by filtered presence, not by array index."
+        ],
+        "data_isolation_notes": [
+          "All entities suffixed with `ts = Date.now()`; product/material/customer all carry the same suffix for traceability.",
+          "Each test in this spec file is at describe-level scope so variables shared via `let` survive but DB rows are unique."
+        ],
+        "applicable_helpers": [
+          "createItem, createCustomer, createSalesOrder (from test/helpers/api.ts)",
+          "confirmSalesOrder, createManufacturingOrder, releaseManufacturingOrder, completeManufacturingOrder",
+          "testFetch for /shipments and /ship endpoints (no dedicated helper yet)"
+        ],
+        "new_helpers_recommended": [
+          "Consider adding helpers/api.ts shipments helper for parity: createShipment(orderId, payload), shipShipment(orderId, shipmentId, payload). Optional — testFetch direct is fine."
+        ]
+      },
+      {
+        "test_name": "batch-mode MO produces one lot per batch and parent flips only on final batch",
+        "scenario_id": "S02",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "Assert BR-6 (exactly one lot per batch) and BR-7 (parent stays 'open' until final batch). Manufacturing-actuals fast spec already exercises this for the happy path; this slow story extends to assert distinct lotIds per batch and inventoryEvents structure.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Material with sufficient stock for 2 batches",
+            "Product with manufacturingMode='batch', expectedBatchYield='50', BOM with per_batch consumption",
+            "Released batch-mode MO with exactly 2 manufacturing_order_batches rows in 'pending'"
+          ],
+          "seed_data": [
+            "Material: stock='200', defaultPurchasePrice='10.00'",
+            "Product: bom=[{componentId: materialId, quantity: '1', consumptionMode: 'per_batch', basisOutputQuantity: '50', batchScalingMode: 'full_batches_only'}]",
+            "MO: plannedQuantity='100' (2 batches of 50)"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Read manufacturingOrderBatches for the MO, sort by batchNumber",
+          "For batch1: POST /batches/[b1]/start, then pick b1 ingredient(s), then POST /batches/[b1]/complete with actualQuantity='50'",
+          "Snapshot parent MO: SELECT status, completedAt FROM manufacturingOrders WHERE id = orderId",
+          "For batch2: POST /batches/[b2]/start, pick, complete",
+          "Snapshot final state"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "All POSTs return 200",
+            "After batch1 complete: parent MO.status === 'open' and completedAt === null",
+            "After batch2 complete: parent MO.status === 'done' and completedAt non-null"
+          ],
+          "side_effects": [
+            "manufacturingOrderBatches[batch1].lotId non-null after batch1 complete",
+            "manufacturingOrderBatches[batch2].lotId non-null after batch2 complete",
+            "batch1.lotId !== batch2.lotId (distinct lots, BR-6)",
+            "Two distinct lots rows exist with itemId === productId, each unitCost > 0",
+            "manufacturingOrderOutputs has exactly 2 rows for the MO, one per batch",
+            "manufacturingOrders.actualQuantity === '100.0000' after batch2",
+            "inventoryItemBalances.expectedQty for productId is 0 after batch2 completes (residual released via T_PARENT_DONE)"
+          ],
+          "negative_assertions": [
+            "No /complete on the parent MO is required or expected — only batch /complete endpoints are used",
+            "No row in lots has unitCost === null or 0"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API; no polling."],
+        "flakiness_risks": ["Per-batch ingredient lookup must filter by manufacturingOrderBatchId — see fast/manufacturing-actuals.spec.ts pattern."],
+        "data_isolation_notes": ["Suffix all names with ts."],
+        "applicable_helpers": ["createItem, createManufacturingOrder, releaseManufacturingOrder, testFetch"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "ship 409 when shipment line has unmaterialised manufacturing_order source; override does not bypass; succeeds after MO completes",
+        "scenario_id": "S03",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-14 wait-for-MO guard: consumeForShipmentInTx refuses fall-through even with confirmNegativeStock=true. Verified against lib/inventory/kernel/operations/sales.ts:756-768 — the throw at 763 is NOT gated by params.allowNegativeStock.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Customer + product (sellable=true) with BOM",
+            "Confirmed SO for the product with quantity that requires the MO to produce",
+            "Sales-linked MO created from the SO line, released (so stock_allocations sourceType='manufacturing_order' is active on the shipment line)",
+            "No other free stock for the product so plain FIFO would also fail",
+            "Planned shipment covering the SO line",
+            "MO ingredients UNPICKED so no production has occurred"
+          ],
+          "seed_data": [
+            "Material stock high enough for MO consumption",
+            "Product: stock='0', no existing lots for the product",
+            "Sales order quantity equals MO plannedQuantity"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Verify precondition: stockAllocations(demandType='sales_shipment_line', demandId=shipmentLineId, sourceType='manufacturing_order', status='active') row exists",
+          "Call 1: POST /shipments/[shipmentId]/ship body { syncAccounting: false } — expect 409 negativeStock",
+          "Call 2: POST same path body { syncAccounting: false, confirmNegativeStock: true } — expect 409 still (override does not bypass wait-for-MO; testFetch derives a different key because body differs)",
+          "Pick all MO ingredients then POST /complete with outputDisposition='available'",
+          "Call 3: POST /shipments/[shipmentId]/ship body { syncAccounting: false } — expect 200"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Call 1: status === 409; body.error matches /Insufficient stock|Not enough/; body.negativeStock present with { itemId, itemName, available, requested, shortage }",
+            "Call 2: status === 409; same negativeStock payload shape (wait-for-MO uses identical SalesError translation)",
+            "Call 3: status === 200"
+          ],
+          "side_effects": [
+            "Between Calls 1 and 2: no new inventoryEvents rows for this shipment (assert COUNT unchanged)",
+            "Between Calls 1 and 2: salesShipments.status remains 'planned'",
+            "After /complete: stockAllocations row for the shipment-line flips from sourceType='manufacturing_order' to sourceType='inventory_lot' (materialisation)",
+            "After Call 3: salesShipments.status === 'shipped'; stockAllocations for the shipment-line all rows status === 'consumed'"
+          ],
+          "negative_assertions": [
+            "Call 2 does NOT create a NEG-* synthetic lot",
+            "Call 2 does NOT transition the shipment to 'shipped'"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": [
+          "Test depends on the precondition that NO inventory_lot allocation already covers the shipment line. Snapshot COUNT(allocations where sourceType='inventory_lot') === 0 before Call 1."
+        ],
+        "data_isolation_notes": ["Use unique product/customer per test run."],
+        "applicable_helpers": ["createItem, createCustomer, createSalesOrder, confirmSalesOrder, createManufacturingOrder, releaseManufacturingOrder, testFetch"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "outputDisposition='blocked' bypasses materialisation; downstream ship 409s with same payload",
+        "scenario_id": "S04",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-13: produceManufacturedStockInTx skips materializeManufacturingOrderSourceAllocationsForLotInTx when outputDisposition='blocked'. Downstream shipment with an unmaterialised MO source still 409s.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Same setup as S03 — sales-linked MO with planned shipment carrying MO-source allocation",
+            "MO ingredients picked"
+          ],
+          "seed_data": ["As S03"],
+          "route": null
+        },
+        "interaction_plan": [
+          "Pick all ingredients",
+          "POST /outputs body { quantity: '10', outputDisposition: 'blocked' }",
+          "POST /complete body { actualQuantity: '10', outputDisposition: 'blocked' }",
+          "POST /shipments/[shipmentId]/ship body { syncAccounting: false } — expect 409"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Output recorded and complete both return 200",
+            "Ship returns 409 with negativeStock payload"
+          ],
+          "side_effects": [
+            "Produced lots row exists; inventoryLotBalances row for the lot has disposition='blocked'",
+            "stockAllocations(demandType='sales_shipment_line', demandId=shipmentLineId, sourceType='manufacturing_order', status='active') still present (NOT materialised)",
+            "No stockAllocations row of sourceType='inventory_lot' against the produced lot for this shipment line"
+          ],
+          "negative_assertions": [
+            "No materializeManufacturingOrderSourceAllocationsForLotInTx side-effect (assert by absence of the sourceType='inventory_lot' allocation row)"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": ["Disposition column is on the inventoryLotBalances row, not the lots row — query via inventoryLotBalances.disposition."],
+        "data_isolation_notes": ["Unique fixtures."],
+        "applicable_helpers": ["As S03"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "pick 409 stock_shortage and confirmNegativeStock override creates NEG synthetic lot",
+        "scenario_id": "S05",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-3a + BR-4a: pickManufacturingIngredient surfaces shortage.warningType='stock_shortage' and override creates a NEG-<date>-<uuid> lot with resolved cost basis.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Released discrete MO with one material ingredient whose plannedQuantity > current available stock",
+            "Material has non-null currentStockUnitCost or defaultPurchasePrice"
+          ],
+          "seed_data": [
+            "Material: stock='5', defaultPurchasePrice='10.00'",
+            "MO plannedQuantity='10' with ingredient quantityPerUnit='1' (requires 10 of material, only 5 on hand)"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "POST /pick body {} (no confirm flag) — expect 409 stock_shortage",
+          "POST /pick body { confirmNegativeStock: true } — testFetch derives a different key due to body fingerprint change; expect 200"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Call 1: status === 409; body.shortage present with warningType==='stock_shortage' and itemName populated (matches ManufacturingError extra payload)",
+            "Call 2: status === 200; body.id === ingredientId"
+          ],
+          "side_effects": [
+            "After Call 1: COUNT(manufacturingPickAllocations where manufacturingOrderIngredientId === ingredient.id) === 0",
+            "After Call 2: at least one lots row exists with lotNumber LIKE 'NEG-%' and itemId === material.id and unitCost > 0",
+            "After Call 2: inventoryEvents has rows for the ingredient with eventType='manufacturing_ingredient_consumption' referencing the NEG lot OR the existing lot",
+            "manufacturingOrderIngredients.pickStatus === 'picked' after Call 2"
+          ],
+          "negative_assertions": [
+            "Call 1 writes zero new inventoryEvents for the ingredient",
+            "No row in lots has unitCost === null"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": ["NEG-lot detection by lotNumber LIKE 'NEG-%' is implementation-detail; an alternative is to assert that COUNT(lots WHERE itemId=materialId) increased by 1 across Call 2."],
+        "data_isolation_notes": ["Per-test ts suffix."],
+        "applicable_helpers": ["createItem, createManufacturingOrder, releaseManufacturingOrder, testFetch"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "pick 409 requirement_violation (minimum lot age) and confirmRequirementOverride",
+        "scenario_id": "S06",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-3b: requirement_violation 409 with nextEligibleDate. Demoted to P1 per critic — shares DAL surface with S05 so marginal regression value is lower.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Material with minimumLotAgeDays configured (e.g., 30)",
+            "Material stock exists but every lot's receivedAt is INSIDE the minimum age window",
+            "Released MO whose ingredient references this material"
+          ],
+          "seed_data": [
+            "Material: stock='100', minimumLotAgeDays=30, defaultPurchasePrice='5.00'",
+            "Lots created via createItem opening balance have receivedAt = now (inside window)",
+            "MO plannedQuantity='50'"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "POST /pick body {} — expect 409 requirement_violation",
+          "POST /pick body { confirmRequirementOverride: true } — expect 200"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Call 1: status === 409; body.shortage.warningType === 'requirement_violation'; body.shortage.requirement present (lot age text); body.shortage.nextEligibleDate present and parseable as YYYY-MM-DD",
+            "Call 2: status === 200"
+          ],
+          "side_effects": [
+            "After Call 2: manufacturingPickAllocations row for this ingredient has requirementOverrideConfirmed === true",
+            "After Call 2: requirementOverrideConfirmedBy and requirementOverrideConfirmedAt non-null",
+            "inventoryEvents includes eventType='manufacturing_ingredient_consumption' for the ingredient"
+          ],
+          "negative_assertions": [
+            "Call 1 inserts zero pick_allocations rows"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": ["minimumLotAgeDays may not be settable via createItem; the test may need to UPDATE items SET minimum_lot_age_days = 30 via raw SQL or via PUT /api/items/[id]. Confirm during test authoring."],
+        "data_isolation_notes": ["Per-test ts."],
+        "applicable_helpers": ["createItem, createManufacturingOrder, releaseManufacturingOrder, testFetch"],
+        "new_helpers_recommended": ["Helper to set items.minimumLotAgeDays if PUT /api/items doesn't currently accept it."]
+      },
+      {
+        "test_name": "ship 409 negativeStock (plain shortage, no MO promise) and confirmNegativeStock override creates NEG lot",
+        "scenario_id": "S07",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-3c + BR-4b: shipSalesShipment translates InsufficientStockError to SalesError 409 negativeStock; override path creates synthetic NEG lot via createNegativeStockEventInTx with cost resolved via product BOM cost-walk.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Product with active BOM (so resolvePositiveStockUnitCostInTx product branch can succeed)",
+            "Stock=0 for the product (or below the shipment quantity)",
+            "Confirmed SO for the product with quantity > available",
+            "Planned shipment with NO MO-source allocation on the line"
+          ],
+          "seed_data": [
+            "Material: stock='100', defaultPurchasePrice='5.00' (cost basis for product BOM walk)",
+            "Product: sellable=true, stock='0', bom=[{componentId: materialId, quantity: '1'}]",
+            "SO: quantity='10', confirmed",
+            "Shipment: planned, lines=[{salesOrderLineId, quantity: '10'}]"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "POST /shipments/[shipmentId]/ship body { syncAccounting: false } — expect 409",
+          "POST same path body { syncAccounting: false, confirmNegativeStock: true } — expect 200"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Call 1: status === 409; body.negativeStock present with shape { itemId, itemName, available, requested, shortage }",
+            "Call 2: status === 200"
+          ],
+          "side_effects": [
+            "After Call 1: salesShipments.status === 'planned' (unchanged); COUNT(inventoryEvents where referenceType='sales_shipment' AND referenceId=shipmentId) === 0",
+            "After Call 2: a lots row exists with lotNumber LIKE 'NEG-%' and itemId === productId and unitCost > 0",
+            "After Call 2: inventoryEvents includes eventType='sales_consumption' for the shipment",
+            "After Call 2: salesShipments.status === 'shipped' and shippedAt non-null"
+          ],
+          "negative_assertions": [
+            "Call 1 does NOT create any NEG lot"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": ["Product BOM cost-walk requires material.currentStockUnitCost or defaultPurchasePrice non-null. Material defaultPurchasePrice='5.00' is sufficient."],
+        "data_isolation_notes": ["Per-test ts."],
+        "applicable_helpers": ["createItem, createCustomer, createSalesOrder, confirmSalesOrder, testFetch"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "discrete /complete with unpicked ingredients returns 400 listing missing items",
+        "scenario_id": "S08",
+        "lane": "fast",
+        "spec_file": "test/e2e/fast/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-11 missing-pick guard. Cheap fast-lane assertion: 400 with ingredient name in error; MO status unchanged.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Released discrete MO with at least 2 ingredients",
+            "Only ONE ingredient picked"
+          ],
+          "seed_data": [
+            "Two materials with stock + cost basis",
+            "Product: bom=[{materialA}, {materialB}]",
+            "MO: plannedQuantity='10', ingredients=[A,B]",
+            "Pick ingredient A only"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "POST /complete body { actualQuantity: '10' }"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Response status === 400",
+            "body.error matches /Pick/i and contains the unpicked ingredient's item name"
+          ],
+          "side_effects": [
+            "manufacturingOrders.status === 'open' (unchanged)",
+            "manufacturingOrders.completedAt === null",
+            "No new inventoryEvents of eventType='manufacturing_output' for this MO"
+          ],
+          "negative_assertions": [
+            "No new lots row created for the product",
+            "No row in manufacturingOrderOutputs for the MO"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": ["Error text contains the item name; assert via /Pick/i (case-insensitive) and includes ingredient name."],
+        "data_isolation_notes": ["Per-test ts suffix on names/SKUs."],
+        "applicable_helpers": ["createItem, createManufacturingOrder, releaseManufacturingOrder, testFetch"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "material weighted-average cost on positive flow into existing lot",
+        "scenario_id": "S09",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-4a: appendPositiveStockToExistingLotInTx weighted-averages lot quantity AND unitCost; calculateNextCurrentStockUnitCost mirrors it into items.currentStockUnitCost.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Material with one existing lot (qty=100, unitCost=10.000000)",
+            "items.currentStockUnitCost = 10.000000"
+          ],
+          "seed_data": [
+            "createItem stock='100', defaultPurchasePrice='10.00' — creates one lot via opening balance"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Capture lot row id from createItem",
+          "Trigger a positive append: simplest is a manual adjustment increase via POST /api/items/[id]/adjust (or via a purchase receipt) with quantity=50, unitCost=14.00 targeting the SAME lot (lotNumber from the existing lot)",
+          "Re-read items.currentStockUnitCost and lots.unitCost"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Adjustment response status === 200/201"
+          ],
+          "side_effects": [
+            "lots row after: quantity === '150.0000', unitCost === '11.333333' (or matches (100*10+50*14)/150 at scale 6)",
+            "items.currentStockUnitCost === '11.333333' after the append"
+          ],
+          "negative_assertions": [
+            "No second lots row was created — the append updated the existing lot in place"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": [
+          "Append-to-existing-lot requires passing a specific lotNumber on the adjust/receipt API. Test author must confirm the exact API surface (POST /api/items/[id]/adjust or similar) supports lotNumber targeting; otherwise mock the append by issuing two purchase receipts to the same supplier+lotNumber.",
+          "Floating-point comparison: use string-equality after trimScale, or parseFloat + toBeCloseTo(11.333333, 6)."
+        ],
+        "data_isolation_notes": ["Per-test ts."],
+        "applicable_helpers": ["createItem, testFetch"],
+        "new_helpers_recommended": ["Adjust-stock helper if not already present in test/helpers/api.ts (manualIncreaseStock pattern)."]
+      },
+      {
+        "test_name": "product BOM cost-walk produces non-null unitCost on MO output lot",
+        "scenario_id": "S10",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-4b: produceManufacturedStockInTx unitCost = (ingredientCostTotal + overheadCostTotal) / quantity at scale 6; matches manufacturing_orders.actualCostPerUnit.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Materials with currentStockUnitCost set (via createItem opening balance and defaultPurchasePrice)",
+            "Product with active BOM",
+            "Released discrete MO with all ingredients picked"
+          ],
+          "seed_data": [
+            "Material A: stock='100', defaultPurchasePrice='2.00' -> currentStockUnitCost=2.000000",
+            "Material B: stock='100', defaultPurchasePrice='3.00' -> currentStockUnitCost=3.000000",
+            "Product: bom=[{A, quantity:'2'}, {B, quantity:'1'}]",
+            "MO plannedQuantity='10' (consumes 20 of A + 10 of B = 40+30 = 70 total ingredient cost; expected unitCost=70/10=7.000000)"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Pick all ingredients",
+          "POST /complete body { actualQuantity: '10' }"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": ["Complete response status === 200"],
+          "side_effects": [
+            "manufacturingOrders.actualCostPerUnit === '7.000000' (or matches expected weighted ingredient cost sum / quantity at scale 6)",
+            "Exactly one lots row for productId; lots.unitCost === manufacturingOrders.actualCostPerUnit",
+            "inventoryEvents with eventType='manufacturing_output' for this MO has unitCost equal to lots.unitCost"
+          ],
+          "negative_assertions": [
+            "No row in lots has unitCost === null or === '0' for this product"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": ["Compute expected unitCost from picked-allocation totals at runtime (sum of manufacturingPickAllocations.quantityUsed * material.currentStockUnitCost) rather than hardcoding 7.000000 — the test then survives changes in cost resolution order."],
+        "data_isolation_notes": ["Per-test ts."],
+        "applicable_helpers": ["createItem, createManufacturingOrder, releaseManufacturingOrder, completeManufacturingOrder"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "ship product without BOM cost basis into negative stock returns 500 MissingCostBasisError",
+        "scenario_id": "S11",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "Pin down the current 500 surface for MissingCostBasisError. Tightened to expect exactly 500 per critic — TODO note: if route handling lands later, revise to expect 4xx with reason='product_bom_cost'.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Product with NO active BOM (createItem with bom: [])",
+            "Confirmed SO with quantity exceeding stock (which is 0)",
+            "Planned shipment, no MO promise on the line"
+          ],
+          "seed_data": [
+            "Product: sellable=true, stock='0', bom=[] — NO active BOM means resolvePositiveStockUnitCostInTx product branch throws MissingCostBasisError",
+            "SO: quantity='10', confirmed"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "POST /shipments/[shipmentId]/ship body { syncAccounting: false, confirmNegativeStock: true }"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Response status === 500 (TODO: flag-flip to 4xx with reason='product_bom_cost' once route catches MissingCostBasisError. If this assertion fails because handling was added, revise the test and remove this note.)"
+          ],
+          "side_effects": [
+            "salesShipments.status === 'planned' (unchanged)",
+            "COUNT(inventoryEvents where referenceType='sales_shipment' AND referenceId=shipmentId) === 0",
+            "COUNT(lots where lotNumber LIKE 'NEG-%' AND itemId=productId) === 0"
+          ],
+          "negative_assertions": [
+            "No NEG lot created",
+            "No sales_consumption event written"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": [
+          "Product with bom=[] needs to be sellable=true AND must not be referenced by any draft MO. Use a fresh product per test.",
+          "TODO note in the test body: when MissingCostBasisError handling is added to the route, update the expected status."
+        ],
+        "data_isolation_notes": ["Per-test ts."],
+        "applicable_helpers": ["createItem, createCustomer, createSalesOrder, confirmSalesOrder, testFetch"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "expected supply deltas across release / output / complete / cancel",
+        "scenario_id": "S12",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-5: items.expectedQty is event-driven via subtypes manufacturing_release / manufacturing_complete / cancel. End-to-end walk of two MOs through release/partial-output/complete/cancel.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Product item with zero current expectedQty",
+            "Two discrete MOs ready (MO-A and MO-B) referencing the product"
+          ],
+          "seed_data": [
+            "MO-A plannedQuantity='10', MO-B plannedQuantity='15'"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Release MO-A (call release API or via createManufacturingOrder + releaseManufacturingOrder)",
+          "Snapshot inventoryItemBalances.expectedQty for productId",
+          "Release MO-B; snapshot",
+          "Pick MO-A ingredients; POST /outputs quantity='4'; snapshot",
+          "POST /complete on MO-A actualQuantity='10'; snapshot",
+          "DELETE /api/manufacturing-orders/[MO-B] (cancel); snapshot"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": ["Each release/complete/cancel call returns 2xx"],
+          "side_effects": [
+            "After release MO-A: inventoryItemBalances.expectedQty for productId === '10.0000' (or parseFloat === 10)",
+            "After release MO-B: expectedQty === '25.0000' (10 + 15)",
+            "After /outputs quantity 4 on MO-A: expectedQty === '21.0000' (25 - 4)",
+            "After /complete MO-A (full release of residual): expectedQty === '15.0000' (just MO-B left)",
+            "After /delete MO-B: expectedQty === '0.0000'",
+            "inventoryEvents has rows with eventType='expected_increase' or eventSubtype='manufacturing_release' (2 — one per MO), eventType='expected_release' or eventSubtype='manufacturing_complete' (for the output + completion + cancel paths)"
+          ],
+          "negative_assertions": [
+            "No drift: final expectedQty === 0 EXACTLY after MO-B cancel"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": [
+          "expectedQty drift between snapshots can be off-by-rounding; use parseFloat + toBeCloseTo(value, 4) for comparisons.",
+          "If MO-A has actualQuantity overrun (e.g. /outputs creates 4 then /complete with actualQuantity=10 produces 6 more), the test must compute expected deltas from inputs not assume static values."
+        ],
+        "data_isolation_notes": ["Per-test ts."],
+        "applicable_helpers": ["createItem, createManufacturingOrder, releaseManufacturingOrder, completeManufacturingOrder, testFetch"],
+        "new_helpers_recommended": ["deleteManufacturingOrder(id) helper for parity with createManufacturingOrder."]
+      },
+      {
+        "test_name": "output reversal decrements produced lot, restocks ingredient lots, writes manufacturing_variance_gain events",
+        "scenario_id": "S13",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-12: reverseManufacturingOutputInTx — three independent invariants must all hold. Test failure message must explicitly name all three for diagnosis.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Released discrete MO with picked ingredients",
+            "Initial positive POST /outputs of qty=10 has run; produced lot exists at qty=10",
+            "Produced lot NOT yet consumed by any shipment (assert COUNT(stockAllocations where sourceType='inventory_lot' AND sourceId=producedLotId AND status='consumed') === 0)"
+          ],
+          "seed_data": [
+            "Material stock=100, defaultPurchasePrice='2.00'",
+            "Product bom=[{material, quantity: '1'}]",
+            "MO plannedQuantity='10'",
+            "After /outputs 10: producedLot.quantity=10, material lot reduced from 100 to 90"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Snapshot producedLot.quantity and ingredientLot.quantity",
+          "POST /outputs body { quantity: '-3' }"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": ["Response status === 200"],
+          "side_effects": [
+            "INVARIANT 1 (produced lot decremented): producedLot.quantity decreased from 10 to 7 (parseFloat exact). Failure message: 'BR-12 invariant 1 (produced lot decrement) FAILED — expected 7.0000, got X'",
+            "INVARIANT 2 (ingredient lots restocked): ingredientLot.quantity restored from 90 to 93 (delta = 3 * 1 quantityPerUnit). Failure message: 'BR-12 invariant 2 (ingredient restock) FAILED — expected 93.0000, got X'",
+            "INVARIANT 3 (variance_gain events written): COUNT(inventoryEvents where eventType='manufacturing_variance_gain' AND referenceType='manufacturing_order' AND referenceId=orderId) >= 1. Failure message: 'BR-12 invariant 3 (manufacturing_variance_gain events) FAILED — expected >=1, got 0'",
+            "manufacturingOrders.actualQuantity reflects 7 (10-3)",
+            "manufacturingOrderOutputs has 2 rows for the MO: original +10 and new -3"
+          ],
+          "negative_assertions": [
+            "Producing -3 does NOT delete the original output row",
+            "No new inventoryEvents of eventType='manufacturing_output' (reversal uses variance_gain, not output)"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": [
+          "The test MUST snapshot the producedLot.id from the first /outputs call; reading by 'most recent lot for product' could pick up a different lot under parallel workers.",
+          "Use named-assertion messages: `expect(after, 'BR-12 invariant 1 (produced lot decrement) FAILED').toBe('7.0000')`."
+        ],
+        "data_isolation_notes": ["Per-test ts. Precondition: producedLot is NOT yet consumed by any shipment — assert via COUNT(stockAllocations consumed) === 0."],
+        "applicable_helpers": ["createItem, createManufacturingOrder, releaseManufacturingOrder, testFetch"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "discrete /complete reuses persisted pick allocations: no double-deduct, allocation count unchanged",
+        "scenario_id": "S14",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-11: completeManufacturingOrder consumes from persisted pick allocations to build output_consumptions but does NOT call any consume primitive again. Triple invariant: (a) allocation COUNT unchanged, (b) ingredient lot qty unchanged, (c) no new manufacturing_ingredient_consumption events at /complete.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Released discrete MO with all ingredients picked",
+            "Snapshot pre-complete: COUNT(manufacturingPickAllocations), per-ingredient-lot quantities, COUNT(inventoryEvents) by eventType"
+          ],
+          "seed_data": ["Standard 2-material product with discrete MO planned=10"],
+          "route": null
+        },
+        "interaction_plan": [
+          "Snapshot all three counts",
+          "POST /complete body { actualQuantity: '10' } (no ingredientActuals to skip variance)",
+          "Snapshot again"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": ["Complete response status === 200; manufacturingOrders.status === 'done'"],
+          "side_effects": [
+            "Invariant A: COUNT(manufacturingPickAllocations where MO ingredient) === pre-snapshot count",
+            "Invariant B: ingredient lots' quantities each EQUAL their pre-complete values (no double-deduct)",
+            "Invariant C: between pre and post, no new inventoryEvents of eventType='manufacturing_ingredient_consumption' for this MO",
+            "Between pre and post: new inventoryEvents are ONLY of eventType IN ('manufacturing_output', 'expected_release', 'demand_release', 'reservation_release')",
+            "manufacturingOrderOutputConsumptions has rows linking the new output to the existing pick allocations"
+          ],
+          "negative_assertions": [
+            "Zero new manufacturing_pick events",
+            "Zero new sales_consumption events",
+            "Zero new manufacturing_variance_loss events (no variance supplied)"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": ["Snapshot COUNT(inventoryEvents) filtered by referenceType='manufacturing_order' AND referenceId=orderId for tight scope; the org-wide count could drift due to background activity in shared seed data."],
+        "data_isolation_notes": ["Per-test ts."],
+        "applicable_helpers": ["createItem, createManufacturingOrder, releaseManufacturingOrder"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "batch-mode MO rejects direct parent /complete with 400",
+        "scenario_id": "S15",
+        "lane": "fast",
+        "spec_file": "test/e2e/fast/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-7: completeManufacturingOrder rejects manufacturingMode='batch'. Critic split: keeps batch-mode parent rejection; drops the unconstructible discrete+batchId case (no clean fixture exists since manufacturing_order_batches has FK to manufacturing_order_id of a batch-mode MO).",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Released batch-mode MO with at least one batch in BATCH_STARTED (so ingredients are pickable)",
+            "All ingredients of the current batch picked"
+          ],
+          "seed_data": ["Batch-mode product with expectedBatchYield='50', MO plannedQuantity='50' (one batch)"],
+          "route": null
+        },
+        "interaction_plan": [
+          "POST /complete body { actualQuantity: '50' } directly on the parent MO"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Response status === 400",
+            "body.error matches /Batch-mode/i (contract: 'Batch-mode orders must be completed one batch at a time.')"
+          ],
+          "side_effects": [
+            "manufacturingOrders.status === 'open' (unchanged)",
+            "manufacturingOrders.completedAt === null",
+            "No new inventoryEvents of eventType='manufacturing_output' for this MO since pre-call snapshot"
+          ],
+          "negative_assertions": [
+            "No new lots row for the product",
+            "No row in manufacturingOrderOutputs"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": ["The discrete+batchId rejection case from the original scenario is dropped — it cannot be constructed without violating the manufacturing_order_batches FK."],
+        "data_isolation_notes": ["Per-test ts."],
+        "applicable_helpers": ["createItem, createManufacturingOrder, releaseManufacturingOrder, testFetch"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "pick on already-fully-picked ingredient returns 400 'is already picked'",
+        "scenario_id": "S16",
+        "lane": "fast",
+        "spec_file": "test/e2e/fast/mo-execute-and-fulfill.spec.ts",
+        "purpose": "Cheap fast-lane guard: pick endpoint rejects re-pick of fully-picked ingredient; no new allocations.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Released discrete MO with one ingredient picked"
+          ],
+          "seed_data": ["Standard material+product, MO planned=10, pick the single ingredient"],
+          "route": null
+        },
+        "interaction_plan": [
+          "Snapshot COUNT(manufacturingPickAllocations where ingredient.id) === N",
+          "POST /pick on the same ingredient — testFetch derives a unique key from method+path+body so this is treated as a NEW request, NOT a replay (body='{}' identical to first call would normally collide via key, so we must force a DIFFERENT key by passing headers: { 'Idempotency-Key': 'fresh-' + Date.now() }) OR by passing a non-empty body like { reason: 'retry' } if the schema accepts unknown fields. SIMPLER: pass headers: { 'Idempotency-Key': `retry-${ts}` } to force a distinct key."
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Response status === 400",
+            "body.error matches /already picked/i"
+          ],
+          "side_effects": [
+            "COUNT(manufacturingPickAllocations where ingredient.id) === N (unchanged)",
+            "No new inventoryEvents for this MO since the original pick"
+          ],
+          "negative_assertions": ["No second 'manufacturing_pick' or 'picked' subtype event"]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": [
+          "Without forcing a distinct Idempotency-Key, the second call would return the cached envelope (200) instead of triggering the already-picked guard. The test MUST pass `headers: { 'Idempotency-Key': 'retry-' + Date.now() }`."
+        ],
+        "data_isolation_notes": ["Per-test ts."],
+        "applicable_helpers": ["createItem, createManufacturingOrder, releaseManufacturingOrder, testFetch"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "PUT /shipments/[id]/costs writes margin only; zero inventory, accounting, or BOL side effects",
+        "scenario_id": "S17",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-10: shipment cost edit is margin-only. Absence assertions: COUNT(inventoryEvents), COUNT(stockAllocations), COUNT(integrations.audit_events for Xero) all unchanged across the cost edit.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Shipped shipment (T_SHIP_NORMAL completed) with no existing cost rows",
+            "Pre-snapshot of: COUNT(inventoryEvents where referenceType IN ('sales_shipment','manufacturing_order') AND referenceId related to this org), COUNT(stockAllocations for this shipment), COUNT(integrations.audit_events where action LIKE 'xero%' for this shipment), salesShipments.status + shippedAt"
+          ],
+          "seed_data": ["Shipped SO+shipment from a customer fixture"],
+          "route": null
+        },
+        "interaction_plan": [
+          "Snapshot all counts and shipment state",
+          "PUT /api/sales-orders/[orderId]/shipments/[shipmentId]/costs body { customerFreightChargeAmount: '75', costs: [{ costType: 'freight', costStatus: 'planned', amount: '50' }] }",
+          "Snapshot again"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Response status === 200",
+            "salesShipments.customerFreightChargeAmount === '75' after PUT",
+            "salesShipmentCosts has exactly one row of costType='freight' amount='50' for this shipment"
+          ],
+          "side_effects": [
+            "INVARIANT: COUNT(inventoryEvents for this shipment+items) UNCHANGED between pre/post snapshots",
+            "INVARIANT: COUNT(inventoryLotBalances mutations for this org+items) UNCHANGED",
+            "INVARIANT: COUNT(stockAllocations for this shipment) UNCHANGED",
+            "INVARIANT: COUNT(integrations.audit_events where action LIKE 'xero%' for this shipment) UNCHANGED (no new Xero push)",
+            "INVARIANT: salesShipments.status === 'shipped' (unchanged); shippedAt UNCHANGED"
+          ],
+          "negative_assertions": [
+            "No new Xero push side-effect",
+            "No inventory ledger row added",
+            "No allocation row mutated"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": [
+          "Counting integrations.audit_events org-wide can drift if another test ran a Xero push in parallel; filter strictly by metadata->shipmentId or by audit_events where action LIKE 'xero%' AND created_at > snapshotTime."
+        ],
+        "data_isolation_notes": ["Use describe-level snapshot timestamp; filter all audit_events queries by created_at > snapshotTime."],
+        "applicable_helpers": ["createItem, createCustomer, createSalesOrder, confirmSalesOrder, testFetch"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "recordManufacturingOutput schema rejects quantity=0; accepts positive and negative",
+        "scenario_id": "S18",
+        "lane": "fast",
+        "spec_file": "test/e2e/fast/mo-execute-and-fulfill.spec.ts",
+        "purpose": "Schema-level guard for recordManufacturingOutputSchema. quantity='0' returns 400; positive and negative both pass.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": ["Released discrete MO with all ingredients picked"],
+          "seed_data": ["Standard 1-material product, MO planned=10, picked"],
+          "route": null
+        },
+        "interaction_plan": [
+          "POST /outputs body { quantity: '0', outputDisposition: 'available' } — expect 400 schema validation",
+          "POST /outputs body { quantity: '5', outputDisposition: 'available' } — expect 200",
+          "POST /outputs body { quantity: '-3', outputDisposition: 'available' } — expect 200 (reversal path)"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Call 1 status === 400",
+            "Call 2 status === 200",
+            "Call 3 status === 200"
+          ],
+          "side_effects": [
+            "After Call 1: COUNT(manufacturingOrderOutputs for MO) === 0 (no output row inserted)",
+            "After Call 2: one positive output row (quantity 5)",
+            "After Call 3: two output rows total (5 and -3), ingredient lots restocked, inventoryEvents includes manufacturing_variance_gain"
+          ],
+          "negative_assertions": [
+            "Call 1 does not write any inventoryEvents",
+            "Call 1 does not create any lots row"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": ["Calls 2 and 3 share a body shape; testFetch derives keys from body fingerprint so they will have distinct keys naturally."],
+        "data_isolation_notes": ["Per-test ts."],
+        "applicable_helpers": ["createItem, createManufacturingOrder, releaseManufacturingOrder, testFetch"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "idempotent ship replay: same key returns cached body; ledger unchanged; mismatched body returns 409 conflict",
+        "scenario_id": "S19",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-9: shipSalesShipment idempotency replay. Must use SAME explicit Idempotency-Key on both calls (override testFetch default) since default would derive a NEW key from the same body — though same body would coincide, the explicit override makes the intent explicit and survives helper changes. Third call with same key + changed body must 409.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Confirmed SO with planned shipment and sufficient free stock for the line"
+          ],
+          "seed_data": ["Product stock='20', SO qty='10', shipment planned"],
+          "route": null
+        },
+        "interaction_plan": [
+          "Idempotency-Key K1 = `mo-execute-and-fulfill:ship:${ts}`",
+          "Body B = { syncAccounting: false }",
+          "Call 1: POST /ship with headers { 'Idempotency-Key': K1 } body B — capture R1",
+          "Call 2: POST /ship with headers { 'Idempotency-Key': K1 } body B — capture R2",
+          "Call 3: POST /ship with headers { 'Idempotency-Key': K1 } body B' = { syncAccounting: true } — capture R3"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "R1.status === 200",
+            "R2.status === 200; R2 body deeply equal to R1 body (cached envelope)",
+            "R3.status === 409 (IdempotencyConflictError)"
+          ],
+          "side_effects": [
+            "Between R1 and R2: COUNT(inventoryEvents where referenceType='sales_shipment' AND referenceId=shipmentId) UNCHANGED",
+            "Between R1 and R2: COUNT(inventoryLotBalances mutations for the consumed item) UNCHANGED",
+            "Between R1 and R2: salesShipments.shippedAt UNCHANGED (still the R1 timestamp)",
+            "Between R2 and R3: salesShipments.shippedAt UNCHANGED"
+          ],
+          "negative_assertions": [
+            "R2 does NOT create a second sales_consumption event",
+            "R3 does NOT mutate any inventory state"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": [
+          "MUST pass explicit headers on each call. testFetch default would derive different keys for B vs B' so the conflict test wouldn't fire without override.",
+          "shipSalesShipment Xero block runs outside tx; assert against integrations.audit_events filtered by created_at > pre-snapshot."
+        ],
+        "data_isolation_notes": ["Per-test ts in K1."],
+        "applicable_helpers": ["testFetch with headers override"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "idempotent pick + complete replay: same key returns cached body; no double-deduct",
+        "scenario_id": "S20",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-9: pick + complete idempotency replay. Both calls use explicit same Idempotency-Key; assert pick allocation count and output count stable across replay.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": ["Released discrete MO ready for pick"],
+          "seed_data": ["Standard 1-material product, MO planned=10"],
+          "route": null
+        },
+        "interaction_plan": [
+          "K1 = `mo-exec:pick:${ts}`, K2 = `mo-exec:complete:${ts}`",
+          "Call P1: POST /pick on ingredient I with headers { 'Idempotency-Key': K1 } body '{}' — capture R-P1",
+          "Call P2: POST /pick on ingredient I with headers { 'Idempotency-Key': K1 } body '{}' — capture R-P2",
+          "Pick any remaining ingredients (without explicit key — testFetch default is fine)",
+          "Call C1: POST /complete with headers { 'Idempotency-Key': K2 } body { actualQuantity: '10' } — capture R-C1",
+          "Call C2: POST /complete with headers { 'Idempotency-Key': K2 } body { actualQuantity: '10' } — capture R-C2"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "R-P1 and R-P2 status === 200; bodies deeply equal",
+            "R-C1 and R-C2 status === 200; bodies deeply equal"
+          ],
+          "side_effects": [
+            "COUNT(manufacturingPickAllocations where ingredient = I) after P2 === count after P1",
+            "COUNT(manufacturingOrderOutputs for MO) after C2 === count after C1 (exactly 1)",
+            "COUNT(lots where itemId = productId) after C2 === count after C1 (exactly 1)",
+            "manufacturingOrders.actualQuantity unchanged between C1 and C2"
+          ],
+          "negative_assertions": [
+            "No second produced lot row",
+            "No second status flip (status='done' stable)"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": ["MUST pass explicit Idempotency-Key headers on the replay calls."],
+        "data_isolation_notes": ["Per-test ts in K1/K2."],
+        "applicable_helpers": ["testFetch with headers override"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "concurrent pick on same ingredient: row lock serialises; exactly one 200, the other 400 already-picked",
+        "scenario_id": "S21",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "BR-15 row lock invariant. Identify winner/loser by response shape, not array order.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Released discrete MO with one ingredient unpicked",
+            "Sufficient stock so either call could individually succeed without override"
+          ],
+          "seed_data": ["1-material product, MO planned=10, material stock=100"],
+          "route": null
+        },
+        "interaction_plan": [
+          "Build two distinct Idempotency-Keys K-A and K-B (so the calls are not replays of each other)",
+          "Fire two POST /pick requests in parallel via Promise.allSettled([fetchA, fetchB])",
+          "Map results to { status, body } pairs",
+          "Identify winner = the result with status===200; loser = the other"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "EXACTLY ONE response has status === 200",
+            "The OTHER response has status === 400 AND body.error matches /already picked/i",
+            "Winner is identified by response.status, NOT by array index"
+          ],
+          "side_effects": [
+            "COUNT(manufacturingPickAllocations where ingredient = I) equals the winner's allocation count (typically 1 row covering the full planned quantity, NOT double)",
+            "manufacturingOrderIngredients.pickStatus === 'picked' (exactly once)"
+          ],
+          "negative_assertions": [
+            "No partial-pick state visible",
+            "No second 'manufacturing_pick' event"
+          ]
+        },
+        "waiting_strategy": ["Promise.allSettled([fetchA, fetchB]); await settle."],
+        "flakiness_risks": [
+          "Both Idempotency-Keys must be DISTINCT — otherwise the second call is a replay and returns 200 cached, not 400 already-picked.",
+          "Under exotic conditions both calls could be serialised and the second call's locked row read shows 'already picked' BEFORE the FOR UPDATE — same outcome.",
+          "On rare Postgres deadlock retries this could surface a 500 from a third path; if observed, add a deadlock retry note and re-run."
+        ],
+        "data_isolation_notes": ["Per-test ts in keys."],
+        "applicable_helpers": ["testFetch with explicit Idempotency-Key headers", "Promise.allSettled"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "concurrent /complete on two MOs producing into same product: cost basis weighted-average commutative under serialised commits",
+        "scenario_id": "S22",
+        "lane": "slow",
+        "spec_file": "test/e2e/slow/mo-execute-and-fulfill.spec.ts",
+        "purpose": "Cost-basis race: items.currentStockUnitCost must equal cumulative weighted average regardless of commit order (calculateNextCurrentStockUnitCost is commutative for (qty,unitCost) pairs).",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Two released discrete MOs (MO-A, MO-B) both producing into the SAME product item",
+            "Both MOs have all ingredients picked",
+            "Pre-snapshot items.currentStockUnitCost for the product"
+          ],
+          "seed_data": [
+            "MO-A plannedQuantity=10 with ingredient cost yielding unitCost=8",
+            "MO-B plannedQuantity=5 with ingredient cost yielding unitCost=12"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Compute expected items.currentStockUnitCost INDEPENDENT of order: (10*8 + 5*12) / (10+5) = 140/15 = 9.333333",
+          "Fire two POST /complete in parallel via Promise.allSettled",
+          "Settle and assert both succeed"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": ["Both responses status === 200"],
+          "side_effects": [
+            "Exactly 2 new lots rows for the product (one per MO) since produceManufacturedStockInTx creates a new lot when no lotId provided",
+            "items.currentStockUnitCost === expected weighted average AT SCALE 6 (computed from inputs, not observed order)",
+            "Both inventoryEvents of eventType='manufacturing_output' present with idempotencyKey non-null",
+            "COUNT of deadlock-retry events bounded — assert no 500 responses returned"
+          ],
+          "negative_assertions": [
+            "Neither response is 500 (no deadlock surface)",
+            "items.currentStockUnitCost is NOT equal to either MO-A-only or MO-B-only weighted average; it's the cumulative"
+          ]
+        },
+        "waiting_strategy": ["Promise.allSettled([completeA, completeB])."],
+        "flakiness_risks": [
+          "Float precision: use parseFloat + toBeCloseTo(9.333333, 5) OR string equality after computing expected with the same formula.",
+          "On deadlock retry, kernel re-runs the tx — the final state should still be correct but if the retry is observed as 500 the test should still pass on a fresh re-run."
+        ],
+        "data_isolation_notes": ["Per-test ts; both MOs share the same productId but distinct ingredient lot ids."],
+        "applicable_helpers": ["createItem, createManufacturingOrder, releaseManufacturingOrder, testFetch"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "pick 409 stock_shortage first attempt (fast write-path smoke)",
+        "scenario_id": "S23",
+        "lane": "fast",
+        "spec_file": "test/e2e/fast/mo-execute-and-fulfill.spec.ts",
+        "purpose": "Critic-added: fast lane representative for BR-3a. POST /pick with no override on an ingredient whose plannedQuantity > available — assert 409 stock_shortage + zero new pick allocations. Cheap regression smoke without exercising the override path (S05 handles that in slow lane).",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Released discrete MO with one material ingredient whose plannedQuantity > current available stock"
+          ],
+          "seed_data": [
+            "Material stock='5', defaultPurchasePrice='10.00'",
+            "MO plannedQuantity='10', ingredient quantityPerUnit='1'"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Snapshot COUNT(manufacturingPickAllocations where ingredient.id) === 0",
+          "POST /pick body {} on the under-stocked ingredient"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Response status === 409",
+            "body.shortage.warningType === 'stock_shortage' (or body.shortage.ingredients[].warningType, matching ManufacturingError extra payload shape)",
+            "body.shortage.itemName populated"
+          ],
+          "side_effects": [
+            "COUNT(manufacturingPickAllocations where ingredient.id) === 0 (unchanged)",
+            "manufacturingOrderIngredients.pickStatus === 'not_picked' (unchanged)",
+            "No new inventoryEvents for this MO"
+          ],
+          "negative_assertions": [
+            "No NEG lot created",
+            "No 'manufacturing_pick' event written"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": ["Body shape check: ManufacturingError extra payload may be either { shortage: { warningType, ... } } or { shortage: { ingredients: [{ warningType, ... }] } } depending on the route. Inspect the actual response shape during test authoring and assert the right path."],
+        "data_isolation_notes": ["Per-test ts."],
+        "applicable_helpers": ["createItem, createManufacturingOrder, releaseManufacturingOrder, testFetch"],
+        "new_helpers_recommended": []
+      },
+      {
+        "test_name": "ship 409 negativeStock first attempt (fast write-path smoke)",
+        "scenario_id": "S24",
+        "lane": "fast",
+        "spec_file": "test/e2e/fast/mo-execute-and-fulfill.spec.ts",
+        "purpose": "Critic-added: fast lane representative for BR-3c. POST /ship with no override on a shipment whose product is short of stock (no MO promise) — assert 409 negativeStock + zero new inventory events. S07 covers the override + NEG-lot path in slow lane.",
+        "setup_requirements": {
+          "fixtures": ["test", "db"],
+          "preconditions": [
+            "Product with active BOM (so cost-walk could resolve) but currently stock=0",
+            "Confirmed SO with quantity > 0",
+            "Planned shipment, no MO promise on the line"
+          ],
+          "seed_data": [
+            "Material stock='100', defaultPurchasePrice='5.00'",
+            "Product: sellable=true, stock='0', bom=[{materialId, quantity: '1'}]",
+            "SO qty='10', confirmed",
+            "Shipment planned for qty='10'"
+          ],
+          "route": null
+        },
+        "interaction_plan": [
+          "Snapshot COUNT(inventoryEvents where referenceType='sales_shipment' AND referenceId=shipmentId) === 0",
+          "POST /ship body { syncAccounting: false }"
+        ],
+        "assertion_plan": {
+          "visible_ui": [],
+          "behavioral": [
+            "Response status === 409",
+            "body.negativeStock present with { itemId, itemName, available, requested, shortage } shape"
+          ],
+          "side_effects": [
+            "salesShipments.status === 'planned' (unchanged)",
+            "shippedAt === null",
+            "COUNT(inventoryEvents where referenceType='sales_shipment' AND referenceId=shipmentId) === 0 (unchanged)",
+            "COUNT(lots where lotNumber LIKE 'NEG-%' AND itemId=productId) === 0"
+          ],
+          "negative_assertions": [
+            "No NEG lot created on first attempt"
+          ]
+        },
+        "waiting_strategy": ["Synchronous API."],
+        "flakiness_risks": ["The 409 negativeStock payload shape lives on body.negativeStock (per SalesError toResponse with extra={negativeStock}). Confirm during authoring."],
+        "data_isolation_notes": ["Per-test ts."],
+        "applicable_helpers": ["createItem, createCustomer, createSalesOrder, confirmSalesOrder, testFetch"],
+        "new_helpers_recommended": []
+      }
+    ]
+  },
+  "review_focus": [
+    "Are SAME-KEY replay specs (S19, S20) using explicit `headers: { 'Idempotency-Key': K }` overrides on BOTH calls, given that testFetch's default key changes when the body changes?",
+    "Are DISTINCT-key concurrency specs (S21) using DIFFERENT explicit Idempotency-Keys so the second call is not a replay?",
+    "Is S11's 500 assertion tight enough — exactly 500, with a TODO note for flag-flip when MissingCostBasisError handling lands?",
+    "Is S13's three-invariant assertion structured so the failure message explicitly names which invariant failed (lot decrement / ingredient restock / variance_gain event)?",
+    "Is S17's BR-10 absence assertion filtering audit_events by created_at > snapshotTime to avoid cross-test drift?",
+    "Are S05 and S23 (slow override vs fast first-attempt) clearly non-overlapping — S23 stops at the 409, S05 continues to the override and NEG-lot assertion?",
+    "Does S06 still need to be in the slow lane given it shares DAL surface with S05 and is now P1? (Critic: yes — it tests a distinct discriminator warningType='requirement_violation' and the requirementOverrideConfirmed metadata path.)",
+    "Are race scenarios (S21, S22) using response-shape-based winner identification, not array order?"
+  ]
+}

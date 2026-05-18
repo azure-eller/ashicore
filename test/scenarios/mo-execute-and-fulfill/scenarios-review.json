@@ -1,0 +1,102 @@
+{
+  "verdict": "revise",
+  "score": {
+    "groundedness": 5,
+    "completeness": 4,
+    "business_relevance": 5,
+    "non_duplication": 4,
+    "downstream_utility": 4
+  },
+  "critical_issues": [],
+  "important_improvements": [
+    {
+      "item": "S03 (wait-for-MO 409) — second call assertion",
+      "issue": "Scenario claims the second ship attempt with confirmNegativeStock=true 'STILL' returns 409 because 'wait-for-MO guard is BEFORE the negative-stock branch'. Per contract evidence at lib/inventory/kernel/operations/sales.ts lines 756-768, the InsufficientStockError thrown when a shipment line has an open 'manufacturing_order' source allocation is independent of allowNegativeStock — but state-model.json T_SHIP_NEGATIVE_OVERRIDE and the contract's BR-14 do not explicitly state that allowNegativeStock cannot bypass this guard. The scenario should cite the exact line range showing the check is not gated by params.allowNegativeStock and explicitly call out that this is a behaviour assumption that must be re-verified in Phase 4 against consumeForShipmentInTx lines 756-768.",
+      "fix": "Add an explicit evidence citation in S03 for consumeForShipmentInTx lines 756-768 with a note that the wait-for-MO branch is NOT gated by params.allowNegativeStock. If Phase 4 discovers it IS gated, S03's second-call assertion must be revised from 'still 409' to '200 with NEG-* lot'. Add this to scenarios.json review_focus or unknowns."
+    },
+    {
+      "item": "Fast lane coverage gaps for cost-basis and idempotency",
+      "issue": "Lane distribution is 4 fast / 18 slow. The fast lane covers pick guard (S08, S16), mode rejection (S15), and schema (S18) — but has ZERO fast write-path smoke for cost-basis (S09, S10, S11 all slow) and ZERO for idempotency replay (S19, S20 all slow). The contract surfaces these as P0 production hot spots, but every check is slow. Per the review focus and CLAUDE.md fast-lane guidance ('fill form, submit, minimal success UI, DB assertions'), at least the first-call 409 portion of S05/S07 (no override, just submit + assert 409 + DB-event-count snapshot) is a strong fast write-path smoke candidate.",
+      "fix": "Promote a slice of S05 (pick 409 stock_shortage first attempt) to a NEW fast scenario S23 that asserts: POST /pick returns 409 with shortage.warningType='stock_shortage' AND zero new manufacturing_pick_allocations rows. Same for S07 first attempt as S24 (ship 409 negativeStock first attempt). Leaving S05/S07 as slow for the override + NEG-lot half is fine. This brings fast lane to 6, slow to 18, and gives each major risk category (pick error, ship error, cost-basis, idempotency) at least one fast representative."
+    },
+    {
+      "item": "P0 inflation — S05 and S06 both P0",
+      "issue": "13 of 22 scenarios are P0 (59%). S05 (pick stock_shortage) and S06 (pick requirement_violation) are BOTH P0 even though they exercise the same DAL function (pickManufacturingIngredient) and the same code shape (raise -> ManufacturingError -> 409 -> override flag). The contract's risk_areas lists 'Three distinct 409 surfaces' as ONE risk, not three. One of S05/S06 should drop to P1 to reflect that they share root-cause coverage; if the override paths diverge in behaviour the test for the second one is more of a guardrail than a production-bug catcher.",
+      "fix": "Demote S06 (pick requirement_violation) to P1. S05 covers the canonical override flow; S06 exercises the same DAL with a different discriminator, which makes it lower regression risk than S05/S07/S03 (which each exercise a distinct kernel branch)."
+    },
+    {
+      "item": "S22 (concurrent /complete on two MOs producing into the same product)",
+      "issue": "Scenario claims 'items.currentStockUnitCost equals the cumulative weighted average across both produced lot quantities and costs'. This implicitly assumes the two MOs share an item but produce into DIFFERENT lots (one per MO/batch). It does NOT pin down which lot row each produced quantity lands on, nor the order in which calculateNextCurrentStockUnitCost is applied. The deterministic outcome shape for Promise.allSettled is well-defined for S21 (exactly one 200, one 400), but S22's 'both 200' assertion requires that the weighted average is COMMUTATIVE under serialised commits — which it is for the (qty,unitCost) running formula but worth stating explicitly.",
+      "fix": "Add to S22 expected_side_effects: 'Order of MO-A vs MO-B commit does not change the final items.currentStockUnitCost because calculateNextCurrentStockUnitCost is commutative for (qty,unitCost) pairs under serial application — assert this by computing the expected average from the two MOs' inputs independent of order.' Also assert COUNT(deadlock retries) is bounded (no deadlock observed) — currently mentioned but not as a hard COUNT."
+    },
+    {
+      "item": "S11 (null-cost rejection) accepts both 400 and 500",
+      "issue": "Scenario says 'Response 500 (or 400 if MissingCostBasisError handling is added). Assert: response is NOT a 2xx'. This is too permissive for downstream Phase 4 — a test that accepts BOTH a 500 and a 400 cannot reliably regress. The scenario should pick the CURRENT behaviour (500 per the contract risk_areas note about a 500 leak) and harden the assertion. If the route adds handling later, the test should fail and force a fix.",
+      "fix": "Tighten S11 to assert status=500 exactly (with a note: 'If this assertion fails because handling was added, revise the test to expect 4xx with reason=product_bom_cost and remove this note'). Treat the 500 leak as a known-failing surface that the test pins down."
+    },
+    {
+      "item": "Cancel-mid-work coverage missing",
+      "issue": "S12 cancels MO-B but only AFTER release with no work started (T_CANCEL_NO_WORK). The state-model defines T_CANCEL_PARTIAL_WORK as a separate transition with confidence=medium (line 871) and the contract notes the unknown 'whether a discrete MO that has had /outputs recorded but not /complete can be cancelled'. No scenario covers cancellation after some pick allocations exist but before /complete. This is a real ops flow (e.g. mis-routed MO).",
+      "fix": "Add scenario S25 (slow, P1): release MO, pick one ingredient, DELETE the MO. Assert: deletedAt set, picked ingredient lot quantities restocked, stock_allocations for this MO are cancelled, expected supply zeroed. Cites T_CANCEL_PARTIAL_WORK and BR-1 reversal at the cancel path (queries.ts cancelReleasedManufacturingOrderInTx line 6807 evidence already in contract)."
+    },
+    {
+      "item": "S15 trigger sequence for discrete + batchId path",
+      "issue": "S15 trigger 2 says 'POST /batches/[batchId]/complete on the discrete MO' but the setup says 'A dummy batch row exists on the discrete MO's id space (or use a non-existent batchId — the route should still 400 before lookup OR 404; assert NOT 2xx)'. The 'OR' creates two different code paths (a real batch row on a discrete MO is impossible — manufacturingOrderBatches has FK to manufacturingOrderId and the schema's 'batch'-only constraint at the planning surface ensures discrete MOs have no batches). A non-existent batchId on a discrete MO likely returns 404 from the route handler, not 400 from the mode guard.",
+      "fix": "Split S15 into two cleaner assertions: (a) POST /complete on batch-mode MO -> 400 (BR-7 first half, mode guard); (b) drop the discrete+batchId case from S15. Add a SEPARATE fast scenario (or fold into S15) only if you can construct a valid setup; otherwise the test for 'discrete MO rejects batch-complete' is structurally untestable from the API surface and should be removed from scope rather than asserted as 'NOT 2xx'."
+    },
+    {
+      "item": "Idempotency replay coverage — output-allocation + DELETE",
+      "issue": "Contract BR-9 distinguishes Idempotency-Key-REQUIRED endpoints from NOT-required endpoints, and the latter category (PUT /output-allocation, DELETE /[id]) relies on either delete-and-reinsert or a deterministic internal key. S19/S20 cover the required side only. There is no scenario asserting that PUT /output-allocation called twice with the same body produces a stable end state, nor that DELETE /[id] called twice does not double-effect (second call should be safe / 404 / cached).",
+      "fix": "Optional: add S26 (slow, P2) — PUT /output-allocation twice with identical body; assert COUNT(stock_allocations) for this MO is identical after both calls. And S27 (fast, P2): DELETE /[id] called twice; assert first returns 200, second returns 404, no further side effects. Both are quick wins that round out BR-9 coverage."
+    }
+  ],
+  "missing_items": [
+    {
+      "item": "Cancel-with-partial-work scenario (T_CANCEL_PARTIAL_WORK)",
+      "why": "State-model declares this transition with confidence=medium; no scenario covers it. Real production ops flow."
+    },
+    {
+      "item": "Fast write-path representatives for cost-basis and idempotency",
+      "why": "Both are P0 contract areas but every scenario is slow. Lane skew is acceptable per the user's note, but at least one fast assertion per major risk category strengthens the regression net."
+    },
+    {
+      "item": "PUT /output-allocation idempotency-by-effect",
+      "why": "BR-9 explicitly calls out that this endpoint is NOT Idempotency-Key-required but relies on delete-and-reinsert. Untested."
+    }
+  ],
+  "unsafe_assumptions": [
+    {
+      "assumption": "S03 assumes confirmNegativeStock=true does NOT bypass the wait-for-MO guard.",
+      "verification": "Phase 4 must read consumeForShipmentInTx lines 756-768 and confirm the throw is unconditional (not inside the `!params.allowNegativeStock` branch at 686-692). If it IS gated, S03 second-call assertion is wrong."
+    },
+    {
+      "assumption": "S13 assumes the produced lot has NOT been consumed downstream when the reversal runs.",
+      "verification": "Setup is explicit, but the scenario should also assert in setup that COUNT(stock_allocations sourceType='inventory_lot', sourceId=producedLotId, status='consumed')=0 to prevent a flaky precondition under test parallelism."
+    },
+    {
+      "assumption": "S22 assumes weighted-average commutativity under serialised commits.",
+      "verification": "Mathematically true for the running formula but the scenario should explicitly compute the expected value from inputs (not from observed order)."
+    }
+  ],
+  "rewrite_instructions": [
+    "1. Add scenario S23 (fast, P1) — Pick 409 first-attempt only, no override. Promotes part of S05's coverage to fast. Cites BR-3a, T_PICK_TO_FULL_FIFO.",
+    "2. Add scenario S24 (fast, P1) — Ship 409 first-attempt only, no override. Promotes part of S07's coverage to fast. Cites BR-3c, T_SHIP_NORMAL failure_mode.",
+    "3. Add scenario S25 (slow, P1) — Cancel-with-partial-work. Pick one ingredient, then DELETE. Cites T_CANCEL_PARTIAL_WORK and the cancel path in queries.ts.",
+    "4. Demote S06 to P1 (same DAL surface as S05, lower marginal regression value).",
+    "5. Tighten S11 assertion to status=500 exactly with a flag-flip note, instead of 'NOT 2xx'.",
+    "6. Split S15: keep the batch-mode parent /complete -> 400 half; drop the discrete+batchId half (no clean setup exists) OR demote to skipped-when-no-batch fixture.",
+    "7. Add explicit citation in S03 to consumeForShipmentInTx lines 756-768 noting the guard is NOT gated by allowNegativeStock; add to unknowns if Phase 4 disagrees.",
+    "8. Add to S13 setup an explicit COUNT(stock_allocations) precondition that the produced lot is unconsumed.",
+    "9. Add to S22 an explicit expected average computation in expected_side_effects so the assertion is order-independent.",
+    "10. Optional: S26 / S27 covering PUT /output-allocation and DELETE /[id] idempotency-by-effect."
+  ],
+  "revised_output": null,
+  "summary_notes": {
+    "lane_distribution_after_rewrite": "6 fast (S08, S15, S16, S18, S23, S24) + 18 slow + 1-2 optional (S25, S26, S27) — fast lane gains cost-basis-adjacent (via pick/ship 409 negative-stock) and the slow lane retains all override + invariant coverage.",
+    "p0_distribution_after_rewrite": "12 P0 (S06 demoted) — still high but defensible given the contract has 16 business rules, 5 state machines, 3 distinct 409 surfaces, and an idempotency replay surface. The remaining P0s each map 1:1 to a unique kernel branch or invariant.",
+    "citation_audit_result": "All BR-1..BR-16 and all transition IDs (T_RELEASE, T_PICK_TO_FULL_FIFO, T_COMPLETE_DISCRETE, T_BATCH_START, T_BATCH_PICKED, T_BATCH_COMPLETE, T_PARENT_DONE, T_OUTPUT_RECORD_DISCRETE, T_OUTPUT_REVERSE, T_CANCEL_NO_WORK, T_SHIP_NORMAL, T_SHIP_NEGATIVE_OVERRIDE, T_MATERIALISE_MO_PROMISE, T_COST_EDIT_AFTER_SHIP) referenced in scenarios.json exist in contract.json and state-model.json. No hallucinated citations.",
+    "race_concurrency_testability": "S21 and S22 are both testable with Promise.allSettled. S21 has a deterministic exactly-one-2xx outcome (row lock serialises); S22 has a deterministic both-2xx outcome (different MOs lock disjoint rows; cost-basis commutativity gives a stable expected value). Both are appropriately in the slow lane.",
+    "br10_absence_assertion": "S17 correctly asserts ABSENCE — COUNT(inventory_events) unchanged, COUNT(inventory_lot_balances) unchanged, COUNT(stock_allocations) unchanged, no Xero audit row, status unchanged. Strong implementation of the BR-10 invariant.",
+    "br12_three_invariants": "S13 names all three: (a) produced lot quantity decremented by reversal proportion, (b) ingredient lots restocked, (c) manufacturing_variance_gain events written. Strong implementation."
+  }
+}
