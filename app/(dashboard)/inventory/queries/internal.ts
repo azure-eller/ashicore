@@ -1657,32 +1657,36 @@ export async function adjustLotQuantity(
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     await lockItemsInTx(tx, [itemId]);
 
-    const [lot] = await tx
+    const [lockedLot] = await tx
       .select({
         id: lots.id,
+      })
+      .from(lots)
+      .where(and(eq(lots.itemId, itemId), eq(lots.id, lotId)))
+      .for("update");
+
+    if (!lockedLot) {
+      throw new InventoryError("Lot not found");
+    }
+
+    const [lotBalance] = await tx
+      .select({
         quantity: trimScale(
           sql`COALESCE(${inventoryLotBalances.quantity}, 0)`
         ).as("quantity"),
         unitCost: trimScaleNullable(inventoryLotBalances.unitCost).as("unitCost"),
       })
-      .from(lots)
-      .leftJoin(
-        inventoryLotBalances,
+      .from(inventoryLotBalances)
+      .where(
         and(
-          eq(inventoryLotBalances.organizationId, lots.organizationId),
-          eq(inventoryLotBalances.itemId, lots.itemId),
-          eq(inventoryLotBalances.lotId, lots.id),
+          eq(inventoryLotBalances.organizationId, orgId),
+          eq(inventoryLotBalances.itemId, itemId),
+          eq(inventoryLotBalances.lotId, lotId),
           eq(inventoryLotBalances.disposition, "available")
         )
       )
-      .where(and(eq(lots.itemId, itemId), eq(lots.id, lotId)))
-      .for("update");
 
-    if (!lot) {
-      throw new InventoryError("Lot not found");
-    }
-
-    const currentQuantity = Number(lot.quantity);
+    const currentQuantity = Number(lotBalance?.quantity ?? "0");
     const nextQuantity = Number(data.quantity);
     const delta = nextQuantity - currentQuantity;
 
@@ -1695,7 +1699,7 @@ export async function adjustLotQuantity(
 
     if (delta > 0) {
       const unitCost =
-        lot.unitCost ??
+        lotBalance?.unitCost ??
         (await resolvePositiveStockUnitCostInTx(tx, {
           itemId,
           reason: "material_default_price",

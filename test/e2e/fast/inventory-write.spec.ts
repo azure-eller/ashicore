@@ -3,16 +3,19 @@ import { filterList, test, expect } from "../fixtures";
 import {
   bomRevisionComponents,
   bomRevisions,
+  inventoryEvents,
   items,
   lots,
 } from "../../../lib/db/schema";
 import { todayInTimeZone } from "../../../lib/format";
+import { testFetch } from "../../helpers/api";
 
 test.describe("Inventory write-path smoke", () => {
   test.describe.configure({ mode: "serial" });
 
   const ts = Date.now();
   let materialId = "";
+  let materialLotId = "";
   let materialName = "";
   let productId = "";
   let productName = "";
@@ -81,6 +84,7 @@ test.describe("Inventory write-path smoke", () => {
 
     const materialLots = await db.select().from(lots).where(eq(lots.itemId, materialId));
     expect(materialLots).toHaveLength(1);
+    materialLotId = materialLots[0].id;
     expect(materialLots[0].lotNumber).toBe(
       `LOT-${todayInTimeZone("America/Denver")}`
     );
@@ -112,6 +116,42 @@ test.describe("Inventory write-path smoke", () => {
     const [updatedMaterial] = await db.select().from(items).where(eq(items.id, materialId));
     expect(updatedMaterial.description).toBe("Fast smoke material updated");
     expect(updatedMaterial.safetyStock).toBe("30.0000");
+  });
+
+  test("adjusts an existing lot quantity through the API", async ({ db }) => {
+    const response = await testFetch(
+      `/api/items/${materialId}/lots/${materialLotId}/quantity`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ quantity: "205", note: null }),
+      }
+    );
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      lotId: materialLotId,
+      quantity: "205",
+    });
+
+    const [updatedLot] = await db
+      .select({ quantity: lots.quantity })
+      .from(lots)
+      .where(eq(lots.id, materialLotId));
+    expect(updatedLot.quantity).toBe("205.0000");
+
+    const adjustmentEvents = await db
+      .select({
+        eventType: inventoryEvents.eventType,
+        quantity: inventoryEvents.quantity,
+        lotId: inventoryEvents.lotId,
+      })
+      .from(inventoryEvents)
+      .where(eq(inventoryEvents.lotId, materialLotId));
+    expect(adjustmentEvents).toContainEqual({
+      eventType: "manual_adjustment_increase",
+      quantity: "5.0000",
+      lotId: materialLotId,
+    });
   });
 
   test("creates a BOM-backed product through the browser form", async ({ page, db }) => {
