@@ -883,7 +883,7 @@ export function ManufacturingOrderForm({
           <CreateSidebarCard
             title="Run summary"
             footer={
-              <div className="w-full rounded-md bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
+              <div className="w-full bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
                 {watchedProductId || isSalesOrderMode
                   ? "Review ingredients before creating the order."
                   : "Pick a product to check the run."}

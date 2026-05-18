@@ -164,8 +164,11 @@ export const BOM_QTY_PER_UNIT_TOOLTIP =
 
 export const MATERIAL_COST_TOOLTIP = "Sum of actual ingredient costs.";
 
+export const OPERATIONS_COST_TOOLTIP =
+  "Standard operation cost absorbed into produced inventory.";
+
 export const COST_PER_UNIT_TOOLTIP =
-  "Material cost divided by actual output.";
+  "Material plus absorbed operation cost divided by actual output.";
 
 export const BATCH_YIELD_TOOLTIP = "Expected good units per batch.";
 

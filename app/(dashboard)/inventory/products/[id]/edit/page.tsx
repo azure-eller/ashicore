@@ -5,10 +5,12 @@ import {
   getUnitDefinitions,
   getCategories,
   getBomComponents,
+  getBomOperationCosts,
   getAvailableComponents,
 } from "@/app/(dashboard)/inventory/queries";
 import { ItemForm } from "@/app/(dashboard)/inventory/item-form";
 import { hasModuleAccess } from "@/lib/authz";
+import { getManufacturingResources } from "@/lib/dal/manufacturing-resources";
 
 export default async function EditProductPage({
   params,
@@ -18,12 +20,14 @@ export default async function EditProductPage({
   await requireModuleAccess("inventory", "operate");
   const { id } = await params;
   const context = await getAuthedMemberContext();
-  const [item, units, categories, bom, components] = await Promise.all([
+  const [item, units, categories, bom, operationCosts, components, resources] = await Promise.all([
     getItem(id),
     getUnitDefinitions(),
     getCategories(),
     getBomComponents(id),
+    getBomOperationCosts(id),
     getAvailableComponents(id),
+    getManufacturingResources(),
   ]);
   if (!item) redirect("/inventory/products");
   if (item.bomLocked && !hasModuleAccess(context.assignedRoles, "inventory", "admin")) {
@@ -37,6 +41,7 @@ export default async function EditProductPage({
         units={units}
         categories={categories}
         availableComponents={components}
+        manufacturingResources={resources}
         canManageBomLock={hasModuleAccess(context.assignedRoles, "inventory", "admin")}
         initialData={{
           ...item,
@@ -47,6 +52,14 @@ export default async function EditProductPage({
             alternates: b.alternates.map((alternate) => ({
               itemId: alternate.itemId,
             })),
+          })),
+          operationCosts: operationCosts.map((operation) => ({
+            operationName: operation.operationName,
+            resourceId: operation.resourceId,
+            costScalingMode: operation.costScalingMode,
+            crewSize: operation.crewSize,
+            plannedMinutes: operation.plannedMinutes,
+            loadedCostPerHour: operation.loadedCostPerHour,
           })),
         }}
       />

@@ -26,7 +26,7 @@ Still excluded in v1:
 
 - partial ingredient picks
 - manual lot selection
-- work centers, operations, labor, or overhead costing
+- work-center scheduling, operation statuses, or actual labor time tracking
 - child manufacturing orders
 - auto-created orders from sales without an explicit user action
 
@@ -125,6 +125,33 @@ MO creation snapshots all calculation inputs and outputs on `manufacturing_order
 Estimated unit cost uses average per-output consumption for batch and group lines (`quantity / basisOutputQuantity`). Operational MOs still use the explicit batch scaling and group leftover policies.
 
 Legacy product-level `manufacturingMode` and `expectedBatchYield` remain as compatibility fields for execution/mobile contracts. New product authoring should use typical batch/group sizes only as BOM-line prefill helpers.
+
+## Standard Operation Costs
+
+Standard operation costs are internal margin-costing rows attached to BOM revisions. They are not a shop-floor workflow engine.
+
+Resources live in `manufacturing.resources` and store a loaded hourly rate. BOM operation costs live in `inventory.bom_revision_operation_costs` with:
+
+- `per_output_unit`: crew size × minutes × rate for each finished unit
+- `fixed_per_mo`: crew size × minutes × rate once for the manufacturing order
+
+Operation cost rows snapshot `resourceName`, `resourceType`, `loadedCostPerHour`, planned crew size, planned minutes, and planned total cost. If a resource rate changes later, existing BOM revisions and manufacturing orders keep their saved rate snapshots.
+
+MO creation snapshots the current BOM operation rows into `manufacturing.manufacturing_order_operation_costs`. MO completion absorbs the snapshotted standard operation cost into produced inventory through the inventory kernel's `overheadCostTotal` input. Sales margins then pick up labor/operation cost through lot cost; sales must not add operation cost again.
+
+Partial output absorbs fixed-per-MO cost incrementally up to the planned total.
+Final completion absorbs any remaining fixed-per-MO cost, even when actual
+output is below planned quantity.
+
+For product estimated unit cost previews, fixed operation costs are spread over the first available denominator:
+
+1. `expectedBatchYield`
+2. `typicalBatchSize`
+3. `standardCostQuantity`
+
+If none is available, fixed operation cost can be shown as a per-MO amount but not a reliable unit cost.
+
+This is internal operational costing only. It does not create payroll, Xero, AP, GL, or inventory-valuation accounting entries.
 
 ## Release Behavior
 
@@ -245,12 +272,15 @@ Direct parent completion is invalid for batch-mode orders.
 
 Derived manufacturing quantities should be normalized to the database scale before comparing or mutating stock. Do not compare raw JavaScript float multiplication like `0.1 * 3`.
 
-Costing is still material-only in v1:
+Costing combines material cost and absorbed standard operation cost:
 
 - discrete orders derive actual material cost from picked lot allocations
 - batch-mode orders derive each batch’s cost from that batch’s picked lot allocations
+- operation cost is planned/standard crew cost from the MO snapshot
+- completed legacy orders without operation snapshots have `actualOperationsCost = 0`
+- open or not-yet-costed orders may have `actualOperationsCost = NULL`
 
-Labor and overhead remain excluded.
+Use “absorbed labor / operation cost” in UI copy. Do not call this actual labor unless actual time tracking exists.
 
 ## Cancellation Behavior
 

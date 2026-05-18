@@ -565,6 +565,8 @@ const lotsForUpdate = await tx
 
 See `docs/manufacturing.md`. Critical:
 
+- Standard operation costs are BOM-revision costing rows, not workflow steps. Snapshot resource name/type/rate onto MOs; UI copy says “absorbed labor / operation cost,” not “actual labor.”
+- Resource deletes must be blocked while referenced by BOM operation cost rows or MO operation snapshots.
 - `items.expectedQty` is inbound supply, not a manual counter. Recompute from active released MOs + active ordered/partial POs after every status-changing write via `recomputeExpectedQty(tx, affectedItemIds)`. Batch-mode MOs contribute only unfinished planned output.
 - Round derived quantities to 4 decimals before shortage checks or stock deltas. Use `multiplyQuantity(...)` — never raw JS float multiplication.
 - MOs store `requestedQuantity` (user input) separately from `plannedQuantity` (batch-rounded). Forms edit `requestedQuantity`; execution math uses `plannedQuantity`.

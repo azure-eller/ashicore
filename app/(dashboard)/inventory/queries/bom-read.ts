@@ -6,4 +6,5 @@ export {
   getBomRevision,
   getUsedInParents,
   getAvailableComponents,
+  getBomOperationCosts,
 } from "./internal";

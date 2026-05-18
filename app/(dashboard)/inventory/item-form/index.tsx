@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { apiJson } from "@/lib/client/api";
-import { Controller, useForm, useWatch } from "react-hook-form";
+import { Controller, useForm, useWatch, type UseFormSetValue } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -61,6 +61,8 @@ import {
 import { TooltipHeader } from "@/components/tooltip-header";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
+import { EditableLineGridCell } from "@/components/editable-line-grid";
+import { EditableLineItems } from "@/components/editable-line-items";
 import { BomEditor } from "@/app/(dashboard)/inventory/bom-editor";
 import { BomLockConfirmDialog } from "./dialogs/bom-lock-confirm-dialog";
 import { CreateUnitDialog } from "./dialogs/create-unit-dialog";
@@ -96,6 +98,12 @@ interface ItemFormProps {
   units: { id: string; name: string; size: string; uom: string }[];
   categories: string[];
   availableComponents?: AvailableComponent[];
+  manufacturingResources?: Array<{
+    id: string;
+    name: string;
+    resourceType: string;
+    loadedCostPerHour: string;
+  }>;
   canManageBomLock?: boolean;
   initialData?: NonNullable<Awaited<ReturnType<typeof getItem>>> & {
     bom?: {
@@ -103,6 +111,14 @@ interface ItemFormProps {
       quantity: string | null;
       minimumLotAgeDays?: number | null;
       alternates?: Array<{ itemId: string }>;
+    }[];
+    operationCosts?: {
+      operationName: string;
+      resourceId: string;
+      costScalingMode: "per_output_unit" | "fixed_per_mo";
+      crewSize: string;
+      plannedMinutes: string;
+      loadedCostPerHour?: string | null;
     }[];
   };
 }
@@ -112,11 +128,307 @@ type ItemMutationResult = { id: string };
 type CurrentStockUnitCostResult = { id: string; currentStockUnitCost: string | null };
 type UnitDefinitionResult = { id: string; name: string; size: string; uom: string };
 
+type ManufacturingResourceOption = NonNullable<ItemFormProps["manufacturingResources"]>[number];
+
+function formatOperationCost(params: {
+  crewSize: string | null | undefined;
+  plannedMinutes: string | null | undefined;
+  loadedCostPerHour: string | null | undefined;
+  costScalingMode: string | null | undefined;
+  expectedBatchYield: string | null | undefined;
+  typicalBatchSize: string | null | undefined;
+  standardCostQuantity: string | null | undefined;
+}) {
+  const crewSize = Number(params.crewSize);
+  const plannedMinutes = Number(params.plannedMinutes);
+  const loadedCostPerHour = Number(params.loadedCostPerHour);
+  if (
+    !Number.isFinite(crewSize) ||
+    !Number.isFinite(plannedMinutes) ||
+    !Number.isFinite(loadedCostPerHour) ||
+    crewSize <= 0 ||
+    plannedMinutes <= 0
+  ) {
+    return "—";
+  }
+
+  const total = (crewSize * plannedMinutes * loadedCostPerHour) / 60;
+  if (params.costScalingMode === "fixed_per_mo") {
+    const costQuantity =
+      params.expectedBatchYield ?? params.typicalBatchSize ?? params.standardCostQuantity;
+    const quantity = Number(costQuantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      return `${formatPrice(total.toFixed(2)) ?? "$0"} per MO`;
+    }
+    return `${formatPrice((total / quantity).toFixed(2)) ?? "$0"} / unit`;
+  }
+
+  return `${formatPrice(total.toFixed(2)) ?? "$0"} / unit`;
+}
+
+const OPERATION_COST_GRID_COLUMNS =
+  "minmax(12rem,1.2fr) minmax(10rem,1fr) minmax(8rem,.75fr) minmax(7rem,.65fr) minmax(9rem,.75fr) minmax(7rem,.65fr)";
+
+const blankOperationCostLine = {
+  operationName: "",
+  resourceId: "",
+  costScalingMode: "per_output_unit" as const,
+  crewSize: null,
+  plannedMinutes: null,
+  loadedCostPerHour: null,
+};
+
+function OperationCostEditor({
+  control,
+  setValue,
+  resources,
+  expectedBatchYield,
+  typicalBatchSize,
+  standardCostQuantity,
+}: {
+  control: ReturnType<typeof useForm<ItemFormValues>>["control"];
+  setValue: UseFormSetValue<ItemFormValues>;
+  resources: ManufacturingResourceOption[];
+  expectedBatchYield: string | null | undefined;
+  typicalBatchSize: string | null | undefined;
+  standardCostQuantity: string | null | undefined;
+}) {
+  const operationCosts =
+    (useWatch({ control, name: "operationCosts" as never }) as
+      | Array<{
+          resourceId?: string | null;
+          costScalingMode?: string | null;
+          crewSize?: string | null;
+          plannedMinutes?: string | null;
+          loadedCostPerHour?: string | null;
+        }>
+      | undefined) ?? [];
+  const resourcesById = useMemo(
+    () => new Map(resources.map((resource) => [resource.id, resource])),
+    [resources]
+  );
+
+  return (
+    <EditableLineItems<ItemFormValues, "operationCosts">
+      control={control}
+      name={"operationCosts" as never}
+      columns={OPERATION_COST_GRID_COLUMNS}
+      minWidth="62rem"
+      createLine={() => ({ ...blankOperationCostLine }) as never}
+      addLabel="Add operation cost"
+      emptyMessage="No operation costs yet."
+      headers={["Operation", "Resource", "Mode", "Crew", "Minutes", "Cost"]}
+      renderRow={({ field, index, appendLineAfterCommit }) => (
+        <OperationCostRow
+          key={field.id}
+          index={index}
+          control={control}
+          resources={resources}
+          resourcesById={resourcesById}
+          row={operationCosts[index]}
+          setValue={setValue}
+          expectedBatchYield={expectedBatchYield}
+          typicalBatchSize={typicalBatchSize}
+          standardCostQuantity={standardCostQuantity}
+          appendLineAfterCommit={appendLineAfterCommit}
+        />
+      )}
+    />
+  );
+}
+
+function OperationCostRow({
+  index,
+  control,
+  resources,
+  resourcesById,
+  row,
+  setValue,
+  expectedBatchYield,
+  typicalBatchSize,
+  standardCostQuantity,
+  appendLineAfterCommit,
+}: {
+  index: number;
+  control: ReturnType<typeof useForm<ItemFormValues>>["control"];
+  resources: ManufacturingResourceOption[];
+  resourcesById: Map<string, ManufacturingResourceOption>;
+  row:
+    | {
+        resourceId?: string | null;
+        costScalingMode?: string | null;
+        crewSize?: string | null;
+        plannedMinutes?: string | null;
+        loadedCostPerHour?: string | null;
+      }
+    | undefined;
+  setValue: UseFormSetValue<ItemFormValues>;
+  expectedBatchYield: string | null | undefined;
+  typicalBatchSize: string | null | undefined;
+  standardCostQuantity: string | null | undefined;
+  appendLineAfterCommit: () => void;
+}) {
+  const rowDomId = useId();
+  const resource = row?.resourceId ? resourcesById.get(row.resourceId) : null;
+  const previewRate = row?.loadedCostPerHour ?? resource?.loadedCostPerHour;
+  const minutesLabel =
+    row?.costScalingMode === "fixed_per_mo"
+      ? "Minutes per manufacturing order"
+      : "Minutes per finished unit";
+
+  return (
+    <>
+      <EditableLineGridCell>
+        <Controller
+          control={control}
+          name={`operationCosts.${index}.operationName` as never}
+          render={({ field: inputField, fieldState }) => (
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-name`}>
+                Operation
+              </FieldLabel>
+              <Input
+                {...inputField}
+                id={`${rowDomId}-name`}
+                value={(inputField.value as string | null) ?? ""}
+                aria-invalid={fieldState.invalid}
+                autoComplete="off"
+                className="w-full min-w-0"
+                data-editable-line-primary
+              />
+              {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
+            </Field>
+          )}
+        />
+      </EditableLineGridCell>
+      <EditableLineGridCell>
+        <Controller
+          control={control}
+          name={`operationCosts.${index}.resourceId` as never}
+          render={({ field: inputField, fieldState }) => (
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only">Resource</FieldLabel>
+              <Select
+                value={(inputField.value as string | null) ?? ""}
+                onValueChange={(value) => {
+                  inputField.onChange(value);
+                  setValue(
+                    `operationCosts.${index}.loadedCostPerHour` as never,
+                    (resourcesById.get(value)?.loadedCostPerHour ?? null) as never,
+                    { shouldDirty: false, shouldTouch: false }
+                  );
+                  if (value) {
+                    appendLineAfterCommit();
+                  }
+                }}
+              >
+                <SelectTrigger aria-invalid={fieldState.invalid} className="w-full min-w-0">
+                  <SelectValue placeholder="Select" />
+                </SelectTrigger>
+                <SelectContent>
+                  {resources.map((resourceOption) => (
+                    <SelectItem key={resourceOption.id} value={resourceOption.id}>
+                      {resourceOption.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
+            </Field>
+          )}
+        />
+      </EditableLineGridCell>
+      <EditableLineGridCell>
+        <Controller
+          control={control}
+          name={`operationCosts.${index}.costScalingMode` as never}
+          render={({ field: inputField, fieldState }) => (
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only">Mode</FieldLabel>
+              <Select
+                value={(inputField.value as string | null) ?? "per_output_unit"}
+                onValueChange={inputField.onChange}
+              >
+                <SelectTrigger aria-invalid={fieldState.invalid} className="w-full min-w-0">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="per_output_unit">Per unit</SelectItem>
+                  <SelectItem value="fixed_per_mo">Per MO</SelectItem>
+                </SelectContent>
+              </Select>
+              {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
+            </Field>
+          )}
+        />
+      </EditableLineGridCell>
+      <EditableLineGridCell>
+        <Controller
+          control={control}
+          name={`operationCosts.${index}.crewSize` as never}
+          render={({ field: inputField, fieldState }) => (
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-crew-size`}>
+                Crew size
+              </FieldLabel>
+              <Input
+                {...inputField}
+                id={`${rowDomId}-crew-size`}
+                value={(inputField.value as string | null) ?? ""}
+                aria-invalid={fieldState.invalid}
+                inputMode="decimal"
+                autoComplete="off"
+                className="w-full min-w-0"
+              />
+              {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
+            </Field>
+          )}
+        />
+      </EditableLineGridCell>
+      <EditableLineGridCell>
+        <Controller
+          control={control}
+          name={`operationCosts.${index}.plannedMinutes` as never}
+          render={({ field: inputField, fieldState }) => (
+            <Field data-invalid={fieldState.invalid}>
+              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-minutes`}>
+                {minutesLabel}
+              </FieldLabel>
+              <Input
+                {...inputField}
+                id={`${rowDomId}-minutes`}
+                value={(inputField.value as string | null) ?? ""}
+                aria-invalid={fieldState.invalid}
+                inputMode="decimal"
+                autoComplete="off"
+                className="w-full min-w-0"
+              />
+              {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
+            </Field>
+          )}
+        />
+      </EditableLineGridCell>
+      <EditableLineGridCell className="text-[length:var(--text-sm)] text-muted-foreground">
+        {formatOperationCost({
+          crewSize: row?.crewSize,
+          plannedMinutes: row?.plannedMinutes,
+          loadedCostPerHour: previewRate,
+          costScalingMode: row?.costScalingMode,
+          expectedBatchYield,
+          typicalBatchSize,
+          standardCostQuantity,
+        })}
+      </EditableLineGridCell>
+    </>
+  );
+}
+
 export function ItemForm({
   itemType,
   units,
   categories,
   availableComponents,
+  manufacturingResources = [],
   canManageBomLock = false,
   initialData,
 }: ItemFormProps) {
@@ -186,13 +498,15 @@ export function ItemForm({
           defaultSellingPrice: initialData.defaultSellingPrice,
           sellable: initialData.sellable ?? true,
           manufacturingMode: "discrete" as const,
-          expectedBatchYield: null,
+          expectedBatchYield: initialData.expectedBatchYield,
           typicalBatchSize: initialData.typicalBatchSize,
           typicalGroupSize: initialData.typicalGroupSize,
+          standardCostQuantity: initialData.standardCostQuantity,
           bomLocked: initialData.bomLocked ?? false,
           stock: initialData.stock,
           safetyStock: initialData.safetyStock,
           bom: initialData.bom ?? [],
+          operationCosts: initialData.operationCosts ?? [],
           revisionNote: null,
         }
       : isMaster
@@ -219,10 +533,12 @@ export function ItemForm({
             expectedBatchYield: null,
             typicalBatchSize: null,
             typicalGroupSize: null,
+            standardCostQuantity: null,
             bomLocked: false,
             stock: "0",
             safetyStock: "0",
             bom: [],
+            operationCosts: [],
             revisionNote: null,
           },
   });
@@ -237,9 +553,17 @@ export function ItemForm({
     control: form.control,
     name: "typicalBatchSize",
   });
+  const watchedExpectedBatchYield = useWatch({
+    control: form.control,
+    name: "expectedBatchYield",
+  });
   const watchedTypicalGroupSize = useWatch({
     control: form.control,
     name: "typicalGroupSize",
+  });
+  const watchedStandardCostQuantity = useWatch({
+    control: form.control,
+    name: "standardCostQuantity",
   });
   const selectedStockingUnitId = useWatch({
     control: form.control,
@@ -447,7 +771,13 @@ export function ItemForm({
   const submitLabel = isEditing
     ? (mutation.isPending ? "Saving..." : "Save Changes")
     : (mutation.isPending ? "Creating..." : isMaster ? "Create Variant Master" : `Create ${typeLabel}`);
-  const isBomDirty = itemType === "product" && !isMaster && Boolean((form.formState.dirtyFields as Record<string, unknown>).bom);
+  const isBomDirty =
+    itemType === "product" &&
+    !isMaster &&
+    Boolean(
+      (form.formState.dirtyFields as Record<string, unknown>).bom ||
+        (form.formState.dirtyFields as Record<string, unknown>).operationCosts
+    );
   const lockTarget = pendingBomLocked ?? bomLocked;
   const lockDialogTitle = lockTarget ? "Lock this BOM?" : "Unlock this BOM?";
   const lockDialogDescription = lockTarget
@@ -1166,7 +1496,7 @@ export function ItemForm({
               }
             >
                 <FieldGroup>
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-4 md:grid-cols-3">
                     <Controller
                       control={form.control}
                       name="typicalBatchSize"
@@ -1213,15 +1543,54 @@ export function ItemForm({
                         </Field>
                       )}
                     />
+                    <Controller
+                      control={form.control}
+                      name="standardCostQuantity"
+                      render={({ field, fieldState }) => (
+                        <Field data-invalid={fieldState.invalid}>
+                          <FieldLabel htmlFor={field.name}>
+                            Standard Costing Quantity
+                          </FieldLabel>
+                          <Input
+                            {...field}
+                            id={field.name}
+                            value={field.value ?? ""}
+                            aria-invalid={fieldState.invalid}
+                            inputMode="decimal"
+                            autoComplete="off"
+                            placeholder="0"
+                          />
+                          {fieldState.invalid ? (
+                            <FieldError errors={[fieldState.error]} />
+                          ) : null}
+                        </Field>
+                      )}
+                    />
                   </div>
                 </FieldGroup>
-                <BomEditor
-                  control={form.control as Parameters<typeof BomEditor>[0]["control"]}
-                  setValue={form.setValue as Parameters<typeof BomEditor>[0]["setValue"]}
-                  availableComponents={availableComponents}
-                  typicalBatchSize={watchedTypicalBatchSize}
-                  typicalGroupSize={watchedTypicalGroupSize}
-                />
+                <div className="space-y-(--space-4)">
+                  <h3 className="text-[length:var(--text-base)] font-semibold">Materials</h3>
+                  <BomEditor
+                    control={form.control as Parameters<typeof BomEditor>[0]["control"]}
+                    setValue={form.setValue as Parameters<typeof BomEditor>[0]["setValue"]}
+                    availableComponents={availableComponents}
+                    typicalBatchSize={watchedTypicalBatchSize}
+                    typicalGroupSize={watchedTypicalGroupSize}
+                  />
+                </div>
+                <div className="space-y-(--space-4)">
+                  <h3 className="text-[length:var(--text-base)] font-semibold">
+                    Standard Operation Costs
+                  </h3>
+                  <OperationCostEditor
+                    control={form.control}
+                    setValue={form.setValue}
+                    resources={manufacturingResources}
+                    expectedBatchYield={watchedExpectedBatchYield}
+                    typicalBatchSize={watchedTypicalBatchSize}
+                    standardCostQuantity={watchedStandardCostQuantity}
+                  />
+                </div>
                 {isBomDirty ? (
                   <FieldGroup>
                     <Field>

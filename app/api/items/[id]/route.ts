@@ -38,7 +38,8 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
     return NextResponse.json(item);
   }
 
-  const { stock, bom, revisionNote, ...itemData } = updateItemSchema.parse(body);
+  const { stock, bom, operationCosts, revisionNote, ...itemData } =
+    updateItemSchema.parse(body);
   const nextItemData =
     existingItem.parentId != null
       ? {
@@ -64,6 +65,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
       nextItemData,
       stock != null ? parseFloat(stock) : undefined,
       bom,
+      operationCosts,
       revisionNote,
       { idempotencyKey }
     );

@@ -8,6 +8,7 @@ import {
   bomRevisionComponentAlternates,
   bomRevisionComponentConstraints,
   bomRevisionComponents,
+  bomRevisionOperationCosts,
   bomRevisions,
   type InventoryEventType,
   type InventoryDisposition,
@@ -20,6 +21,7 @@ import {
   lots,
   manufacturingOrderIngredients,
   manufacturingOrders,
+  manufacturingResources,
   purchaseOrderLines,
   purchaseOrders,
   salesOrderLines,
@@ -78,6 +80,8 @@ import {
   resolveStockUnitCostFromDefaultPurchasePrice,
 } from "@/lib/inventory/cost";
 import { getEstimatedUnitCostsByItemIdInTx } from "@/lib/inventory/estimated-cost";
+import { getCurrentBomOperationCostsInTx } from "@/lib/bom/operation-costs";
+import { calculatePlannedOperationCost } from "@/lib/manufacturing/operation-costs";
 import { calculateMarginMetrics } from "@/lib/margin";
 import { derivePurchaseToStockFactor } from "@/lib/units-of-measure";
 import type { InsertItem, InsertMasterItem, InsertVariant, UpdateItem } from "@/lib/schemas/items";
@@ -98,7 +102,12 @@ import {
   applyMarginTiers,
   calculateMarginPercent,
 } from "./metrics";
-import { hasBomChanged, type BomInputRow } from "./bom-write";
+import {
+  hasBomChanged,
+  hasBomOperationCostsChanged,
+  type BomInputRow,
+  type BomOperationCostInputRow,
+} from "./bom-write";
 
 export class InventoryError extends DomainError {
   constructor(message: string, status = 400) {
@@ -368,6 +377,7 @@ async function createBomRevisionInTx(
     productId: string;
     note?: string | null;
     bom: BomInputRow[];
+    operationCosts?: BomOperationCostInputRow[];
   }
 ) {
   const [currentRevision] = await tx
@@ -550,6 +560,51 @@ async function createBomRevisionInTx(
     if (alternateValues.length > 0) {
       await tx.insert(bomRevisionComponentAlternates).values(alternateValues);
     }
+  }
+
+  if (params.operationCosts && params.operationCosts.length > 0) {
+    const resourceIds = [...new Set(params.operationCosts.map((row) => row.resourceId))];
+    const resourceRows = await tx
+      .select({
+        id: manufacturingResources.id,
+        name: manufacturingResources.name,
+        resourceType: manufacturingResources.resourceType,
+        loadedCostPerHour: trimScale(manufacturingResources.loadedCostPerHour).as(
+          "loadedCostPerHour"
+        ),
+      })
+      .from(manufacturingResources)
+      .where(and(inArray(manufacturingResources.id, resourceIds), isNull(manufacturingResources.deletedAt)));
+    const resourceById = new Map(resourceRows.map((row) => [row.id, row]));
+
+    await tx.insert(bomRevisionOperationCosts).values(
+      params.operationCosts.map((row, index) => {
+        const resource = resourceById.get(row.resourceId);
+        if (!resource) {
+          throw new InventoryError("Operation resource not found", 400);
+        }
+
+        return {
+          bomRevisionId: revision.id,
+          resourceId: row.resourceId,
+          operationName: row.operationName.trim(),
+          resourceName: resource.name,
+          resourceType: resource.resourceType,
+          costScalingMode: row.costScalingMode,
+          crewSize: row.crewSize,
+          plannedMinutes: row.plannedMinutes,
+          loadedCostPerHour: row.loadedCostPerHour ?? resource.loadedCostPerHour,
+          plannedCostTotal: calculatePlannedOperationCost({
+            costScalingMode: row.costScalingMode,
+            crewSize: row.crewSize,
+            plannedMinutes: row.plannedMinutes,
+            loadedCostPerHour: row.loadedCostPerHour ?? resource.loadedCostPerHour,
+            outputQuantity: 1,
+          }),
+          sortOrder: index,
+        };
+      })
+    );
   }
 
   return revision;
@@ -875,11 +930,17 @@ export async function getItem(id: string) {
           "defaultSellingPrice"
         ),
         sellable: items.sellable,
+        expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
+          "expectedBatchYield"
+        ),
         typicalBatchSize: trimScaleNullable(items.typicalBatchSize).as(
           "typicalBatchSize"
         ),
         typicalGroupSize: trimScaleNullable(items.typicalGroupSize).as(
           "typicalGroupSize"
+        ),
+        standardCostQuantity: trimScaleNullable(items.standardCostQuantity).as(
+          "standardCostQuantity"
         ),
         isMaster: items.isMaster,
         parentId: items.parentId,
@@ -1914,6 +1975,7 @@ export async function updateItem(
   itemData: Omit<UpdateItem, "stock" | "bom" | "revisionNote">,
   stock?: number,
   bom?: BomInputRow[],
+  operationCosts?: BomOperationCostInputRow[],
   revisionNote?: string | null,
   options?: { idempotencyKey?: string },
 ): Promise<{ id: string } | null> {
@@ -1922,7 +1984,7 @@ export async function updateItem(
       organizationId: orgId,
       operationName: "updateItem",
       idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { id, itemData, stock, bom, revisionNote },
+      payload: { id, itemData, stock, bom, operationCosts, revisionNote },
     });
 
     if (replay.replayed) {
@@ -1961,6 +2023,8 @@ export async function updateItem(
     const delta =
       stock != null ? stock - (await getCurrentOnHandQtyInTx(tx, id)) : null;
     const currentBom = bom !== undefined ? await getCurrentBomComponentsInTx(tx, id) : [];
+    const currentOperationCosts =
+      operationCosts !== undefined ? await getCurrentBomOperationCostsInTx(tx, id) : [];
     const normalizedCurrentStockUnitCost =
       existingItem.itemType === "material"
         ? normalizeCurrentStockUnitCost(itemData.currentStockUnitCost)
@@ -1978,9 +2042,30 @@ export async function updateItem(
       .where(and(eq(items.id, id), isNull(items.deletedAt)))
       .returning({ id: items.id });
 
-    if (bom !== undefined) {
+    if (bom !== undefined || operationCosts !== undefined) {
+      const nextBom = bom ?? currentBom.map((row) => ({
+        componentId: row.componentId,
+        quantity: row.quantity,
+        consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
+        basisOutputQuantity: row.basisOutputQuantity,
+        batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
+        groupRemainderPolicy:
+          row.groupRemainderPolicy as BomInputRow["groupRemainderPolicy"],
+        minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
+        alternates: row.alternates.map((alternate) => ({
+          itemId: alternate.alternateItemId,
+        })),
+      }));
+      const nextOperationCosts = operationCosts ?? currentOperationCosts.map((row) => ({
+        operationName: row.operationName,
+        resourceId: row.resourceId,
+        costScalingMode: row.costScalingMode as BomOperationCostInputRow["costScalingMode"],
+        crewSize: row.crewSize,
+        plannedMinutes: row.plannedMinutes,
+        loadedCostPerHour: row.loadedCostPerHour,
+      }));
       if (
-        hasBomChanged(
+        (bom !== undefined && hasBomChanged(
           currentBom.map((row) => ({
             componentId: row.componentId,
             quantity: row.quantity,
@@ -1994,15 +2079,29 @@ export async function updateItem(
               itemId: alternate.alternateItemId,
             })),
           })),
-          bom
-        )
+          nextBom
+        )) ||
+        (operationCosts !== undefined &&
+          hasBomOperationCostsChanged(
+            currentOperationCosts.map((row) => ({
+              operationName: row.operationName,
+              resourceId: row.resourceId,
+              costScalingMode:
+                row.costScalingMode as BomOperationCostInputRow["costScalingMode"],
+              crewSize: row.crewSize,
+              plannedMinutes: row.plannedMinutes,
+              loadedCostPerHour: row.loadedCostPerHour,
+            })),
+            nextOperationCosts
+          ))
       ) {
         await createBomRevisionInTx(tx, {
           orgId,
           userId,
           productId: id,
           note: revisionNote,
-          bom,
+          bom: nextBom,
+          operationCosts: nextOperationCosts,
         });
 
         await recordCostBasisChangeInTx(tx, {
@@ -2016,7 +2115,8 @@ export async function updateItem(
           ),
           metadata: {
             revisionNote: revisionNote ?? null,
-            componentCount: bom.length,
+            componentCount: nextBom.length,
+            operationCostCount: nextOperationCosts.length,
           },
         });
       }
@@ -2132,6 +2232,7 @@ export async function createItemWithLot(
   data: Omit<InsertItem, "stock" | "bom" | "revisionNote">,
   stock: string,
   bom?: BomInputRow[],
+  operationCosts?: BomOperationCostInputRow[],
   revisionNote?: string | null,
   options?: { idempotencyKey?: string },
 ): Promise<{ id: string }> {
@@ -2140,7 +2241,7 @@ export async function createItemWithLot(
       organizationId: orgId,
       operationName: "createItemWithLot",
       idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { data, stock, bom, revisionNote },
+      payload: { data, stock, bom, operationCosts, revisionNote },
     });
 
     if (replay.replayed) {
@@ -2173,13 +2274,14 @@ export async function createItemWithLot(
       })
       .returning({ id: items.id });
 
-    if (bom && bom.length > 0) {
+    if ((bom && bom.length > 0) || (operationCosts && operationCosts.length > 0)) {
       await createBomRevisionInTx(tx, {
         orgId,
         userId,
         productId: item.id,
         note: revisionNote,
-        bom,
+        bom: bom ?? [],
+        operationCosts: operationCosts ?? [],
       });
     }
 
@@ -2430,6 +2532,12 @@ export async function getBomComponents(itemId: string) {
       })),
     }));
   });
+}
+
+export async function getBomOperationCosts(itemId: string) {
+  return withAuthedOrgContext(async (tx) =>
+    getCurrentBomOperationCostsInTx(tx, itemId)
+  );
 }
 
 export async function getBomRevisionHistory(itemId: string) {
@@ -2757,6 +2865,7 @@ export async function createVariant(
         expectedBatchYield: null,
         typicalBatchSize: data.typicalBatchSize ?? null,
         typicalGroupSize: data.typicalGroupSize ?? null,
+        standardCostQuantity: data.standardCostQuantity ?? null,
         defaultSellingPrice: data.defaultSellingPrice ?? null,
         defaultPurchasePrice: data.defaultPurchasePrice ?? null,
         safetyStock: data.safetyStock,
@@ -2768,13 +2877,17 @@ export async function createVariant(
       .returning({ id: items.id });
 
     // Create initial BOM only if provided by caller (not copied from master)
-    if (data.bom && data.bom.length > 0) {
+    if (
+      (data.bom && data.bom.length > 0) ||
+      (data.operationCosts && data.operationCosts.length > 0)
+    ) {
       await createBomRevisionInTx(tx, {
         orgId,
         userId,
         productId: variant.id,
         note: data.revisionNote,
-        bom: data.bom,
+        bom: data.bom ?? [],
+        operationCosts: data.operationCosts ?? [],
       });
     }
 

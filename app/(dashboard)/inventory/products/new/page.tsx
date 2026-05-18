@@ -6,14 +6,16 @@ import {
 } from "@/app/(dashboard)/inventory/queries";
 import { ItemForm } from "@/app/(dashboard)/inventory/item-form";
 import { hasModuleAccess } from "@/lib/authz";
+import { getManufacturingResources } from "@/lib/dal/manufacturing-resources";
 
 export default async function NewProductPage() {
   await requireModuleAccess("inventory", "operate");
   const context = await getAuthedMemberContext();
-  const [units, categories, components] = await Promise.all([
+  const [units, categories, components, resources] = await Promise.all([
     getUnitDefinitions(),
     getCategories(),
     getAvailableComponents(),
+    getManufacturingResources(),
   ]);
 
   return (
@@ -22,6 +24,7 @@ export default async function NewProductPage() {
       units={units}
       categories={categories}
       availableComponents={components}
+      manufacturingResources={resources}
       canManageBomLock={hasModuleAccess(context.assignedRoles, "inventory", "admin")}
     />
   );

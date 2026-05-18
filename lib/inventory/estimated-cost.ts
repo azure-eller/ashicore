@@ -1,6 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import {
   bomRevisionComponents,
+  bomRevisionOperationCosts,
   bomRevisions,
   inventoryLotBalances,
   items,
@@ -10,6 +11,7 @@ import type { Tx } from "@/lib/db/with-org-context";
 import { normalizeNumericScale } from "@/lib/format";
 import { resolveStockUnitCostFromDefaultPurchasePrice } from "@/lib/inventory/cost";
 import { calculateAverageUnitConsumptionQuantity } from "@/lib/manufacturing/consumption";
+import { calculatePlannedOperationCost } from "@/lib/manufacturing/operation-costs";
 
 export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[]) {
   const uniqueIds = [...new Set(itemIds)];
@@ -32,6 +34,9 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
         currentStockUnitCost: items.currentStockUnitCost,
         defaultPurchasePrice: items.defaultPurchasePrice,
         purchaseToStockFactor: items.purchaseToStockFactor,
+        expectedBatchYield: items.expectedBatchYield,
+        typicalBatchSize: items.typicalBatchSize,
+        standardCostQuantity: items.standardCostQuantity,
         deletedAt: items.deletedAt,
       })
       .from(items)
@@ -79,6 +84,16 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
       return lotCost.unitCost;
     }
 
+    const [currentRevision] = await tx
+      .select({ id: bomRevisions.id })
+      .from(bomRevisions)
+      .where(and(eq(bomRevisions.productId, itemId), eq(bomRevisions.isCurrent, true)));
+
+    if (!currentRevision) {
+      cache.set(itemId, null);
+      return null;
+    }
+
     const components = await tx
       .select({
         componentId: bomRevisionComponents.componentId,
@@ -88,19 +103,21 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
         batchScalingMode: bomRevisionComponents.batchScalingMode,
         groupRemainderPolicy: bomRevisionComponents.groupRemainderPolicy,
       })
-      .from(bomRevisions)
-      .innerJoin(
-        bomRevisionComponents,
-        eq(bomRevisionComponents.bomRevisionId, bomRevisions.id)
-      )
-      .where(
-        and(
-          eq(bomRevisions.productId, itemId),
-          eq(bomRevisions.isCurrent, true)
-        )
-      );
+      .from(bomRevisionComponents)
+      .where(eq(bomRevisionComponents.bomRevisionId, currentRevision.id));
 
-    if (components.length === 0) {
+    const operationRows = await tx
+      .select({
+        costScalingMode: bomRevisionOperationCosts.costScalingMode,
+        crewSize: bomRevisionOperationCosts.crewSize,
+        plannedMinutes: bomRevisionOperationCosts.plannedMinutes,
+        loadedCostPerHour: bomRevisionOperationCosts.loadedCostPerHour,
+        plannedCostTotal: bomRevisionOperationCosts.plannedCostTotal,
+      })
+      .from(bomRevisionOperationCosts)
+      .where(eq(bomRevisionOperationCosts.bomRevisionId, currentRevision.id));
+
+    if (components.length === 0 && operationRows.length === 0) {
       cache.set(itemId, null);
       return null;
     }
@@ -124,6 +141,31 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
       }
 
       totalCost += componentQuantity * Number.parseFloat(componentCost);
+    }
+
+    const standardCostQuantity =
+      item.expectedBatchYield ?? item.typicalBatchSize ?? item.standardCostQuantity;
+
+    for (const operation of operationRows) {
+      if (operation.costScalingMode === "per_output_unit") {
+        totalCost += Number.parseFloat(
+          calculatePlannedOperationCost({
+            costScalingMode: "per_output_unit",
+            crewSize: operation.crewSize,
+            plannedMinutes: operation.plannedMinutes,
+            loadedCostPerHour: operation.loadedCostPerHour,
+            outputQuantity: 1,
+          })
+        );
+        continue;
+      }
+
+      const quantity = standardCostQuantity == null ? null : Number(standardCostQuantity);
+      if (quantity == null || !Number.isFinite(quantity) || quantity <= 0) {
+        cache.set(itemId, null);
+        return null;
+      }
+      totalCost += Number(operation.plannedCostTotal) / quantity;
     }
 
     const normalized = normalizeNumericScale(totalCost, 6);

@@ -29,6 +29,7 @@ export {
   getBomRevision,
   getUsedInParents,
   getAvailableComponents,
+  getBomOperationCosts,
 } from "./queries/bom-read";
 export { setBomLock } from "./queries/internal";
 export {

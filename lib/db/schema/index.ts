@@ -9,6 +9,7 @@ export * from "./stock-allocations";
 export * from "./quality-disposition-events";
 export * from "./stocktakes";
 export * from "./bom";
+export * from "./manufacturing-resources";
 export * from "./addresses";
 export * from "./sales";
 export * from "./manufacturing";

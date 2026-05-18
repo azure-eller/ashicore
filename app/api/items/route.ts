@@ -48,16 +48,24 @@ export const POST = apiHandler(async (request) => {
   }
 
   const idempotencyKey = requireIdempotencyKey(request, "createItemWithLot");
-  const { stock, bom, revisionNote, ...data } = insertItemSchema.parse(body);
+  const { stock, bom, operationCosts, revisionNote, ...data } =
+    insertItemSchema.parse(body);
 
   if (data.itemType === "product" && data.bomLocked) {
     await assertLockedBomManagementAccess(request.headers);
   }
 
   try {
-    const item = await createItemWithLot(data, stock, bom, revisionNote, {
-      idempotencyKey,
-    });
+    const item = await createItemWithLot(
+      data,
+      stock,
+      bom,
+      operationCosts,
+      revisionNote,
+      {
+        idempotencyKey,
+      }
+    );
     return NextResponse.json(item, { status: 201 });
   } catch (error) {
     if (error instanceof MissingCostBasisError) {

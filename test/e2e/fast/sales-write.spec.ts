@@ -3590,6 +3590,70 @@ test.describe("Sales write-path smoke", () => {
     expect(pricing.estimatedUnitCost).toBe("5");
   });
 
+  test("estimates operation-only product cost", async () => {
+    const suffix = `${ts}-OP-ONLY-MARGIN`;
+    const customerResult = await createCustomer({
+      name: `Fast Operation Only Customer ${suffix}`,
+      email: null,
+      phone: null,
+      notes: null,
+    });
+    expect(customerResult.status).toBe(201);
+    const operationOnlyCustomerId = customerResult.body.id as string;
+
+    const resource = await testFetch("/api/manufacturing-resources", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Fast Operation Only Crew ${suffix}`,
+        description: null,
+        resourceType: "labor",
+        loadedCostPerHour: "100",
+      }),
+    });
+    expect(resource.status).toBe(201);
+    const resourceBody = await resource.json();
+    const resourceId = resourceBody.id as string;
+
+    const productResult = await createItem({
+      name: `Fast Operation Only Product ${suffix}`,
+      itemType: "product",
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FOO-PROD-${suffix}`,
+      category: `Fast Operation Only ${suffix}`,
+      description: "Operation-only product for estimated margin",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "25",
+      stock: "0",
+      safetyStock: "0",
+      standardCostQuantity: "10",
+      bom: [],
+      operationCosts: [
+        {
+          operationName: "Operation-only setup",
+          resourceId,
+          costScalingMode: "fixed_per_mo",
+          crewSize: "1",
+          plannedMinutes: "60",
+        },
+      ],
+    });
+    expect(productResult.status).toBe(201);
+    const productId = productResult.body.id as string;
+
+    const pricingResponse = await testFetch("/api/sales-orders/price", {
+      method: "POST",
+      body: JSON.stringify({
+        customerId: operationOnlyCustomerId,
+        itemId: productId,
+        quantity: "1",
+      }),
+    });
+    expect(pricingResponse.status).toBe(200);
+    const pricing = await pricingResponse.json();
+    expect(pricing.estimatedUnitCost).toBe("10");
+  });
+
   test("creates sales-linked MOs with explicit group remainder choices", async ({
     db,
   }) => {

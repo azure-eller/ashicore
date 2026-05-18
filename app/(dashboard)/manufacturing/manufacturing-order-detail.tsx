@@ -57,6 +57,7 @@ import {
   MANUFACTURING_REMAINING_QTY_TOOLTIP,
   MANUFACTURING_SALES_ORDER_TOOLTIP,
   MATERIAL_COST_TOOLTIP,
+  OPERATIONS_COST_TOOLTIP,
   LEDGER_LOT_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { MoStageAction } from "./mo-stage-action";
@@ -524,6 +525,14 @@ export function ManufacturingOrderDetail({
 
   const canEdit = order.status === "open";
   const canDelete = order.deletedAt == null;
+  const plannedOperationCostTotal = order.operationCosts.reduce((total, operation) => {
+    const value = Number(operation.plannedCostTotal);
+    return Number.isFinite(value) ? total + value : total;
+  }, 0);
+  const displayedOperationCost =
+    order.actualOperationsCost ?? (order.operationCosts.length > 0
+      ? plannedOperationCostTotal.toFixed(6)
+      : null);
 
   return (
     <>
@@ -713,6 +722,20 @@ export function ManufacturingOrderDetail({
           </div>
           <div>
             <dt className="text-sm font-medium text-muted-foreground">
+              <TooltipHeader
+                label="Absorbed Operation Cost"
+                tooltip={OPERATIONS_COST_TOOLTIP}
+              />
+            </dt>
+            <dd className="mt-1 text-sm">
+              {formatPrice(displayedOperationCost) ?? "\u2014"}
+              {order.actualOperationsCost == null && order.operationCosts.length > 0 ? (
+                <span className="text-muted-foreground"> planned</span>
+              ) : null}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-sm font-medium text-muted-foreground">
               <TooltipHeader label="Cost / Unit" tooltip={COST_PER_UNIT_TOOLTIP} />
             </dt>
             <dd className="mt-1 text-sm">
@@ -778,6 +801,58 @@ export function ManufacturingOrderDetail({
             <Separator />
           </>
         )}
+
+        {order.operationCosts.length > 0 ? (
+          <>
+            <div className="space-y-3">
+              <h2 className="text-lg font-semibold tracking-tight">
+                Standard Operation Costs
+              </h2>
+              <div className="border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Operation</TableHead>
+                      <TableHead>Resource</TableHead>
+                      <TableHead>Mode</TableHead>
+                      <TableHead className="text-right">Crew</TableHead>
+                      <TableHead className="text-right">Minutes</TableHead>
+                      <TableHead className="text-right">Rate</TableHead>
+                      <TableHead className="text-right">Planned Standard Cost</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {order.operationCosts.map((operation) => (
+                      <TableRow key={operation.id}>
+                        <TableCell>{operation.operationName}</TableCell>
+                        <TableCell>{operation.resourceName}</TableCell>
+                        <TableCell>
+                          {operation.costScalingMode === "fixed_per_mo"
+                            ? "Per MO"
+                            : "Per unit"}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatQuantity(operation.crewSize)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatQuantity(operation.plannedMinutes)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatPrice(operation.loadedCostPerHour) ?? "\u2014"} / hr
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatPrice(operation.plannedCostTotal) ?? "\u2014"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+
+            <Separator />
+          </>
+        ) : null}
 
         <IngredientsTable
           key={`${order.id}-${order.ingredients.map((ingredient) => ingredient.id).join(":")}`}

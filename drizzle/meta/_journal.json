@@ -743,6 +743,13 @@
       "when": 1779109325751,
       "tag": "0105_configurable_manufacturing_report_graphs",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1779109500000,
+      "tag": "0106_standard_crew_labor_costs",
+      "breakpoints": true
     }
   ]
 }

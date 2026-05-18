@@ -1,15 +1,19 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
+  bomRevisionOperationCosts,
+  bomRevisions,
   inventoryEvents,
   inventoryDemandSummary,
   inventoryItemBalances,
+  inventoryLotBalances,
   inventoryReservationsSummary,
   lots,
   manufacturingOrderBatches,
   manufacturingOrderIngredients,
   manufacturingOrderOutputConsumptions,
   manufacturingOrderOutputs,
+  manufacturingOrderOperationCosts,
   manufacturingOrders,
   salesOrderLines,
 } from "../../../lib/db/schema";
@@ -17,8 +21,10 @@ import {
   createItem,
   createManufacturingOrder,
   createUnit,
+  completeManufacturingOrder,
   getUnitId,
   testFetch,
+  updateItem,
 } from "../../helpers/api";
 
 test.describe("Manufacturing write-path smoke", () => {
@@ -800,7 +806,6 @@ test.describe("Manufacturing write-path smoke", () => {
   });
 
   test("direct order completion records manufacturing output detail", async ({
-    page,
     db,
   }) => {
     const directTs = Date.now();
@@ -820,6 +825,19 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(material.status).toBe(201);
     const materialId = material.body.id as string;
 
+    const resource = await testFetch("/api/manufacturing-resources", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Fast Direct Output Crew ${directTs}`,
+        description: null,
+        resourceType: "labor",
+        loadedCostPerHour: "30.0000",
+      }),
+    });
+    expect(resource.status).toBe(201);
+    const resourceBody = await resource.json();
+    const resourceId = resourceBody.id as string;
+
     const product = await createItem({
       name: `Fast Direct Output Product ${directTs}`,
       itemType: "product",
@@ -832,9 +850,41 @@ test.describe("Manufacturing write-path smoke", () => {
       stock: "0",
       safetyStock: "0",
       bom: [{ componentId: materialId, quantity: "2" }],
+      standardCostQuantity: "4",
+      operationCosts: [
+        {
+          operationName: "Direct output crew",
+          resourceId,
+          costScalingMode: "per_output_unit",
+          crewSize: "2.00",
+          plannedMinutes: "15.0000",
+        },
+      ],
     });
     expect(product.status).toBe(201);
     const productId = product.body.id as string;
+
+    const [bomOperationCostRow] = await db
+      .select({
+        costScalingMode: bomRevisionOperationCosts.costScalingMode,
+        crewSize: bomRevisionOperationCosts.crewSize,
+        plannedMinutes: bomRevisionOperationCosts.plannedMinutes,
+        loadedCostPerHour: bomRevisionOperationCosts.loadedCostPerHour,
+        plannedCostTotal: bomRevisionOperationCosts.plannedCostTotal,
+      })
+      .from(bomRevisionOperationCosts)
+      .innerJoin(
+        bomRevisions,
+        eq(bomRevisions.id, bomRevisionOperationCosts.bomRevisionId)
+      )
+      .where(eq(bomRevisions.productId, productId));
+    expect(bomOperationCostRow).toMatchObject({
+      costScalingMode: "per_output_unit",
+      crewSize: "2.0000",
+      plannedMinutes: "15.0000",
+      loadedCostPerHour: "30.000000",
+      plannedCostTotal: "15.000000",
+    });
 
     const order = await createManufacturingOrder({
       productId,
@@ -845,32 +895,63 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(order.status).toBe(201);
     const directOrderId = order.body.id as string;
 
-    await page.goto(`/manufacturing/orders/${directOrderId}/execute`);
-    const [pickRemainingResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.request().method() === "POST" &&
-          response
-            .url()
-            .endsWith(
-              `/api/manufacturing-orders/${directOrderId}/ingredients/pick-remaining`
-            )
-      ),
-      page.getByRole("button", { name: "Complete Order" }).click(),
+    const operationCostRows = await db
+      .select({
+        operationName: manufacturingOrderOperationCosts.operationName,
+        costScalingMode: manufacturingOrderOperationCosts.costScalingMode,
+        crewSize: manufacturingOrderOperationCosts.crewSize,
+        plannedMinutes: manufacturingOrderOperationCosts.plannedMinutes,
+        loadedCostPerHour: manufacturingOrderOperationCosts.loadedCostPerHour,
+        plannedCostTotal: manufacturingOrderOperationCosts.plannedCostTotal,
+      })
+      .from(manufacturingOrderOperationCosts)
+      .where(eq(manufacturingOrderOperationCosts.manufacturingOrderId, directOrderId));
+    expect(operationCostRows).toEqual([
+      {
+        operationName: "Direct output crew",
+        costScalingMode: "per_output_unit",
+        crewSize: "2.0000",
+        plannedMinutes: "15.0000",
+        loadedCostPerHour: "30.000000",
+        plannedCostTotal: "60.000000",
+      },
     ]);
-    expect(pickRemainingResponse.status()).toBe(200);
-    await expect(page.getByLabel("Actual Output")).toBeVisible({ timeout: 15_000 });
-    await page.getByLabel("Actual Output").fill("4");
-    const [completeResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.request().method() === "POST" &&
-          response.url().endsWith(`/api/manufacturing-orders/${directOrderId}/complete`)
-      ),
-      page.getByRole("button", { name: "Confirm" }).click(),
-    ]);
-    expect(completeResponse.status()).toBe(200);
-    await expect(page.getByRole("button", { name: "Complete Order" })).toHaveCount(0);
+
+    const deleteResource = await testFetch("/api/manufacturing-resources", {
+      method: "DELETE",
+      body: JSON.stringify({ ids: [resourceId] }),
+    });
+    expect(deleteResource.status).toBe(409);
+    const deleteResourceBody = await deleteResource.json();
+    expect(deleteResourceBody.error).toContain("BOM operation cost line");
+    expect(deleteResourceBody.error).toContain("manufacturing order snapshot");
+
+    const [ingredient] = await db
+      .select({ id: manufacturingOrderIngredients.id })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, directOrderId));
+    expect(ingredient).toBeTruthy();
+
+    const pickResponse = await testFetch(
+      `/api/manufacturing-orders/${directOrderId}/ingredients/${ingredient.id}/pick`,
+      { method: "POST" }
+    );
+    expect(pickResponse.status).toBe(200);
+
+    const complete = await completeManufacturingOrder(directOrderId, "4");
+    expect(complete.status).toBe(200);
+
+    const [completedOrder] = await db
+      .select({
+        actualMaterialCost: manufacturingOrders.actualMaterialCost,
+        actualOperationsCost: manufacturingOrders.actualOperationsCost,
+        actualCostPerUnit: manufacturingOrders.actualCostPerUnit,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, directOrderId));
+    expect(Number.parseFloat(completedOrder.actualMaterialCost ?? "0")).toBeCloseTo(16, 6);
+    expect(Number.parseFloat(completedOrder.actualOperationsCost ?? "0")).toBeCloseTo(60, 6);
+    expect(Number.parseFloat(completedOrder.actualCostPerUnit ?? "0")).toBeCloseTo(19, 6);
 
     const outputRows = await db
       .select({
@@ -930,6 +1011,353 @@ test.describe("Manufacturing write-path smoke", () => {
         itemId: productId,
         lotId: outputRows[0].lotId,
         quantity: "4.0000",
+      },
+    ]);
+  });
+
+  test("allocates fixed operation cost incrementally across partial outputs", async ({
+    db,
+  }) => {
+    const fixedTs = Date.now();
+    const material = await createItem({
+      name: `Fast Fixed Output Material ${fixedTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-FIXED-OUTPUT-MAT-${fixedTs}`,
+      category: `Fast Fixed Output ${fixedTs}`,
+      description: "Material for fixed operation output coverage",
+      defaultPurchasePrice: "1.00",
+      defaultSellingPrice: null,
+      stock: "30",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+    const materialId = material.body.id as string;
+
+    const resource = await testFetch("/api/manufacturing-resources", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Fast Fixed Output Crew ${fixedTs}`,
+        description: null,
+        resourceType: "labor",
+        loadedCostPerHour: "100",
+      }),
+    });
+    expect(resource.status).toBe(201);
+    const resourceBody = await resource.json();
+    const resourceId = resourceBody.id as string;
+
+    const product = await createItem({
+      name: `Fast Fixed Output Product ${fixedTs}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-FIXED-OUTPUT-PRODUCT-${fixedTs}`,
+      category: `Fast Fixed Output ${fixedTs}`,
+      description: "Product for fixed operation output coverage",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "20.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: materialId, quantity: "1" }],
+      standardCostQuantity: "10",
+      operationCosts: [
+        {
+          operationName: "Fixed setup crew",
+          resourceId,
+          costScalingMode: "fixed_per_mo",
+          crewSize: "1",
+          plannedMinutes: "60",
+        },
+      ],
+    });
+    expect(product.status).toBe(201);
+    const productId = product.body.id as string;
+
+    const order = await createManufacturingOrder({
+      productId,
+      plannedQuantity: "10",
+      ingredients: [{ itemId: materialId, quantityPerUnit: "1" }],
+      confirmShortage: false,
+    });
+    expect(order.status).toBe(201);
+    const orderId = order.body.id as string;
+
+    for (const quantity of ["5", "5", "5"]) {
+      const outputResponse = await testFetch(`/api/manufacturing-orders/${orderId}/outputs`, {
+        method: "POST",
+        body: JSON.stringify({
+          quantity,
+          outputDisposition: "available",
+          notes: null,
+          confirmNegativeStock: false,
+        }),
+      });
+      expect(outputResponse.status).toBe(200);
+    }
+
+    const lotCosts = await db
+      .select({
+        quantity: inventoryLotBalances.quantity,
+        unitCost: inventoryLotBalances.unitCost,
+        receivedAt: inventoryLotBalances.receivedAt,
+        lotId: inventoryLotBalances.lotId,
+      })
+      .from(inventoryLotBalances)
+      .where(eq(inventoryLotBalances.itemId, productId))
+      .orderBy(asc(inventoryLotBalances.receivedAt), asc(inventoryLotBalances.lotId));
+    expect(lotCosts).toHaveLength(1);
+    expect(lotCosts[0].quantity).toBe("15.0000");
+    expect(Number.parseFloat(lotCosts[0].unitCost ?? "0")).toBeCloseTo(115 / 15, 6);
+
+    const [completedOrder] = await db
+      .select({
+        actualMaterialCost: manufacturingOrders.actualMaterialCost,
+        actualOperationsCost: manufacturingOrders.actualOperationsCost,
+        actualCostPerUnit: manufacturingOrders.actualCostPerUnit,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, orderId));
+    expect(Number.parseFloat(completedOrder.actualMaterialCost ?? "0")).toBeCloseTo(15, 6);
+    expect(Number.parseFloat(completedOrder.actualOperationsCost ?? "0")).toBeCloseTo(100, 6);
+    expect(Number.parseFloat(completedOrder.actualCostPerUnit ?? "0")).toBeCloseTo(115 / 15, 4);
+  });
+
+  test("absorbs full fixed operation cost when final output is below plan", async ({
+    db,
+  }) => {
+    const underYieldTs = Date.now();
+    const material = await createItem({
+      name: `Fast Fixed Under Yield Material ${underYieldTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-FIXED-UNDER-YIELD-MAT-${underYieldTs}`,
+      category: `Fast Fixed Under Yield ${underYieldTs}`,
+      description: "Material for fixed under-yield operation coverage",
+      defaultPurchasePrice: "1.00",
+      defaultSellingPrice: null,
+      stock: "20",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+    const materialId = material.body.id as string;
+
+    const resource = await testFetch("/api/manufacturing-resources", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Fast Fixed Under Yield Crew ${underYieldTs}`,
+        description: null,
+        resourceType: "labor",
+        loadedCostPerHour: "100",
+      }),
+    });
+    expect(resource.status).toBe(201);
+    const resourceBody = await resource.json();
+    const resourceId = resourceBody.id as string;
+
+    const product = await createItem({
+      name: `Fast Fixed Under Yield Product ${underYieldTs}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-FIXED-UNDER-YIELD-PRODUCT-${underYieldTs}`,
+      category: `Fast Fixed Under Yield ${underYieldTs}`,
+      description: "Product for fixed under-yield operation coverage",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "30.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: materialId, quantity: "1" }],
+      standardCostQuantity: "10",
+      operationCosts: [
+        {
+          operationName: "Fixed under-yield setup",
+          resourceId,
+          costScalingMode: "fixed_per_mo",
+          crewSize: "1",
+          plannedMinutes: "60",
+        },
+      ],
+    });
+    expect(product.status).toBe(201);
+    const productId = product.body.id as string;
+
+    const order = await createManufacturingOrder({
+      productId,
+      plannedQuantity: "10",
+      ingredients: [{ itemId: materialId, quantityPerUnit: "1" }],
+      confirmShortage: false,
+    });
+    expect(order.status).toBe(201);
+    const orderId = order.body.id as string;
+
+    const [ingredient] = await db
+      .select({ id: manufacturingOrderIngredients.id })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    expect(ingredient).toBeTruthy();
+
+    const pickResponse = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${ingredient.id}/pick`,
+      { method: "POST" }
+    );
+    expect(pickResponse.status).toBe(200);
+
+    const complete = await completeManufacturingOrder(orderId, "8");
+    expect(complete.status).toBe(200);
+
+    const [completedOrder] = await db
+      .select({
+        actualMaterialCost: manufacturingOrders.actualMaterialCost,
+        actualOperationsCost: manufacturingOrders.actualOperationsCost,
+        actualCostPerUnit: manufacturingOrders.actualCostPerUnit,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, orderId));
+
+    expect(Number.parseFloat(completedOrder.actualMaterialCost ?? "0")).toBeCloseTo(10, 6);
+    expect(Number.parseFloat(completedOrder.actualOperationsCost ?? "0")).toBeCloseTo(100, 6);
+    expect(Number.parseFloat(completedOrder.actualCostPerUnit ?? "0")).toBeCloseTo(110 / 8, 6);
+  });
+
+  test("preserves operation rate snapshots when unrelated BOM edits create revisions", async ({
+    db,
+  }) => {
+    const rateTs = Date.now();
+    const materialA = await createItem({
+      name: `Fast Rate Snapshot Material A ${rateTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-RATE-SNAPSHOT-MAT-A-${rateTs}`,
+      category: `Fast Rate Snapshot ${rateTs}`,
+      description: "Original material for operation rate snapshot coverage",
+      defaultPurchasePrice: "1.00",
+      defaultSellingPrice: null,
+      stock: "10",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialA.status).toBe(201);
+    const materialAId = materialA.body.id as string;
+
+    const materialB = await createItem({
+      name: `Fast Rate Snapshot Material B ${rateTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-RATE-SNAPSHOT-MAT-B-${rateTs}`,
+      category: `Fast Rate Snapshot ${rateTs}`,
+      description: "Replacement material for operation rate snapshot coverage",
+      defaultPurchasePrice: "1.00",
+      defaultSellingPrice: null,
+      stock: "10",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialB.status).toBe(201);
+    const materialBId = materialB.body.id as string;
+
+    const resource = await testFetch("/api/manufacturing-resources", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Fast Rate Snapshot Crew ${rateTs}`,
+        description: null,
+        resourceType: "labor",
+        loadedCostPerHour: "30",
+      }),
+    });
+    expect(resource.status).toBe(201);
+    const resourceBody = await resource.json();
+    const resourceId = resourceBody.id as string;
+
+    const product = await createItem({
+      name: `Fast Rate Snapshot Product ${rateTs}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-RATE-SNAPSHOT-PRODUCT-${rateTs}`,
+      category: `Fast Rate Snapshot ${rateTs}`,
+      description: "Product for operation rate snapshot coverage",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: materialAId, quantity: "1" }],
+      operationCosts: [
+        {
+          operationName: "Snapshot crew",
+          resourceId,
+          costScalingMode: "per_output_unit",
+          crewSize: "1",
+          plannedMinutes: "60",
+        },
+      ],
+    });
+    expect(product.status).toBe(201);
+    const productId = product.body.id as string;
+
+    const updateResource = await testFetch(`/api/manufacturing-resources/${resourceId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        name: `Fast Rate Snapshot Crew ${rateTs}`,
+        description: null,
+        resourceType: "labor",
+        loadedCostPerHour: "45",
+      }),
+    });
+    expect(updateResource.status).toBe(200);
+
+    const updateProduct = await updateItem(productId, {
+      name: `Fast Rate Snapshot Product ${rateTs}`,
+      sku: `FAST-RATE-SNAPSHOT-PRODUCT-${rateTs}`,
+      category: `Fast Rate Snapshot ${rateTs}`,
+      description: "Product for operation rate snapshot coverage",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10.00",
+      sellable: false,
+      safetyStock: "0",
+      manufacturingMode: "discrete",
+      expectedBatchYield: null,
+      typicalBatchSize: null,
+      typicalGroupSize: null,
+      standardCostQuantity: null,
+      bom: [{ componentId: materialBId, quantity: "1" }],
+      operationCosts: [
+        {
+          operationName: "Snapshot crew",
+          resourceId,
+          costScalingMode: "per_output_unit",
+          crewSize: "1",
+          plannedMinutes: "60",
+          loadedCostPerHour: "30",
+        },
+      ],
+      revisionNote: "Swap material only",
+    });
+    expect(updateProduct.status).toBe(200);
+
+    const operationRows = await db
+      .select({
+        revisionNumber: bomRevisions.revisionNumber,
+        loadedCostPerHour: bomRevisionOperationCosts.loadedCostPerHour,
+        plannedCostTotal: bomRevisionOperationCosts.plannedCostTotal,
+      })
+      .from(bomRevisionOperationCosts)
+      .innerJoin(
+        bomRevisions,
+        eq(bomRevisions.id, bomRevisionOperationCosts.bomRevisionId)
+      )
+      .where(eq(bomRevisions.productId, productId))
+      .orderBy(asc(bomRevisions.revisionNumber));
+
+    expect(operationRows).toEqual([
+      {
+        revisionNumber: 1,
+        loadedCostPerHour: "30.000000",
+        plannedCostTotal: "30.000000",
+      },
+      {
+        revisionNumber: 2,
+        loadedCostPerHour: "30.000000",
+        plannedCostTotal: "30.000000",
       },
     ]);
   });

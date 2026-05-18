@@ -26,6 +26,10 @@ Stocktakes support scoped snapshots plus lot-aware counts:
 
 Stocktakes reconcile the `available` disposition. Blocked and rejected stock remains managed by disposition actions and is not collapsed into available by a stocktake. Location-specific counting is still not exposed in the UI; lot count rows reconcile the default location's available lot balance.
 
+Stocktakes use the current inventory lot unit cost as valuation context. For
+manufactured lots completed after standard operation costs are enabled, that lot
+unit cost includes absorbed standard operation cost.
+
 Category scopes must encode both the item type and the category name in `inventory.stocktakes.scope`, for example `material:category:Soil`. This avoids ambiguous category names shared by both materials and products while keeping list/detail labels readable.
 
 `product` scopes include all made items, including non-sellable internal products.

@@ -86,6 +86,11 @@ const dashboardNavModules: DashboardNavModule[] = [
         href: "/manufacturing/orders",
         icon: FactoryIcon,
       },
+      {
+        title: "Resources",
+        href: "/manufacturing/resources",
+        icon: Task01Icon,
+      },
     ],
   },
   {
@@ -337,6 +342,13 @@ export function getDashboardSearchActions(
         description: "View done manufacturing orders",
         href: "/manufacturing/orders?status=done",
         icon: FactoryIcon,
+        group: "Manufacturing",
+      },
+      {
+        title: "Manufacturing Resources",
+        description: "View manufacturing resource rates",
+        href: "/manufacturing/resources",
+        icon: Task01Icon,
         group: "Manufacturing",
       }
     );

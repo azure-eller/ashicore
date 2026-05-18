@@ -16,12 +16,14 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import {
+  bomRevisionOperationCosts,
   bomRevisions,
   type BomComponentConstraintConfig,
 } from "./bom";
 import { items } from "./items";
 import { lots } from "./lots";
 import { salesOrders } from "./sales";
+import { manufacturingResources } from "./manufacturing-resources";
 
 export const manufacturingSchema = pgSchema("manufacturing");
 
@@ -60,6 +62,10 @@ export const manufacturingOrders = manufacturingSchema
       actualMaterialCost: numeric("actual_material_cost", {
         precision: 12,
         scale: 4,
+      }),
+      actualOperationsCost: numeric("actual_operations_cost", {
+        precision: 18,
+        scale: 6,
       }),
       actualCostPerUnit: numeric("actual_cost_per_unit", {
         precision: 12,
@@ -351,6 +357,92 @@ export const manufacturingOrderOutputs = manufacturingSchema
         sql`disposition IN ('available', 'blocked')`
       ),
       pgPolicy("manufacturing_order_outputs_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`manufacturing_order_id IN (
+          SELECT id
+          FROM manufacturing.manufacturing_orders
+          WHERE organization_id = current_setting('app.current_org_id', true)
+        )`,
+        withCheck: sql`manufacturing_order_id IN (
+          SELECT id
+          FROM manufacturing.manufacturing_orders
+          WHERE organization_id = current_setting('app.current_org_id', true)
+        )`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const manufacturingOrderOperationCosts = manufacturingSchema
+  .table(
+    "manufacturing_order_operation_costs",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      manufacturingOrderId: uuid("manufacturing_order_id")
+        .notNull()
+        .references(() => manufacturingOrders.id, { onDelete: "cascade" }),
+      sourceBomRevisionOperationCostId: uuid("source_bom_revision_operation_cost_id")
+        .references(() => bomRevisionOperationCosts.id, { onDelete: "set null" }),
+      resourceId: uuid("resource_id").references(() => manufacturingResources.id, {
+        onDelete: "restrict",
+      }),
+      operationName: varchar("operation_name", { length: 255 }).notNull(),
+      resourceName: varchar("resource_name", { length: 255 }).notNull(),
+      resourceType: varchar("resource_type", { length: 20 }).notNull(),
+      costScalingMode: varchar("cost_scaling_mode", { length: 30 }).notNull(),
+      crewSize: numeric("crew_size", { precision: 12, scale: 4 }).notNull(),
+      plannedMinutes: numeric("planned_minutes", {
+        precision: 12,
+        scale: 4,
+      }).notNull(),
+      plannedQuantityBasis: numeric("planned_quantity_basis", {
+        precision: 12,
+        scale: 4,
+      }),
+      loadedCostPerHour: numeric("loaded_cost_per_hour", {
+        precision: 18,
+        scale: 6,
+      }).notNull(),
+      plannedCostTotal: numeric("planned_cost_total", {
+        precision: 18,
+        scale: 6,
+      }).notNull(),
+      actualCrewSize: numeric("actual_crew_size", { precision: 12, scale: 4 }),
+      actualMinutes: numeric("actual_minutes", { precision: 12, scale: 4 }),
+      actualCostTotal: numeric("actual_cost_total", {
+        precision: 18,
+        scale: 6,
+      }),
+      sortOrder: integer("sort_order").notNull().default(0),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      index("manufacturing_order_operation_costs_order_idx").on(
+        table.manufacturingOrderId
+      ),
+      index("manufacturing_order_operation_costs_source_idx").on(
+        table.sourceBomRevisionOperationCostId
+      ),
+      check(
+        "manufacturing_order_operation_costs_scaling_mode_check",
+        sql`cost_scaling_mode IN ('per_output_unit', 'fixed_per_mo')`
+      ),
+      check("manufacturing_order_operation_costs_crew_check", sql`crew_size > 0`),
+      check(
+        "manufacturing_order_operation_costs_minutes_check",
+        sql`planned_minutes > 0`
+      ),
+      check(
+        "manufacturing_order_operation_costs_rate_check",
+        sql`loaded_cost_per_hour >= 0`
+      ),
+      check(
+        "manufacturing_order_operation_costs_total_check",
+        sql`planned_cost_total >= 0`
+      ),
+      pgPolicy("manufacturing_order_operation_costs_org_isolation", {
         for: "all",
         to: "public",
         using: sql`manufacturing_order_id IN (

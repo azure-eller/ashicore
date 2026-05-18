@@ -23,6 +23,7 @@ import {
   items,
   lots,
   manufacturingOrderBatches,
+  manufacturingOrderOperationCosts,
   manufacturingOrderOutputConsumptions,
   manufacturingOrderOutputs,
   manufacturingOrderIngredientConstraints,
@@ -98,6 +99,8 @@ import {
   type GroupRemainderHandling,
   type GroupRemainderPolicy,
 } from "@/lib/manufacturing/consumption";
+import { getBomRevisionOperationCostsInTx } from "@/lib/bom/operation-costs";
+import { calculatePlannedOperationCost } from "@/lib/manufacturing/operation-costs";
 import {
   DomainError,
   type DomainFieldErrors,
@@ -1139,6 +1142,158 @@ async function insertManufacturingIngredientsInTx(
   });
 }
 
+async function insertManufacturingOperationCostsInTx(
+  tx: Tx,
+  params: {
+    manufacturingOrderId: string;
+    bomRevisionId: string | null;
+    plannedQuantity: number;
+  }
+) {
+  if (!params.bomRevisionId) {
+    return [];
+  }
+
+  const operationRows = await getBomRevisionOperationCostsInTx(tx, params.bomRevisionId);
+  if (operationRows.length === 0) {
+    return [];
+  }
+
+  return tx
+    .insert(manufacturingOrderOperationCosts)
+    .values(
+      operationRows.map((row) => ({
+        manufacturingOrderId: params.manufacturingOrderId,
+        sourceBomRevisionOperationCostId: row.id,
+        resourceId: row.resourceId,
+        operationName: row.operationName,
+        resourceName: row.resourceName,
+        resourceType: row.resourceType,
+        costScalingMode: row.costScalingMode,
+        crewSize: row.crewSize,
+        plannedMinutes: row.plannedMinutes,
+        plannedQuantityBasis:
+          row.costScalingMode === "per_output_unit"
+            ? normalizeNumeric(params.plannedQuantity)
+            : null,
+        loadedCostPerHour: row.loadedCostPerHour,
+        plannedCostTotal: calculatePlannedOperationCost({
+          costScalingMode: row.costScalingMode as never,
+          crewSize: row.crewSize,
+          plannedMinutes: row.plannedMinutes,
+          loadedCostPerHour: row.loadedCostPerHour,
+          outputQuantity: params.plannedQuantity,
+        }),
+        sortOrder: row.sortOrder,
+      }))
+    )
+    .returning({ id: manufacturingOrderOperationCosts.id });
+}
+
+async function getAbsorbedOperationCostForQuantityInTx(
+  tx: Tx,
+  manufacturingOrderId: string,
+  outputQuantity: number,
+  options?: { absorbFullFixedCost?: boolean }
+) {
+  const [order] = await tx
+    .select({
+      plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
+        "plannedQuantity"
+      ),
+    })
+    .from(manufacturingOrders)
+    .where(eq(manufacturingOrders.id, manufacturingOrderId));
+  const plannedQuantity = Number.parseFloat(order?.plannedQuantity ?? "0");
+  const rows = await tx
+    .select({
+      costScalingMode: manufacturingOrderOperationCosts.costScalingMode,
+      crewSize: trimScale(manufacturingOrderOperationCosts.crewSize).as("crewSize"),
+      plannedMinutes: trimScale(manufacturingOrderOperationCosts.plannedMinutes).as(
+        "plannedMinutes"
+      ),
+      loadedCostPerHour: trimScale(
+        manufacturingOrderOperationCosts.loadedCostPerHour
+      ).as("loadedCostPerHour"),
+      plannedCostTotal: trimScale(
+        manufacturingOrderOperationCosts.plannedCostTotal
+      ).as("plannedCostTotal"),
+    })
+    .from(manufacturingOrderOperationCosts)
+    .where(eq(manufacturingOrderOperationCosts.manufacturingOrderId, manufacturingOrderId));
+
+  return rows.reduce((sum, row) => {
+    if (row.costScalingMode === "per_output_unit") {
+      return (
+        sum +
+        Number.parseFloat(
+          calculatePlannedOperationCost({
+            costScalingMode: "per_output_unit",
+            crewSize: row.crewSize,
+            plannedMinutes: row.plannedMinutes,
+            loadedCostPerHour: row.loadedCostPerHour,
+            outputQuantity,
+          })
+        )
+      );
+    }
+
+    const plannedCost = Number.parseFloat(row.plannedCostTotal);
+    if (options?.absorbFullFixedCost) {
+      return sum + plannedCost;
+    }
+
+    if (!Number.isFinite(plannedQuantity) || plannedQuantity <= 0) {
+      return sum + plannedCost;
+    }
+
+    return sum + plannedCost * Math.min(outputQuantity / plannedQuantity, 1);
+  }, 0);
+}
+
+async function getIncrementalAbsorbedOperationCostForQuantityInTx(
+  tx: Tx,
+  manufacturingOrderId: string,
+  previousOutputQuantity: number,
+  outputQuantity: number,
+  options?: { absorbFullFixedCost?: boolean }
+) {
+  const normalizedPreviousOutputQuantity = Math.max(previousOutputQuantity, 0);
+  const normalizedOutputQuantity = Math.max(outputQuantity, 0);
+  const previousCost =
+    normalizedPreviousOutputQuantity > 0
+      ? await getAbsorbedOperationCostForQuantityInTx(
+          tx,
+          manufacturingOrderId,
+          normalizedPreviousOutputQuantity
+        )
+      : 0;
+  const nextCost = await getAbsorbedOperationCostForQuantityInTx(
+    tx,
+    manufacturingOrderId,
+    normalizedPreviousOutputQuantity + normalizedOutputQuantity,
+    options
+  );
+
+  return Math.max(nextCost - previousCost, 0);
+}
+
+async function getTotalOutputQuantityForOrderInTx(
+  tx: Tx,
+  manufacturingOrderId: string
+) {
+  const [row] = await tx
+    .select({
+      quantity: trimScale(sql`COALESCE(SUM(${manufacturingOrderOutputs.quantity}), 0)`).as(
+        "quantity"
+      ),
+    })
+    .from(manufacturingOrderOutputs)
+    .where(eq(manufacturingOrderOutputs.manufacturingOrderId, manufacturingOrderId));
+
+  return parseFloat(row?.quantity ?? "0");
+}
+
 async function insertManufacturingOrderInTx(
   tx: Tx,
   orgId: string,
@@ -1188,6 +1343,11 @@ async function insertManufacturingOrderInTx(
     });
 
   await insertManufacturingIngredientsInTx(tx, order.id, values.ingredients);
+  await insertManufacturingOperationCostsInTx(tx, {
+    manufacturingOrderId: order.id,
+    bomRevisionId: values.bomRevisionId,
+    plannedQuantity: values.plannedQuantity,
+  });
 
   return order;
 }
@@ -3382,6 +3542,9 @@ export async function getManufacturingOrder(
         actualMaterialCost: trimScaleNullable(manufacturingOrders.actualMaterialCost).as(
           "actualMaterialCost"
         ),
+        actualOperationsCost: trimScaleNullable(manufacturingOrders.actualOperationsCost).as(
+          "actualOperationsCost"
+        ),
         actualCostPerUnit: trimScaleNullable(manufacturingOrders.actualCostPerUnit).as(
           "actualCostPerUnit"
         ),
@@ -3476,6 +3639,37 @@ export async function getManufacturingOrder(
       batchIngredientsWithDetails != null
         ? aggregateBatchIngredients(batchIngredientsWithDetails)
         : (rawIngredients as ExecutionIngredientRow[]).map(toIngredientDetail);
+    const operationCosts = await tx
+      .select({
+        id: manufacturingOrderOperationCosts.id,
+        operationName: manufacturingOrderOperationCosts.operationName,
+        resourceName: manufacturingOrderOperationCosts.resourceName,
+        resourceType: manufacturingOrderOperationCosts.resourceType,
+        costScalingMode: manufacturingOrderOperationCosts.costScalingMode,
+        crewSize: trimScale(manufacturingOrderOperationCosts.crewSize).as("crewSize"),
+        plannedMinutes: trimScale(manufacturingOrderOperationCosts.plannedMinutes).as(
+          "plannedMinutes"
+        ),
+        plannedQuantityBasis: trimScaleNullable(
+          manufacturingOrderOperationCosts.plannedQuantityBasis
+        ).as("plannedQuantityBasis"),
+        loadedCostPerHour: trimScale(
+          manufacturingOrderOperationCosts.loadedCostPerHour
+        ).as("loadedCostPerHour"),
+        plannedCostTotal: trimScale(
+          manufacturingOrderOperationCosts.plannedCostTotal
+        ).as("plannedCostTotal"),
+        actualCostTotal: trimScaleNullable(
+          manufacturingOrderOperationCosts.actualCostTotal
+        ).as("actualCostTotal"),
+        sortOrder: manufacturingOrderOperationCosts.sortOrder,
+      })
+      .from(manufacturingOrderOperationCosts)
+      .where(eq(manufacturingOrderOperationCosts.manufacturingOrderId, id))
+      .orderBy(
+        asc(manufacturingOrderOperationCosts.sortOrder),
+        asc(manufacturingOrderOperationCosts.createdAt)
+      );
     const detailIngredients =
       false
         ? await (async () => {
@@ -3560,6 +3754,7 @@ export async function getManufacturingOrder(
               }))
             ),
       ingredients: detailIngredients,
+      operationCosts,
       batches,
       producedLots,
     };
@@ -4048,6 +4243,9 @@ export async function updateManufacturingOrder(
     await tx
       .delete(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, id));
+    await tx
+      .delete(manufacturingOrderOperationCosts)
+      .where(eq(manufacturingOrderOperationCosts.manufacturingOrderId, id));
 
     await cancelActiveStockAllocationsInTx(tx, {
       organizationId: orgId,
@@ -4071,6 +4269,11 @@ export async function updateManufacturingOrder(
       id,
       ingredients
     );
+    await insertManufacturingOperationCostsInTx(tx, {
+      manufacturingOrderId: id,
+      bomRevisionId: existing.bomRevisionId,
+      plannedQuantity,
+    });
 
     if (isOpenManufacturingOrder(existing)) {
       await editExpectedFromManufacturingInTx(tx, {
@@ -4401,6 +4604,11 @@ export async function recordManufacturingOutput(
         .where(eq(manufacturingOrderOutputs.manufacturingOrderId, orderId));
       const totalActualQuantity = parseFloat(allOutputs[0]?.quantity ?? "0");
       const totalMaterialCost = parseFloat(allOutputs[0]?.materialCostTotal ?? "0");
+      const totalOperationsCost = await getAbsorbedOperationCostForQuantityInTx(
+        tx,
+        orderId,
+        totalActualQuantity
+      );
       if (options?.batchId) {
         const batchOutputQuantity = await getOutputQuantityInTx(tx, {
           manufacturingOrderId: orderId,
@@ -4419,9 +4627,10 @@ export async function recordManufacturingOutput(
         .set({
           actualQuantity: normalizeNumeric(totalActualQuantity),
           actualMaterialCost: normalizeNumeric(totalMaterialCost),
+          actualOperationsCost: normalizeNumericScale(totalOperationsCost, 6),
           actualCostPerUnit:
             totalActualQuantity > 0
-              ? normalizeNumeric(totalMaterialCost / totalActualQuantity)
+              ? normalizeNumeric((totalMaterialCost + totalOperationsCost) / totalActualQuantity)
               : null,
           updatedAt: new Date(),
         })
@@ -4732,6 +4941,16 @@ export async function recordManufacturingOutput(
       (sum, ingredient) => sum + ingredient.actualCostTotal,
       0
     );
+    const existingOrderOutputQuantity = await getTotalOutputQuantityForOrderInTx(
+      tx,
+      orderId
+    );
+    const absorbedOperationCost = await getIncrementalAbsorbedOperationCostForQuantityInTx(
+      tx,
+      orderId,
+      existingOrderOutputQuantity,
+      outputQuantity
+    );
     const producedLotId = await getProducedLotIdInTx(tx, orderId);
     const produced = await produceManufacturedStockInTx(tx, {
       organizationId: orgId,
@@ -4746,6 +4965,7 @@ export async function recordManufacturingOutput(
         "output-lot"
       ),
       expectedReleaseQuantity: outputQuantity,
+      overheadCostTotal: absorbedOperationCost,
       ingredientRows: produceIngredientRows,
     });
 
@@ -4787,14 +5007,20 @@ export async function recordManufacturingOutput(
       .where(eq(manufacturingOrderOutputs.manufacturingOrderId, orderId));
     const totalActualQuantity = parseFloat(allOutputs[0]?.quantity ?? "0");
     const totalMaterialCost = parseFloat(allOutputs[0]?.materialCostTotal ?? "0");
+    const totalOperationsCost = await getAbsorbedOperationCostForQuantityInTx(
+      tx,
+      orderId,
+      totalActualQuantity
+    );
     await tx
       .update(manufacturingOrders)
       .set({
         actualQuantity: normalizeNumeric(totalActualQuantity),
         actualMaterialCost: normalizeNumeric(totalMaterialCost),
+        actualOperationsCost: normalizeNumericScale(totalOperationsCost, 6),
         actualCostPerUnit:
           totalActualQuantity > 0
-            ? normalizeNumeric(totalMaterialCost / totalActualQuantity)
+            ? normalizeNumeric((totalMaterialCost + totalOperationsCost) / totalActualQuantity)
             : null,
         updatedAt: new Date(),
       })
@@ -5812,7 +6038,13 @@ export async function completeManufacturingOrder(
       });
     }
 
-    const actualCostPerUnit = totalMaterialCost / actualQuantity;
+    const absorbedOperationCost = await getAbsorbedOperationCostForQuantityInTx(
+      tx,
+      id,
+      actualQuantity,
+      { absorbFullFixedCost: true }
+    );
+    const actualCostPerUnit = (totalMaterialCost + absorbedOperationCost) / actualQuantity;
 
     const produced = await produceManufacturedStockInTx(tx, {
       organizationId: orgId,
@@ -5826,6 +6058,7 @@ export async function completeManufacturingOrder(
         "complete-output"
       ),
       expectedReleaseQuantity: null,
+      overheadCostTotal: absorbedOperationCost,
       ingredientRows: produceIngredientRows,
     });
 
@@ -5857,6 +6090,7 @@ export async function completeManufacturingOrder(
         priorityRank: null,
         actualQuantity: normalizeNumeric(actualQuantity),
         actualMaterialCost: normalizeNumeric(totalMaterialCost),
+        actualOperationsCost: normalizeNumericScale(absorbedOperationCost, 6),
         actualCostPerUnit: normalizeNumeric(actualCostPerUnit),
         completedAt: new Date(),
         updatedAt: new Date(),
@@ -6169,6 +6403,17 @@ export async function completeManufacturingBatch(
       });
     }
 
+    const existingOrderOutputQuantity = await getTotalOutputQuantityForOrderInTx(
+      tx,
+      orderId
+    );
+    const absorbedOperationCost = await getIncrementalAbsorbedOperationCostForQuantityInTx(
+      tx,
+      orderId,
+      existingOrderOutputQuantity,
+      actualQuantity,
+      { absorbFullFixedCost: completesOrder }
+    );
     const produced = await produceManufacturedStockInTx(tx, {
       organizationId: orgId,
       manufacturingOrderId: orderId,
@@ -6181,6 +6426,7 @@ export async function completeManufacturingBatch(
         `complete-batch:${batchId}`
       ),
       expectedReleaseQuantity: completesOrder ? null : actualQuantity,
+      overheadCostTotal: absorbedOperationCost,
       ingredientRows: produceIngredientRows,
     });
 
@@ -6242,15 +6488,22 @@ export async function completeManufacturingBatch(
     const totalMaterialCost = sumNumericStrings(
       batchIngredientRows.map((row) => row.actualCostTotal)
     );
+    const totalOperationsCost = await getAbsorbedOperationCostForQuantityInTx(
+      tx,
+      orderId,
+      totalActualQuantity,
+      { absorbFullFixedCost: allCompleted }
+    );
 
     await tx
       .update(manufacturingOrders)
       .set({
         actualQuantity: normalizeNumeric(totalActualQuantity),
         actualMaterialCost: normalizeNumeric(totalMaterialCost),
+        actualOperationsCost: normalizeNumericScale(totalOperationsCost, 6),
         actualCostPerUnit:
           totalActualQuantity > 0
-            ? normalizeNumeric(totalMaterialCost / totalActualQuantity)
+            ? normalizeNumeric((totalMaterialCost + totalOperationsCost) / totalActualQuantity)
             : normalizeNumeric(0),
         status: allCompleted ? "done" : "open",
         priorityRank: allCompleted ? null : order.priorityRank,

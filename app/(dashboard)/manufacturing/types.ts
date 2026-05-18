@@ -235,6 +235,21 @@ export type ManufacturingOrderProducedLot = {
   batchNumber: number | null;
 };
 
+export type ManufacturingOrderOperationCostDetail = {
+  id: string;
+  operationName: string;
+  resourceName: string;
+  resourceType: string;
+  costScalingMode: string;
+  crewSize: string;
+  plannedMinutes: string;
+  plannedQuantityBasis: string | null;
+  loadedCostPerHour: string;
+  plannedCostTotal: string;
+  actualCostTotal: string | null;
+  sortOrder: number;
+};
+
 export type ManufacturingOrderDetail = {
   id: string;
   orderNumber: string;
@@ -257,6 +272,7 @@ export type ManufacturingOrderDetail = {
   pickProgressStatus: ManufacturingPickProgressStatus;
   plannedDate: string | null;
   actualMaterialCost: string | null;
+  actualOperationsCost: string | null;
   actualCostPerUnit: string | null;
   notes: string | null;
   completedAt: Date | null;
@@ -265,6 +281,7 @@ export type ManufacturingOrderDetail = {
   createdAt: Date;
   updatedAt: Date;
   ingredients: ManufacturingOrderIngredientDetail[];
+  operationCosts: ManufacturingOrderOperationCostDetail[];
   batches: ManufacturingOrderBatchDetail[];
   producedLots: ManufacturingOrderProducedLot[];
 };

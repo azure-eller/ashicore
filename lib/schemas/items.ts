@@ -2,11 +2,13 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { items } from "@/lib/db/schema";
 import { normalizeMinimumLotAgeDays } from "@/lib/bom/constraints";
+import { normalizeNumeric, normalizeNumericScale } from "@/lib/format";
 import {
   BATCH_SCALING_MODES,
   CONSUMPTION_MODES,
   GROUP_REMAINDER_POLICIES,
 } from "@/lib/manufacturing/consumption";
+import { OPERATION_COST_SCALING_MODES } from "@/lib/manufacturing/operation-costs";
 import {
   isNonNegativeNumberString,
   nullableString as nullableStringOptional,
@@ -49,6 +51,38 @@ const bomRowSchema = z.object({
     .default([]),
 });
 
+const operationCostQuantitySchema = nullableString
+  .refine((value) => value != null, "Value is required")
+  .refine((value) => Number.isFinite(Number(value)) && Number(value) > 0, {
+    message: "Value must be greater than 0",
+  })
+  .transform((value) => normalizeNumeric(Number(value)));
+
+const operationCostRateSchema = nullableStringOptional
+  .refine(
+    (value) => value == null || (Number.isFinite(Number(value)) && Number(value) >= 0),
+    "Loaded cost per hour must be a non-negative number"
+  )
+  .transform((value) => (value == null ? null : normalizeNumericScale(Number(value), 6)));
+
+const operationCostRowSchema = z.object({
+  operationName: z.string().trim().min(1, "Name is required"),
+  resourceId: z.string().min(1, "Resource is required"),
+  costScalingMode: z.enum(OPERATION_COST_SCALING_MODES).default("per_output_unit"),
+  crewSize: operationCostQuantitySchema,
+  plannedMinutes: operationCostQuantitySchema,
+  loadedCostPerHour: operationCostRateSchema,
+});
+
+const rawOperationCostRowSchema = z.object({
+  operationName: z.string().nullable().optional(),
+  resourceId: z.string().nullable().optional(),
+  costScalingMode: z.enum(OPERATION_COST_SCALING_MODES).nullable().optional(),
+  crewSize: z.string().nullable().optional(),
+  plannedMinutes: z.string().nullable().optional(),
+  loadedCostPerHour: z.string().nullable().optional(),
+});
+
 const rawBomRowSchema = z.object({
   componentId: z.string().nullable().optional(),
   quantity: z.string().nullable().optional(),
@@ -76,6 +110,15 @@ function isBlankBomRow(row: z.input<typeof rawBomRowSchema>) {
   return componentId === "" && quantity === "" && minimumLotAgeDays === "";
 }
 
+function isBlankOperationCostRow(row: z.input<typeof rawOperationCostRowSchema>) {
+  const operationName = row.operationName?.trim() ?? "";
+  const resourceId = row.resourceId?.trim() ?? "";
+  const crewSize = row.crewSize?.trim() ?? "";
+  const plannedMinutes = row.plannedMinutes?.trim() ?? "";
+
+  return operationName === "" && resourceId === "" && crewSize === "" && plannedMinutes === "";
+}
+
 const cleanedBomRowsSchema = z
   .array(rawBomRowSchema)
   .transform((rows, ctx) => {
@@ -95,6 +138,41 @@ const cleanedBomRowsSchema = z
         groupRemainderPolicy: row.groupRemainderPolicy ?? null,
         minimumLotAgeDays: row.minimumLotAgeDays,
         alternates: row.alternates,
+      });
+
+      if (!parsed.success) {
+        parsed.error.issues.forEach((issue) => {
+          ctx.addIssue({
+            ...issue,
+            path: [index, ...issue.path],
+          });
+        });
+        return;
+      }
+
+      cleanedRows.push(parsed.data);
+    });
+
+    return cleanedRows;
+  });
+
+const cleanedOperationCostRowsSchema = z
+  .array(rawOperationCostRowSchema)
+  .transform((rows, ctx) => {
+    const cleanedRows: Array<z.infer<typeof operationCostRowSchema>> = [];
+
+    rows.forEach((row, index) => {
+      if (isBlankOperationCostRow(row)) {
+        return;
+      }
+
+      const parsed = operationCostRowSchema.safeParse({
+        operationName: row.operationName ?? "",
+        resourceId: row.resourceId ?? "",
+        costScalingMode: row.costScalingMode ?? "per_output_unit",
+        crewSize: row.crewSize ?? null,
+        plannedMinutes: row.plannedMinutes ?? null,
+        loadedCostPerHour: row.loadedCostPerHour ?? null,
       });
 
       if (!parsed.success) {
@@ -145,6 +223,7 @@ const rawBaseItemSchema = createInsertSchema(items, {
   expectedBatchYield: nullableStringOptional,
   typicalBatchSize: nullableStringOptional,
   typicalGroupSize: nullableStringOptional,
+  standardCostQuantity: nullableStringOptional,
   safetyStock: z.string().transform((v) => (v.trim() === "" ? "0" : v)),
 }).omit({
   id: true,
@@ -164,6 +243,7 @@ const rawBaseItemSchema = createInsertSchema(items, {
     "Must be a non-negative number"
   ),
   bom: cleanedBomRowsSchema.optional(),
+  operationCosts: cleanedOperationCostRowsSchema.optional(),
   revisionNote: nullableStringOptional,
 });
 
@@ -313,12 +393,41 @@ function bomRefine(
   }
 }
 
+function operationCostsRefine(
+  data: {
+    operationCosts?: Array<{
+      operationName: string;
+      resourceId: string;
+      costScalingMode: string;
+    }>;
+  },
+  ctx: z.RefinementCtx
+) {
+  if (!data.operationCosts || data.operationCosts.length === 0) return;
+
+  const seen = new Set<string>();
+  for (let i = 0; i < data.operationCosts.length; i++) {
+    const row = data.operationCosts[i];
+    const key = `${row.operationName.trim().toLowerCase()}:${row.resourceId}:${row.costScalingMode}`;
+    if (seen.has(key)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Duplicate operation cost",
+        path: ["operationCosts", i, "operationName"],
+      });
+    }
+    seen.add(key);
+  }
+}
+
 export const insertItemSchema = rawBaseItemSchema.superRefine((data, ctx) => {
   purchaseUnitRefine(data, ctx);
   bomRefine(data, ctx);
+  operationCostsRefine(data, ctx);
   positiveOptionalRefine(data.expectedBatchYield, "Expected batch yield", "expectedBatchYield", ctx);
   positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
   positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);
+  positiveOptionalRefine(data.standardCostQuantity, "Standard costing quantity", "standardCostQuantity", ctx);
 });
 
 export type InsertItem = z.infer<typeof insertItemSchema>;
@@ -342,9 +451,11 @@ export const updateItemSchema = rawBaseItemSchema.omit({
 }).superRefine((data, ctx) => {
   purchaseUnitRefine(data, ctx);
   bomRefine(data, ctx);
+  operationCostsRefine(data, ctx);
   positiveOptionalRefine(data.expectedBatchYield, "Expected batch yield", "expectedBatchYield", ctx);
   positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
   positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);
+  positiveOptionalRefine(data.standardCostQuantity, "Standard costing quantity", "standardCostQuantity", ctx);
 });
 
 export type UpdateItem = z.infer<typeof updateItemSchema>;
@@ -380,13 +491,17 @@ export const insertVariantSchema = z.object({
   expectedBatchYield: nullableStringOptional,
   typicalBatchSize: nullableStringOptional,
   typicalGroupSize: nullableStringOptional,
+  standardCostQuantity: nullableStringOptional,
   bom: cleanedBomRowsSchema.optional(),
+  operationCosts: cleanedOperationCostRowsSchema.optional(),
   revisionNote: nullableStringOptional,
 }).superRefine((data, ctx) => {
   bomRefine(data, ctx);
+  operationCostsRefine(data, ctx);
   positiveOptionalRefine(data.expectedBatchYield, "Expected batch yield", "expectedBatchYield", ctx);
   positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
   positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);
+  positiveOptionalRefine(data.standardCostQuantity, "Standard costing quantity", "standardCostQuantity", ctx);
 });
 
 export type InsertVariant = z.infer<typeof insertVariantSchema>;

@@ -26,6 +26,11 @@ Sales v1 includes:
 - FIFO stock deduction during shipping
 - `sales_consumption` ledger events for per-lot audit history
 
+Manufactured product margins use inventory cost. Estimated sales margin uses the
+estimated product unit cost, including standard operation costs when the product
+BOM revision defines them. Actual shipped margin uses consumed lot cost only;
+manufactured lots already include absorbed standard operation cost.
+
 Sales v1 does not include:
 
 - pricing rules

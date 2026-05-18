@@ -16,6 +16,7 @@ import {
 import { sql } from "drizzle-orm";
 import { inventorySchema } from "./units";
 import { items } from "./items";
+import { manufacturingResources } from "./manufacturing-resources";
 
 export const bomRevisions = inventorySchema
   .table(
@@ -267,6 +268,85 @@ export const bomRevisionComponentConstraints = inventorySchema
           INNER JOIN inventory.bom_revisions r
             ON r.id = c.bom_revision_id
           WHERE r.organization_id = current_setting('app.current_org_id', true)
+        )`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const BOM_OPERATION_COST_SCALING_MODES = [
+  "per_output_unit",
+  "fixed_per_mo",
+] as const;
+export type BomOperationCostScalingMode =
+  (typeof BOM_OPERATION_COST_SCALING_MODES)[number];
+
+export const bomRevisionOperationCosts = inventorySchema
+  .table(
+    "bom_revision_operation_costs",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      bomRevisionId: uuid("bom_revision_id")
+        .notNull()
+        .references(() => bomRevisions.id, { onDelete: "cascade" }),
+      resourceId: uuid("resource_id")
+        .notNull()
+        .references(() => manufacturingResources.id, { onDelete: "restrict" }),
+      operationName: varchar("operation_name", { length: 255 }).notNull(),
+      resourceName: varchar("resource_name", { length: 255 }).notNull(),
+      resourceType: varchar("resource_type", { length: 20 }).notNull(),
+      costScalingMode: varchar("cost_scaling_mode", { length: 30 })
+        .$type<BomOperationCostScalingMode>()
+        .notNull(),
+      crewSize: numeric("crew_size", { precision: 12, scale: 4 }).notNull(),
+      plannedMinutes: numeric("planned_minutes", {
+        precision: 12,
+        scale: 4,
+      }).notNull(),
+      loadedCostPerHour: numeric("loaded_cost_per_hour", {
+        precision: 18,
+        scale: 6,
+      }).notNull(),
+      plannedCostTotal: numeric("planned_cost_total", {
+        precision: 18,
+        scale: 6,
+      }).notNull(),
+      sortOrder: integer("sort_order").notNull().default(0),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      index("bom_revision_operation_costs_revision_idx").on(table.bomRevisionId),
+      index("bom_revision_operation_costs_resource_idx").on(table.resourceId),
+      check(
+        "bom_revision_operation_costs_scaling_mode_check",
+        sql`cost_scaling_mode IN ('per_output_unit', 'fixed_per_mo')`
+      ),
+      check("bom_revision_operation_costs_crew_size_check", sql`crew_size > 0`),
+      check(
+        "bom_revision_operation_costs_minutes_check",
+        sql`planned_minutes > 0`
+      ),
+      check(
+        "bom_revision_operation_costs_rate_check",
+        sql`loaded_cost_per_hour >= 0`
+      ),
+      check(
+        "bom_revision_operation_costs_total_check",
+        sql`planned_cost_total >= 0`
+      ),
+      pgPolicy("bom_revision_operation_costs_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`bom_revision_id IN (
+          SELECT id
+          FROM inventory.bom_revisions
+          WHERE organization_id = current_setting('app.current_org_id', true)
+        )`,
+        withCheck: sql`bom_revision_id IN (
+          SELECT id
+          FROM inventory.bom_revisions
+          WHERE organization_id = current_setting('app.current_org_id', true)
         )`,
       }),
     ]
