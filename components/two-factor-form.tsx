@@ -24,7 +24,7 @@ export function TwoFactorForm({ next = "/" }: { next?: string }) {
   const router = useRouter();
   const [code, setCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
-  const [trustDevice, setTrustDevice] = useState(true);
+  const [trustDevice, setTrustDevice] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -77,7 +77,7 @@ export function TwoFactorForm({ next = "/" }: { next?: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Verify MFA</CardTitle>
+        <CardTitle>Verify email</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit}>
@@ -104,7 +104,7 @@ export function TwoFactorForm({ next = "/" }: { next?: string }) {
                   ? "Sending..."
                   : codeSent
                     ? "Resend code"
-                    : "Send code to email"}
+                    : "Send email code"}
               </Button>
             </Field>
             <Field orientation="horizontal">
@@ -114,7 +114,7 @@ export function TwoFactorForm({ next = "/" }: { next?: string }) {
                 onCheckedChange={(value) => setTrustDevice(value === true)}
               />
               <FieldLabel htmlFor="two-factor-trust-device" className="font-normal">
-                Trust this device for 30 days
+                Remember this device for 30 days
               </FieldLabel>
             </Field>
             {notice ? (

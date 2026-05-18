@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Field,
   FieldDescription,
@@ -27,6 +28,7 @@ export function MfaSetupForm({
   const router = useRouter();
   const [code, setCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
+  const [trustDevice, setTrustDevice] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [sendingCode, setSendingCode] = useState(false);
@@ -63,6 +65,7 @@ export function MfaSetupForm({
 
     const { error: verifyError } = await authClient.twoFactor.verifyOtp({
       code,
+      trustDevice,
     });
 
     if (verifyError) {
@@ -78,7 +81,7 @@ export function MfaSetupForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Set up MFA</CardTitle>
+        <CardTitle>Verify email</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleVerify}>
@@ -107,15 +110,25 @@ export function MfaSetupForm({
                   ? "Sending..."
                   : codeSent
                     ? "Resend code"
-                    : "Send code to email"}
+                    : "Send email code"}
               </Button>
+            </Field>
+            <Field orientation="horizontal">
+              <Checkbox
+                id="mfa-trust-device"
+                checked={trustDevice}
+                onCheckedChange={(value) => setTrustDevice(value === true)}
+              />
+              <FieldLabel htmlFor="mfa-trust-device" className="font-normal">
+                Remember this device for 30 days
+              </FieldLabel>
             </Field>
             <Field>
               <Button
                 type="submit"
                 disabled={verifying || sendingCode || !code.trim()}
               >
-                {verifying ? "Verifying..." : "Finish setup"}
+                {verifying ? "Verifying..." : "Verify"}
               </Button>
             </Field>
           </FieldGroup>
