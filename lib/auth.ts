@@ -251,6 +251,7 @@ export const auth = betterAuth({
       },
       // Mobile devices should stay trusted until the auth cookies are cleared.
       trustDeviceMaxAge: 60 * 60 * 24 * 365 * 100,
+      twoFactorCookieMaxAge: 60 * 60 * 24,
     }),
     organization({
       ac: organizationAc,
