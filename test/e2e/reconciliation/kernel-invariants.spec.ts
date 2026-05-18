@@ -84,12 +84,20 @@ async function createConfirmedSalesOrderFixture(params: {
   unitPrice: string;
   confirmOversell?: boolean;
 }) {
+  // shipDate must be >= orderDate; use a future date relative to test
+  // execution to avoid stale-date drift (the test suite has burned us on
+  // hardcoded past dates after the calendar rolls forward).
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const shipDateIso = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
   const created = await testFetch("/api/sales-orders", {
     method: "POST",
     body: JSON.stringify({
       customerId: params.customerId,
       status: "open",
-      shipDate: "2026-04-15",
+      orderDate: todayIso,
+      shipDate: shipDateIso,
       requestedDate: null,
       notes: null,
       lines: [
@@ -403,10 +411,17 @@ test.describe("inventory kernel invariants", () => {
     );
     const customerId = await createCustomerFixture(`Recon Create Order Customer ${ts}`);
     const idempotencyKey = key("create-sales-order", ts);
+    // Use a future-relative date so the test doesn't drift stale after
+    // the calendar rolls past a hardcoded date.
+    const orderDateIso = new Date().toISOString().slice(0, 10);
+    const shipDateIso = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
     const payload = {
       customerId,
       status: "open",
-      shipDate: "2026-04-15",
+      orderDate: orderDateIso,
+      shipDate: shipDateIso,
       requestedDate: null,
       notes: "request replay fixture",
       lines: [
@@ -776,5 +791,6 @@ test.describe("inventory kernel invariants", () => {
 
     await expectProjectionDiffClean(orgId, [itemId]);
   });
+
 
 });

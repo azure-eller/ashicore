@@ -1,0 +1,393 @@
+{
+  "summary": "Phase 1 contract for mo-execute-and-fulfill — the EXECUTION half of the manufacturing-order lifecycle (pick → output → complete, plus batch start/complete and output-allocation routing) and the downstream sales-shipment fulfillment that consumes from MO-produced lots through stock_allocations buckets. SO↔MO link creation and shipment-cost margin entries are in scope only insofar as they touch this surface. The feature is a composite of three server-side DAL entry points (manufacturing/queries.ts, sales/queries.ts, inventory kernel) plus their HTTP routes. The UI surface is `/manufacturing/orders/[id]/execute` (manufacturing-execution.tsx) and the shipment dialogs on the sales order detail. Every business rule listed below is grounded in a code citation with a confidence tag.",
+  "evidence": [
+    { "file": "app/api/manufacturing-orders/[id]/complete/route.ts", "symbol": "POST", "reason": "Requires Idempotency-Key; catches ManufacturingError (-> toResponse) and InsufficientStockError (-> 409). Lines 12-31." },
+    { "file": "app/api/manufacturing-orders/[id]/ingredients/[ingredientId]/pick/route.ts", "symbol": "POST", "reason": "Requires Idempotency-Key; parses pickManufacturingIngredientSchema. Lines 10-30." },
+    { "file": "app/api/manufacturing-orders/[id]/outputs/route.ts", "symbol": "POST", "reason": "Requires Idempotency-Key; recordManufacturingOutput. Lines 11-28." },
+    { "file": "app/api/manufacturing-orders/[id]/batches/[batchId]/complete/route.ts", "symbol": "POST", "reason": "Requires Idempotency-Key; completeManufacturingBatch. Lines 11-32." },
+    { "file": "app/api/manufacturing-orders/[id]/batches/[batchId]/start/route.ts", "symbol": "POST", "reason": "Does NOT require Idempotency-Key. Lines 10-25." },
+    { "file": "app/api/manufacturing-orders/[id]/output-allocation/route.ts", "symbol": "GET, PUT", "reason": "GET assertModuleReadAccess; PUT assertModuleWriteAccess. PUT does NOT require Idempotency-Key. Lines 1-36." },
+    { "file": "app/api/manufacturing-orders/[id]/route.ts", "symbol": "DELETE", "reason": "Soft-delete entry (functional cancel). Does NOT require Idempotency-Key. Lines 45-59." },
+    { "file": "app/api/sales-orders/[id]/shipments/[shipmentId]/ship/route.ts", "symbol": "POST", "reason": "Requires Idempotency-Key; ships a planned shipment via shipSalesShipment. Lines 9-28." },
+    { "file": "app/api/sales-orders/[id]/shipments/[shipmentId]/costs/route.ts", "symbol": "PUT", "reason": "Does NOT require Idempotency-Key; updates shipment costs only — no inventory or accounting writes. Lines 12-29." },
+    { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "completeManufacturingOrder", "reason": "Rejects batch-mode (lines 5545-5550), rejects unpicked ingredients (5615-5647), reuses persisted pick allocations (5649-5774), catches InsufficientStockError -> warningType='stock_shortage' (5692-5710)." },
+    { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "completeManufacturingBatch", "reason": "Rejects discrete mode (5866-5868); computes completesOrder (5879-5881); produceManufacturedStockInTx without lotId so each batch creates a new lot (6095-6108); stamps manufacturingOrderBatches.lotId (6142); flips parent MO to 'done' only when allCompleted (6178-6183)." },
+    { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "pickManufacturingIngredient", "reason": "Locks ingredient row FOR UPDATE (6246-6267); rejects already-picked (6278-6280); minimum-lot-age 409 warningType='requirement_violation' (6322-6349); ORs confirmNegativeStock || confirmRequirementOverride for allowNegativeStock (6212-6213); maps InsufficientStockError -> 409 warningType='stock_shortage' (6388-6406)." },
+    { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "recordManufacturingOutput", "reason": "Negative quantity branches to reverseManufacturingOutputInTx (4301-4361); rejects discrete with batchId (4406); reuses pickedAllocations first, then consumeLotAllocationsForDemandInTx, then consumeStockFifoInTx with confirmNegativeStock (4435-4574); reuses producedLotId via getProducedLotIdInTx -> appendPositiveStockToExistingLotInTx (4658-4673); expectedReleaseQuantity = outputQuantity." },
+    { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "saveManufacturingOutputAllocation", "reason": "Cancels MO-source allocations + lot-source allocations of produced outputs, then re-inserts; if outputs exist, re-runs materializeManufacturingOrderSourceAllocationsFromExistingOutputInTx (5063-5516)." },
+    { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "releaseManufacturingOrder (release path)", "reason": "On release writes addExpectedFromManufacturingInTx + addIngredientDemandForManufacturingInTx (1205-1233). No stock consumption." },
+    { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "pickManufacturingIngredientInTx", "reason": "lockItemsInTx (354); checks (available + ownReservation) < quantity && !allowNegativeStock -> InsufficientStockError (366-379); held-first via consumeLotAllocationsForDemandInTx (381-395); FIFO fallback via consumeStockFifoInTx with unavailableByLotId map excluding own demand (397-426); inserts manufacturingPickAllocations with requirementOverrideConfirmed metadata (432-451); drops demand + reservation deltas (454-496)." },
+    { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "produceManufacturedStockInTx", "reason": "unitCost = (ingredientCostTotal + overheadCostTotal)/quantity at scale 6 (647-652); appendPositiveStockToExistingLotInTx when lotId provided, otherwise createPositiveStockEventInTx (674-679); writes inventory_event type 'manufacturing_output' subtype 'manufacturing_complete' (662-663); materializes manufacturing_order source allocations only when outputDisposition='available' (681-690); expected supply release = min(currentOpenQty, expectedReleaseQuantity) (707-732)." },
+    { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "addExpectedFromManufacturingInTx / editExpectedFromManufacturingInTx", "reason": "Event-driven expected supply deltas via applyExpectedReferenceDeltasInTx subtype 'manufacturing_release' / 'manufacturing_edit' (35-155). Combined with produceManufacturedStockInTx release path and releaseRemainingExpectedOutputInTx, this is the conceptual 'recompute expected qty' the CLAUDE.md note refers to." },
+    { "file": "lib/inventory/kernel/operations/sales.ts", "symbol": "consumeForShipmentInTx", "reason": "Locks affected items (540-543); loads sales_order_line AND sales_shipment_line allocations (586-622); per-line consumes inventory_lot holds first (733-754), then falls through to consumeStockFifoInTx (770-794); refuses fall-through when shipment line carries an unmaterialized 'manufacturing_order' source hold -> InsufficientStockError (756-768); drops demand+reservation deltas for the consumed sales_order_line (799-823)." },
+    { "file": "lib/inventory/kernel/operations/stock-core.ts", "symbol": "consumeStockFifoInTx", "reason": "FIFO selection ORDER BY receivedAt ASC, lotId ASC FOR UPDATE; honors unavailableByLotId; skips ineligible lots when minimumReceivedDate set unless allowIneligibleLots=true; on allowNegativeStock=true falls through to createNegativeStockEventInTx with NEG-<date>-<uuid> lot and resolvePositiveStockUnitCostInTx cost basis (829-1101)." },
+    { "file": "lib/inventory/kernel/operations/stock-core.ts", "symbol": "resolvePositiveStockUnitCostInTx", "reason": "Materials: items.currentStockUnitCost -> resolveStockUnitCostFromDefaultPurchasePrice (289-321); Products: walks active BOM via getCurrentActiveBomIngredientsInTx, sums child cost * calculateAverageUnitConsumptionQuantity (323-349); cycle detection (260-267); throws MissingCostBasisError with reason classification (247-364)." },
+    { "file": "lib/inventory/kernel/operations/stock-core.ts", "symbol": "appendPositiveStockToExistingLotInTx", "reason": "Weighted-averages lot quantity AND unitCost on every append: newUnitCost = (currentQty*currentUnitCost + addedQty*incomingUnitCost) / (currentQty+addedQty) at scale 6 (504-657, formula 567-579). Used by produceManufacturedStockInTx whenever lotId is passed (i.e., second+ /outputs call on same MO)." },
+    { "file": "lib/inventory/kernel/operations/stock-allocations.ts", "symbol": "consumeLotAllocationsForDemandInTx", "reason": "Spends 'inventory_lot' stock_allocations for a demand FOR UPDATE in createdAt order; calls consumeSpecificLotInTx; reduces/closes allocations to status='consumed' (400-488)." },
+    { "file": "lib/inventory/kernel/operations/stock-allocations.ts", "symbol": "materializeManufacturingOrderSourceAllocationsForLotInTx", "reason": "Walks active 'manufacturing_order' source promises, intersects with each demand's open qty, holds the intersection on the produced lot as inventory_lot allocations, cancels excess promise qty, then syncSalesLineStockReservationFromLotAllocationsInTx for any affected sales lines (490-600)." },
+    { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "reconcileIngredientActualsInTx", "reason": "Variance reconciliation at completion. delta > +epsilon consumes more (held then FIFO) and writes manufacturing_variance_loss; delta < -epsilon restocks lots via restockExistingLotInTx (writes manufacturing_variance_gain); maintains manufacturingPickAllocations rows (858-1058)." },
+    { "file": "app/(dashboard)/sales/queries.ts", "symbol": "shipSalesShipment", "reason": "Locks order + shipment row (7107-7137); rejects non-'open' orders and 'shipped' shipments (7118-7145); calls consumeForShipmentInTx with allowNegativeStock=payload.confirmNegativeStock (7177-7195); maps InsufficientStockError -> SalesError 409 with negativeStock payload (7197-7213); flips order 'done' when all lines closed, else upserts unscheduled remainder shipment (7227-7252); best-effort Xero push only when orderShipped + syncAccounting=true (7272-7297)." },
+    { "file": "app/(dashboard)/sales/queries.ts", "symbol": "shipSalesOrder", "reason": "Single-shot ship without shipment row; same SalesError 409 negativeStock translation (7302-7390); idempotency payload includes confirmNegativeStock + syncAccounting (7315-7319), so retries with different flags collide as IdempotencyConflictError 409." },
+    { "file": "app/(dashboard)/sales/queries.ts", "symbol": "updateSalesShipmentCosts", "reason": "Writes ONLY salesShipments.customerFreightChargeAmount + salesShipmentCosts rows (6921-6981). No inventory_events, no Xero push, no AP, no BOL writes. Delete-and-reinsert pattern makes it idempotent-by-effect even without an Idempotency-Key." },
+    { "file": "app/(dashboard)/sales/queries.ts", "symbol": "moveShipmentLineAllocationsInTx / pullUnplannedSalesAllocationsToShipmentLineInTx / cancelShipmentLineAllocationsInTx / replaceShipmentLinesPreservingAllocationsInTx", "reason": "Allocation bucket transitions: source/target demand types sales_order_line <-> sales_shipment_line via moveActiveSalesAllocationsInTx. Called on shipment create (6779-6791), edit (6868), delete (7044), and split (6736-6766). Lines 1447-1852." },
+    { "file": "lib/schemas/manufacturing-orders.ts", "symbol": "completeManufacturingOrderSchema / completeManufacturingBatchSchema / pickManufacturingIngredientSchema / recordManufacturingOutputSchema / saveManufacturingOutputAllocationSchema", "reason": "Zod inputs: complete = {actualQuantity?, outputDisposition='available'|'blocked' default 'available', ingredientActuals[], confirmNegativeStock?}; pick = {confirmRequirementOverride?, confirmNegativeStock?}; output = {quantity (non-zero string, negatives allowed), outputDisposition, notes?, confirmNegativeStock?}; output-allocation = {salesAllocations[], productionAllocations[]}. Lines 233-356." },
+    { "file": "lib/schemas/sales-orders.ts", "symbol": "shipSalesShipmentSchema, salesShipmentCostsInputSchema", "reason": "Ship payload: {syncAccounting?, confirmNegativeStock?}. Cost payload: array of {costType IN ('freight'|'delivery_labor'|'fuel'|'packaging'|'accessorial'|'other'), costStatus, amount>0, ...}. Lines 488-513." },
+    { "file": "app/(dashboard)/manufacturing/manufacturing-execution.tsx", "symbol": "ManufacturingExecutionPage", "reason": "/execute UI. Polls every 5s (EXECUTION_SYNC_INTERVAL_MS=5000, line 67). Mutations: pick (528-588), startBatch (495-526), completeOrder (634-667), completeBatch (669-709). All use createIdempotencyHeaders. canPick: discrete OR current batch is in_progress (450-453). 409 pick errors split into pickWarning (shortage payload) and pickError." },
+    { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "ManufacturingError", "reason": "Domain error -> toResponse(): {error, errors?, extra:{shortage?}}. Lines 706-731." },
+    { "file": "app/(dashboard)/sales/queries.ts", "symbol": "SalesError, NegativeStockWarningPayload", "reason": "Domain error -> toResponse(): {error, negativeStock?}. NegativeStockWarningPayload = {itemId, itemName, available, requested, shortage}. Lines 680-711." },
+    { "file": "lib/db/schema/manufacturing.ts", "symbol": "manufacturingOrders/Batches/Ingredients/PickAllocations/Outputs/OutputConsumptions", "reason": "Critical state tables. manufacturingOrders.{requestedQuantity, plannedQuantity, actualQuantity, actualMaterialCost, actualCostPerUnit, manufacturingMode 'discrete'|'batch'}. manufacturingOrderBatches.{batchNumber, status default 'pending', plannedQuantity, actualQuantity, startedAt, pickedAt, completedAt, lotId} UNIQUE(manufacturingOrderId, batchNumber). manufacturingOrderOutputs.disposition CHECK IN ('available','blocked') UNIQUE(manufacturingOrderId, outputNumber). Lines 28-416." },
+    { "file": "lib/db/schema/sales.ts", "symbol": "salesShipments/Lines/Costs", "reason": "salesShipments.status CHECK IN ('planned','shipped'); shipped requires shippedAt non-null. salesShipmentCosts.amount CHECK > 0. costType CHECK IN ('freight','delivery_labor','fuel','packaging','accessorial','other'). Lines 534-690." },
+    { "file": "lib/db/schema/stock-allocations.ts", "symbol": "stockAllocations", "reason": "Demand types: 'sales_order_line', 'sales_shipment_line', 'manufacturing_order_ingredient'. Source types: 'inventory_lot', 'manufacturing_order'. Status: 'active'|'consumed'|'cancelled'. UNIQUE (org, demandType, demandId, sourceType, sourceId) WHERE status='active'. Lines 16-122." },
+    { "file": "lib/inventory/kernel/idempotency.ts", "symbol": "beginInventoryOperationInTx / finishInventoryOperationInTx / claimInventoryIdempotencyInTx", "reason": "Replay semantics. Unique (orgId, idempotencyKey). resultEnvelope {status:'pending'} -> final result. Mismatched paramsHash throws IdempotencyConflictError 409." }
+  ],
+  "inferences": [
+    "Because CLAUDE.md describes `recomputeExpectedQty` as the conceptual contract but the code uses event-driven `applyExpectedReferenceDeltasInTx` deltas (addExpectedFromManufacturingInTx on release, editExpectedFromManufacturingInTx on plan edit, produceManufacturedStockInTx + releaseRemainingExpectedOutputInTx on output/complete), Rule 5 is best expressed as 'expected supply lifecycle is event-driven via subtypes manufacturing_release / manufacturing_edit / manufacturing_complete' rather than a literal function call.",
+    "Because each batch completion calls produceManufacturedStockInTx without passing a lotId (queries.ts 6095-6108), each completed batch produces ONE new lot via createPositiveStockEventInTx. Multiple discrete /outputs calls on the same MO instead reuse getProducedLotIdInTx and append via appendPositiveStockToExistingLotInTx. The batch path therefore guarantees the 'one lot per batch' invariant; the discrete /outputs path collapses to one lot for the whole order.",
+    "Because completeManufacturingOrder explicitly rejects manufacturingMode='batch' (5545-5550) and completeManufacturingBatch explicitly rejects manufacturingMode='discrete' (5866-5868), the two paths are mutually exclusive at the API surface — clients must dispatch on mode.",
+    "Because cancelReleasedManufacturingOrderInTx is reached via the DELETE route (no Idempotency-Key required) but uses a deterministic internal key 'delete-manufacturing-order:<order.id>' (queries.ts 6807), repeated DELETEs do replay safely server-side even though no client header is enforced.",
+    "Because updateSalesShipmentCosts hard-deletes all costs and re-inserts the supplied set (6957-6976), the endpoint is idempotent-in-effect even without Idempotency-Key enforcement. Cost edits cannot mutate inventory, AP, GL, BOL state, or Xero invoices."
+  ],
+  "unknowns": [
+    "Whether discrete /outputs that consume more than one batch's worth of pre-picked stock interact correctly when the order also has variance reconciliation at /complete (out-of-scope for this contract because batch-mode /outputs is rejected for discrete and discrete /outputs is allowed only when manufacturingMode='discrete').",
+    "Whether saveManufacturingOutputAllocation racing with shipSalesShipment leads to a deterministic outcome — the route is not wrapped in beginInventoryOperationInTx and not Idempotency-Key gated.",
+    "Whether output adjust-down (negative /outputs) on a batch-mode MO re-shrinks the produced batch lot or just zeroes the output row; reverseManufacturingOutputInTx was not opened line-by-line in this phase."
+  ],
+  "structured_output": {
+    "purpose": "Drive a released manufacturing order from picked ingredients through produced output to a completed/closed state, propagate produced supply into downstream sales shipments via stock allocations, and ship the sales shipment lines while preserving inventory ledger integrity, weighted-average cost, and idempotent replay.",
+    "domain_role": "Execution layer of the manufacturing module. The release step writes demand and expected supply but does NOT consume stock. Picking, output recording, and completion are the stock-affecting steps. On the sales side, ship is the stock-affecting step; cost edits are margin-only. Stock allocations are the bridge that lets an MO promise specific output capacity to a sales order line or shipment line, materialising into concrete lot holds at produce time.",
+    "inputs": {
+      "props": [
+        { "name": "execution", "type": "ManufacturingExecutionDetail", "source": "app/(dashboard)/manufacturing/manufacturing-execution.tsx" },
+        { "name": "manufacturing-order-detail (UI)", "type": "ManufacturingOrderDetail", "source": "app/(dashboard)/manufacturing/manufacturing-order-detail.tsx" }
+      ],
+      "context": [
+        { "name": "OrganizationTimeZoneProvider", "reason": "Display *At timestamps in org TZ; lot numbers derive from org TZ (lib/inventory/lot-numbers.ts 30-88)." },
+        { "name": "withAuthedOrgContext", "reason": "All DAL entry points wrap their tx with org context (RLS app_user). lib/dal/auth.ts." }
+      ],
+      "store_dependencies": [
+        { "name": "@tanstack/react-query", "reason": "manufacturing-execution.tsx invalidates ['manufacturing-orders'] and ['items'] on success." }
+      ],
+      "api_dependencies": [
+        { "method": "POST", "path": "/api/manufacturing-orders/[id]/ingredients/[ingredientId]/pick", "requires_idempotency_key": true, "body": "pickManufacturingIngredientSchema = {confirmRequirementOverride?, confirmNegativeStock?}", "guard": "assertModuleWriteAccess('manufacturing')" },
+        { "method": "POST", "path": "/api/manufacturing-orders/[id]/complete", "requires_idempotency_key": true, "body": "completeManufacturingOrderSchema = {actualQuantity?, outputDisposition='available'|'blocked' default 'available', ingredientActuals[], confirmNegativeStock?}", "guard": "assertModuleWriteAccess('manufacturing')" },
+        { "method": "POST", "path": "/api/manufacturing-orders/[id]/outputs", "requires_idempotency_key": true, "body": "recordManufacturingOutputSchema = {quantity (non-zero string; negatives allowed for reversal), outputDisposition, notes?, confirmNegativeStock?}", "guard": "assertModuleWriteAccess('manufacturing')" },
+        { "method": "POST", "path": "/api/manufacturing-orders/[id]/batches/[batchId]/start", "requires_idempotency_key": false, "body": "{}", "guard": "assertModuleWriteAccess('manufacturing')" },
+        { "method": "POST", "path": "/api/manufacturing-orders/[id]/batches/[batchId]/complete", "requires_idempotency_key": true, "body": "completeManufacturingBatchSchema (same shape as completeManufacturingOrderSchema)", "guard": "assertModuleWriteAccess('manufacturing')" },
+        { "method": "POST", "path": "/api/manufacturing-orders/[id]/batches/[batchId]/outputs", "requires_idempotency_key": true, "body": "recordManufacturingOutputSchema", "guard": "assertModuleWriteAccess('manufacturing')" },
+        { "method": "PUT", "path": "/api/manufacturing-orders/[id]/output-allocation", "requires_idempotency_key": false, "body": "saveManufacturingOutputAllocationSchema = {salesAllocations[{salesOrderLineId, quantity}], productionAllocations[{ingredientId, quantity}]}", "guard": "assertModuleWriteAccess('manufacturing')" },
+        { "method": "DELETE", "path": "/api/manufacturing-orders/[id]", "requires_idempotency_key": false, "body": "(none)", "guard": "assertModuleWriteAccess('manufacturing')", "reason": "Soft-delete = functional cancel; internally uses deterministic idempotency key." },
+        { "method": "POST", "path": "/api/sales-orders/[id]/shipments/[shipmentId]/ship", "requires_idempotency_key": true, "body": "shipSalesShipmentSchema = {syncAccounting?, confirmNegativeStock?}", "guard": "assertModuleWriteAccess('sales')" },
+        { "method": "PUT", "path": "/api/sales-orders/[id]/shipments/[shipmentId]/costs", "requires_idempotency_key": false, "body": "salesShipmentCostsInputSchema = {customerFreightChargeAmount, costs[{costType, costStatus, amount>0, ...}]}", "guard": "assertModuleWriteAccess('sales')", "reason": "Margin-only; idempotent by delete-and-reinsert." }
+      ],
+      "permissions": [
+        { "role_matrix": "manufacturing:operate or manufacturing:admin", "applies_to": "All MO execute/fulfill POST/PUT/DELETE routes via assertModuleWriteAccess('manufacturing')." },
+        { "role_matrix": "manufacturing:read or higher", "applies_to": "GET /output-allocation, GET /[id] via assertModuleReadAccess('manufacturing')." },
+        { "role_matrix": "sales:operate or sales:admin", "applies_to": "Shipment ship + costs routes via assertModuleWriteAccess('sales')." }
+      ],
+      "routing": [
+        "/manufacturing/orders/[id]/execute (manufacturing-execution.tsx)",
+        "/manufacturing/orders/[id] (manufacturing-order-detail.tsx) — links into /execute",
+        "/sales/orders/[id] — hosts shipment plan/edit/ship dialogs"
+      ]
+    },
+    "outputs": {
+      "views": [
+        "Manufacturing Execution page: header (orderNumber, status badge, pick progress badge), Order Summary card, Batch Progress card (batch-mode only), Ingredients list with per-row Mark done buttons, Complete dialog with actualQuantity / outputDisposition / per-ingredient actualConsumedQuantity inputs.",
+        "Sales Order detail: shipment list with plan/edit/ship/delete actions, ship dialog with negativeStock confirmation flow, shipment costs editor."
+      ],
+      "conditional_ui": [
+        "canPick = manufacturingMode='discrete' OR currentBatch.status='in_progress' OR currentBatchId === optimisticStartedBatchId (manufacturing-execution.tsx 450-453).",
+        "Batch progress card renders only when manufacturingMode='batch'.",
+        "Start Batch button renders only when currentBatch.status='pending' (832-840).",
+        "Pick warning card renders the 409 shortage payload, branching on warningType in {stock_shortage, requirement_violation}; user dispatches a second pick request with confirmNegativeStock=true or confirmRequirementOverride=true.",
+        "Shipment ship: ship dialog renders a negativeStock confirmation banner when the 409 body contains a negativeStock payload; user dispatches a second ship request with confirmNegativeStock=true.",
+        "Output disposition select: 'available' vs 'blocked'; 'blocked' SKIPS materializeManufacturingOrderSourceAllocationsForLotInTx (kernel 681-690), so downstream sales allocations are NOT auto-fed."
+      ],
+      "disabled_states": [
+        "Mark done button disabled while pick mutation pending or another ingredient is mid-pick (pickingIngredientId).",
+        "Complete order/batch buttons disabled while mutation pending or pick progress incomplete.",
+        "Reorder ingredients disabled when order.status !== 'open' or reorder mutation pending."
+      ],
+      "messages": [
+        "'Order not found' (404): all routes when the MO id is missing.",
+        "'Only open orders can be completed' (400): completeManufacturingOrder when not in open state.",
+        "'Batch-mode orders must be completed one batch at a time.' (400): completeManufacturingOrder when manufacturingMode='batch'.",
+        "'Only open batch-mode orders can complete batches' (400): completeManufacturingBatch when discrete.",
+        "'Output is already recorded for this order/batch.' (400): completion attempt when output was pre-recorded AND actualQuantity supplied.",
+        "'Actual quantity is required.' (400): completion missing actualQuantity (and no prior output).",
+        "'Pick all batch ingredients before completing the batch.' / 'Cannot complete order. Pick <items> first.' (400): unpicked ingredients block completion.",
+        "'\"<name>\" is already picked.' (400): re-pick of an already-fully-picked ingredient.",
+        "'Discrete orders cannot record batch output.' (400): recordManufacturingOutput with batchId on a discrete MO.",
+        "'Planned output quantity is invalid.' (400): missing/zero planned quantity.",
+        "'Not enough <name>.' (409) with shortage.warningType='stock_shortage': pick or output-time FIFO insufficient.",
+        "'Not enough eligible <name>.' (409) with shortage.warningType='requirement_violation' + nextEligibleDate: minimum lot age constraint.",
+        "'Cannot ship shipment/order. Insufficient stock for <name>.' (409) with negativeStock payload: shipSalesShipment / shipSalesOrder InsufficientStockError translation.",
+        "'Shipment is already shipped.' / 'Only open orders can ship shipments.' (400): shipSalesShipment guards.",
+        "Idempotency-Key 400 'Missing Idempotency-Key header' from requireIdempotencyKey on the required endpoints."
+      ],
+      "loading_states": [
+        "manufacturing-execution.tsx polls every 5s while status='open' (EXECUTION_SYNC_INTERVAL_MS).",
+        "pickMutation/startBatchMutation/completeOrderMutation/completeBatchMutation each track isPending; the UI surfaces optimistic state for the currently-starting batch."
+      ],
+      "empty_states": [
+        "'All batches complete.' — when batch-mode order has no currentBatch.",
+        "Ingredients list is never empty in practice — release requires at least one BOM ingredient (CLAUDE.md rule)."
+      ],
+      "derived_values": [
+        "remainingQuantity = planned - picked per ingredient (getRemainingQuantityNumber).",
+        "actualCostPerUnit = totalMaterialCost / totalActualQuantity (manufacturing_orders.actualCostPerUnit).",
+        "Produced lot unitCost = (ingredientCostTotal + overheadCostTotal) / quantity at scale 6 (produceManufacturedStockInTx 647-652).",
+        "Appended-lot unitCost = weighted average of existing + incoming (appendPositiveStockToExistingLotInTx).",
+        "Material cost-walk: items.currentStockUnitCost -> defaultPurchasePrice/purchaseToStockFactor (resolvePositiveStockUnitCostInTx materials branch).",
+        "Product cost-walk: sum(child cost * calculateAverageUnitConsumptionQuantity) over getCurrentActiveBomIngredientsInTx (resolvePositiveStockUnitCostInTx product branch).",
+        "completesOrder (batch-mode) = batches.every(other === completed || id === batchId).",
+        "allCompleted (parent flip to 'done') = batches.length>0 && every status='completed'.",
+        "Auto-lot number: LOT-YYYY-MM-DD, then -01, -02 ... per product in org TZ.",
+        "remainingToShip(state) for shipment line caps + order-done flip.",
+        "Allocation bucket: 'sales_order_line' for unplanned residual demand; 'sales_shipment_line' for planned shipment-line demand. Materialised MO output appears as 'inventory_lot' source against whichever demand still has open qty."
+      ]
+    },
+    "user_actions": [
+      "Start batch (batch-mode only): transitions current batch from 'pending' to 'in_progress' and stamps startedAt.",
+      "Mark ingredient done (pick): consumes the ingredient's full remaining planned quantity from held holds first, then FIFO; writes manufacturing_pick_allocations; ingredients[i].pickStatus -> 'picked'; batch row pickedAt stamped if every batch ingredient fully picked.",
+      "Confirm pick over lot-age requirement: re-issue pick with confirmRequirementOverride=true to bypass minimum lot age.",
+      "Confirm pick into negative stock: re-issue pick with confirmNegativeStock=true (also acts as requirement override).",
+      "Record output (discrete or batch): inserts manufacturing_order_outputs row; on first call creates the produced lot, on subsequent calls appends to the same lot via weighted-average cost; outputDisposition controls whether the lot materialises MO source allocations.",
+      "Reverse output: POST /outputs with negative quantity; reverseManufacturingOutputInTx walks the consumption rows back.",
+      "Complete order (discrete): if output already recorded, just releases remaining reservations + expected supply and flips status='done'; otherwise produces the output lot from picked stock, optionally reconciling ingredient actuals via reconcileIngredientActualsInTx, then flips status='done'.",
+      "Complete batch (batch-mode): completes the current batch (assertCurrentExecutionBatch), creates one new lot, stamps manufacturingOrderBatches.lotId. Parent MO flips to 'done' only when allCompleted.",
+      "Save output allocation: redirect a released MO's promised output across sales_order_line and manufacturing_order_ingredient demands; if output already exists, immediately materialises promises into the produced lot.",
+      "Cancel manufacturing order: DELETE /[id] soft-deletes the order; cancelReleasedManufacturingOrderInTx unpicks any picked ingredients, releases reservations + expected supply, cancels all stock_allocations sourced from this MO or demanded by this MO's ingredients.",
+      "Plan a sales shipment (out of scope here but the bucket transition matters): pulls unplanned sales_order_line allocations into the new sales_shipment_line via moveActiveSalesAllocationsInTx.",
+      "Edit a sales shipment: replaceShipmentLinesPreservingAllocationsInTx + (if needed) pullUnplannedSalesAllocationsToShipmentLineInTx.",
+      "Delete a sales shipment: cancelShipmentLineAllocationsInTx moves allocations back to the sales_order_line bucket.",
+      "Ship a planned shipment: consumeForShipmentInTx consumes inventory_lot holds first, falls through to FIFO if eligible, throws InsufficientStockError before FIFO if a manufacturing_order promise is still open on the shipment line; transitions shipment to 'shipped' and flips parent order to 'done' when all lines closed.",
+      "Confirm ship into negative stock: re-issue ship with confirmNegativeStock=true; consumeForShipmentInTx falls through to consumeStockFifoInTx with allowNegativeStock=true and creates a NEG-* synthetic lot.",
+      "Edit shipment costs: PUT /costs replaces the cost rows; never mutates inventory or accounting state."
+    ],
+    "business_rules": [
+      {
+        "rule": "BR-1 Release records demand and expected supply but does NOT consume stock. Picking is the stock-consuming step.",
+        "evidence": [
+          { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "release path", "reason": "Calls addExpectedFromManufacturingInTx (queries.ts 1205-1222) and addIngredientDemandForManufacturingInTx (queries.ts 1224-1233). No FIFO consumption call. Picking is performed via pickManufacturingIngredient." },
+          { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "addIngredientDemandForManufacturingInTx, addExpectedFromManufacturingInTx", "reason": "Write only demand_increase and expected_increase event subtypes; no inventory_lot_balances mutation." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-2 Picking consumes held lot allocations FIRST, then falls through to FIFO. The fall-through computes unavailableByLotId AFTER the held branch so the ingredient's own holds are not double-counted; other demands' active holds are excluded from FIFO selection.",
+        "evidence": [
+          { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "pickManufacturingIngredientInTx", "reason": "First call: consumeLotAllocationsForDemandInTx for demand 'manufacturing_order_ingredient' (lines 381-395). Second call: consumeStockFifoInTx for heldConsumed.remainingQuantity (lines 405-426) with unavailableByLotId built via getUnavailableLotAllocationQtyByLotIdInTx excluding own demand (397-404)." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-3a Pick 409 'stock_shortage': when (available + ownReservation) < requested and confirmNegativeStock !== true. Override = confirmNegativeStock=true.",
+        "evidence": [
+          { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "pickManufacturingIngredientInTx", "reason": "Line 373: `if (available + ownReservation < params.quantity && !params.allowNegativeStock) throw new InsufficientStockError(...)`." },
+          { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "pickManufacturingIngredient", "reason": "Lines 6388-6406 map InsufficientStockError -> ManufacturingError 409 with shortage.warningType='stock_shortage'. DAL ORs confirmNegativeStock || confirmRequirementOverride for allowNegativeStock (6212-6213)." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-3b Pick 409 'requirement_violation': when ageAvailability.eligible < remainingQuantity for a minimum-lot-age constraint and confirmRequirementOverride !== true. Override = confirmRequirementOverride=true. Payload carries nextEligibleDate and the human-readable requirement text.",
+        "evidence": [
+          { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "pickManufacturingIngredient", "reason": "Lines 6294-6349: getLotAgeAvailabilityInTx then 409 ManufacturingError with shortage.warningType='requirement_violation', requirement=lotAgeRequirementText(minimumLotAgeDays), nextEligibleDate." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-3c Ship 409 'negativeStock': SalesError raised with negativeStock payload {itemId, itemName, available, requested, shortage} when consumeForShipmentInTx throws InsufficientStockError. Override = confirmNegativeStock=true (shipSalesShipment payload field, shipSalesOrder options field).",
+        "evidence": [
+          { "file": "app/(dashboard)/sales/queries.ts", "symbol": "shipSalesShipment", "reason": "Lines 7197-7213 translate InsufficientStockError to SalesError 409 with negativeStock payload." },
+          { "file": "app/(dashboard)/sales/queries.ts", "symbol": "shipSalesOrder", "reason": "Lines 7373-7387 same translation for single-shot order ship." },
+          { "file": "lib/inventory/kernel/operations/sales.ts", "symbol": "consumeForShipmentInTx", "reason": "Line 686-692 raises InsufficientStockError when selfAvailable < line.quantity and !params.allowNegativeStock." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-4a Materials cost basis: positive stock writes resolve cost via items.currentStockUnitCost first, else resolveStockUnitCostFromDefaultPurchasePrice(defaultPurchasePrice, purchaseToStockFactor); otherwise MissingCostBasisError(reason='material_default_price'). Positive flows append into existing lots via weighted-average (appendPositiveStockToExistingLotInTx).",
+        "evidence": [
+          { "file": "lib/inventory/kernel/operations/stock-core.ts", "symbol": "resolvePositiveStockUnitCostInTx (material branch)", "reason": "Lines 289-321." },
+          { "file": "lib/inventory/kernel/operations/stock-core.ts", "symbol": "appendPositiveStockToExistingLotInTx", "reason": "Lines 504-657; weighted-average formula 567-579." },
+          { "file": "lib/inventory/cost.ts", "symbol": "resolveStockUnitCostFromDefaultPurchasePrice, calculateNextCurrentStockUnitCost", "reason": "Lines 7-54." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-4b Products cost basis: cost derived from active BOM cost-walk (resolvePositiveStockUnitCostInTx product branch -> getCurrentActiveBomIngredientsInTx, sum child cost * calculateAverageUnitConsumptionQuantity). Cycle detection. Lots cannot be created with null cost-per-unit on positive flow; produced output lot unitCost = (ingredientCostTotal + overheadCostTotal)/quantity at scale 6.",
+        "evidence": [
+          { "file": "lib/inventory/kernel/operations/stock-core.ts", "symbol": "resolvePositiveStockUnitCostInTx (product branch)", "reason": "Lines 323-349 walk active BOM with cycle detection 260-267." },
+          { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "produceManufacturedStockInTx", "reason": "Line 651-652: unitCost = normalizeNumericScale(totalCost / params.quantity, 6). Lot creation always passes a unitCost." },
+          { "file": "lib/manufacturing/consumption.ts", "symbol": "calculateAverageUnitConsumptionQuantity", "reason": "Per-output average for per_batch / per_group consumption modes." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-5 Expected supply lifecycle is event-driven via applyExpectedReferenceDeltasInTx subtypes. Release writes 'manufacturing_release' (+plannedQuantity). Plan edits write 'manufacturing_edit' (delta to nextQuantity). Output / completion writes 'manufacturing_complete' (release min(currentOpenQty, expectedReleaseQuantity)). releaseRemainingExpectedOutputInTx zeroes the remainder at completion. PO domain mirrors with addExpected/editExpected/releaseExpectedFromPurchaseInTx. This is the implementation of the CLAUDE.md 'recompute expected qty after every status-changing write' contract; it is per-reference delta, not a single recompute call.",
+        "evidence": [
+          { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "addExpectedFromManufacturingInTx", "reason": "Lines 35-88: applyExpectedReferenceDeltasInTx subtype 'manufacturing_release'." },
+          { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "editExpectedFromManufacturingInTx", "reason": "Lines 90-155: subtype 'manufacturing_edit', delta = nextQuantity - existing." },
+          { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "produceManufacturedStockInTx", "reason": "Lines 707-732: release subtype 'manufacturing_complete' by min(currentOpenQty, expectedReleaseQuantity)." },
+          { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "completeManufacturingOrder, completeManufacturingBatch", "reason": "Call releaseRemainingExpectedOutputInTx at lines 5571 and 5916-5928." },
+          { "file": "app/(dashboard)/purchasing/queries.ts", "symbol": "addExpectedFromPurchaseInTx / editExpectedFromPurchaseInTx / releaseExpectedFromPurchaseInTx", "reason": "Imported at lines 41-47, called from create/edit/receive flows." }
+        ],
+        "confidence": "high",
+        "tag": "fact_with_inference",
+        "note": "The CLAUDE.md description of `recomputeExpectedQty` is a conceptual summary; the actual implementation is per-reference deltas via the kernel helpers above. There is no single `recomputeExpectedQty` symbol in the repo (grep confirms zero hits)."
+      },
+      {
+        "rule": "BR-6 Batch-mode completion produces exactly one new lot per batch. produceManufacturedStockInTx is called WITHOUT a lotId argument from completeManufacturingBatch, so each batch falls through to createPositiveStockEventInTx and gets a fresh lot id stamped onto manufacturingOrderBatches.lotId. Parent manufacturingOrders.status remains 'open' until every batch is 'completed', at which point it flips to 'done' and completedAt is stamped.",
+        "evidence": [
+          { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "completeManufacturingBatch", "reason": "Lines 6095-6108 call produceManufacturedStockInTx without lotId. Lines 6142, 6178-6183 stamp batch lotId and flip parent only when allCompleted." },
+          { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "produceManufacturedStockInTx", "reason": "Lines 674-679: branch on params.lotId — only when lotId provided does it call appendPositiveStockToExistingLotInTx." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-7 Direct parent completion is invalid for batch-mode MOs. completeManufacturingOrder rejects manufacturingMode='batch' with ManufacturingError 400 'Batch-mode orders must be completed one batch at a time.' Conversely, completeManufacturingBatch rejects discrete MOs.",
+        "evidence": [
+          { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "completeManufacturingOrder", "reason": "Lines 5545-5550." },
+          { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "completeManufacturingBatch", "reason": "Lines 5866-5868: 'Only open batch-mode orders can complete batches'." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-8 Allocation bucket transitions: planning, editing, splitting, and deleting a sales shipment moves stock_allocations rows between buckets via moveActiveSalesAllocationsInTx. Plan a line -> sales_order_line allocations are pulled into sales_shipment_line (pullUnplannedSalesAllocationsToShipmentLineInTx). Split a shipment -> moveShipmentLineAllocationsInTx moves shipment-line allocations between shipment-line demands. Edit a shipment -> replaceShipmentLinesPreservingAllocationsInTx remaps existing holds; cancelShipmentLineAllocationsInTx moves allocations back to the SO-line bucket when a shipment line goes away. Delete a shipment -> cancelShipmentLineAllocationsInTx returns shipment-line allocations to the SO-line bucket.",
+        "evidence": [
+          { "file": "app/(dashboard)/sales/queries.ts", "symbol": "moveShipmentLineAllocationsInTx", "reason": "Lines 1829-1852." },
+          { "file": "app/(dashboard)/sales/queries.ts", "symbol": "pullUnplannedSalesAllocationsToShipmentLineInTx", "reason": "Lines 1572-1627: moves sales_order_line -> sales_shipment_line for the capacityQty gap." },
+          { "file": "app/(dashboard)/sales/queries.ts", "symbol": "cancelShipmentLineAllocationsInTx, replaceShipmentLinesPreservingAllocationsInTx", "reason": "Lines 1447, 1718. Called at create (6779-6791), edit (6868), delete (7044), split (6736-6766)." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-9 Idempotency-Key requirements per endpoint. REQUIRED: pick, complete (MO), batch complete, MO outputs, batch outputs, shipSalesShipment, shipSalesOrder, output-allocation NOT required. NOT REQUIRED: batches/[batchId]/start, output-allocation PUT, MO DELETE (cancel), shipment costs PUT. The 'not required' endpoints either rely on a deterministic internal key (DELETE uses 'delete-manufacturing-order:<id>') or are idempotent-in-effect by delete-and-reinsert (costs PUT).",
+        "evidence": [
+          { "file": "app/api/manufacturing-orders/[id]/ingredients/[ingredientId]/pick/route.ts", "symbol": "POST", "reason": "Line 12: requireIdempotencyKey." },
+          { "file": "app/api/manufacturing-orders/[id]/complete/route.ts", "symbol": "POST", "reason": "Line 14: requireIdempotencyKey." },
+          { "file": "app/api/manufacturing-orders/[id]/batches/[batchId]/complete/route.ts", "symbol": "POST", "reason": "Line 13: requireIdempotencyKey." },
+          { "file": "app/api/manufacturing-orders/[id]/outputs/route.ts", "symbol": "POST", "reason": "Line 13: requireIdempotencyKey." },
+          { "file": "app/api/manufacturing-orders/[id]/batches/[batchId]/outputs/route.ts", "symbol": "POST", "reason": "Line 13: requireIdempotencyKey." },
+          { "file": "app/api/sales-orders/[id]/shipments/[shipmentId]/ship/route.ts", "symbol": "POST", "reason": "Line 12: requireIdempotencyKey." },
+          { "file": "app/api/manufacturing-orders/[id]/batches/[batchId]/start/route.ts", "symbol": "POST", "reason": "No requireIdempotencyKey call (lines 10-25)." },
+          { "file": "app/api/manufacturing-orders/[id]/output-allocation/route.ts", "symbol": "PUT", "reason": "No requireIdempotencyKey (lines 23-35)." },
+          { "file": "app/api/manufacturing-orders/[id]/route.ts", "symbol": "DELETE", "reason": "No requireIdempotencyKey (lines 45-59). Internally uses deterministic key in cancelReleasedManufacturingOrderInTx (queries.ts 6807)." },
+          { "file": "app/api/sales-orders/[id]/shipments/[shipmentId]/costs/route.ts", "symbol": "PUT", "reason": "No requireIdempotencyKey (lines 12-29)." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-10 Shipment costs are margin-only. PUT /shipments/[id]/costs writes ONLY sales_shipments.customerFreightChargeAmount and sales_shipment_costs rows. No inventory_events, no Xero push, no AP, no GL, no BOL behaviour change. The DAL hard-deletes existing cost rows for the shipment and re-inserts the supplied set (delete-and-reinsert pattern -> idempotent in effect).",
+        "evidence": [
+          { "file": "app/(dashboard)/sales/queries.ts", "symbol": "updateSalesShipmentCosts", "reason": "Lines 6921-6981: only salesShipments + salesShipmentCosts mutations; no kernel call." },
+          { "file": "lib/db/schema/sales.ts", "symbol": "salesShipmentCosts", "reason": "Lines 580-690: cost type CHECK does not gate any inventory column. amount > 0 CHECK." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-11 Discrete completion reuses persisted pick allocations. completeManufacturingOrder reads getPickAllocationTotalsInTx for cost summaries and getPickAllocationsByIngredientInTx to construct manufacturing_order_output_consumptions; it does NOT call any consumeXxxInTx primitive at completion when no variance is supplied. Variance reconciliation (reconcileIngredientActualsInTx) is the only path that re-enters the FIFO consumer.",
+        "evidence": [
+          { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "completeManufacturingOrder", "reason": "Lines 5649-5774: ingredient loop uses allocationTotals when suppliedActual is null (no consume); only the suppliedActual branch calls reconcileIngredientActualsInTx (5673-5711). buildOutputConsumptionsFromPickedAllocations reuses persisted pick allocations as the output's consumptions (5759-5762)." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-12 MO output reversal: POST /outputs with negative quantity routes through reverseManufacturingOutputInTx, which walks back the previously-recorded output rows; the produced lot is consumed back / split as the output is reversed. Recorded totals on manufacturing_orders (actualQuantity, actualMaterialCost, actualCostPerUnit) and on the batch row are recomputed from the surviving output rows. Zod allows any non-zero quantity (positive or negative); the DAL guards 'Output cannot be reduced below zero.' for over-reversal.",
+        "evidence": [
+          { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "recordManufacturingOutput (negative branch)", "reason": "Lines 4301-4361: branch to reverseManufacturingOutputInTx, then recomputes totalActualQuantity / totalMaterialCost from sum of remaining manufacturing_order_outputs rows and re-stamps the parent + batch rows." },
+          { "file": "lib/schemas/manufacturing-orders.ts", "symbol": "recordManufacturingOutputSchema", "reason": "Lines 319-331: quantity is a non-zero string; negatives are allowed by the schema and only blocked at the DAL layer." },
+          { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "reverseManufacturingOutputInTx", "reason": "Lines ~2230-2400 (referenced by evidence.json suspected_risk_areas): guards 'Output cannot be reduced below zero.' at lines 2249-2251 (not opened line-by-line in Phase 1, hence the partial citation)." }
+        ],
+        "confidence": "medium",
+        "tag": "fact_with_unread_internals",
+        "note": "reverseManufacturingOutputInTx body was not opened line-by-line in this phase; the high-level behaviour is grounded in recordManufacturingOutput's negative branch (which IS opened) and in the existing fast spec test/e2e/fast/manufacturing-actuals.spec.ts that exercises the path. Phase 2 should open reverseManufacturingOutputInTx fully if the scenario needs to assert specific lot-consumption events from a reversal."
+      },
+      {
+        "rule": "BR-13 outputDisposition='blocked' bypasses materializeManufacturingOrderSourceAllocationsForLotInTx. Only outputs with disposition='available' auto-feed downstream sales allocations into the produced lot.",
+        "evidence": [
+          { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "produceManufacturedStockInTx", "reason": "Lines 681-690: `if ((params.outputDisposition ?? 'available') === 'available') await materializeManufacturingOrderSourceAllocationsForLotInTx(...)`." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-14 consumeForShipmentInTx refuses to fall through to FIFO when the shipment line still carries an unmaterialised 'manufacturing_order' source allocation. Instead, it raises InsufficientStockError so the operator must wait for the MO to produce. This is the 'wait for MO' enforcement that prevents accidental free-stock consumption of inventory promised by a not-yet-produced MO.",
+        "evidence": [
+          { "file": "lib/inventory/kernel/operations/sales.ts", "symbol": "consumeForShipmentInTx", "reason": "Lines 756-768: `if (hasShipmentAllocations && shipmentLineAllocations.some(sourceType==='manufacturing_order')) throw new InsufficientStockError(...)`." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-15 Stock and aggregate locking: every kernel stock primitive locks affected items rows FIRST (lockItemsInTx), then locks lot rows FOR UPDATE during FIFO selection. Workflow state changes also lock the parent SO/MO row (lockSourceDocumentInTx / getLockedSalesOrderInTx / getLockedManufacturingOrderInTx).",
+        "evidence": [
+          { "file": "lib/inventory/kernel/locking.ts", "symbol": "lockItemsInTx, INVENTORY_LOCK_SPECS", "reason": "Lines 15-107: sorts itemIds for deadlock-free FOR UPDATE; maps each kernel op to its source-document table." },
+          { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "pickManufacturingIngredientInTx", "reason": "Line 354: lockItemsInTx before reading available." },
+          { "file": "lib/inventory/kernel/operations/sales.ts", "symbol": "consumeForShipmentInTx", "reason": "Lines 540-543: lockItemsInTx before reading reservations and computing availability." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      },
+      {
+        "rule": "BR-16 Auto-lot numbers: new lots default to LOT-YYYY-MM-DD (org TZ), then suffixed -01, -02 ... per product. This is the source of human-readable lot identifiers for produced MO output and purchasing receipts.",
+        "evidence": [
+          { "file": "lib/inventory/lot-numbers.ts", "symbol": "generateDateLotNumberInTx", "reason": "Lines 30-88; uses organization time zone, defaults to America/Denver." }
+        ],
+        "confidence": "high",
+        "tag": "fact"
+      }
+    ],
+    "side_effects": [
+      { "name": "inventory_events ledger writes", "trigger": "Every kernel primitive in this feature (pick, output, complete, ship, reverse, allocation-materialise).", "subtype_examples": ["manufacturing_pick", "manufacturing_output", "manufacturing_complete", "manufacturing_variance_loss", "manufacturing_variance_gain", "manufacturing_release", "manufacturing_edit", "sales_ship", "shipped", "picked"] },
+      { "name": "inventory_lot_balances mutations", "trigger": "createPositiveStockEventInTx, appendPositiveStockToExistingLotInTx, consumeSpecificLotInTx, consumeStockFifoInTx, restockExistingLotInTx, createNegativeStockEventInTx." },
+      { "name": "inventory_reservations_summary deltas", "trigger": "applyReservationReferenceDeltasInTx on pick/output/ship/cancel." },
+      { "name": "inventory_demand_summary deltas", "trigger": "applyDemandReferenceDeltasInTx on pick/output/ship/cancel and on release/edit/cancel." },
+      { "name": "inventory_expected_summary deltas", "trigger": "applyExpectedReferenceDeltasInTx on release/edit/complete." },
+      { "name": "stock_allocations row writes", "trigger": "saveManufacturingOutputAllocation, materializeManufacturingOrderSourceAllocationsForLotInTx, consumeLotAllocationsForDemandInTx, pull/move/cancel/replace shipment helpers." },
+      { "name": "manufacturing_pick_allocations writes", "trigger": "pickManufacturingIngredientInTx (insert) + reconcileIngredientActualsInTx (insert on +delta, delete/shrink on -delta)." },
+      { "name": "manufacturing_order_outputs + manufacturing_order_output_consumptions writes", "trigger": "completeManufacturingOrder, completeManufacturingBatch, recordManufacturingOutput (positive); reverseManufacturingOutputInTx (negative)." },
+      { "name": "manufacturingOrderBatches state stamps", "trigger": "startManufacturingBatch (status='in_progress', startedAt), pickManufacturingIngredient (pickedAt when fully picked), completeManufacturingBatch (status='completed', completedAt, lotId, actualQuantity)." },
+      { "name": "manufacturingOrders aggregate updates", "trigger": "completion flips status='done', stamps completedAt, recomputes actualQuantity/actualMaterialCost/actualCostPerUnit. rerankOpenManufacturingOrdersInTx after status changes." },
+      { "name": "salesShipments status flip + salesOrders order flip", "trigger": "shipSalesShipment writes status='shipped'+shippedAt; flips parent order to status='done' when all lines closed, else upserts unscheduled remainder shipment." },
+      { "name": "Xero push (out-of-tx, best-effort)", "trigger": "shipSalesShipment when payload.syncAccounting=true and order finalised; calls hasShipmentInvoiceForSalesOrder + pushSalesOrderToXero; failures call markXeroPushFailed unless XeroError 'not connected'." },
+      { "name": "inventory_idempotency_claims rows", "trigger": "beginInventoryOperationInTx / finishInventoryOperationInTx for every operation listed under business_rules." },
+      { "name": "available_to_promise recompute", "trigger": "recomputeAvailableToPromiseForItemsInTx called from projections after balance/expected/reservation deltas." }
+    ],
+    "risk_areas": [
+      "Pick held-vs-FIFO ordering: changing the order between consumeLotAllocationsForDemandInTx and consumeStockFifoInTx, or mis-computing unavailableByLotId, would silently double-spend or under-count.",
+      "Three distinct 409 surfaces (pick stock_shortage, pick requirement_violation, ship negativeStock) with three override flags. Tests must read the correct discriminator from the response body and retry with the correct flag (and trust testFetch to derive a new Idempotency-Key from the changed body).",
+      "Cost basis cycles: a circular product BOM throws MissingCostBasisError(reason='product_bom_cost') deep inside produceManufacturedStockInTx; routes only catch InsufficientStockError and ManufacturingError, so this becomes a 500 surfaces. Tests that exercise product BOMs should assert no cycle.",
+      "Batch-mode partial-completion expected supply: intermediate batches release only their slice; final batch releases all remaining expected. Mis-accounting could leave a residual expected_increase that never releases.",
+      "Discrete /outputs producing into a single lot via appendPositiveStockToExistingLotInTx weighted-averages cost; if /complete later supplies ingredient variance, the lot's unitCost is computed only from the first output's snapshot, while manufacturing_orders.actualCostPerUnit is computed from variance-adjusted totals — divergence between the lot row and the order row.",
+      "/output-allocation PUT is not Idempotency-Key gated and not wrapped in beginInventoryOperationInTx. Concurrent edits or concurrent /ship of the same shipment line race.",
+      "consumeForShipmentInTx refuses fall-through when a manufacturing_order promise is still open on the shipment line. A shipment line carrying BOTH 'inventory_lot' AND 'manufacturing_order' source allocations consumes the lot portion first, then 409s on the rest — partial state must be inspected carefully.",
+      "Xero push side-effect runs OUTSIDE the inventory transaction; idempotency replay of the inventory portion does NOT re-fire the Xero push. Tests asserting Xero outbox effects must account for this asymmetry.",
+      "MO soft-delete (DELETE /[id]) is the de-facto cancel and is not Idempotency-Key gated by route; it relies on an internal deterministic key. Repeated DELETE calls are safe server-side but clients still get a 404 on the second attempt because the order is already deletedAt.",
+      "Output disposition='blocked' bypasses materialisation; a downstream sales shipment that expected to pull from this MO will then 409 at ship time even though the lot exists.",
+      "Negative-stock NEG-<date>-<uuid> lots: shipping into negative stock requires resolvePositiveStockUnitCostInTx to succeed (BR-4); a product without an active BOM that ships into negative stock surfaces MissingCostBasisError as a 500."
+    ]
+  },
+  "review_focus": [
+    "Are the three 409 surfaces (pick stock_shortage, pick requirement_violation, ship negativeStock) fully separable from the response body shape, so a downstream scenario can dispatch on warningType vs. negativeStock without a regex on the message?",
+    "Are the idempotency-required endpoints listed exactly correctly, including the (start, output-allocation, DELETE, costs) NOT-required quartet? Tests must not assume Idempotency-Key on those four.",
+    "Is BR-5 framed correctly given the actual code uses event-driven deltas? The CLAUDE.md mentions `recomputeExpectedQty`; there is no function with that name in the repo. The contract notes this and grounds the rule in applyExpectedReferenceDeltasInTx subtypes.",
+    "Is BR-12 (output reversal) confidence appropriately marked medium given that reverseManufacturingOutputInTx body was not opened line-by-line in this phase?",
+    "Are batch-mode invariants (one lot per batch, parent stays 'open' until all batches complete, lotId stamped on the batch row) sufficient to drive a `kernel-invariants.spec.ts` assertion in a later phase?",
+    "Does BR-13 (blocked-disposition bypass of materialisation) need an explicit downstream test scenario that asserts a sales shipment 409s when the MO produced to 'blocked'?",
+    "Does BR-14 (consumeForShipmentInTx refuses MO-promise fall-through) cover the canonical 'wait for MO' scenario the review_focus from Phase 0 called out?"
+  ]
+}
