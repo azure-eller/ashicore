@@ -762,6 +762,42 @@ async function getCurrentBomIngredientsInTx(tx: Tx, productId: string) {
   return getCurrentActiveBomIngredientsInTx(tx, productId);
 }
 
+async function assertNoOtherActiveMoClaimsLineInTx(
+  tx: Tx,
+  salesOrderLineId: string,
+  currentManufacturingOrderId?: string | null
+) {
+  const conditions = [
+    eq(manufacturingOrders.salesOrderLineId, salesOrderLineId),
+    isNull(manufacturingOrders.deletedAt),
+  ];
+  if (currentManufacturingOrderId) {
+    conditions.push(ne(manufacturingOrders.id, currentManufacturingOrderId));
+  }
+  const [claimingMo] = await tx
+    .select({
+      id: manufacturingOrders.id,
+      orderNumber: manufacturingOrders.orderNumber,
+    })
+    .from(manufacturingOrders)
+    .where(and(...conditions))
+    .limit(1);
+
+  if (claimingMo) {
+    throw new ManufacturingError(
+      `Sales order line is already linked to manufacturing order ${claimingMo.orderNumber}. Cancel that order before linking another.`,
+      409,
+      {
+        errors: {
+          salesOrderLineId: [
+            "This sales line already has an active manufacturing order",
+          ],
+        },
+      }
+    );
+  }
+}
+
 async function validateSalesLineLinkInTx(
   tx: Tx,
   values: {
@@ -769,7 +805,8 @@ async function validateSalesLineLinkInTx(
     salesOrderLineId: string | null | undefined;
     productId: string;
   },
-  existingSnapshot?: SalesLineSnapshot | null
+  existingSnapshot?: SalesLineSnapshot | null,
+  currentManufacturingOrderId?: string | null
 ): Promise<SalesLineSnapshot | null> {
   if (values.salesOrderId == null && values.salesOrderLineId == null) {
     return null;
@@ -805,7 +842,8 @@ async function validateSalesLineLinkInTx(
         eq(salesOrders.id, values.salesOrderId),
         eq(salesOrderLines.id, values.salesOrderLineId)
       )
-    );
+    )
+    .for("update");
 
   if (
     line &&
@@ -813,6 +851,11 @@ async function validateSalesLineLinkInTx(
     line.orderStatus === "open" &&
     line.itemId === values.productId
   ) {
+    await assertNoOtherActiveMoClaimsLineInTx(
+      tx,
+      line.salesOrderLineId,
+      currentManufacturingOrderId
+    );
     return {
       salesOrderId: line.salesOrderId,
       salesOrderLineId: line.salesOrderLineId,
@@ -838,9 +881,15 @@ async function validateSalesLineLinkInTx(
           eq(salesOrders.status, "open"),
           eq(salesOrderLines.itemId, values.productId)
         )
-      );
+      )
+      .for("update");
 
     if (replacementLine) {
+      await assertNoOtherActiveMoClaimsLineInTx(
+        tx,
+        replacementLine.salesOrderLineId,
+        currentManufacturingOrderId
+      );
       return replacementLine;
     }
 
@@ -3920,19 +3969,23 @@ export async function updateManufacturingOrder(
 
     const plannedQuantity = Number(payload.plannedQuantity);
 
-    const salesLink = await validateSalesLineLinkInTx(tx, {
-      salesOrderId: payload.salesOrderId,
-      salesOrderLineId: payload.salesOrderLineId,
-      productId: existing.productId,
-    },
-    existing.salesOrderId && existing.salesOrderLineId
-      ? {
-          salesOrderId: existing.salesOrderId,
-          salesOrderLineId: existing.salesOrderLineId,
-          salesOrderNumber: existing.salesOrderNumber ?? "",
-          customerName: existing.salesCustomerName ?? "",
-        }
-      : null);
+    const salesLink = await validateSalesLineLinkInTx(
+      tx,
+      {
+        salesOrderId: payload.salesOrderId,
+        salesOrderLineId: payload.salesOrderLineId,
+        productId: existing.productId,
+      },
+      existing.salesOrderId && existing.salesOrderLineId
+        ? {
+            salesOrderId: existing.salesOrderId,
+            salesOrderLineId: existing.salesOrderLineId,
+            salesOrderNumber: existing.salesOrderNumber ?? "",
+            customerName: existing.salesCustomerName ?? "",
+          }
+        : null,
+      id
+    );
     const ingredients = await prepareUpdatedIngredientsInTx(
       tx,
       id,
