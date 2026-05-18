@@ -50,6 +50,12 @@ async function createSalesOrder(payload: {
     quantity: string;
     unitPrice: string;
   }>;
+  shipments?: Array<{
+    fulfillmentType?: "delivery" | "pickup";
+    scheduledDate: string | null;
+    deliveryDate: string | null;
+    lines: Array<{ itemId: string; quantity: string }>;
+  }>;
   requestedDate?: string | null;
   notes?: string | null;
 }) {
@@ -63,6 +69,7 @@ async function createSalesOrder(payload: {
       requestedDate: payload.requestedDate ?? null,
       notes: payload.notes ?? null,
       lines: payload.lines,
+      shipments: payload.shipments ?? [],
       confirmOversell: true,
     }),
   });
@@ -1306,6 +1313,14 @@ test.describe("Manufacturing order flow", () => {
     const salesOrderId = await createSalesOrder({
       customerId,
       lines: [{ itemId: productId, quantity: "100", unitPrice: "30.00" }],
+      shipments: [
+        {
+          fulfillmentType: "delivery",
+          scheduledDate: "2026-05-06",
+          deliveryDate: "2026-05-06",
+          lines: [{ itemId: productId, quantity: "100" }],
+        },
+      ],
       requestedDate: "2026-05-06",
       notes: "Sales allocation for batch MO output",
     });
@@ -1423,7 +1438,18 @@ test.describe("Manufacturing order flow", () => {
       .toBe(true);
 
     await page.getByRole("button", { name: "Complete Batch" }).click();
-    await expect(page.getByRole("dialog", { name: "Complete Current Batch" })).toBeVisible();
+    const completeDialog = page.getByRole("dialog", {
+      name: "Complete Current Batch",
+    });
+    await expect(completeDialog).toBeVisible();
+    await expect(completeDialog).toHaveCSS("overflow-y", "auto");
+    await expect(
+      completeDialog.getByLabel(new RegExp(baseName))
+    ).toHaveCount(0);
+    await completeDialog
+      .getByRole("button", { name: /Ingredient overrides/ })
+      .click();
+    await expect(completeDialog.getByLabel(new RegExp(baseName))).toBeVisible();
     await page.getByLabel("Actual Output").fill("100");
 
     const [completeResponse] = await Promise.all([

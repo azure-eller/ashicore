@@ -84,7 +84,7 @@ function AlertDialogContent({
         data-slot="alert-dialog-content"
         data-size={layoutSize}
         className={cn(
-          "group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-var(--space-16))] -translate-x-1/2 -translate-y-1/2 gap-(--space-8) rounded-(--radius-none) bg-background p-(--space-8) text-foreground shadow-[var(--shadow-modal)] duration-(--duration-3) outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-var(--space-16))] w-full max-w-[calc(100%-var(--space-16))] -translate-x-1/2 -translate-y-1/2 gap-(--space-8) overflow-y-auto overscroll-contain rounded-(--radius-none) bg-background p-(--space-8) text-foreground shadow-[var(--shadow-modal)] duration-(--duration-3) outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           ALERT_DIALOG_SIZE_CLASS[size],
           className
         )}

@@ -3,10 +3,17 @@
 import Link from "next/link";
 import { startTransition, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import {
   AlertDialog,
@@ -134,6 +141,7 @@ function CompleteDialog({
   const [outputDisposition, setOutputDisposition] =
     useState<OutputDispositionInput>("available");
   const [actualsById, setActualsById] = useState<Record<string, string>>({});
+  const [ingredientOverridesOpen, setIngredientOverridesOpen] = useState(false);
 
   const handleConfirm = () => {
     onSubmit(
@@ -197,55 +205,81 @@ function CompleteDialog({
           </div>
 
           {isBatchMode && ingredients.length > 0 && (
-            <div className="space-y-3">
-              <div className="space-y-1">
-                <p className="text-sm font-medium">Actual Ingredient Consumption</p>
-                <p className="text-xs text-muted-foreground">
-                  Defaults to the done quantity. Adjust if the worker used more or less than planned; variance is written as an inventory movement.
-                </p>
-              </div>
-              <div className="grid gap-3">
-                {ingredients.map((ingredient) => {
-                  const inputId = `actual-consumed-${ingredient.id}`;
-                  const value = actualsById[ingredient.id] ?? ingredient.pickedQuantity;
-                  return (
-                    <div key={ingredient.id} className="space-y-1">
-                      <label className="text-sm font-medium" htmlFor={inputId}>
-                        {ingredient.itemSku
-                          ? `${ingredient.itemName} (${ingredient.itemSku})`
-                          : ingredient.itemName}
-                      </label>
-                      <p className="text-xs text-muted-foreground">
-                        <QuantityWithUnit
-                          label="Planned"
-                          value={ingredient.plannedQuantity}
-                          unitName={ingredient.unitName}
-                          muted
+            <Collapsible
+              open={ingredientOverridesOpen}
+              onOpenChange={setIngredientOverridesOpen}
+              className="border bg-card"
+            >
+              <CollapsibleTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full justify-between px-(--space-4)"
+                >
+                  <span>Ingredient overrides</span>
+                  <span className="inline-flex items-center gap-(--space-2) text-muted-foreground">
+                    {ingredients.length} ingredients
+                    <HugeiconsIcon
+                      icon={
+                        ingredientOverridesOpen
+                          ? ArrowDown01Icon
+                          : ArrowRight01Icon
+                      }
+                      className="size-4"
+                      strokeWidth={2}
+                    />
+                  </span>
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="grid gap-3 border-t p-(--space-4)">
+                  <p className="text-xs text-muted-foreground">
+                    Defaults to done quantities. Adjust only when actual
+                    consumption differs.
+                  </p>
+                  {ingredients.map((ingredient) => {
+                    const inputId = `actual-consumed-${ingredient.id}`;
+                    const value =
+                      actualsById[ingredient.id] ?? ingredient.pickedQuantity;
+                    return (
+                      <div key={ingredient.id} className="space-y-1">
+                        <label className="text-sm font-medium" htmlFor={inputId}>
+                          {ingredient.itemSku
+                            ? `${ingredient.itemName} (${ingredient.itemSku})`
+                            : ingredient.itemName}
+                        </label>
+                        <p className="text-xs text-muted-foreground">
+                          <QuantityWithUnit
+                            label="Planned"
+                            value={ingredient.plannedQuantity}
+                            unitName={ingredient.unitName}
+                            muted
+                          />
+                          {" · "}
+                          <QuantityWithUnit
+                            label="Done"
+                            value={ingredient.pickedQuantity}
+                            unitName={ingredient.unitName}
+                            muted
+                          />
+                        </p>
+                        <Input
+                          id={inputId}
+                          inputMode="decimal"
+                          value={value}
+                          onChange={(event) =>
+                            setActualsById((prev) => ({
+                              ...prev,
+                              [ingredient.id]: event.target.value,
+                            }))
+                          }
                         />
-                        {" · "}
-                        <QuantityWithUnit
-                          label="Done"
-                          value={ingredient.pickedQuantity}
-                          unitName={ingredient.unitName}
-                          muted
-                        />
-                      </p>
-                      <Input
-                        id={inputId}
-                        inputMode="decimal"
-                        value={value}
-                        onChange={(event) =>
-                          setActualsById((prev) => ({
-                            ...prev,
-                            [ingredient.id]: event.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           )}
 
           {error && <p className="text-sm text-destructive">{error}</p>}
