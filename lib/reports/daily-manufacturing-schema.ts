@@ -32,10 +32,22 @@ export const dailyManufacturingReportPayloadSchema = z.object({
     z.object({
       productName: z.string(),
       productSku: z.string().nullable(),
+      color: z.string(),
       quantity: z.string(),
       unit: z.string(),
       outputEvents: z.number().int().nonnegative(),
       sevenDayTrend: z.array(trendPointSchema).default([]),
+      thirtyDayTrend: z.array(trendPointSchema).default([]),
+    })
+  ),
+  outputByProductType: z.array(
+    z.object({
+      category: z.string(),
+      id: z.string(),
+      label: z.string(),
+      unit: z.string(),
+      color: z.string(),
+      ninetyDayTrend: z.array(trendPointSchema),
     })
   ),
   outputByRecordedBy: z.array(

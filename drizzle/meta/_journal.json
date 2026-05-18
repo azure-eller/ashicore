@@ -736,6 +736,13 @@
       "when": 1779057753288,
       "tag": "0104_sales_shipment_delivery_date",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1779109325751,
+      "tag": "0105_configurable_manufacturing_report_graphs",
+      "breakpoints": true
     }
   ]
 }
