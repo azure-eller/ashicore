@@ -1,4 +1,5 @@
-import { betterAuth } from "better-auth";
+import { betterAuth, type BetterAuthPlugin } from "better-auth";
+import { createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAccessControl, organization, twoFactor } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
@@ -154,6 +155,40 @@ export const organizationRoles = {
   ...matrixRoles,
 };
 
+const twoFactorOtpCleanupPlugin = (): BetterAuthPlugin => ({
+  id: "ashicore-two-factor-otp-cleanup",
+  hooks: {
+    before: [
+      {
+        matcher(ctx) {
+          return ctx.path === "/two-factor/send-otp";
+        },
+        handler: createAuthMiddleware(async (ctx) => {
+          const session = await getSessionFromCtx(ctx).catch(() => null);
+          const otpKey = session
+            ? `${session.user.id}!${session.session.id}`
+            : await getTwoFactorCookieKey(ctx);
+
+          if (!otpKey) {
+            return;
+          }
+
+          await ctx.context.internalAdapter.deleteVerificationByIdentifier(
+            `2fa-otp-${otpKey}`
+          );
+        }),
+      },
+    ],
+  },
+});
+
+type AuthMiddlewareContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
+
+async function getTwoFactorCookieKey(ctx: AuthMiddlewareContext) {
+  const twoFactorCookie = ctx.context.createAuthCookie("two_factor");
+  return ctx.getSignedCookie(twoFactorCookie.name, ctx.context.secret);
+}
+
 export const auth = betterAuth({
   appName: "Ashicore",
   baseURL: {
@@ -197,6 +232,7 @@ export const auth = betterAuth({
     },
   },
   plugins: [
+    twoFactorOtpCleanupPlugin(),
     twoFactor({
       issuer: "Ashicore",
       otpOptions: {

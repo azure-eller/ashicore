@@ -20,7 +20,12 @@ export default async function MfaSetupPage({
     redirect("/sign-in");
   }
 
-  const fallbackNext = session.session.activeOrganizationId ? "/" : "/org-setup";
+  const activeOrganizationId = (
+    session.session as typeof session.session & {
+      activeOrganizationId?: string | null;
+    }
+  ).activeOrganizationId;
+  const fallbackNext = activeOrganizationId ? "/" : "/org-setup";
   const { next } = await searchParams;
   const target = safeNext(next, fallbackNext);
 
