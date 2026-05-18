@@ -29,6 +29,12 @@ import { DailyManufacturingReportEmail } from "@/lib/email/components/daily-manu
 import { formatDate, todayInTimeZone } from "@/lib/format";
 import { AuthorizationError } from "@/lib/authz";
 import {
+  dailyManufacturingGraphColors,
+  normalizeDailyManufacturingReportConfig,
+  type DailyManufacturingProductTypeGraphConfig,
+  type DailyManufacturingReportScheduleConfig,
+} from "./daily-manufacturing-config";
+import {
   DAILY_MANUFACTURING_REPORT_PAYLOAD_VERSION,
   NOTIFICATION_ENTITY_TYPES,
   NOTIFICATION_TYPES,
@@ -82,6 +88,68 @@ function addDays(date: string, days: number) {
   const [year, month, day] = date.split("-").map(Number);
   const next = new Date(Date.UTC(year, month - 1, day + days));
   return next.toISOString().slice(0, 10);
+}
+
+function sumQuantityStrings(rows: Array<{ quantity: string }>) {
+  const total = rows.reduce((sum, row) => {
+    const quantity = Number(row.quantity);
+    return Number.isFinite(quantity) ? sum + quantity : sum;
+  }, 0);
+
+  return total.toFixed(4).replace(/\.?0+$/, "");
+}
+
+function graphMatchesProduct(
+  graph: DailyManufacturingProductTypeGraphConfig,
+  row: { productName: string; productSku: string | null; unit: string }
+) {
+  if (row.unit.trim().toLowerCase() !== graph.unitName.trim().toLowerCase()) {
+    return false;
+  }
+
+  if (!graph.productTextIncludes) return true;
+
+  const productText = `${row.productName} ${row.productSku ?? ""}`.toLowerCase();
+  return productText.includes(graph.productTextIncludes.toLowerCase());
+}
+
+function graphSlug(value: string, fallback: string) {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return slug || fallback;
+}
+
+function getFallbackProductTypeGraphs(
+  trendRows: Array<{
+    productName: string;
+    productSku: string | null;
+    unit: string;
+    quantity: string;
+  }>
+): DailyManufacturingProductTypeGraphConfig[] {
+  const totalsByUnit = new Map<string, { unitName: string; quantity: number }>();
+
+  for (const row of trendRows) {
+    const key = row.unit.trim().toLowerCase();
+    const existing = totalsByUnit.get(key) ?? { unitName: row.unit, quantity: 0 };
+    const quantity = Number(row.quantity);
+    if (Number.isFinite(quantity)) existing.quantity += quantity;
+    totalsByUnit.set(key, existing);
+  }
+
+  return Array.from(totalsByUnit.values())
+    .sort((a, b) => b.quantity - a.quantity || a.unitName.localeCompare(b.unitName))
+    .slice(0, 2)
+    .map((row, index) => ({
+      id: graphSlug(row.unitName, `unit-${index + 1}`),
+      label: row.unitName,
+      unitName: row.unitName,
+      productTextIncludes: null,
+      color: dailyManufacturingGraphColors[index % dailyManufacturingGraphColors.length],
+    }));
 }
 
 async function getReportWindowInTx(
@@ -209,6 +277,7 @@ async function buildDailyManufacturingReportPayloadInTx(
     reportDate: string;
     timeZone: string;
     window: ReportWindow;
+    scheduleConfig?: DailyManufacturingReportScheduleConfig | null;
   }
 ): Promise<DailyManufacturingReportPayload> {
   const windowWhere = and(
@@ -245,7 +314,7 @@ async function buildDailyManufacturingReportPayloadInTx(
     )
     .orderBy(asc(manufacturingOrders.productName));
 
-  const trendStartDate = addDays(params.reportDate, -6);
+  const trendStartDate = addDays(params.reportDate, -89);
   const trendWindow = await tx.execute(sql`
     SELECT
       (${trendStartDate}::date::timestamp AT TIME ZONE ${params.timeZone}) AS "startAt",
@@ -279,8 +348,8 @@ async function buildDailyManufacturingReportPayloadInTx(
     date: string;
     quantity: string;
   }>(trendResult);
-  const trendDates = Array.from({ length: 7 }, (_, index) =>
-    addDays(params.reportDate, index - 6)
+  const trendDates = Array.from({ length: 90 }, (_, index) =>
+    addDays(params.reportDate, index - 89)
   );
   const trendByProductKey = new Map<string, Map<string, string>>();
 
@@ -290,18 +359,48 @@ async function buildDailyManufacturingReportPayloadInTx(
     byDate.set(row.date, row.quantity);
     trendByProductKey.set(key, byDate);
   }
+  const normalizedConfig = normalizeDailyManufacturingReportConfig(
+    params.scheduleConfig
+  );
+  const configuredGraphs = normalizedConfig.productTypeGraphs ?? [];
+  const productTypeGraphs =
+    configuredGraphs.length > 0
+      ? configuredGraphs
+      : getFallbackProductTypeGraphs(trendRows);
   const outputByProductWithTrend = outputByProduct.map((row) => {
     const key = `${row.productName}|${row.productSku ?? ""}|${row.unit}`;
     const byDate = trendByProductKey.get(key) ?? new Map<string, string>();
+    const ninetyDayTrend = trendDates.map((date) => ({
+      date,
+      quantity: byDate.get(date) ?? "0",
+    }));
+    const graph = productTypeGraphs.find((candidate) =>
+      graphMatchesProduct(candidate, row)
+    );
 
     return {
       ...row,
-      sevenDayTrend: trendDates.map((date) => ({
-        date,
-        quantity: byDate.get(date) ?? "0",
-      })),
+      color: graph?.color ?? dailyManufacturingGraphColors[2],
+      sevenDayTrend: ninetyDayTrend.slice(-7),
+      thirtyDayTrend: ninetyDayTrend.slice(-30),
     };
   });
+  const outputByProductType = productTypeGraphs.map((config) => ({
+    category: config.id,
+    id: config.id,
+    label: config.label,
+    unit: config.unitName,
+    color: config.color,
+    ninetyDayTrend: trendDates.map((date) => ({
+      date,
+      quantity: sumQuantityStrings(
+        trendRows.filter((row) => {
+          if (row.date !== date) return false;
+          return graphMatchesProduct(config, row);
+        })
+      ),
+    })),
+  }));
 
   const outputByRecordedByRows = await tx
     .select({
@@ -456,6 +555,7 @@ async function buildDailyManufacturingReportPayloadInTx(
       shippedLineValue: shipmentSummary?.shippedLineValue ?? "0",
     },
     outputByProduct: outputByProductWithTrend,
+    outputByProductType,
     outputByRecordedBy,
     completedBatches,
     materialsConsumed,
@@ -552,6 +652,7 @@ export async function generateDailyManufacturingReportForOrg(params: {
   timeZone: string;
   scheduleId: string;
   emailEnabled: boolean;
+  scheduleConfig?: DailyManufacturingReportScheduleConfig | null;
   recipientsOverride?: ReportRecipient[];
 }) {
   const claim = await withOrgContext(params.organizationId, (tx) =>
@@ -571,6 +672,7 @@ export async function generateDailyManufacturingReportForOrg(params: {
           reportDate: params.reportDate,
           timeZone: params.timeZone,
           window: claim.window,
+          scheduleConfig: params.scheduleConfig,
         });
         const recipients =
           params.recipientsOverride ?? (await getRecipientsInTx(tx, params.scheduleId));
@@ -643,6 +745,7 @@ export async function generateDueDailyManufacturingReports(now = new Date()) {
           emailEnabled: reportSchedules.emailEnabled,
           localSendTime: reportSchedules.localSendTime,
           timeZone: reportSchedules.timeZone,
+          config: reportSchedules.config,
         })
         .from(reportSchedules)
         .where(eq(reportSchedules.reportType, REPORT_TYPES.DAILY_MANUFACTURING))
@@ -668,8 +771,9 @@ export async function generateDueDailyManufacturingReports(now = new Date()) {
         reportDate,
         timeZone: schedule.timeZone,
         scheduleId: schedule.id,
-        emailEnabled: schedule.emailEnabled,
-      });
+          emailEnabled: schedule.emailEnabled,
+          scheduleConfig: schedule.config,
+        });
 
       if (result.generated) {
         summary.generated += 1;
@@ -695,7 +799,11 @@ export async function manualSendDailyManufacturingReportForOrg(params: {
 }) {
   const existingRun = await withOrgContext(params.organizationId, async (tx) => {
     const [schedule] = await tx
-      .select({ id: reportSchedules.id, timeZone: reportSchedules.timeZone })
+      .select({
+        id: reportSchedules.id,
+        timeZone: reportSchedules.timeZone,
+        config: reportSchedules.config,
+      })
       .from(reportSchedules)
       .where(eq(reportSchedules.reportType, REPORT_TYPES.DAILY_MANUFACTURING))
       .limit(1);
@@ -824,6 +932,7 @@ export async function manualSendDailyManufacturingReportForOrg(params: {
     timeZone: existingRun.schedule.timeZone,
     scheduleId: existingRun.schedule.id,
     emailEnabled: true,
+    scheduleConfig: existingRun.schedule.config,
     recipientsOverride: existingRun.recipients,
   });
 

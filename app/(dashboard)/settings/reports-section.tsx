@@ -31,6 +31,11 @@ import {
 import type { DailyManufacturingReportScheduleData } from "@/lib/dal/reports";
 import type { DailyManufacturingReportPayload } from "@/lib/reports/daily-manufacturing-schema";
 import {
+  createDailyManufacturingGraphId,
+  dailyManufacturingGraphColors,
+  type DailyManufacturingProductTypeGraphConfig,
+} from "@/lib/reports/daily-manufacturing-config";
+import {
   formatDate,
   formatDateTime,
   formatPrice,
@@ -45,6 +50,7 @@ type FormState = {
   localSendTime: string;
   timeZone: string;
   recipientUserIds: string[];
+  productTypeGraphs: DailyManufacturingProductTypeGraphConfig[];
 };
 
 type DailyManufacturingReportRun = {
@@ -70,6 +76,7 @@ function toFormState(data: DailyManufacturingReportScheduleData): FormState {
     localSendTime: data.schedule.localSendTime.slice(0, 5),
     timeZone: data.schedule.timeZone,
     recipientUserIds: data.recipientUserIds,
+    productTypeGraphs: data.schedule.config.productTypeGraphs ?? [],
   };
 }
 
@@ -201,6 +208,44 @@ export function ReportsSection({
     }));
   }
 
+  function addProductTypeGraph() {
+    setFormState((current) => ({
+      ...current,
+      productTypeGraphs: [
+        ...current.productTypeGraphs,
+        {
+          id: createDailyManufacturingGraphId(),
+          label: "",
+          unitName: "",
+          productTextIncludes: null,
+          color:
+            dailyManufacturingGraphColors[
+              current.productTypeGraphs.length % dailyManufacturingGraphColors.length
+            ],
+        },
+      ],
+    }));
+  }
+
+  function updateProductTypeGraph(
+    id: string,
+    patch: Partial<DailyManufacturingProductTypeGraphConfig>
+  ) {
+    setFormState((current) => ({
+      ...current,
+      productTypeGraphs: current.productTypeGraphs.map((graph) =>
+        graph.id === id ? { ...graph, ...patch } : graph
+      ),
+    }));
+  }
+
+  function removeProductTypeGraph(id: string) {
+    setFormState((current) => ({
+      ...current,
+      productTypeGraphs: current.productTypeGraphs.filter((graph) => graph.id !== id),
+    }));
+  }
+
   return (
     <SettingsPanel id="reports">
       <SettingsPanelHeader
@@ -312,6 +357,95 @@ export function ReportsSection({
                       {member.name} <span className="text-muted-foreground">{member.email}</span>
                     </span>
                   </label>
+                ))}
+              </div>
+            </Field>
+
+            <Field>
+              <div className="flex items-center justify-between gap-4">
+                <FieldLabel>Product type graphs</FieldLabel>
+                <Button type="button" variant="outline" size="sm" onClick={addProductTypeGraph}>
+                  Add graph
+                </Button>
+              </div>
+              <div className="grid gap-3">
+                {formState.productTypeGraphs.length === 0 ? (
+                  <div className="border bg-muted/30 p-3 text-[length:var(--text-sm)] text-muted-foreground">
+                    The report will use the top output units unless graphs are configured.
+                  </div>
+                ) : null}
+                {formState.productTypeGraphs.map((graph) => (
+                  <div key={graph.id} className="grid gap-3 border bg-card p-3">
+                    <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                      <Field>
+                        <FieldLabel htmlFor={`daily-report-graph-label-${graph.id}`}>
+                          Label
+                        </FieldLabel>
+                        <Input
+                          id={`daily-report-graph-label-${graph.id}`}
+                          value={graph.label}
+                          onChange={(event) =>
+                            updateProductTypeGraph(graph.id, {
+                              label: event.target.value,
+                            })
+                          }
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor={`daily-report-graph-unit-${graph.id}`}>
+                          Unit
+                        </FieldLabel>
+                        <Input
+                          id={`daily-report-graph-unit-${graph.id}`}
+                          value={graph.unitName}
+                          onChange={(event) =>
+                            updateProductTypeGraph(graph.id, {
+                              unitName: event.target.value,
+                            })
+                          }
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor={`daily-report-graph-color-${graph.id}`}>
+                          Color
+                        </FieldLabel>
+                        <Input
+                          id={`daily-report-graph-color-${graph.id}`}
+                          type="color"
+                          value={graph.color}
+                          onChange={(event) =>
+                            updateProductTypeGraph(graph.id, {
+                              color: event.target.value,
+                            })
+                          }
+                          className="w-16 p-1"
+                        />
+                      </Field>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                      <Field>
+                        <FieldLabel htmlFor={`daily-report-graph-filter-${graph.id}`}>
+                          Product/SKU contains
+                        </FieldLabel>
+                        <Input
+                          id={`daily-report-graph-filter-${graph.id}`}
+                          value={graph.productTextIncludes ?? ""}
+                          onChange={(event) =>
+                            updateProductTypeGraph(graph.id, {
+                              productTextIncludes: event.target.value || null,
+                            })
+                          }
+                        />
+                      </Field>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => removeProductTypeGraph(graph.id)}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
                 ))}
               </div>
             </Field>

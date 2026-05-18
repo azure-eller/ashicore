@@ -4,13 +4,19 @@ import {
   Html,
   Preview,
 } from "@react-email/components";
+import type { CSSProperties } from "react";
 import type { DailyManufacturingReportPayload } from "@/lib/reports/daily-manufacturing-schema";
 import { formatQuantity } from "@/lib/format";
-import {
-  buildSparklineUrl,
-  getSparklineTrendColor,
-  sparklineImageSize,
-} from "@/lib/reports/sparkline";
+
+type TrendPoint = {
+  date: string;
+  quantity: string;
+};
+
+type NumericPoint = {
+  date: string;
+  value: number;
+};
 
 export function DailyManufacturingReportEmail({
   payload,
@@ -19,9 +25,8 @@ export function DailyManufacturingReportEmail({
 }) {
   const date = formatLongDate(payload.reportDate);
   const generatedAt = formatGeneratedAt(payload.generatedAt, payload.timeZone);
-  const outputRows = payload.outputByProduct.slice(0, 5);
-  const materialRows = payload.materialsConsumed.slice(0, 5);
-  const preheader = `${payload.summary.productsWithRecordedOutput} products with recorded output · ${payload.summary.shipmentsShipped} shipments · ${date}`;
+  const productCount = payload.outputByProduct.length;
+  const preheader = `${productCount} ${productCount === 1 ? "product" : "products"} with recorded output · ${date}`;
 
   return (
     <Html lang="en">
@@ -42,7 +47,7 @@ export function DailyManufacturingReportEmail({
               <td align="center" style={outerCell}>
                 <table
                   role="presentation"
-                  width="660"
+                  width="680"
                   cellPadding={0}
                   cellSpacing={0}
                   border={0}
@@ -50,13 +55,9 @@ export function DailyManufacturingReportEmail({
                   style={container}
                 >
                   <tbody>
-                    <HeroSection payload={payload} date={date} />
-                    <OutputSection
-                      rows={outputRows}
-                      totalRows={payload.outputByProduct.length}
-                      dashboardUrl={payload.erpUrl}
-                    />
-                    <MaterialsSection rows={materialRows} />
+                    <Header payload={payload} date={date} />
+                    <ProductTypeSection rows={payload.outputByProductType} />
+                    <OutputSection rows={payload.outputByProduct} />
                     <Footer generatedAt={generatedAt} dashboardUrl={payload.erpUrl} />
                   </tbody>
                 </table>
@@ -69,63 +70,28 @@ export function DailyManufacturingReportEmail({
   );
 }
 
-function HeroSection({
+function Header({
   payload,
   date,
 }: {
   payload: DailyManufacturingReportPayload;
   date: string;
 }) {
-  const batchOutputRollup = formatQuantityRollup(
-    payload.completedBatches.map((row) => ({ quantity: row.totalOutput, unit: row.unit }))
-  );
-  const materialRollup = formatQuantityRollup(
-    payload.materialsConsumed.map((row) => ({ quantity: row.quantity, unit: row.unit }))
-  );
-  const outputUnitCount = countUnits(
-    payload.outputByProduct.map((row) => row.unit)
-  );
-  const outputFoot =
-    outputUnitCount > 0
-      ? `${outputUnitCount} output ${outputUnitCount === 1 ? "unit type" : "unit types"}`
-      : "No output recorded";
+  const productCount = payload.outputByProduct.length;
 
   return (
     <tr>
-      <td className="hero-pad" style={heroCell}>
-        <div style={heroEyebrow}>Daily Manufacturing · {payload.organizationName}</div>
-        <div style={heroDate}>{date}</div>
-        <div style={heroSub}>
-          24-hour close · {payload.summary.productsWithRecordedOutput} products with recorded output
-        </div>
-
-        <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} border={0} style={tileWrap}>
+      <td className="section-pad" style={headerCell}>
+        <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} border={0}>
           <tbody>
             <tr>
-              <KpiTile
-                label="Output"
-                value={payload.summary.productsWithRecordedOutput}
-                foot={outputFoot}
-                outerStyle={firstTile}
-              />
-              <KpiTile
-                label="Batches"
-                value={payload.summary.completedBatches}
-                foot={batchOutputRollup.footer}
-                outerStyle={middleTile}
-              />
-              <KpiTile
-                label="Shipments"
-                value={payload.summary.shipmentsShipped}
-                foot={`${formatMoney(payload.summary.shippedLineValue)} line value`}
-                outerStyle={middleTile}
-              />
-              <KpiTile
-                label="Materials"
-                value={payload.summary.materialsConsumedFromRecordedOutputs}
-                foot={materialRollup.footer}
-                outerStyle={lastTile}
-              />
+              <td valign="bottom" style={headerMain}>
+                <div style={headerEyebrow}>Daily Manufacturing · {payload.organizationName}</div>
+                <div style={headerTitle}>{date}</div>
+              </td>
+              <td valign="bottom" align="right" className="header-meta" style={headerMeta}>
+                24-hour close · {productCount} {productCount === 1 ? "product" : "products"}
+              </td>
             </tr>
           </tbody>
         </table>
@@ -134,182 +100,181 @@ function HeroSection({
   );
 }
 
-function KpiTile({
-  label,
-  value,
-  foot,
-  outerStyle,
+function ProductTypeSection({
+  rows,
 }: {
-  label: string;
-  value: number | string;
-  foot: string;
-  outerStyle: React.CSSProperties;
+  rows: DailyManufacturingReportPayload["outputByProductType"];
 }) {
   return (
-    <td valign="top" width="25%" className="tile" style={outerStyle}>
-      <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} border={0} style={tileTable}>
-        <tbody>
-          <tr>
-            <td style={tileCell}>
-              <div style={tileLabel}>{label}</div>
-              <div style={tileValue}>
-                {typeof value === "number" ? formatInteger(value) : value}
-              </div>
-              <div style={tileFoot}>{foot}</div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <tr>
+      <td className="section-pad" style={sectionCell}>
+        <SectionHeader title="Output by product type" meta="90-day trend" />
+        <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} border={0}>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={row.category}>
+                <td style={index === rows.length - 1 ? chartCardCellLast : chartCardCell}>
+                  <ChartCard row={row} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </td>
+    </tr>
+  );
+}
+
+function ChartCard({
+  row,
+}: {
+  row: DailyManufacturingReportPayload["outputByProductType"][number];
+}) {
+  const series = toNumericPoints(row.ninetyDayTrend);
+  const last30 = sumPoints(series.slice(-30));
+  const prior30 = sumPoints(series.slice(-60, -30));
+  const delta = prior30 > 0 ? (last30 - prior30) / prior30 : 0;
+  const today = series[series.length - 1]?.value ?? 0;
+
+  return (
+    <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} border={0} style={chartCard}>
+      <tbody>
+        <tr>
+          <td style={chartCardInner}>
+            <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} border={0}>
+              <tbody>
+                <tr>
+                  <td valign="top">
+                    <div style={chartTitle}>{row.label}</div>
+                    <div style={chartSub}>{row.unit}</div>
+                  </td>
+                  <td align="right" valign="top">
+                    <table role="presentation" cellPadding={0} cellSpacing={0} border={0} className="chart-stats">
+                      <tbody>
+                        <tr>
+                          <StatCell label="Today" value={formatNumber(today)} />
+                          <StatCell label="Last 30 days" value={formatNumber(last30)} />
+                          <StatCell
+                            label="Vs prior 30"
+                            value={`${delta > 0 ? "↗" : delta < 0 ? "↘" : "→"} ${formatPercent(delta)}`}
+                            valueStyle={deltaText(delta)}
+                          />
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td colSpan={2} style={chartArea}>
+                    <StaticChart data={series} color={row.color} />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
+function StatCell({
+  label,
+  value,
+  valueStyle,
+}: {
+  label: string;
+  value: string;
+  valueStyle?: CSSProperties;
+}) {
+  return (
+    <td align="right" valign="top" className="stat-cell" style={statCell}>
+      <div style={statLabel}>{label}</div>
+      <div style={{ ...statValue, ...valueStyle }}>{value}</div>
     </td>
   );
 }
 
 function OutputSection({
   rows,
-  totalRows,
-  dashboardUrl,
 }: {
   rows: DailyManufacturingReportPayload["outputByProduct"];
-  totalRows: number;
-  dashboardUrl: string;
 }) {
-  const dashboardOrigin = getOrigin(dashboardUrl);
-  const productMeta =
-    totalRows > rows.length
-      ? `${rows.length} of ${totalRows} products`
-      : `${totalRows} ${totalRows === 1 ? "product" : "products"}`;
+  const productMeta = `${rows.length} ${rows.length === 1 ? "product" : "products"} · 30-day trend`;
 
-  return (
-    <>
-      <SectionHeader
-        title="Output by product"
-        meta={`${productMeta} · 7-day trend`}
-        topPadding={28}
-      />
-      <tr>
-        <td className="body-pad" style={cardCell}>
-          <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} border={0} style={cardTable}>
-            <tbody>
-              <tr style={tableHeadRow}>
-                <th align="left" style={headCell}>Product</th>
-                <th align="right" style={headCellRight}>Output</th>
-                <th align="right" className="hide-sm" style={headCellRight}>7-day</th>
-              </tr>
-              {rows.length > 0 ? (
-                rows.map((row, index) => (
-                  <tr key={`${row.productName}-${row.unit}`}>
-                    <td style={bodyCell(index === rows.length - 1)}>
-                      <div style={nameText}>{row.productName}</div>
-                      <div style={skuText}>{row.productSku ?? "No SKU"}</div>
-                    </td>
-                    <td align="right" style={numberCell(index === rows.length - 1, true)}>
-                      {formatQuantity(row.quantity)} {row.unit}
-                    </td>
-                    <td align="right" className="hide-sm" style={trendCell(index === rows.length - 1)}>
-                      <SparklineImage row={row} baseUrl={dashboardOrigin} />
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={3} style={emptyCell}>No output recorded.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </td>
-      </tr>
-    </>
-  );
-}
-
-function SparklineImage({
-  row,
-  baseUrl,
-}: {
-  row: DailyManufacturingReportPayload["outputByProduct"][number];
-  baseUrl: string;
-}) {
-  const values = row.sevenDayTrend.map((point) => point.quantity);
-  const numericValues = values.map((value) => Number(value)).filter((value) => Number.isFinite(value));
-  const color = getSparklineTrendColor(numericValues);
-  const src = buildSparklineUrl({ baseUrl, values, color });
-
-  return (
-    // eslint-disable-next-line @next/next/no-img-element -- Email clients need a plain img tag.
-    <img
-      src={src}
-      width={sparklineImageSize.width}
-      height={sparklineImageSize.height}
-      alt={`7-day trend for ${row.productSku ?? row.productName}, ending at ${formatQuantity(row.quantity)} ${row.unit}`}
-      style={sparklineImage}
-    />
-  );
-}
-
-function MaterialsSection({
-  rows,
-}: {
-  rows: DailyManufacturingReportPayload["materialsConsumed"];
-}) {
-  return (
-    <>
-      <SectionHeader
-        title="Materials consumed"
-        meta="From recorded outputs"
-        topPadding={28}
-      />
-      <tr>
-        <td className="body-pad" style={cardCell}>
-          <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} border={0} style={cardTable}>
-            <tbody>
-              {rows.length > 0 ? (
-                rows.map((row, index) => (
-                  <tr key={`${row.materialName}-${row.unit}`}>
-                    <td style={bodyCell(index === rows.length - 1)}>
-                      <div style={nameText}>{row.materialName}</div>
-                      <div style={skuText}>{row.materialSku ?? "No SKU"}</div>
-                    </td>
-                    <td align="right" style={numberCell(index === rows.length - 1, true)}>
-                      {formatQuantity(row.quantity)} {row.unit}
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td style={emptyCell}>No materials consumed from recorded outputs.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </td>
-      </tr>
-    </>
-  );
-}
-
-function SectionHeader({
-  title,
-  meta,
-  topPadding,
-}: {
-  title: string;
-  meta: string;
-  topPadding: number;
-}) {
   return (
     <tr>
-      <td className="body-pad" style={{ padding: `${topPadding}px 32px 0` }}>
-        <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} border={0}>
+      <td className="section-pad" style={sectionCell}>
+        <SectionHeader title="Output by product" meta={productMeta} />
+        <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} border={0} style={productTable}>
           <tbody>
-            <tr>
-              <td style={sectionTitle}>{title}</td>
-              <td align="right" style={sectionMeta}>{meta}</td>
+            <tr style={productHeadRow}>
+              <th align="left" style={productHeadCellFirst}>Product</th>
+              <th align="right" style={productHeadCell}>Today</th>
+              <th align="right" className="hide-sm" style={productHeadCellLast}>30-day</th>
             </tr>
+            {rows.length > 0 ? (
+              rows.map((row, index) => (
+                <tr key={`${row.productName}-${row.productSku ?? ""}-${row.unit}`}>
+                  <td style={productCell(index === rows.length - 1)}>
+                    <div style={productName}>{row.productName}</div>
+                    <div style={productSku}>{row.productSku ?? "No SKU"}</div>
+                  </td>
+                  <td align="right" style={todayCell(index === rows.length - 1)}>
+                    <div style={todayValue}>{formatQuantity(row.quantity)}</div>
+                    <div style={todayUnit}>{row.unit}</div>
+                  </td>
+                  <td align="right" className="hide-sm" style={sparkCell(index === rows.length - 1)}>
+                    <ProductSparkline row={row} />
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={3} style={emptyCell}>No output recorded.</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </td>
     </tr>
+  );
+}
+
+function ProductSparkline({
+  row,
+}: {
+  row: DailyManufacturingReportPayload["outputByProduct"][number];
+}) {
+  const series = toNumericPoints(row.thirtyDayTrend);
+  const delta = splitWindowDelta(series);
+
+  return (
+    <table role="presentation" cellPadding={0} cellSpacing={0} border={0} align="right">
+      <tbody>
+        <tr>
+          <td style={sparklineSvgCell}>
+            <Sparkline data={series} color={row.color} />
+          </td>
+          <td align="right" style={{ ...sparkDelta, ...deltaText(delta, true) }}>
+            {formatPercent(delta)}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
+function SectionHeader({ title, meta }: { title: string; meta: string }) {
+  return (
+    <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} border={0} style={sectionHeaderTable}>
+      <tbody>
+        <tr>
+          <td style={sectionTitle}>{title}</td>
+          <td align="right" style={sectionMeta}>{meta}</td>
+        </tr>
+      </tbody>
+    </table>
   );
 }
 
@@ -322,8 +287,8 @@ function Footer({
 }) {
   return (
     <tr>
-      <td className="body-pad" style={footerCell}>
-        <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} border={0} style={footerTable}>
+      <td className="section-pad" style={footerCell}>
+        <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} border={0}>
           <tbody>
             <tr>
               <td style={footerText}>Generated {generatedAt} · ashicore ERP</td>
@@ -340,47 +305,166 @@ function Footer({
   );
 }
 
-function formatInteger(value: number) {
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+function StaticChart({ data, color }: { data: NumericPoint[]; color: string }) {
+  const values = data.map((point) => point.value);
+  const yMax = niceCeil(Math.max(...values, 1));
+  const average = values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
+  const width = 1000;
+  const height = 200;
+  const padLeft = 44;
+  const padRight = 56;
+  const padTop = 16;
+  const padBottom = 28;
+  const innerWidth = width - padLeft - padRight;
+  const innerHeight = height - padTop - padBottom;
+  const lastIndex = Math.max(data.length - 1, 0);
+  const xFor = (index: number) => padLeft + (index / Math.max(lastIndex, 1)) * innerWidth;
+  const yFor = (value: number) => padTop + innerHeight - (value / yMax) * innerHeight;
+  const yTicks = Array.from({ length: 5 }, (_, index) => (yMax / 4) * index);
+  const monthIndices = getMonthIndices(data);
+  const linePath = values
+    .map((value, index) => `${index === 0 ? "M" : "L"}${round(xFor(index))} ${round(yFor(value))}`)
+    .join(" ");
+  const areaPath = `${linePath} L${round(xFor(lastIndex))} ${height - padBottom} L${round(xFor(0))} ${height - padBottom} Z`;
+  const peakIndex = values.reduce(
+    (maxIndex, value, index) => (value > values[maxIndex] ? index : maxIndex),
+    0
+  );
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      width="100%"
+      height={height}
+      style={svgBlock}
+    >
+      {yTicks.map((tick, index) => (
+        <g key={`y-${index}`}>
+          <line
+            x1={padLeft}
+            x2={width - padRight}
+            y1={yFor(tick)}
+            y2={yFor(tick)}
+            stroke="#E6E8EC"
+            strokeWidth="1"
+            shapeRendering="crispEdges"
+          />
+          <text x={padLeft - 8} y={yFor(tick) + 4} fontSize="11" fill="#8A8F99" textAnchor="end" fontFamily={sansStack}>
+            {formatNumber(tick)}
+          </text>
+        </g>
+      ))}
+      {monthIndices.map((index) => (
+        <text key={`m-${index}`} x={xFor(index)} y={height - 8} fontSize="11" fill="#8A8F99" textAnchor="start" fontFamily={sansStack}>
+          {formatMonth(data[index]?.date)}
+        </text>
+      ))}
+      <line
+        x1={padLeft}
+        x2={width - padRight}
+        y1={yFor(average)}
+        y2={yFor(average)}
+        stroke={color}
+        strokeOpacity="0.45"
+        strokeWidth="1"
+        strokeDasharray="3 4"
+      />
+      <text x={width - padRight + 6} y={yFor(average) + 4} fontSize="10" fill={color} fillOpacity="0.7" fontFamily={sansStack}>
+        avg {formatNumber(average)}
+      </text>
+      <path d={areaPath} fill={color} fillOpacity="0.08" />
+      <path d={linePath} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+      {peakIndex !== lastIndex ? (
+        <g>
+          <circle cx={xFor(peakIndex)} cy={yFor(values[peakIndex] ?? 0)} r="3" fill="white" stroke={color} strokeWidth="1.5" />
+          <text
+            x={xFor(peakIndex)}
+            y={yFor(values[peakIndex] ?? 0) - 8}
+            fontSize="10"
+            fill="#475569"
+            textAnchor={peakIndex > data.length * 0.85 ? "end" : "middle"}
+            fontFamily={sansStack}
+            fontWeight="500"
+          >
+            peak {formatNumber(values[peakIndex] ?? 0)}
+          </text>
+        </g>
+      ) : null}
+      <g>
+        <circle cx={xFor(lastIndex)} cy={yFor(values[lastIndex] ?? 0)} r="4" fill={color} stroke="white" strokeWidth="1.6" />
+        <text x={xFor(lastIndex) + 8} y={yFor(values[lastIndex] ?? 0) + 4} fontSize="11" fill={color} fontWeight="600" fontFamily={sansStack}>
+          {formatNumber(values[lastIndex] ?? 0)}
+        </text>
+      </g>
+    </svg>
+  );
 }
 
-function formatMoney(value: string) {
+function Sparkline({ data, color }: { data: NumericPoint[]; color: string }) {
+  const width = 120;
+  const height = 32;
+  const pad = 2;
+  const innerWidth = width - pad * 2;
+  const innerHeight = height - pad * 2;
+  const values = data.length > 0 ? data.map((point) => point.value) : [0];
+  const max = Math.max(...values, 1);
+  const points = values.map((value, index) => {
+    const x = pad + (index / Math.max(values.length - 1, 1)) * innerWidth;
+    const y = pad + innerHeight - (value / max) * innerHeight;
+    return { x, y };
+  });
+  const linePath = points
+    .map((point, index) => `${index === 0 ? "M" : "L"}${round(point.x)} ${round(point.y)}`)
+    .join(" ");
+  const areaPath = `${linePath} L${round(points[points.length - 1].x)} ${height - pad} L${round(points[0].x)} ${height - pad} Z`;
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={svgBlock}>
+      <path d={areaPath} fill={color} fillOpacity="0.08" stroke="none" />
+      <path d={linePath} fill="none" stroke={color} strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function toNumericPoints(points: TrendPoint[]): NumericPoint[] {
+  return points.map((point) => {
+    const value = Number(point.quantity);
+    return {
+      date: point.date,
+      value: Number.isFinite(value) ? value : 0,
+    };
+  });
+}
+
+function sumPoints(points: NumericPoint[]) {
+  return points.reduce((sum, point) => sum + point.value, 0);
+}
+
+function splitWindowDelta(points: NumericPoint[]) {
+  const half = Math.floor(points.length / 2);
+  const first = sumPoints(points.slice(0, half));
+  const second = sumPoints(points.slice(half));
+  return first > 0 ? (second - first) / first : 0;
+}
+
+function deltaText(delta: number, neutralMuted = false): CSSProperties {
+  if (delta > 0.02) return { color: "#2F7A3D" };
+  if (delta < -0.02) return { color: "#B03A2E" };
+  return { color: neutralMuted ? "#94A3B8" : "#0F172A" };
+}
+
+function formatPercent(value: number) {
+  if (!Number.isFinite(value) || Math.abs(value) < 0.005) return "0%";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${(value * 100).toFixed(0)}%`;
+}
+
+function formatNumber(value: number) {
+  if (!Number.isFinite(value)) return "0";
   return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(Number(value));
-}
-
-function formatQuantityRollup(rows: Array<{ quantity: string; unit: string }>) {
-  const totals = new Map<string, number>();
-
-  for (const row of rows) {
-    const quantity = Number(row.quantity);
-    if (!Number.isFinite(quantity)) continue;
-    totals.set(row.unit, (totals.get(row.unit) ?? 0) + quantity);
-  }
-
-  const entries = Array.from(totals.entries());
-  if (entries.length === 0) {
-    return { primary: "0", footer: "No quantity recorded" };
-  }
-
-  const [unit, quantity] = entries[0];
-  const formatted = `${formatQuantity(String(quantity))} ${unit}`;
-
-  if (entries.length === 1) {
-    return { primary: formatQuantity(String(quantity)), footer: formatted };
-  }
-
-  return {
-    primary: formatted,
-    footer: `+ ${entries.length - 1} more ${entries.length === 2 ? "unit type" : "unit types"}`,
-  };
-}
-
-function countUnits(units: string[]) {
-  return new Set(units.filter(Boolean)).size;
+    maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
+  }).format(value);
 }
 
 function formatLongDate(value: string) {
@@ -403,35 +487,65 @@ function formatGeneratedAt(value: string, timeZone: string) {
   }).format(new Date(value));
 }
 
-function getOrigin(value: string) {
-  try {
-    return new URL(value).origin;
-  } catch {
-    return "http://localhost:3000";
-  }
+function formatMonth(value: string | undefined) {
+  if (!value) return "";
+  const [year, month, day] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(
+    new Date(Date.UTC(year, month - 1, day))
+  );
 }
 
+function getMonthIndices(data: NumericPoint[]) {
+  const indices: number[] = [];
+  let previousMonth = "";
+
+  data.forEach((point, index) => {
+    const month = point.date.slice(0, 7);
+    if (month !== previousMonth) {
+      indices.push(index);
+      previousMonth = month;
+    }
+  });
+
+  return indices;
+}
+
+function niceCeil(value: number) {
+  if (value <= 0) return 1;
+  const exponent = 10 ** Math.floor(Math.log10(value));
+  const fraction = value / exponent;
+  const nice = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 2.5 ? 2.5 : fraction <= 5 ? 5 : 10;
+  return nice * exponent;
+}
+
+function round(value: number) {
+  return Math.round(value * 10) / 10;
+}
+
+const sansStack = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
+const monoStack = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+
 const emailCss = `
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-body, table, td, th, div, a { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+body, table, td, th, div, a { font-family: ${sansStack}; }
 table { border-collapse: collapse !important; }
-img { -ms-interpolation-mode: bicubic; border: 0; line-height: 100%; outline: none; text-decoration: none; display: block; }
-@media screen and (max-width: 680px) {
-  .container { width: 100% !important; border-radius: 0 !important; border-left: 0 !important; border-right: 0 !important; }
-  .hero-pad, .body-pad { padding-left: 20px !important; padding-right: 20px !important; }
-  .tile { display: block !important; width: 100% !important; padding-left: 0 !important; padding-right: 0 !important; padding-bottom: 8px !important; }
+@media screen and (max-width: 700px) {
+  .container { width: 100% !important; border-radius: 0 !important; }
+  .section-pad { padding-left: 20px !important; padding-right: 20px !important; }
+  .header-meta { display: block !important; width: 100% !important; text-align: left !important; padding-top: 8px !important; }
+  .chart-stats { width: 100% !important; margin-top: 12px !important; }
+  .stat-cell { padding-left: 0 !important; padding-right: 14px !important; }
   .hide-sm { display: none !important; }
 }
 `;
 
-const body: React.CSSProperties = {
-  backgroundColor: "#EEF1F5",
+const body: CSSProperties = {
+  backgroundColor: "#EEF0F3",
   margin: 0,
   padding: 0,
 };
 
-const preheaderStyle: React.CSSProperties = {
-  color: "#EEF1F5",
+const preheaderStyle: CSSProperties = {
+  color: "#EEF0F3",
   display: "none",
   fontSize: 1,
   lineHeight: "1px",
@@ -439,211 +553,240 @@ const preheaderStyle: React.CSSProperties = {
   overflow: "hidden",
 };
 
-const outerTable: React.CSSProperties = {
-  backgroundColor: "#EEF1F5",
+const outerTable: CSSProperties = {
+  backgroundColor: "#EEF0F3",
 };
 
-const outerCell: React.CSSProperties = {
+const outerCell: CSSProperties = {
   padding: "24px 12px",
 };
 
-const container: React.CSSProperties = {
+const container: CSSProperties = {
   backgroundColor: "#FFFFFF",
-  border: "1px solid #E2E8F0",
-  borderRadius: 12,
-  boxShadow: "0 16px 40px -24px rgba(15,23,42,.18)",
+  borderRadius: 14,
+  boxShadow: "0 1px 0 rgba(15,23,42,0.04), 0 1px 3px rgba(15,23,42,0.04)",
   overflow: "hidden",
-  width: 660,
+  width: 680,
 };
 
-const heroCell: React.CSSProperties = {
-  backgroundColor: "#0F2A54",
-  backgroundImage: "linear-gradient(180deg,#0F2A54 0%,#133769 100%)",
-  color: "#FFFFFF",
-  padding: "24px 32px 28px",
+const headerCell: CSSProperties = {
+  borderBottom: "1px solid #F1F3F7",
+  padding: "24px 28px 18px",
 };
 
-const heroEyebrow: React.CSSProperties = {
-  color: "#9FB3D9",
+const headerMain: CSSProperties = {
+  paddingRight: 24,
+};
+
+const headerEyebrow: CSSProperties = {
+  color: "#64748B",
   fontSize: 11,
   fontWeight: 600,
-  letterSpacing: "1.1px",
-  lineHeight: "16px",
+  letterSpacing: "0.12em",
+  lineHeight: "15px",
   textTransform: "uppercase",
 };
 
-const heroDate: React.CSSProperties = {
-  color: "#FFFFFF",
-  fontSize: 20,
-  fontWeight: 700,
-  letterSpacing: "-0.4px",
-  lineHeight: "26px",
-  marginTop: 4,
+const headerTitle: CSSProperties = {
+  color: "#0F172A",
+  fontSize: 22,
+  fontWeight: 600,
+  letterSpacing: "-0.01em",
+  lineHeight: "28px",
+  marginTop: 6,
 };
 
-const heroSub: React.CSSProperties = {
-  color: "#9FB3D9",
+const headerMeta: CSSProperties = {
+  color: "#64748B",
   fontSize: 12,
   lineHeight: "18px",
-  marginTop: 4,
+  paddingBottom: 4,
+  whiteSpace: "nowrap",
 };
 
-const tileWrap: React.CSSProperties = {
-  marginTop: 20,
+const sectionCell: CSSProperties = {
+  borderBottom: "1px solid #F1F3F7",
+  padding: "22px 28px",
 };
 
-const firstTile: React.CSSProperties = {
-  paddingRight: 5,
+const sectionHeaderTable: CSSProperties = {
+  marginBottom: 14,
 };
 
-const middleTile: React.CSSProperties = {
-  paddingLeft: 5,
-  paddingRight: 5,
-};
-
-const lastTile: React.CSSProperties = {
-  paddingLeft: 5,
-};
-
-const tileTable: React.CSSProperties = {
-  backgroundColor: "#1A3D6E",
-  border: "1px solid #264C7C",
-  borderRadius: 8,
-};
-
-const tileCell: React.CSSProperties = {
-  padding: "12px 14px",
-};
-
-const tileLabel: React.CSSProperties = {
-  color: "#9FB3D9",
-  fontSize: 10,
-  fontWeight: 600,
-  letterSpacing: "0.8px",
-  lineHeight: "14px",
-  textTransform: "uppercase",
-};
-
-const tileValue: React.CSSProperties = {
-  color: "#FFFFFF",
-  fontSize: 22,
-  fontVariantNumeric: "tabular-nums",
-  fontWeight: 700,
-  letterSpacing: "-0.4px",
-  lineHeight: "28px",
-  marginTop: 4,
-};
-
-const tileFoot: React.CSSProperties = {
-  color: "#C7D5EE",
-  fontSize: 11,
-  fontVariantNumeric: "tabular-nums",
-  lineHeight: "16px",
-  marginTop: 2,
-};
-
-const sectionTitle: React.CSSProperties = {
+const sectionTitle: CSSProperties = {
   color: "#0F172A",
-  fontSize: 13,
+  fontSize: 15,
   fontWeight: 600,
-  lineHeight: "18px",
+  letterSpacing: "-0.005em",
+  lineHeight: "20px",
 };
 
-const sectionMeta: React.CSSProperties = {
+const sectionMeta: CSSProperties = {
   color: "#64748B",
   fontSize: 12,
   lineHeight: "18px",
 };
 
-const cardCell: React.CSSProperties = {
-  padding: "10px 32px 0",
+const chartCardCell: CSSProperties = {
+  paddingBottom: 16,
 };
 
-const cardTable: React.CSSProperties = {
-  border: "1px solid #E2E8F0",
-  borderRadius: 10,
-  overflow: "hidden",
+const chartCardCellLast: CSSProperties = {
+  paddingBottom: 0,
+};
+
+const chartCard: CSSProperties = {
+  border: "1px solid #E6E8EC",
+  borderRadius: 12,
   width: "100%",
 };
 
-const tableHeadRow: React.CSSProperties = {
-  backgroundColor: "#F8FAFC",
+const chartCardInner: CSSProperties = {
+  padding: "16px 18px 12px",
 };
 
-const headCell: React.CSSProperties = {
-  borderBottom: "1px solid #E2E8F0",
+const chartTitle: CSSProperties = {
+  color: "#0F172A",
+  fontSize: 16,
+  fontWeight: 600,
+  letterSpacing: "-0.005em",
+  lineHeight: "22px",
+};
+
+const chartSub: CSSProperties = {
+  color: "#64748B",
+  fontSize: 12,
+  lineHeight: "18px",
+};
+
+const statCell: CSSProperties = {
+  paddingLeft: 24,
+};
+
+const statLabel: CSSProperties = {
   color: "#64748B",
   fontSize: 10,
   fontWeight: 600,
-  letterSpacing: "0.6px",
+  letterSpacing: "0.08em",
   lineHeight: "14px",
-  padding: "8px 12px",
   textTransform: "uppercase",
 };
 
-const headCellRight: React.CSSProperties = {
-  ...headCell,
+const statValue: CSSProperties = {
+  color: "#0F172A",
+  fontSize: 18,
+  fontVariantNumeric: "tabular-nums",
+  fontWeight: 600,
+  letterSpacing: "-0.01em",
+  lineHeight: "24px",
+};
+
+const chartArea: CSSProperties = {
+  padding: "14px 6px 0",
+};
+
+const productTable: CSSProperties = {
+  width: "100%",
+};
+
+const productHeadRow: CSSProperties = {
+  backgroundColor: "#F7F8FB",
+};
+
+const productHeadCellFirst: CSSProperties = {
+  borderBottom: "1px solid #F1F3F7",
+  borderTop: "1px solid #F1F3F7",
+  color: "#64748B",
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: "0.08em",
+  lineHeight: "14px",
+  padding: "8px 14px",
+  textTransform: "uppercase",
+};
+
+const productHeadCell: CSSProperties = {
+  ...productHeadCellFirst,
   textAlign: "right",
 };
 
-function bodyCell(isLast: boolean): React.CSSProperties {
-  return {
-    borderBottom: isLast ? "0" : "1px solid #EEF2F7",
-    padding: 12,
-    verticalAlign: "middle",
-  };
-}
-
-function numberCell(isLast: boolean, primary: boolean): React.CSSProperties {
-  return {
-    borderBottom: isLast ? "0" : "1px solid #EEF2F7",
-    color: primary ? "#0F172A" : "#64748B",
-    fontSize: 13,
-    fontVariantNumeric: "tabular-nums",
-    fontWeight: primary ? 600 : 400,
-    lineHeight: "18px",
-    padding: 12,
-    textAlign: "right",
-    verticalAlign: "middle",
-  };
-}
-
-function trendCell(isLast: boolean): React.CSSProperties {
-  return {
-    borderBottom: isLast ? "0" : "1px solid #EEF2F7",
-    padding: 12,
-    textAlign: "right",
-    verticalAlign: "middle",
-  };
-}
-
-const sparklineImage: React.CSSProperties = {
-  background: "transparent",
-  border: 0,
-  display: "inline-block",
-  height: 22,
-  lineHeight: "100%",
-  outline: "none",
-  textDecoration: "none",
-  width: 92,
+const productHeadCellLast: CSSProperties = {
+  ...productHeadCell,
+  paddingRight: 14,
 };
 
-const nameText: React.CSSProperties = {
+function productCell(isLast: boolean): CSSProperties {
+  return {
+    borderBottom: isLast ? "0" : "1px solid #F1F3F7",
+    padding: "13px 14px",
+    verticalAlign: "middle",
+  };
+}
+
+function todayCell(isLast: boolean): CSSProperties {
+  return {
+    borderBottom: isLast ? "0" : "1px solid #F1F3F7",
+    padding: "13px 14px",
+    textAlign: "right",
+    verticalAlign: "middle",
+  };
+}
+
+function sparkCell(isLast: boolean): CSSProperties {
+  return {
+    borderBottom: isLast ? "0" : "1px solid #F1F3F7",
+    padding: "13px 14px",
+    paddingRight: 14,
+    textAlign: "right",
+    verticalAlign: "middle",
+    whiteSpace: "nowrap",
+    width: "1%",
+  };
+}
+
+const productName: CSSProperties = {
   color: "#0F172A",
-  fontSize: 13,
+  fontSize: 14,
+  fontWeight: 600,
+  lineHeight: "19px",
+};
+
+const productSku: CSSProperties = {
+  color: "#64748B",
+  fontFamily: monoStack,
+  fontSize: 11,
+  lineHeight: "15px",
+  marginTop: 2,
+};
+
+const todayValue: CSSProperties = {
+  color: "#0F172A",
+  fontSize: 14,
+  fontVariantNumeric: "tabular-nums",
   fontWeight: 600,
   lineHeight: "18px",
 };
 
-const skuText: React.CSSProperties = {
+const todayUnit: CSSProperties = {
   color: "#64748B",
-  fontFamily: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
   fontSize: 11,
-  lineHeight: "16px",
-  marginTop: 2,
+  fontWeight: 500,
+  lineHeight: "15px",
 };
 
-const emptyCell: React.CSSProperties = {
+const sparklineSvgCell: CSSProperties = {
+  paddingRight: 10,
+};
+
+const sparkDelta: CSSProperties = {
+  fontSize: 11,
+  fontVariantNumeric: "tabular-nums",
+  fontWeight: 500,
+  lineHeight: "16px",
+  minWidth: 44,
+};
+
+const emptyCell: CSSProperties = {
   color: "#64748B",
   fontSize: 13,
   lineHeight: "18px",
@@ -651,23 +794,23 @@ const emptyCell: React.CSSProperties = {
   textAlign: "center",
 };
 
-const footerCell: React.CSSProperties = {
-  padding: "24px 32px 28px",
+const footerCell: CSSProperties = {
+  padding: "14px 28px 18px",
 };
 
-const footerTable: React.CSSProperties = {
-  borderTop: "1px solid #E2E8F0",
-};
-
-const footerText: React.CSSProperties = {
+const footerText: CSSProperties = {
   color: "#64748B",
-  fontSize: 11,
-  lineHeight: "16px",
-  paddingTop: 18,
+  fontSize: 12,
+  lineHeight: "18px",
 };
 
-const footerLink: React.CSSProperties = {
-  color: "#2563EB",
-  fontWeight: 600,
+const footerLink: CSSProperties = {
+  color: "#1E3A8A",
+  fontWeight: 500,
   textDecoration: "none",
+};
+
+const svgBlock: CSSProperties = {
+  display: "block",
+  overflow: "visible",
 };

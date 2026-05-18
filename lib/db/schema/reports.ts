@@ -16,6 +16,7 @@ import {
   date,
 } from "drizzle-orm/pg-core";
 import { organization, user } from "./auth";
+import type { DailyManufacturingReportScheduleConfig } from "../../reports/daily-manufacturing-config";
 
 export const reportingSchema = pgSchema("reporting");
 
@@ -32,6 +33,10 @@ export const reportSchedules = reportingSchema
       emailEnabled: boolean("email_enabled").notNull().default(true),
       localSendTime: time("local_send_time").notNull().default("17:00:00"),
       timeZone: text("time_zone").notNull().default("America/Denver"),
+      config: jsonb("config")
+        .$type<DailyManufacturingReportScheduleConfig>()
+        .notNull()
+        .default(sql`'{}'::jsonb`),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true })
         .notNull()
