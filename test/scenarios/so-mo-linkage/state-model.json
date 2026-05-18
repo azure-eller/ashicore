@@ -975,15 +975,14 @@
         "guards": [
           "MO entered MO_WORK_STARTED via pickIngredient (T09) — at least one manufacturing_order_pick_allocations row exists for an ingredient"
         ],
-        "to_state": "MO_WORK_STARTED (no transition)",
+        "to_state": "MO_CANCELLED",
         "observable_changes": [
-          "delete refused: 400 'Cannot delete manufacturing order {N} because finalized ingredient consumption has already been recorded. Production history must be preserved.' (queries.ts:6495-6499)",
-          "manufacturingOrders.deletedAt remains NULL"
+          "delete succeeds",
+          "manufacturingOrders.deletedAt is set"
         ],
         "side_effects": [],
         "failure_modes": [
-          "Always 400 finalized guard. The pick path (pickManufacturingIngredientInTx at lib/inventory/kernel/operations/manufacturing.ts:381-426) writes inventoryEvents with eventType='manufacturing_ingredient_consumption' on every pick — even before completion. The 6446-6500 guard refuses delete when any such event exists for this MO or its batches/ingredients.",
-          "Result: once any ingredient is picked, the MO cannot be cancelled via the public DELETE endpoint. The ONLY escape from CLAIM_ACTIVE_MO for a pick-induced MO_WORK_STARTED MO is T18 (complete the MO to MO_DONE → CLAIM_FINALIZED_MO permanent). For a CLAIM_STALE_SNAPSHOT MO with picks already taken, the snapshot is permanently stuck via T18b path."
+          "Production output still blocks delete. Picked-but-unproduced ingredients are returned through unpick_restock."
         ],
         "evidence": [
           { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "pickManufacturingIngredientInTx writes eventType='manufacturing_ingredient_consumption' (heldConsumed + fifoConsumed)", "lines": "381-426" },

@@ -1551,14 +1551,13 @@ test.describe("Manufacturing write-path smoke", () => {
       { method: "DELETE" }
     );
     const deleteBody = await deleteResponse.json();
-    expect(deleteResponse.status).toBe(400);
-    expect(deleteBody.error).toContain("finalized ingredient consumption");
+    expect(deleteResponse.status, JSON.stringify(deleteBody)).toBe(200);
 
-    const [blockedOrder] = await db
+    const [deletedOrder] = await db
       .select({ deletedAt: manufacturingOrders.deletedAt })
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, alternateOrderId));
-    expect(blockedOrder.deletedAt).toBeNull();
+    expect(deletedOrder.deletedAt).toBeTruthy();
 
     const [alternateBalance] = await db
       .select({
@@ -1566,6 +1565,6 @@ test.describe("Manufacturing write-path smoke", () => {
       })
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, alternateMaterial.body.id));
-    expect(alternateBalance?.onHandQty).toBe("16.0044");
+    expect(alternateBalance?.onHandQty).toBe("20.0000");
   });
 });

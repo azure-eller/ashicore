@@ -232,7 +232,7 @@
         ]
       },
       {
-        "test_name": "RA-2c stuck-stale after picks: SO line rewrite during MO_WORK_STARTED leaves stale snapshot, blocks SO delete via drift guard, blocks MO cancel via consumption-event guard",
+        "test_name": "RA-2c stuck-stale after picks: deleting the picked MO unblocks SO delete",
         "scenario_id": "S04",
         "lane": "slow",
         "spec_file": "test/e2e/slow/so-mo-linkage.spec.ts",
@@ -251,20 +251,20 @@
           "Capture: COUNT(*) FROM inventoryEvents WHERE referenceType='manufacturing_order' AND referenceId=$moId AND eventType='manufacturing_ingredient_consumption' — assert >= 1 before proceeding.",
           "PUT /api/sales-orders/<soId> with same itemId but a quantity change (forces line hard-delete + re-insert).",
           "DELETE /api/sales-orders/<soId> — expect 400 with drift error.",
-          "DELETE /api/manufacturing-orders/<moId> — expect 400 with finalized consumption-event guard.",
-          "DELETE /api/sales-orders/<soId> again — expect same 400 (terminal stuck)."
+          "DELETE /api/manufacturing-orders/<moId> — expect 200; picked inventory is returned through unpick_restock.",
+          "DELETE /api/sales-orders/<soId> again — expect 200 after the stale MO is removed."
         ],
         "assertion_plan": {
           "visible_ui": [],
           "behavioral": [
             "SO PUT returns 200 (no pick-state guard on SO update)",
             "First SO DELETE returns 400 with error containing 'is linked to the order but not to a matching active sales line' (BR-6 drift)",
-            "MO DELETE returns 400 with error containing 'finalized ingredient consumption' (consumption-event guard at queries.ts:6446-6500)",
-            "Second SO DELETE returns identical 400"
+            "MO DELETE returns 200 and soft-deletes the picked MO",
+            "Second SO DELETE returns 200"
           ],
           "side_effects": [
-            "salesOrders.deletedAt remains NULL across all attempts",
-            "manufacturingOrders.deletedAt remains NULL",
+            "salesOrders.deletedAt remains NULL until the stale MO is deleted, then is set",
+            "manufacturingOrders.deletedAt is set",
             "manufacturingOrders.salesOrderLineId still points at the now-deleted original LINE_OLD",
             "salesOrderLines no longer has the old line id"
           ],

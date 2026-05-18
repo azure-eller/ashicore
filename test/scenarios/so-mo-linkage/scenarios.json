@@ -242,7 +242,7 @@
           },
           {
             "id": "S04",
-            "title": "RA-2c stuck-stale: SO line rewrite while linked MO is in MO_WORK_STARTED produces stuck snapshot, blocks SO delete, blocks MO cancel via consumption-event guard",
+            "title": "RA-2c stale picked MO: SO line rewrite blocks SO delete until the picked MO is deleted",
             "narrative": "Once an MO has at least one pickAllocation row, updateManufacturingOrder is blocked by edit:work_started (queries.ts:3877-3882) — so the snapshot fallback cannot rebind a stale link via T17. updateSalesOrder does not query MO pick state, so an SO line rewrite during MO_WORK_STARTED succeeds silently. The MO is now in CLAIM_STALE_SNAPSHOT. Picking DOES write manufacturing_ingredient_consumption inventoryEvents (verified at lib/inventory/kernel/operations/manufacturing.ts:388,412 with subtype 'manufacturing_pick'), and the MO delete guard at queries.ts:6446-6500 filters by eventType only (no subtype discrimination) — so cancel is BLOCKED. A subsequent deleteSalesOrder is refused by BR-6 drift guard. This is the worst-case for the 948c155e regression class — there is NO automatic remediation from MO_WORK_STARTED. The only path out is T18b (complete the MO), which is covered by S04b.",
             "lane": "slow",
             "setup": [
@@ -254,20 +254,20 @@
             "trigger_sequence": [
               "PUT /api/sales-orders/[id] with same itemId but quantity changed (re-insert produces a new line id)",
               "Attempt DELETE /api/sales-orders/[id]",
-              "Attempt DELETE /api/manufacturing-orders/[moId] — expected 400 finalized guard (because picks wrote manufacturing_ingredient_consumption events)",
-              "Re-attempt DELETE /api/sales-orders/[id] to confirm the stuck state"
+              "Attempt DELETE /api/manufacturing-orders/[moId] — expected 200 and unpick_restock events",
+              "Re-attempt DELETE /api/sales-orders/[id] to confirm deletion succeeds"
             ],
             "expected_user_outcomes": [
               "SO PUT returns 200 (no guard exists)",
               "First SO DELETE returns 400/4xx with the canonical 'manufacturing order {N} is linked to the order but not to a matching active sales line. Remove or repair the manufacturing link first.' message",
-              "MO DELETE returns 400 with the finalized 'finalized ingredient consumption has already been recorded' guard message",
-              "Second SO DELETE STILL returns 400 with the drift error (truly stuck without T18b)"
+              "MO DELETE returns 200",
+              "Second SO DELETE returns 200"
             ],
             "expected_side_effects": [
               "After SO PUT: old line id removed from salesOrderLines; MO.salesOrderLineId still points at the old id",
               "After first SO DELETE attempt: salesOrders.deletedAt remains NULL",
-              "After MO DELETE attempt: manufacturingOrders.deletedAt remains NULL (consumption-event guard blocks)",
-              "Test ends in stuck-stale state with MO in MO_WORK_STARTED; the T18b terminal-permanent path is exercised separately by S04b"
+              "After MO DELETE attempt: manufacturingOrders.deletedAt is set",
+              "Test ends with the stale MO removed and the SO deletable"
             ],
             "priority": "P0",
             "scores": {
@@ -289,7 +289,7 @@
             ],
             "evidence": [
               { "file": "app/(dashboard)/sales/queries.ts", "symbol": "updateSalesOrder — no pick-state query", "lines": "6056-6266" },
-              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "edit:work_started guard + finalized consumption-event guard", "lines": "3877-3882, 6446-6500" },
+              { "file": "app/(dashboard)/manufacturing/queries.ts", "symbol": "edit:work_started guard + picked MO delete reversal", "lines": "3877-3882, 6555-6612" },
               { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "pickManufacturingIngredientInTx writes manufacturing_ingredient_consumption", "lines": "319, 388, 412", "reason": "Verifies picks write the events the MO delete guard reads — closing the critic's S04 contradiction." },
               { "file": "app/(dashboard)/sales/queries.ts", "symbol": "deleteSalesLinkedManufacturingOrdersInTx drift guard", "lines": "2367-2375" }
             ],

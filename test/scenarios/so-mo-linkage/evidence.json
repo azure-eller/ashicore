@@ -597,7 +597,7 @@
       "file": "app/(dashboard)/manufacturing/queries.ts",
       "symbol": "deleteManufacturingOrdersInTx",
       "lines": "6339-6612",
-      "claim": "Refuses to soft-delete when ANY of: status != 'open', completedAt not null, actualQuantity > 0, any batch is completed/has lotId/has actualQuantity, any ingredient has actualQuantity > 0, any inventory_event with eventType='manufacturing_ingredient_consumption' references the MO/batch/ingredient, any inventory_event with eventType='manufacturing_output' references the MO/batch. Error messages start with 'Cannot delete manufacturing order {N} because production output has already been recorded' (or '...finalized ingredient consumption has already been recorded')."
+      "claim": "Refuses to soft-delete when production output has been recorded: status != 'open', completedAt not null, actualQuantity > 0, any batch is completed/has lotId/has actualQuantity, or any inventory_event with eventType='manufacturing_output' references the MO/batch. Picked-but-unproduced ingredients are unpicked through unpick_restock."
     },
     {
       "file": "app/(dashboard)/manufacturing/queries.ts",

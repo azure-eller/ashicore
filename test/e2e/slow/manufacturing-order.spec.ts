@@ -1067,7 +1067,7 @@ test.describe("Manufacturing order flow", () => {
     ).toHaveCount(0);
   });
 
-  test("blocks deleting an in-progress batch order with ingredient consumption history", async ({
+  test("deletes an in-progress batch order and returns picked ingredients", async ({
     page,
     db,
   }) => {
@@ -1102,25 +1102,20 @@ test.describe("Manufacturing order flow", () => {
       defaultSellingPrice: "24.00",
       stock: "0",
       safetyStock: "0",
-      bom: [{ componentId: batchMaterialId, quantity: "1" }],
+      manufacturingMode: "batch",
+      expectedBatchYield: "1",
+      bom: [
+        {
+          componentId: batchMaterialId,
+          quantity: "1",
+          consumptionMode: "per_batch",
+          basisOutputQuantity: "1",
+          batchScalingMode: "full_batches_only",
+        },
+      ],
     });
     expect(productCreate.status).toBe(201);
     const batchProductId = productCreate.body.id as string;
-
-    const productUpdate = await updateItem(batchProductId, {
-      name: batchProductName,
-      sku: `PROD-BATCH-CANCEL-${ts}`,
-      category: `Manufacturing ${ts}`,
-      description: "Batch cancellation product",
-      defaultPurchasePrice: null,
-      defaultSellingPrice: "24.00",
-      manufacturingMode: "batch",
-      expectedBatchYield: "1",
-      safetyStock: "0",
-      stock: "0",
-      bom: [{ componentId: batchMaterialId, quantity: "1" }],
-    });
-    expect(productUpdate.status).toBe(200);
 
     const batchOrderId = await createManufacturingOrder({
       productId: batchProductId,
@@ -1130,68 +1125,45 @@ test.describe("Manufacturing order flow", () => {
       ingredients: [{ itemId: batchMaterialId, quantityPerUnit: "1" }],
     });
 
-    const [firstIngredient] = await db
-      .select({ id: manufacturingOrderIngredients.id })
-      .from(manufacturingOrderIngredients)
-      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, batchOrderId));
-    expect(firstIngredient?.id).toBeTruthy();
-    await db
-      .update(manufacturingOrderIngredients)
-      .set({ actualQuantity: null })
-      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, batchOrderId));
+    const [batch] = await db
+      .select({ id: manufacturingOrderBatches.id })
+      .from(manufacturingOrderBatches)
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, batchOrderId));
+    expect(batch?.id).toBeTruthy();
 
-    const [materialLot] = await db
+    const [materialBeforePick] = await db
       .select({
-        locationId: inventoryLotBalances.locationId,
-        lotId: inventoryLotBalances.lotId,
-        unitCost: inventoryLotBalances.unitCost,
+        onHandQty: inventoryItemBalances.onHandQty,
       })
-      .from(inventoryLotBalances)
-      .where(eq(inventoryLotBalances.itemId, batchMaterialId));
-    expect(materialLot?.lotId).toBeTruthy();
-
-    await db.insert(inventoryEvents).values({
-      organizationId: getOrgId(),
-      locationId: materialLot.locationId,
-      eventType: "manufacturing_ingredient_consumption",
-      eventSubtype: "manufacturing_pick",
-      itemId: batchMaterialId,
-      lotId: materialLot.lotId,
-      quantity: "1",
-      unitCost: materialLot.unitCost ?? "5",
-      extendedCost: materialLot.unitCost ?? "5",
-      disposition: "available",
-      referenceType: "manufacturing_order",
-      referenceId: batchOrderId,
-      metadata: { manufacturingOrderIngredientId: firstIngredient.id },
-    });
-    await db
-      .update(lots)
-      .set({ quantity: sql`${lots.quantity} - 1` })
-      .where(eq(lots.id, materialLot.lotId));
-    await db
-      .update(inventoryLotBalances)
-      .set({ quantity: sql`${inventoryLotBalances.quantity} - 1` })
-      .where(eq(inventoryLotBalances.lotId, materialLot.lotId));
-    await db
-      .update(inventoryItemBalances)
-      .set({
-        onHandQty: sql`${inventoryItemBalances.onHandQty} - 1`,
-        availableToPromise: sql`${inventoryItemBalances.availableToPromise} - 1`,
-      })
+      .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, batchMaterialId));
+    expect(materialBeforePick.onHandQty).toBe("4.0000");
+
+    const startResponse = await testFetch(
+      `/api/manufacturing-orders/${batchOrderId}/batches/${batch!.id}/start`,
+      { method: "POST" }
+    );
+    expect(startResponse.status).toBe(200);
+
+    await pickAllManufacturingIngredients(batchOrderId);
+
+    const [materialAfterPick] = await db
+      .select({
+        onHandQty: inventoryItemBalances.onHandQty,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, batchMaterialId));
+    expect(materialAfterPick.onHandQty).toBe("3.0000");
 
     const deleteResponse = await testFetch(`/api/manufacturing-orders/${batchOrderId}`, {
       method: "DELETE",
     });
     const deleteBody = await deleteResponse.json().catch(() => null);
-    expect(deleteResponse.status).toBe(400);
-    expect(deleteBody?.error).toContain(
-      "finalized ingredient consumption has already been recorded"
-    );
+    expect(deleteResponse.status, JSON.stringify(deleteBody)).toBe(200);
 
     const [orderAfterDeleteAttempt] = await db
       .select({
+        orderNumber: manufacturingOrders.orderNumber,
         status: manufacturingOrders.status,
         cancelledAt: manufacturingOrders.cancelledAt,
         deletedAt: manufacturingOrders.deletedAt,
@@ -1200,7 +1172,15 @@ test.describe("Manufacturing order flow", () => {
       .where(eq(manufacturingOrders.id, batchOrderId));
     expect(orderAfterDeleteAttempt.status).toBe("open");
     expect(orderAfterDeleteAttempt.cancelledAt).toBeNull();
-    expect(orderAfterDeleteAttempt.deletedAt).toBeNull();
+    expect(orderAfterDeleteAttempt.deletedAt).toBeTruthy();
+
+    const [materialAfterDelete] = await db
+      .select({
+        onHandQty: inventoryItemBalances.onHandQty,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, batchMaterialId));
+    expect(materialAfterDelete.onHandQty).toBe("4.0000");
 
     const referencedMovements = await db
       .select()
@@ -1211,10 +1191,16 @@ test.describe("Manufacturing order flow", () => {
     ).toBe(true);
     expect(
       referencedMovements.some((event) => event.eventType === "unpick_restock")
-    ).toBe(false);
+    ).toBe(true);
 
-    await page.goto(`/manufacturing/orders/${batchOrderId}`);
-    await expect(page.locator("main").getByText("Open", { exact: true }).first()).toBeVisible();
+    await page.goto("/manufacturing/orders");
+    await showManufacturingOrderStatus(page, "Released");
+    await filterList(
+      page,
+      "Search manufacturing orders",
+      orderAfterDeleteAttempt.orderNumber
+    );
+    await expect(page.getByText(orderAfterDeleteAttempt.orderNumber)).toHaveCount(0);
   });
 
   test("completes a sales-allocated batch through the web actuals dialog", async ({

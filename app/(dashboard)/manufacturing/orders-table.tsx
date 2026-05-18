@@ -613,8 +613,9 @@ export function OrdersTable({
               {selectedCount !== 1 ? "s" : ""}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Selected manufacturing orders will be deleted and removed from
-              normal views.
+              Selected manufacturing orders will be removed from normal views.
+              Picked or reserved inventory will be released. Orders with
+              production output cannot be deleted.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

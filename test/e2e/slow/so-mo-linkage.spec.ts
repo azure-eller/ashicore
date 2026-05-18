@@ -645,7 +645,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       expect(await countActiveMOsForLine(db, lineNew)).toBe(1);
     });
 
-    test("RA-2c stuck-stale after picks: SO line rewrite during MO_WORK_STARTED leaves stale snapshot, blocks SO delete via drift guard, blocks MO cancel via consumption-event guard", async ({
+    test("RA-2c stuck-stale after picks: deleting the picked MO unblocks SO delete", async ({
       db,
     }) => {
       const ts = Date.now();
@@ -709,25 +709,19 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       );
 
       const moDelete = await deleteManufacturingOrder(moId);
-      expect(moDelete.status).toBe(400);
-      expect(moDelete.body?.error ?? "").toMatch(
-        /finalized ingredient consumption/i
-      );
+      expect(moDelete.status, JSON.stringify(moDelete.body)).toBe(200);
 
       const secondSoDelete = await deleteSalesOrder(soId);
-      expect(secondSoDelete.status).toBe(400);
-      expect(secondSoDelete.body?.error ?? "").toMatch(
-        /is linked to the order but not to a matching active sales line/i
-      );
+      expect(secondSoDelete.status, JSON.stringify(secondSoDelete.body)).toBe(200);
 
       const finalSo = await db
         .select({ deletedAt: salesOrders.deletedAt })
         .from(salesOrders)
         .where(eq(salesOrders.id, soId));
-      expect(finalSo[0].deletedAt).toBeNull();
+      expect(finalSo[0].deletedAt).toBeTruthy();
 
       const finalMo = await readMO(db, moId);
-      expect(finalMo.deletedAt).toBeNull();
+      expect(finalMo.deletedAt).toBeTruthy();
     });
 
     test("T18b terminal stuck: completing an MO with stale snapshot permanently blocks SO delete and MO cancel", async ({

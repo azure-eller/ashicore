@@ -842,8 +842,8 @@ export function ManufacturingOrderDetail({
             <AlertDialogTitle>Delete this order?</AlertDialogTitle>
             <AlertDialogDescription>
               Open orders will be removed from normal views and reversible picked
-              or reserved inventory will be released. Production output or finalized
-              ingredient consumption blocks deletion. This action cannot be undone.
+              or reserved inventory will be released. Production output blocks
+              deletion. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -48,10 +48,9 @@ Allowed transitions:
 No revert-to-open in v1.
 
 Deleting an open manufacturing order releases expected supply, clears active
-allocations, and reverses non-final picked/reserved ingredient state in the
-same transaction. Completed orders, completed batches, produced lots, and
-finalized ingredient consumption block deletion because production history must
-be preserved.
+allocations, and reverses picked/reserved ingredient state in the same
+transaction. Completed orders, completed batches, and produced lots block
+deletion because production output history must be preserved.
 
 ## Priority Ranking
 
@@ -259,14 +258,14 @@ Cancellation is inventory-aware:
 
 - `draft` orders may be cancelled normally
 - released discrete orders may be cancelled; picked ingredient quantities are unpicked back to their original lots through `unpick_restock`
-- released batch orders may be cancelled only before any batch starts
+- released batch orders may be cancelled before production output; picked ingredient quantities are unpicked back to their original lots through `unpick_restock`
 
 Released cancellation also:
 
 - releases any remaining ingredient reservations
 - releases the output-side expected supply
 
-Started batch orders still cannot be cancelled in v1.
+Produced output still cannot be cancelled in v1.
 
 ## Sales Traceability
 
