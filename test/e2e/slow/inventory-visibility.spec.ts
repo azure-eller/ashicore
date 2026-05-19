@@ -4,9 +4,9 @@ import {
   createCustomer,
   createItem,
   createSalesOrder,
-  createVariant,
   fulfillSalesOrder,
   getUnitId,
+  testFetch,
   updateItem,
 } from "../../helpers/api";
 
@@ -144,48 +144,73 @@ test.describe("Inventory visibility ranking", () => {
     expect(productB.status).toBe(201);
     const productBId = productB.body.id;
 
-    const family = await createItem({
-      isMaster: true,
-      name: familyName,
-      description: null,
-      category: `Revenue ${ts}`,
-      variantAxes: ["Package"],
+    const family = await testFetch("/api/item-cards", {
+      method: "POST",
+      body: JSON.stringify({
+        itemType: "product",
+        unitDefinitionId,
+        sellable: true,
+        sku: null,
+        defaultSellingPrice: "40.00",
+        defaultPurchasePrice: null,
+        currentStockUnitCost: null,
+        registeredBarcode: null,
+        internalBarcode: null,
+        supplierItemCode: null,
+        defaultLeadTimeDays: null,
+        minimumOrderQuantity: null,
+        purchaseUnitDefinitionId: null,
+        purchaseToStockFactor: null,
+        name: familyName,
+        description: null,
+        category: `Revenue ${ts}`,
+      }),
     });
     expect(family.status).toBe(201);
-    const familyId = family.body.id;
+    const familyBody = await family.json();
+    const familyId = familyBody.id as string;
 
-    const soldVariant = await createVariant(familyId, {
-      unitDefinitionId,
-      variantAttrs: { Package: "Retail" },
-      sellable: true,
-      sku: null,
-      description: null,
-      defaultSellingPrice: "40.00",
-      defaultPurchasePrice: null,
-      safetyStock: "0",
-      manufacturingMode: "discrete",
-      expectedBatchYield: null,
-      bom: [{ componentId: materialId, quantity: "1" }],
-      revisionNote: "Sellable retail pack",
+    const variantConfig = await testFetch(`/api/item-cards/${familyId}/variant-config`, {
+      method: "PUT",
+      body: JSON.stringify({
+        options: [
+          {
+            name: "Package",
+            values: [{ label: "Retail" }, { label: "Bulk" }],
+          },
+        ],
+      }),
     });
-    expect(soldVariant.status).toBe(201);
-    const soldVariantId = soldVariant.body.id;
+    expect(variantConfig.status).toBe(200);
 
-    const unsoldVariant = await createVariant(familyId, {
-      unitDefinitionId,
-      variantAttrs: { Package: "Bulk" },
-      sellable: true,
-      sku: null,
-      description: null,
-      defaultSellingPrice: "35.00",
-      defaultPurchasePrice: null,
-      safetyStock: "0",
-      manufacturingMode: "discrete",
-      expectedBatchYield: null,
-      bom: [{ componentId: materialId, quantity: "1" }],
-      revisionNote: "Sellable bulk pack",
+    const generateVariants = await testFetch(`/api/item-cards/${familyId}/variants/generate`, {
+      method: "POST",
+      body: JSON.stringify({}),
     });
-    expect(unsoldVariant.status).toBe(201);
+    expect(generateVariants.status).toBe(201);
+
+    const familyCard = await testFetch(`/api/item-cards/${familyId}`);
+    expect(familyCard.status).toBe(200);
+    const familyCardBody = (await familyCard.json()) as {
+      variants: Array<{
+        id: string;
+        optionValues: Array<{ optionName: string; valueLabel: string }>;
+      }>;
+    };
+    const soldVariant = familyCardBody.variants.find((variant) =>
+      variant.optionValues.some(
+        (value) => value.optionName === "Package" && value.valueLabel === "Retail",
+      ),
+    );
+    const unsoldVariant = familyCardBody.variants.find((variant) =>
+      variant.optionValues.some(
+        (value) => value.optionName === "Package" && value.valueLabel === "Bulk",
+      ),
+    );
+    expect(soldVariant).toBeTruthy();
+    expect(unsoldVariant).toBeTruthy();
+    const soldVariantId = soldVariant!.id;
+    const unsoldVariantId = unsoldVariant!.id;
 
     const soldVariantStock = await updateItem(soldVariantId, {
       name: familyName,
@@ -245,7 +270,7 @@ test.describe("Inventory visibility ranking", () => {
     expect(rankedNames).toHaveLength(6);
     expect(customerId).not.toBe("");
     expect(materialId).not.toBe("");
-    expect(unsoldVariant.body.id).not.toBe("");
+    expect(unsoldVariantId).not.toBe("");
   });
 
   // TODO(card-ui): Depends on the variant family created by the skipped

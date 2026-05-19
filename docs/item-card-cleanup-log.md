@@ -34,6 +34,8 @@ Remove only after the stabilization gates are met.
   removed for the product variant create flow.
 - Product create/edit form no longer exposes the fake-master toggle; direct
   edits of legacy master rows redirect to the detail page.
+- Legacy `createMasterProduct`, `updateMasterProduct`, `createVariant`, and
+  test helper writes removed; old variant POST still returns 410.
 - Product/material edit controls that send family-owned fields through
   `/api/items/:id`
 - Any route logic branching on `isMaster` for editable product identity

@@ -5,12 +5,11 @@ import {
   assertModuleWriteAccess,
 } from "@/lib/dal/auth";
 import { InsufficientStockError, MissingCostBasisError } from "@/lib/inventory/kernel";
-import { insertMasterItemSchema, updateItemSchema } from "@/lib/schemas/items";
+import { updateItemSchema } from "@/lib/schemas/items";
 import {
   deleteItem,
   getItem,
   updateItem,
-  updateMasterProduct,
 } from "@/app/(dashboard)/inventory/queries";
 import { deleteVariant, ItemCardError } from "@/lib/inventory/item-cards";
 
@@ -42,12 +41,13 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   }
 
   if (existingItem.isMaster) {
-    const data = insertMasterItemSchema.parse(body);
-    const item = await updateMasterProduct(id, data, { idempotencyKey });
-    if (!item) {
-      return NextResponse.json({ error: "Item not found" }, { status: 404 });
-    }
-    return NextResponse.json(item);
+    return NextResponse.json(
+      {
+        error:
+          "Legacy variant master updates are disabled. Use /api/item-cards and variant-config instead.",
+      },
+      { status: 410 }
+    );
   }
 
   const { stock, bom, operationCosts, revisionNote, ...itemData } =
