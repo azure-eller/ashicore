@@ -310,7 +310,7 @@ test.describe("Inventory card flow", () => {
     );
     await patchCardField(page, sellableProductId, "Category", `Blends ${ts}`);
 
-    await page.getByRole("button", { name: /Product recipe/ }).click();
+    await page.getByRole("link", { name: /Recipe/ }).click();
 
     await addBomIngredient(page, fullMaterialName, "4.5");
     await addBomIngredient(page, minimalMaterialName, "3");
@@ -375,7 +375,7 @@ test.describe("Inventory card flow", () => {
     await expect(page.getByLabel("Description")).toHaveValue("Premium blend — updated recipe");
 
     // Verify BOM rows are pre-populated on Recipe tab
-    await page.getByRole("button", { name: /Product recipe/ }).click();
+    await page.getByRole("link", { name: /Recipe/ }).click();
     const bomGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
     await expect(
       bomGrid

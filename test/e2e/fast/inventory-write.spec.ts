@@ -169,7 +169,7 @@ test.describe("Inventory write-path smoke (card UI)", () => {
     await page.waitForURL(`**/inventory/products/${productId}*`);
     await expect(page.getByRole("heading", { name: productName })).toBeVisible();
 
-    await page.getByRole("button", { name: /Product recipe/ }).click();
+    await page.getByRole("link", { name: /Recipe/ }).click();
     await page.getByRole("button", { name: "Add ingredient" }).click();
     const componentInput = page.getByPlaceholder("Search items...").first();
     await expect(componentInput).toBeVisible();
@@ -210,7 +210,7 @@ test.describe("Inventory write-path smoke (card UI)", () => {
 
   test("editing BOM quantity creates a new BOM revision", async ({ page, db }) => {
     await page.goto(`/inventory/products/${productId}`);
-    await page.getByRole("button", { name: /Product recipe/ }).click();
+    await page.getByRole("link", { name: /Recipe/ }).click();
     await fillBomQuantity(page, materialName, "1.5");
 
     const [saveResponse] = await Promise.all([

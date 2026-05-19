@@ -29,6 +29,7 @@ import {
   deleteVariant,
   generateVariants,
   previewVariantGeneration,
+  reorderItemCardVariants,
   updateItemCardVariant,
   type ItemCardDto,
   type ItemCardVariantDto,
@@ -74,9 +75,74 @@ function buildVariantPatch(
       if (!Number.isFinite(parsed) || parsed <= 0) return null;
       return { minimumOrderQuantity: String(value) };
     }
+    case "defaultSellingPrice": {
+      if (blank) return { defaultSellingPrice: null };
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed < 0) return null;
+      return { defaultSellingPrice: String(value) };
+    }
     default:
       return null;
   }
+}
+
+function NumericMoneyCell({
+  value,
+  scale = 2,
+}: {
+  value: string | null | undefined;
+  scale?: number;
+}) {
+  if (value == null || value === "") {
+    return (
+      <>
+        <span className={styles.placeholder}>—</span>
+        <span className={styles.uom}>USD</span>
+      </>
+    );
+  }
+  const numeric = Number(value);
+  return (
+    <>
+      <span className={styles.mono}>
+        {Number.isFinite(numeric) ? numeric.toFixed(scale) : value}
+      </span>
+      <span className={styles.uom}>USD</span>
+    </>
+  );
+}
+
+function StockQuantityCell({
+  quantity,
+  unitLabel,
+  onAddInitialStock,
+  addInitialStockEndpointReady,
+}: {
+  quantity: string;
+  unitLabel: string | null | undefined;
+  onAddInitialStock?: () => void;
+  addInitialStockEndpointReady?: boolean;
+}) {
+  const numeric = Number(quantity);
+  if (Number.isFinite(numeric) && numeric !== 0) {
+    return (
+      <>
+        <span className={numeric < 0 ? styles.stockNeg : styles.mono}>
+          {quantity}
+        </span>
+        {unitLabel ? <span className={styles.uom}>{unitLabel}</span> : null}
+      </>
+    );
+  }
+  if (!onAddInitialStock) {
+    return <span className={styles.placeholder}>—</span>;
+  }
+  return (
+    <StockCellLink
+      ready={addInitialStockEndpointReady}
+      onClick={onAddInitialStock}
+    />
+  );
 }
 
 function buildVariantOptionPatch(
@@ -138,6 +204,7 @@ export function VariantTable({
     () => card.options.filter((option) => option.disabledAt == null),
     [card.options],
   );
+  const unitName = card.family.unitName;
   const visibleVariants = useMemo(
     () => card.variants.filter((variant) => variant.deletedAt == null),
     [card.variants],
@@ -180,6 +247,15 @@ export function VariantTable({
     },
   });
 
+  const reorderMutation = useMutation({
+    mutationKey: ["item-card", card.variants[0]?.id ?? card.family.id, "variant-reorder"],
+    mutationFn: (orderedVariantIds: string[]) =>
+      reorderItemCardVariants(card.variants[0]?.id ?? card.family.id, orderedVariantIds),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+    },
+  });
+
   const previewQuery = useQuery({
     queryKey: ["item-card", card.variants[0]?.id ?? card.family.id, "variants-preview"],
     queryFn: () => previewVariantGeneration(card.variants[0]?.id ?? card.family.id),
@@ -207,6 +283,10 @@ export function VariantTable({
   const handleRowsChange = useCallback(
     (next: ItemCardVariantDto[], change: EditableLineDataGridChange<ItemCardVariantDto>) => {
       setRows(next);
+      if (change.type === "row_reordered") {
+        reorderMutation.mutate(next.map((row) => row.id));
+        return;
+      }
       if (change.type !== "cell_edit_committed" || !change.row) return;
       const payload = change.colId?.startsWith("option:")
         ? buildVariantOptionPatch(change.row, activeOptions)
@@ -216,7 +296,7 @@ export function VariantTable({
       if (!payload) return;
       cellMutation.mutate({ variantId: change.row.id, payload });
     },
-    [activeOptions, cellMutation],
+    [activeOptions, cellMutation, reorderMutation],
   );
 
   const columns = useMemo<ColDef<ItemCardVariantDto>[]>(() => {
@@ -300,16 +380,30 @@ export function VariantTable({
 
     if (viewMode === "product") {
       cols.push({
-        colId: "defaultSalesPrice",
+        field: "defaultSellingPrice",
+        colId: "defaultSellingPrice",
         headerName: "Default sales price",
         type: "rightAligned",
+        editable: true,
+        cellEditor: "agTextCellEditor",
+        valueSetter: (params: ValueSetterParams<ItemCardVariantDto>) => {
+          const raw = params.newValue;
+          if (raw === "" || raw == null) {
+            if (params.data.defaultSellingPrice == null) return false;
+            params.data.defaultSellingPrice = null;
+            return true;
+          }
+          const trimmed = String(raw).trim();
+          const parsed = Number(trimmed);
+          if (!Number.isFinite(parsed) || parsed < 0) return false;
+          if (params.data.defaultSellingPrice === trimmed) return false;
+          params.data.defaultSellingPrice = trimmed;
+          return true;
+        },
         flex: 0.9,
         minWidth: 140,
-        cellRenderer: () => (
-          <>
-            <span className={styles.placeholder}>—</span>
-            <span className={styles.uom}>USD</span>
-          </>
+        cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => (
+          <NumericMoneyCell value={params.data?.defaultSellingPrice} scale={2} />
         ),
       });
     }
@@ -334,11 +428,8 @@ export function VariantTable({
         type: "rightAligned",
         flex: 0.9,
         minWidth: 140,
-        cellRenderer: () => (
-          <>
-            <span className={styles.placeholder}>—</span>
-            <span className={styles.uom}>USD</span>
-          </>
+        cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => (
+          <NumericMoneyCell value={params.data?.ingredientsCost} scale={5} />
         ),
       });
       cols.push({
@@ -347,11 +438,8 @@ export function VariantTable({
         type: "rightAligned",
         flex: 0.9,
         minWidth: 140,
-        cellRenderer: () => (
-          <>
-            <span className={styles.placeholder}>—</span>
-            <span className={styles.uom}>USD</span>
-          </>
+        cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => (
+          <NumericMoneyCell value={params.data?.operationsCost} scale={2} />
         ),
       });
     }
@@ -413,7 +501,6 @@ export function VariantTable({
       });
     }
 
-    // In stock — RO placeholder until backend extends DTO with lot balances.
     cols.push({
       colId: "inStock",
       headerName: "In stock",
@@ -421,13 +508,17 @@ export function VariantTable({
       flex: 0.8,
       minWidth: 140,
       cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => {
-        if (!params.data || !onAddInitialStock) {
+        if (!params.data) {
           return <span className={styles.placeholder}>—</span>;
         }
         return (
-          <StockCellLink
-            ready={addInitialStockEndpointReady}
-            onClick={() => onAddInitialStock(params.data!)}
+          <StockQuantityCell
+            quantity={params.data.inStockQty}
+            unitLabel={unitName}
+            addInitialStockEndpointReady={addInitialStockEndpointReady}
+            onAddInitialStock={
+              onAddInitialStock ? () => onAddInitialStock(params.data!) : undefined
+            }
           />
         );
       },
@@ -438,6 +529,7 @@ export function VariantTable({
     activeOptions,
     addInitialStockEndpointReady,
     onAddInitialStock,
+    unitName,
     viewMode,
   ]);
 
@@ -493,7 +585,7 @@ export function VariantTable({
         onRowsChange={handleRowsChange}
         addLabel="Add row"
         enableAddRow
-        enableReorder={false}
+        enableReorder
         enableDelete={activeOptions.length > 0}
         canDeleteRow={(_row, currentRows) => currentRows.length > 1}
         getDeleteDisabledReason={(_row, currentRows) =>

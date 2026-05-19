@@ -9,6 +9,7 @@ import {
   inventoryItemBalances,
   inventoryEvents,
   bomRevisionComponents,
+  bomRevisionOperationCosts,
   bomRevisions,
   lots,
   manufacturingOrderIngredients,
@@ -37,7 +38,10 @@ import {
   optionalMoneyString,
   optionalNonNegativeDecimalString,
 } from "@/lib/schemas/shared";
-import { normalizeNumeric } from "@/lib/format";
+import { normalizeNumeric, normalizeNumericScale } from "@/lib/format";
+import { projectedOnHandQty } from "@/lib/inventory/kernel/read";
+import { calculateAverageUnitConsumptionQuantity } from "@/lib/manufacturing/consumption";
+import { calculatePlannedOperationCost } from "@/lib/manufacturing/operation-costs";
 import type { Tx } from "@/lib/db/with-org-context";
 import type {
   DuplicateCombinationWarning,
@@ -248,6 +252,14 @@ export const generateVariantsSchema = z.object({
     .optional(),
 });
 
+export const itemCardSellableSchema = z.object({
+  sellable: z.boolean(),
+});
+
+export const reorderItemCardVariantsSchema = z.object({
+  orderedVariantIds: z.array(z.string().uuid()).min(1),
+});
+
 export type VariantOptionValueDto = {
   id: string;
   label: string;
@@ -281,6 +293,12 @@ export type ItemCardVariantDto = {
   supplierItemCode: string | null;
   defaultLeadTimeDays: number | null;
   minimumOrderQuantity: string | null;
+  defaultSellingPrice: string | null;
+  inStockQty: string;
+  ingredientsCost: string | null;
+  operationsCost: string | null;
+  sortOrder: number;
+  sellable: boolean;
 };
 
 export type ItemCardDto = {
@@ -297,6 +315,8 @@ export type ItemCardDto = {
     purchaseUnitDefinitionId: string | null;
     purchaseToStockFactor: string | null;
     deletedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
   };
   options: VariantOptionDto[];
   variants: ItemCardVariantDto[];
@@ -445,6 +465,155 @@ async function optionValuesForItemsInTx(tx: Tx, itemIds: string[]) {
   return byItem;
 }
 
+async function getVariantCostSummariesInTx(
+  tx: Tx,
+  variants: Array<{
+    id: string;
+    expectedBatchYield: string | null;
+    typicalBatchSize: string | null;
+    standardCostQuantity: string | null;
+  }>,
+) {
+  const variantIds = variants.map((variant) => variant.id);
+  const empty = new Map<string, { ingredientsCost: string | null; operationsCost: string | null }>();
+  if (variantIds.length === 0) return empty;
+
+  const currentRevisions = await tx
+    .select({
+      productId: bomRevisions.productId,
+      revisionId: bomRevisions.id,
+    })
+    .from(bomRevisions)
+    .where(
+      and(
+        inArray(bomRevisions.productId, variantIds),
+        eq(bomRevisions.isCurrent, true),
+      ),
+    );
+  const revisionByProduct = new Map(
+    currentRevisions.map((revision) => [revision.productId, revision.revisionId]),
+  );
+  const productByRevision = new Map(
+    currentRevisions.map((revision) => [revision.revisionId, revision.productId]),
+  );
+  const revisionIds = currentRevisions.map((revision) => revision.revisionId);
+  const costs = new Map(
+    variantIds.map((id) => [
+      id,
+      { ingredientsCost: null, operationsCost: null } as {
+        ingredientsCost: string | null;
+        operationsCost: string | null;
+      },
+    ]),
+  );
+  if (revisionIds.length === 0) return costs;
+
+  const componentRows = await tx
+    .select({
+      revisionId: bomRevisionComponents.bomRevisionId,
+      quantity: bomRevisionComponents.quantity,
+      consumptionMode: bomRevisionComponents.consumptionMode,
+      basisOutputQuantity: bomRevisionComponents.basisOutputQuantity,
+      componentCost: items.currentStockUnitCost,
+    })
+    .from(bomRevisionComponents)
+    .innerJoin(items, eq(bomRevisionComponents.componentId, items.id))
+    .where(inArray(bomRevisionComponents.bomRevisionId, revisionIds));
+
+  const componentGroups = new Map<string, typeof componentRows>();
+  for (const row of componentRows) {
+    componentGroups.set(row.revisionId, [...(componentGroups.get(row.revisionId) ?? []), row]);
+  }
+
+  for (const [revisionId, rows] of componentGroups) {
+    const productId = productByRevision.get(revisionId);
+    if (!productId) continue;
+    let total = 0;
+    let complete = rows.length > 0;
+    for (const row of rows) {
+      if (row.componentCost == null) {
+        complete = false;
+        break;
+      }
+      const averageQty = calculateAverageUnitConsumptionQuantity({
+        quantity: row.quantity,
+        consumptionMode: row.consumptionMode as never,
+        basisOutputQuantity: row.basisOutputQuantity,
+      });
+      const quantity = Number.parseFloat(averageQty);
+      const unitCost = Number.parseFloat(row.componentCost);
+      if (!Number.isFinite(quantity) || !Number.isFinite(unitCost)) {
+        complete = false;
+        break;
+      }
+      total += quantity * unitCost;
+    }
+    costs.get(productId)!.ingredientsCost = complete
+      ? normalizeNumericScale(total, 6)
+      : null;
+  }
+
+  const variantById = new Map(variants.map((variant) => [variant.id, variant]));
+  const operationRows = await tx
+    .select({
+      revisionId: bomRevisionOperationCosts.bomRevisionId,
+      costScalingMode: bomRevisionOperationCosts.costScalingMode,
+      crewSize: bomRevisionOperationCosts.crewSize,
+      plannedMinutes: bomRevisionOperationCosts.plannedMinutes,
+      loadedCostPerHour: bomRevisionOperationCosts.loadedCostPerHour,
+      plannedCostTotal: bomRevisionOperationCosts.plannedCostTotal,
+    })
+    .from(bomRevisionOperationCosts)
+    .where(inArray(bomRevisionOperationCosts.bomRevisionId, revisionIds));
+
+  const operationGroups = new Map<string, typeof operationRows>();
+  for (const row of operationRows) {
+    operationGroups.set(row.revisionId, [...(operationGroups.get(row.revisionId) ?? []), row]);
+  }
+
+  for (const [revisionId, rows] of operationGroups) {
+    const productId = productByRevision.get(revisionId);
+    const variant = productId ? variantById.get(productId) : null;
+    if (!productId || !variant) continue;
+    const standardCostQuantity =
+      variant.expectedBatchYield ?? variant.typicalBatchSize ?? variant.standardCostQuantity;
+    let total = 0;
+    let complete = rows.length > 0;
+    for (const row of rows) {
+      if (row.costScalingMode === "per_output_unit") {
+        total += Number.parseFloat(
+          calculatePlannedOperationCost({
+            costScalingMode: "per_output_unit",
+            crewSize: row.crewSize,
+            plannedMinutes: row.plannedMinutes,
+            loadedCostPerHour: row.loadedCostPerHour,
+            outputQuantity: 1,
+          }),
+        );
+        continue;
+      }
+      const quantity = standardCostQuantity == null ? null : Number.parseFloat(standardCostQuantity);
+      if (quantity == null || !Number.isFinite(quantity) || quantity <= 0) {
+        complete = false;
+        break;
+      }
+      total += Number.parseFloat(row.plannedCostTotal) / quantity;
+    }
+    costs.get(productId)!.operationsCost = complete
+      ? normalizeNumericScale(total, 6)
+      : null;
+  }
+
+  // Keep an explicit null for variants that have a current revision but no rows.
+  for (const [productId] of revisionByProduct) {
+    costs.set(productId, costs.get(productId) ?? {
+      ingredientsCost: null,
+      operationsCost: null,
+    });
+  }
+  return costs;
+}
+
 async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
     const familyId = await resolveFamilyIdInTx(tx, itemId);
 
@@ -463,6 +632,8 @@ async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
           "purchaseToStockFactor",
         ),
         deletedAt: itemFamilies.deletedAt,
+        createdAt: itemFamilies.createdAt,
+        updatedAt: itemFamilies.updatedAt,
       })
       .from(itemFamilies)
       .leftJoin(unitDefinitions, eq(itemFamilies.unitDefinitionId, unitDefinitions.id))
@@ -510,10 +681,25 @@ async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
           minimumOrderQuantity: trimScaleNullable(items.minimumOrderQuantity).as(
             "minimumOrderQuantity",
           ),
+          defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as(
+            "defaultSellingPrice",
+          ),
+          inStockQty: projectedOnHandQty(items.organizationId, items.id).as("inStockQty"),
+          sortOrder: items.sortOrder,
+          sellable: items.sellable,
+          expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
+            "expectedBatchYield",
+          ),
+          typicalBatchSize: trimScaleNullable(items.typicalBatchSize).as(
+            "typicalBatchSize",
+          ),
+          standardCostQuantity: trimScaleNullable(items.standardCostQuantity).as(
+            "standardCostQuantity",
+          ),
         })
         .from(items)
         .where(eq(items.familyId, familyId))
-        .orderBy(asc(items.createdAt), asc(items.id));
+        .orderBy(asc(items.sortOrder), asc(items.createdAt), asc(items.id));
 
     const valuesByOption = new Map<string, VariantOptionValueDto[]>();
     for (const row of valueRows) {
@@ -538,6 +724,7 @@ async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
       variantRows.map((row) => row.id),
     );
     const warningsByVariant = duplicateWarnings(variantRows);
+    const costSummariesByVariant = await getVariantCostSummariesInTx(tx, variantRows);
 
     return {
       focusedVariantId: itemId,
@@ -552,10 +739,13 @@ async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
         return {
           ...row,
           familyId: row.familyId!,
+          sellable: row.sellable ?? false,
           itemType: row.itemType as ItemType,
           displayName: `${displayName(family.name, optionValues)}${row.deletedAt ? " (deleted)" : ""}`,
           optionValues,
           duplicateCombinationWarnings: warningsByVariant.get(row.id) ?? [],
+          ingredientsCost: costSummariesByVariant.get(row.id)?.ingredientsCost ?? null,
+          operationsCost: costSummariesByVariant.get(row.id)?.operationsCost ?? null,
         };
       }),
     };
@@ -832,6 +1022,94 @@ export async function updateItemCardVariant(
     }
 
     const result = { id: itemId };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+    return result;
+  });
+}
+
+export async function updateItemCardSellable(
+  itemId: string,
+  data: z.infer<typeof itemCardSellableSchema>,
+  options?: { idempotencyKey?: string | null },
+) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const replay = await beginInventoryOperationInTx<ItemCardDto>(tx, {
+      organizationId: orgId,
+      operationName: "updateItemCardSellable",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { itemId, data },
+    });
+    if (replay.replayed) return replay.result;
+
+    const familyId = await resolveFamilyIdInTx(tx, itemId);
+    await tx
+      .select({ id: items.id })
+      .from(items)
+      .where(and(eq(items.familyId, familyId), isNull(items.deletedAt)))
+      .orderBy(asc(items.id))
+      .for("update");
+
+    await tx
+      .update(items)
+      .set({ sellable: data.sellable, updatedAt: new Date() })
+      .where(and(eq(items.familyId, familyId), isNull(items.deletedAt)));
+
+    const result = await getItemCardInTx(tx, itemId);
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+    return result;
+  });
+}
+
+export async function reorderItemCardVariants(
+  itemId: string,
+  data: z.infer<typeof reorderItemCardVariantsSchema>,
+  options?: { idempotencyKey?: string | null },
+) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const replay = await beginInventoryOperationInTx<ItemCardDto>(tx, {
+      organizationId: orgId,
+      operationName: "reorderItemCardVariants",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { itemId, data },
+    });
+    if (replay.replayed) return replay.result;
+
+    const familyId = await resolveFamilyIdInTx(tx, itemId);
+    const uniqueIds = [...new Set(data.orderedVariantIds)];
+    if (uniqueIds.length !== data.orderedVariantIds.length) {
+      throw new ItemCardError("Variant order cannot include duplicates");
+    }
+
+    const currentVariants = await tx
+      .select({ id: items.id })
+      .from(items)
+      .where(and(eq(items.familyId, familyId), isNull(items.deletedAt)))
+      .orderBy(asc(items.id))
+      .for("update");
+    const currentIds = currentVariants.map((variant) => variant.id);
+    if (
+      uniqueIds.length !== currentIds.length ||
+      uniqueIds.some((variantId) => !currentIds.includes(variantId))
+    ) {
+      throw new ItemCardError("Variant order must include every visible variant on this card");
+    }
+
+    for (const [sortOrder, variantId] of uniqueIds.entries()) {
+      await tx
+        .update(items)
+        .set({ sortOrder, updatedAt: new Date() })
+        .where(eq(items.id, variantId));
+    }
+
+    const result = await getItemCardInTx(tx, itemId);
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
       idempotencyKey: options?.idempotencyKey ?? null,
@@ -1192,6 +1470,11 @@ export async function generateVariants(
         : [];
     const [promotedCombo, ...remainingCombos] =
       bareDefaultVariant.length === 0 && selected.length > 0 ? selected : [undefined, ...selected];
+    const [maxSortOrderRow] = await tx
+      .select({ value: sql<number>`COALESCE(MAX(${items.sortOrder}), -1)::int` })
+      .from(items)
+      .where(eq(items.familyId, source.familyId));
+    let nextSortOrder = Number(maxSortOrderRow?.value ?? -1) + 1;
 
     if (promotedCombo) {
       await tx.insert(itemVariantValues).values(
@@ -1242,6 +1525,7 @@ export async function generateVariants(
           expectedBatchYield: source.expectedBatchYield,
           typicalBatchSize: source.typicalBatchSize,
           typicalGroupSize: source.typicalGroupSize,
+          sortOrder: nextSortOrder++,
           registeredBarcode: null,
           internalBarcode: null,
           supplierItemCode: null,

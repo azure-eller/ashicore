@@ -17,6 +17,8 @@ function emptyCard(itemType: "material", unitDefinitionId: string): ItemCardDto 
       purchaseUnitDefinitionId: null,
       purchaseToStockFactor: null,
       deletedAt: null,
+      createdAt: null,
+      updatedAt: null,
     },
     options: [],
     variants: [],

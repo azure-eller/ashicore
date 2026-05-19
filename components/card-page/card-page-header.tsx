@@ -13,6 +13,7 @@ import {
   PrinterIcon,
 } from "@hugeicons/core-free-icons";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
+import { formatDate } from "@/lib/format";
 import { useCardSaveStatus, type CardSaveStatus } from "./use-card-save-status";
 import styles from "./card-page.module.css";
 
@@ -27,6 +28,8 @@ export type CardPageHeaderProps = {
   fallbackHref: string;
   /** True for the /new draft page — shows "Not saved" instead of save status. */
   isDraft?: boolean;
+  createdAt?: Date | string | null;
+  updatedAt?: Date | string | null;
   saveStatus?: CardSaveStatus | "draft";
   onDelete?: () => void;
   deleteDisabledReason?: string;
@@ -41,6 +44,8 @@ export function CardPageHeader({
   skuGroup,
   fallbackHref,
   isDraft,
+  createdAt,
+  updatedAt,
   saveStatus,
   onDelete,
   deleteDisabledReason,
@@ -51,6 +56,7 @@ export function CardPageHeader({
   const placeholderName = isDraft && !name.trim()
     ? `New ${typeLabel.toLowerCase()}`
     : name;
+  const metaDates = formatMetaDates(createdAt, updatedAt);
 
   return (
     <header className={styles.header}>
@@ -70,6 +76,12 @@ export function CardPageHeader({
           <span>
             {variantCount} {variantCount === 1 ? "variant" : "variants"}
           </span>
+          {metaDates ? (
+            <>
+              <span className={styles.metaDot} />
+              <span>{metaDates}</span>
+            </>
+          ) : null}
         </div>
       </div>
       <div className={styles.headerRight}>
@@ -119,6 +131,41 @@ export function CardPageHeader({
       </div>
     </header>
   );
+}
+
+function formatMetaDates(
+  createdAt: Date | string | null | undefined,
+  updatedAt: Date | string | null | undefined,
+) {
+  if (!createdAt && !updatedAt) return null;
+  const createdDate = createdAt ? formatDate(toDateOnly(createdAt)) : null;
+  const relativeEdit = updatedAt ? formatRelativeTime(updatedAt) : null;
+  return [
+    createdDate ? `Created ${createdDate}` : null,
+    relativeEdit ? `last edit ${relativeEdit}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function toDateOnly(value: Date | string) {
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+function formatRelativeTime(value: Date | string) {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return "unknown";
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.round(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.round(months / 12)}y ago`;
 }
 
 function SaveStatusIndicator({

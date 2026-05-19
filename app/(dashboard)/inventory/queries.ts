@@ -31,7 +31,12 @@ export {
   getAvailableComponents,
   getBomOperationCosts,
 } from "./queries/bom-read";
-export { copyCurrentBomToVariants, hasLockedBomCopyTarget, setBomLock } from "./queries/internal";
+export {
+  copyCurrentBomToVariants,
+  copyCurrentOperationsToVariants,
+  hasLockedBomCopyTarget,
+  setBomLock,
+} from "./queries/internal";
 export {
   createMasterProduct,
   updateMasterProduct,

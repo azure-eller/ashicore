@@ -89,6 +89,7 @@ export async function manualIncreaseStockInTx(
     unitCost?: string | null;
     note?: string | null;
     idempotencyKey?: string | null;
+    occurredAt?: Date;
   }
 ) {
   const replay = await beginInventoryOperationInTx<{ lotId: string; eventId: string }>(tx, {
@@ -100,6 +101,7 @@ export async function manualIncreaseStockInTx(
       quantity: params.quantity,
       unitCost: params.unitCost ?? null,
       note: params.note ?? null,
+      occurredAt: params.occurredAt?.toISOString() ?? null,
     },
   });
 
@@ -126,6 +128,7 @@ export async function manualIncreaseStockInTx(
     actorUserId: params.actorUserId ?? null,
     idempotencyKey: params.idempotencyKey ?? null,
     metadata: params.note ? { note: params.note } : null,
+    occurredAt: params.occurredAt,
   });
 
   const result = {
