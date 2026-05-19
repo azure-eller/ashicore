@@ -113,6 +113,11 @@ import type {
   SalesLinePricingResult,
   SalesOrderItemOption,
 } from "./types";
+import {
+  clampShipmentQuantity,
+  formatShipmentQuantityCapacity,
+  getOrderFormShipmentLineCapacity,
+} from "./shipment-quantity";
 
 function lineTotalLabel(quantity: string | null | undefined, unitPrice: string | null | undefined) {
   const qty = parsePositive(quantity);
@@ -324,10 +329,12 @@ function setShipmentLineQuantityInForm(
   form: ReturnType<typeof useForm<OrderFormValues>>,
   shipmentIndex: number,
   itemId: string,
-  quantity: string
+  quantity: string,
+  maxQuantity?: number
 ) {
   const currentLines = form.getValues(`shipments.${shipmentIndex}.lines`) ?? [];
-  const nextQuantity = quantity.trim();
+  const nextQuantity =
+    maxQuantity == null ? quantity.trim() : clampShipmentQuantity(quantity, maxQuantity);
   const existingIndex = currentLines.findIndex((line) => line.itemId === itemId);
   const nextLines = [...currentLines];
 
@@ -866,6 +873,24 @@ export function OrderForm({
         .filter((line) => line.itemId && parsePositive(line.orderedQty) != null),
     [itemMap, watchedLines]
   );
+  const createShipmentWithRemainingQuantities = useCallback(() => {
+    const lines = shipmentOrderLines.flatMap((line) => {
+      const quantity = getOrderFormShipmentLineCapacity({
+        shipments: watchedShipments,
+        itemId: line.itemId,
+        orderedQuantity: line.orderedQty,
+      });
+
+      return quantity > 0
+        ? [{ itemId: line.itemId, quantity: formatShipmentQuantityCapacity(quantity) }]
+        : [];
+    });
+
+    return {
+      ...createBlankShipment(),
+      lines,
+    };
+  }, [shipmentOrderLines, watchedShipments]);
   const shipmentCount = (watchedShipments ?? []).filter((shipment) => {
     if (!shipment) return false;
     return Boolean(
@@ -1576,35 +1601,54 @@ export function OrderForm({
                                   Add items first
                                 </span>
                               ) : (
-                                shipmentOrderLines.map((line) => (
-                                  <label
-                                    key={line.itemId}
-                                    className="grid grid-cols-[minmax(0,1fr)_5.5rem] items-center gap-2"
-                                  >
-                                    <span className="min-w-0 truncate text-xs text-muted-foreground">
-                                      {line.label}
-                                    </span>
-                                    <Input
-                                      type="number"
-                                      inputMode="decimal"
-                                      min="0"
-                                      step="0.0001"
-                                      value={getShipmentLineQuantity(
-                                        shipment,
-                                        line.itemId
-                                      )}
-                                      onChange={(event) =>
-                                        setShipmentLineQuantityInForm(
-                                          form,
-                                          shipmentIndex,
-                                          line.itemId,
-                                          event.target.value
-                                        )
-                                      }
-                                      aria-label={`Shipment quantity for ${line.label}`}
-                                    />
-                                  </label>
-                                ))
+                                shipmentOrderLines.map((line) => {
+                                  const maxQuantity = getOrderFormShipmentLineCapacity({
+                                    shipments: watchedShipments,
+                                    shipmentIndex,
+                                    itemId: line.itemId,
+                                    orderedQuantity: line.orderedQty,
+                                  });
+                                  const shipmentQuantityDescriptionId = `shipment-${shipmentIndex}-${line.itemId}-quantity-description`;
+
+                                  return (
+                                    <label
+                                      key={line.itemId}
+                                      className="grid grid-cols-[minmax(0,1fr)_5.5rem] items-center gap-x-2 gap-y-1"
+                                    >
+                                      <span className="min-w-0 truncate text-xs text-muted-foreground">
+                                        {line.label}
+                                      </span>
+                                      <Input
+                                        type="number"
+                                        inputMode="decimal"
+                                        min="0"
+                                        max={maxQuantity}
+                                        step="0.0001"
+                                        value={getShipmentLineQuantity(
+                                          shipment,
+                                          line.itemId
+                                        )}
+                                        aria-describedby={shipmentQuantityDescriptionId}
+                                        onChange={(event) =>
+                                          setShipmentLineQuantityInForm(
+                                            form,
+                                            shipmentIndex,
+                                            line.itemId,
+                                            event.target.value,
+                                            maxQuantity
+                                          )
+                                        }
+                                        aria-label={`Shipment quantity for ${line.label}`}
+                                      />
+                                      <span
+                                        id={shipmentQuantityDescriptionId}
+                                        className="col-start-2 text-xs text-muted-foreground"
+                                      >
+                                        Max {formatShipmentQuantityCapacity(maxQuantity)}
+                                      </span>
+                                    </label>
+                                  );
+                                })
                               )}
                             </div>
                           </EditableLineGridCell>
@@ -1642,7 +1686,9 @@ export function OrderForm({
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => shipmentFields.append(createBlankShipment())}
+                    onClick={() =>
+                      shipmentFields.append(createShipmentWithRemainingQuantities())
+                    }
                   >
                     <HugeiconsIcon icon={Add01Icon} strokeWidth={2} />
                     Add shipment

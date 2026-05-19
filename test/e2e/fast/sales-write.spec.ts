@@ -445,6 +445,17 @@ test.describe("Sales write-path smoke", () => {
     await page.locator('input[placeholder="0"]').first().fill("3");
     await page.locator('input[placeholder="0.00"]').first().fill("34.99");
     await page.getByRole("button", { name: "Add shipment" }).click();
+    const shipmentQuantityInputs = page.getByLabel(
+      `Shipment quantity for ${productName}`
+    );
+    await expect(shipmentQuantityInputs.first()).toHaveValue("3");
+    await expect(page.getByText("Max 3")).toBeVisible();
+    await shipmentQuantityInputs.first().fill("2");
+    await page.getByRole("button", { name: "Add shipment" }).click();
+    await expect(shipmentQuantityInputs.nth(1)).toHaveValue("1");
+    await expect(page.getByText("Max 1")).toBeVisible();
+    await shipmentQuantityInputs.first().fill("3");
+    await expect(shipmentQuantityInputs.first()).toHaveValue("2");
     await selectDate(
       page,
       page.getByLabel("Ship date for shipment 1"),
@@ -455,7 +466,16 @@ test.describe("Sales write-path smoke", () => {
       page.getByLabel("Delivery date for shipment 1"),
       "2026-04-15"
     );
-    await page.getByLabel(`Shipment quantity for ${productName}`).fill("3");
+    await selectDate(
+      page,
+      page.getByLabel("Ship date for shipment 2"),
+      "2026-04-15"
+    );
+    await selectDate(
+      page,
+      page.getByLabel("Delivery date for shipment 2"),
+      "2026-04-15"
+    );
     await page.getByLabel("Notes").fill(orderNote);
 
     const [createOrderResponse] = await Promise.all([
@@ -600,9 +620,21 @@ test.describe("Sales write-path smoke", () => {
     const shipments = await db
       .select()
       .from(salesShipments)
-      .where(eq(salesShipments.salesOrderId, orderId));
-    expect(shipments).toHaveLength(1);
+      .where(eq(salesShipments.salesOrderId, orderId))
+      .orderBy(asc(salesShipments.sequence));
+    expect(shipments).toHaveLength(2);
     expect(shipments[0].scheduledDate).toBe("2026-04-15");
+
+    await page.goto(`/sales/orders/${orderId}`);
+    await page.getByLabel(`Actions for ${shipments[0].shipmentNumber}`).click();
+    await page.getByRole("menuitem", { name: "Edit" }).click();
+    const dialogShipmentQuantityInput = page
+      .getByRole("dialog")
+      .getByLabel(`Shipment quantity for ${productName}`);
+    await expect(dialogShipmentQuantityInput).toHaveValue("2");
+    await expect(page.getByRole("dialog").getByText("Max 2")).toBeVisible();
+    await dialogShipmentQuantityInput.fill("3");
+    await expect(dialogShipmentQuantityInput).toHaveValue("2");
   });
 
   test("auto-generates numbers and rejects duplicate custom sales order numbers", async () => {
@@ -740,6 +772,47 @@ test.describe("Sales write-path smoke", () => {
     );
   });
 
+  test("saving planned shipments cannot exceed the ordered quantity", async () => {
+    const createResponse = await testFetch("/api/sales-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        customerId,
+        status: "open",
+        orderDate: "2026-04-10",
+        shipDate: null,
+        requestedDate: "2026-04-15",
+        notes: null,
+        lines: [{ itemId: productId, quantity: "3", unitPrice: "34.99" }],
+        shipments: [
+          {
+            fulfillmentType: "delivery",
+            scheduledDate: "2026-04-12",
+            deliveryDate: "2026-04-14",
+            notes: null,
+            lines: [{ itemId: productId, quantity: "2" }],
+          },
+          {
+            fulfillmentType: "delivery",
+            scheduledDate: "2026-04-13",
+            deliveryDate: "2026-04-15",
+            notes: null,
+            lines: [{ itemId: productId, quantity: "2" }],
+          },
+        ],
+      }),
+    });
+
+    expect(createResponse.status).toBe(400);
+    const body = await createResponse.json();
+    expect(body.error).toBe("Shipment quantities cannot exceed ordered quantity");
+    expect(body.errors["shipments.0.lines.0.quantity"][0]).toBe(
+      "Shipment quantities cannot exceed ordered quantity"
+    );
+    expect(body.errors["shipments.1.lines.0.quantity"][0]).toBe(
+      "Shipment quantities cannot exceed ordered quantity"
+    );
+  });
+
   test("explicit shipment rows create separately and can all be cleared on edit", async ({
     db,
   }) => {
@@ -792,6 +865,7 @@ test.describe("Sales write-path smoke", () => {
 
     const createdShipments = await db
       .select({
+        id: salesShipments.id,
         shipmentNumber: salesShipments.shipmentNumber,
         fulfillmentType: salesShipments.fulfillmentType,
         scheduledDate: salesShipments.scheduledDate,
@@ -819,6 +893,28 @@ test.describe("Sales write-path smoke", () => {
         lineQuantity: "3.0000",
       },
     ]);
+
+    const [explicitLine] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, explicitOrderId));
+    const overplanEditResponse = await testFetch(
+      `/api/sales-orders/${explicitOrderId}/shipments/${createdShipments[0].id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          fulfillmentType: "delivery",
+          scheduledDate: "2026-04-10",
+          deliveryDate: "2026-04-12",
+          notes: "Overplanned edit",
+          lines: [{ salesOrderLineId: explicitLine.id, quantity: "4" }],
+        }),
+      }
+    );
+    expect(overplanEditResponse.status).toBe(400);
+    const overplanEditBody = await overplanEditResponse.json();
+    expect(overplanEditBody.error).toBe("Cannot plan more than the remaining quantity.");
+    expect(overplanEditBody.errors["lines.0.quantity"][0]).toBe("Must be 2 or less");
 
     const clearResponse = await updateSalesOrder(explicitOrderId, {
       customerId: explicitCustomerId,

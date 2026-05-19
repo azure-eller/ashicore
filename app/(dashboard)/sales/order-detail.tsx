@@ -115,6 +115,11 @@ import {
 } from "./sales-order-allocator";
 import { buildSalesOrderLineRemovalPayload } from "./order-line-removal";
 import { CreateManufacturingOrdersDialog } from "./create-manufacturing-orders-dialog";
+import {
+  clampShipmentQuantity,
+  formatShipmentQuantityCapacity,
+  getOrderDetailShipmentLineCapacity,
+} from "./shipment-quantity";
 import type {
   NegativeStockWarningPayload,
   SalesOrderDetail as SalesOrderDetailType,
@@ -211,10 +216,17 @@ function buildShipmentFormState(
 ): ShipmentFormState {
   const quantities: Record<string, string> = {};
   order.lines.forEach((line) => {
-    quantities[line.id] = shipment
+    const maxQuantity = getOrderDetailShipmentLineCapacity({
+      lineId: line.id,
+      unplannedRemainingQuantity: line.unplannedRemainingQuantity,
+      shipment,
+    });
+    const quantity = shipment
       ? (shipment.lines.find((shipmentLine) => shipmentLine.salesOrderLineId === line.id)
           ?.quantity ?? "")
       : line.unplannedRemainingQuantity;
+
+    quantities[line.id] = clampShipmentQuantity(quantity, maxQuantity);
   });
 
   return {
@@ -1960,6 +1972,11 @@ export function OrderDetail({
     setDeleteLineIdempotencyKey(`sales-order-line-delete:${crypto.randomUUID()}`);
   };
 
+  const shipmentFormSource =
+    shipmentForm?.shipmentId == null
+      ? undefined
+      : order.shipments.find((shipment) => shipment.id === shipmentForm.shipmentId);
+
   return (
     <>
       <div className="mx-auto w-full max-w-7xl px-8 py-6">
@@ -2251,45 +2268,68 @@ export function OrderDetail({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {order.lines.map((line) => (
-                      <TableRow key={line.id}>
-                        <TableCell>
-                          <div>{line.itemName}</div>
-                          {line.itemSku ? (
-                            <div className="text-xs text-muted-foreground">
-                              {line.itemSku}
+                    {order.lines.map((line) => {
+                      const maxQuantity = getOrderDetailShipmentLineCapacity({
+                        lineId: line.id,
+                        unplannedRemainingQuantity: line.unplannedRemainingQuantity,
+                        shipment: shipmentFormSource,
+                      });
+                      const shipmentQuantityDescriptionId = `shipment-dialog-${line.id}-quantity-description`;
+
+                      return (
+                        <TableRow key={line.id}>
+                          <TableCell>
+                            <div>{line.itemName}</div>
+                            {line.itemSku ? (
+                              <div className="text-xs text-muted-foreground">
+                                {line.itemSku}
+                              </div>
+                            ) : null}
+                          </TableCell>
+                          <TableCell className="text-right">{line.quantity}</TableCell>
+                          <TableCell className="text-right">{line.plannedQuantity}</TableCell>
+                          <TableCell className="text-right">{line.shippedQuantity}</TableCell>
+                          <TableCell className="text-right">
+                            <QuantityWithUnit
+                              value={line.unplannedRemainingQuantity}
+                              unitName={line.unitName}
+                              className="justify-end"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              aria-label={`Shipment quantity for ${line.itemName}`}
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              max={maxQuantity}
+                              step="0.0001"
+                              aria-describedby={shipmentQuantityDescriptionId}
+                              value={shipmentForm.quantities[line.id] ?? ""}
+                              onChange={(event) =>
+                                setShipmentForm({
+                                  ...shipmentForm,
+                                  quantities: {
+                                    ...shipmentForm.quantities,
+                                    [line.id]: clampShipmentQuantity(
+                                      event.target.value,
+                                      maxQuantity
+                                    ),
+                                  },
+                                })
+                              }
+                              className="text-right"
+                            />
+                            <div
+                              id={shipmentQuantityDescriptionId}
+                              className="mt-1 text-xs text-muted-foreground"
+                            >
+                              Max {formatShipmentQuantityCapacity(maxQuantity)}
                             </div>
-                          ) : null}
-                        </TableCell>
-                        <TableCell className="text-right">{line.quantity}</TableCell>
-                        <TableCell className="text-right">{line.plannedQuantity}</TableCell>
-                        <TableCell className="text-right">{line.shippedQuantity}</TableCell>
-                        <TableCell className="text-right">
-                          <QuantityWithUnit
-                            value={line.unplannedRemainingQuantity}
-                            unitName={line.unitName}
-                            className="justify-end"
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Input
-                            aria-label={`Shipment quantity for ${line.itemName}`}
-                            inputMode="decimal"
-                            value={shipmentForm.quantities[line.id] ?? ""}
-                            onChange={(event) =>
-                              setShipmentForm({
-                                ...shipmentForm,
-                                quantities: {
-                                  ...shipmentForm.quantities,
-                                  [line.id]: event.target.value,
-                                },
-                              })
-                            }
-                            className="text-right"
-                          />
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>

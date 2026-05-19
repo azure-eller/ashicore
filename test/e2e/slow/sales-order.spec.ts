@@ -507,7 +507,9 @@ test.describe("Sales order flow", () => {
     await expect(
       page.locator("main").getByText("Open", { exact: true }).first()
     ).toBeVisible({ timeout: 30000 });
-    await expect(page.getByText(customerName)).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: `Customer ${customerName}` })
+    ).toBeVisible();
     await expect(page.getByText(primaryProductName, { exact: true })).toBeVisible();
     await expect(page.getByText(secondaryProductName, { exact: true })).toBeVisible();
     await expect(page.getByText(expectedRequestedDateLabel).first()).toBeVisible();
@@ -523,7 +525,9 @@ test.describe("Sales order flow", () => {
     await expect(
       page.locator("main").getByText("Open", { exact: true }).first()
     ).toBeVisible({ timeout: 30000 });
-    await expect(page.getByText(customerName)).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: `Customer ${customerName}` })
+    ).toBeVisible();
     await page.getByRole("button", { name: /^Line Items/ }).click();
     const reloadedLineItemsTable = page
       .locator("#sales-order-panel-lines table")
