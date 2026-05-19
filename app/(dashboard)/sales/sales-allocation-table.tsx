@@ -250,8 +250,11 @@ function getInventoryProducts(inventory: ItemRow[]) {
     const toStandaloneProduct = (row: ItemRow): AllocationProduct => ({
       itemId: row.id,
       label: row.displayName || row.name,
-      familyLabel: row.category || STANDALONE_FAMILY_LABEL,
-      variantLabel: row.displayName || row.name,
+      familyLabel: row.familyName ?? STANDALONE_FAMILY_LABEL,
+      variantLabel:
+        row.optionValues && row.optionValues.length > 0
+          ? row.optionValues.map((value) => value.valueLabel).join(" ")
+          : row.displayName || row.name,
       sku: row.sku ?? null,
       unitName: row.unit ?? "units",
       stockQty: parseQuantity(row.availableQty),
@@ -263,31 +266,7 @@ function getInventoryProducts(inventory: ItemRow[]) {
       hasActiveDemand: false,
     });
 
-    if (item.subRows && item.subRows.length > 0) {
-      return item.subRows
-        .filter((variant) => variant.sellable === true)
-        .map((variant) => ({
-          itemId: variant.id,
-          label: variant.displayName || variant.name,
-          familyLabel: item.displayName || item.name,
-          variantLabel:
-            variant.variantAttrs && Object.keys(variant.variantAttrs).length > 0
-              ? Object.values(variant.variantAttrs).join(" ")
-              : variant.displayName || variant.name,
-          sku: variant.sku ?? null,
-          unitName: variant.unit ?? item.unit ?? "units",
-          stockQty: parseQuantity(variant.availableQty),
-          incomingQty: parseQuantity(variant.expectedQty),
-          allocatedQty: 0,
-          totalDemandQty: 0,
-          reservationSummaries: [],
-          isStandalone: false,
-          hasActiveDemand: false,
-        }));
-    }
-
-    if (item.isMaster) return [];
-    if (item.itemType === "product" && item.sellable !== true) return [];
+    if (item.sellable !== true) return [];
     return [toStandaloneProduct(item)];
   });
 }

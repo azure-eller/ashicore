@@ -1,8 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import {
   bomRevisionComponentConstraints,
   bomRevisionComponents,
@@ -33,7 +32,7 @@ import {
   projectedOnHandQty,
 } from "@/lib/inventory/kernel";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
-import { normalizeNumeric, resolveVariantDisplay, roundQuantity } from "@/lib/format";
+import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { calculateConsumptionRequirement } from "@/lib/manufacturing/consumption";
 import type {
   BomRequirementFact,
@@ -1018,15 +1017,11 @@ function buildSupplementalProductionPathDemandFacts(args: {
 }
 
 async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
-  const masterItems = alias(items, "planning_master_items");
   const rows = await tx
     .select({
       id: items.id,
       name: items.name,
       familyName: itemFamilies.name,
-      variantAttrs: items.variantAttrs,
-      masterName: masterItems.name,
-      masterVariantAxes: masterItems.variantAxes,
       sku: items.sku,
       itemType: items.itemType,
       unitName: unitDefinitions.name,
@@ -1057,9 +1052,8 @@ async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
     })
     .from(items)
     .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
-    .leftJoin(masterItems, eq(items.parentId, masterItems.id))
     .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-    .where(and(isNull(items.deletedAt), eq(items.isMaster, false)))
+    .where(and(isNull(items.deletedAt), isNotNull(items.familyId)))
     .orderBy(asc(items.name), asc(items.id));
 
   const optionValuesByItemId = await getPlanningOptionValuesByItemIdInTx(
@@ -1069,24 +1063,10 @@ async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
 
   return rows.map((row) => {
     const optionValues = optionValuesByItemId.get(row.id) ?? [];
-    if (row.familyName) {
-      return {
-        ...row,
-        displayName: row.familyName,
-        displayAttrs: optionValues,
-      };
-    }
-
-    const display = resolveVariantDisplay(
-      row.name,
-      { name: row.masterName, variantAxes: row.masterVariantAxes },
-      row.variantAttrs
-    );
-
     return {
       ...row,
-      displayName: display.masterName,
-      displayAttrs: display.attrs,
+      displayName: row.familyName ?? row.name,
+      displayAttrs: optionValues,
     };
   });
 }

@@ -1,15 +1,13 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
-import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import {
   formatQuantity,
   normalizeNumericScale,
   normalizeNumeric,
   normalizeMoney,
   parsePositive,
-  resolveVariantDisplay,
   roundQuantity,
   summarizeItems,
 } from "@/lib/format";
@@ -4553,7 +4551,7 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
         and(
           inArray(items.itemType, ["product", "material"]),
           isNull(items.deletedAt),
-          eq(items.isMaster, false),
+          isNotNull(items.familyId),
           sql`(${items.itemType} != 'product' OR ${items.sellable} = true)`,
         )
       )
@@ -5217,7 +5215,6 @@ export async function getSalesOrder(
       return null;
     }
 
-    const masterItems = alias(items, "master_items");
     const lineRows = await tx
       .select({
         id: salesOrderLines.id,
@@ -5242,9 +5239,6 @@ export async function getSalesOrder(
         createdAt: salesOrderLines.createdAt,
         updatedAt: salesOrderLines.updatedAt,
         familyName: itemFamilies.name,
-        variantAttrs: items.variantAttrs,
-        masterName: masterItems.name,
-        masterVariantAxes: masterItems.variantAxes,
         onHandQty: trimScaleNullable(
           projectedOnHandQtyExpr(items.organizationId, items.id)
         ).as("onHandQty"),
@@ -5282,7 +5276,6 @@ export async function getSalesOrder(
       .from(salesOrderLines)
       .leftJoin(items, eq(salesOrderLines.itemId, items.id))
       .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
-      .leftJoin(masterItems, eq(items.parentId, masterItems.id))
       .where(eq(salesOrderLines.salesOrderId, id))
       .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.createdAt));
 
@@ -5296,21 +5289,12 @@ export async function getSalesOrder(
       lineRows.map((line) => line.itemId)
     );
 
-    const lines = lineRows.map(({
-      variantAttrs,
-      masterName,
-      masterVariantAxes,
-      familyName,
-      ...rest
-    }) => {
+    const lines = lineRows.map(({ familyName, ...rest }) => {
       const optionLabels = optionLabelsByItemId.get(rest.itemId) ?? [];
-      const display = familyName
-        ? { masterName: familyName, attrs: optionLabels }
-        : resolveVariantDisplay(
-            rest.itemName,
-            masterName == null ? null : { name: masterName, variantAxes: masterVariantAxes },
-            variantAttrs
-          );
+      const display = {
+        masterName: familyName ?? rest.itemName,
+        attrs: optionLabels,
+      };
       const estimatedUnitCost = estimatedUnitCosts.get(rest.itemId) ?? null;
       const estimatedMargin = calculateUnitMarginMetrics({
         quantity: rest.quantity,

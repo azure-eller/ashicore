@@ -17,7 +17,7 @@ import {
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
-import { normalizeNumeric, resolveVariantDisplay, roundQuantity } from "@/lib/format";
+import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { allocationDemandAdapters, getAllocationDemandAdapter } from "./adapters";
 import { loadAllocationSourcesForItemInTx } from "./sources";
 import type {
@@ -39,21 +39,16 @@ function quantityString(value: number) {
 }
 
 async function loadItemInTx(tx: Tx, itemId: string) {
-  const masterItems = alias(items, "allocation_workspace_master_items");
   const [row] = await tx
     .select({
       id: items.id,
       name: items.name,
       familyName: itemFamilies.name,
-      variantAttrs: items.variantAttrs,
       unitName: unitDefinitions.name,
-      masterName: masterItems.name,
-      masterVariantAxes: masterItems.variantAxes,
     })
     .from(items)
     .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
     .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-    .leftJoin(masterItems, eq(items.parentId, masterItems.id))
     .where(eq(items.id, itemId));
   if (!row) return null;
 
@@ -69,27 +64,12 @@ async function loadItemInTx(tx: Tx, itemId: string) {
     )
     .where(eq(itemVariantValues.itemId, itemId))
     .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder));
-  if (row.familyName) {
-    return {
-      itemId: row.id,
-      itemName:
-        optionRows.length > 0
-          ? `${row.familyName} / ${optionRows.map((option) => option.label).join(" / ")}`
-          : row.familyName,
-      unitName: row.unitName ?? "units",
-    };
-  }
-
-  const display = resolveVariantDisplay(
-    row.name,
-    row.masterName == null
-      ? null
-      : { name: row.masterName, variantAxes: row.masterVariantAxes },
-    row.variantAttrs
-  );
   return {
     itemId: row.id,
-    itemName: display.masterName,
+    itemName:
+      row.familyName && optionRows.length > 0
+        ? `${row.familyName} / ${optionRows.map((option) => option.label).join(" / ")}`
+        : row.familyName ?? row.name,
     unitName: row.unitName ?? "units",
   };
 }

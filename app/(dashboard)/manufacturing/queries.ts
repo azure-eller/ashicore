@@ -12,7 +12,6 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
 import {
   inventoryEvents,
   inventoryExpectedSummary,
@@ -43,10 +42,8 @@ import {
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import {
-  formatVariantDisplay,
   normalizeNumeric,
   normalizeNumericScale,
-  resolveVariantDisplay,
 } from "@/lib/format";
 import { inferItemVisual } from "@/components/inventory-visuals/infer-item-visual";
 import {
@@ -3195,7 +3192,6 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
     "manufacturing.get_orders",
     async () => {
       return withAuthedOrgContext(async (tx, orgId) => {
-        const masterItems = alias(items, "master_items");
         const orders = (await tx
           .select({
             id: manufacturingOrders.id,
@@ -3205,9 +3201,6 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             productSku: manufacturingOrders.productSku,
             productCategory: items.category,
             productFamilyName: itemFamilies.name,
-            variantAttrs: items.variantAttrs,
-            masterName: masterItems.name,
-            masterVariantAxes: masterItems.variantAxes,
             salesOrderNumber: manufacturingOrders.salesOrderNumber,
             salesCustomerName: manufacturingOrders.salesCustomerName,
             priorityRank: manufacturingOrders.priorityRank,
@@ -3233,7 +3226,6 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
           .from(manufacturingOrders)
           .leftJoin(items, eq(manufacturingOrders.productId, items.id))
           .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
-          .leftJoin(masterItems, eq(items.parentId, masterItems.id))
           .where(isNull(manufacturingOrders.deletedAt))
           .orderBy(
             sql`${manufacturingOrders.priorityRank} IS NULL`,
@@ -3256,9 +3248,6 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
           > & {
             productId: string;
             productFamilyName: string | null;
-            variantAttrs: Record<string, string> | null;
-            masterName: string | null;
-            masterVariantAxes: string[] | null;
           }
         >;
 
@@ -3383,13 +3372,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
           }
         }
 
-        return orders.map(({
-          variantAttrs,
-          masterName,
-          masterVariantAxes,
-          productFamilyName,
-          ...order
-        }) => {
+        return orders.map(({ productFamilyName, ...order }) => {
           const batches = batchesByOrder.get(order.id) ?? [];
           const ingredientProgressRows = ingredientsByOrder.get(order.id) ?? [];
           const pickProgressStatus =
@@ -3401,13 +3384,10 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
           ).length;
           const totalBatchCount = order.numberOfBatches ?? batches.length;
           const optionLabels = optionLabelsByItemId.get(order.productId) ?? [];
-          const display = productFamilyName
-            ? { masterName: productFamilyName, attrs: optionLabels }
-            : resolveVariantDisplay(
-                order.productName,
-                masterName == null ? null : { name: masterName, variantAxes: masterVariantAxes },
-                variantAttrs
-              );
+          const display = {
+            masterName: productFamilyName ?? order.productName,
+            attrs: optionLabels,
+          };
           const itemVisual = inferItemVisual({
             itemType: "product",
             category: order.productCategory,
@@ -3562,16 +3542,11 @@ export async function getManufacturingProductTemplates(): Promise<
   >
 > {
   return withAuthedOrgContext(async (tx) => {
-    const masterItems = alias(items, "master_items");
     const products = await tx
       .select({
         id: items.id,
         name: items.name,
         familyName: itemFamilies.name,
-        parentId: items.parentId,
-        variantAttrs: items.variantAttrs,
-        masterName: masterItems.name,
-        masterVariantAxes: masterItems.variantAxes,
         sku: items.sku,
         unitName: unitDefinitions.name,
         typicalBatchSize: trimScaleNullable(items.typicalBatchSize).as(
@@ -3584,8 +3559,7 @@ export async function getManufacturingProductTemplates(): Promise<
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
       .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
-      .leftJoin(masterItems, eq(items.parentId, masterItems.id))
-      .where(and(eq(items.itemType, "product"), isNull(items.deletedAt), eq(items.isMaster, false)))
+      .where(and(eq(items.itemType, "product"), isNull(items.deletedAt), isNotNull(items.familyId)))
       .orderBy(items.name);
 
     if (products.length === 0) return [];
@@ -3606,20 +3580,11 @@ export async function getManufacturingProductTemplates(): Promise<
         const batchBasis = bomRows.find(
           (row) => row.consumptionMode === "per_batch" && row.basisOutputQuantity != null
         )?.basisOutputQuantity;
-        const masterVariantAxes = (product.masterVariantAxes as string[] | null) ?? [];
         const optionLabels = optionLabelsByItemId.get(product.id) ?? [];
         const displayName =
-          product.familyName != null
-            ? optionLabels.length > 0
-              ? `${product.familyName} / ${optionLabels.join(" / ")}`
-              : product.familyName
-          : product.parentId != null && product.masterName != null && masterVariantAxes.length > 0
-            ? formatVariantDisplay(
-                product.masterName,
-                (product.variantAttrs as Record<string, string>) ?? {},
-                masterVariantAxes
-              )
-            : product.name;
+          product.familyName != null && optionLabels.length > 0
+            ? `${product.familyName} / ${optionLabels.join(" / ")}`
+            : product.familyName ?? product.name;
 
         return {
           id: product.id,

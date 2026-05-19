@@ -1,5 +1,4 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
 import {
   itemFamilies,
   itemVariantValues,
@@ -13,7 +12,7 @@ import {
   variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
-import { normalizeNumeric, resolveVariantDisplay, roundQuantity } from "@/lib/format";
+import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { setSalesLineStockReservationInTx } from "@/lib/inventory/kernel";
 import type { Tx } from "@/lib/db/with-org-context";
 import type {
@@ -94,30 +93,14 @@ function mapSalesDemandRow(
     cancelledQty: string;
     sortOrder: number;
     createdAt: Date;
-    variantAttrs: unknown;
-    masterName: string | null;
-    masterVariantAxes: unknown;
   },
   shippedQty: number,
   plannedQty: number
 ): AllocationDemandAdapterRow {
-  const display = row.familyName
-    ? {
-        masterName:
-          row.optionLabels.length > 0
-            ? `${row.familyName} / ${row.optionLabels.join(" / ")}`
-            : row.familyName,
-      }
-    : resolveVariantDisplay(
-        row.itemName,
-        row.masterName == null
-          ? null
-          : {
-              name: row.masterName,
-              variantAxes: row.masterVariantAxes as string[] | null,
-            },
-        row.variantAttrs as Record<string, string> | null
-      );
+  const displayName =
+    row.familyName && row.optionLabels.length > 0
+      ? `${row.familyName} / ${row.optionLabels.join(" / ")}`
+      : row.familyName ?? row.itemName;
   const orderedQty = toQuantity(row.orderedQty);
   const cancelledQty = toQuantity(row.cancelledQty);
   const openQty = roundQuantity(orderedQty - shippedQty - cancelledQty - plannedQty);
@@ -128,7 +111,7 @@ function mapSalesDemandRow(
     parentDemandId: row.salesOrderId,
     salesOrderId: row.salesOrderId,
     itemId: row.itemId,
-    itemName: display.masterName,
+    itemName: displayName,
     unitName: row.unitName,
     label: row.orderNumber,
     contextLabel: row.customerName,
@@ -175,7 +158,6 @@ async function loadSalesRowsInTx(
     subtractPlannedShipments?: boolean;
   }
 ) {
-  const masterItems = alias(items, "allocation_sales_master_items");
   const rows = await tx
     .select({
       salesOrderLineId: salesOrderLines.id,
@@ -191,15 +173,11 @@ async function loadSalesRowsInTx(
       cancelledQty: trimScale(salesOrderLines.cancelledQuantity).as("cancelledQty"),
       sortOrder: salesOrderLines.sortOrder,
       createdAt: salesOrderLines.createdAt,
-      variantAttrs: items.variantAttrs,
-      masterName: masterItems.name,
-      masterVariantAxes: masterItems.variantAxes,
     })
     .from(salesOrderLines)
     .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
     .leftJoin(items, eq(salesOrderLines.itemId, items.id))
     .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
-    .leftJoin(masterItems, eq(items.parentId, masterItems.id))
     .where(whereClause)
     .orderBy(asc(salesOrders.shipDate), asc(salesOrders.orderNumber), asc(salesOrderLines.sortOrder));
 
