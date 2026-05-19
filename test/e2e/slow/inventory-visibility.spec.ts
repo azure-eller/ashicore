@@ -25,15 +25,7 @@ test.describe("Inventory visibility ranking", () => {
   const soldVariantDisplayName = `${familyName} / Retail`;
   const unsoldVariantDisplayName = `${familyName} / Bulk`;
 
-  // TODO(card-ui): Rewrite to use the card variant-config + generate flow.
-  // Legacy POST /api/items with `isMaster: true` returns 410 now that the
-  // card's variant-config endpoints are the supported way to create variant
-  // families. This test exercises variant grouping in revenue ranking; once
-  // rewritten, it should use:
-  //   1. POST /api/item-cards to create the family
-  //   2. PUT /api/item-cards/:itemId/variant-config to define options + values
-  //   3. POST /api/item-cards/:itemId/variants/generate to produce variants
-  test.skip("creates fulfilled sales history for revenue-ranked products", async () => {
+  test("creates fulfilled sales history for revenue-ranked products", async () => {
     const material = await createItem({
       name: materialName,
       itemType: "material",
@@ -168,7 +160,7 @@ test.describe("Inventory visibility ranking", () => {
     });
     expect(family.status).toBe(201);
     const familyBody = await family.json();
-    const familyId = familyBody.id as string;
+    const familyId = familyBody.itemId as string;
 
     const variantConfig = await testFetch(`/api/item-cards/${familyId}/variant-config`, {
       method: "PUT",
@@ -273,9 +265,7 @@ test.describe("Inventory visibility ranking", () => {
     expect(unsoldVariantId).not.toBe("");
   });
 
-  // TODO(card-ui): Depends on the variant family created by the skipped
-  // revenue-ranking test above. Rewire after the card variant flow rewrite.
-  test.skip("orders Products alphabetically with variants grouped by family", async ({ page }) => {
+  test("orders Products alphabetically with variants grouped by family", async ({ page }) => {
     await page.goto("/inventory/products");
     await filterList(page, "Search items", `Revenue Rank ${ts}`);
 

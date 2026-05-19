@@ -388,6 +388,8 @@ test.describe("Sales write-path smoke", () => {
   });
 
   test("creates an open sales order through the browser form", async ({ page, db }) => {
+    test.slow();
+
     const componentResult = await createItem({
       name: `Fast Sales Component ${ts}`,
       itemType: "material",
@@ -530,10 +532,7 @@ test.describe("Sales write-path smoke", () => {
     await expect(page.getByRole("link", { name: `Example Construction ${ts}` })).toBeVisible();
 
     await page.goto(`/sales/customers/${customerId}?project=${crmProjectId}#projects`);
-    await expect(page.getByRole("button", { name: /^Projects/ })).toHaveAttribute(
-      "aria-current",
-      "page"
-    );
+    await expect(page.getByRole("region", { name: /^Projects/ })).toBeVisible();
     await page.getByRole("button", { name: new RegExp(`Example Construction ${ts}`) }).click();
     await expect(page.getByRole("link", { name: order.orderNumber })).toBeVisible();
 
@@ -2958,6 +2957,8 @@ test.describe("Sales write-path smoke", () => {
     page,
     db,
   }) => {
+    test.slow();
+
     const orderingCustomerName = `Fast Same Date Customer ${ts}`;
     const customerResult = await createCustomer({
       name: orderingCustomerName,

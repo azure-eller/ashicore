@@ -38,6 +38,6 @@ test("page search navigation shows optimistic destination shell while route is p
 
   releaseNavigation();
 
-  await expect(shell).toHaveCount(0);
   await expect(page).toHaveURL(/\/inventory\/products/);
+  await expect(shell).toHaveCount(0);
 });

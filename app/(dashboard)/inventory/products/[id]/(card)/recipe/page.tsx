@@ -5,7 +5,12 @@ import {
   getItem,
 } from "@/app/(dashboard)/inventory/queries";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
-import { canViewLockedBom, canViewUnlockedBom } from "@/lib/authz";
+import {
+  canManageLockedBom,
+  canViewLockedBom,
+  canViewUnlockedBom,
+  hasModuleAccess,
+} from "@/lib/authz";
 import { getItemCard } from "@/lib/inventory/item-cards";
 import { ProductRecipeTab } from "../../tabs/recipe";
 
@@ -26,6 +31,10 @@ export default async function ProductRecipePage({
   const canViewBom = item.bomLocked
     ? canViewLockedBom(context.assignedRoles)
     : canViewUnlockedBom(context.assignedRoles);
+  const canEditProduct = item.bomLocked
+    ? hasModuleAccess(context.assignedRoles, "inventory", "admin") &&
+      canManageLockedBom(context.assignedRoles)
+    : hasModuleAccess(context.assignedRoles, "inventory", "operate");
   const [bomRows, availableComponents] = await Promise.all([
     canViewBom ? getBomComponents(id) : Promise.resolve([]),
     getAvailableComponents(id),
@@ -36,39 +45,40 @@ export default async function ProductRecipePage({
       card={card}
       focusItemId={id}
       initialBomRows={bomRows.map((row) => ({
-          componentId: row.componentId,
-          quantity: row.quantity,
-          consumptionMode:
-            (row.consumptionMode as
-              | "per_output_unit"
-              | "per_batch"
-              | "per_group"
-              | null) ?? null,
-          basisOutputQuantity: row.basisOutputQuantity ?? null,
-          batchScalingMode:
-            (row.batchScalingMode as
-              | "proportional"
-              | "full_batches_only"
-              | null) ?? null,
-          groupRemainderPolicy:
-            (row.groupRemainderPolicy as
-              | "ask"
-              | "leave_loose"
-              | "create_partial_group"
-              | null) ?? null,
-          minimumLotAgeDays: row.minimumLotAgeDays ?? null,
-          alternates: row.alternates.map((alternate) => ({
-            itemId: alternate.itemId,
-          })),
+        componentId: row.componentId,
+        quantity: row.quantity,
+        consumptionMode:
+          (row.consumptionMode as
+            | "per_output_unit"
+            | "per_batch"
+            | "per_group"
+            | null) ?? null,
+        basisOutputQuantity: row.basisOutputQuantity ?? null,
+        batchScalingMode:
+          (row.batchScalingMode as
+            | "proportional"
+            | "full_batches_only"
+            | null) ?? null,
+        groupRemainderPolicy:
+          (row.groupRemainderPolicy as
+            | "ask"
+            | "leave_loose"
+            | "create_partial_group"
+            | null) ?? null,
+        minimumLotAgeDays: row.minimumLotAgeDays ?? null,
+        alternates: row.alternates.map((alternate) => ({
+          itemId: alternate.itemId,
+        })),
       }))}
       availableComponents={availableComponents.map((component) => ({
-          id: component.id,
-          name: component.name,
-          displayName: component.displayName,
-          itemType: component.itemType,
-          unit: component.unit,
+        id: component.id,
+        name: component.name,
+        displayName: component.displayName,
+        itemType: component.itemType,
+        unit: component.unit,
       }))}
       canViewBom={canViewBom}
+      canEditProduct={canEditProduct}
     />
   );
 }
