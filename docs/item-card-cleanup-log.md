@@ -43,11 +43,10 @@ model after the item-card UI and mobile clients are migrated.
 - Legacy variant display fallbacks removed from inventory, sales,
   manufacturing, planning, allocation, and ledger read models.
 
-Still live until card create and inline BOM/operations editing replace them:
+Still live until legacy direct edits and inline operations editing are replaced:
 
-- `/inventory/products/new` and `/inventory/materials/new`
 - `/inventory/products/[id]/edit` and `/inventory/materials/[id]/edit`
-- `PUT /api/items/:id` for per-variant stock/cost/BOM/operation edits
+- `PUT /api/items/:id` for per-variant stock/cost/operation edits
 
 Grep targets:
 

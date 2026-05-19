@@ -15,15 +15,13 @@ read_when: planning follow-up work on the variant-first card UI or before droppi
 
 ## Still Live On Purpose
 
-- `/inventory/products/new` and `/inventory/materials/new` still use the unified item form. The write path creates an `item_family` plus a default operational variant.
-- `/inventory/products/:id/edit` and `/inventory/materials/:id/edit` still exist because the Product Recipe and Operations card tabs link there for per-variant BOM/operation editing.
-- `PUT /api/items/:id` remains as the per-variant BOM/stock/cost write path until the recipe and operations editors move fully inline.
+- `/inventory/products/new` and `/inventory/materials/new` use the item-card create shell and call `/api/item-cards`.
+- `/inventory/products/:id/edit` and `/inventory/materials/:id/edit` still exist for legacy direct edit links and per-variant stock/cost/operation fields.
+- `PUT /api/items/:id` remains as the per-variant stock/cost/operation write path until operations editing moves fully inline.
 
 ## Remaining Cleanup Gates
 
-- Move Recipe editing from `/inventory/products/:variantId/edit` into the card tab.
 - Move Operations editing from `/inventory/products/:variantId/edit` into the card tab.
-- Replace the unified item form create pages with item-card create forms that call `/api/item-cards`.
 - Add Android-facing contract coverage for `familyId`, `displayName`, `optionValues`, and deleted variant display.
 - Add the follow-up migration that drops deprecated fake-master columns after runtime and tests no longer reference them.
 
