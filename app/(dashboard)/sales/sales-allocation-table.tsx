@@ -290,8 +290,7 @@ function getInventoryById(items: ItemRow[]) {
 
 function getAllocatorProducts(
   orders: SalesOrderListRow[],
-  inventory: ItemRow[],
-  manufacturingDemands: ManufacturingAllocationDemandRow[]
+  inventory: ItemRow[]
 ) {
   const productsById = new Map(
     getInventoryProducts(inventory).map((product) => [product.itemId, product])
@@ -321,28 +320,6 @@ function getAllocatorProducts(
         allocatedQty: 0,
         reservationSummaries: [],
         isStandalone,
-        hasActiveDemand: true,
-      });
-    });
-  });
-
-  manufacturingDemands.forEach((row) => {
-    row.ingredients.forEach((ingredient) => {
-      const existing = productsById.get(ingredient.itemId);
-      const inventoryItem = inventoryById.get(ingredient.itemId);
-      productsById.set(ingredient.itemId, {
-        ...existing,
-        itemId: ingredient.itemId,
-        label: inventoryItem?.displayName || ingredient.itemName,
-        familyLabel: inventoryItem?.category || STANDALONE_FAMILY_LABEL,
-        variantLabel: inventoryItem?.displayName || ingredient.itemName,
-        sku: ingredient.itemSku ?? inventoryItem?.sku ?? null,
-        unitName: ingredient.unitName,
-        stockQty: parseQuantity(inventoryItem?.availableQty),
-        incomingQty: parseQuantity(inventoryItem?.expectedQty),
-        allocatedQty: 0,
-        reservationSummaries: [],
-        isStandalone: true,
         hasActiveDemand: true,
       });
     });
@@ -1694,8 +1671,8 @@ export function SalesAllocationTable({
   });
 
   const allProducts = useMemo(
-    () => getAllocatorProducts(orders, inventory, manufacturingDemands),
-    [orders, inventory, manufacturingDemands]
+    () => getAllocatorProducts(orders, inventory),
+    [orders, inventory]
   );
   const poolParams = useMemo(() => {
     const params = new URLSearchParams();
