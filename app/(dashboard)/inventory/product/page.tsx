@@ -42,10 +42,6 @@ export default async function ProductDraftPage() {
         size: unit.size,
         uom: unit.uom,
       }))}
-      initialBomRows={[]}
-      availableComponents={[]}
-      canViewBom={false}
-      initialLots={[]}
     />
   );
 }

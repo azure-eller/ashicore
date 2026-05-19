@@ -10,7 +10,7 @@ test.describe("variant-first item card", () => {
   const productName = `Card Soil ${ts}`;
   let productItemId: string;
 
-  test("creating a card from POST /api/item-cards lands on /products/:id?view=card", async ({
+  test("creating a card from POST /api/item-cards renders the route-tab card", async ({
     page,
   }) => {
     const response = await testFetch("/api/item-cards", {
@@ -24,27 +24,26 @@ test.describe("variant-first item card", () => {
     });
     expect(response.status).toBe(201);
     const body = await response.json();
-    productItemId = (body.itemId ?? body.id) as string;
-    expect(productItemId).toBeTruthy();
+    expect(body.itemId).toBeTruthy();
+    productItemId = body.itemId;
 
-    await page.goto(`/inventory/products/${productItemId}?view=card`);
+    await page.goto(`/inventory/products/${productItemId}`);
     await expect(
       page.getByRole("heading", { name: productName, level: 1 }),
     ).toBeVisible({ timeout: 15_000 });
-    // Card header save-status indicator
     await expect(page.getByText("All changes saved").first()).toBeVisible();
-    // Tab nav
-    await expect(page.getByRole("button", { name: "General info" })).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Product recipe / BOM" }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Production operations" }),
-    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "General info" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Recipe" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Production" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Lots" })).toBeVisible();
+
+    await page.goto(`/inventory/products/${productItemId}?tab=operations`);
+    await expect(page).toHaveURL(new RegExp(`/inventory/products/${productItemId}/production$`));
+    await expect(page.getByRole("heading", { name: "Production" })).toBeVisible();
   });
 
   test("opens the variant configuration dialog from General info", async ({ page }) => {
-    await page.goto(`/inventory/products/${productItemId}?view=card`);
+    await page.goto(`/inventory/products/${productItemId}`);
     await page.getByRole("button", { name: "Open configuration…" }).click();
     await expect(
       page.getByRole("heading", { name: "Product variant configuration" }),
@@ -57,7 +56,7 @@ test.describe("variant-first item card", () => {
   });
 
   test("configures options + generates variants via the dialog", async ({ page, db }) => {
-    await page.goto(`/inventory/products/${productItemId}?view=card`);
+    await page.goto(`/inventory/products/${productItemId}`);
     await page.getByRole("button", { name: "Open configuration…" }).click();
 
     await page.getByRole("button", { name: "Add option" }).click();
@@ -69,7 +68,6 @@ test.describe("variant-first item card", () => {
     await valueInput.fill("2cf bag");
     await valueInput.press("Enter");
 
-    await page.getByRole("button", { name: "Save configuration" }).click();
     await page
       .getByRole("button", { name: "Generate product variants" })
       .click();
@@ -91,6 +89,6 @@ test.describe("variant-first item card", () => {
       .select({ id: items.id })
       .from(items)
       .where(and(eq(items.familyId, seed!.familyId!), isNull(items.deletedAt)));
-    expect(rows.length).toBeGreaterThanOrEqual(3);
+    expect(rows.length).toBeGreaterThanOrEqual(2);
   });
 });

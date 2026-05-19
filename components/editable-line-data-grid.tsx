@@ -80,6 +80,12 @@ export type EditableLineDataGridProps<TData> = {
    * from option combinations, not row-add).
    */
   enableAddRow?: boolean;
+  addDisabledReason?: string | null;
+  canDeleteRow?: (row: TData, rows: TData[]) => boolean;
+  getDeleteDisabledReason?: (row: TData, rows: TData[]) => string | null;
+  onDeleteRow?: (row: TData, rows: TData[]) => void | Promise<void>;
+  onAddRow?: () => TData | null | Promise<TData | null>;
+  extraEndColumns?: ColDef<TData>[];
   isBlankRow?: (row: TData) => boolean;
   rowHasError?: (row: TData) => boolean;
   error?: string | null;
@@ -100,13 +106,23 @@ function rowIdsEqual<TData>(
 
 function DeleteCell<TData>({
   data,
+  rows,
+  canDeleteRow,
+  getDeleteDisabledReason,
   onDelete,
 }: ICellRendererParams<TData> & {
+  rows: TData[];
+  canDeleteRow?: (row: TData, rows: TData[]) => boolean;
+  getDeleteDisabledReason?: (row: TData, rows: TData[]) => string | null;
   onDelete: (row: TData) => void;
 }) {
   if (!data) {
     return null;
   }
+
+  const disabledReason = getDeleteDisabledReason?.(data, rows) ?? null;
+  const disabled =
+    Boolean(disabledReason) || (canDeleteRow ? !canDeleteRow(data, rows) : false);
 
   return (
     <Button
@@ -114,7 +130,9 @@ function DeleteCell<TData>({
       variant="ghost"
       size="icon-sm"
       aria-label="Delete row"
+      title={disabledReason ?? undefined}
       onClick={() => onDelete(data)}
+      disabled={disabled}
     >
       <HugeiconsIcon icon={Delete02Icon} aria-hidden />
     </Button>
@@ -175,6 +193,12 @@ export function EditableLineDataGrid<TData>({
   enableReorder = true,
   enableDelete = true,
   enableAddRow = true,
+  addDisabledReason,
+  canDeleteRow,
+  getDeleteDisabledReason,
+  onDeleteRow,
+  onAddRow,
+  extraEndColumns,
   isBlankRow,
   rowHasError,
   error,
@@ -210,9 +234,10 @@ export function EditableLineDataGrid<TData>({
     [onRowsChange]
   );
 
-  const handleAddRow = useCallback(() => {
+  const handleAddRow = useCallback(async () => {
     const latest = stateRef.current;
-    const row = createRow();
+    const row = onAddRow ? await onAddRow() : createRow();
+    if (!row) return;
     const nextRows = [...latest.rows, row];
     emitRowsChange(nextRows, { type: "row_added", row });
 
@@ -233,18 +258,24 @@ export function EditableLineDataGrid<TData>({
         colKey: firstEditableColumn,
       });
     });
-  }, [createRow, emitRowsChange]);
+  }, [createRow, emitRowsChange, onAddRow]);
 
   const handleDeleteRow = useCallback(
-    (row: TData) => {
+    async (row: TData) => {
       const latest = stateRef.current;
+      if (getDeleteDisabledReason?.(row, latest.rows)) return;
+      if (canDeleteRow && !canDeleteRow(row, latest.rows)) return;
+      if (onDeleteRow) {
+        await onDeleteRow(row, latest.rows);
+        return;
+      }
       const rowId = latest.getRowId(row);
       const nextRows = latest.rows.filter(
         (current) => latest.getRowId(current) !== rowId
       );
       emitRowsChange(nextRows, { type: "row_deleted", row });
     },
-    [emitRowsChange]
+    [canDeleteRow, emitRowsChange, getDeleteDisabledReason, onDeleteRow]
   );
 
   const defaultColDef = useMemo<ColDef<TData>>(
@@ -286,18 +317,36 @@ export function EditableLineDataGrid<TData>({
         sortable: false,
         suppressMovable: true,
         cellRenderer: (params: ICellRendererParams<TData>) => (
-          <DeleteCell {...params} onDelete={handleDeleteRow} />
+          <DeleteCell
+            {...params}
+            rows={rows}
+            canDeleteRow={canDeleteRow}
+            getDeleteDisabledReason={getDeleteDisabledReason}
+            onDelete={handleDeleteRow}
+          />
         ),
         getQuickFilterText: () => "",
       });
     }
 
     return nextColumns;
-  }, [enableDelete, enableReorder, handleDeleteRow]);
+  }, [
+    canDeleteRow,
+    enableDelete,
+    enableReorder,
+    getDeleteDisabledReason,
+    handleDeleteRow,
+    rows,
+  ]);
 
   const columnDefs = useMemo<ColDef<TData>[]>(
-    () => [...(enableReorder ? actionColumns.slice(0, 1) : []), ...columns, ...(enableDelete ? actionColumns.slice(enableReorder ? 1 : 0) : [])],
-    [actionColumns, columns, enableDelete, enableReorder]
+    () => [
+      ...(enableReorder ? actionColumns.slice(0, 1) : []),
+      ...columns,
+      ...(extraEndColumns ?? []),
+      ...(enableDelete ? actionColumns.slice(enableReorder ? 1 : 0) : []),
+    ],
+    [actionColumns, columns, enableDelete, enableReorder, extraEndColumns]
   );
 
   const rowClassRules = useMemo<RowClassRules<TData>>(
@@ -436,7 +485,15 @@ export function EditableLineDataGrid<TData>({
 
       {enableAddRow ? (
         <div>
-          <Button type="button" variant="outline" onClick={handleAddRow}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              void handleAddRow();
+            }}
+            disabled={Boolean(addDisabledReason)}
+            title={addDisabledReason ?? undefined}
+          >
             <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
             {addLabel}
           </Button>

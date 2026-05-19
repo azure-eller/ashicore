@@ -1,38 +1,138 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
-import type { ItemCardDto } from "@/lib/api/clients/item-cards";
+import type { BomPayloadRow } from "@/app/(dashboard)/inventory/bom-editor";
+import {
+  OperationCostEditor,
+  type OperationCostPayloadRow,
+} from "@/components/card-page/operation-cost-editor";
+import {
+  saveBomRevision,
+  type ItemCardDto,
+} from "@/lib/api/clients/item-cards";
 import styles from "@/components/card-page/card-page.module.css";
+
+type ManufacturingResourceOption = {
+  id: string;
+  name: string;
+  resourceType: string;
+  loadedCostPerHour: string;
+};
 
 export type ProductOperationsTabProps = {
   card: ItemCardDto;
   focusItemId: string;
+  currentBomRows: BomPayloadRow[];
+  initialOperationCosts: OperationCostPayloadRow[];
+  resources: ManufacturingResourceOption[];
+  expectedBatchYield?: string | null;
+  typicalBatchSize?: string | null;
+  standardCostQuantity?: string | null;
 };
 
-export function ProductOperationsTab({ card, focusItemId }: ProductOperationsTabProps) {
+function isBlankOperationCost(row: OperationCostPayloadRow) {
+  const operationName = row.operationName?.trim() ?? "";
+  const resourceId = row.resourceId?.trim() ?? "";
+  const crewSize = row.crewSize?.trim() ?? "";
+  const plannedMinutes = row.plannedMinutes?.trim() ?? "";
+  return operationName === "" && resourceId === "" && crewSize === "" && plannedMinutes === "";
+}
+
+export function ProductOperationsTab({
+  card,
+  focusItemId,
+  currentBomRows,
+  initialOperationCosts,
+  resources,
+  expectedBatchYield,
+  typicalBatchSize,
+  standardCostQuantity,
+}: ProductOperationsTabProps) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const visibleVariants = card.variants.filter((variant) => variant.deletedAt == null);
-  const [activeVariantId, setActiveVariantId] = useState<string>(
-    visibleVariants.find((variant) => variant.id === focusItemId)?.id ??
-      visibleVariants[0]?.id ??
-      "",
-  );
+  const activeVariant =
+    visibleVariants.find((variant) => variant.id === focusItemId) ?? visibleVariants[0] ?? null;
+  const [rows, setRows] = useState<OperationCostPayloadRow[]>(initialOperationCosts);
+  const [dirty, setDirty] = useState(false);
   const [copyToOpen, setCopyToOpen] = useState(false);
   const [copyFromOpen, setCopyFromOpen] = useState(false);
 
-  const activeVariant =
-    visibleVariants.find((variant) => variant.id === activeVariantId) ?? null;
+  const saveMutation = useMutation({
+    mutationKey: ["item-card", focusItemId, "operation-costs"],
+    mutationFn: () =>
+      saveBomRevision(focusItemId, {
+        bom: currentBomRows
+          .filter(
+            (row) =>
+              row.componentId &&
+              row.componentId.trim() !== "" &&
+              row.quantity != null &&
+              row.quantity.trim() !== "",
+          )
+          .map((row) => ({
+            componentId: row.componentId!,
+            quantity: row.quantity!,
+            consumptionMode: row.consumptionMode ?? null,
+            basisOutputQuantity: row.basisOutputQuantity ?? null,
+            batchScalingMode: row.batchScalingMode ?? null,
+            groupRemainderPolicy: row.groupRemainderPolicy ?? null,
+            minimumLotAgeDays: row.minimumLotAgeDays ?? null,
+            alternates: row.alternates ?? [],
+          })),
+        operationCosts: rows
+          .filter((row) => !isBlankOperationCost(row))
+          .map((row) => ({
+            operationName: row.operationName!.trim(),
+            resourceId: row.resourceId!.trim(),
+            costScalingMode: row.costScalingMode ?? "per_output_unit",
+            crewSize: row.crewSize!,
+            plannedMinutes: row.plannedMinutes!,
+            loadedCostPerHour: row.loadedCostPerHour ?? null,
+          })),
+        note: null,
+      }),
+    onSuccess: () => {
+      setDirty(false);
+      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+      router.refresh();
+    },
+  });
+
+  const handleVariantChange = (nextVariantId: string) => {
+    if (nextVariantId === focusItemId) return;
+    if (dirty) {
+      const confirmed = window.confirm(
+        "You have unsaved production changes. Discard them and switch variants?",
+      );
+      if (!confirmed) return;
+    }
+    router.push(`/inventory/products/${nextVariantId}/production`);
+  };
+
+  if (!activeVariant) {
+    return (
+      <section className={styles.section}>
+        <p className={styles.helper}>
+          Generate at least one variant before editing production operations.
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section className={styles.section}>
-      <h2 className={styles.sectionHeading}>Operation steps</h2>
+      <h2 className={styles.sectionHeading}>Production</h2>
       <div className="flex flex-col gap-(--space-3) md:flex-row md:items-end md:justify-between">
         <ActiveVariantSelect
           variants={visibleVariants}
-          value={activeVariantId}
-          onChange={setActiveVariantId}
+          value={focusItemId}
+          onChange={handleVariantChange}
           hideWhenSingle={false}
         />
         <div className="flex flex-wrap items-center gap-(--space-2)">
@@ -41,7 +141,7 @@ export function ProductOperationsTab({ card, focusItemId }: ProductOperationsTab
             variant="outline"
             size="sm"
             onClick={() => setCopyToOpen(true)}
-            disabled={!activeVariant || visibleVariants.length < 2}
+            disabled={visibleVariants.length < 2}
           >
             Copy to…
           </Button>
@@ -50,26 +150,54 @@ export function ProductOperationsTab({ card, focusItemId }: ProductOperationsTab
             variant="outline"
             size="sm"
             onClick={() => setCopyFromOpen(true)}
-            disabled={!activeVariant || visibleVariants.length < 2}
+            disabled={visibleVariants.length < 2}
           >
             Copy from…
+          </Button>
+          {dirty ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setRows(initialOperationCosts);
+                setDirty(false);
+              }}
+              disabled={saveMutation.isPending}
+            >
+              Discard
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => saveMutation.mutate()}
+            disabled={!dirty || saveMutation.isPending}
+          >
+            {saveMutation.isPending ? "Saving…" : "Save production"}
           </Button>
         </div>
       </div>
 
-      <div className="border border-border p-(--space-4) bg-muted/30">
-        <p className="text-[length:var(--text-sm)] text-muted-foreground">
-          Production operations live on each variant&rsquo;s BOM revision
-          (operation name, resource, crew size, planned minutes; cost flows
-          into estimated unit cost / margin). Inline editing on the card is a
-          v1.1 task — view-only for now.
-        </p>
-        {activeVariant ? (
-          <p className="text-[length:var(--text-sm)] text-muted-foreground mt-(--space-2)">
-            Selected variant: <strong>{activeVariant.displayName}</strong>
-          </p>
-        ) : null}
-      </div>
+      <p
+        className={styles.helper}
+        style={{ marginTop: "var(--space-2)", marginBottom: "var(--space-3)" }}
+      >
+        Any changes made here only affect <strong>{activeVariant.displayName}</strong>.
+      </p>
+
+      <OperationCostEditor
+        initialRows={initialOperationCosts}
+        resources={resources}
+        expectedBatchYield={expectedBatchYield}
+        typicalBatchSize={typicalBatchSize}
+        standardCostQuantity={standardCostQuantity}
+        error={saveMutation.error}
+        onRowsChange={(nextRows, meta) => {
+          setRows(nextRows);
+          setDirty(meta.dirty);
+        }}
+      />
 
       <CopyDialog
         open={copyToOpen}

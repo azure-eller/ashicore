@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,7 +19,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon } from "@hugeicons/core-free-icons";
 import {
   EditableLineDataGrid,
   type ColDef,
@@ -27,6 +27,8 @@ import {
 } from "@/components/editable-line-data-grid";
 import {
   deleteVariant,
+  generateVariants,
+  previewVariantGeneration,
   updateItemCardVariant,
   type ItemCardDto,
   type ItemCardVariantDto,
@@ -178,6 +180,30 @@ export function VariantTable({
     },
   });
 
+  const previewQuery = useQuery({
+    queryKey: ["item-card", card.variants[0]?.id ?? card.family.id, "variants-preview"],
+    queryFn: () => previewVariantGeneration(card.variants[0]?.id ?? card.family.id),
+    enabled: visibleVariants.length > 0 && activeOptions.length > 0,
+  });
+
+  const addVariantMutation = useMutation({
+    mutationKey: ["item-card", card.variants[0]?.id ?? card.family.id, "variant-add-row"],
+    mutationFn: async () => {
+      const focusItemId = card.variants[0]?.id;
+      if (!focusItemId) return null;
+      const preview = await previewVariantGeneration(focusItemId);
+      const nextCombination = preview.missingCombinations[0];
+      if (!nextCombination) return null;
+      await generateVariants(focusItemId, {
+        combinations: [nextCombination.optionValueIdsByOptionId],
+      });
+      return null;
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+    },
+  });
+
   const handleRowsChange = useCallback(
     (next: ItemCardVariantDto[], change: EditableLineDataGridChange<ItemCardVariantDto>) => {
       setRows(next);
@@ -193,8 +219,6 @@ export function VariantTable({
     [activeOptions, cellMutation],
   );
 
-  const isDeletePending = deleteMutation.isPending;
-  const rowCount = rows.length;
   const columns = useMemo<ColDef<ItemCardVariantDto>[]>(() => {
     const cols: ColDef<ItemCardVariantDto>[] = [];
 
@@ -409,11 +433,18 @@ export function VariantTable({
       },
     });
 
-    // Add initial stock + delete actions, manually rendered since we set
-    // enableDelete=false on the foundation (its built-in delete doesn't go
-    // through the API + confirm dialog).
-    if (onAddInitialStock) {
-      cols.push({
+    return cols;
+  }, [
+    activeOptions,
+    addInitialStockEndpointReady,
+    onAddInitialStock,
+    viewMode,
+  ]);
+
+  const extraEndColumns = useMemo<ColDef<ItemCardVariantDto>[]>(() => {
+    if (!onAddInitialStock) return [];
+    return [
+      {
         colId: "addStock",
         headerName: "",
         width: 44,
@@ -429,42 +460,20 @@ export function VariantTable({
             />
           );
         },
-      });
-    }
-    if (activeOptions.length > 0) {
-      cols.push({
-        colId: "delete",
-        headerName: "",
-        width: 44,
-        minWidth: 44,
-        maxWidth: 44,
-        resizable: false,
-        cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => {
-          if (!params.data) return null;
-          return (
-            <button
-              type="button"
-              className={cn(styles.iButton, styles.iButtonDanger)}
-              aria-label={`Delete variant ${params.data.displayName}`}
-              onClick={() => setConfirmDeleteVariant(params.data!)}
-              disabled={isDeletePending || rowCount <= 1}
-            >
-              <HugeiconsIcon icon={Delete02Icon} size={14} />
-            </button>
-          );
-        },
-      });
-    }
+      },
+    ];
+  }, [addInitialStockEndpointReady, onAddInitialStock]);
 
-    return cols;
-  }, [
-    activeOptions,
-    addInitialStockEndpointReady,
-    isDeletePending,
-    onAddInitialStock,
-    rowCount,
-    viewMode,
-  ]);
+  const addDisabledReason =
+    activeOptions.length === 0
+      ? "Open configuration before adding variant rows."
+      : previewQuery.isLoading
+        ? "Checking variant combinations."
+        : addVariantMutation.isPending
+          ? "Adding variant row."
+          : (previewQuery.data?.missingCount ?? 0) <= 0
+            ? "All configured variant combinations already exist."
+            : null;
 
   if (visibleVariants.length === 0) {
     return (
@@ -482,10 +491,18 @@ export function VariantTable({
         getRowId={(row) => row.id}
         createRow={() => ({ ...visibleVariants[0]! })}
         onRowsChange={handleRowsChange}
-        addLabel=""
-        enableAddRow={false}
+        addLabel="Add row"
+        enableAddRow
         enableReorder={false}
-        enableDelete={false}
+        enableDelete={activeOptions.length > 0}
+        canDeleteRow={(_row, currentRows) => currentRows.length > 1}
+        getDeleteDisabledReason={(_row, currentRows) =>
+          currentRows.length <= 1 ? "At least one variant is required." : null
+        }
+        onDeleteRow={(row) => setConfirmDeleteVariant(row)}
+        onAddRow={() => addVariantMutation.mutateAsync()}
+        addDisabledReason={addDisabledReason}
+        extraEndColumns={extraEndColumns}
         // Match Calm Matrix design: 30px header, 34px body row.
         headerHeight={30}
         rowHeight={34}

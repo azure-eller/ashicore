@@ -380,6 +380,14 @@ export type SaveBomRevisionInput = {
     minimumLotAgeDays?: string | number | null;
     alternates?: Array<{ itemId: string }>;
   }>;
+  operationCosts?: Array<{
+    operationName: string;
+    resourceId: string;
+    costScalingMode?: "per_output_unit" | "fixed_per_mo" | null;
+    crewSize: string;
+    plannedMinutes: string;
+    loadedCostPerHour?: string | null;
+  }>;
   note?: string | null;
 };
 

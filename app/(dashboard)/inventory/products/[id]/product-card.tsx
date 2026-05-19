@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -24,52 +24,31 @@ import {
   type ItemCardVariantDto,
 } from "@/lib/api/clients/item-cards";
 import { AddInitialStockDialog } from "@/components/card-page/add-initial-stock-dialog";
-import { LotGridTab, type CardLotRow } from "@/components/card-page/lot-grid-tab";
 import { VariantConfigurationDialog } from "@/components/card-page/variant-configuration-dialog";
 import { ProductGeneralInfoTab } from "./tabs/general-info";
-import { ProductRecipeTab } from "./tabs/recipe";
-import { ProductOperationsTab } from "./tabs/operations";
 import styles from "@/components/card-page/card-page.module.css";
 
-type BomPayloadRow = {
-  componentId: string | null;
-  quantity: string | null;
-  consumptionMode?: "per_output_unit" | "per_batch" | "per_group" | null;
-  basisOutputQuantity?: string | null;
-  batchScalingMode?: "proportional" | "full_batches_only" | null;
-  groupRemainderPolicy?: "ask" | "leave_loose" | "create_partial_group" | null;
-  minimumLotAgeDays?: string | number | null;
-  alternates?: Array<{ itemId: string }>;
-};
-
-type AvailableComponent = {
-  id: string;
-  name: string;
-  displayName: string;
-  itemType: string;
-  unit: string;
-};
+export type ProductCardTab = "general" | "recipe" | "production" | "lots";
 
 export type ProductCardProps = {
   initialItemId: string | null;
   initialCard: ItemCardDto;
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
-  initialBomRows: BomPayloadRow[];
-  availableComponents: AvailableComponent[];
-  canViewBom: boolean;
-  initialLots: CardLotRow[];
+  activeTab?: ProductCardTab;
+  lotsCount?: number;
+  children?: ReactNode;
 };
 
 export function ProductCard({
   initialItemId,
   initialCard,
   unitOptions,
-  initialBomRows,
-  availableComponents,
-  canViewBom,
-  initialLots,
+  activeTab = "general",
+  lotsCount,
+  children,
 }: ProductCardProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [currentItemId, setCurrentItemId] = useState<string | null>(initialItemId);
   const [draftCard, setDraftCard] = useState<ItemCardDto>(initialCard);
@@ -83,6 +62,27 @@ export function ProductCard({
     refetchOnWindowFocus: false,
   });
   const card = isDraft ? draftCard : cardQuery.data ?? draftCard;
+
+  useEffect(() => {
+    if (!currentItemId) return;
+    const legacyTab = searchParams.get("tab");
+    if (!legacyTab) return;
+    if (legacyTab === "recipe") {
+      router.replace(`/inventory/products/${currentItemId}/recipe`, { scroll: false });
+      return;
+    }
+    if (legacyTab === "operations" || legacyTab === "production") {
+      router.replace(`/inventory/products/${currentItemId}/production`, { scroll: false });
+      return;
+    }
+    if (legacyTab === "lots") {
+      router.replace(`/inventory/products/${currentItemId}/lots`, { scroll: false });
+      return;
+    }
+    if (legacyTab === "general") {
+      router.replace(`/inventory/products/${currentItemId}`, { scroll: false });
+    }
+  }, [currentItemId, router, searchParams]);
 
   const [stockDialogVariant, setStockDialogVariant] = useState<ItemCardVariantDto | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
@@ -144,12 +144,29 @@ export function ProductCard({
 
   const tabs: CardTab[] = useMemo(
     () => [
-      { value: "general", label: "General info" },
-      { value: "lots", label: "Lots", count: initialLots.length || undefined },
-      { value: "recipe", label: "Product recipe / BOM" },
-      { value: "operations", label: "Production operations" },
+      {
+        value: "general",
+        label: "General info",
+        href: currentItemId ? `/inventory/products/${currentItemId}` : undefined,
+      },
+      {
+        value: "recipe",
+        label: "Recipe",
+        href: currentItemId ? `/inventory/products/${currentItemId}/recipe` : undefined,
+      },
+      {
+        value: "production",
+        label: "Production",
+        href: currentItemId ? `/inventory/products/${currentItemId}/production` : undefined,
+      },
+      {
+        value: "lots",
+        label: "Lots",
+        href: currentItemId ? `/inventory/products/${currentItemId}/lots` : undefined,
+        count: lotsCount || undefined,
+      },
     ],
-    [initialLots.length],
+    [currentItemId, lotsCount],
   );
 
   const visibleVariantCount = card.variants.filter(
@@ -178,44 +195,22 @@ export function ProductCard({
         onDelete={isDraft ? undefined : () => setConfirmDeleteCard(true)}
       />
 
-      <CardTabs
-        tabs={tabs}
-        defaultTab="general"
-        panels={{
-          general: (
-            <ProductGeneralInfoTab
-              card={card}
-              focusItemId={currentItemId}
-              unitOptions={unitOptions}
-              onOpenConfig={() => setConfigOpen(true)}
-              onAddInitialStock={(variant) => setStockDialogVariant(variant)}
-              onDraftFamilyChange={updateDraftFamily}
-              onDraftCommit={commitDraft}
-              draftCreatePending={createMutation.isPending}
-            />
-          ),
-          recipe: (
-            <ProductRecipeTab
-              card={card}
-              focusItemId={currentItemId ?? ""}
-              initialBomRows={initialBomRows}
-              availableComponents={availableComponents}
-              canViewBom={!isDraft && canViewBom}
-            />
-          ),
-          lots: (
-            <LotGridTab
-              card={card}
-              focusItemId={currentItemId ?? ""}
-              lots={initialLots}
-              unitLabel={card.family.unitName}
-            />
-          ),
-          operations: (
-            <ProductOperationsTab card={card} focusItemId={currentItemId ?? ""} />
-          ),
-        }}
-      />
+      <CardTabs tabs={tabs} defaultTab="general" activeTab={activeTab}>
+        {activeTab === "general" || isDraft ? (
+          <ProductGeneralInfoTab
+            card={card}
+            focusItemId={currentItemId}
+            unitOptions={unitOptions}
+            onOpenConfig={() => setConfigOpen(true)}
+            onAddInitialStock={(variant) => setStockDialogVariant(variant)}
+            onDraftFamilyChange={updateDraftFamily}
+            onDraftCommit={commitDraft}
+            draftCreatePending={createMutation.isPending}
+          />
+        ) : (
+          children
+        )}
+      </CardTabs>
 
       {isDraft ? null : (
         <>

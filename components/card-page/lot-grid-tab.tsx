@@ -147,13 +147,7 @@ export function LotGridTab({
   );
   const activeVariant =
     visibleVariants.find((variant) => variant.id === focusItemId) ?? visibleVariants[0];
-  const visibleLots = useMemo(
-    () =>
-      lots.filter(
-        (lot) => toQuantity(lot.quantity) > 0 || lot.allocations.length > 0,
-      ),
-    [lots],
-  );
+  const visibleLots = useMemo(() => lots, [lots]);
   const [rows, setRows] = useState<CardLotRow[]>(visibleLots);
   const [lastSynced, setLastSynced] = useState(visibleLots);
   const [pendingAdjustment, setPendingAdjustment] = useState<PendingAdjustment | null>(
@@ -259,7 +253,11 @@ export function LotGridTab({
   const handleVariantChange = (nextVariantId: string) => {
     if (nextVariantId === focusItemId) return;
     const segment = card.family.itemType === "material" ? "materials" : "products";
-    router.push(`/inventory/${segment}/${nextVariantId}?tab=lots`);
+    router.push(
+      card.family.itemType === "product"
+        ? `/inventory/${segment}/${nextVariantId}/lots`
+        : `/inventory/${segment}/${nextVariantId}?tab=lots`,
+    );
   };
 
   const handleRowsChange = (
@@ -324,7 +322,7 @@ export function LotGridTab({
       <h2 className={styles.sectionHeading}>
         Lots
         <span className={styles.hint}>
-          {visibleLots.length} {visibleLots.length === 1 ? "active lot" : "active lots"}
+          {visibleLots.length} {visibleLots.length === 1 ? "lot" : "lots"}
         </span>
       </h2>
 
@@ -344,7 +342,8 @@ export function LotGridTab({
         createRow={() => visibleLots[0] ?? rows[0]}
         onRowsChange={handleRowsChange}
         addLabel=""
-        emptyMessage="No lots recorded."
+        emptyMessage=""
+        minHeight={rows.length === 0 ? 72 : undefined}
         enableAddRow={false}
         enableDelete={false}
         enableReorder={false}

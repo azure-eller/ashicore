@@ -2788,8 +2788,6 @@ export async function getUsedInParents(itemId: string) {
       .select({
         id: items.id,
         name: items.name,
-        parentId: items.parentId,
-        variantAttrs: items.variantAttrs,
       })
       .from(bomRevisionComponents)
       .innerJoin(bomRevisions, eq(bomRevisionComponents.bomRevisionId, bomRevisions.id))
@@ -2804,41 +2802,35 @@ export async function getUsedInParents(itemId: string) {
       )
       .orderBy(asc(items.name));
 
-    const parentIds = [...new Set(
-      rows
-        .map((row) => row.parentId)
-        .filter((id): id is string => id != null),
-    )];
-    const parents = parentIds.length > 0
-      ? await tx
-          .select({
-            id: items.id,
-            name: items.name,
-            variantAxes: items.variantAxes,
-          })
-          .from(items)
-          .where(and(inArray(items.id, parentIds), isNull(items.deletedAt)))
-      : [];
-    const parentsById = new Map(
-      parents.map((parent) => [
-        parent.id,
-        {
-          name: parent.name,
-          variantAxes: (parent.variantAxes as string[] | null) ?? [],
-        },
-      ]),
-    );
+    const rowIds = rows.map((row) => row.id);
+    const valueRows =
+      rowIds.length > 0
+        ? await tx
+            .select({
+              itemId: itemVariantValues.itemId,
+              valueLabel: variantOptionValues.label,
+            })
+            .from(itemVariantValues)
+            .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
+            .innerJoin(
+              variantOptionValues,
+              eq(itemVariantValues.optionValueId, variantOptionValues.id),
+            )
+            .where(inArray(itemVariantValues.itemId, rowIds))
+            .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder))
+        : [];
+    const valuesByItemId = new Map<string, string[]>();
+    for (const valueRow of valueRows) {
+      valuesByItemId.set(valueRow.itemId, [
+        ...(valuesByItemId.get(valueRow.itemId) ?? []),
+        valueRow.valueLabel,
+      ]);
+    }
 
     return rows.map((row) => {
-      const parent = row.parentId ? parentsById.get(row.parentId) : null;
+      const valueLabels = valuesByItemId.get(row.id) ?? [];
       const displayName =
-        parent && parent.variantAxes.length > 0
-          ? formatVariantDisplay(
-              parent.name,
-              (row.variantAttrs as Record<string, string>) ?? {},
-              parent.variantAxes,
-            )
-          : row.name;
+        valueLabels.length > 0 ? `${row.name} / ${valueLabels.join(" / ")}` : row.name;
 
       return {
         id: row.id,

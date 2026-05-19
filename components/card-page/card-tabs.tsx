@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import styles from "./card-page.module.css";
@@ -9,22 +10,33 @@ export type CardTab = {
   value: string;
   label: string;
   count?: ReactNode;
+  href?: string;
 };
 
 export type CardTabsProps = {
   tabs: CardTab[];
   defaultTab: string;
-  panels: Record<string, ReactNode>;
+  panels?: Record<string, ReactNode>;
+  activeTab?: string;
+  children?: ReactNode;
   /** Optional persistent caption on the right side of the tab strip (e.g. "Ingredients · $X avg"). */
   caption?: ReactNode;
 };
 
-export function CardTabs({ tabs, defaultTab, panels, caption }: CardTabsProps) {
+export function CardTabs({
+  tabs,
+  defaultTab,
+  panels,
+  activeTab: controlledActiveTab,
+  children,
+  caption,
+}: CardTabsProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const qsTab = searchParams.get("tab");
   const activeTab =
-    qsTab && tabs.some((t) => t.value === qsTab) ? qsTab : defaultTab;
+    controlledActiveTab ??
+    (qsTab && tabs.some((t) => t.value === qsTab) ? qsTab : defaultTab);
 
   // Tab change is instant per design §5: the body content swaps in place with
   // no spinner. URL update is fire-and-forget; React will rerender immediately.
@@ -41,19 +53,35 @@ export function CardTabs({ tabs, defaultTab, panels, caption }: CardTabsProps) {
         {tabs.map((tab) => {
           const isActive = tab.value === activeTab;
           return (
-            <button
-              key={tab.value}
-              type="button"
-              aria-current={isActive ? "page" : undefined}
-              aria-controls={`card-tab-panel-${tab.value}`}
-              className={cn(styles.tab, isActive && styles.tabActive)}
-              onClick={() => selectTab(tab.value)}
-            >
-              {tab.label}
-              {tab.count != null ? (
-                <span className={styles.tabCount}>{tab.count}</span>
-              ) : null}
-            </button>
+            tab.href ? (
+              <Link
+                key={tab.value}
+                href={tab.href}
+                aria-current={isActive ? "page" : undefined}
+                aria-controls={`card-tab-panel-${tab.value}`}
+                className={cn(styles.tab, isActive && styles.tabActive)}
+                prefetch
+              >
+                {tab.label}
+                {tab.count != null ? (
+                  <span className={styles.tabCount}>{tab.count}</span>
+                ) : null}
+              </Link>
+            ) : (
+              <button
+                key={tab.value}
+                type="button"
+                aria-current={isActive ? "page" : undefined}
+                aria-controls={`card-tab-panel-${tab.value}`}
+                className={cn(styles.tab, isActive && styles.tabActive)}
+                onClick={() => selectTab(tab.value)}
+              >
+                {tab.label}
+                {tab.count != null ? (
+                  <span className={styles.tabCount}>{tab.count}</span>
+                ) : null}
+              </button>
+            )
           );
         })}
         {caption ? <div className={styles.tabsCaption}>{caption}</div> : null}
@@ -64,7 +92,7 @@ export function CardTabs({ tabs, defaultTab, panels, caption }: CardTabsProps) {
           id={`card-tab-panel-${activeTab}`}
           aria-labelledby={`card-tab-${activeTab}`}
         >
-          {panels[activeTab]}
+          {children ?? panels?.[activeTab] ?? null}
         </section>
       </div>
     </>
