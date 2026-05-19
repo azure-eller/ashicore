@@ -15,7 +15,7 @@ test("page search navigation shows optimistic destination shell while route is p
   });
 
   await page.route(
-    (url) => url.pathname === "/inventory/products" && url.searchParams.has("_rsc"),
+    (url) => url.pathname === "/inventory/products",
     async (route) => {
       await navigationRequestBlocked;
       await route.continue();

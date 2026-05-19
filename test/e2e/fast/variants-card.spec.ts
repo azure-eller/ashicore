@@ -44,7 +44,7 @@ test.describe("variant-first item card", () => {
 
   test("opens the variant configuration dialog from General info", async ({ page }) => {
     await page.goto(`/inventory/products/${productItemId}`);
-    await page.getByRole("button", { name: "Open configuration…" }).click();
+    await page.getByLabel("This product has multiple variants").click();
     await expect(
       page.getByRole("heading", { name: "Product variant configuration" }),
     ).toBeVisible();
@@ -57,7 +57,7 @@ test.describe("variant-first item card", () => {
 
   test("configures options + generates variants via the dialog", async ({ page, db }) => {
     await page.goto(`/inventory/products/${productItemId}`);
-    await page.getByRole("button", { name: "Open configuration…" }).click();
+    await page.getByLabel("This product has multiple variants").click();
 
     await page.getByRole("button", { name: "Add option" }).click();
     await page.getByPlaceholder("e.g. Package, Size, Blend").fill("Package");

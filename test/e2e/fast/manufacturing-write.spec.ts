@@ -827,6 +827,10 @@ test.describe("Manufacturing write-path smoke", () => {
     const requirementOrderId = order.body.id as string;
 
     await page.goto(`/manufacturing/orders/${requirementOrderId}/execute`);
+    const markDoneButton = page
+      .getByRole("button", { name: "Mark Done", exact: true })
+      .first();
+    await expect(markDoneButton).toBeEnabled({ timeout: 15_000 });
     const [pickResponse] = await Promise.all([
       page.waitForResponse(
         (response) =>
@@ -836,7 +840,7 @@ test.describe("Manufacturing write-path smoke", () => {
           ) &&
           response.url().endsWith("/pick")
       ),
-      page.getByRole("button", { name: "Mark Done", exact: true }).click(),
+      markDoneButton.click(),
     ]);
     expect(pickResponse.status()).toBe(409);
 

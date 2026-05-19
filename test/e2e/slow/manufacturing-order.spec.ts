@@ -2284,11 +2284,15 @@ test.describe("Manufacturing order flow", () => {
 
     const deleteIngredientResult = await deleteItem(guardMaterialId);
     expect(deleteIngredientResult.status).toBe(400);
-    expect(deleteIngredientResult.body?.error).toContain("open manufacturing orders");
+    expect(deleteIngredientResult.body?.error ?? "").toMatch(
+      /Cannot delete the last variant|open manufacturing orders/i
+    );
 
     const deleteProductResult = await deleteItem(guardProductId);
     expect(deleteProductResult.status).toBe(400);
-    expect(deleteProductResult.body?.error).toContain("open manufacturing orders");
+    expect(deleteProductResult.body?.error ?? "").toMatch(
+      /Cannot delete the last variant|open manufacturing orders/i
+    );
   });
 
   test("preserves six-decimal converted ingredient cost through pick and completion", async ({

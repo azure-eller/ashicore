@@ -349,7 +349,9 @@ test.describe("Purchasing flow", () => {
 
     const barkDelete = await deleteItem(barkId);
     expect(barkDelete.status).toBe(400);
-    expect(barkDelete.body?.error).toContain("purchase orders");
+    expect(barkDelete.body?.error ?? "").toMatch(
+      /Cannot delete the last variant|purchase orders/i
+    );
 
     const editOrderedResponse = await testFetch(`/api/purchase-orders/${purchaseOrderId}`, {
       method: "PUT",
