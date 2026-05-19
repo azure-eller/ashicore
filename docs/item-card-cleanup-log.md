@@ -39,7 +39,8 @@ Remove only after the stabilization gates are met.
 - Legacy `ItemDetail` fallback components removed after detail routes switched
   to card-first rendering.
 - Legacy `createMasterProduct`, `updateMasterProduct`, `createVariant`, and
-  test helper writes removed; old variant POST still returns 410.
+  test helper writes removed.
+- Legacy `/api/items/:id/variants` route and `getVariants()` read helper removed.
 - Legacy master/variant Zod schemas removed from `lib/schemas/items.ts`.
 - Product/material edit controls that send family-owned fields through
   `/api/items/:id`

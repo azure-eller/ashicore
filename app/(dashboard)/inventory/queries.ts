@@ -37,6 +37,3 @@ export {
   hasLockedBomCopyTarget,
   setBomLock,
 } from "./queries/internal";
-export {
-  getVariants,
-} from "./queries/variants";
