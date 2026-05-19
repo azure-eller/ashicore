@@ -7227,11 +7227,7 @@ export async function getManufacturingExecutionDetail(
 
     let batches: ExecutionBatchRow[] = [];
     if (order.manufacturingMode === "batch") {
-      const existingBatches = await getBatchRowsInTx(tx, orderId);
-      batches =
-        existingBatches.length > 0
-          ? existingBatches
-          : await ensureBatchExecutionRowsInTx(tx, order);
+      batches = await getBatchRowsInTx(tx, orderId);
     }
 
     const currentBatch =

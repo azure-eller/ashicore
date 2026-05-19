@@ -2018,10 +2018,30 @@ test.describe("Manufacturing write-path smoke", () => {
     );
 
     const beforeReadBatches = await db
-      .select()
+      .select({ id: manufacturingOrderBatches.id })
       .from(manufacturingOrderBatches)
-      .where(eq(manufacturingOrderBatches.manufacturingOrderId, legacyOrderId));
-    expect(beforeReadBatches).toHaveLength(0);
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, legacyOrderId))
+      .orderBy(
+        asc(manufacturingOrderBatches.batchNumber),
+        asc(manufacturingOrderBatches.id)
+      );
+    const beforeReadBatchIds = beforeReadBatches.map((batch) => batch.id).sort();
+
+    const beforeReadIngredients = await db
+      .select({
+        id: manufacturingOrderIngredients.id,
+        manufacturingOrderBatchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, legacyOrderId))
+      .orderBy(
+        asc(manufacturingOrderIngredients.sortOrder),
+        asc(manufacturingOrderIngredients.id)
+      );
+    const beforeReadIngredientShape = beforeReadIngredients.map((ingredient) => ({
+      id: ingredient.id,
+      manufacturingOrderBatchId: ingredient.manufacturingOrderBatchId,
+    }));
 
     const executionResponse = await testFetch(
       `/api/manufacturing-orders/${legacyOrderId}/execution`
@@ -2029,21 +2049,34 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(executionResponse.status).toBe(200);
 
     const afterReadBatches = await db
-      .select()
+      .select({ id: manufacturingOrderBatches.id })
       .from(manufacturingOrderBatches)
-      .where(eq(manufacturingOrderBatches.manufacturingOrderId, legacyOrderId));
-    expect(afterReadBatches).toHaveLength(0);
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, legacyOrderId))
+      .orderBy(
+        asc(manufacturingOrderBatches.batchNumber),
+        asc(manufacturingOrderBatches.id)
+      );
+    expect(afterReadBatches.map((batch) => batch.id).sort()).toEqual(
+      beforeReadBatchIds
+    );
 
     const afterReadTemplateIngredients = await db
-      .select()
+      .select({
+        id: manufacturingOrderIngredients.id,
+        manufacturingOrderBatchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
+      })
       .from(manufacturingOrderIngredients)
-      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, legacyOrderId));
-    expect(afterReadTemplateIngredients).toHaveLength(2);
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, legacyOrderId))
+      .orderBy(
+        asc(manufacturingOrderIngredients.sortOrder),
+        asc(manufacturingOrderIngredients.id)
+      );
     expect(
-      afterReadTemplateIngredients.every(
-        (ingredient) => ingredient.manufacturingOrderBatchId == null
-      )
-    ).toBe(true);
+      afterReadTemplateIngredients.map((ingredient) => ({
+        id: ingredient.id,
+        manufacturingOrderBatchId: ingredient.manufacturingOrderBatchId,
+      }))
+    ).toEqual(beforeReadIngredientShape);
   });
 
   test("creates an open order with an approved alternate and consumes alternate stock", async ({

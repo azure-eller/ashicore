@@ -1,4 +1,5 @@
 import { test, expect } from "../fixtures";
+import type { Page } from "@playwright/test";
 import { testFetch, getUnitId } from "../../helpers/api";
 import { eq, isNull, and } from "drizzle-orm";
 import { items } from "@/lib/db/schema";
@@ -9,6 +10,21 @@ test.describe("variant-first item card", () => {
   const ts = Date.now();
   const productName = `Card Soil ${ts}`;
   let productItemId: string;
+
+  async function openVariantConfiguration(page: Page) {
+    await page.goto(`/inventory/products/${productItemId}`);
+
+    const openButton = page.getByRole("button", { name: "Open configuration…" });
+    if (await openButton.isVisible().catch(() => false)) {
+      await openButton.click();
+    } else {
+      await page.getByLabel("This product has multiple variants").click();
+    }
+
+    await expect(
+      page.getByRole("heading", { name: "Product variant configuration" }),
+    ).toBeVisible({ timeout: 15_000 });
+  }
 
   test("creating a card from POST /api/item-cards renders the route-tab card", async ({
     page,
@@ -43,11 +59,7 @@ test.describe("variant-first item card", () => {
   });
 
   test("opens the variant configuration dialog from General info", async ({ page }) => {
-    await page.goto(`/inventory/products/${productItemId}`);
-    await page.getByLabel("This product has multiple variants").click();
-    await expect(
-      page.getByRole("heading", { name: "Product variant configuration" }),
-    ).toBeVisible();
+    await openVariantConfiguration(page);
     await expect(page.getByRole("button", { name: "Add option" })).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
     await expect(
@@ -56,10 +68,12 @@ test.describe("variant-first item card", () => {
   });
 
   test("configures options + generates variants via the dialog", async ({ page, db }) => {
-    await page.goto(`/inventory/products/${productItemId}`);
-    await page.getByLabel("This product has multiple variants").click();
+    await openVariantConfiguration(page);
 
     await page.getByRole("button", { name: "Add option" }).click();
+    await expect(
+      page.getByPlaceholder("e.g. Package, Size, Blend"),
+    ).toBeVisible({ timeout: 15_000 });
     await page.getByPlaceholder("e.g. Package, Size, Blend").fill("Package");
 
     const valueInput = page.getByPlaceholder("e.g. 1cf bag, 2cf bag");
