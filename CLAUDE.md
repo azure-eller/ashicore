@@ -226,10 +226,10 @@ Controller text inputs should bind `value={field.value ?? ""}` so slow rerenders
 
 ### Variant names
 
-Variants inherit `items.name` from their master. Never expose an editable variant name; show a read-only family name plus a derived title from `formatVariantDisplay()`.
+Variants belong to `item_families`; option values live in `item_variant_values`. Never expose an editable variant name. Show the family name plus normalized option labels.
 
 ```tsx
-const title = formatVariantDisplay(masterName, variantAttrs, variantAxes)
+const title = formatVariantDisplayFromFamily(family, optionValues)
 ```
 ### Standalone form pages
 
