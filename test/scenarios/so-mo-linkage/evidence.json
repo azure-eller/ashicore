@@ -254,7 +254,7 @@
         "symbol": "getManufacturingProductTemplates",
         "file": "app/(dashboard)/manufacturing/queries.ts",
         "lines": "2932-3025",
-        "note": "PRODUCT PICKER FILTER. Lines 2987-2988: products.filter((product) => (bomByProduct.get(product.id) ?? []).length > 0). Only products with at least one non-deleted BOM ingredient are returned. Also requires items.itemType='product' AND items.deletedAt IS NULL AND items.isMaster=false (2977)."
+        "note": "PRODUCT PICKER FILTER. products.filter((product) => (bomByProduct.get(product.id) ?? []).length > 0). Only products with at least one non-deleted BOM ingredient are returned. Also requires concrete family-backed product items with items.itemType='product', items.deletedAt IS NULL, and items.familyId IS NOT NULL."
       },
       {
         "symbol": "createSalesOrder",

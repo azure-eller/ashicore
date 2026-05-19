@@ -101,7 +101,7 @@
       "file": "app/(dashboard)/manufacturing/queries.ts",
       "symbol": "getManufacturingProductTemplates BOM-empty filter",
       "lines": "2977, 2987-2988",
-      "reason": "Picker source filters items WHERE itemType='product' AND deletedAt IS NULL AND isMaster=false, then filters out products with zero non-deleted active-BOM components via bomByProduct.get(product.id).length > 0."
+      "reason": "Picker source filters concrete family-backed product items WHERE itemType='product' AND deletedAt IS NULL AND familyId IS NOT NULL, then filters out products with zero non-deleted active-BOM components via bomByProduct.get(product.id).length > 0."
     },
     {
       "file": "app/(dashboard)/manufacturing/queries.ts",
@@ -1141,7 +1141,7 @@
       },
       {
         "id": "BR-4",
-        "rule": "The new-MO product picker filters out products whose active BOM has no non-deleted ingredients. getManufacturingProductTemplates returns products WHERE itemType='product' AND deletedAt IS NULL AND isMaster=false, then filters out any whose bomByProduct entry is empty.",
+        "rule": "The new-MO product picker filters out products whose active BOM has no non-deleted ingredients. getManufacturingProductTemplates returns concrete family-backed products WHERE itemType='product' AND deletedAt IS NULL AND familyId IS NOT NULL, then filters out any whose bomByProduct entry is empty.",
         "evidence": [
           {
             "file": "app/(dashboard)/manufacturing/queries.ts",
