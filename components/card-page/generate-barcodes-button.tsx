@@ -34,9 +34,9 @@ export function GenerateBarcodesButton({
   disabled,
 }: GenerateBarcodesButtonProps) {
   const queryClient = useQueryClient();
-  const candidates = variants.filter(
-    (variant) => variant.deletedAt == null && !variant.internalBarcode,
-  );
+  const visibleVariants = variants.filter((variant) => variant.deletedAt == null);
+  const candidates = visibleVariants.filter((variant) => !variant.internalBarcode);
+  const hasVariants = visibleVariants.length > 0;
 
   const mutation = useMutation({
     mutationKey: ["item-card", cardItemId, "generate-internal-barcodes"],
@@ -75,14 +75,14 @@ export function GenerateBarcodesButton({
         onClick={() => mutation.mutate()}
         disabled={disabled || mutation.isPending || candidates.length === 0}
         title={
-          candidates.length === 0
+          hasVariants && candidates.length === 0
             ? "All variants already have internal barcodes."
             : undefined
         }
       >
         {mutation.isPending
           ? "Assigning…"
-          : candidates.length === 0
+          : hasVariants && candidates.length === 0
           ? "Internal barcodes assigned"
           : "Generate internal barcodes"}
       </Button>
