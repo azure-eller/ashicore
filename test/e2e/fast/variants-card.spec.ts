@@ -69,14 +69,16 @@ test.describe("variant-first item card", () => {
 
   test("configures options + generates variants via the dialog", async ({ page, db }) => {
     await openVariantConfiguration(page);
+    const dialog = page.getByRole("dialog", {
+      name: "Product variant configuration",
+    });
 
     await page.getByRole("button", { name: "Add option" }).click();
-    await expect(
-      page.getByPlaceholder("e.g. Package, Size, Blend"),
-    ).toBeVisible({ timeout: 15_000 });
-    await page.getByPlaceholder("e.g. Package, Size, Blend").fill("Package");
+    const optionInputs = dialog.getByRole("textbox");
+    await expect(optionInputs.first()).toBeVisible({ timeout: 15_000 });
+    await optionInputs.first().fill("Package");
 
-    const valueInput = page.getByPlaceholder("e.g. 1cf bag, 2cf bag");
+    const valueInput = optionInputs.nth(1);
     await valueInput.fill("1cf bag");
     await valueInput.press("Enter");
     await valueInput.fill("2cf bag");
