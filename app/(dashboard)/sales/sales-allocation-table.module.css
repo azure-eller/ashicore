@@ -166,7 +166,7 @@
 .statusStatSquare[data-tone="late"]     { background: var(--color-danger); }
 .statusStatSquare[data-tone="short"]    { background: var(--color-warning); }
 .statusStatSquare[data-tone="complete"] { background: var(--color-success); }
-.statusStatSquare[data-tone="variants"] { background: var(--color-accent); }
+.statusStatSquare[data-tone="variants"] { background: var(--color-danger); }
 
 .toolbarRefreshed {
   color: var(--color-muted);
@@ -513,8 +513,7 @@
     0 0 8px color-mix(in oklch, var(--alloc-demand) 38%, transparent);
 }
 
-.miniSquare[data-status="waiting"],
-.miniSquare[data-status="production"] {
+.miniSquare[data-status="waiting"] {
   background: var(--alloc-production);
   box-shadow:
     0 0 2px color-mix(in oklch, var(--alloc-production) 90%, transparent),

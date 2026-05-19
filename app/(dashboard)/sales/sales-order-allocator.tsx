@@ -73,6 +73,14 @@ function quantityString(value: number) {
   return value.toFixed(4).replace(/\.?0+$/, "");
 }
 
+function draftSignature(draft: SourceDraft) {
+  return Object.entries(draft)
+    .filter(([, value]) => parseQuantity(value) > 0)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}:${quantityString(parseQuantity(value))}`)
+    .join("|");
+}
+
 function isAllocationDraft(value: string) {
   return value === "" || /^\d*\.?\d{0,4}$/.test(value);
 }
@@ -373,10 +381,6 @@ function AllocationSourceEditor({
     (sum, value) => sum + parseQuantity(value),
     0
   );
-  const initialTotal = Object.values(initialDraft).reduce(
-    (sum, value) => sum + parseQuantity(value),
-    0
-  );
   const remainingToAssign = targetQty - selectedTotal;
   const progressTone = selectedTotal >= targetQty && targetQty > 0 ? "met" : "neutral";
   const statusTone =
@@ -385,7 +389,7 @@ function AllocationSourceEditor({
       : remainingToAssign > 0.0001
         ? "short"
         : "met";
-  const hasChanges = Math.abs(selectedTotal - initialTotal) > 0.0001;
+  const hasChanges = draftSignature(draft) !== draftSignature(initialDraft);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -444,8 +448,18 @@ function AllocationSourceEditor({
       if (value.trim() === "" || !Number.isFinite(parsed) || parsed <= 0) {
         delete next[key];
       } else {
+        const selectedElsewhere = Object.entries(next).reduce(
+          (sum, [draftKey, draftValue]) =>
+            draftKey === key ? sum : sum + parseQuantity(draftValue),
+          0
+        );
+        const remainingForSource = Math.max(0, targetQty - selectedElsewhere);
         next[key] = quantityString(
-          Math.min(parsed, parseQuantity(source.maxQtyForPrimaryDemand))
+          Math.min(
+            parsed,
+            parseQuantity(source.maxQtyForPrimaryDemand),
+            remainingForSource
+          )
         );
       }
       return next;
@@ -556,6 +570,15 @@ function AllocationSourceEditor({
                 const key = sourceInputKey(source);
                 const claims = claimsBySource.get(key) ?? [];
                 const free = parseQuantity(source.maxQtyForPrimaryDemand);
+                const selectedElsewhere = Object.entries(draft).reduce(
+                  (sum, [draftKey, draftValue]) =>
+                    draftKey === key ? sum : sum + parseQuantity(draftValue),
+                  0
+                );
+                const maxForSource = Math.max(
+                  0,
+                  Math.min(free, targetQty - selectedElsewhere)
+                );
                 const onHand = parseQuantity(source.totalQty);
                 const fullyClaimed = onHand > 0 && free <= 0;
                 const sourceMeta = sourceMetaLabel(source);
@@ -681,11 +704,11 @@ function AllocationSourceEditor({
                       <Input
                         type="number"
                         min="0"
-                        max={quantityString(free)}
+                        max={quantityString(maxForSource)}
                         step="any"
                         value={draft[key] ?? ""}
                         placeholder="0"
-                        disabled={free <= 0}
+                        disabled={maxForSource <= 0}
                         onChange={(event) =>
                           updateSource(source, event.target.value.trim())
                         }

@@ -644,11 +644,12 @@ function getCoverage(products: AllocationProduct[], rows: AllocationRow[]) {
 
 function getCellStatus(cell: Pick<AllocationCell, "alloc" | "demand" | "line"> | null) {
   if (!cell || cell.demand <= 0) return "empty";
-  if (cell.line.allocationDemandType === "manufacturing_order_ingredient") {
-    return "production";
-  }
+  const isManufacturingDemand =
+    cell.line.allocationDemandType === "manufacturing_order_ingredient";
   if (cell.alloc <= 0) return "zero";
-  if (cell.line.allocationStatus === "waiting_production") return "waiting";
+  if (!isManufacturingDemand && cell.line.allocationStatus === "waiting_production") {
+    return "waiting";
+  }
   if (cell.alloc >= cell.demand) return "full";
   return "part";
 }

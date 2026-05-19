@@ -345,24 +345,35 @@ export async function getAllocationWorkspaceInTx(
     ...claim,
     sourceLabel: sourceLabels.get(sourceKey(claim)) ?? claim.sourceLabel,
   }));
-  const sourceClaims: AllocationSourceClaim[] = [
-    ...assignments.map((assignment) => {
-      const demand = demandAdapterRows.find(
-        (row) => demandKey(row) === demandKey(assignment)
-      );
-      return {
-        ...assignment,
-        contextLabel: demand?.contextLabel ?? null,
-        requiredDate: demand?.requiredDate ?? null,
-        href: assignment.salesOrderId
-          ? `/sales/orders/${assignment.salesOrderId}`
-          : assignment.demandType === "sales_order_line" && demand?.parentDemandId
-            ? `/sales/orders/${demand.parentDemandId}`
-            : assignment.href,
-      };
-    }),
-    ...productionClaims,
-  ];
+  const assignmentClaims: AllocationSourceClaim[] = assignments.map((assignment) => {
+    const demand = demandAdapterRows.find(
+      (row) => demandKey(row) === demandKey(assignment)
+    );
+    return {
+      ...assignment,
+      contextLabel: demand?.contextLabel ?? null,
+      requiredDate: demand?.requiredDate ?? null,
+      href: assignment.salesOrderId
+        ? `/sales/orders/${assignment.salesOrderId}`
+        : assignment.demandType === "sales_order_line" && demand?.parentDemandId
+          ? `/sales/orders/${demand.parentDemandId}`
+          : assignment.href,
+    };
+  });
+  const sourceClaimsByKey = new Map<string, AllocationSourceClaim>();
+  [...assignmentClaims, ...productionClaims].forEach((claim) => {
+    const key = [
+      claim.demandType,
+      claim.demandId,
+      claim.sourceType,
+      claim.sourceId,
+      claim.itemId,
+    ].join(":");
+    if (!sourceClaimsByKey.has(key)) {
+      sourceClaimsByKey.set(key, claim);
+    }
+  });
+  const sourceClaims = [...sourceClaimsByKey.values()];
 
   const assignmentsByDemand = new Map<string, AllocationAssignment[]>();
   for (const assignment of assignments) {
