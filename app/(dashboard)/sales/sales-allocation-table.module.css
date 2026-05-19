@@ -524,23 +524,17 @@
 
 .miniSquare[data-status="full"] {
   background: var(--alloc-supply);
-  box-shadow:
-    0 0 2px color-mix(in oklch, var(--alloc-supply) 90%, transparent),
-    0 0 8px color-mix(in oklch, var(--alloc-supply) 42%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--alloc-supply) 36%, var(--color-line));
 }
 
 .miniSquare[data-status="part"] {
   background: var(--alloc-demand);
-  box-shadow:
-    0 0 2px color-mix(in oklch, var(--alloc-demand) 90%, transparent),
-    0 0 8px color-mix(in oklch, var(--alloc-demand) 38%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--alloc-demand) 36%, var(--color-line));
 }
 
 .miniSquare[data-status="waiting"] {
   background: var(--alloc-production);
-  box-shadow:
-    0 0 2px color-mix(in oklch, var(--alloc-production) 90%, transparent),
-    0 0 8px color-mix(in oklch, var(--alloc-production) 38%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--alloc-production) 36%, var(--color-line));
 }
 
 .miniSquare[data-status="zero"] {
@@ -591,23 +585,17 @@
 
 .coverageMeterFill[data-tone="ok"] {
   background: var(--alloc-supply);
-  box-shadow:
-    0 0 2px color-mix(in oklch, var(--alloc-supply) 82%, transparent),
-    0 0 8px color-mix(in oklch, var(--alloc-supply) 34%, transparent);
+  box-shadow: none;
 }
 
 .coverageMeterFill[data-tone="tight"] {
   background: var(--alloc-demand);
-  box-shadow:
-    0 0 2px color-mix(in oklch, var(--alloc-demand) 82%, transparent),
-    0 0 8px color-mix(in oklch, var(--alloc-demand) 34%, transparent);
+  box-shadow: none;
 }
 
 .coverageMeterFill[data-tone="short"] {
   background: var(--alloc-short);
-  box-shadow:
-    0 0 2px color-mix(in oklch, var(--alloc-short) 82%, transparent),
-    0 0 8px color-mix(in oklch, var(--alloc-short) 34%, transparent);
+  box-shadow: none;
 }
 
 .coverageSub {
