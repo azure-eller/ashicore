@@ -15,10 +15,6 @@ export function resolveSeedSellable(
   seed: ItemSeed,
   internalOnlyProductCategories?: Set<string>
 ) {
-  if (seed.isMaster) {
-    return null;
-  }
-
   if (seed.sellable !== undefined) {
     return seed.sellable;
   }
@@ -206,16 +202,7 @@ export function resolveSeedOpeningUnitCost(
 }
 
 export function orderSeedsForSync(itemSeeds: ItemSeed[]) {
-  return [...itemSeeds].sort((left, right) => {
-    const leftRank = left.isMaster ? 0 : 1;
-    const rightRank = right.isMaster ? 0 : 1;
-
-    if (leftRank !== rightRank) {
-      return leftRank - rightRank;
-    }
-
-    return 0;
-  });
+  return [...itemSeeds];
 }
 
 export function findExistingItem(

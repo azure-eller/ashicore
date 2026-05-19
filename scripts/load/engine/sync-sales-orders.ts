@@ -542,7 +542,7 @@ export async function evaluateSalesImportInTx(
       }
 
       const existingItem = findExistingItem(seed, existingItemsBySku, existingItemsByName, {
-        nameMatchPredicate: (item) => item.isMaster !== true,
+        nameMatchPredicate: (item) => item.familyId != null,
       });
       if (!existingItem || existingItem.deletedAt) {
         issues.push(`${line.raw} -> Item "${seed.name}" is missing from active catalog.`);

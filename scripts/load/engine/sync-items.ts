@@ -99,14 +99,6 @@ async function prepareVariantFamiliesInTx(
 
   const familySeedByKey = new Map<string, ItemSeed>();
   for (const seed of variantSeeds) {
-    if (seed.isMaster) {
-      throw new Error(`${seed.key} cannot be both a family variant and a legacy master.`);
-    }
-    if (seed.parentKey || seed.variantAxes || seed.variantAttrs) {
-      throw new Error(
-        `${seed.key} uses normalized family fields and must not set parentKey, variantAxes, or variantAttrs.`
-      );
-    }
     const existing = familySeedByKey.get(seed.familyKey!);
     if (existing) {
       assertCompatibleFamilySeed(existing, seed);
@@ -325,7 +317,7 @@ async function prepareDefaultFamiliesInTx(
   existingAssignmentBySeedKey: Map<string, VariantAssignmentTarget>
 ) {
   const defaultSeeds = seeds.filter(
-    (seed) => !seed.isMaster && seed.familyKey == null
+    (seed) => seed.familyKey == null
   );
   if (defaultSeeds.length === 0) return existingAssignmentBySeedKey;
 
@@ -454,10 +446,7 @@ export async function loadExistingItemsInTx(tx: Tx): Promise<ExistingItem[]> {
       typicalGroupSize: items.typicalGroupSize,
       bomLocked: items.bomLocked,
       safetyStock: items.safetyStock,
-      isMaster: items.isMaster,
       parentId: items.parentId,
-      variantAxes: items.variantAxes,
-      variantAttrs: items.variantAttrs,
       sellable: items.sellable,
       familyId: items.familyId,
       optionCombinationKey: items.optionCombinationKey,
@@ -495,15 +484,12 @@ export function planItemsSync(
   const orderedSeeds = orderSeedsForSync(seeds);
 
   for (const seed of orderedSeeds) {
-    const isMaster = seed.isMaster === true;
     const existing = findExistingItem(seed, existingItemsBySku, existingItemsByName, {
       allowNameMatch: true,
-      nameMatchPredicate: isMaster
-        ? (item) => item.isMaster === true
-        : (item) => item.isMaster !== true,
+      nameMatchPredicate: (item) => item.familyId != null,
     });
     const desiredUnitSeed = seed.unitKey ? unitByKey.get(seed.unitKey) : null;
-    if (!isMaster && !desiredUnitSeed) {
+    if (!desiredUnitSeed) {
       throw new Error(`Unknown unit key "${seed.unitKey}" for ${seed.name}.`);
     }
     const desiredUnit = desiredUnitSeed
@@ -520,11 +506,7 @@ export function planItemsSync(
       existing.sku !== seed.sku ||
       existing.name !== seed.name ||
       existing.itemType !== seed.itemType ||
-      (isMaster
-        ? existing.unitDefinitionId !== null
-        : desiredUnit
-          ? existing.unitDefinitionId !== desiredUnit.id
-          : true) ||
+      (desiredUnit ? existing.unitDefinitionId !== desiredUnit.id : true) ||
       (existing.category ?? null) !== seed.category ||
       (existing.description ?? null) !== seed.description ||
       (seed.defaultPurchasePrice !== undefined &&
@@ -543,9 +525,7 @@ export function planItemsSync(
         !numericStringEquals(existing.typicalGroupSize, seed.typicalGroupSize)) ||
       (seed.bomLocked !== undefined && existing.bomLocked !== seed.bomLocked) ||
       (seed.safetyStock !== undefined &&
-        !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0")) ||
-      JSON.stringify(existing.variantAxes ?? null) !== JSON.stringify(seed.variantAxes ?? null) ||
-      JSON.stringify(existing.variantAttrs ?? null) !== JSON.stringify(seed.variantAttrs ?? null)
+        !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0"))
     ) {
       matchedItemByKey.set(seed.key, existing);
       report.updatedItems.push(seed.name);
@@ -569,9 +549,7 @@ export async function applyItemsSyncInTx(
   itemByName: Map<string, ExistingItem[]>,
   itemIdByKey: Map<string, string>,
   report: Report,
-  internalOnlyProductCategories?: Set<string>,
-  obsoleteMasterSkus: string[] = [],
-  obsoleteMasterNames: string[] = []
+  internalOnlyProductCategories?: Set<string>
 ) {
   const orderedSeeds = orderSeedsForSync(seeds);
   const variantAssignmentBySeedKey = await prepareDefaultFamiliesInTx(
@@ -583,25 +561,18 @@ export async function applyItemsSyncInTx(
   );
 
   for (const seed of orderedSeeds) {
-    const isMaster = seed.isMaster === true;
     const variantAssignment = variantAssignmentBySeedKey.get(seed.key);
     const unitDefinitionId = seed.unitKey ? unitIdByKey.get(seed.unitKey) : null;
-    if (!isMaster && !unitDefinitionId) {
+    if (!unitDefinitionId) {
       throw new Error(`Unit key "${seed.unitKey}" was not resolved for ${seed.name}.`);
     }
 
     const purchaseUnitDefinitionId = seed.purchaseUnitKey
       ? unitIdByKey.get(seed.purchaseUnitKey) ?? null
       : undefined;
-    const resolvedParentId = seed.parentKey
-      ? itemIdByKey.get(seed.parentKey) ?? null
-      : null;
-
     const existing = findExistingItem(seed, itemBySku, itemByName, {
       allowNameMatch: true,
-      nameMatchPredicate: isMaster
-        ? (item) => item.isMaster === true
-        : (item) => item.isMaster !== true,
+      nameMatchPredicate: (item) => item.familyId != null,
     });
     if (!existing) {
       const sellable = resolveSeedSellable(seed, internalOnlyProductCategories);
@@ -628,10 +599,10 @@ export async function applyItemsSyncInTx(
           bomLocked: seed.bomLocked ?? false,
           familyId: variantAssignment?.familyId ?? null,
           optionCombinationKey: variantAssignment?.optionCombinationKey ?? "",
-          isMaster: seed.isMaster ?? false,
-          parentId: resolvedParentId,
-          variantAxes: seed.variantAxes ?? null,
-          variantAttrs: seed.variantAttrs ?? null,
+          isMaster: false,
+          parentId: null,
+          variantAxes: null,
+          variantAttrs: null,
           sellable,
         })
         .returning({ id: items.id });
@@ -648,10 +619,10 @@ export async function applyItemsSyncInTx(
         description: seed.description,
         familyId: variantAssignment?.familyId ?? null,
         optionCombinationKey: variantAssignment?.optionCombinationKey ?? "",
-        isMaster: seed.isMaster ?? false,
-        parentId: resolvedParentId,
-        variantAxes: seed.variantAxes ?? null,
-        variantAttrs: seed.variantAttrs ?? null,
+        isMaster: false,
+        parentId: null,
+        variantAxes: null,
+        variantAttrs: null,
         sellable,
         deletedAt: null,
         updatedAt: new Date(),
@@ -722,11 +693,8 @@ export async function applyItemsSyncInTx(
           !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0")) ||
         existing.familyId !== (variantAssignment?.familyId ?? null) ||
         existing.optionCombinationKey !== (variantAssignment?.optionCombinationKey ?? "") ||
-        existing.isMaster !== (seed.isMaster ?? false) ||
-        existing.parentId !== resolvedParentId ||
-        existing.sellable !== sellable ||
-        JSON.stringify(existing.variantAxes ?? null) !== JSON.stringify(seed.variantAxes ?? null) ||
-        JSON.stringify(existing.variantAttrs ?? null) !== JSON.stringify(seed.variantAttrs ?? null);
+        existing.parentId !== null ||
+        existing.sellable !== sellable;
 
       if (hasChanges) {
         await tx.update(items).set(nextValues).where(eq(items.id, existing.id));
@@ -760,24 +728,6 @@ export async function applyItemsSyncInTx(
     }
   }
 
-  // Second pass: ensure parent IDs are wired up after all items exist.
-  for (const seed of orderedSeeds) {
-    if (!seed.parentKey) continue;
-
-    const itemId = itemIdByKey.get(seed.key);
-    const parentId = itemIdByKey.get(seed.parentKey);
-
-    if (!itemId || !parentId) continue;
-
-    await tx
-      .update(items)
-      .set({
-        parentId,
-        updatedAt: new Date(),
-      })
-      .where(eq(items.id, itemId));
-  }
-
   await tx
     .update(itemFamilies)
     .set({ deletedAt: new Date(), updatedAt: new Date() })
@@ -798,37 +748,10 @@ export async function applyItemsSyncInTx(
                   FROM inventory.items active_item
                   WHERE active_item.family_id = ${itemFamilies.id}
                     AND active_item.deleted_at IS NULL
-                    AND active_item.is_master = false
                 )`
               )
             )
         )
       )
     );
-
-  if (obsoleteMasterSkus.length > 0) {
-    await tx
-      .update(items)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(
-        and(
-          eq(items.isMaster, true),
-          isNull(items.deletedAt),
-          inArray(items.sku, obsoleteMasterSkus)
-        )
-      );
-  }
-
-  if (obsoleteMasterNames.length > 0) {
-    await tx
-      .update(items)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(
-        and(
-          eq(items.isMaster, true),
-          isNull(items.deletedAt),
-          inArray(items.name, obsoleteMasterNames)
-        )
-      );
-  }
 }

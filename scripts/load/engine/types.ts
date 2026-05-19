@@ -52,10 +52,6 @@ export type ItemSeed = {
   unresolvedFormulaNote?: string;
   legacySkus?: string[];
   legacyNames?: string[];
-  isMaster?: boolean;
-  parentKey?: string;
-  variantAxes?: string[];
-  variantAttrs?: Record<string, string>;
   familyKey?: string;
   familyName?: string;
   familyCategory?: string;
@@ -96,10 +92,7 @@ export type ExistingItem = {
   typicalGroupSize: string | null;
   bomLocked: boolean;
   safetyStock: string;
-  isMaster: boolean;
   parentId: string | null;
-  variantAxes: string[] | null;
-  variantAttrs: Record<string, string> | null;
   sellable: boolean | null;
   familyId: string | null;
   optionCombinationKey: string;
@@ -355,8 +348,6 @@ export type LoaderConfig = {
   suppliers?: SupplierSeed[];
   openingLotPrefix: string;
   internalOnlyProductCategories?: Set<string>;
-  obsoleteMasterSkus?: string[];
-  obsoleteMasterNames?: string[];
   bomRevisionNote?: string;
   salesImport?: SalesImportConfig;
   onProgress?: (message: string) => void;
