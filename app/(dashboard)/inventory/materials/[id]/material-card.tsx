@@ -171,7 +171,7 @@ export function MaterialCard({
 
       <CardTabs
         tabs={tabs}
-        defaultTab="general"
+        defaultTab={isDraft ? "general" : "used-in-boms"}
         caption={
           avgIngredientsCost == null
             ? "Ingredients · — avg"
