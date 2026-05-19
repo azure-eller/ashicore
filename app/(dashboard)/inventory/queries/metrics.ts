@@ -44,7 +44,6 @@ export function formatAverageMargin(values: number[]) {
 export function applyMarginTiers(rows: ItemRow[]) {
   const allRows = rows.flatMap((row) => [row, ...(row.subRows ?? [])]);
   const marginValues = allRows
-    .filter((row) => !row.isMaster)
     .map((row) => row.marginPercent)
     .filter((value): value is string => value != null)
     .map((value) => Number.parseFloat(value))

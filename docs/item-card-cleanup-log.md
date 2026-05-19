@@ -22,14 +22,12 @@ model after the item-card UI and mobile clients are migrated.
   and display `displayName`.
 - Paonia loader creates package-first `item_families`, normalized options/values,
   and concrete operational variants for soil bag/tote products directly. It no
-  longer seeds fake masters for those SKUs.
+  longer supports fake-master seed fields.
 - Fast and slow inventory suites cover card create/update/delete, variant
   generation/promotion, duplicate-combination warnings, disabled historical
   values, BOM copy, and picker contracts.
 
 ## Deprecated Routes And Forms
-
-Remove only after the stabilization gates are met.
 
 - `/inventory/products/[id]/variants/new` removed.
 - Legacy variant form components that write `variantAxes` or `variantAttrs`
@@ -42,9 +40,14 @@ Remove only after the stabilization gates are met.
   test helper writes removed.
 - Legacy `/api/items/:id/variants` route and `getVariants()` read helper removed.
 - Legacy master/variant Zod schemas removed from `lib/schemas/items.ts`.
-- Product/material edit controls that send family-owned fields through
-  `/api/items/:id`
-- Any route logic branching on `isMaster` for editable product identity
+- Legacy variant display fallbacks removed from inventory, sales,
+  manufacturing, planning, allocation, and ledger read models.
+
+Still live until card create and inline BOM/operations editing replace them:
+
+- `/inventory/products/new` and `/inventory/materials/new`
+- `/inventory/products/[id]/edit` and `/inventory/materials/[id]/edit`
+- `PUT /api/items/:id` for per-variant stock/cost/BOM/operation edits
 
 Grep targets:
 
@@ -99,8 +102,7 @@ Migration sequence:
 
 - Purchasing should read material default supplier, purchase unit, and conversion
   from `item_families`.
-- Sales/manufacturing/planning/stocktake/accounting exports should prefer
-  `displayName` or normalized option metadata where currently showing raw
-  `items.name`.
+- Accounting exports should prefer `displayName` or normalized option metadata
+  where currently showing raw `items.name`.
 - BOM copy remains explicit per concrete product variant; do not introduce live
   family-level BOM inheritance.
