@@ -1168,6 +1168,9 @@ function AllocationProductCell({
   const allocationLabel = cell
     ? `${compactQuantity(cell.alloc)} / ${compactQuantity(cell.demand)}`
     : "0 / 0";
+  const allocatedText = cell ? compactQuantity(cell.alloc) : "0";
+  const demandText = cell ? compactQuantity(cell.demand) : "0";
+  const shouldWrapQuantity = `${allocatedText}/${demandText}`.length > 9;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -1185,10 +1188,13 @@ function AllocationProductCell({
             data-status={status}
             aria-hidden="true"
           />
-          <span className={styles.allocationCellText}>
-            <span>{cell ? compactQuantity(cell.alloc) : "0"}</span>
+          <span
+            className={styles.allocationCellText}
+            data-wrap={shouldWrapQuantity ? "true" : undefined}
+          >
+            <span>{allocatedText}</span>
             <span className={styles.allocationCellQty}>
-              / {cell ? compactQuantity(cell.demand) : "0"}
+              / {demandText}
             </span>
           </span>
         </button>
