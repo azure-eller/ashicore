@@ -517,14 +517,6 @@
     0 0 8px color-mix(in oklch, var(--alloc-production) 38%, transparent);
 }
 
-.sourceMiniBadge {
-  flex: 0 0 auto;
-  color: var(--alloc-production);
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  line-height: 1;
-}
-
 .miniSquare[data-status="zero"] {
   background: var(--alloc-disabled);
 }

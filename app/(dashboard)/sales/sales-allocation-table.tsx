@@ -1188,9 +1188,6 @@ function AllocationProductCell({
             data-status={status}
             aria-hidden="true"
           />
-          {status === "waiting" || status === "production" ? (
-            <span className={styles.sourceMiniBadge}>MO</span>
-          ) : null}
           <span className={styles.allocationCellText}>
             <span>{cell ? compactQuantity(cell.alloc) : "0"}</span>
             <span className={styles.allocationCellQty}>
