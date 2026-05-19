@@ -13,7 +13,6 @@ import {
   MoreVerticalIcon,
   PrinterIcon,
 } from "@hugeicons/core-free-icons";
-import { useRouter } from "next/navigation";
 import { formatDate } from "@/lib/format";
 import { useCardSaveStatus, type CardSaveStatus } from "./use-card-save-status";
 import styles from "./card-page.module.css";
@@ -53,7 +52,6 @@ export function CardPageHeader({
 }: CardPageHeaderProps) {
   const router = useRouter();
   const status = useCardSaveStatus(itemId);
-  const router = useRouter();
 
   const placeholderName = isDraft && !name.trim()
     ? `New ${typeLabel.toLowerCase()}`
