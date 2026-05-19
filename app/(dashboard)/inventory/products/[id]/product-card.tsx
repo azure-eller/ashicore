@@ -22,6 +22,7 @@ import {
   type ItemCardVariantDto,
 } from "@/lib/api/clients/item-cards";
 import { AddInitialStockDialog } from "@/components/card-page/add-initial-stock-dialog";
+import { LotGridTab, type CardLotRow } from "@/components/card-page/lot-grid-tab";
 import { VariantConfigurationDialog } from "@/components/card-page/variant-configuration-dialog";
 import { ProductGeneralInfoTab } from "./tabs/general-info";
 import { ProductRecipeTab } from "./tabs/recipe";
@@ -54,6 +55,7 @@ export type ProductCardProps = {
   initialBomRows: BomPayloadRow[];
   availableComponents: AvailableComponent[];
   canViewBom: boolean;
+  initialLots: CardLotRow[];
 };
 
 export function ProductCard({
@@ -63,6 +65,7 @@ export function ProductCard({
   initialBomRows,
   availableComponents,
   canViewBom,
+  initialLots,
 }: ProductCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -93,10 +96,11 @@ export function ProductCard({
   const tabs: CardTab[] = useMemo(
     () => [
       { value: "general", label: "General info" },
+      { value: "lots", label: "Lots", count: initialLots.length || undefined },
       { value: "recipe", label: "Product recipe / BOM" },
       { value: "operations", label: "Production operations" },
     ],
-    [],
+    [initialLots.length],
   );
 
   const visibleVariantCount = card.variants.filter(
@@ -136,6 +140,14 @@ export function ProductCard({
               initialBomRows={initialBomRows}
               availableComponents={availableComponents}
               canViewBom={canViewBom}
+            />
+          ),
+          lots: (
+            <LotGridTab
+              card={card}
+              focusItemId={initialItemId ?? ""}
+              lots={initialLots}
+              unitLabel={card.family.unitName}
             />
           ),
           operations: (

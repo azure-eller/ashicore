@@ -37,9 +37,10 @@ export default async function MaterialDetailPage({
       throw error;
     });
     if (cardResult) {
-      const [usedInParents, unitOptions] = await Promise.all([
+      const [usedInParents, unitOptions, lots] = await Promise.all([
         getUsedInParents(id),
         getUnitDefinitions(),
+        getLots(id),
       ]);
       return (
         <MaterialCard
@@ -52,6 +53,7 @@ export default async function MaterialDetailPage({
             size: unit.size,
             uom: unit.uom,
           }))}
+          initialLots={lots}
         />
       );
     }

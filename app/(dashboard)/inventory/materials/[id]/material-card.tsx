@@ -22,6 +22,7 @@ import {
   type ItemCardVariantDto,
 } from "@/lib/api/clients/item-cards";
 import { AddInitialStockDialog } from "@/components/card-page/add-initial-stock-dialog";
+import { LotGridTab, type CardLotRow } from "@/components/card-page/lot-grid-tab";
 import { VariantConfigurationDialog } from "@/components/card-page/variant-configuration-dialog";
 import { MaterialGeneralInfoTab } from "./tabs/general-info";
 import { MaterialUsedInBomsTab } from "./tabs/used-in-boms";
@@ -37,6 +38,7 @@ export type MaterialCardProps = {
     displayName: string;
   }>;
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
+  initialLots: CardLotRow[];
 };
 
 export function MaterialCard({
@@ -44,6 +46,7 @@ export function MaterialCard({
   initialCard,
   usedInBoms,
   unitOptions,
+  initialLots,
 }: MaterialCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -74,6 +77,7 @@ export function MaterialCard({
   const tabs: CardTab[] = useMemo(
     () => [
       { value: "general", label: "General info" },
+      { value: "lots", label: "Lots", count: initialLots.length || undefined },
       {
         value: "used-in-boms",
         label: "Used in BOMs",
@@ -81,7 +85,7 @@ export function MaterialCard({
       },
       { value: "supply", label: "Supply details" },
     ],
-    [usedInBoms.length],
+    [initialLots.length, usedInBoms.length],
   );
 
   const visibleVariantCount = card.variants.filter(
@@ -112,6 +116,14 @@ export function MaterialCard({
               unitOptions={unitOptions}
               onOpenConfig={() => setConfigOpen(true)}
               onAddInitialStock={(variant) => setStockDialogVariant(variant)}
+            />
+          ),
+          lots: (
+            <LotGridTab
+              card={card}
+              focusItemId={initialItemId ?? ""}
+              lots={initialLots}
+              unitLabel={card.family.unitName}
             />
           ),
           "used-in-boms": <MaterialUsedInBomsTab usedInBoms={usedInBoms} />,

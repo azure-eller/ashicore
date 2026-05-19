@@ -47,6 +47,7 @@ export default async function NewMaterialPage() {
         size: unit.size,
         uom: unit.uom,
       }))}
+      initialLots={[]}
     />
   );
 }

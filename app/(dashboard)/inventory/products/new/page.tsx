@@ -68,6 +68,7 @@ export default async function NewProductPage() {
       initialBomRows={[]}
       availableComponents={[]}
       canViewBom={false}
+      initialLots={[]}
     />
   );
 }

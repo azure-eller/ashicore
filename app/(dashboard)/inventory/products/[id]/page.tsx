@@ -45,10 +45,11 @@ export default async function ProductDetailPage({
       const canViewBom = item.bomLocked
         ? canViewLockedBom(context.assignedRoles)
         : canViewUnlockedBom(context.assignedRoles);
-      const [unitOptions, bomRows, availableComponents] = await Promise.all([
+      const [unitOptions, bomRows, availableComponents, lots] = await Promise.all([
         getUnitDefinitions(),
         canViewBom ? getBomComponents(id) : Promise.resolve([]),
         getAvailableComponents(id),
+        getLots(id),
       ]);
       return (
         <ProductCard
@@ -94,6 +95,7 @@ export default async function ProductDetailPage({
             unit: component.unit,
           }))}
           canViewBom={canViewBom}
+          initialLots={lots}
         />
       );
     }
