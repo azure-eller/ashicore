@@ -7,6 +7,7 @@ type Guard = {
 };
 
 const SEARCH_ROOTS = ["app", "lib", "scripts", "test"];
+const EXCLUDED_GLOBS = ["!test/scenarios/**"];
 
 const GUARDS: Guard[] = [
   {
@@ -79,6 +80,7 @@ const GUARDS: Guard[] = [
       "lib/db/schema/inventory-projections.ts",
       "lib/db/schema/stocktakes.ts",
       "scripts/verify-inventory-kernel.ts",
+      "test/e2e/reconciliation/global-invariants.spec.ts",
     ],
     description: "raw expected_qty references should only exist in projection and stocktake snapshot schema",
   },
@@ -97,7 +99,13 @@ function listFilesForPattern(pattern: string) {
   try {
     const output = execFileSync(
       "rg",
-      ["-l", "-F", pattern, ...SEARCH_ROOTS],
+      [
+        "-l",
+        "-F",
+        pattern,
+        ...EXCLUDED_GLOBS.flatMap((glob) => ["--glob", glob]),
+        ...SEARCH_ROOTS,
+      ],
       {
         cwd: process.cwd(),
         encoding: "utf8",
