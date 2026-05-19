@@ -1,6 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import {
   inventoryLotBalances,
+  manufacturingOrderIngredients,
   manufacturingOrders,
   stockAllocations,
 } from "@/lib/db/schema";
@@ -28,7 +29,11 @@ function quantityString(value: number) {
 }
 
 function isDemandType(value: string): value is AllocationDemandType {
-  return value === "sales_order_line" || value === "sales_shipment_line";
+  return (
+    value === "sales_order_line" ||
+    value === "sales_shipment_line" ||
+    value === "manufacturing_order_ingredient"
+  );
 }
 
 function isSourceType(value: string): value is AllocationSourceType {
@@ -90,6 +95,21 @@ async function validateSourceInTx(
     toQuantity(row.remainingExpectedQty) <= 0
   ) {
     throw new AllocationError("Manufacturing order source is not available.", 409);
+  }
+
+  if (params.demandType === "manufacturing_order_ingredient") {
+    const [ingredient] = await tx
+      .select({
+        manufacturingOrderId: manufacturingOrderIngredients.manufacturingOrderId,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.id, params.demandId));
+    if (ingredient?.manufacturingOrderId === params.sourceId) {
+      throw new AllocationError(
+        "A manufacturing order cannot allocate output to its own ingredient demand.",
+        409
+      );
+    }
   }
 }
 

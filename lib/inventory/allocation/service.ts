@@ -6,6 +6,7 @@ import type { AllocationDemandRef, SaveAllocationsForDemandInput } from "./types
 export async function getAllocationWorkspace(params: {
   primaryDemand?: AllocationDemandRef | null;
   itemId?: string | null;
+  includeManufacturingDemand?: boolean;
 }) {
   return withAuthedOrgContext((tx, organizationId) =>
     getAllocationWorkspaceInTx(tx, { organizationId, ...params })

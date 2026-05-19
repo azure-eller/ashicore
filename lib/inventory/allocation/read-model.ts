@@ -85,6 +85,14 @@ async function loadAssignmentsForItemInTx(
     salesOrders,
     "allocation_assignment_sales_shipment_order_refs"
   );
+  const allocationManufacturingIngredientRefs = alias(
+    manufacturingOrderIngredients,
+    "allocation_assignment_manufacturing_ingredient_refs"
+  );
+  const allocationManufacturingOrderRefs = alias(
+    manufacturingOrders,
+    "allocation_assignment_manufacturing_order_refs"
+  );
 
   const rows = await tx
     .select({
@@ -101,6 +109,8 @@ async function loadAssignmentsForItemInTx(
       salesOrderIdFromShipment: allocationShipmentOrderRefs.id,
       salesOrderNumberFromShipment: allocationShipmentOrderRefs.orderNumber,
       shipmentNumber: allocationShipmentRefs.shipmentNumber,
+      manufacturingOrderId: allocationManufacturingOrderRefs.id,
+      manufacturingOrderNumber: allocationManufacturingOrderRefs.orderNumber,
     })
     .from(stockAllocations)
     .leftJoin(
@@ -126,6 +136,20 @@ async function loadAssignmentsForItemInTx(
       allocationShipmentOrderRefs,
       eq(allocationShipmentRefs.salesOrderId, allocationShipmentOrderRefs.id)
     )
+    .leftJoin(
+      allocationManufacturingIngredientRefs,
+      and(
+        eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
+        eq(stockAllocations.demandId, allocationManufacturingIngredientRefs.id)
+      )
+    )
+    .leftJoin(
+      allocationManufacturingOrderRefs,
+      eq(
+        allocationManufacturingIngredientRefs.manufacturingOrderId,
+        allocationManufacturingOrderRefs.id
+      )
+    )
     .where(
       and(
         eq(stockAllocations.organizationId, params.organizationId),
@@ -142,7 +166,8 @@ async function loadAssignmentsForItemInTx(
         sourceId: string;
       } =>
         (row.demandType === "sales_order_line" ||
-          row.demandType === "sales_shipment_line") &&
+          row.demandType === "sales_shipment_line" ||
+          row.demandType === "manufacturing_order_ingredient") &&
         (row.sourceType === "inventory_lot" ||
           row.sourceType === "manufacturing_order") &&
         row.sourceId != null
@@ -160,9 +185,16 @@ async function loadAssignmentsForItemInTx(
         row.salesOrderNumberFromLine ??
         row.shipmentNumber ??
         row.salesOrderNumberFromShipment ??
+        row.manufacturingOrderNumber ??
         row.demandId,
       sourceLabel: row.sourceLabelSnapshot ?? row.sourceId,
       salesOrderId: row.salesOrderIdFromLine ?? row.salesOrderIdFromShipment ?? null,
+      href:
+        row.salesOrderIdFromLine || row.salesOrderIdFromShipment
+          ? `/sales/orders/${row.salesOrderIdFromLine ?? row.salesOrderIdFromShipment}`
+          : row.manufacturingOrderId
+            ? `/manufacturing/orders/${row.manufacturingOrderId}`
+            : null,
     }));
 }
 
@@ -237,6 +269,7 @@ export async function getAllocationWorkspaceInTx(
     organizationId: string;
     primaryDemand?: AllocationDemandRef | null;
     itemId?: string | null;
+    includeManufacturingDemand?: boolean;
   }
 ): Promise<AllocationWorkspace | null> {
   const primaryDemand =
@@ -257,12 +290,18 @@ export async function getAllocationWorkspaceInTx(
 
   let demandAdapterRows = (
     await Promise.all(
-      allocationDemandAdapters.map((adapter) =>
-        adapter.loadOpenDemandsForItemInTx(tx, {
-          organizationId: params.organizationId,
-          itemId,
-        })
-      )
+      allocationDemandAdapters
+        .filter(
+          (adapter) =>
+            params.includeManufacturingDemand !== false ||
+            adapter.demandType !== "manufacturing_order_ingredient"
+        )
+        .map((adapter) =>
+          adapter.loadOpenDemandsForItemInTx(tx, {
+            organizationId: params.organizationId,
+            itemId,
+          })
+        )
     )
   )
     .flat()
@@ -319,7 +358,7 @@ export async function getAllocationWorkspaceInTx(
           ? `/sales/orders/${assignment.salesOrderId}`
           : assignment.demandType === "sales_order_line" && demand?.parentDemandId
             ? `/sales/orders/${demand.parentDemandId}`
-            : null,
+            : assignment.href,
       };
     }),
     ...productionClaims,
@@ -356,6 +395,8 @@ export async function getAllocationWorkspaceInTx(
       openQty: quantityString(openQty),
       allocatedQty: quantityString(allocatedQty),
       shortQty: quantityString(shortQty),
+      pickedQty: row.pickedQty ?? null,
+      href: row.href ?? null,
       isPrimary:
         params.primaryDemand?.demandType === row.demandType &&
         params.primaryDemand.demandId === row.demandId,

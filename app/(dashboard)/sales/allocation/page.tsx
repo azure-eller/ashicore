@@ -5,7 +5,9 @@ import {
   type AllocationPoolRow,
 } from "@/app/(dashboard)/sales/sales-allocation-table";
 import { getAuthedMemberContext, withAuthedOrgContext } from "@/lib/dal/auth";
+import { hasModuleAccess } from "@/lib/authz";
 import { getAllocationWorkspaceInTx } from "@/lib/inventory/allocation/read-model";
+import { getManufacturingAllocationDemandRowsInTx } from "@/lib/inventory/allocation/manufacturing-demands";
 import OrdersTableLoading from "../orders-table-loading";
 
 export default function SalesAllocationPage() {
@@ -21,17 +23,35 @@ async function SalesAllocationData() {
     getAuthedMemberContext(),
     getSalesOrders(),
   ]);
+  const canReadManufacturing = hasModuleAccess(
+    context.assignedRoles,
+    "manufacturing",
+    "read"
+  );
+  const manufacturingDemandRows = canReadManufacturing
+    ? await withAuthedOrgContext((tx, orgId) =>
+        getManufacturingAllocationDemandRowsInTx(tx, orgId)
+      )
+    : [];
   const initialPools = await getInitialAllocationPools(
-    orders.flatMap((order) =>
-      order.lines
-        .filter((line) => line.itemType === "product")
-        .map((line) => line.itemId)
-    )
+    [
+      ...orders.flatMap((order) =>
+        order.lines
+          .filter((line) => line.itemType === "product")
+          .map((line) => line.itemId)
+      ),
+      ...manufacturingDemandRows.flatMap((row) =>
+        row.ingredients.map((ingredient) => ingredient.itemId)
+      ),
+    ],
+    canReadManufacturing
   );
   return (
     <SalesAllocationTable
       initialData={orders}
       initialPools={initialPools}
+      initialManufacturingDemands={manufacturingDemandRows}
+      canReadManufacturing={canReadManufacturing}
       organizationId={context.orgId}
     />
   );
@@ -46,7 +66,10 @@ function quantityString(value: number) {
   return value.toFixed(4).replace(/\.?0+$/, "");
 }
 
-async function getInitialAllocationPools(itemIds: string[]): Promise<AllocationPoolRow[]> {
+async function getInitialAllocationPools(
+  itemIds: string[],
+  includeManufacturingDemand: boolean
+): Promise<AllocationPoolRow[]> {
   const uniqueItemIds = [...new Set(itemIds)];
   if (uniqueItemIds.length === 0) return [];
 
@@ -57,6 +80,7 @@ async function getInitialAllocationPools(itemIds: string[]): Promise<AllocationP
       const workspace = await getAllocationWorkspaceInTx(tx, {
         organizationId: orgId,
         itemId,
+        includeManufacturingDemand,
       });
 
       if (!workspace) {
@@ -65,6 +89,7 @@ async function getInitialAllocationPools(itemIds: string[]): Promise<AllocationP
           stockQty: "0",
           incomingQty: "0",
           allocatedQty: "0",
+          totalDemandQty: "0",
           assignments: [],
           reservations: [],
         });
@@ -73,12 +98,16 @@ async function getInitialAllocationPools(itemIds: string[]): Promise<AllocationP
 
       const stockQty = workspace.sources
         .filter((source) => source.sourceType === "inventory_lot")
-        .reduce((sum, source) => sum + toQuantity(source.freeQty), 0);
+        .reduce((sum, source) => sum + toQuantity(source.totalQty), 0);
       const incomingQty = workspace.sources
         .filter((source) => source.sourceType === "manufacturing_order")
-        .reduce((sum, source) => sum + toQuantity(source.freeQty), 0);
+        .reduce((sum, source) => sum + toQuantity(source.totalQty), 0);
       const allocatedQty = workspace.assignments.reduce(
         (sum, assignment) => sum + toQuantity(assignment.quantity),
+        0
+      );
+      const totalDemandQty = workspace.demands.reduce(
+        (sum, demand) => sum + toQuantity(demand.openQty),
         0
       );
 
@@ -87,6 +116,7 @@ async function getInitialAllocationPools(itemIds: string[]): Promise<AllocationP
         stockQty: quantityString(stockQty),
         incomingQty: quantityString(incomingQty),
         allocatedQty: quantityString(allocatedQty),
+        totalDemandQty: quantityString(totalDemandQty),
         assignments: workspace.assignments.map((assignment) => ({
           demandLabel: assignment.demandLabel,
           quantity: assignment.quantity,

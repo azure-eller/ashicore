@@ -6,7 +6,11 @@ import { AllocationError } from "@/lib/inventory/allocation/errors";
 import { saveAllocationWorkspace } from "@/lib/inventory/allocation/service";
 
 const saveSchema = z.object({
-  demandType: z.enum(["sales_order_line", "sales_shipment_line"]),
+  demandType: z.enum([
+    "sales_order_line",
+    "sales_shipment_line",
+    "manufacturing_order_ingredient",
+  ]),
   demandId: z.string().uuid(),
   itemId: z.string().uuid(),
   allocations: z
@@ -29,7 +33,10 @@ const saveSchema = z.object({
 
 export const POST = apiHandler(async (request: Request) => {
   const input = saveSchema.parse(await request.json());
-  await assertModuleWriteAccess("sales", request.headers);
+  await assertModuleWriteAccess(
+    input.demandType === "manufacturing_order_ingredient" ? "manufacturing" : "sales",
+    request.headers
+  );
 
   try {
     const workspace = await saveAllocationWorkspace(input);

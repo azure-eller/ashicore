@@ -50,7 +50,13 @@ export type AllocatorProduct = {
 };
 
 export type AllocationTarget = {
-  order: Pick<SalesOrderListRow, "id" | "orderNumber" | "customerName">;
+  demandType:
+    | "sales_order_line"
+    | "sales_shipment_line"
+    | "manufacturing_order_ingredient";
+  demandLabel: string;
+  demandContext: string;
+  order?: Pick<SalesOrderListRow, "id" | "orderNumber" | "customerName">;
   line: SalesOrderListLine & { id: string };
   product: AllocatorProduct;
   targetQty: string;
@@ -267,7 +273,7 @@ export function AllocationSourceDialog({
   const workspaceQuery = useQuery({
     queryKey: [
       "allocation-workspace",
-      target?.line.allocationDemandType ?? "sales_order_line",
+      target?.demandType ?? "sales_order_line",
       target?.line.id ?? null,
       target?.line.itemId ?? null,
     ],
@@ -277,7 +283,7 @@ export function AllocationSourceDialog({
         throw new Error("Allocation target missing.");
       }
       const params = new URLSearchParams({
-        demandType: target.line.allocationDemandType ?? "sales_order_line",
+        demandType: target.demandType,
         demandId: target.line.id,
         itemId: target.line.itemId,
       });
@@ -295,19 +301,7 @@ export function AllocationSourceDialog({
         <DialogHeader>
           <DialogTitle>Allocate {target?.product.label}</DialogTitle>
           <DialogDescription>
-            {target ? (
-              target.line.allocationDemandType === "sales_shipment_line" ? (
-                <>
-                  {target.order.customerName} · {target.line.shipmentNumber ?? target.order.orderNumber} · Planned shipment
-                </>
-              ) : (
-                <>
-                  {target.order.customerName} · {target.order.orderNumber} · Unplanned demand. Not assigned to a shipment yet.
-                </>
-              )
-            ) : (
-              ""
-            )}
+            {target ? `${target.demandLabel} · ${target.demandContext}` : ""}
           </DialogDescription>
         </DialogHeader>
 
@@ -398,7 +392,7 @@ function AllocationSourceEditor({
       await apiJson<AllocationWorkspace>("/api/allocation/save", {
         method: "POST",
         body: {
-          demandType: target.line.allocationDemandType ?? "sales_order_line",
+          demandType: target.demandType,
           demandId: target.line.id,
           itemId: target.line.itemId,
           allocations: Object.entries(draft)
@@ -427,6 +421,9 @@ function AllocationSourceEditor({
         queryClient.invalidateQueries({ queryKey: ["items"] }),
         queryClient.invalidateQueries({ queryKey: ["allocation-workspace"] }),
         queryClient.invalidateQueries({ queryKey: ["allocation-pools"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["allocation-manufacturing-demands"],
+        }),
       ]);
       onSaved();
     },
@@ -502,6 +499,9 @@ function AllocationSourceEditor({
             <span>Need</span>
             <strong>{formatQuantity(target.line.remainingQty ?? "0")}</strong>
             <span>{target.line.unitName}</span>
+            {target.line.pickedQty ? (
+              <em>Picked {formatQuantity(target.line.pickedQty)}</em>
+            ) : null}
           </div>
           <div className={styles.demandTrack}>
             <span

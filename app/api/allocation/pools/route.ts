@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { apiHandler } from "@/lib/api/handler";
-import { assertModuleReadAccess, withAuthedOrgContext } from "@/lib/dal/auth";
+import { getAuthedApiMemberContext, withAuthedOrgContext } from "@/lib/dal/auth";
+import { hasModuleAccess } from "@/lib/authz";
 import {
   inventoryReservationsSummary,
   salesOrderLines,
@@ -20,7 +21,19 @@ function quantityString(value: number) {
 }
 
 export const GET = apiHandler(async (request) => {
-  await assertModuleReadAccess("sales", request.headers);
+  const context = await getAuthedApiMemberContext(request.headers);
+  const canReadSales = hasModuleAccess(context.assignedRoles, "sales", "read");
+  const canReadManufacturing = hasModuleAccess(
+    context.assignedRoles,
+    "manufacturing",
+    "read"
+  );
+  if (!canReadSales && !canReadManufacturing) {
+    return NextResponse.json(
+      { error: "You do not have access to allocation." },
+      { status: 403 }
+    );
+  }
 
   const { searchParams } = new URL(request.url);
   const itemIds = [...new Set(searchParams.getAll("itemId"))].filter(Boolean);
@@ -72,6 +85,7 @@ export const GET = apiHandler(async (request) => {
       const workspace = await getAllocationWorkspaceInTx(tx, {
         organizationId: orgId,
         itemId,
+        includeManufacturingDemand: canReadManufacturing,
       });
 
       if (!workspace) {
@@ -80,6 +94,7 @@ export const GET = apiHandler(async (request) => {
           stockQty: "0",
           incomingQty: "0",
           allocatedQty: "0",
+          totalDemandQty: "0",
           assignments: [],
           reservations: reservationsByItemId.get(itemId) ?? [],
         });
@@ -88,12 +103,16 @@ export const GET = apiHandler(async (request) => {
 
       const stockQty = workspace.sources
         .filter((source) => source.sourceType === "inventory_lot")
-        .reduce((sum, source) => sum + toQuantity(source.freeQty), 0);
+        .reduce((sum, source) => sum + toQuantity(source.totalQty), 0);
       const incomingQty = workspace.sources
         .filter((source) => source.sourceType === "manufacturing_order")
-        .reduce((sum, source) => sum + toQuantity(source.freeQty), 0);
+        .reduce((sum, source) => sum + toQuantity(source.totalQty), 0);
       const allocatedQty = workspace.assignments.reduce(
         (sum, assignment) => sum + toQuantity(assignment.quantity),
+        0
+      );
+      const totalDemandQty = workspace.demands.reduce(
+        (sum, demand) => sum + toQuantity(demand.openQty),
         0
       );
 
@@ -102,6 +121,7 @@ export const GET = apiHandler(async (request) => {
         stockQty: quantityString(stockQty),
         incomingQty: quantityString(incomingQty),
         allocatedQty: quantityString(allocatedQty),
+        totalDemandQty: quantityString(totalDemandQty),
         assignments: workspace.assignments.map((assignment) => ({
           demandType: assignment.demandType,
           demandId: assignment.demandId,

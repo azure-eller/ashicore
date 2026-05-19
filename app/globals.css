@@ -182,6 +182,7 @@
   --alloc-supply: oklch(0.64 0.18 155);
   --alloc-click: oklch(0.64 0.2 270);
   --alloc-demand: oklch(0.76 0.17 80);
+  --alloc-production: oklch(0.64 0.2 250);
   --alloc-held: oklch(0.66 0.2 155);
   --alloc-drop: oklch(0.64 0.2 270);
   --alloc-short: oklch(0.64 0.24 25);
@@ -232,6 +233,7 @@
   --alloc-supply: oklch(0.78 0.18 155);
   --alloc-click: oklch(0.78 0.19 270);
   --alloc-demand: oklch(0.84 0.18 80);
+  --alloc-production: oklch(0.78 0.18 250);
   --alloc-held: oklch(0.78 0.18 155);
   --alloc-drop: oklch(0.78 0.19 270);
   --alloc-short: oklch(0.74 0.23 25);
