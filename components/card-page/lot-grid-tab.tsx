@@ -23,6 +23,8 @@ import {
 } from "@/components/editable-line-data-grid";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { LotDispositionActions } from "@/app/(dashboard)/inventory/lot-disposition-actions";
+import type { InventoryDisposition } from "@/lib/db/schema";
 import {
   formatCost,
   formatInventoryDisposition,
@@ -229,6 +231,32 @@ export function LotGridTab({
         cellRenderer: DispositionCell,
       },
       {
+        colId: "dispositionActions",
+        headerName: "",
+        flex: 1,
+        minWidth: 260,
+        cellRenderer: ({ data }: ICellRendererParams<CardLotRow>) => {
+          if (!data || !activeVariant) return null;
+          const balances = data.dispositionBalances.filter(
+            (balance) => toQuantity(balance.quantity) > 0,
+          );
+          if (balances.length === 0) return null;
+          return (
+            <div className="flex flex-col gap-(--space-2) py-(--space-1)">
+              {balances.map((balance) => (
+                <LotDispositionActions
+                  key={`${data.id}-${balance.disposition}`}
+                  itemId={activeVariant.id}
+                  lotId={data.id}
+                  fromDisposition={balance.disposition as InventoryDisposition}
+                  maxQuantity={balance.quantity}
+                />
+              ))}
+            </div>
+          );
+        },
+      },
+      {
         field: "costPerUnit",
         headerName: "Cost / unit",
         type: "rightAligned",
@@ -247,7 +275,7 @@ export function LotGridTab({
           value ? <DateTimeText value={value as Date | string} /> : "—",
       },
     ],
-    [unitLabel],
+    [activeVariant, unitLabel],
   );
 
   const handleVariantChange = (nextVariantId: string) => {

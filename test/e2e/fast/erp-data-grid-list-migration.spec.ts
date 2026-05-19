@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { expect, test, filterList } from "../fixtures";
-import { items, unitDefinitions } from "../../../lib/db/schema";
+import { itemFamilies, items, unitDefinitions } from "../../../lib/db/schema";
 import { readTestEnv } from "../../helpers/test-env";
 
 const { TEST_ORG_ID: testOrgId } = readTestEnv();
@@ -105,8 +105,20 @@ test("bulk delete failure keeps selection and shows the API error", async ({
       .returning({ id: unitDefinitions.id });
   }
 
+  const [family] = await db
+    .insert(itemFamilies)
+    .values({
+      organizationId: testOrgId,
+      name: materialName,
+      itemType: "material",
+      unitDefinitionId: unit.id,
+    })
+    .returning({ id: itemFamilies.id });
+
   await db.insert(items).values({
     organizationId: testOrgId,
+    familyId: family.id,
+    optionCombinationKey: "",
     name: materialName,
     sku: `DEL-FAIL-${Date.now()}`,
     itemType: "material",

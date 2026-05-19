@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,6 +51,7 @@ export function CardPageHeader({
   onDelete,
   deleteDisabledReason,
 }: CardPageHeaderProps) {
+  const router = useRouter();
   const status = useCardSaveStatus(itemId);
   const router = useRouter();
 
@@ -106,6 +108,26 @@ export function CardPageHeader({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {itemId ? (
+              <>
+                <DropdownMenuItem
+                  onSelect={() =>
+                    router.push(
+                      typeLabel === "Product"
+                        ? `/inventory/products/${itemId}/edit`
+                        : `/inventory/materials/${itemId}/edit`,
+                    )
+                  }
+                >
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => router.push(`/inventory/ledger?itemId=${itemId}`)}
+                >
+                  View inventory activity
+                </DropdownMenuItem>
+              </>
+            ) : null}
             {onDelete ? (
               <DropdownMenuItem
                 onSelect={() => {

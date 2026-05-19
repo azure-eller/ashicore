@@ -553,7 +553,7 @@ test.describe("Reservation correctness", () => {
 
     expect((await confirmSalesOrder(orderId)).status).toBe(200);
 
-    await page.goto(`/inventory/materials/${itemId}`);
+    await page.goto(`/inventory/materials/${itemId}?tab=general`);
     const commitmentCard = page
       .locator('[data-slot="card"]')
       .filter({ hasText: "Stock Commitments" });
