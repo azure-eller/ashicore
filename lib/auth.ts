@@ -249,8 +249,8 @@ export const auth = betterAuth({
           });
         },
       },
-      // Mobile devices should stay trusted until the auth cookies are cleared.
-      trustDeviceMaxAge: 60 * 60 * 24 * 365 * 100,
+      // RFC6265bis caps cookie Max-Age at 400 days.
+      trustDeviceMaxAge: 60 * 60 * 24 * 400,
       twoFactorCookieMaxAge: 60 * 60 * 24,
     }),
     organization({

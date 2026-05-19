@@ -77,6 +77,7 @@ export const POST = apiHandler(async (request) => {
     method: "POST",
     headers: {
       cookie: request.headers.get("cookie") ?? "",
+      origin: request.headers.get("origin") ?? new URL(request.url).origin,
       "content-type": "application/json",
     },
     body: JSON.stringify({ code, trustDevice }),
