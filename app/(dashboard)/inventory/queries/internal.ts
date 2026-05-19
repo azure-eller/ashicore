@@ -38,7 +38,7 @@ import {
   variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
-import { formatVariantDisplay, normalizeNumeric, normalizeNumericScale } from "@/lib/format";
+import { normalizeNumeric, normalizeNumericScale } from "@/lib/format";
 import { canViewLockedBom, canViewUnlockedBom } from "@/lib/authz";
 import {
   getBomRevisionComponentsInTx,
@@ -730,7 +730,6 @@ export async function getItems(filters?: {
             name: items.name,
             sku: items.sku,
             itemType: items.itemType,
-            parentId: items.parentId,
             optionCombinationKey: items.optionCombinationKey,
             stock: stockSubquery,
             committedQty: committedQtySubquery,
@@ -749,7 +748,6 @@ export async function getItems(filters?: {
             category: items.category,
             familyCategory: itemFamilies.category,
             potential: potentialSubquery,
-            variantAttrs: items.variantAttrs,
             sellable: items.sellable,
             createdAt: items.createdAt,
           })
@@ -759,7 +757,7 @@ export async function getItems(filters?: {
           .where(
             and(
               isNull(items.deletedAt),
-              eq(items.isMaster, false),
+              isNotNull(items.familyId),
               ...(filters?.itemType ? [eq(items.itemType, filters.itemType)] : []),
             ),
           );
@@ -773,50 +771,16 @@ export async function getItems(filters?: {
         ]);
         const optionValuesByItemId = await getVariantOptionValuesByItemIdInTx(tx, leafIds);
         const duplicateWarningsByItemId = buildDuplicateCombinationWarnings(rows);
-        const legacyParentIds = [
-          ...new Set(
-            rows
-              .map((row) => row.parentId)
-              .filter((parentId): parentId is string => parentId != null),
-          ),
-        ];
-        const legacyParents =
-          legacyParentIds.length > 0
-            ? await tx
-                .select({
-                  id: items.id,
-                  name: items.name,
-                  variantAxes: items.variantAxes,
-                })
-                .from(items)
-                .where(inArray(items.id, legacyParentIds))
-            : [];
-        const legacyParentById = new Map(
-          legacyParents.map((parent) => [
-            parent.id,
-            {
-              name: parent.name,
-              variantAxes: (parent.variantAxes as string[] | null) ?? [],
-            },
-          ]),
-        );
 
         const results: ItemRow[] = rows
           .map<ItemRow>((row) => {
             const usedInCount = usedInCounts.get(row.id) ?? 0;
             const estimatedUnitCost = estimatedUnitCostByItemId.get(row.id) ?? null;
             const optionValues = optionValuesByItemId.get(row.id) ?? [];
-            const legacyParent = row.parentId ? legacyParentById.get(row.parentId) : null;
             const displayName =
               optionValues.length > 0
                 ? formatNormalizedVariantDisplay(row.familyName, row.name, optionValues)
-                : legacyParent && legacyParent.variantAxes.length > 0
-                  ? formatVariantDisplay(
-                      legacyParent.name,
-                      (row.variantAttrs as Record<string, string>) ?? {},
-                      legacyParent.variantAxes,
-                    )
-                  : row.familyName ?? row.name;
+                : row.familyName ?? row.name;
 
             return {
               id: row.id,
@@ -851,10 +815,10 @@ export async function getItems(filters?: {
               ),
               marginTier: null,
               isMaster: false,
-              parentId: row.parentId,
+              parentId: null,
               variantCount: 0,
               variantAxes: null,
-              variantAttrs: (row.variantAttrs as Record<string, string> | null) ?? null,
+              variantAttrs: null,
               priceRange: null,
               sellable: row.sellable,
               hasBom: hasBomSet.has(row.id),
@@ -941,8 +905,6 @@ export async function getItem(id: string) {
         isMaster: items.isMaster,
         parentId: items.parentId,
         optionCombinationKey: items.optionCombinationKey,
-        variantAxes: items.variantAxes,
-        variantAttrs: items.variantAttrs,
         registeredBarcode: items.registeredBarcode,
         internalBarcode: items.internalBarcode,
         supplierItemCode: items.supplierItemCode,
@@ -1031,22 +993,6 @@ export async function getItem(id: string) {
     const duplicateWarningsByItemId =
       buildDuplicateCombinationWarnings(familyVariants);
 
-    const parentName = row.parentId
-      ? await tx
-          .select({ name: items.name })
-          .from(items)
-          .where(eq(items.id, row.parentId))
-          .then((rows) => rows[0]?.name ?? null)
-      : null;
-
-    const masterAxes = row.parentId
-      ? await tx
-          .select({ variantAxes: items.variantAxes })
-          .from(items)
-          .where(eq(items.id, row.parentId))
-          .then((rows) => (rows[0]?.variantAxes as string[] | null) ?? [])
-      : null;
-
     const supplierSources = await tx
       .select({
         id: supplierItems.id,
@@ -1074,21 +1020,15 @@ export async function getItem(id: string) {
       accountingPurchaseAccountCode: accountingClassification?.accountCode ?? null,
       xeroPurchaseTaxType: accountingClassification?.taxType ?? null,
       xeroUpdatedAt: externalItemRecord?.externalUpdatedAt ?? null,
-      parentName,
-      variantAxes: (row.variantAxes as string[] | null) ?? null,
-      variantAttrs: (row.variantAttrs as Record<string, string> | null) ?? null,
+      parentName: null,
+      variantAxes: null,
+      variantAttrs: null,
       optionValues,
       duplicateCombinationWarnings:
         duplicateWarningsByItemId.get(row.id) ?? [],
       displayName: optionValues.length > 0
         ? formatNormalizedVariantDisplay(row.familyName, row.name, optionValues)
-        : row.parentId && parentName && masterAxes && masterAxes.length > 0
-          ? formatVariantDisplay(
-              parentName,
-              (row.variantAttrs as Record<string, string>) ?? {},
-              masterAxes,
-            )
-          : row.name,
+        : row.familyName ?? row.name,
       purchaseUnitName: purchaseUnit?.name ?? null,
       purchaseUnitSize: purchaseUnit?.size ?? null,
       purchaseUnitUom: purchaseUnit?.uom ?? null,
@@ -2891,10 +2831,12 @@ export async function getUsedInParents(itemId: string) {
       .select({
         id: items.id,
         name: items.name,
+        familyName: itemFamilies.name,
       })
       .from(bomRevisionComponents)
       .innerJoin(bomRevisions, eq(bomRevisionComponents.bomRevisionId, bomRevisions.id))
       .innerJoin(items, eq(bomRevisions.productId, items.id))
+      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
       .where(
         and(
           eq(bomRevisionComponents.componentId, itemId),
@@ -2905,35 +2847,18 @@ export async function getUsedInParents(itemId: string) {
       )
       .orderBy(asc(items.name));
 
-    const rowIds = rows.map((row) => row.id);
-    const valueRows =
-      rowIds.length > 0
-        ? await tx
-            .select({
-              itemId: itemVariantValues.itemId,
-              valueLabel: variantOptionValues.label,
-            })
-            .from(itemVariantValues)
-            .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
-            .innerJoin(
-              variantOptionValues,
-              eq(itemVariantValues.optionValueId, variantOptionValues.id),
-            )
-            .where(inArray(itemVariantValues.itemId, rowIds))
-            .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder))
-        : [];
-    const valuesByItemId = new Map<string, string[]>();
-    for (const valueRow of valueRows) {
-      valuesByItemId.set(valueRow.itemId, [
-        ...(valuesByItemId.get(valueRow.itemId) ?? []),
-        valueRow.valueLabel,
-      ]);
-    }
+    const optionValuesByItemId = await getVariantOptionValuesByItemIdInTx(
+      tx,
+      rows.map((row) => row.id),
+    );
 
     return rows.map((row) => {
-      const valueLabels = valuesByItemId.get(row.id) ?? [];
-      const displayName =
-        valueLabels.length > 0 ? `${row.name} / ${valueLabels.join(" / ")}` : row.name;
+      const optionValues = optionValuesByItemId.get(row.id) ?? [];
+      const displayName = formatNormalizedVariantDisplay(
+        row.familyName,
+        row.name,
+        optionValues,
+      );
 
       return {
         id: row.id,
@@ -2946,7 +2871,7 @@ export async function getUsedInParents(itemId: string) {
 
 export async function getAvailableComponents(excludeItemId?: string) {
   return withAuthedOrgContext(async (tx) => {
-    const conditions = [isNull(items.deletedAt), eq(items.isMaster, false)];
+    const conditions = [isNull(items.deletedAt), isNotNull(items.familyId)];
     if (excludeItemId) {
       conditions.push(sql`${items.id} != ${excludeItemId}`);
     }
@@ -2954,54 +2879,30 @@ export async function getAvailableComponents(excludeItemId?: string) {
       .select({
         id: items.id,
         name: items.name,
-        parentId: items.parentId,
-        variantAttrs: items.variantAttrs,
-        displayName: items.name,
+        familyName: itemFamilies.name,
         itemType: items.itemType,
         unit: unitDefinitions.name,
       })
       .from(items)
+      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
       .where(and(...conditions));
 
-    const parentIds = [...new Set(
-      rows
-        .map((row) => row.parentId)
-        .filter((id): id is string => id != null),
-    )];
-    const parents = parentIds.length > 0
-      ? await tx
-          .select({
-            id: items.id,
-            name: items.name,
-            variantAxes: items.variantAxes,
-          })
-          .from(items)
-          .where(and(inArray(items.id, parentIds), isNull(items.deletedAt)))
-      : [];
-    const parentsById = new Map(
-      parents.map((parent) => [
-        parent.id,
-        {
-          name: parent.name,
-          variantAxes: (parent.variantAxes as string[] | null) ?? [],
-        },
-      ]),
+    const optionValuesByItemId = await getVariantOptionValuesByItemIdInTx(
+      tx,
+      rows.map((row) => row.id),
     );
 
     return rows.map((row) => {
-      const parent = row.parentId ? parentsById.get(row.parentId) : null;
+      const optionValues = optionValuesByItemId.get(row.id) ?? [];
       return {
         id: row.id,
         name: row.name,
-        displayName:
-          parent && parent.variantAxes.length > 0
-            ? formatVariantDisplay(
-                parent.name,
-                (row.variantAttrs as Record<string, string>) ?? {},
-                parent.variantAxes,
-              )
-            : row.name,
+        displayName: formatNormalizedVariantDisplay(
+          row.familyName,
+          row.name,
+          optionValues,
+        ),
         itemType: row.itemType,
         unit: row.unit,
       };
