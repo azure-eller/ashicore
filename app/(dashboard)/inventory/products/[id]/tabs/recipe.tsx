@@ -34,6 +34,7 @@ export type ProductRecipeTabProps = {
   initialBomRows: BomPayloadRow[];
   availableComponents: AvailableComponent[];
   canViewBom: boolean;
+  canEditProduct: boolean;
 };
 
 export function ProductRecipeTab({
@@ -42,6 +43,7 @@ export function ProductRecipeTab({
   initialBomRows,
   availableComponents,
   canViewBom,
+  canEditProduct,
 }: ProductRecipeTabProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -130,7 +132,7 @@ export function ProductRecipeTab({
   return (
     <section className={styles.section}>
       <h2 className={styles.sectionHeading}>
-        Ingredients
+        Recipe / Bill of Materials
         <span className={styles.hint}>per 1 unit of product</span>
       </h2>
 
@@ -141,55 +143,57 @@ export function ProductRecipeTab({
           onChange={handleVariantChange}
           hideWhenSingle={false}
         />
-        <div className="flex shrink-0 flex-nowrap items-center justify-end gap-(--space-1) overflow-x-auto">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="px-(--space-4)"
-            onClick={() => setCopyToOpen(true)}
-            disabled={visibleVariants.length < 2}
-          >
-            <HugeiconsIcon icon={Upload01Icon} data-icon="inline-start" />
-            Copy to…
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="px-(--space-4)"
-            onClick={() => setCopyFromOpen(true)}
-          >
-            <HugeiconsIcon icon={Download01Icon} data-icon="inline-start" />
-            Copy from…
-          </Button>
-          {dirty ? (
+        {canEditProduct ? (
+          <div className="flex shrink-0 flex-nowrap items-center justify-end gap-(--space-1) overflow-x-auto">
             <Button
               type="button"
               variant="outline"
               size="sm"
               className="px-(--space-4)"
-              onClick={() => {
-                setRows(initialBomRows);
-                setDirty(false);
-              }}
-              disabled={saveMutation.isPending}
+              onClick={() => setCopyToOpen(true)}
+              disabled={visibleVariants.length < 2}
             >
-              <HugeiconsIcon icon={Undo03Icon} data-icon="inline-start" />
-              Discard
+              <HugeiconsIcon icon={Upload01Icon} data-icon="inline-start" />
+              Copy to…
             </Button>
-          ) : null}
-          <Button
-            type="button"
-            size="sm"
-            className="px-(--space-4)"
-            onClick={() => saveMutation.mutate()}
-            disabled={!dirty || saveMutation.isPending}
-          >
-            <HugeiconsIcon icon={CheckmarkCircle02Icon} data-icon="inline-start" />
-            {saveMutation.isPending ? "Saving…" : "Save recipe"}
-          </Button>
-        </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="px-(--space-4)"
+              onClick={() => setCopyFromOpen(true)}
+            >
+              <HugeiconsIcon icon={Download01Icon} data-icon="inline-start" />
+              Copy from…
+            </Button>
+            {dirty ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="px-(--space-4)"
+                onClick={() => {
+                  setRows(initialBomRows);
+                  setDirty(false);
+                }}
+                disabled={saveMutation.isPending}
+              >
+                <HugeiconsIcon icon={Undo03Icon} data-icon="inline-start" />
+                Discard
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              className="px-(--space-4)"
+              onClick={() => saveMutation.mutate()}
+              disabled={!dirty || saveMutation.isPending}
+            >
+              <HugeiconsIcon icon={CheckmarkCircle02Icon} data-icon="inline-start" />
+              {saveMutation.isPending ? "Saving…" : "Save recipe"}
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <p

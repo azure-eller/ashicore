@@ -13,6 +13,8 @@ model after the item-card UI and mobile clients are migrated.
 
 - UI uses `/api/item-cards/*` for product/material card create, edit, variant
   config, generation, deletion, and BOM copy.
+- Product and material detail routes render item cards by default; the old
+  `?view=card` gate has been removed.
 - UI uses `PATCH /api/items/:variantId` only for variant-owned fields: SKU,
   prices, barcodes, supplier item code, lead time, MOQ, stock/cost, and BOM.
 - All inventory, sales, purchasing, manufacturing, stocktake, planning, ledger,
@@ -34,8 +36,11 @@ Remove only after the stabilization gates are met.
   removed for the product variant create flow.
 - Product create/edit form no longer exposes the fake-master toggle; direct
   edits of legacy master rows redirect to the detail page.
+- Legacy `ItemDetail` fallback components removed after detail routes switched
+  to card-first rendering.
 - Legacy `createMasterProduct`, `updateMasterProduct`, `createVariant`, and
   test helper writes removed; old variant POST still returns 410.
+- Legacy master/variant Zod schemas removed from `lib/schemas/items.ts`.
 - Product/material edit controls that send family-owned fields through
   `/api/items/:id`
 - Any route logic branching on `isMaster` for editable product identity

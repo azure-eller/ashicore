@@ -10,16 +10,13 @@ DTOs stabilize, several legacy routes/files remain in place and several
 features are explicitly stubbed. This doc tracks what to clean up after the new
 card is the default.
 
-## Route flip (do this first)
+## Route flip
 
-The card is currently opt-in via `?view=card` on `/inventory/products/:itemId`
-and `/inventory/materials/:itemId`. When Codex confirms `GET /api/item-cards/:itemId`
-is stable on Paonia seed data, flip the gate in two files:
+Done in the item-card cleanup PR: `/inventory/products/:itemId` and
+`/inventory/materials/:itemId` now render the card by default.
 
-- `app/(dashboard)/inventory/products/[id]/page.tsx` — render `<ProductCard>` by default; remove the `if (view === "card")` branch and the fallthrough to `ItemDetail`.
-- `app/(dashboard)/inventory/materials/[id]/page.tsx` — same, for `<MaterialCard>`.
-
-Tag the PR `ci:slow:inventory` so the slow inventory stories rerun with the new default.
+Keep the PR tagged `ci:slow:inventory` so the slow inventory stories rerun with
+the new default.
 
 ## Legacy routes / files (delete after the card is stable)
 
@@ -28,12 +25,12 @@ After 2 weeks of card-only usage with no error reports, delete:
 | File | Why it can go |
 |------|---------------|
 | `app/(dashboard)/inventory/products/[id]/edit/` | superseded by inline editing on the card |
-| `app/(dashboard)/inventory/products/[id]/variants/new/` | superseded by Variant Configuration dialog |
+| `app/(dashboard)/inventory/products/[id]/variants/new/` | removed; superseded by Variant Configuration dialog |
 | `app/(dashboard)/inventory/materials/[id]/edit/` | superseded |
 | `app/(dashboard)/inventory/materials/[id]/variants/new/` | superseded |
 | `app/(dashboard)/inventory/item-form/index.tsx` (and `dialogs/`, `fields/`) | only used by the `/edit` routes |
-| `app/(dashboard)/inventory/variant-form.tsx` | only used by `/variants/new` |
-| `app/(dashboard)/inventory/item-detail.tsx` | only reachable through the legacy fallback in page.tsx |
+| `app/(dashboard)/inventory/variant-form.tsx` | removed with `/variants/new` |
+| `app/(dashboard)/inventory/item-detail.tsx` | removed after card route flip |
 
 Note: the Recipe and Operations tabs on the new card currently link out to
 `/inventory/products/:variantId/edit` for inline editing. Before deleting the
