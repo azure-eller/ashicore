@@ -172,6 +172,7 @@ export function ProductCard({
   const visibleVariantCount = card.variants.filter(
     (variant) => variant.deletedAt == null,
   ).length;
+  const avgIngredientsCost = getAverageIngredientsCost(card);
 
   return (
     <div className={styles.sheet}>
@@ -183,6 +184,8 @@ export function ProductCard({
         variantCount={visibleVariantCount}
         fallbackHref="/inventory/products"
         isDraft={isDraft}
+        createdAt={card.family.createdAt}
+        updatedAt={card.family.updatedAt}
         saveStatus={
           isDraft
             ? createMutation.isPending
@@ -195,7 +198,16 @@ export function ProductCard({
         onDelete={isDraft ? undefined : () => setConfirmDeleteCard(true)}
       />
 
-      <CardTabs tabs={tabs} defaultTab="general" activeTab={activeTab}>
+      <CardTabs
+        tabs={tabs}
+        defaultTab="general"
+        activeTab={activeTab}
+        caption={
+          avgIngredientsCost == null
+            ? "Ingredients · — avg"
+            : `Ingredients · ${avgIngredientsCost.toFixed(5)} USD avg`
+        }
+      >
         {activeTab === "general" || isDraft ? (
           <ProductGeneralInfoTab
             card={card}
@@ -262,4 +274,13 @@ export function ProductCard({
       </AlertDialog>
     </div>
   );
+}
+
+function getAverageIngredientsCost(card: ItemCardDto) {
+  const costs = card.variants
+    .filter((variant) => variant.deletedAt == null && variant.ingredientsCost != null)
+    .map((variant) => Number(variant.ingredientsCost))
+    .filter((value) => Number.isFinite(value));
+  if (costs.length === 0) return null;
+  return costs.reduce((total, value) => total + value, 0) / costs.length;
 }

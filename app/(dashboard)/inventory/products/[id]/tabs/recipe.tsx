@@ -192,6 +192,57 @@ export function ProductRecipeTab({
         error={errorMessage}
       />
 
+      <div className={styles.totals}>
+        <span className={styles.lab}>Total cost</span>
+        <span>
+          <span className={styles.val}>
+            {activeVariant.ingredientsCost == null
+              ? "—"
+              : Number(activeVariant.ingredientsCost).toFixed(5)}
+          </span>
+          <span className={styles.ccy}>USD</span>
+        </span>
+      </div>
+
+      <h2 className={styles.sectionHeading} style={{ marginTop: "var(--space-5)" }}>
+        Variant summary
+        <span className={styles.hint}>read-only · per active variant</span>
+      </h2>
+      <div className={styles.summaryGrid}>
+        <SummaryTile
+          label="Active variant"
+          value={activeVariant.optionValues[0]?.valueLabel ?? activeVariant.displayName}
+          sub={activeVariant.sku ?? "No SKU"}
+        />
+        <SummaryTile
+          label="Default sales price"
+          value={
+            activeVariant.defaultSellingPrice == null
+              ? "—"
+              : Number(activeVariant.defaultSellingPrice).toFixed(2)
+          }
+          sub={activeVariant.defaultSellingPrice == null ? "no price" : "USD"}
+        />
+        <SummaryTile
+          label="Ingredients cost"
+          value={
+            activeVariant.ingredientsCost == null
+              ? "—"
+              : Number(activeVariant.ingredientsCost).toFixed(5)
+          }
+          sub={activeVariant.ingredientsCost == null ? "no BOM cost" : "USD · stock cost"}
+        />
+        <SummaryTile
+          label="In stock"
+          value={activeVariant.inStockQty === "0" ? "—" : activeVariant.inStockQty}
+          sub={
+            activeVariant.inStockQty === "0"
+              ? "no stock yet"
+              : card.family.unitName ?? "on hand"
+          }
+        />
+      </div>
+
       <CopyDialog
         open={copyToOpen}
         onOpenChange={setCopyToOpen}
@@ -209,5 +260,23 @@ export function ProductRecipeTab({
         siblings={visibleVariants}
       />
     </section>
+  );
+}
+
+function SummaryTile({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+}) {
+  return (
+    <div className={styles.summaryTile}>
+      <span className={styles.eyebrow}>{label}</span>
+      <span className={styles.val}>{value}</span>
+      <span className={styles.sub}>{sub}</span>
+    </div>
   );
 }

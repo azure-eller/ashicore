@@ -37,8 +37,7 @@ export type CopyDialogProps = {
 
 /**
  * Single dialog used for Copy BOM to / from siblings and Copy Operations
- * to / from siblings. Backend-pending — submit will throw EndpointNotReadyError
- * until Codex ships the routes; we surface that as a banner.
+ * to / from siblings.
  */
 export function CopyDialog({
   open,

@@ -2613,7 +2613,7 @@ export async function copyCurrentBomToVariants(
   options?: { idempotencyKey?: string | null }
 ) {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const replay = await beginInventoryOperationInTx<{ copied: Array<{ id: string }> }>(tx, {
+    const replay = await beginInventoryOperationInTx<{ copied: Array<{ id: string; revisionId: string }> }>(tx, {
       organizationId: orgId,
       operationName: "copyItemCardBom",
       idempotencyKey: options?.idempotencyKey ?? null,
@@ -2684,9 +2684,9 @@ export async function copyCurrentBomToVariants(
       loadedCostPerHour: row.loadedCostPerHour,
     }));
 
-    const copied: Array<{ id: string }> = [];
+    const copied: Array<{ id: string; revisionId: string }> = [];
     for (const productId of targetIds) {
-      await createBomRevisionInTx(tx, {
+      const revision = await createBomRevisionInTx(tx, {
         orgId,
         userId,
         productId,
@@ -2694,7 +2694,110 @@ export async function copyCurrentBomToVariants(
         bom,
         operationCosts,
       });
-      copied.push({ id: productId });
+      copied.push({ id: productId, revisionId: revision.id });
+    }
+
+    const result = { copied };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
+  });
+}
+
+export async function copyCurrentOperationsToVariants(
+  sourceItemId: string,
+  targetVariantIds?: string[],
+  note?: string | null,
+  options?: { idempotencyKey?: string | null }
+) {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ copied: Array<{ id: string; revisionId: string }> }>(tx, {
+      organizationId: orgId,
+      operationName: "copyItemCardOperations",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { sourceItemId, targetVariantIds: targetVariantIds ?? null, note: note ?? null },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
+    const [source] = await tx
+      .select({
+        id: items.id,
+        familyId: items.familyId,
+        itemType: items.itemType,
+      })
+      .from(items)
+      .where(and(eq(items.id, sourceItemId), isNull(items.deletedAt)));
+
+    if (!source?.familyId || source.itemType !== "product") {
+      throw new InventoryError("Source product variant not found", 404);
+    }
+
+    const targets = await tx
+      .select({
+        id: items.id,
+        itemType: items.itemType,
+      })
+      .from(items)
+      .where(
+        and(
+          eq(items.familyId, source.familyId),
+          isNull(items.deletedAt),
+          targetVariantIds && targetVariantIds.length > 0
+            ? inArray(items.id, [...new Set(targetVariantIds)])
+            : sql`${items.id} <> ${sourceItemId}`
+        )
+      );
+
+    const targetIds = targets
+      .filter((target) => target.id !== sourceItemId && target.itemType === "product")
+      .map((target) => target.id);
+
+    if (targetVariantIds && targetIds.length !== new Set(targetVariantIds).size) {
+      throw new InventoryError("One or more target variants were not found on this card", 400);
+    }
+
+    const sourceOperationCosts = await getCurrentBomOperationCostsInTx(tx, sourceItemId);
+    const operationCosts: BomOperationCostInputRow[] = sourceOperationCosts.map((row) => ({
+      operationName: row.operationName,
+      resourceId: row.resourceId,
+      costScalingMode: row.costScalingMode as BomOperationCostInputRow["costScalingMode"],
+      crewSize: row.crewSize,
+      plannedMinutes: row.plannedMinutes,
+      loadedCostPerHour: row.loadedCostPerHour,
+    }));
+
+    const copied: Array<{ id: string; revisionId: string }> = [];
+    for (const productId of targetIds) {
+      const targetBom = await getCurrentBomComponentsInTx(tx, productId);
+      const bom: BomInputRow[] = targetBom.map((row) => ({
+        componentId: row.componentId,
+        quantity: row.quantity,
+        consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
+        basisOutputQuantity: row.basisOutputQuantity,
+        batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
+        groupRemainderPolicy: row.groupRemainderPolicy as BomInputRow["groupRemainderPolicy"],
+        minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
+        alternates: row.alternates.map((alternate) => ({
+          itemId: alternate.alternateItemId,
+        })),
+      }));
+
+      const revision = await createBomRevisionInTx(tx, {
+        orgId,
+        userId,
+        productId,
+        note: note ?? `Copied operations from ${sourceItemId}`,
+        bom,
+        operationCosts,
+      });
+      copied.push({ id: productId, revisionId: revision.id });
     }
 
     const result = { copied };

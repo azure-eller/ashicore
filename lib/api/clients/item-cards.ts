@@ -61,6 +61,12 @@ export type ItemCardVariantDto = {
   supplierItemCode: string | null;
   defaultLeadTimeDays: number | null;
   minimumOrderQuantity: string | null;
+  defaultSellingPrice: string | null;
+  inStockQty: string;
+  ingredientsCost: string | null;
+  operationsCost: string | null;
+  sortOrder: number;
+  sellable: boolean;
 };
 
 export type ItemCardFamilyDto = {
@@ -74,6 +80,8 @@ export type ItemCardFamilyDto = {
   purchaseUnitDefinitionId: string | null;
   purchaseToStockFactor: string | null;
   deletedAt: DateOrIso;
+  createdAt: DateOrIso;
+  updatedAt: DateOrIso;
 };
 
 export type ItemCardDto = {
@@ -232,6 +240,38 @@ export async function updateItemCardVariant(
   return (await response.json()) as { id: string };
 }
 
+export async function updateItemCardSellable(
+  itemId: string,
+  input: { sellable: boolean },
+): Promise<ItemCardDto> {
+  const path = `/api/item-cards/${itemId}/sellable`;
+  const response = await fetch(path, {
+    method: "POST",
+    headers: createIdempotencyHeaders("updateItemCardSellable", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as ItemCardDto;
+}
+
+export async function reorderItemCardVariants(
+  itemId: string,
+  orderedVariantIds: string[],
+): Promise<ItemCardDto> {
+  const path = `/api/item-cards/${itemId}/variants/reorder`;
+  const response = await fetch(path, {
+    method: "POST",
+    headers: createIdempotencyHeaders("reorderItemCardVariants", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify({ orderedVariantIds }),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as ItemCardDto;
+}
+
 export async function deleteItemCard(itemId: string): Promise<{ deleted: boolean }> {
   const path = `/api/item-cards/${itemId}`;
   const response = await fetch(path, {
@@ -296,22 +336,17 @@ export async function deleteVariant(variantId: string): Promise<{ success: boole
   return (await response.json()) as { success: boolean };
 }
 
-/**
- * Add initial stock to a variant. Backend-pending — Codex hasn't shipped this endpoint yet.
- * Will throw EndpointNotReadyError on 404 until the route exists.
- */
 export type AddInitialStockInput = {
   quantity: string;
   costPerUnit?: string | null;
-  locationId: string;
   occurredAt: string;
-  adjustmentNumber?: string | null;
+  note?: string | null;
 };
 
 export async function addInitialStock(
   variantId: string,
   input: AddInitialStockInput
-): Promise<{ lotId: string }> {
+): Promise<{ lotId: string; eventId: string }> {
   const path = `/api/items/${variantId}/stock-adjustments`;
   const response = await fetch(path, {
     method: "POST",
@@ -319,12 +354,9 @@ export async function addInitialStock(
     body: JSON.stringify(input),
   });
   if (!response.ok) return parseError(response, path);
-  return (await response.json()) as { lotId: string };
+  return (await response.json()) as { lotId: string; eventId: string };
 }
 
-/**
- * Copy BOM between variants. Backend-pending.
- */
 export type CopyBomInput = {
   targetVariantIds: string[];
   note?: string | null;
@@ -337,7 +369,9 @@ export async function copyBomToVariants(
   const path = `/api/items/${sourceVariantId}/bom/copy-to`;
   const response = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: createIdempotencyHeaders("copyBomToVariants", {
+      "Content-Type": "application/json",
+    }),
     body: JSON.stringify(input),
   });
   if (!response.ok) return parseError(response, path);
@@ -356,7 +390,9 @@ export async function copyBomFromVariant(
   const path = `/api/items/${targetVariantId}/bom/copy-from`;
   const response = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: createIdempotencyHeaders("copyBomFromVariant", {
+      "Content-Type": "application/json",
+    }),
     body: JSON.stringify(input),
   });
   if (!response.ok) return parseError(response, path);
@@ -407,9 +443,6 @@ export async function saveBomRevision(
   return (await response.json()) as { revisionId: string; revisionNumber: number };
 }
 
-/**
- * Copy production operations between variants. Backend-pending.
- */
 export async function copyOperationsToVariants(
   sourceVariantId: string,
   input: CopyBomInput
@@ -417,7 +450,9 @@ export async function copyOperationsToVariants(
   const path = `/api/items/${sourceVariantId}/operations/copy-to`;
   const response = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: createIdempotencyHeaders("copyOperationsToVariants", {
+      "Content-Type": "application/json",
+    }),
     body: JSON.stringify(input),
   });
   if (!response.ok) return parseError(response, path);
@@ -431,38 +466,19 @@ export async function copyOperationsFromVariant(
   const path = `/api/items/${targetVariantId}/operations/copy-from`;
   const response = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: createIdempotencyHeaders("copyOperationsFromVariant", {
+      "Content-Type": "application/json",
+    }),
     body: JSON.stringify(input),
   });
   if (!response.ok) return parseError(response, path);
   return (await response.json()) as { revisionId: string };
 }
 
-/**
- * Fetch the org's highest numeric internal barcode so the UI can mint the next
- * sequential one client-side. v1.1 should replace this with a Postgres sequence
- * (e.g. `internal_barcode_seq`) exposed via a dedicated endpoint — at that
- * point this function disappears.
- */
-export async function getMaxNumericInternalBarcode(): Promise<number> {
-  // Fetch flat variant rows (existing endpoint). We pick the maximum value
-  // among internal barcodes that parse as positive integers; anything else
-  // (alphanumeric custom codes) is ignored for the sequence.
-  const [products, materials] = await Promise.all([
-    fetch("/api/items?itemType=product").then((r) => (r.ok ? r.json() : [])),
-    fetch("/api/items?itemType=material").then((r) => (r.ok ? r.json() : [])),
-  ]);
-  const allRows = [
-    ...(Array.isArray(products) ? products : []),
-    ...(Array.isArray(materials) ? materials : []),
-  ];
-  let max = 9999; // Start the sequence at 10000 to match Katana's pattern.
-  for (const row of allRows) {
-    const value = (row as { internalBarcode?: string | null })?.internalBarcode;
-    if (typeof value !== "string") continue;
-    if (!/^\d+$/.test(value)) continue;
-    const parsed = Number(value);
-    if (Number.isFinite(parsed) && parsed > max) max = parsed;
-  }
-  return max;
+export async function getNextInternalBarcode(): Promise<string> {
+  const path = "/api/items/internal-barcodes/next";
+  const response = await fetch(path);
+  if (!response.ok) return parseError(response, path);
+  const body = (await response.json()) as { value: string };
+  return body.value;
 }

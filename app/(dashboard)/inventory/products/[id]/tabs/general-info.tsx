@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldLabel } from "@/components/ui/field";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -19,6 +20,7 @@ import { GenerateBarcodesButton } from "@/components/card-page/generate-barcodes
 import styles from "@/components/card-page/card-page.module.css";
 import {
   updateItemCard,
+  updateItemCardSellable,
   type ItemCardDto,
   type ItemCardVariantDto,
   type UpdateItemCardInput,
@@ -54,6 +56,24 @@ export function ProductGeneralInfoTab({
   const visibleVariantCount = card.variants.filter((variant) => variant.deletedAt == null)
     .length;
   const isDraft = focusItemId == null;
+  const visibleVariants = card.variants.filter((variant) => variant.deletedAt == null);
+  const sellableChecked =
+    visibleVariants.length > 0 && visibleVariants.every((variant) => variant.sellable);
+  const sellableIndeterminate =
+    visibleVariants.some((variant) => variant.sellable) &&
+    visibleVariants.some((variant) => !variant.sellable);
+  const queryClient = useQueryClient();
+  const sellableMutation = useMutation({
+    mutationKey: ["item-card", focusItemId, "sellable"],
+    mutationFn: (sellable: boolean) =>
+      updateItemCardSellable(focusItemId as string, { sellable }),
+    onSuccess: (nextCard) => {
+      if (focusItemId) {
+        queryClient.setQueryData(["item-card", focusItemId], nextCard);
+      }
+      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+    },
+  });
 
   return (
     <>
@@ -102,6 +122,19 @@ export function ProductGeneralInfoTab({
               onDraftCommit={onDraftCommit}
               disabled={draftCreatePending}
             />
+            <Field>
+              <FieldLabel>Usability</FieldLabel>
+              <label className="flex items-center gap-(--space-2) text-[length:var(--text-sm)]">
+                <Checkbox
+                  checked={sellableIndeterminate ? "indeterminate" : sellableChecked}
+                  disabled={isDraft || sellableMutation.isPending || visibleVariants.length === 0}
+                  onCheckedChange={(checked) => {
+                    sellableMutation.mutate(checked === true);
+                  }}
+                />
+                <span>Sellable</span>
+              </label>
+            </Field>
           </>
         }
       />
@@ -136,7 +169,7 @@ export function ProductGeneralInfoTab({
           card={card}
           viewMode="product"
           onAddInitialStock={onAddInitialStock}
-          addInitialStockEndpointReady={false}
+          addInitialStockEndpointReady
         />
       </section>
     </>

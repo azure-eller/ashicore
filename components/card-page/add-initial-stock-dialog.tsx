@@ -16,7 +16,6 @@ import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import {
   addInitialStock,
-  EndpointNotReadyError,
   type AddInitialStockInput,
   type ItemCardVariantDto,
 } from "@/lib/api/clients/item-cards";
@@ -25,8 +24,6 @@ export type AddInitialStockDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   variant: ItemCardVariantDto | null;
-  /** Best-effort default location id from the org context. Until /api/locations exists, the caller passes whatever is known (or empty string). */
-  defaultLocationId?: string;
   unitLabel?: string;
   /**
    * For materials: prefill cost per unit from the variant's defaultPurchasePrice
@@ -40,7 +37,6 @@ export function AddInitialStockDialog({
   open,
   onOpenChange,
   variant,
-  defaultLocationId = "",
   unitLabel,
   defaultCostPerUnit,
 }: AddInitialStockDialogProps) {
@@ -51,7 +47,6 @@ export function AddInitialStockDialog({
           <DialogBody
             onOpenChange={onOpenChange}
             variant={variant}
-            defaultLocationId={defaultLocationId}
             unitLabel={unitLabel}
             defaultCostPerUnit={defaultCostPerUnit}
           />
@@ -64,22 +59,19 @@ export function AddInitialStockDialog({
 function DialogBody({
   onOpenChange,
   variant,
-  defaultLocationId,
   unitLabel,
   defaultCostPerUnit,
 }: {
   onOpenChange: (open: boolean) => void;
   variant: ItemCardVariantDto;
-  defaultLocationId: string;
   unitLabel?: string;
   defaultCostPerUnit?: string | null;
 }) {
   const queryClient = useQueryClient();
   const [quantity, setQuantity] = useState("");
   const [costPerUnit, setCostPerUnit] = useState(defaultCostPerUnit ?? "");
-  const [locationId, setLocationId] = useState(defaultLocationId);
   const [occurredAt, setOccurredAt] = useState(() => nowLocalIsoSecond());
-  const [adjustmentNumber, setAdjustmentNumber] = useState("");
+  const [note, setNote] = useState("");
 
   const mutation = useMutation({
     mutationKey: ["item-card", variant.id, "add-stock"],
@@ -91,9 +83,7 @@ function DialogBody({
   });
 
   const errorMessage =
-    mutation.error instanceof EndpointNotReadyError
-      ? "Pending backend: adding stock from the card isn’t shipped yet. Use the materials/lots flow until then."
-      : mutation.error
+    mutation.error
       ? (mutation.error as Error).message
       : null;
 
@@ -139,26 +129,16 @@ function DialogBody({
         </Field>
 
         <Field>
-          <FieldLabel>Stock adjustment number</FieldLabel>
-          <Input
-            value={adjustmentNumber}
-            onChange={(event) => setAdjustmentNumber(event.target.value)}
-            placeholder="Auto-assigned if blank"
-          />
-        </Field>
-
-        <Field>
-          <FieldLabel>Stock adjustment date</FieldLabel>
+          <FieldLabel>Occurred at</FieldLabel>
           <DateTimePicker value={occurredAt} onChange={setOccurredAt} />
         </Field>
 
         <Field className="md:col-span-2">
-          <FieldLabel>Location</FieldLabel>
+          <FieldLabel>Note</FieldLabel>
           <Input
-            value={locationId}
-            onChange={(event) => setLocationId(event.target.value)}
-            placeholder="Pending backend — /api/locations not exposed yet"
-            disabled
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="Optional note"
           />
         </Field>
       </div>
@@ -181,10 +161,8 @@ function DialogBody({
             mutation.mutate({
               quantity: quantity.trim(),
               costPerUnit: costPerUnit.trim() === "" ? null : costPerUnit.trim(),
-              locationId,
               occurredAt: new Date(occurredAt).toISOString(),
-              adjustmentNumber:
-                adjustmentNumber.trim() === "" ? null : adjustmentNumber.trim(),
+              note: note.trim() === "" ? null : note.trim(),
             });
           }}
         >

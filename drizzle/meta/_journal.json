@@ -757,6 +757,13 @@
       "when": 1779120000000,
       "tag": "0107_variant_first_item_cards",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1779214440008,
+      "tag": "0108_item_card_live_wiring",
+      "breakpoints": true
     }
   ]
 }

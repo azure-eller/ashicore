@@ -136,7 +136,7 @@ export function MaterialGeneralInfoTab({
           card={card}
           viewMode="material"
           onAddInitialStock={onAddInitialStock}
-          addInitialStockEndpointReady={false}
+          addInitialStockEndpointReady
         />
       </section>
     </>

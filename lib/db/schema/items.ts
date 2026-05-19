@@ -184,6 +184,7 @@ export const items = inventorySchema
       parentId: uuid("parent_id").references((): AnyPgColumn => items.id, { onDelete: "restrict" }),
       variantAxes: jsonb("variant_axes").$type<string[]>(),
       variantAttrs: jsonb("variant_attrs").$type<Record<string, string>>(),
+      sortOrder: integer("sort_order").notNull().default(0),
 
       registeredBarcode: varchar("registered_barcode", { length: 100 }),
       internalBarcode: varchar("internal_barcode", { length: 100 }),
@@ -219,6 +220,9 @@ export const items = inventorySchema
         .where(sql`parent_id IS NOT NULL`),
       index("items_family_id_idx")
         .on(table.familyId)
+        .where(sql`family_id IS NOT NULL`),
+      index("items_family_sort_order_idx")
+        .on(table.familyId, table.sortOrder)
         .where(sql`family_id IS NOT NULL`),
       index("items_option_combination_key_idx").on(table.optionCombinationKey),
       uniqueIndex("items_org_parent_variant_attrs_uidx")

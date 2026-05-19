@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   EndpointNotReadyError,
-  getMaxNumericInternalBarcode,
+  getNextInternalBarcode,
   updateItemCardVariant,
   type ItemCardVariantDto,
 } from "@/lib/api/clients/item-cards";
@@ -18,15 +18,9 @@ export type GenerateBarcodesButtonProps = {
 };
 
 /**
- * Fills empty `internalBarcode` on every visible variant with sequential
- * numeric codes starting at `max(existing org-wide numeric barcodes) + 1`.
+ * Fills empty `internalBarcode` on every visible variant with sequence-backed
+ * numeric codes.
  * Idempotent — variants that already have a barcode are skipped.
- *
- * v1.1: replace the client-side max+1 walk with a Postgres-sequence endpoint
- * (e.g. `POST /api/items/:variantId/generate-internal-barcode`) backed by
- * `inventory.internal_barcode_seq`. Race window today is small for single-user
- * dev but real under concurrent edits, and the org-wide /api/items fetch is
- * expensive at scale.
  */
 export function GenerateBarcodesButton({
   cardItemId,
@@ -42,14 +36,12 @@ export function GenerateBarcodesButton({
     mutationKey: ["item-card", cardItemId, "generate-internal-barcodes"],
     mutationFn: async () => {
       if (candidates.length === 0) return { assigned: 0 };
-      const startFrom = await getMaxNumericInternalBarcode();
-      let cursor = startFrom;
       // Sequential awaits (not Promise.all) — keeps the assignments
       // deterministic and predictable when reviewing assignments.
       for (const variant of candidates) {
-        cursor += 1;
+        const barcode = await getNextInternalBarcode();
         await updateItemCardVariant(variant.id, {
-          internalBarcode: String(cursor),
+          internalBarcode: barcode,
         });
       }
       return { assigned: candidates.length };
