@@ -7,7 +7,6 @@ import {
 import { getAuthedMemberContext, withAuthedOrgContext } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
 import { getAllocationWorkspaceInTx } from "@/lib/inventory/allocation/read-model";
-import { getManufacturingAllocationDemandRowsInTx } from "@/lib/inventory/allocation/manufacturing-demands";
 import OrdersTableLoading from "../orders-table-loading";
 
 export default function SalesAllocationPage() {
@@ -28,11 +27,6 @@ async function SalesAllocationData() {
     "manufacturing",
     "read"
   );
-  const manufacturingDemandRows = canReadManufacturing
-    ? await withAuthedOrgContext((tx, orgId) =>
-        getManufacturingAllocationDemandRowsInTx(tx, orgId)
-      )
-    : [];
   const initialPools = await getInitialAllocationPools(
     orders.flatMap((order) =>
       order.lines
@@ -45,8 +39,6 @@ async function SalesAllocationData() {
     <SalesAllocationTable
       initialData={orders}
       initialPools={initialPools}
-      initialManufacturingDemands={manufacturingDemandRows}
-      canReadManufacturing={canReadManufacturing}
       organizationId={context.orgId}
     />
   );
