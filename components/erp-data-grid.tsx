@@ -31,7 +31,7 @@ import styles from "./erp-data-grid.module.css";
 
 ModuleRegistry.registerModules([AllCommunityModule, TooltipModule]);
 
-const erpGridTheme = themeQuartz.withParams({
+export const erpGridTheme = themeQuartz.withParams({
   accentColor: "var(--color-accent)",
   backgroundColor: "var(--color-surface)",
   borderColor: "var(--color-line)",

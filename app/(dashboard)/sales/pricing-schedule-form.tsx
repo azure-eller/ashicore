@@ -1,16 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Add01Icon,
-  Cancel01Icon,
-} from "@hugeicons/core-free-icons";
 import { z } from "zod";
+import type {
+  CellClassParams,
+  ICellEditorParams,
+  ValueSetterParams,
+} from "ag-grid-community";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import {
   insertPricingScheduleSchema,
@@ -61,6 +61,10 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
+  EditableLineDataGrid,
+  type ColDef,
+} from "@/components/editable-line-data-grid";
+import {
   DISCOUNT_PERCENT_TOOLTIP,
   MAX_QTY_TOOLTIP,
   MIN_QTY_TOOLTIP,
@@ -72,6 +76,87 @@ const EVERYONE_SCOPE_VALUE = "__everyone__";
 const CREATE_NEW_CATEGORY = "__create_new__";
 
 type PricingScheduleFormValues = z.input<typeof insertPricingScheduleSchema>;
+type PricingBreakPayloadRow = PricingScheduleFormValues["breaks"][number];
+type PricingBreakGridRow = PricingBreakPayloadRow & {
+  clientRowId: string;
+};
+type PricingBreakColumnKey = keyof PricingBreakPayloadRow;
+
+function createPricingBreakRow(values?: Partial<PricingBreakPayloadRow>): PricingBreakGridRow {
+  return {
+    clientRowId: crypto.randomUUID(),
+    minQuantity: values?.minQuantity ?? "",
+    maxQuantity: values?.maxQuantity ?? null,
+    discountPercent: values?.discountPercent ?? "0",
+  };
+}
+
+function normalizePricingBreakRows(
+  rows: PricingBreakPayloadRow[] | undefined
+): PricingBreakGridRow[] {
+  const source =
+    rows && rows.length > 0
+      ? rows
+      : pricingScheduleDefaultValues.breaks;
+  return source.map((row) => createPricingBreakRow(row));
+}
+
+function toPricingBreakPayloadRows(rows: PricingBreakGridRow[]): PricingBreakPayloadRow[] {
+  return rows.map(({ minQuantity, maxQuantity, discountPercent }) => ({
+    minQuantity,
+    maxQuantity,
+    discountPercent,
+  }));
+}
+
+function comparablePricingBreakRows(rows: PricingBreakGridRow[]) {
+  return JSON.stringify(toPricingBreakPayloadRows(rows));
+}
+
+function normalizeGridText(value: unknown) {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+function normalizeNullableGridText(value: unknown) {
+  const text = normalizeGridText(value);
+  return text === "" ? null : text;
+}
+
+function validatePositiveGridNumber(value: unknown, message: string) {
+  const text = normalizeGridText(value);
+  if (text === "") return [message];
+  const parsed = Number(text);
+  return Number.isFinite(parsed) && parsed > 0 ? null : [message];
+}
+
+function validateDiscountPercent(value: unknown) {
+  const text = normalizeGridText(value);
+  if (text === "") return ["Discount percent is required"];
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return ["Discount percent must be 0 or greater"];
+  }
+  if (parsed > 100) {
+    return ["Discount percent cannot exceed 100"];
+  }
+  return null;
+}
+
+function getPricingBreakCellError(
+  error: unknown,
+  rowIndex: number,
+  key: PricingBreakColumnKey
+) {
+  if (!error || typeof error !== "object") return null;
+  const rowError = (error as Record<string, unknown>)[rowIndex];
+  if (!rowError || typeof rowError !== "object") return null;
+  const cellError = (rowError as Record<string, unknown>)[key];
+  if (!cellError || typeof cellError !== "object") return null;
+  return "message" in cellError && typeof cellError.message === "string"
+    ? cellError.message
+    : null;
+}
 
 export function PricingScheduleForm({
   customerCategories,
@@ -108,14 +193,19 @@ export function PricingScheduleForm({
       : pricingScheduleDefaultValues,
   });
 
-  const { fields, append, remove } = useFieldArray({
-    control: form.control,
-    name: "breaks",
-  });
-  const watchedBreaks = useWatch({
-    control: form.control,
-    name: "breaks",
-  });
+  const [initialBreakRows] = useState(() =>
+    normalizePricingBreakRows(
+      initialData?.breaks ?? pricingScheduleDefaultValues.breaks
+    )
+  );
+  const [initialBreakComparable] = useState(() =>
+    comparablePricingBreakRows(
+      normalizePricingBreakRows(
+        initialData?.breaks ?? pricingScheduleDefaultValues.breaks
+      )
+    )
+  );
+  const [breakRows, setBreakRows] = useState<PricingBreakGridRow[]>(initialBreakRows);
 
   const categoryMutation = useMutation({
     mutationFn: async () => {
@@ -209,6 +299,141 @@ export function PricingScheduleForm({
   };
   const breaksError = getFieldArrayError(form.formState.errors.breaks);
   const basePreview = Number(previewBasePrice);
+  const breakColumns = useMemo<ColDef<PricingBreakGridRow>[]>(
+    () => {
+      const hasCellError =
+        (key: PricingBreakColumnKey) =>
+        (params: CellClassParams<PricingBreakGridRow>) => {
+          if (!params.data) return false;
+          const rowIndex = breakRows.findIndex(
+            (row) => row.clientRowId === params.data?.clientRowId
+          );
+          return rowIndex >= 0
+            ? Boolean(getPricingBreakCellError(form.formState.errors.breaks, rowIndex, key))
+            : false;
+        };
+
+      const cellTooltip =
+        (key: PricingBreakColumnKey) =>
+        ({ data }: { data?: PricingBreakGridRow }) => {
+          if (!data) return null;
+          const rowIndex = breakRows.findIndex(
+            (row) => row.clientRowId === data.clientRowId
+          );
+          return rowIndex >= 0
+            ? getPricingBreakCellError(form.formState.errors.breaks, rowIndex, key)
+            : null;
+        };
+
+      return [
+        {
+          field: "minQuantity",
+          headerName: "Min Qty",
+          headerTooltip: MIN_QTY_TOOLTIP,
+          minWidth: 132,
+          flex: 1,
+          editable: true,
+          cellEditor: "agTextCellEditor",
+          valueSetter: (params: ValueSetterParams<PricingBreakGridRow, string | null>) => {
+            params.data.minQuantity = normalizeGridText(params.newValue);
+            return true;
+          },
+          cellEditorParams: {
+            getValidationErrors: ({ value }: { value: string | null | undefined }) =>
+              validatePositiveGridNumber(value, "Minimum quantity must be greater than 0"),
+          },
+          cellClass: "num",
+          cellClassRules: {
+            "erp-editable-grid-cell-error": hasCellError("minQuantity"),
+          },
+          tooltipValueGetter: cellTooltip("minQuantity"),
+        },
+        {
+          field: "maxQuantity",
+          headerName: "Max Qty",
+          headerTooltip: MAX_QTY_TOOLTIP,
+          minWidth: 132,
+          flex: 1,
+          editable: true,
+          cellEditor: "agTextCellEditor",
+          valueSetter: (params: ValueSetterParams<PricingBreakGridRow, string | null>) => {
+            params.data.maxQuantity = normalizeNullableGridText(params.newValue);
+            return true;
+          },
+          cellEditorParams: {
+            getValidationErrors: ({
+              value,
+              cellEditorParams,
+            }: {
+              value: string | null | undefined;
+              cellEditorParams: ICellEditorParams<PricingBreakGridRow>;
+            }) => {
+              const text = normalizeNullableGridText(value);
+              if (text == null) return null;
+              const positiveError = validatePositiveGridNumber(
+                text,
+                "Maximum quantity must be greater than 0"
+              );
+              if (positiveError) return positiveError;
+              return Number(text) >= Number(cellEditorParams.data.minQuantity)
+                ? null
+                : ["Maximum quantity must be greater than or equal to the minimum quantity"];
+            },
+          },
+          valueFormatter: ({ value }) => value ?? "",
+          cellClass: "num",
+          cellClassRules: {
+            "erp-editable-grid-cell-error": hasCellError("maxQuantity"),
+          },
+          tooltipValueGetter: cellTooltip("maxQuantity"),
+        },
+        {
+          field: "discountPercent",
+          headerName: "Discount %",
+          headerTooltip: DISCOUNT_PERCENT_TOOLTIP,
+          minWidth: 144,
+          flex: 1,
+          editable: true,
+          cellEditor: "agTextCellEditor",
+          valueSetter: (params: ValueSetterParams<PricingBreakGridRow, string | null>) => {
+            params.data.discountPercent = normalizeGridText(params.newValue);
+            return true;
+          },
+          cellEditorParams: {
+            getValidationErrors: ({ value }: { value: string | null | undefined }) =>
+              validateDiscountPercent(value),
+          },
+          cellClass: "num",
+          cellClassRules: {
+            "erp-editable-grid-cell-error": hasCellError("discountPercent"),
+          },
+          tooltipValueGetter: cellTooltip("discountPercent"),
+        },
+      ];
+    },
+    [breakRows, form.formState.errors.breaks]
+  );
+  const handleBreakRowsChange = useCallback(
+    (rows: PricingBreakGridRow[]) => {
+      setBreakRows(rows);
+      const dirty = comparablePricingBreakRows(rows) !== initialBreakComparable;
+      form.setValue("breaks", toPricingBreakPayloadRows(rows), {
+        shouldDirty: dirty,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+    },
+    [form, initialBreakComparable]
+  );
+  const createBreakRow = useCallback(() => {
+    const lastBreak = breakRows.at(-1);
+    return createPricingBreakRow({
+      minQuantity: lastBreak?.maxQuantity ?? "",
+      maxQuantity: null,
+      discountPercent: "0",
+    });
+  }, [breakRows]);
+  const getBreakRowId = useCallback((row: PricingBreakGridRow) => row.clientRowId, []);
 
   return (
     <CreatePageShell>
@@ -254,7 +479,7 @@ export function PricingScheduleForm({
                 />
               </Field>
               <div className="space-y-3">
-                {(watchedBreaks ?? []).map((row, index) => {
+                {breakRows.map((row, index) => {
                   const discount = Number(row?.discountPercent ?? 0);
                   const effective =
                     Number.isFinite(basePreview) && Number.isFinite(discount)
@@ -423,133 +648,21 @@ export function PricingScheduleForm({
             title="Quantity breaks"
             action={
               <span className="text-xs text-muted-foreground">
-                {fields.length} break{fields.length === 1 ? "" : "s"}
+                {breakRows.length} break{breakRows.length === 1 ? "" : "s"}
               </span>
             }
           >
-            <FieldGroup className="gap-4">
-              {fields.map((field, index) => (
-                <div key={field.id} className="border p-4">
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium">Break {index + 1}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Leave max quantity blank for an open-ended final break.
-                      </p>
-                    </div>
-                    {fields.length > 1 && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={() => remove(index)}
-                        aria-label={`Remove break ${index + 1}`}
-                      >
-                        <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
-                      </Button>
-                    )}
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <Controller
-                      control={form.control}
-                      name={`breaks.${index}.minQuantity`}
-                      render={({ field: breakField, fieldState }) => (
-                        <Field data-invalid={fieldState.invalid}>
-                          <FieldLabel htmlFor={breakField.name}>
-                            <TooltipHeader label="Min Qty" tooltip={MIN_QTY_TOOLTIP} />
-                          </FieldLabel>
-                          <Input
-                            {...breakField}
-                            id={breakField.name}
-                            value={breakField.value ?? ""}
-                            onChange={(event) => breakField.onChange(event.target.value)}
-                            aria-invalid={fieldState.invalid}
-                            inputMode="decimal"
-                            autoComplete="off"
-                          />
-                          {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                        </Field>
-                      )}
-                    />
-
-                    <Controller
-                      control={form.control}
-                      name={`breaks.${index}.maxQuantity`}
-                      render={({ field: breakField, fieldState }) => (
-                        <Field data-invalid={fieldState.invalid}>
-                          <FieldLabel htmlFor={breakField.name}>
-                            <TooltipHeader label="Max Qty" tooltip={MAX_QTY_TOOLTIP} />
-                          </FieldLabel>
-                          <Input
-                            {...breakField}
-                            id={breakField.name}
-                            value={breakField.value ?? ""}
-                            onChange={(event) => breakField.onChange(event.target.value)}
-                            aria-invalid={fieldState.invalid}
-                            inputMode="decimal"
-                            autoComplete="off"
-                            placeholder="Open-ended"
-                          />
-                          {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                        </Field>
-                      )}
-                    />
-
-                    <Controller
-                      control={form.control}
-                      name={`breaks.${index}.discountPercent`}
-                      render={({ field: breakField, fieldState }) => (
-                        <Field data-invalid={fieldState.invalid}>
-                          <FieldLabel htmlFor={breakField.name}>
-                            <TooltipHeader
-                              label="Discount %"
-                              tooltip={DISCOUNT_PERCENT_TOOLTIP}
-                            />
-                          </FieldLabel>
-                          <Input
-                            {...breakField}
-                            id={breakField.name}
-                            value={breakField.value ?? ""}
-                            onChange={(event) => breakField.onChange(event.target.value)}
-                            aria-invalid={fieldState.invalid}
-                            inputMode="decimal"
-                            autoComplete="off"
-                          />
-                          {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                        </Field>
-                      )}
-                    />
-                  </div>
-                </div>
-              ))}
-
-              {breaksError && <FieldError>{breaksError}</FieldError>}
-
-              <div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const lastBreak = form.getValues("breaks").at(-1);
-                    append({
-                      minQuantity: lastBreak?.maxQuantity ?? "",
-                      maxQuantity: null,
-                      discountPercent: "0",
-                    });
-                  }}
-                >
-                  Add Break
-                  <HugeiconsIcon
-                    icon={Add01Icon}
-                    className="h-4 w-4"
-                    data-icon="inline-end"
-                    aria-hidden
-                  />
-                </Button>
-              </div>
-            </FieldGroup>
+            <EditableLineDataGrid
+              rows={breakRows}
+              columns={breakColumns}
+              getRowId={getBreakRowId}
+              createRow={createBreakRow}
+              onRowsChange={handleBreakRowsChange}
+              addLabel="Add break"
+              emptyMessage="No quantity breaks yet."
+              enableReorder={false}
+              error={breaksError}
+            />
           </CreateSection>
         </FieldGroup>
       </form>

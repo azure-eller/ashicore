@@ -257,6 +257,10 @@ Production Vercel aliases that can serve the UI must also be listed in `BETTER_A
 
 Vercel preview deploys may fall back to `VERCEL_BRANCH_URL` / `VERCEL_URL` for the canonical app URL and auto-allow `*.vercel.app` in preview.
 
+### MFA in test worktrees
+
+`pnpm db:local:setup` writes `AUTH_MFA_DISABLED=1` to worktree `.env.local`; this bypasses MFA only in `development` / `test`. Do not set it in production.
+
 ### Team access presets
 
 Team invites should choose a preset (`admin`, `ops_manager`, `ops_operator`, `sales_manager`, `sales_operator`, `view_only`) and convert it to matrix roles. Presets are derived from module access later; non-matching access shows as `custom`.
@@ -405,13 +409,15 @@ Auth helpers that read `headers()` must stay request-scoped, and `/org-setup` mu
 
 ### Tables
 
-- **List pages**: AG Grid via `ERPDataGridList` (search + add + bulk delete) or `ERPDataGrid` for custom list behavior. See the Shared dashboard list grids rule.
-- **Detail pages**: shadcn `Table` / `TableHeader` / `TableBody` / `TableRow` / `TableCell`.
+- **ERP tables**: AG Grid by default. Use `ERPDataGridList` for standard list pages, `ERPDataGrid` for read-only/detail grids, and `EditableLineDataGrid` for editable line editors.
+- **shadcn Table**: only for narrow non-ERP layout tables or legacy code awaiting AG Grid migration.
 - **Never** raw `<table>` / `<tr>` / `<td>` — bypasses theme tokens.
 
 ### Editable line-item forms
 
-Mutable multi-control arrays use `EditableLineItems` from `components/editable-line-items.tsx`; it wraps `EditableLineGrid`, owns row chrome (drag handle, right-side remove, add button), and always creates one initial blank row. Pass only data columns/headers. Call `appendLineAfterCommit()` only after a committed picker selection; never create rows from typing, focus, blur, or Tab. Mark the first editable row control with `data-editable-line-primary` so Add row can focus it. Use flexible `minmax(..., fr)` tracks and a compact `minWidth`; use bare `EditableLineGrid` only for fixed editable grids like stocktake counts.
+Dense AG Grid line editors use `EditableLineDataGrid` from `components/editable-line-data-grid.tsx`: React state owns row data, AG Grid owns editing (`field`/`valueSetter`/custom editors + `onCellValueChanged`), Zod/API validates final payload. Do not use RHF `useFieldArray` for AG Grid cells.
+
+`EditableLineItems` / `EditableLineGrid` are legacy staging components. Do not use them for new ERP row editors; migrate existing use sites to `EditableLineDataGrid`.
 
 ### Shared dashboard list grids
 

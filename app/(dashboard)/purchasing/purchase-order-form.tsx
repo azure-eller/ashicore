@@ -1,17 +1,25 @@
 "use client";
 
-import { useCallback, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import {
   Controller,
   useForm,
   useWatch,
-  type Control,
 } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
+import type {
+  CellClassParams,
+  ICellEditorParams,
+  ICellRendererParams,
+  ValueFormatterParams,
+  ValueSetterParams,
+} from "ag-grid-community";
+import type { CustomCellEditorProps } from "ag-grid-react";
+import { useGridCellEditor } from "ag-grid-react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Delete02Icon,
@@ -55,19 +63,12 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
-import { EditableLineGridCell } from "@/components/editable-line-grid";
 import {
-  EditableLineItems,
-} from "@/components/editable-line-items";
+  EditableLineDataGrid,
+  type ColDef,
+} from "@/components/editable-line-data-grid";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Combobox,
   ComboboxContent,
@@ -87,11 +88,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { AutosaveStatus } from "@/components/autosave-status";
 import { TooltipHeader } from "@/components/tooltip-header";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Textarea } from "@/components/ui/textarea";
 import { AddressFields } from "@/components/address-fields";
 import { useAutosaveForm } from "@/lib/hooks/use-autosave-form";
@@ -142,10 +138,6 @@ type PurchaseOrderFormAttachment = {
   syncedAt: Date | string | null;
 };
 
-const PURCHASE_ORDER_LINE_GRID_COLUMNS =
-  "minmax(11.5rem, 1.55fr) minmax(5rem, 0.5fr) minmax(5.5rem, 0.55fr) minmax(6rem, 0.55fr) minmax(7rem, 0.7fr) minmax(6rem, 0.55fr) minmax(5.75rem, 0.55fr)";
-const PURCHASE_ORDER_COST_GRID_COLUMNS =
-  "minmax(8rem, 0.75fr) minmax(12rem, 1.25fr) minmax(9rem, 0.8fr) minmax(8rem, 0.75fr) minmax(7rem, 0.65fr)";
 const ADD_DELIVERY_ADDRESS_VALUE = "__add_delivery_address__";
 const EDIT_DELIVERY_ADDRESS_VALUE = "__edit_delivery_address__";
 const EMPTY_DELIVERY_ADDRESS = {
@@ -191,6 +183,22 @@ const blankPurchaseOrderAdditionalCost = {
   amount: null,
 };
 
+type PurchaseOrderAdditionalCostPayloadRow =
+  NonNullable<PurchaseOrderFormValues["additionalCosts"]>[number];
+type PurchaseOrderAdditionalCostGridRow = PurchaseOrderAdditionalCostPayloadRow & {
+  clientRowId: string;
+};
+type PurchaseOrderAdditionalCostColumnKey = keyof PurchaseOrderAdditionalCostPayloadRow;
+type PurchaseOrderLinePayloadRow = PurchaseOrderFormValues["lines"][number];
+type PurchaseOrderLineGridRow = PurchaseOrderLinePayloadRow & {
+  clientRowId: string;
+};
+type PurchaseOrderLineColumnKey =
+  | "itemId"
+  | "quantityOrdered"
+  | "unitCost"
+  | "accountingPurchaseAccountCode";
+
 function isBlankPurchaseOrderLine(
   line: PurchaseOrderFormValues["lines"][number] | undefined
 ) {
@@ -204,6 +212,49 @@ function isBlankPurchaseOrderLine(
     unitCost === "" &&
     accountingPurchaseAccountCode === ""
   );
+}
+
+function createPurchaseOrderLineRow(
+  values?: Partial<PurchaseOrderLinePayloadRow>
+): PurchaseOrderLineGridRow {
+  return {
+    ...blankPurchaseOrderLine,
+    ...values,
+    itemId: values?.itemId ?? "",
+    clientRowId: crypto.randomUUID(),
+  };
+}
+
+function toPurchaseOrderLineGridRows(rows: PurchaseOrderFormValues["lines"] | undefined) {
+  const gridRows = (rows ?? []).map((row) => createPurchaseOrderLineRow(row));
+  return gridRows.length > 0 ? gridRows : [createPurchaseOrderLineRow()];
+}
+
+function toPurchaseOrderLinePayloadRows(
+  rows: PurchaseOrderLineGridRow[]
+): PurchaseOrderLinePayloadRow[] {
+  return rows
+    .filter((row) => !isBlankPurchaseOrderLine(row))
+    .map((row) => ({
+      itemId: row.itemId,
+      quantityOrdered: row.quantityOrdered,
+      unitCost: row.unitCost,
+      accountingPurchaseAccountCode: row.accountingPurchaseAccountCode,
+      shipAddressEntryId: row.shipAddressEntryId,
+      shipContactName: row.shipContactName,
+      shipContactPhone: row.shipContactPhone,
+      shipLine1: row.shipLine1,
+      shipLine2: row.shipLine2,
+      shipCity: row.shipCity,
+      shipRegion: row.shipRegion,
+      shipPostcode: row.shipPostcode,
+      shipCountry: row.shipCountry,
+      shipDeliveryInstructions: row.shipDeliveryInstructions,
+    }));
+}
+
+function comparablePurchaseOrderLines(rows: PurchaseOrderLineGridRow[]) {
+  return JSON.stringify(toPurchaseOrderLinePayloadRows(rows));
 }
 
 function isBlankPurchaseOrderAdditionalCost(
@@ -221,6 +272,103 @@ function isBlankPurchaseOrderAdditionalCost(
     accountingPurchaseAccountCode === "" &&
     amount === ""
   );
+}
+
+function createPurchaseOrderAdditionalCostRow(
+  values?: Partial<PurchaseOrderAdditionalCostPayloadRow>
+): PurchaseOrderAdditionalCostGridRow {
+  return {
+    clientRowId: crypto.randomUUID(),
+    costType: values?.costType ?? blankPurchaseOrderAdditionalCost.costType,
+    reference: values?.reference ?? blankPurchaseOrderAdditionalCost.reference,
+    distributionMethod:
+      values?.distributionMethod ?? blankPurchaseOrderAdditionalCost.distributionMethod,
+    accountingPurchaseAccountCode:
+      values?.accountingPurchaseAccountCode ??
+      blankPurchaseOrderAdditionalCost.accountingPurchaseAccountCode,
+    amount: values?.amount ?? blankPurchaseOrderAdditionalCost.amount,
+  };
+}
+
+function toPurchaseOrderAdditionalCostGridRows(
+  rows: PurchaseOrderFormValues["additionalCosts"] | undefined
+) {
+  return (rows ?? []).map((row) => createPurchaseOrderAdditionalCostRow(row));
+}
+
+function toPurchaseOrderAdditionalCostPayloadRows(
+  rows: PurchaseOrderAdditionalCostGridRow[]
+): PurchaseOrderAdditionalCostPayloadRow[] {
+  return rows
+    .filter((row) => !isBlankPurchaseOrderAdditionalCost(row))
+    .map(
+      ({
+        costType,
+        reference,
+        distributionMethod,
+        accountingPurchaseAccountCode,
+        amount,
+      }) => ({
+        costType,
+        reference,
+        distributionMethod,
+        accountingPurchaseAccountCode,
+        amount,
+      })
+    );
+}
+
+function comparablePurchaseOrderAdditionalCosts(
+  rows: PurchaseOrderAdditionalCostGridRow[]
+) {
+  return JSON.stringify(toPurchaseOrderAdditionalCostPayloadRows(rows));
+}
+
+function normalizeGridText(value: unknown) {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+function normalizeNullableGridText(value: unknown) {
+  const text = normalizeGridText(value);
+  return text === "" ? null : text;
+}
+
+function validateNonNegativeMoneyCell(value: unknown, message: string) {
+  const text = normalizeGridText(value);
+  if (text === "") return [message];
+  const parsed = Number(text);
+  return Number.isFinite(parsed) && parsed >= 0 ? null : [message];
+}
+
+function getPurchaseOrderAdditionalCostCellError(
+  error: unknown,
+  rowIndex: number,
+  key: PurchaseOrderAdditionalCostColumnKey
+) {
+  if (!error || typeof error !== "object") return null;
+  const rowError = (error as Record<string, unknown>)[rowIndex];
+  if (!rowError || typeof rowError !== "object") return null;
+  const cellError = (rowError as Record<string, unknown>)[key];
+  if (!cellError || typeof cellError !== "object") return null;
+  return "message" in cellError && typeof cellError.message === "string"
+    ? cellError.message
+    : null;
+}
+
+function getPurchaseOrderLineCellError(
+  error: unknown,
+  rowIndex: number,
+  key: PurchaseOrderLineColumnKey
+) {
+  if (!error || typeof error !== "object") return null;
+  const rowError = (error as Record<string, unknown>)[rowIndex];
+  if (!rowError || typeof rowError !== "object") return null;
+  const cellError = (rowError as Record<string, unknown>)[key];
+  if (!cellError || typeof cellError !== "object") return null;
+  return "message" in cellError && typeof cellError.message === "string"
+    ? cellError.message
+    : null;
 }
 
 function parseNonNegative(value: string | null | undefined) {
@@ -460,6 +608,126 @@ function purchaseUnitDisplay(
   };
 }
 
+function PurchaseMaterialCell({
+  data,
+  materialMap,
+}: ICellRendererParams<PurchaseOrderLineGridRow> & {
+  materialMap: Map<string, PurchaseOrderMaterialOption>;
+}) {
+  if (!data?.itemId) {
+    return <span className="text-muted-foreground">Search materials...</span>;
+  }
+
+  return (
+    <span className="block truncate">
+      {materialMap.get(data.itemId)?.name ?? data.itemId}
+    </span>
+  );
+}
+
+function PurchaseUnitCell({
+  data,
+  materialMap,
+}: ICellRendererParams<PurchaseOrderLineGridRow> & {
+  materialMap: Map<string, PurchaseOrderMaterialOption>;
+}) {
+  const material = data?.itemId ? materialMap.get(data.itemId) : undefined;
+  const unitDisplay = purchaseUnitDisplay(
+    material?.purchaseUnitName,
+    material?.stockingUnitName
+  );
+
+  return <span className="text-muted-foreground">{unitDisplay.label}</span>;
+}
+
+function PurchaseLandedUnitCell({
+  data,
+  node,
+  materialMap,
+  landedCosts,
+}: ICellRendererParams<PurchaseOrderLineGridRow> & {
+  materialMap: Map<string, PurchaseOrderMaterialOption>;
+  landedCosts: LandedCostLineResult[];
+}) {
+  const material = data?.itemId ? materialMap.get(data.itemId) : undefined;
+  return (
+    <span className="font-medium">
+      {landedStockUnitCostLabel(
+        node.rowIndex == null ? null : landedCosts[node.rowIndex]?.landedStockUnitCost,
+        material?.stockingUnitName
+      )}
+    </span>
+  );
+}
+
+function PurchaseLineTotalCell({ data }: ICellRendererParams<PurchaseOrderLineGridRow>) {
+  return (
+    <span className="font-medium">
+      {lineTotalLabel(data?.quantityOrdered, data?.unitCost)}
+    </span>
+  );
+}
+
+function PurchaseMaterialCellEditor(
+  props: CustomCellEditorProps<PurchaseOrderLineGridRow, string | null> & {
+    options: Array<
+      PurchaseOrderMaterialOption & {
+        displayName: string;
+        itemType: "material";
+        unitName: string;
+      }
+    >;
+  }
+) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const valueRef = useRef<string | null>(props.value ?? null);
+
+  useGridCellEditor({
+    getValidationElement: () => editorRef.current ?? props.eGridCell,
+    getValidationErrors: () => {
+      const row = {
+        ...props.data,
+        itemId: valueRef.current ?? "",
+      };
+      if (isBlankPurchaseOrderLine(row)) return null;
+      return valueRef.current ? null : ["Material is required"];
+    },
+  });
+
+  return (
+    <div ref={editorRef} className="flex h-full w-full items-center">
+      <InventoryItemCombobox
+        options={props.options}
+        value={props.value ?? ""}
+        defaultOpen
+        onValueChange={(id) => {
+          valueRef.current = id ?? "";
+          props.onValueChange(id ?? "");
+          if (id) {
+            props.stopEditing(true);
+          }
+        }}
+        inputAriaInvalid={false}
+        inputClassName="h-full w-full min-w-0 border-0 bg-transparent shadow-none"
+        placeholder="Search materials..."
+        emptyMessage="No materials found"
+        contentClassName="w-[min(32rem,calc(100vw-2rem))]"
+        createLinks={[
+          {
+            href: "/inventory/materials/new",
+            label: "Create material",
+          },
+        ]}
+        getSecondaryText={(current) =>
+          [current.sku, current.stockingUnitName]
+            .filter((part): part is string => part != null && part !== "")
+            .join(" · ")
+        }
+      />
+    </div>
+  );
+}
+
 function hasAutosaveMinimum(values: PurchaseOrderFormValues) {
   if (!values.supplierId?.trim()) return false;
 
@@ -507,7 +775,10 @@ export function PurchaseOrderForm({
       return response.json() as Promise<{ accounts: XeroAccountOption[] }>;
     },
   });
-  const xeroAccounts = xeroAccountsQuery.data?.accounts ?? [];
+  const xeroAccounts = useMemo(
+    () => xeroAccountsQuery.data?.accounts ?? [],
+    [xeroAccountsQuery.data?.accounts]
+  );
 
   const materialOptions = useMemo(
     () =>
@@ -586,11 +857,26 @@ export function PurchaseOrderForm({
   const [addressDialogState, setAddressDialogState] = useState<{
     option: DeliveryAddressOption | null;
   } | null>(null);
+  const [initialLineRows] = useState(() =>
+    toPurchaseOrderLineGridRows(initialFormValues.lines)
+  );
+  const [initialLineComparable] = useState(() =>
+    comparablePurchaseOrderLines(toPurchaseOrderLineGridRows(initialFormValues.lines))
+  );
+  const [lineGridRows, setLineGridRows] =
+    useState<PurchaseOrderLineGridRow[]>(initialLineRows);
+  const [initialAdditionalCostRows] = useState(() =>
+    toPurchaseOrderAdditionalCostGridRows(initialFormValues.additionalCosts)
+  );
+  const [initialAdditionalCostComparable] = useState(() =>
+    comparablePurchaseOrderAdditionalCosts(
+      toPurchaseOrderAdditionalCostGridRows(initialFormValues.additionalCosts)
+    )
+  );
+  const [additionalCostGridRows, setAdditionalCostGridRows] = useState<
+    PurchaseOrderAdditionalCostGridRow[]
+  >(initialAdditionalCostRows);
 
-  const watchedLines = useWatch({
-    control: form.control,
-    name: "lines",
-  });
   const watchedSupplierId = useWatch({
     control: form.control,
     name: "supplierId",
@@ -619,7 +905,7 @@ export function PurchaseOrderForm({
   const landedCostPreview = useMemo(
     () =>
       calculatePurchaseOrderLandedCosts({
-        lines: (watchedLines ?? []).map((line) => ({
+        lines: lineGridRows.map((line) => ({
           quantityOrdered: line?.quantityOrdered,
           unitCost: line?.unitCost,
           purchaseToStockFactor:
@@ -629,7 +915,7 @@ export function PurchaseOrderForm({
         additionalCosts: watchedAdditionalCosts ?? [],
         legacyShippingCost: watchedShippingCost,
       }),
-    [materialMap, watchedAdditionalCosts, watchedLines, watchedShippingCost]
+    [lineGridRows, materialMap, watchedAdditionalCosts, watchedShippingCost]
   );
   const materialsTotal = landedCostPreview.materialSubtotal;
   const distributedAdditionalCostTotal =
@@ -637,13 +923,438 @@ export function PurchaseOrderForm({
   const nonDistributedAdditionalCostTotal =
     landedCostPreview.nonDistributedAdditionalCostTotal;
   const orderTotal = landedCostPreview.orderTotal;
-  const lineCount = (watchedLines ?? []).filter(
+  const lineCount = lineGridRows.filter(
     (line) => !isBlankPurchaseOrderLine(line)
   ).length;
   const additionalCostCount = additionalCostRows.filter(
     (cost) => !isBlankPurchaseOrderAdditionalCost(cost)
   ).length;
   const canAutosaveDraft = hasAutosaveMinimum(form.getValues());
+  const xeroAccountsByCode = useMemo(
+    () => new Map(xeroAccounts.map((account) => [account.code, account])),
+    [xeroAccounts]
+  );
+  const lineColumns = useMemo<ColDef<PurchaseOrderLineGridRow>[]>(
+    () => {
+      const nonBlankRows = lineGridRows.filter(
+        (row) => !isBlankPurchaseOrderLine(row)
+      );
+      const rowErrorIndex = (row: PurchaseOrderLineGridRow) =>
+        nonBlankRows.findIndex((current) => current.clientRowId === row.clientRowId);
+      const hasCellError =
+        (key: PurchaseOrderLineColumnKey) =>
+        (params: CellClassParams<PurchaseOrderLineGridRow>) => {
+          if (!params.data) return false;
+          const index = rowErrorIndex(params.data);
+          return index >= 0
+            ? Boolean(getPurchaseOrderLineCellError(form.formState.errors.lines, index, key))
+            : false;
+        };
+      const cellTooltip =
+        (key: PurchaseOrderLineColumnKey) =>
+        ({ data }: { data?: PurchaseOrderLineGridRow }) => {
+          if (!data) return null;
+          const index = rowErrorIndex(data);
+          return index >= 0
+            ? getPurchaseOrderLineCellError(form.formState.errors.lines, index, key)
+            : null;
+        };
+
+      return [
+        {
+          field: "itemId",
+          headerName: "Material",
+          headerTooltip: PURCHASE_MATERIAL_TOOLTIP,
+          minWidth: 220,
+          flex: 1.55,
+          editable: true,
+          cellEditor: PurchaseMaterialCellEditor,
+          cellEditorParams: {
+            options: materialOptions,
+          },
+          valueSetter: (params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>) => {
+            const materialId = normalizeGridText(params.newValue);
+            const material = materialMap.get(materialId);
+            params.data.itemId = materialId;
+            params.data.unitCost = material?.defaultPurchasePrice ?? "0";
+            params.data.accountingPurchaseAccountCode =
+              material?.accountingPurchaseAccountCode ?? null;
+            return true;
+          },
+          cellRenderer: (params: ICellRendererParams<PurchaseOrderLineGridRow>) => (
+            <PurchaseMaterialCell {...params} materialMap={materialMap} />
+          ),
+          cellClassRules: {
+            "erp-editable-grid-cell-error": hasCellError("itemId"),
+          },
+          tooltipValueGetter: cellTooltip("itemId"),
+        },
+        {
+          field: "quantityOrdered",
+          headerName: "Ordered Qty",
+          headerTooltip: PO_ORDERED_QTY_TOOLTIP,
+          minWidth: 116,
+          flex: 0.5,
+          editable: true,
+          cellEditor: "agTextCellEditor",
+          valueSetter: (params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>) => {
+            params.data.quantityOrdered = normalizeNullableGridText(params.newValue);
+            return true;
+          },
+          cellEditorParams: {
+            getValidationErrors: ({
+              value,
+              cellEditorParams,
+            }: {
+              value: string | null | undefined;
+              cellEditorParams: ICellEditorParams<PurchaseOrderLineGridRow>;
+            }) => {
+              const row = {
+                ...cellEditorParams.data,
+                quantityOrdered: normalizeNullableGridText(value),
+              };
+              if (isBlankPurchaseOrderLine(row)) return null;
+              const parsed = Number(row.quantityOrdered);
+              return Number.isFinite(parsed) && parsed > 0
+                ? null
+                : ["Quantity must be greater than 0"];
+            },
+          },
+          cellClass: "num",
+          cellClassRules: {
+            "erp-editable-grid-cell-error": hasCellError("quantityOrdered"),
+          },
+          tooltipValueGetter: cellTooltip("quantityOrdered"),
+        },
+        {
+          colId: "purchaseUnit",
+          headerName: "UoM",
+          headerTooltip: PURCHASE_UNIT_TOOLTIP,
+          minWidth: 118,
+          flex: 0.55,
+          cellRenderer: (params: ICellRendererParams<PurchaseOrderLineGridRow>) => (
+            <PurchaseUnitCell {...params} materialMap={materialMap} />
+          ),
+        },
+        {
+          field: "unitCost",
+          headerName: "Unit Cost",
+          headerTooltip: PURCHASE_UNIT_COST_TOOLTIP,
+          minWidth: 128,
+          flex: 0.55,
+          editable: true,
+          cellEditor: "agTextCellEditor",
+          valueSetter: (params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>) => {
+            params.data.unitCost = normalizeNullableGridText(params.newValue);
+            return true;
+          },
+          cellEditorParams: {
+            getValidationErrors: ({
+              value,
+              cellEditorParams,
+            }: {
+              value: string | null | undefined;
+              cellEditorParams: ICellEditorParams<PurchaseOrderLineGridRow>;
+            }) => {
+              const row = {
+                ...cellEditorParams.data,
+                unitCost: normalizeNullableGridText(value),
+              };
+              if (isBlankPurchaseOrderLine(row)) return null;
+              const text = row.unitCost?.trim() ?? "";
+              if (!text) return ["Unit cost is required"];
+              const parsed = Number(text);
+              return Number.isFinite(parsed) && parsed >= 0
+                ? null
+                : ["Unit cost must be 0 or greater"];
+            },
+          },
+          valueFormatter: ({ value }) =>
+            value == null || value === "" ? "" : (formatPrice(value) ?? value),
+          cellClass: "num",
+          cellClassRules: {
+            "erp-editable-grid-cell-error": hasCellError("unitCost"),
+          },
+          tooltipValueGetter: cellTooltip("unitCost"),
+        },
+        {
+          colId: "landedUnit",
+          headerName: "Landed/Unit",
+          headerTooltip: PURCHASE_LANDED_UNIT_TOOLTIP,
+          minWidth: 136,
+          flex: 0.7,
+          cellRenderer: (params: ICellRendererParams<PurchaseOrderLineGridRow>) => (
+            <PurchaseLandedUnitCell
+              {...params}
+              materialMap={materialMap}
+              landedCosts={landedCostPreview.lines}
+            />
+          ),
+        },
+        {
+          field: "accountingPurchaseAccountCode",
+          headerName: "Account",
+          headerTooltip: PURCHASE_ACCOUNT_TOOLTIP,
+          minWidth: 132,
+          flex: 0.55,
+          editable: true,
+          cellEditor: "agSelectCellEditor",
+          cellEditorParams: {
+            values: ["", ...xeroAccounts.map((account) => account.code)],
+            openEditorOnStart: true,
+          },
+          valueFormatter: ({ value }) => {
+            if (!value) return "";
+            const account = xeroAccountsByCode.get(value);
+            return account ? `${account.code} - ${account.name}` : value;
+          },
+          valueSetter: (params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>) => {
+            params.data.accountingPurchaseAccountCode =
+              normalizeNullableGridText(params.newValue);
+            return true;
+          },
+          cellClassRules: {
+            "erp-editable-grid-cell-error": hasCellError("accountingPurchaseAccountCode"),
+          },
+          tooltipValueGetter: cellTooltip("accountingPurchaseAccountCode"),
+        },
+        {
+          colId: "lineTotal",
+          headerName: "Line Total",
+          headerTooltip: PO_LINE_TOTAL_TOOLTIP,
+          minWidth: 128,
+          flex: 0.55,
+          cellRenderer: PurchaseLineTotalCell,
+        },
+      ];
+    },
+    [
+      form.formState.errors.lines,
+      landedCostPreview.lines,
+      lineGridRows,
+      materialMap,
+      materialOptions,
+      xeroAccounts,
+      xeroAccountsByCode,
+    ]
+  );
+  const handleLineRowsChange = useCallback(
+    (rows: PurchaseOrderLineGridRow[]) => {
+      setLineGridRows(rows);
+      const dirty = comparablePurchaseOrderLines(rows) !== initialLineComparable;
+      form.setValue("lines", toPurchaseOrderLinePayloadRows(rows), {
+        shouldDirty: dirty,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+    },
+    [form, initialLineComparable]
+  );
+  const createLineRow = useCallback(() => createPurchaseOrderLineRow(), []);
+  const getLineRowId = useCallback(
+    (row: PurchaseOrderLineGridRow) => row.clientRowId,
+    []
+  );
+  const additionalCostColumns = useMemo<ColDef<PurchaseOrderAdditionalCostGridRow>[]>(
+    () => {
+      const nonBlankRows = additionalCostGridRows.filter(
+        (row) => !isBlankPurchaseOrderAdditionalCost(row)
+      );
+      const rowErrorIndex = (row: PurchaseOrderAdditionalCostGridRow) =>
+        nonBlankRows.findIndex((current) => current.clientRowId === row.clientRowId);
+      const hasCellError =
+        (key: PurchaseOrderAdditionalCostColumnKey) =>
+        (params: CellClassParams<PurchaseOrderAdditionalCostGridRow>) => {
+          if (!params.data) return false;
+          const index = rowErrorIndex(params.data);
+          return index >= 0
+            ? Boolean(
+                getPurchaseOrderAdditionalCostCellError(
+                  form.formState.errors.additionalCosts,
+                  index,
+                  key
+                )
+              )
+            : false;
+        };
+      const cellTooltip =
+        (key: PurchaseOrderAdditionalCostColumnKey) =>
+        ({ data }: { data?: PurchaseOrderAdditionalCostGridRow }) => {
+          if (!data) return null;
+          const index = rowErrorIndex(data);
+          return index >= 0
+            ? getPurchaseOrderAdditionalCostCellError(
+                form.formState.errors.additionalCosts,
+                index,
+                key
+              )
+            : null;
+        };
+
+      return [
+        {
+          field: "costType",
+          headerName: "Cost",
+          headerTooltip: PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP,
+          minWidth: 128,
+          flex: 0.75,
+          editable: true,
+          cellEditor: "agSelectCellEditor",
+          cellEditorParams: {
+            values: Object.keys(ADDITIONAL_COST_TYPE_LABELS),
+            openEditorOnStart: true,
+          },
+          valueFormatter: ({
+            value,
+          }: ValueFormatterParams<
+            PurchaseOrderAdditionalCostGridRow,
+            PurchaseOrderAdditionalCostType
+          >) => ADDITIONAL_COST_TYPE_LABELS[value ?? "shipping"],
+          valueSetter: (
+            params: ValueSetterParams<
+              PurchaseOrderAdditionalCostGridRow,
+              PurchaseOrderAdditionalCostType
+            >
+          ) => {
+            params.data.costType = params.newValue ?? "shipping";
+            return true;
+          },
+        },
+        {
+          field: "reference",
+          headerName: "Reference",
+          headerTooltip: PURCHASE_COST_REFERENCE_TOOLTIP,
+          minWidth: 172,
+          flex: 1.25,
+          editable: true,
+          cellEditor: "agTextCellEditor",
+          valueSetter: (params: ValueSetterParams<PurchaseOrderAdditionalCostGridRow, string | null>) => {
+            params.data.reference = normalizeNullableGridText(params.newValue);
+            return true;
+          },
+          valueFormatter: ({ value }) => value ?? "",
+        },
+        {
+          field: "distributionMethod",
+          headerName: "Distribution",
+          headerTooltip: PURCHASE_COST_DISTRIBUTION_TOOLTIP,
+          minWidth: 148,
+          flex: 0.8,
+          editable: true,
+          cellEditor: "agSelectCellEditor",
+          cellEditorParams: {
+            values: Object.keys(ADDITIONAL_COST_DISTRIBUTION_LABELS),
+            openEditorOnStart: true,
+          },
+          valueFormatter: ({
+            value,
+          }: ValueFormatterParams<
+            PurchaseOrderAdditionalCostGridRow,
+            PurchaseOrderAdditionalCostDistributionMethod
+          >) => ADDITIONAL_COST_DISTRIBUTION_LABELS[value ?? "by_value"],
+          valueSetter: (
+            params: ValueSetterParams<
+              PurchaseOrderAdditionalCostGridRow,
+              PurchaseOrderAdditionalCostDistributionMethod
+            >
+          ) => {
+            params.data.distributionMethod = params.newValue ?? "by_value";
+            return true;
+          },
+        },
+        {
+          field: "accountingPurchaseAccountCode",
+          headerName: "Accounting Account",
+          headerTooltip: PURCHASE_ACCOUNT_TOOLTIP,
+          minWidth: 164,
+          flex: 0.95,
+          editable: true,
+          cellEditor: "agSelectCellEditor",
+          cellEditorParams: {
+            values: ["", ...xeroAccounts.map((account) => account.code)],
+            openEditorOnStart: true,
+          },
+          valueFormatter: ({ value }) => {
+            if (!value) return "";
+            const account = xeroAccountsByCode.get(value);
+            return account ? `${account.code} - ${account.name}` : value;
+          },
+          valueSetter: (params: ValueSetterParams<PurchaseOrderAdditionalCostGridRow, string | null>) => {
+            params.data.accountingPurchaseAccountCode =
+              normalizeNullableGridText(params.newValue);
+            return true;
+          },
+        },
+        {
+          field: "amount",
+          headerName: "Amount",
+          headerTooltip: PURCHASE_COST_AMOUNT_TOOLTIP,
+          minWidth: 128,
+          flex: 0.65,
+          editable: true,
+          cellEditor: "agTextCellEditor",
+          valueSetter: (params: ValueSetterParams<PurchaseOrderAdditionalCostGridRow, string | null>) => {
+            const parsed = parseNonNegative(normalizeGridText(params.newValue));
+            params.data.amount = parsed == null ? normalizeNullableGridText(params.newValue) : normalizeMoney(parsed);
+            return true;
+          },
+          cellEditorParams: {
+            getValidationErrors: ({
+              value,
+              cellEditorParams,
+            }: {
+              value: string | null | undefined;
+              cellEditorParams: ICellEditorParams<PurchaseOrderAdditionalCostGridRow>;
+            }) => {
+              const row = {
+                ...cellEditorParams.data,
+                amount: normalizeNullableGridText(value),
+              };
+              if (isBlankPurchaseOrderAdditionalCost(row)) return null;
+              return validateNonNegativeMoneyCell(
+                value,
+                row.amount ? "Amount must be 0 or greater" : "Amount is required"
+              );
+            },
+          },
+          valueFormatter: ({ value }) =>
+            value == null || value === "" ? "" : (formatPrice(value) ?? value),
+          cellClass: "num",
+          cellClassRules: {
+            "erp-editable-grid-cell-error": hasCellError("amount"),
+          },
+          tooltipValueGetter: cellTooltip("amount"),
+        },
+      ];
+    },
+    [
+      additionalCostGridRows,
+      form.formState.errors.additionalCosts,
+      xeroAccounts,
+      xeroAccountsByCode,
+    ]
+  );
+  const handleAdditionalCostRowsChange = useCallback(
+    (rows: PurchaseOrderAdditionalCostGridRow[]) => {
+      setAdditionalCostGridRows(rows);
+      const dirty =
+        comparablePurchaseOrderAdditionalCosts(rows) !== initialAdditionalCostComparable;
+      form.setValue("additionalCosts", toPurchaseOrderAdditionalCostPayloadRows(rows), {
+        shouldDirty: dirty,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+    },
+    [form, initialAdditionalCostComparable]
+  );
+  const createAdditionalCostRow = useCallback(
+    () => createPurchaseOrderAdditionalCostRow(),
+    []
+  );
+  const getAdditionalCostRowId = useCallback(
+    (row: PurchaseOrderAdditionalCostGridRow) => row.clientRowId,
+    []
+  );
 
   const savePurchaseOrder = useCallback(
     async (values: PurchaseOrderFormValues) => {
@@ -960,7 +1671,7 @@ export function PurchaseOrderForm({
         deliveryInstructions: option.shipDeliveryInstructions,
       },
     ];
-  }, [form, watchedDeliveryAddress]);
+  }, [form]);
   const currentDeliveryAddress: DeliveryAddressFields = {
     shipLine1: watchedDeliveryAddress?.[0] ?? null,
     shipLine2: watchedDeliveryAddress?.[1] ?? null,
@@ -1170,89 +1881,16 @@ export function PurchaseOrderForm({
                 {lineCount} item{lineCount === 1 ? "" : "s"}
               </span>
             </div>
-              <EditableLineItems<PurchaseOrderFormValues, "lines">
-                control={form.control}
-                name="lines"
-                columns={PURCHASE_ORDER_LINE_GRID_COLUMNS}
-                minWidth="0"
-                createLine={() => ({ ...blankPurchaseOrderLine })}
+              <EditableLineDataGrid
+                rows={lineGridRows}
+                columns={lineColumns}
+                getRowId={getLineRowId}
+                createRow={createLineRow}
+                onRowsChange={handleLineRowsChange}
                 addLabel="Add material"
                 emptyMessage="No materials yet."
+                isBlankRow={isBlankPurchaseOrderLine}
                 error={linesError}
-                headers={[
-                  <TooltipHeader
-                    key="material"
-                    label="Material"
-                    tooltip={PURCHASE_MATERIAL_TOOLTIP}
-                  />,
-                  <TooltipHeader
-                    key="ordered-qty"
-                    label="Ordered Qty"
-                    tooltip={PO_ORDERED_QTY_TOOLTIP}
-                  />,
-                  <TooltipHeader
-                    key="purchase-unit"
-                    label="UoM"
-                    tooltip={PURCHASE_UNIT_TOOLTIP}
-                  />,
-                  <TooltipHeader
-                    key="unit-cost"
-                    label="Unit Cost"
-                    tooltip={PURCHASE_UNIT_COST_TOOLTIP}
-                  />,
-                  <TooltipHeader
-                    key="landed-unit"
-                    label="Landed/Unit"
-                    tooltip={PURCHASE_LANDED_UNIT_TOOLTIP}
-                  />,
-                  <TooltipHeader
-                    key="account"
-                    label="Account"
-                    tooltip={PURCHASE_ACCOUNT_TOOLTIP}
-                  />,
-                  <TooltipHeader
-                    key="line-total"
-                    label="Line Total"
-                    tooltip={PO_LINE_TOTAL_TOOLTIP}
-                  />,
-                ]}
-                renderRow={({ field, index, appendLineAfterCommit }) => (
-                  <PurchaseOrderLineRow
-                    key={field.id}
-                    index={index}
-                    control={form.control}
-                    materials={materialOptions}
-                    materialMap={materialMap}
-                    xeroAccounts={xeroAccounts}
-                    landedCost={landedCostPreview.lines[index]}
-                    onMaterialChange={(materialId) => {
-                      const material = materialMap.get(materialId);
-                      form.setValue(`lines.${index}.itemId`, materialId, {
-                        shouldDirty: true,
-                        shouldValidate: true,
-                      });
-                      form.setValue(
-                        `lines.${index}.unitCost`,
-                        material?.defaultPurchasePrice ?? "0",
-                        {
-                          shouldDirty: true,
-                          shouldValidate: true,
-                        }
-                      );
-                      form.setValue(
-                        `lines.${index}.accountingPurchaseAccountCode`,
-                        material?.accountingPurchaseAccountCode ?? null,
-                        {
-                          shouldDirty: true,
-                          shouldValidate: true,
-                        }
-                      );
-                      if (materialId) {
-                        appendLineAfterCommit();
-                      }
-                    }}
-                  />
-                )}
               />
           </section>
 
@@ -1264,50 +1902,16 @@ export function PurchaseOrderForm({
                 {additionalCostCount === 1 ? "" : "s"}
               </span>
             </div>
-            <EditableLineItems<PurchaseOrderFormValues, "additionalCosts">
-              control={form.control}
-              name="additionalCosts"
-              columns={PURCHASE_ORDER_COST_GRID_COLUMNS}
-              minWidth="50rem"
-              createLine={() => ({ ...blankPurchaseOrderAdditionalCost })}
+            <EditableLineDataGrid
+              rows={additionalCostGridRows}
+              columns={additionalCostColumns}
+              getRowId={getAdditionalCostRowId}
+              createRow={createAdditionalCostRow}
+              onRowsChange={handleAdditionalCostRowsChange}
               addLabel="Add cost"
               emptyMessage="No additional costs yet."
+              isBlankRow={isBlankPurchaseOrderAdditionalCost}
               error={additionalCostsError}
-              headers={[
-                <TooltipHeader
-                  key="cost"
-                  label="Cost"
-                  tooltip={PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP}
-                />,
-                <TooltipHeader
-                  key="reference"
-                  label="Reference"
-                  tooltip={PURCHASE_COST_REFERENCE_TOOLTIP}
-                />,
-                <TooltipHeader
-                  key="distribution"
-                  label="Distribution"
-                  tooltip={PURCHASE_COST_DISTRIBUTION_TOOLTIP}
-                />,
-                <TooltipHeader
-                  key="account"
-                  label="Accounting Account"
-                  tooltip={PURCHASE_ACCOUNT_TOOLTIP}
-                />,
-                <TooltipHeader
-                  key="amount"
-                  label="Amount"
-                  tooltip={PURCHASE_COST_AMOUNT_TOOLTIP}
-                />,
-              ]}
-              renderRow={({ field, index }) => (
-                <PurchaseOrderAdditionalCostRow
-                  key={field.id}
-                  index={index}
-                  control={form.control}
-                  xeroAccounts={xeroAccounts}
-                />
-              )}
             />
           </section>
 
@@ -1572,245 +2176,6 @@ export function PurchaseOrderForm({
   );
 }
 
-function XeroAccountInput({
-  id,
-  name,
-  value,
-  accounts,
-  placeholder,
-  ariaInvalid,
-  onChange,
-}: {
-  id: string;
-  name?: string;
-  value: string;
-  accounts: XeroAccountOption[];
-  placeholder: string;
-  ariaInvalid: boolean;
-  onChange: (value: string) => void;
-}) {
-  if (accounts.length > 0) {
-    return (
-      <>
-        <Input
-          id={id}
-          name={name}
-          value={value}
-          list={`${id}-accounts`}
-          onChange={(event) => onChange(event.target.value)}
-          aria-invalid={ariaInvalid}
-          placeholder={placeholder}
-          autoComplete="off"
-        />
-        <datalist id={`${id}-accounts`}>
-          {accounts.map((account) => (
-            <option
-              key={account.code}
-              value={account.code}
-              label={`${account.code} · ${account.name}`}
-            />
-          ))}
-        </datalist>
-      </>
-    );
-  }
-
-  return (
-    <Input
-      id={id}
-      name={name}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      aria-invalid={ariaInvalid}
-      placeholder={placeholder}
-      autoComplete="off"
-    />
-  );
-}
-
-function PurchaseOrderLineRow({
-  index,
-  control,
-  materials,
-  materialMap,
-  xeroAccounts,
-  landedCost,
-  onMaterialChange,
-}: {
-  index: number;
-  control: Control<PurchaseOrderFormValues>;
-  materials: Array<
-    PurchaseOrderMaterialOption & {
-      displayName: string;
-      itemType: "material";
-      unitName: string;
-    }
-  >;
-  materialMap: Map<string, PurchaseOrderMaterialOption>;
-  xeroAccounts: XeroAccountOption[];
-  landedCost: LandedCostLineResult | undefined;
-  onMaterialChange: (materialId: string) => void;
-}) {
-  const rowDomId = useId();
-  const line = useWatch({
-    control,
-    name: `lines.${index}`,
-  });
-
-  const material = line?.itemId ? materialMap.get(line.itemId) : undefined;
-  const unitDisplay = purchaseUnitDisplay(
-    material?.purchaseUnitName,
-    material?.stockingUnitName
-  );
-
-  return (
-    <>
-      <EditableLineGridCell>
-        <Controller
-          control={control}
-          name={`lines.${index}.itemId`}
-          render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-material`}>
-                Material
-              </FieldLabel>
-              <InventoryItemCombobox
-                options={materials}
-                value={field.value ?? ""}
-                onValueChange={(value) => onMaterialChange(value ?? "")}
-                inputId={`${rowDomId}-material`}
-                inputAriaInvalid={fieldState.invalid}
-                inputPrimaryFocus
-                inputClassName="w-full min-w-0"
-                placeholder="Search materials..."
-                emptyMessage="No materials found"
-                contentClassName="w-[min(32rem,calc(100vw-2rem))]"
-                createLinks={[
-                  {
-                    href: "/inventory/materials/new",
-                    label: "Create material",
-                  },
-                ]}
-                getSecondaryText={(current) =>
-                  [current.sku, current.stockingUnitName]
-                    .filter((part): part is string => part != null && part !== "")
-                    .join(" · ")
-                }
-              />
-              {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </Field>
-          )}
-        />
-      </EditableLineGridCell>
-
-      <EditableLineGridCell>
-        <Controller
-          control={control}
-          name={`lines.${index}.quantityOrdered`}
-          render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-quantity`}>
-                Ordered Qty
-              </FieldLabel>
-              <Input
-                {...field}
-                id={`${rowDomId}-quantity`}
-                value={field.value ?? ""}
-                onChange={(event) => field.onChange(event.target.value)}
-                aria-invalid={fieldState.invalid}
-                inputMode="decimal"
-                placeholder="0"
-                autoComplete="off"
-              />
-              {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </Field>
-          )}
-        />
-      </EditableLineGridCell>
-
-      <EditableLineGridCell className="text-sm text-muted-foreground">
-        {unitDisplay.tooltip ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="block truncate">{unitDisplay.label}</span>
-            </TooltipTrigger>
-            <TooltipContent side="top">{unitDisplay.tooltip}</TooltipContent>
-          </Tooltip>
-        ) : (
-          <span className="block truncate">{unitDisplay.label}</span>
-        )}
-      </EditableLineGridCell>
-
-      <EditableLineGridCell>
-        <Controller
-          control={control}
-          name={`lines.${index}.unitCost`}
-          render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-unit-cost`}>
-                Unit Cost
-              </FieldLabel>
-              <Input
-                {...field}
-                id={`${rowDomId}-unit-cost`}
-                value={field.value ?? ""}
-                onChange={(event) => field.onChange(event.target.value)}
-                aria-invalid={fieldState.invalid}
-                inputMode="decimal"
-                placeholder="0.00"
-                autoComplete="off"
-              />
-              {fieldState.invalid ? (
-                <FieldError errors={[fieldState.error]} />
-              ) : material?.defaultPurchasePrice == null && material ? (
-                <p className="pt-1 text-xs text-muted-foreground">
-                  No default purchase price. Enter one manually.
-                </p>
-              ) : null}
-            </Field>
-          )}
-        />
-      </EditableLineGridCell>
-
-      <EditableLineGridCell align="right" className="text-sm font-medium">
-        {landedStockUnitCostLabel(
-          landedCost?.landedStockUnitCost,
-          material?.stockingUnitName
-        )}
-      </EditableLineGridCell>
-
-      <EditableLineGridCell>
-        <Controller
-          control={control}
-          name={`lines.${index}.accountingPurchaseAccountCode`}
-          render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-xero-account`}>
-                Accounting Account
-              </FieldLabel>
-              <XeroAccountInput
-                id={`${rowDomId}-xero-account`}
-                name={field.name}
-                value={field.value ?? ""}
-                accounts={xeroAccounts}
-                placeholder={material?.accountingPurchaseAccountCode ?? "Account"}
-                ariaInvalid={fieldState.invalid}
-                onChange={(value) => field.onChange(value || null)}
-              />
-              {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </Field>
-          )}
-        />
-      </EditableLineGridCell>
-
-      <EditableLineGridCell align="right" className="text-sm font-medium">
-        {lineTotalLabel(line?.quantityOrdered, line?.unitCost)}
-      </EditableLineGridCell>
-
-    </>
-  );
-}
-
 function DeliveryAddressInput({
   id,
   label,
@@ -1910,170 +2275,5 @@ function DeliveryAddressInput({
         </ComboboxContent>
       </Combobox>
     </Field>
-  );
-}
-
-function PurchaseOrderAdditionalCostRow({
-  index,
-  control,
-  xeroAccounts,
-}: {
-  index: number;
-  control: Control<PurchaseOrderFormValues>;
-  xeroAccounts: XeroAccountOption[];
-}) {
-  const rowDomId = useId();
-
-  return (
-    <>
-      <EditableLineGridCell>
-        <Controller
-          control={control}
-          name={`additionalCosts.${index}.costType`}
-          render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only">Cost</FieldLabel>
-              <Select
-                value={field.value}
-                onValueChange={(value) =>
-                  field.onChange(value as PurchaseOrderAdditionalCostType)
-                }
-              >
-                <SelectTrigger
-                  className="w-full"
-                  aria-invalid={fieldState.invalid}
-                  data-editable-line-primary
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(ADDITIONAL_COST_TYPE_LABELS).map(
-                    ([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
-                    )
-                  )}
-                </SelectContent>
-              </Select>
-              {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </Field>
-          )}
-        />
-      </EditableLineGridCell>
-
-      <EditableLineGridCell>
-        <Controller
-          control={control}
-          name={`additionalCosts.${index}.reference`}
-          render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-reference`}>
-                Reference
-              </FieldLabel>
-              <Input
-                {...field}
-                id={`${rowDomId}-reference`}
-                value={field.value ?? ""}
-                onChange={(event) => field.onChange(event.target.value || null)}
-                aria-invalid={fieldState.invalid}
-                placeholder="Reference"
-                autoComplete="off"
-              />
-              {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </Field>
-          )}
-        />
-      </EditableLineGridCell>
-
-      <EditableLineGridCell>
-        <Controller
-          control={control}
-          name={`additionalCosts.${index}.distributionMethod`}
-          render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only">Distribution</FieldLabel>
-              <Select
-                value={field.value}
-                onValueChange={(value) =>
-                  field.onChange(
-                    value as PurchaseOrderAdditionalCostDistributionMethod
-                  )
-                }
-              >
-                <SelectTrigger className="w-full" aria-invalid={fieldState.invalid}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(ADDITIONAL_COST_DISTRIBUTION_LABELS).map(
-                    ([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
-                    )
-                  )}
-                </SelectContent>
-              </Select>
-              {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </Field>
-          )}
-        />
-      </EditableLineGridCell>
-
-      <EditableLineGridCell>
-        <Controller
-          control={control}
-          name={`additionalCosts.${index}.accountingPurchaseAccountCode`}
-          render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-xero-account`}>
-                Accounting Account
-              </FieldLabel>
-              <XeroAccountInput
-                id={`${rowDomId}-xero-account`}
-                name={field.name}
-                value={field.value ?? ""}
-                accounts={xeroAccounts}
-                placeholder="PO default"
-                ariaInvalid={fieldState.invalid}
-                onChange={(value) => field.onChange(value || null)}
-              />
-              {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </Field>
-          )}
-        />
-      </EditableLineGridCell>
-
-      <EditableLineGridCell>
-        <Controller
-          control={control}
-          name={`additionalCosts.${index}.amount`}
-          render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-amount`}>
-                Amount
-              </FieldLabel>
-              <Input
-                {...field}
-                id={`${rowDomId}-amount`}
-                value={field.value ?? ""}
-                onChange={(event) => field.onChange(event.target.value)}
-                onBlur={(event) => {
-                  field.onBlur();
-                  const parsed = parseNonNegative(event.target.value);
-                  field.onChange(parsed == null ? "" : normalizeMoney(parsed));
-                }}
-                aria-invalid={fieldState.invalid}
-                inputMode="decimal"
-                placeholder="Amount"
-                autoComplete="off"
-              />
-              {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </Field>
-          )}
-        />
-      </EditableLineGridCell>
-
-    </>
   );
 }

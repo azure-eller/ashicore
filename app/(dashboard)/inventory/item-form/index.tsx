@@ -1,11 +1,18 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { apiJson } from "@/lib/client/api";
-import { Controller, useForm, useWatch, type UseFormSetValue } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type {
+  CellClassParams,
+  ICellEditorParams,
+  ICellRendererParams,
+  ValueFormatterParams,
+  ValueSetterParams,
+} from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CircleLock01Icon, CircleUnlock01Icon } from "@hugeicons/core-free-icons";
 import { formatPrice, getFirstFormErrorMessage, parsePositive } from "@/lib/format";
@@ -58,12 +65,22 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { TooltipHeader } from "@/components/tooltip-header";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
-import { EditableLineGridCell } from "@/components/editable-line-grid";
-import { EditableLineItems } from "@/components/editable-line-items";
-import { BomEditor } from "@/app/(dashboard)/inventory/bom-editor";
+import {
+  EditableLineDataGrid,
+  type ColDef,
+  type EditableLineDataGridChange,
+} from "@/components/editable-line-data-grid";
+import { BomEditor, type BomPayloadRow } from "@/app/(dashboard)/inventory/bom-editor";
 import { BomLockConfirmDialog } from "./dialogs/bom-lock-confirm-dialog";
 import { CreateUnitDialog } from "./dialogs/create-unit-dialog";
 import { CurrentStockCostDialog } from "./dialogs/current-stock-cost-dialog";
@@ -82,6 +99,7 @@ import {
 } from "@/lib/tooltip-copy";
 
 const CREATE_NEW_UNIT = "__create_new__";
+const CREATE_NEW_RESOURCE = "__create_new_resource__";
 const POSITIVE_NUMBER_RE = /^\d+\.?\d*$/;
 const uomGroups = getUomOptions();
 
@@ -106,20 +124,8 @@ interface ItemFormProps {
   }>;
   canManageBomLock?: boolean;
   initialData?: NonNullable<Awaited<ReturnType<typeof getItem>>> & {
-    bom?: {
-      componentId: string;
-      quantity: string | null;
-      minimumLotAgeDays?: number | null;
-      alternates?: Array<{ itemId: string }>;
-    }[];
-    operationCosts?: {
-      operationName: string;
-      resourceId: string;
-      costScalingMode: "per_output_unit" | "fixed_per_mo";
-      crewSize: string;
-      plannedMinutes: string;
-      loadedCostPerHour?: string | null;
-    }[];
+    bom?: BomPayloadRow[];
+    operationCosts?: OperationCostPayloadRow[];
   };
 }
 
@@ -129,6 +135,22 @@ type CurrentStockUnitCostResult = { id: string; currentStockUnitCost: string | n
 type UnitDefinitionResult = { id: string; name: string; size: string; uom: string };
 
 type ManufacturingResourceOption = NonNullable<ItemFormProps["manufacturingResources"]>[number];
+
+type ResourceFormState = {
+  name: string;
+  description: string;
+  resourceType: ManufacturingResourceOption["resourceType"];
+  loadedCostPerHour: string;
+};
+
+type ResourceFormErrors = Partial<Record<"name" | "loadedCostPerHour", string>>;
+
+const emptyResourceForm: ResourceFormState = {
+  name: "",
+  description: "",
+  resourceType: "labor",
+  loadedCostPerHour: "",
+};
 
 function formatOperationCost(params: {
   crewSize: string | null | undefined;
@@ -166,8 +188,40 @@ function formatOperationCost(params: {
   return `${formatPrice(total.toFixed(2)) ?? "$0"} / unit`;
 }
 
-const OPERATION_COST_GRID_COLUMNS =
-  "minmax(12rem,1.2fr) minmax(10rem,1fr) minmax(8rem,.75fr) minmax(7rem,.65fr) minmax(9rem,.75fr) minmax(7rem,.65fr)";
+type OperationCostPayloadRow = {
+  operationName: string | null;
+  resourceId: string | null;
+  costScalingMode?: "per_output_unit" | "fixed_per_mo" | null;
+  crewSize: string | null;
+  plannedMinutes: string | null;
+  loadedCostPerHour?: string | null;
+};
+
+type OperationCostGridRow = OperationCostPayloadRow & {
+  clientRowId: string;
+};
+
+type OperationCostColumnKey =
+  | "operationName"
+  | "resourceId"
+  | "costScalingMode"
+  | "crewSize"
+  | "plannedMinutes";
+
+type OperationCostErrorState = {
+  gridError: string | null;
+  byRowId: Map<string, Map<OperationCostColumnKey, string>>;
+};
+
+type OperationCostEditorChangeMeta = {
+  dirty: boolean;
+  change: EditableLineDataGridChange<OperationCostGridRow>;
+};
+
+const OPERATION_COST_MODE_LABELS = {
+  per_output_unit: "Per unit",
+  fixed_per_mo: "Per MO",
+} as const;
 
 const blankOperationCostLine = {
   operationName: "",
@@ -178,248 +232,709 @@ const blankOperationCostLine = {
   loadedCostPerHour: null,
 };
 
-function OperationCostEditor({
-  control,
-  setValue,
-  resources,
-  expectedBatchYield,
-  typicalBatchSize,
-  standardCostQuantity,
-}: {
-  control: ReturnType<typeof useForm<ItemFormValues>>["control"];
-  setValue: UseFormSetValue<ItemFormValues>;
-  resources: ManufacturingResourceOption[];
-  expectedBatchYield: string | null | undefined;
-  typicalBatchSize: string | null | undefined;
-  standardCostQuantity: string | null | undefined;
-}) {
-  const operationCosts =
-    (useWatch({ control, name: "operationCosts" as never }) as
-      | Array<{
-          resourceId?: string | null;
-          costScalingMode?: string | null;
-          crewSize?: string | null;
-          plannedMinutes?: string | null;
-          loadedCostPerHour?: string | null;
-        }>
-      | undefined) ?? [];
-  const resourcesById = useMemo(
-    () => new Map(resources.map((resource) => [resource.id, resource])),
-    [resources]
-  );
+function createOperationCostRowId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
 
-  return (
-    <EditableLineItems<ItemFormValues, "operationCosts">
-      control={control}
-      name={"operationCosts" as never}
-      columns={OPERATION_COST_GRID_COLUMNS}
-      minWidth="62rem"
-      createLine={() => ({ ...blankOperationCostLine }) as never}
-      addLabel="Add operation cost"
-      emptyMessage="No operation costs yet."
-      headers={["Operation", "Resource", "Mode", "Crew", "Minutes", "Cost"]}
-      renderRow={({ field, index, appendLineAfterCommit }) => (
-        <OperationCostRow
-          key={field.id}
-          index={index}
-          control={control}
-          resources={resources}
-          resourcesById={resourcesById}
-          row={operationCosts[index]}
-          setValue={setValue}
-          expectedBatchYield={expectedBatchYield}
-          typicalBatchSize={typicalBatchSize}
-          standardCostQuantity={standardCostQuantity}
-          appendLineAfterCommit={appendLineAfterCommit}
-        />
-      )}
-    />
+  return `operation-cost-row-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function normalizeTextCell(value: unknown) {
+  if (value == null) {
+    return null;
+  }
+
+  const nextValue = String(value).trim();
+  return nextValue === "" ? null : nextValue;
+}
+
+function getNestedMessage(value: unknown): string | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as { message?: unknown; root?: unknown };
+  if (typeof candidate.message === "string") {
+    return candidate.message;
+  }
+
+  return getNestedMessage(candidate.root);
+}
+
+function createBlankOperationCostGridRow(): OperationCostGridRow {
+  return {
+    ...blankOperationCostLine,
+    clientRowId: createOperationCostRowId(),
+  };
+}
+
+function toOperationCostGridRows(
+  rows: OperationCostPayloadRow[] | undefined
+): OperationCostGridRow[] {
+  const gridRows =
+    rows?.map((row) => ({
+      ...blankOperationCostLine,
+      ...row,
+      operationName: row.operationName ?? "",
+      resourceId: row.resourceId ?? "",
+      costScalingMode: row.costScalingMode ?? "per_output_unit",
+      clientRowId: createOperationCostRowId(),
+    })) ?? [];
+
+  return gridRows.length > 0 ? gridRows : [createBlankOperationCostGridRow()];
+}
+
+function toOperationCostPayloadRows(
+  rows: OperationCostGridRow[]
+): OperationCostPayloadRow[] {
+  return rows.map((row) => ({
+    operationName: normalizeTextCell(row.operationName),
+    resourceId: normalizeTextCell(row.resourceId),
+    costScalingMode: row.costScalingMode ?? "per_output_unit",
+    crewSize: normalizeTextCell(row.crewSize),
+    plannedMinutes: normalizeTextCell(row.plannedMinutes),
+    loadedCostPerHour: normalizeTextCell(row.loadedCostPerHour),
+  }));
+}
+
+function isBlankOperationCostGridRow(row: OperationCostPayloadRow) {
+  const operationName = row.operationName?.trim() ?? "";
+  const resourceId = row.resourceId?.trim() ?? "";
+  const crewSize = row.crewSize?.trim() ?? "";
+  const plannedMinutes = row.plannedMinutes?.trim() ?? "";
+
+  return operationName === "" && resourceId === "" && crewSize === "" && plannedMinutes === "";
+}
+
+function comparableOperationCosts(rows: OperationCostGridRow[]) {
+  return JSON.stringify(
+    toOperationCostPayloadRows(rows)
+      .filter((row) => !isBlankOperationCostGridRow(row))
+      .map((row) => ({
+        operationName: row.operationName ?? "",
+        resourceId: row.resourceId ?? "",
+        costScalingMode: row.costScalingMode ?? "per_output_unit",
+        crewSize: row.crewSize ?? null,
+        plannedMinutes: row.plannedMinutes ?? null,
+        loadedCostPerHour: row.loadedCostPerHour ?? null,
+      }))
   );
 }
 
-function OperationCostRow({
-  index,
-  control,
-  resources,
+function buildOperationCostErrorState(
+  error: unknown,
+  rows: OperationCostGridRow[]
+): OperationCostErrorState {
+  const byRowId = new Map<string, Map<OperationCostColumnKey, string>>();
+  const topLevelMessage = getNestedMessage(error);
+  const rowErrors = Array.isArray(error) ? error : [];
+
+  rowErrors.forEach((rowError, index) => {
+    const row = rows[index];
+    if (!row || !rowError || typeof rowError !== "object") {
+      return;
+    }
+
+    const rowErrorObject = rowError as Record<string, unknown>;
+    const rowMessages = new Map<OperationCostColumnKey, string>();
+    const keys: OperationCostColumnKey[] = [
+      "operationName",
+      "resourceId",
+      "costScalingMode",
+      "crewSize",
+      "plannedMinutes",
+    ];
+
+    keys.forEach((key) => {
+      const message = getNestedMessage(rowErrorObject[key]);
+      if (message) {
+        rowMessages.set(key, message);
+      }
+    });
+
+    if (rowMessages.size > 0) {
+      byRowId.set(row.clientRowId, rowMessages);
+    }
+  });
+
+  return {
+    gridError: topLevelMessage,
+    byRowId,
+  };
+}
+
+function hasOperationCostCellError(
+  errorState: OperationCostErrorState,
+  row: OperationCostGridRow | undefined,
+  key: OperationCostColumnKey
+) {
+  if (!row) {
+    return false;
+  }
+
+  return errorState.byRowId.get(row.clientRowId)?.has(key) ?? false;
+}
+
+function validatePositiveCell(value: unknown, message: string) {
+  const normalized = normalizeTextCell(value);
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) && parsed > 0 ? null : [message];
+}
+
+function ResourceCell({
+  data,
   resourcesById,
-  row,
-  setValue,
+}: ICellRendererParams<OperationCostGridRow> & {
+  resourcesById: Map<string, ManufacturingResourceOption>;
+}) {
+  if (!data?.resourceId) {
+    return <span className="text-muted-foreground">Select</span>;
+  }
+
+  return (
+    <span className="block truncate">
+      {resourcesById.get(data.resourceId)?.name ?? data.resourceId}
+    </span>
+  );
+}
+
+function OperationCostCell({
+  data,
+  resourcesById,
   expectedBatchYield,
   typicalBatchSize,
   standardCostQuantity,
-  appendLineAfterCommit,
-}: {
-  index: number;
-  control: ReturnType<typeof useForm<ItemFormValues>>["control"];
-  resources: ManufacturingResourceOption[];
+}: ICellRendererParams<OperationCostGridRow> & {
   resourcesById: Map<string, ManufacturingResourceOption>;
-  row:
-    | {
-        resourceId?: string | null;
-        costScalingMode?: string | null;
-        crewSize?: string | null;
-        plannedMinutes?: string | null;
-        loadedCostPerHour?: string | null;
-      }
-    | undefined;
-  setValue: UseFormSetValue<ItemFormValues>;
   expectedBatchYield: string | null | undefined;
   typicalBatchSize: string | null | undefined;
   standardCostQuantity: string | null | undefined;
-  appendLineAfterCommit: () => void;
 }) {
-  const rowDomId = useId();
-  const resource = row?.resourceId ? resourcesById.get(row.resourceId) : null;
-  const previewRate = row?.loadedCostPerHour ?? resource?.loadedCostPerHour;
-  const minutesLabel =
-    row?.costScalingMode === "fixed_per_mo"
-      ? "Minutes per manufacturing order"
-      : "Minutes per finished unit";
+  const resource = data?.resourceId ? resourcesById.get(data.resourceId) : null;
+  return (
+    <span className="text-muted-foreground">
+      {formatOperationCost({
+        crewSize: data?.crewSize,
+        plannedMinutes: data?.plannedMinutes,
+        loadedCostPerHour: data?.loadedCostPerHour ?? resource?.loadedCostPerHour,
+        costScalingMode: data?.costScalingMode,
+        expectedBatchYield,
+        typicalBatchSize,
+        standardCostQuantity,
+      })}
+    </span>
+  );
+}
+
+function OperationCostEditor({
+  initialRows,
+  resources,
+  expectedBatchYield,
+  typicalBatchSize,
+  standardCostQuantity,
+  error,
+  onRowsChange,
+}: {
+  initialRows?: OperationCostPayloadRow[];
+  resources: ManufacturingResourceOption[];
+  expectedBatchYield: string | null | undefined;
+  typicalBatchSize: string | null | undefined;
+  standardCostQuantity: string | null | undefined;
+  error?: unknown;
+  onRowsChange?: (
+    rows: OperationCostPayloadRow[],
+    meta: OperationCostEditorChangeMeta
+  ) => void;
+}) {
+  const [initialGridRows] = useState(() => toOperationCostGridRows(initialRows));
+  const [initialComparable] = useState(() =>
+    comparableOperationCosts(toOperationCostGridRows(initialRows))
+  );
+  const [rows, setRows] = useState<OperationCostGridRow[]>(initialGridRows);
+  const [localResources, setLocalResources] = useState(resources);
+  const [resourceDialogOpen, setResourceDialogOpen] = useState(false);
+  const [pendingResourceRowId, setPendingResourceRowId] = useState<string | null>(null);
+  const resourcesById = useMemo(
+    () => new Map(localResources.map((resource) => [resource.id, resource])),
+    [localResources]
+  );
+  const errorState = useMemo(
+    () => buildOperationCostErrorState(error, rows),
+    [error, rows]
+  );
+
+  const emitRowsChange = useCallback(
+    (
+      nextRows: OperationCostGridRow[],
+      change: EditableLineDataGridChange<OperationCostGridRow>
+    ) => {
+      setRows(nextRows);
+      onRowsChange?.(toOperationCostPayloadRows(nextRows), {
+        dirty: comparableOperationCosts(nextRows) !== initialComparable,
+        change,
+      });
+    },
+    [initialComparable, onRowsChange]
+  );
+
+  const getRowId = useCallback((row: OperationCostGridRow) => row.clientRowId, []);
+  const isBlankRow = useCallback(
+    (row: OperationCostGridRow) => isBlankOperationCostGridRow(row),
+    []
+  );
+  const rowHasError = useCallback(
+    (row: OperationCostGridRow) => errorState.byRowId.has(row.clientRowId),
+    [errorState]
+  );
+  const hasError = useCallback(
+    (key: OperationCostColumnKey) => (params: CellClassParams<OperationCostGridRow>) =>
+      hasOperationCostCellError(errorState, params.data, key),
+    [errorState]
+  );
+  const errorTooltip = useCallback(
+    (key: OperationCostColumnKey) => ({ data }: { data?: OperationCostGridRow }) =>
+      data ? (errorState.byRowId.get(data.clientRowId)?.get(key) ?? null) : null,
+    [errorState]
+  );
+
+  const handleResourceCreated = useCallback(
+    (resource: ManufacturingResourceOption) => {
+      setLocalResources((current) => [...current, resource]);
+
+      if (!pendingResourceRowId) {
+        return;
+      }
+
+      const previousRow = rows.find((row) => row.clientRowId === pendingResourceRowId);
+      const wasBlank = previousRow ? isBlankOperationCostGridRow(previousRow) : false;
+      let nextRows = rows.map((row) =>
+        row.clientRowId === pendingResourceRowId
+          ? {
+              ...row,
+              resourceId: resource.id,
+              loadedCostPerHour: resource.loadedCostPerHour,
+            }
+          : row
+      );
+      const updatedRow = nextRows.find((row) => row.clientRowId === pendingResourceRowId);
+      let changeType: EditableLineDataGridChange<OperationCostGridRow>["type"] =
+        "cell_edit_committed";
+
+      if (
+        wasBlank &&
+        updatedRow &&
+        nextRows.every((row) => !isBlankOperationCostGridRow(row))
+      ) {
+        nextRows = [...nextRows, createBlankOperationCostGridRow()];
+        changeType = "blank_row_committed";
+      }
+
+      setPendingResourceRowId(null);
+      emitRowsChange(nextRows, {
+        type: changeType,
+        row: updatedRow,
+        rows: nextRows,
+      });
+    },
+    [emitRowsChange, pendingResourceRowId, rows]
+  );
+
+  const columns = useMemo<ColDef<OperationCostGridRow>[]>(
+    () => [
+      {
+        field: "operationName",
+        headerName: "Operation",
+        minWidth: 180,
+        flex: 1.2,
+        editable: true,
+        cellEditor: "agTextCellEditor",
+        valueSetter: (params: ValueSetterParams<OperationCostGridRow, string | null>) => {
+          params.data.operationName = normalizeTextCell(params.newValue) ?? "";
+          return true;
+        },
+        cellEditorParams: {
+          getValidationErrors: ({
+            value,
+            cellEditorParams,
+          }: {
+            value: string | null | undefined;
+            cellEditorParams: ICellEditorParams<OperationCostGridRow>;
+          }) => {
+            const row = {
+              ...cellEditorParams.data,
+              operationName: normalizeTextCell(value) ?? "",
+            };
+            if (isBlankOperationCostGridRow(row)) {
+              return null;
+            }
+
+            return row.operationName ? null : ["Name is required"];
+          },
+        },
+        cellClassRules: {
+          "erp-editable-grid-cell-error": hasError("operationName"),
+        },
+        tooltipValueGetter: errorTooltip("operationName"),
+      },
+      {
+        field: "resourceId",
+        headerName: "Resource",
+        minWidth: 172,
+        flex: 1,
+        editable: true,
+        cellEditor: "agSelectCellEditor",
+        cellEditorParams: {
+          values: [
+            ...localResources.map((resource) => resource.id),
+            CREATE_NEW_RESOURCE,
+          ],
+          openEditorOnStart: true,
+          getValidationErrors: ({
+            value,
+            cellEditorParams,
+          }: {
+            value: string | null | undefined;
+            cellEditorParams: ICellEditorParams<OperationCostGridRow>;
+          }) => {
+            const row = {
+              ...cellEditorParams.data,
+              resourceId:
+                value === CREATE_NEW_RESOURCE ? "" : normalizeTextCell(value) ?? "",
+            };
+            if (isBlankOperationCostGridRow(row)) {
+              return null;
+            }
+
+            return row.resourceId ? null : ["Resource is required"];
+          },
+        },
+        valueFormatter: ({ value }) => {
+          if (value === CREATE_NEW_RESOURCE) {
+            return "+ Create resource";
+          }
+          return value ? (resourcesById.get(value)?.name ?? value) : "";
+        },
+        valueSetter: (params: ValueSetterParams<OperationCostGridRow, string | null>) => {
+          if (params.newValue === CREATE_NEW_RESOURCE) {
+            setPendingResourceRowId(params.data.clientRowId);
+            setResourceDialogOpen(true);
+            return false;
+          }
+
+          const resourceId = normalizeTextCell(params.newValue) ?? "";
+          params.data.resourceId = resourceId;
+          params.data.loadedCostPerHour =
+            resourcesById.get(resourceId)?.loadedCostPerHour ?? null;
+          return true;
+        },
+        cellRenderer: (params: ICellRendererParams<OperationCostGridRow>) => (
+          <ResourceCell {...params} resourcesById={resourcesById} />
+        ),
+        cellClassRules: {
+          "erp-editable-grid-cell-error": hasError("resourceId"),
+        },
+        tooltipValueGetter: errorTooltip("resourceId"),
+      },
+      {
+        field: "costScalingMode",
+        headerName: "Mode",
+        minWidth: 116,
+        flex: 0.7,
+        editable: true,
+        cellEditor: "agSelectCellEditor",
+        cellEditorParams: {
+          values: ["per_output_unit", "fixed_per_mo"],
+        },
+        valueFormatter: ({
+          value,
+        }: ValueFormatterParams<
+          OperationCostGridRow,
+          OperationCostGridRow["costScalingMode"]
+        >) => OPERATION_COST_MODE_LABELS[value ?? "per_output_unit"],
+        cellClassRules: {
+          "erp-editable-grid-cell-error": hasError("costScalingMode"),
+        },
+        tooltipValueGetter: errorTooltip("costScalingMode"),
+      },
+      {
+        field: "crewSize",
+        headerName: "Crew",
+        minWidth: 108,
+        flex: 0.6,
+        editable: true,
+        cellEditor: "agTextCellEditor",
+        valueSetter: (params: ValueSetterParams<OperationCostGridRow, string | null>) => {
+          params.data.crewSize = normalizeTextCell(params.newValue);
+          return true;
+        },
+        cellEditorParams: {
+          getValidationErrors: ({ value }: { value: string | null | undefined }) =>
+            validatePositiveCell(value, "Crew size must be greater than 0"),
+        },
+        cellClass: "num",
+        cellClassRules: {
+          "erp-editable-grid-cell-error": hasError("crewSize"),
+        },
+        tooltipValueGetter: errorTooltip("crewSize"),
+      },
+      {
+        field: "plannedMinutes",
+        headerName: "Minutes",
+        minWidth: 128,
+        flex: 0.7,
+        editable: true,
+        cellEditor: "agTextCellEditor",
+        valueSetter: (params: ValueSetterParams<OperationCostGridRow, string | null>) => {
+          params.data.plannedMinutes = normalizeTextCell(params.newValue);
+          return true;
+        },
+        cellEditorParams: {
+          getValidationErrors: ({ value }: { value: string | null | undefined }) =>
+            validatePositiveCell(value, "Minutes must be greater than 0"),
+        },
+        cellClass: "num",
+        cellClassRules: {
+          "erp-editable-grid-cell-error": hasError("plannedMinutes"),
+        },
+        tooltipValueGetter: errorTooltip("plannedMinutes"),
+      },
+      {
+        colId: "cost",
+        headerName: "Cost",
+        minWidth: 136,
+        flex: 0.8,
+        cellRenderer: (params: ICellRendererParams<OperationCostGridRow>) => (
+          <OperationCostCell
+            {...params}
+            resourcesById={resourcesById}
+            expectedBatchYield={expectedBatchYield}
+            typicalBatchSize={typicalBatchSize}
+            standardCostQuantity={standardCostQuantity}
+          />
+        ),
+      },
+    ],
+    [
+      errorTooltip,
+      expectedBatchYield,
+      hasError,
+      localResources,
+      resourcesById,
+      standardCostQuantity,
+      typicalBatchSize,
+    ]
+  );
 
   return (
     <>
-      <EditableLineGridCell>
-        <Controller
-          control={control}
-          name={`operationCosts.${index}.operationName` as never}
-          render={({ field: inputField, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-name`}>
-                Operation
-              </FieldLabel>
-              <Input
-                {...inputField}
-                id={`${rowDomId}-name`}
-                value={(inputField.value as string | null) ?? ""}
-                aria-invalid={fieldState.invalid}
-                autoComplete="off"
-                className="w-full min-w-0"
-                data-editable-line-primary
-              />
-              {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
-            </Field>
-          )}
-        />
-      </EditableLineGridCell>
-      <EditableLineGridCell>
-        <Controller
-          control={control}
-          name={`operationCosts.${index}.resourceId` as never}
-          render={({ field: inputField, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only">Resource</FieldLabel>
-              <Select
-                value={(inputField.value as string | null) ?? ""}
-                onValueChange={(value) => {
-                  inputField.onChange(value);
-                  setValue(
-                    `operationCosts.${index}.loadedCostPerHour` as never,
-                    (resourcesById.get(value)?.loadedCostPerHour ?? null) as never,
-                    { shouldDirty: false, shouldTouch: false }
-                  );
-                  if (value) {
-                    appendLineAfterCommit();
-                  }
-                }}
-              >
-                <SelectTrigger aria-invalid={fieldState.invalid} className="w-full min-w-0">
-                  <SelectValue placeholder="Select" />
-                </SelectTrigger>
-                <SelectContent>
-                  {resources.map((resourceOption) => (
-                    <SelectItem key={resourceOption.id} value={resourceOption.id}>
-                      {resourceOption.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
-            </Field>
-          )}
-        />
-      </EditableLineGridCell>
-      <EditableLineGridCell>
-        <Controller
-          control={control}
-          name={`operationCosts.${index}.costScalingMode` as never}
-          render={({ field: inputField, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only">Mode</FieldLabel>
-              <Select
-                value={(inputField.value as string | null) ?? "per_output_unit"}
-                onValueChange={inputField.onChange}
-              >
-                <SelectTrigger aria-invalid={fieldState.invalid} className="w-full min-w-0">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="per_output_unit">Per unit</SelectItem>
-                  <SelectItem value="fixed_per_mo">Per MO</SelectItem>
-                </SelectContent>
-              </Select>
-              {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
-            </Field>
-          )}
-        />
-      </EditableLineGridCell>
-      <EditableLineGridCell>
-        <Controller
-          control={control}
-          name={`operationCosts.${index}.crewSize` as never}
-          render={({ field: inputField, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-crew-size`}>
-                Crew size
-              </FieldLabel>
-              <Input
-                {...inputField}
-                id={`${rowDomId}-crew-size`}
-                value={(inputField.value as string | null) ?? ""}
-                aria-invalid={fieldState.invalid}
-                inputMode="decimal"
-                autoComplete="off"
-                className="w-full min-w-0"
-              />
-              {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
-            </Field>
-          )}
-        />
-      </EditableLineGridCell>
-      <EditableLineGridCell>
-        <Controller
-          control={control}
-          name={`operationCosts.${index}.plannedMinutes` as never}
-          render={({ field: inputField, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel className="sr-only" htmlFor={`${rowDomId}-minutes`}>
-                {minutesLabel}
-              </FieldLabel>
-              <Input
-                {...inputField}
-                id={`${rowDomId}-minutes`}
-                value={(inputField.value as string | null) ?? ""}
-                aria-invalid={fieldState.invalid}
-                inputMode="decimal"
-                autoComplete="off"
-                className="w-full min-w-0"
-              />
-              {fieldState.invalid ? <FieldError errors={[fieldState.error]} /> : null}
-            </Field>
-          )}
-        />
-      </EditableLineGridCell>
-      <EditableLineGridCell className="text-[length:var(--text-sm)] text-muted-foreground">
-        {formatOperationCost({
-          crewSize: row?.crewSize,
-          plannedMinutes: row?.plannedMinutes,
-          loadedCostPerHour: previewRate,
-          costScalingMode: row?.costScalingMode,
-          expectedBatchYield,
-          typicalBatchSize,
-          standardCostQuantity,
-        })}
-      </EditableLineGridCell>
+      <EditableLineDataGrid
+        rows={rows}
+        columns={columns}
+        getRowId={getRowId}
+        createRow={createBlankOperationCostGridRow}
+        onRowsChange={emitRowsChange}
+        addLabel="Add operation cost"
+        emptyMessage="No operation costs yet."
+        isBlankRow={isBlankRow}
+        rowHasError={rowHasError}
+        error={errorState.gridError}
+        defaultColDef={{
+          cellClass: ({ data }) =>
+            data && isBlankOperationCostGridRow(data) ? "muted" : undefined,
+        }}
+      />
+      <CreateResourceDialog
+        open={resourceDialogOpen}
+        onOpenChange={(open) => {
+          setResourceDialogOpen(open);
+          if (!open) {
+            setPendingResourceRowId(null);
+          }
+        }}
+        onCreated={handleResourceCreated}
+      />
     </>
+  );
+}
+
+function CreateResourceDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated: (resource: ManufacturingResourceOption) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState<ResourceFormState>(emptyResourceForm);
+  const [formErrors, setFormErrors] = useState<ResourceFormErrors>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const saveMutation = useMutation({
+    mutationFn: async (values: ResourceFormState) => {
+      const nextErrors: ResourceFormErrors = {};
+      const parsedRate = Number(values.loadedCostPerHour);
+
+      if (values.name.trim() === "") {
+        nextErrors.name = "Name is required";
+      }
+
+      if (
+        values.loadedCostPerHour.trim() === "" ||
+        !Number.isFinite(parsedRate) ||
+        parsedRate < 0
+      ) {
+        nextErrors.loadedCostPerHour =
+          "Loaded cost per hour must be a non-negative number";
+      }
+
+      if (Object.keys(nextErrors).length > 0) {
+        setFormErrors(nextErrors);
+        throw new Error("Fix the highlighted fields.");
+      }
+
+      setFormErrors({});
+      setFormError(null);
+
+      const payload = {
+        name: values.name.trim(),
+        description: values.description.trim() || null,
+        resourceType: values.resourceType,
+        loadedCostPerHour: values.loadedCostPerHour.trim(),
+      };
+      const created = await apiJson<{ id: string }>("/api/manufacturing-resources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      return { id: created.id, ...payload };
+    },
+    onSuccess: async (resource) => {
+      onCreated(resource);
+      setForm(emptyResourceForm);
+      setFormErrors({});
+      setFormError(null);
+      onOpenChange(false);
+      await queryClient.invalidateQueries({ queryKey: ["manufacturing-resources"] });
+    },
+    onError: (error) => {
+      setFormError(error instanceof Error ? error.message : "Resource save failed.");
+    },
+  });
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        onOpenChange(nextOpen);
+        if (!nextOpen) {
+          setForm(emptyResourceForm);
+          setFormErrors({});
+          setFormError(null);
+        }
+      }}
+    >
+      <DialogContent size="3xl">
+        <DialogHeader>
+          <DialogTitle>New Resource</DialogTitle>
+        </DialogHeader>
+        <form
+          className="flex flex-col gap-(--space-5)"
+          onSubmit={(event) => {
+            event.preventDefault();
+            saveMutation.mutate(form);
+          }}
+        >
+          <FieldGroup>
+            <div className="grid gap-(--space-4) md:grid-cols-4">
+              <Field data-invalid={Boolean(formErrors.name)}>
+                <FieldLabel htmlFor="resource-name">Name</FieldLabel>
+                <Input
+                  id="resource-name"
+                  value={form.name}
+                  aria-invalid={Boolean(formErrors.name)}
+                  onChange={(event) => {
+                    setForm((prev) => ({ ...prev, name: event.target.value }));
+                    setFormErrors((prev) => ({ ...prev, name: undefined }));
+                  }}
+                />
+                {formErrors.name ? <FieldError>{formErrors.name}</FieldError> : null}
+              </Field>
+              <Field>
+                <FieldLabel>Type</FieldLabel>
+                <Select
+                  value={form.resourceType}
+                  onValueChange={(value) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      resourceType: value as ManufacturingResourceOption["resourceType"],
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="labor">Labor</SelectItem>
+                    <SelectItem value="machine">Machine</SelectItem>
+                    <SelectItem value="overhead">Overhead</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field data-invalid={Boolean(formErrors.loadedCostPerHour)}>
+                <FieldLabel htmlFor="resource-rate">Loaded rate / hour</FieldLabel>
+                <Input
+                  id="resource-rate"
+                  value={form.loadedCostPerHour}
+                  aria-invalid={Boolean(formErrors.loadedCostPerHour)}
+                  inputMode="decimal"
+                  onChange={(event) => {
+                    setForm((prev) => ({
+                      ...prev,
+                      loadedCostPerHour: event.target.value,
+                    }));
+                    setFormErrors((prev) => ({
+                      ...prev,
+                      loadedCostPerHour: undefined,
+                    }));
+                  }}
+                />
+                {formErrors.loadedCostPerHour ? (
+                  <FieldError>{formErrors.loadedCostPerHour}</FieldError>
+                ) : null}
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="resource-description">Description</FieldLabel>
+                <Input
+                  id="resource-description"
+                  value={form.description}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, description: event.target.value }))
+                  }
+                />
+              </Field>
+            </div>
+          </FieldGroup>
+          {formError ? <FieldError>{formError}</FieldError> : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={saveMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? "Saving..." : "Save Resource"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -447,6 +962,8 @@ export function ItemForm({
   const [isUnitDialogOpen, setIsUnitDialogOpen] = useState(false);
   const [bomLockConfirmOpen, setBomLockConfirmOpen] = useState(false);
   const [pendingBomLocked, setPendingBomLocked] = useState<boolean | null>(null);
+  const [bomGridDirty, setBomGridDirty] = useState(false);
+  const [operationCostGridDirty, setOperationCostGridDirty] = useState(false);
   const [currentStockUnitCostDialogOpen, setCurrentStockUnitCostDialogOpen] =
     useState(false);
   const [currentStockUnitCostDraft, setCurrentStockUnitCostDraft] = useState("");
@@ -768,6 +1285,30 @@ export function ItemForm({
     },
   });
 
+  const handleBomRowsChange = useCallback(
+    (rows: BomPayloadRow[], meta: { dirty: boolean }) => {
+      setBomGridDirty(meta.dirty);
+      form.setValue("bom" as never, rows as never, {
+        shouldDirty: meta.dirty,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+    },
+    [form]
+  );
+
+  const handleOperationCostRowsChange = useCallback(
+    (rows: OperationCostPayloadRow[], meta: { dirty: boolean }) => {
+      setOperationCostGridDirty(meta.dirty);
+      form.setValue("operationCosts" as never, rows as never, {
+        shouldDirty: meta.dirty,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+    },
+    [form]
+  );
+
   const submitLabel = isEditing
     ? (mutation.isPending ? "Saving..." : "Save Changes")
     : (mutation.isPending ? "Creating..." : isMaster ? "Create Variant Master" : `Create ${typeLabel}`);
@@ -775,8 +1316,10 @@ export function ItemForm({
     itemType === "product" &&
     !isMaster &&
     Boolean(
-      (form.formState.dirtyFields as Record<string, unknown>).bom ||
-        (form.formState.dirtyFields as Record<string, unknown>).operationCosts
+        (form.formState.dirtyFields as Record<string, unknown>).bom ||
+        bomGridDirty ||
+        (form.formState.dirtyFields as Record<string, unknown>).operationCosts ||
+        operationCostGridDirty
     );
   const lockTarget = pendingBomLocked ?? bomLocked;
   const lockDialogTitle = lockTarget ? "Lock this BOM?" : "Unlock this BOM?";
@@ -1571,11 +2114,14 @@ export function ItemForm({
                 <div className="space-y-(--space-4)">
                   <h3 className="text-[length:var(--text-base)] font-semibold">Materials</h3>
                   <BomEditor
-                    control={form.control as Parameters<typeof BomEditor>[0]["control"]}
-                    setValue={form.setValue as Parameters<typeof BomEditor>[0]["setValue"]}
+                    initialRows={(initialData?.bom ?? []) as BomPayloadRow[]}
                     availableComponents={availableComponents}
                     typicalBatchSize={watchedTypicalBatchSize}
                     typicalGroupSize={watchedTypicalGroupSize}
+                    error={
+                      (form.formState.errors as Record<string, unknown>).bom
+                    }
+                    onRowsChange={handleBomRowsChange}
                   />
                 </div>
                 <div className="space-y-(--space-4)">
@@ -1583,12 +2129,15 @@ export function ItemForm({
                     Standard Operation Costs
                   </h3>
                   <OperationCostEditor
-                    control={form.control}
-                    setValue={form.setValue}
+                    initialRows={initialData?.operationCosts}
                     resources={manufacturingResources}
                     expectedBatchYield={watchedExpectedBatchYield}
                     typicalBatchSize={watchedTypicalBatchSize}
                     standardCostQuantity={watchedStandardCostQuantity}
+                    error={
+                      (form.formState.errors as Record<string, unknown>).operationCosts
+                    }
+                    onRowsChange={handleOperationCostRowsChange}
                   />
                 </div>
                 {isBomDirty ? (

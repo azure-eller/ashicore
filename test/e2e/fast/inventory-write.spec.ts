@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import type { Page } from "@playwright/test";
 import { filterList, test, expect } from "../fixtures";
 import {
   bomRevisionComponents,
@@ -19,6 +20,21 @@ test.describe("Inventory write-path smoke", () => {
   let materialName = "";
   let productId = "";
   let productName = "";
+
+  async function fillBomQuantity(page: Page, componentName: string, quantity: string) {
+    const materialsGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
+    const row = materialsGrid
+      .locator(".ag-center-cols-container .ag-row", { hasText: componentName })
+      .first();
+    await expect(row).toBeVisible();
+
+    const quantityCell = row.locator('[col-id="quantity"]').first();
+    await quantityCell.click();
+    const editor = quantityCell.locator("input").first();
+    await expect(editor).toBeVisible();
+    await editor.fill(quantity);
+    await editor.press("Enter");
+  }
 
   test("creates and edits a material through the browser form", async ({ page, db }) => {
     materialName = `Fast Inventory Sand ${ts}`;
@@ -179,11 +195,7 @@ test.describe("Inventory write-path smoke", () => {
     await componentInput.click();
     await componentInput.fill(materialName);
     await page.getByRole("option", { name: materialName }).click();
-    await page
-      .getByTestId("bom-row")
-      .first()
-      .locator("input[inputmode='decimal']")
-      .fill("1.25");
+    await fillBomQuantity(page, materialName, "1.25");
 
     const [createResponse] = await Promise.all([
       page.waitForResponse(
@@ -230,12 +242,7 @@ test.describe("Inventory write-path smoke", () => {
     await page.goto(`/inventory/products/${productId}/edit`);
     await expect(page.getByRole("heading", { name: "Edit Product" })).toBeVisible();
 
-    const bomRow = page.getByTestId("bom-row").first();
-    const quantityInput = bomRow.locator("input[inputmode='decimal']").first();
-    await quantityInput.click();
-    await quantityInput.press(`${process.platform === "darwin" ? "Meta" : "Control"}+A`);
-    await quantityInput.fill("1.5");
-    await page.getByRole("heading", { name: "Edit Product" }).click();
+    await fillBomQuantity(page, materialName, "1.5");
     await expect(page.getByLabel("Revision Note")).toBeVisible();
     await page.getByLabel("Revision Note").fill("Increase sand ratio");
 

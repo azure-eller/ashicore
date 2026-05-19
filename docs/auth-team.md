@@ -92,6 +92,9 @@ Do not wrap request-auth helpers that read `headers()` in React `cache()`. Membe
 ## MFA
 
 - MFA is mandatory for every signed-in account.
+- Local/test worktree servers set `AUTH_MFA_DISABLED=1` and bypass MFA in
+  `development` / `test` only; production and preview-like environments must
+  not set this flag.
 - New sign-ups go to `/mfa-setup` before organization setup.
 - Existing signed-in users without MFA are redirected to `/mfa-setup` before
   dashboard or API access.

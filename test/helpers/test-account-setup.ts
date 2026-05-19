@@ -43,6 +43,14 @@ function getOwnerConnectionString() {
   return process.env.DATABASE_URL ?? process.env.DATABASE_URL_APP;
 }
 
+function isMfaDisabledForDevOrTest() {
+  const nodeEnv = process.env.NODE_ENV ?? "development";
+  return (
+    process.env.AUTH_MFA_DISABLED === "1" &&
+    (nodeEnv === "development" || nodeEnv === "test")
+  );
+}
+
 async function authFetch(
   baseUrl: string,
   path: string,
@@ -378,7 +386,9 @@ export async function ensureTestAccount(
 
   await setTestAccountMfaEnrollment(false);
   let cookies = await createSession(baseUrl);
-  await setTestAccountMfaEnrollment(true);
+  if (!isMfaDisabledForDevOrTest()) {
+    await setTestAccountMfaEnrollment(true);
+  }
   const testOrg = await ensureOrganization(baseUrl, cookies);
 
   if (!testOrg?.id) {

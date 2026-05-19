@@ -67,6 +67,7 @@ export function InventoryItemCombobox<TOption extends InventoryItemComboboxOptio
   getSecondaryText,
   renderSecondary,
   showTypeBadge = false,
+  defaultOpen = false,
 }: {
   options: TOption[];
   value: string | null;
@@ -84,6 +85,7 @@ export function InventoryItemCombobox<TOption extends InventoryItemComboboxOptio
   getSecondaryText?: (option: TOption) => string | null;
   renderSecondary?: (option: TOption) => ReactNode;
   showTypeBadge?: boolean;
+  defaultOpen?: boolean;
 }) {
   const optionIds = options.map((option) => option.id);
   const optionMap = new Map(options.map((option) => [option.id, option]));
@@ -92,6 +94,7 @@ export function InventoryItemCombobox<TOption extends InventoryItemComboboxOptio
     <Combobox
       items={optionIds}
       value={value ?? ""}
+      defaultOpen={defaultOpen}
       onValueChange={(nextValue) => onValueChange(nextValue ?? null)}
       itemToStringLabel={(id) => {
         const option = optionMap.get(id);

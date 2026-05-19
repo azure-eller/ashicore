@@ -167,7 +167,9 @@ For detail routes, add a local `[id]/loading.tsx` per item type and point it at 
 
 No optimistic updates. No complex loading state machines.
 
-## Dashboard List Tables
+## ERP Tables
+
+Use AG Grid for ERP tables by default: list pages, detail grids, read-only operational tables, and editable line editors. shadcn `Table` is only for narrow non-ERP layout tables or legacy code awaiting AG Grid migration.
 
 For standard dashboard list pages, use the shared AG Grid list shell instead of rebuilding query state, search, add actions, bulk delete, grid markup, and delete dialogs in each route file.
 
@@ -199,7 +201,9 @@ For standard dashboard list pages, use the shared AG Grid list shell instead of 
 
 ## Editable Line Items
 
-Use `EditableLineItems` from `components/editable-line-items.tsx` for mutable repeated rows such as PO lines, BOM ingredients, stocktake preview rows, and simple cost rows. It wraps `EditableLineGrid`, owns row chrome (drag handle, right-side remove, add button), always creates one initial blank row, and adds rows through its Add row button. Pass only data columns/headers. Rows may call `appendLineAfterCommit()` after a committed picker selection. Do not create rows from text input, focus, blur, or Tab. Use bare `EditableLineGrid` only for fixed editable grids, such as stocktake counts, or for complex legacy rows that need a staged migration.
+Dense spreadsheet-style ERP editors should use `EditableLineDataGrid` from `components/editable-line-data-grid.tsx`. It wraps AG Grid's native editing model: row data lives in React state, columns use `field` / `valueSetter` / custom cell editors, and committed edit events update the row array. Do not register grid cells with React Hook Form. Use Zod/API schemas as the final save contract, and keep sorting/filtering off unless row-order semantics are explicit.
+
+`EditableLineItems` and `EditableLineGrid` are legacy staging components. Do not add new use sites. Existing mutable repeated rows such as PO lines, sales lines, MO ingredients, stocktake preview rows, and simple cost rows should migrate to `EditableLineDataGrid`.
 
 - Define explicit flexible grid tracks for every column, e.g. `minmax(14rem, 1.7fr) minmax(5rem, 0.45fr) minmax(7rem, 0.7fr) minmax(7rem, 0.7fr)`.
 - Give numeric inputs stable but compact columns; use `fr` tracks so empty cells do not force a small horizontal scroll.

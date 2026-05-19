@@ -9,6 +9,7 @@ import {
   getAvailableComponents,
 } from "@/app/(dashboard)/inventory/queries";
 import { ItemForm } from "@/app/(dashboard)/inventory/item-form";
+import type { BomPayloadRow } from "@/app/(dashboard)/inventory/bom-editor";
 import { hasModuleAccess } from "@/lib/authz";
 import { getManufacturingResources } from "@/lib/dal/manufacturing-resources";
 
@@ -48,6 +49,11 @@ export default async function EditProductPage({
           bom: bom.map((b) => ({
             componentId: b.componentId,
             quantity: b.quantity,
+            consumptionMode: b.consumptionMode as BomPayloadRow["consumptionMode"],
+            basisOutputQuantity: b.basisOutputQuantity,
+            batchScalingMode: b.batchScalingMode as BomPayloadRow["batchScalingMode"],
+            groupRemainderPolicy:
+              b.groupRemainderPolicy as BomPayloadRow["groupRemainderPolicy"],
             minimumLotAgeDays: b.minimumLotAgeDays,
             alternates: b.alternates.map((alternate) => ({
               itemId: alternate.itemId,

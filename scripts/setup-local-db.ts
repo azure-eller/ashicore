@@ -81,7 +81,12 @@ function writeWorktreeEnv(envPath: string, ownerUrl: string, appUrl: string) {
     existingContent.length > 0 ? existingContent : WORKTREE_ENV_HEADER;
   const withOwnerUrl = upsertEnvValue(baseContent, "DATABASE_URL", ownerUrl);
   const withAppUrl = upsertEnvValue(withOwnerUrl, "DATABASE_URL_APP", appUrl);
-  writeFileSync(envPath, withAppUrl);
+  const withMfaDisabled = upsertEnvValue(
+    withAppUrl,
+    "AUTH_MFA_DISABLED",
+    "1"
+  );
+  writeFileSync(envPath, withMfaDisabled);
 }
 
 async function main() {
