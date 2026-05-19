@@ -53,6 +53,10 @@ code, tests, and loaders:
   `inventory.item_families`: `name`, `category`, `description`,
   `unit_definition_id`, `purchase_unit_definition_id`,
   `purchase_to_stock_factor`
+- Package-sized legacy variants currently keep `items.unit_definition_id` as the
+  operational unit during cutover because Paonia package options encode 1cf bag,
+  2cf bag, tote, and bale units on concrete SKUs. Do not drop or mask item-level
+  units until the product model has an explicit package/conversion contract.
 
 Migration sequence:
 

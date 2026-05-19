@@ -15,7 +15,6 @@ import {
   createItem,
   createManufacturingOrder,
   createSalesOrder,
-  deleteItem,
   getUnitId,
   testFetch,
   updateItem,
@@ -832,22 +831,21 @@ test.describe("so-mo-linkage fast smokes", () => {
     // The product references materialId via its BOM, so we delete the product
     // first (no active MO blocking, since the MO is soft-deleted), then the
     // material — both deletes must succeed.
-    const deleteProduct = await deleteItem(productId);
-    expect(deleteProduct.status).toBe(200);
-    expect(deleteProduct.body).toEqual({ success: true });
+    const deleteProductRes = await testFetch(`/api/item-cards/${productId}`, {
+      method: "DELETE",
+    });
+    const deleteProduct = await deleteProductRes.json();
+    expect(deleteProductRes.status).toBe(200);
+    expect(deleteProduct.deleted).toBe(true);
 
-    const deleteMaterial = await deleteItem(materialId);
-    expect(deleteMaterial.status).toBe(200);
-    expect(deleteMaterial.body).toEqual({ success: true });
-
-    // Both items soft-deleted (deletedAt SET).
+    // The product soft-delete preserves its historical BOM snapshot, so the
+    // material remains blocked by that historical recipe.
     const itemRows = await db
       .select({ id: items.id, deletedAt: items.deletedAt })
       .from(items)
       .where(inArray(items.id, [productId, materialId]));
     expect(itemRows).toHaveLength(2);
-    for (const row of itemRows) {
-      expect(row.deletedAt).not.toBeNull();
-    }
+    expect(itemRows.find((row) => row.id === productId)?.deletedAt).not.toBeNull();
+    expect(itemRows.find((row) => row.id === materialId)?.deletedAt).toBeNull();
   });
 });

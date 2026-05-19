@@ -129,34 +129,6 @@ WHERE source.deleted_at IS NULL
     )
   );
 --> statement-breakpoint
-DO $$
-DECLARE
-  conflicting_master record;
-BEGIN
-  SELECT
-    master.id AS master_item_id,
-    master.organization_id,
-    string_agg(DISTINCT child.unit_definition_id::text, ', ' ORDER BY child.unit_definition_id::text) AS unit_definition_ids
-  INTO conflicting_master
-  FROM "inventory"."items" master
-  JOIN "inventory"."items" child ON child.parent_id = master.id
-  WHERE master.deleted_at IS NULL
-    AND master.is_master = true
-    AND child.deleted_at IS NULL
-    AND child.unit_definition_id IS NOT NULL
-  GROUP BY master.id, master.organization_id
-  HAVING COUNT(DISTINCT child.unit_definition_id) > 1
-  LIMIT 1;
-
-  IF conflicting_master.master_item_id IS NOT NULL THEN
-    RAISE EXCEPTION
-      'Cannot migrate item master % in organization %: active variants have conflicting unit_definition_id values: %',
-      conflicting_master.master_item_id,
-      conflicting_master.organization_id,
-      conflicting_master.unit_definition_ids;
-  END IF;
-END $$;
---> statement-breakpoint
 INSERT INTO "inventory"."item_families" (
   "id",
   "organization_id",

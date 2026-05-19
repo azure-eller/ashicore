@@ -1,127 +1,83 @@
-import { filterList, test, expect } from "../fixtures";
-import { and, eq, isNull } from "drizzle-orm";
-import { items } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
+import { test, expect } from "../fixtures";
+import { itemVariantValues, items } from "@/lib/db/schema";
+import { getUnitId, testFetch } from "../../helpers/api";
 
-test.describe.configure({ mode: "serial" });
-
-test.describe("variant master products", () => {
+test.describe("variant product cards", () => {
   const ts = Date.now();
-  const masterName = `Test Soil ${ts}`;
-  let masterId: string;
-  let variantId: string;
+  const productName = `Test Soil ${ts}`;
   const packageValue = "2 Cubic Foot Bag";
-  const variantDisplayName = `${masterName} / ${packageValue}`;
 
-  test("create master product with variant axis", async ({ page, db }) => {
-    await page.goto("/inventory/products/new");
+  test("configures a product card variant without legacy master rows", async ({ db }) => {
+    const create = await testFetch("/api/item-cards", {
+      method: "POST",
+      body: JSON.stringify({
+        itemType: "product",
+        name: productName,
+        unitDefinitionId: getUnitId(),
+        sellable: true,
+        defaultSellingPrice: "30.00",
+      }),
+    });
+    expect(create.status).toBe(201);
+    const created = await create.json();
+    const variantId = created.id as string;
 
-    // Fill basic fields
-    await page.getByLabel("Name").fill(masterName);
+    const config = await testFetch(`/api/item-cards/${variantId}/variant-config`, {
+      method: "PUT",
+      body: JSON.stringify({
+        options: [{ name: "Package", values: [{ label: packageValue }] }],
+      }),
+    });
+    expect(config.status).toBe(200);
 
-    const variantsToggle = page.getByRole("switch", { name: "Variant master" });
-    await variantsToggle.click();
+    const generate = await testFetch(`/api/item-cards/${variantId}/variants/generate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(generate.status).toBe(201);
 
-    // Wait for the Variant Axes section to appear
-    await expect(page.getByText("Variant Axes")).toBeVisible();
+    const card = await testFetch(`/api/item-cards/${variantId}`);
+    expect(card.status).toBe(200);
+    const cardBody = await card.json();
+    expect(cardBody.family.name).toBe(productName);
+    expect(cardBody.variants).toHaveLength(1);
+    expect(cardBody.variants[0].displayName).toBe(`${productName} / ${packageValue}`);
 
-    // Add an axis using the AxesInput component
-    const axisInput = page.getByPlaceholder("e.g. Package");
-    await axisInput.fill("Package");
-    await axisInput.press("Enter");
+    const [row] = await db.select().from(items).where(eq(items.id, variantId));
+    expect(row.isMaster).toBe(false);
+    expect(row.parentId).toBeNull();
+    expect(row.familyId).toBeTruthy();
+    expect(row.variantAttrs).toBeNull();
 
-    // The axis tag should appear
-    await expect(page.getByText("Package").first()).toBeVisible();
-
-    await page.getByRole("button", { name: "Create Variant Master" }).click();
-
-    // Should land on the master detail page
-    await page.waitForURL(/\/inventory\/products\/[0-9a-f-]+/, { timeout: 15_000 });
-
-    // Capture the masterId from URL
-    const url = page.url();
-    masterId = url.split("/").at(-1)!;
-
-    // Verify DB
-    const master = await db
+    const assignments = await db
       .select()
-      .from(items)
-      .where(and(eq(items.name, masterName), eq(items.isMaster, true), isNull(items.deletedAt)))
-      .then((r: typeof items.$inferSelect[]) => r[0]);
+      .from(itemVariantValues)
+      .where(eq(itemVariantValues.itemId, variantId));
+    expect(assignments).toHaveLength(1);
 
-    expect(master).toBeTruthy();
-    expect(master!.variantAxes).toEqual(["Package"]);
-    expect(master!.sku).toBeNull();
-    expect(master!.unitDefinitionId).toBeNull();
+    const [updated] = await db.select().from(items).where(eq(items.id, variantId));
+    expect(updated.description).toBeNull();
   });
 
-  test("add variant to master product", async ({ page, db }) => {
-    await page.goto(`/inventory/products/${masterId}/variants/new`);
+  test("legacy master and variant creation endpoints are disabled", async () => {
+    const legacyMaster = await testFetch("/api/items", {
+      method: "POST",
+      body: JSON.stringify({
+        isMaster: true,
+        name: `Legacy Master ${ts}`,
+        variantAxes: ["Package"],
+      }),
+    });
+    expect(legacyMaster.status).toBe(410);
 
-    // Wait for form to load
-    await expect(page.getByText("Add Variant")).toBeVisible({ timeout: 15_000 });
-
-    // Fill Package axis value — field label is the axis name "Package"
-    await page.getByLabel("Package").fill(packageValue);
-    await expect(page.getByLabel("Variant Title")).toHaveValue(variantDisplayName);
-
-    // Select stocking unit — the select trigger has id="unitDefinitionId"
-    await page.locator("#unitDefinitionId").click();
-    const firstOption = page.getByRole("option").first();
-    await firstOption.waitFor({ state: "visible", timeout: 5_000 });
-    await firstOption.click();
-
-    // Fill selling price
-    await page.getByLabel("Selling Price").fill("30.00");
-
-    // Submit
-    await page.getByRole("button", { name: "Create Variant" }).click();
-
-    // Should redirect back to master detail
-    await page.waitForURL(new RegExp(`/inventory/products/${masterId}$`), { timeout: 15_000 });
-    await page.goto("/inventory/products");
-    await filterList(page, "Search items", masterName);
-    await expect(page.getByRole("link", { name: masterName }).first()).toBeVisible();
-
-    // Verify DB
-    const variant = await db
-      .select()
-      .from(items)
-      .where(and(eq(items.parentId, masterId), isNull(items.deletedAt)))
-      .then((r: typeof items.$inferSelect[]) => r[0]);
-
-    expect(variant).toBeTruthy();
-    variantId = variant!.id;
-    expect(variant!.name).toBe(masterName); // variant name = master name
-    expect(variant!.variantAttrs).toEqual({ Package: packageValue });
-    expect(variant!.unitDefinitionId).not.toBeNull();
-  });
-
-  test("editing a variant keeps the master name locked", async ({ page, db }) => {
-    await page.goto(`/inventory/products/${variantId}`);
-    await expect(page.getByRole("heading", { name: variantDisplayName })).toBeVisible();
-
-    await page.getByRole("link", { name: "Edit" }).click();
-    await page.waitForURL(new RegExp(`/inventory/products/${variantId}/edit$`), { timeout: 15_000 });
-    await expect(page.getByRole("heading", { name: "Edit Variant" })).toBeVisible();
-    await expect(page.getByLabel("Master Name")).toHaveValue(masterName);
-    await expect(page.getByLabel("Variant Title")).toHaveValue(variantDisplayName);
-    await expect(page.getByLabel("Master Name")).toHaveAttribute("readonly", "");
-
-    await page.getByLabel("Description").fill("Variant description updated");
-
-    const updateResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === "PUT" &&
-        response.url().endsWith(`/api/items/${variantId}`)
+    const legacyVariant = await testFetch(
+      "/api/items/00000000-0000-0000-0000-000000000000/variants",
+      {
+        method: "POST",
+        body: JSON.stringify({ variantAttrs: { Package: packageValue } }),
+      },
     );
-    await page.getByRole("button", { name: "Save Changes" }).click();
-    expect((await updateResponsePromise).status()).toBe(200);
-
-    await page.waitForURL(new RegExp(`/inventory/products/${variantId}$`), { timeout: 15_000 });
-    await expect(page.getByRole("heading", { name: variantDisplayName })).toBeVisible();
-
-    const [updatedVariant] = await db.select().from(items).where(eq(items.id, variantId));
-    expect(updatedVariant.name).toBe(masterName);
-    expect(updatedVariant.description).toBe("Variant description updated");
+    expect(legacyVariant.status).toBe(410);
   });
 });

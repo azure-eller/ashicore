@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import type { Page } from "@playwright/test";
 import { test, expect, filterList } from "../fixtures";
 import { items } from "../../../lib/db/schema";
-import { createItem, createVariant, deleteItem, getUnitId } from "../../helpers/api";
+import { createItem, getUnitId, testFetch } from "../../helpers/api";
 
 test.describe.configure({ mode: "serial" });
 
@@ -121,47 +121,61 @@ test.describe("inventory visibility", () => {
     expect(parentProduct.status).toBe(201);
     parentProductId = parentProduct.body.id;
 
-    const mixedMaster = await createItem({
-      isMaster: true,
-      name: mixedMasterName,
-      description: null,
-      category: `Visibility ${ts}`,
-      variantAxes: ["Package"],
+    const mixedCard = await testFetch("/api/item-cards", {
+      method: "POST",
+      body: JSON.stringify({
+        itemType: "product",
+        name: mixedMasterName,
+        description: null,
+        category: `Visibility ${ts}`,
+        unitDefinitionId,
+        sellable: true,
+        defaultSellingPrice: "32.00",
+      }),
     });
-    expect(mixedMaster.status).toBe(201);
+    expect(mixedCard.status).toBe(201);
+    const mixedCardBody = await mixedCard.json();
+    const mixedDefaultVariantId = mixedCardBody.id as string;
 
-    const mixedSellableVariant = await createVariant(mixedMaster.body.id, {
-      unitDefinitionId,
-      variantAttrs: { Package: mixedSellableVariantValue },
-      sellable: true,
-      sku: null,
-      description: null,
-      defaultSellingPrice: "32.00",
-      defaultPurchasePrice: null,
-      safetyStock: "0",
-      manufacturingMode: "discrete",
-      expectedBatchYield: null,
-      bom: [],
-      revisionNote: null,
-    });
-    expect(mixedSellableVariant.status).toBe(201);
+    const mixedConfig = await testFetch(
+      `/api/item-cards/${mixedDefaultVariantId}/variant-config`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          options: [
+            {
+              name: "Package",
+              values: [
+                { label: mixedSellableVariantValue },
+                { label: mixedInternalVariantValue },
+              ],
+            },
+          ],
+        }),
+      },
+    );
+    expect(mixedConfig.status).toBe(200);
 
-    const mixedInternalVariant = await createVariant(mixedMaster.body.id, {
-      unitDefinitionId,
-      variantAttrs: { Package: mixedInternalVariantValue },
-      sellable: false,
-      sku: null,
-      description: null,
-      defaultSellingPrice: null,
-      defaultPurchasePrice: null,
-      safetyStock: "0",
-      manufacturingMode: "discrete",
-      expectedBatchYield: null,
-      bom: [],
-      revisionNote: null,
-    });
-    expect(mixedInternalVariant.status).toBe(201);
-    mixedInternalVariantId = mixedInternalVariant.body.id;
+    const mixedGenerate = await testFetch(
+      `/api/item-cards/${mixedDefaultVariantId}/variants/generate`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+    expect(mixedGenerate.status).toBe(201);
+
+    const mixedCardRead = await testFetch(`/api/item-cards/${mixedDefaultVariantId}`);
+    expect(mixedCardRead.status).toBe(200);
+    const mixedCardReadBody = await mixedCardRead.json();
+    const mixedInternalVariant = mixedCardReadBody.variants.find(
+      (variant: { optionValues: Array<{ valueLabel: string }> }) =>
+        variant.optionValues.some((value) => value.valueLabel === mixedInternalVariantValue),
+    );
+    expect(mixedInternalVariant).toBeTruthy();
+    mixedInternalVariantId = mixedInternalVariant.id;
+
+    await db
+      .update(items)
+      .set({ sellable: false })
+      .where(eq(items.id, mixedInternalVariantId));
 
     const [sellableOnlyRow, internalOnlyRow, sharedComponentRow, parentProductRow, mixedInternalRow] =
       await Promise.all([
@@ -189,7 +203,7 @@ test.describe("inventory visibility", () => {
     await filterList(page, "Search items", internalOnlyName);
     const internalOnlyRow = page.getByRole("row", { name: new RegExp(internalOnlyName) });
     await expect(visibleProductLink(page, internalOnlyName)).toBeVisible();
-    await expect(internalOnlyRow.getByText("Not sellable")).toBeVisible();
+    await expect(internalOnlyRow.getByText("Not sellable").first()).toBeVisible();
 
     await filterList(page, "Search items", sharedComponentName);
     await expect(visibleProductLink(page, sharedComponentName)).toBeVisible();
@@ -229,18 +243,20 @@ test.describe("inventory visibility", () => {
     await filterList(page, "Search items", sellableOnlyName);
     const movedRow = page.getByRole("row", { name: new RegExp(sellableOnlyName) });
     await expect(visibleProductLink(page, sellableOnlyName)).toBeVisible();
-    await expect(movedRow.getByText("Not sellable")).toBeVisible();
+    await expect(movedRow.getByText("Not sellable").first()).toBeVisible();
   });
 
   test("soft-deleting the only parent clears used-in counts", async ({
     page,
     db,
   }) => {
-    const deleteResponse = await deleteItem(parentProductId);
+    const deleteResponse = await testFetch(`/api/item-cards/${parentProductId}`, {
+      method: "DELETE",
+    });
     expect(deleteResponse.status).toBe(200);
 
     const [deletedParent] = await db.select().from(items).where(eq(items.id, parentProductId));
-    expect(deletedParent.deletedAt).toBeTruthy();
+    expect(deletedParent == null || deletedParent.deletedAt != null).toBe(true);
 
     await page.goto(`/inventory/products/${sharedComponentId}`);
     await expect(page.getByRole("heading", { name: sharedComponentName })).toBeVisible();

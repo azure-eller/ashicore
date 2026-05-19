@@ -97,25 +97,39 @@ test.describe("item card API", () => {
       name: `Card API Component ${ts}`,
       unitDefinitionId,
       sku: `CARD-COMP-${ts}`,
+      category: `Card API ${ts}`,
+      description: null,
       stock: "0",
       safetyStock: "0",
+      purchaseUnitDefinitionId: null,
+      purchaseToStockFactor: null,
       defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
       currentStockUnitCost: "1",
+      bom: [],
     });
-    expect(component.status).toBe(201);
+    expect(component.status, JSON.stringify(component.body)).toBe(201);
 
     const product = await createItem({
       itemType: "product",
       name: `Card API Product ${ts}`,
       unitDefinitionId,
       sku: `CARD-PROD-${ts}`,
+      category: `Card API ${ts}`,
+      description: null,
       stock: "0",
       safetyStock: "0",
       sellable: true,
+      purchaseUnitDefinitionId: null,
+      purchaseToStockFactor: null,
+      defaultPurchasePrice: null,
       defaultSellingPrice: "10",
+      manufacturingMode: "discrete",
+      expectedBatchYield: null,
       bom: [{ componentId: component.body.id, quantity: "1" }],
+      revisionNote: "Initial card API BOM",
     });
-    expect(product.status).toBe(201);
+    expect(product.status, JSON.stringify(product.body)).toBe(201);
 
     const productConfig = await testFetch(`/api/item-cards/${product.body.id}/variant-config`, {
       method: "PUT",

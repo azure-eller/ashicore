@@ -911,7 +911,7 @@ export async function getItem(id: string) {
         itemType: items.itemType,
         category: sql<string | null>`COALESCE(${itemFamilies.category}, ${items.category})`,
         description: sql<string | null>`COALESCE(${itemFamilies.description}, ${items.description})`,
-        unitDefinitionId: sql<string | null>`COALESCE(${itemFamilies.unitDefinitionId}, ${items.unitDefinitionId})`,
+        unitDefinitionId: sql<string | null>`COALESCE(${items.unitDefinitionId}, ${itemFamilies.unitDefinitionId})`,
         purchaseUnitDefinitionId: sql<string | null>`COALESCE(${itemFamilies.purchaseUnitDefinitionId}, ${items.purchaseUnitDefinitionId})`,
         purchaseToStockFactor: trimScaleNullable(
           sql`COALESCE(${itemFamilies.purchaseToStockFactor}, ${items.purchaseToStockFactor})`
