@@ -86,8 +86,11 @@ export function ProductRecipeTab({
 
   if (!canViewBom) {
     return (
-      <section className={styles.section}>
-        <p className={styles.helper}>You don&apos;t have access to view this recipe.</p>
+      <section className={styles.section} aria-label="Locked recipe">
+        <p className={styles.helper}>
+          This recipe is locked. Inventory or manufacturing admin access is required
+          to view or edit recipe details.
+        </p>
       </section>
     );
   }
