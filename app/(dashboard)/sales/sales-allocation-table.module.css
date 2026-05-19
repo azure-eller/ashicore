@@ -166,7 +166,7 @@
 .statusStatSquare[data-tone="late"]       { background: var(--color-danger); }
 .statusStatSquare[data-tone="short"]      { background: var(--alloc-demand); }
 .statusStatSquare[data-tone="complete"]   { background: var(--alloc-supply); }
-.statusStatSquare[data-tone="variants"]   { background: var(--color-danger); }
+.statusStatSquare[data-tone="variants"]   { background: color-mix(in oklch, var(--alloc-disabled) 48%, transparent); }
 .statusStatSquare[data-tone="production"] { background: var(--alloc-production); }
 
 .toolbarRefreshed {
@@ -544,7 +544,7 @@
 }
 
 .miniSquare[data-status="zero"] {
-  background: var(--alloc-disabled);
+  background: color-mix(in oklch, var(--alloc-disabled) 48%, transparent);
 }
 
 .allocationCell[data-selected="true"] {

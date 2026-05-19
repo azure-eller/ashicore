@@ -734,6 +734,24 @@ function applyRibbonFilter(
   return rows;
 }
 
+function cellMatchesRibbonFilter(
+  cell: AllocationCell | null,
+  filter: RibbonFilter | null,
+  coverageByProductId: Map<string, ColumnCoverage>
+) {
+  if (!filter || filter === "late") return true;
+  if (!cell) return false;
+  if (filter === "shortLines") return cell.demand > cell.alloc;
+  if (filter === "moWait") return getCellStatus(cell) === "waiting";
+  if (filter === "variantsShort") {
+    return (
+      coverageByProductId.get(cell.product.itemId)?.verdict === "short" &&
+      cell.demand > cell.alloc
+    );
+  }
+  return true;
+}
+
 function getProductColumnToReveal(
   rows: AllocationRow[],
   visibleProducts: AllocationProduct[],
@@ -1157,10 +1175,14 @@ function AllocationProductCell({
   data,
   product,
   selected,
+  activeFilter,
+  coverageByProductId,
   onOpenAllocation,
 }: ICellRendererParams<SalesAllocationGridRow> & {
   product: AllocationProduct;
   selected: { rowId: string; colId: string } | null;
+  activeFilter: RibbonFilter | null;
+  coverageByProductId: Map<string, ColumnCoverage>;
   onOpenAllocation: (row: OrderGridRow, cell: AllocationCell) => void;
 }) {
   if (!data || data.rowType !== "order") return null;
@@ -1168,7 +1190,10 @@ function AllocationProductCell({
   const cell = data.cells.get(product.itemId) ?? null;
   const status = getCellStatus(cell);
 
-  if (status === "empty") {
+  if (
+    status === "empty" ||
+    !cellMatchesRibbonFilter(cell, activeFilter, coverageByProductId)
+  ) {
     return <div className={styles.allocationCellEmpty} aria-hidden="true" />;
   }
 
@@ -2121,6 +2146,8 @@ export function SalesAllocationTable({
                         {...params}
                         product={product}
                         selected={selected}
+                        activeFilter={activeFilter}
+                        coverageByProductId={coverageById}
                         onOpenAllocation={openAllocation}
                       />
                     );
@@ -2135,7 +2162,15 @@ export function SalesAllocationTable({
         ),
       ];
     },
-    [hideColumn, openAllocation, orderRowCount, selected, displayedProducts]
+    [
+      activeFilter,
+      coverageById,
+      hideColumn,
+      openAllocation,
+      orderRowCount,
+      selected,
+      displayedProducts,
+    ]
   );
 
   const isFullWidthRow = useCallback(
