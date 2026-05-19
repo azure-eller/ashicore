@@ -108,6 +108,18 @@ const groupRemainderChoiceSchema = z.object({
   handling: z.enum(GROUP_REMAINDER_HANDLINGS),
 });
 
+const manufacturingIngredientLotAllocationSchema = z.object({
+  itemId: z.string().min(1, "Ingredient is required"),
+  allocations: z
+    .array(
+      z.object({
+        sourceId: z.string().uuid(),
+        quantity: positiveDecimalString("Allocated quantity"),
+      })
+    )
+    .default([]),
+});
+
 const baseManufacturingOrderSchema = createInsertSchema(manufacturingOrders, {
   productId: z.string().min(1, "Product is required"),
   salesOrderId: nullableString,
@@ -145,6 +157,11 @@ const baseManufacturingOrderSchema = createInsertSchema(manufacturingOrders, {
     batchCount: positiveDecimalString("Batches").optional(),
     groupRemainderChoices: z.array(groupRemainderChoiceSchema).optional().default([]),
     ingredients: ingredientsSchema,
+    lotAllocations: z
+      .array(manufacturingIngredientLotAllocationSchema)
+      .optional()
+      .default([]),
+    autoAllocateIngredientLots: z.boolean().optional().default(false),
     confirmShortage: z.boolean().optional(),
   });
 
@@ -167,6 +184,8 @@ export const manufacturingOrderCreateFormSchema = z
     notes: nullableString,
     ingredients: cleanedIngredientRowsSchema,
     groupRemainderChoices: z.array(groupRemainderChoiceSchema).default([]),
+    lotAllocations: z.array(manufacturingIngredientLotAllocationSchema).default([]),
+    autoAllocateIngredientLots: z.boolean().optional().default(true),
     confirmShortage: z.boolean().optional(),
   })
   .superRefine((values, ctx) => {
@@ -393,6 +412,8 @@ export const manufacturingOrderDefaultValues: ManufacturingOrderCreateFormValues
   plannedDate: null,
   notes: null,
   groupRemainderChoices: [],
+  lotAllocations: [],
+  autoAllocateIngredientLots: true,
   ingredients: [],
   confirmShortage: true,
 };

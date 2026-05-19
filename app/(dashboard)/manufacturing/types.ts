@@ -346,6 +346,7 @@ export type ManufacturingOrderEditData = {
   plannedDate: string | null;
   notes: string | null;
   ingredients: Array<{
+    id: string;
     itemId: string;
     itemName: string;
     itemSku: string | null;
@@ -372,6 +373,13 @@ export type ManufacturingOrderEditData = {
       unitName: string;
       quantityFactor: string;
       sortOrder: number;
+    }>;
+  }>;
+  lotAllocations: Array<{
+    itemId: string;
+    allocations: Array<{
+      sourceId: string;
+      quantity: string;
     }>;
   }>;
 };

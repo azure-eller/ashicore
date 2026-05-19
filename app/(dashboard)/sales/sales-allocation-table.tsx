@@ -94,8 +94,6 @@ export type AllocationPoolRow = {
   itemId: string;
   stockQty: string;
   incomingQty: string;
-  stockAllocatedQty?: string;
-  incomingAllocatedQty?: string;
   allocatedQty: string;
   assignments: Array<{
     demandLabel: string;
@@ -507,7 +505,8 @@ function getCoverage(products: AllocationProduct[], rows: AllocationRow[]) {
     products.map((product): [string, ColumnCoverage] => {
       const demand = rows.reduce((sum, row) => {
         const cell = row.cells.get(product.itemId);
-        return sum + (cell?.demand ?? 0);
+        if (!cell) return sum;
+        return sum + Math.max(0, cell.demand - cell.alloc);
       }, 0);
       const alloc = rows.reduce((sum, row) => {
         const cell = row.cells.get(product.itemId);
@@ -540,11 +539,12 @@ function getCoverage(products: AllocationProduct[], rows: AllocationRow[]) {
   );
 }
 
-function getCellStatus(cell: Pick<AllocationCell, "alloc" | "demand"> | null) {
+function getCellStatus(cell: Pick<AllocationCell, "alloc" | "demand" | "line"> | null) {
   if (!cell || cell.demand <= 0) return "empty";
+  if (cell.alloc <= 0) return "zero";
+  if (cell.line.allocationStatus === "waiting_production") return "waiting";
   if (cell.alloc >= cell.demand) return "full";
-  if (cell.alloc > 0) return "part";
-  return "zero";
+  return "part";
 }
 
 function isoWeekMondayOf(value: string) {
@@ -943,7 +943,7 @@ function CoverageVariantCell({
       ? 100
       : Math.min(100, (coverage.pool / meterDenominator) * 100);
 
-  const tooltipLabel = `Pool ${compactQuantity(coverage.pool)} = on-hand ${compactQuantity(coverage.stock)} + expected MO ${compactQuantity(coverage.incoming)}.`;
+  const tooltipLabel = `Unallocated pool ${compactQuantity(coverage.pool)} = free on-hand ${compactQuantity(coverage.stock)} + free expected MO ${compactQuantity(coverage.incoming)}.`;
 
   return (
     <Tooltip>
@@ -1496,10 +1496,8 @@ export function SalesAllocationTable({
       if (!pool) return product;
       return {
         ...product,
-        stockQty:
-          parseQuantity(pool.stockQty) + parseQuantity(pool.stockAllocatedQty),
-        incomingQty:
-          parseQuantity(pool.incomingQty) + parseQuantity(pool.incomingAllocatedQty),
+        stockQty: parseQuantity(pool.stockQty),
+        incomingQty: parseQuantity(pool.incomingQty),
         allocatedQty: parseQuantity(pool.allocatedQty),
         reservationSummaries: [
           ...pool.assignments.map(

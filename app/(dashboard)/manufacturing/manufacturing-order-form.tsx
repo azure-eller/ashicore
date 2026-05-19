@@ -103,6 +103,7 @@ import type {
   ManufacturingSalesOrderOption,
   ManufacturingSalesOrderPreview,
 } from "./types";
+import type { AllocationWorkspace } from "@/lib/inventory/allocation/types";
 
 type ManufacturingProductTemplate = ManufacturingProductOption & {
   bom: Array<{
@@ -154,6 +155,286 @@ type ApiError = {
 
 type OrderSource = "stock" | "sales";
 type BatchQuantityMode = "batches" | "output";
+type ManufacturingIngredientSources = AllocationWorkspace & {
+  currentAllocations?: Array<{ sourceId: string; quantity: string }>;
+};
+type IngredientLotAllocationValue =
+  ManufacturingOrderFormValues["lotAllocations"][number];
+
+function parseQuantityValue(value: string | number | null | undefined) {
+  if (value == null) return 0;
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeQuantityNumber(value: number) {
+  return Number(normalizeNumeric(value));
+}
+
+function sumLotAllocations(
+  allocations: IngredientLotAllocationValue["allocations"] | undefined
+) {
+  return (allocations ?? []).reduce(
+    (sum, allocation) => sum + parseQuantityValue(allocation.quantity),
+    0
+  );
+}
+
+function normalizeAllocationQuantity(value: string) {
+  const trimmed = value.trim();
+  if (trimmed === "") return "";
+  if (!/^\d*\.?\d*$/.test(trimmed)) return null;
+  return trimmed;
+}
+
+function ManufacturingIngredientLotCard({
+  itemId,
+  ingredientId,
+  itemName,
+  unitName,
+  plannedQuantity,
+  value,
+  manufacturingOrderId,
+  autoAllocateOnSave,
+  onChange,
+}: {
+  itemId: string;
+  ingredientId: string | null;
+  itemName: string;
+  unitName: string;
+  plannedQuantity: string;
+  value: IngredientLotAllocationValue | undefined;
+  manufacturingOrderId?: string | null;
+  autoAllocateOnSave: boolean;
+  onChange: (allocations: IngredientLotAllocationValue["allocations"]) => void;
+}) {
+  const plannedQuantityNumber = parseQuantityValue(plannedQuantity);
+  const sourcesQuery = useQuery<ManufacturingIngredientSources>({
+    queryKey: ["manufacturing-ingredient-sources", itemId, ingredientId],
+    queryFn: async () => {
+      const params = new URLSearchParams({ itemId });
+      if (ingredientId) params.set("ingredientId", ingredientId);
+      if (manufacturingOrderId) {
+        params.set("manufacturingOrderId", manufacturingOrderId);
+      }
+      const response = await fetch(
+        `/api/manufacturing-orders/ingredient-sources?${params}`
+      );
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to load ingredient lots.");
+      }
+
+      return body as ManufacturingIngredientSources;
+    },
+    enabled: itemId.length > 0 && plannedQuantityNumber > 0,
+  });
+  const lots = (sourcesQuery.data?.sources ?? []).filter(
+    (source) => source.sourceType === "inventory_lot"
+  );
+  const currentBySourceId = new Map(
+    (sourcesQuery.data?.currentAllocations ?? []).map((allocation) => [
+      allocation.sourceId,
+      parseQuantityValue(allocation.quantity),
+    ])
+  );
+  const allocationBySourceId = new Map(
+    (value?.allocations ?? []).map((allocation) => [
+      allocation.sourceId,
+      allocation.quantity,
+    ])
+  );
+  const manualAllocatedQuantity = sumLotAllocations(value?.allocations);
+  const allocationPreview = (() => {
+    const manualBySourceId = new Map(
+      (value?.allocations ?? []).map((allocation) => [
+        allocation.sourceId,
+        parseQuantityValue(allocation.quantity),
+      ])
+    );
+    let remaining = Math.max(0, plannedQuantityNumber - manualAllocatedQuantity);
+    let fifoQuantity = 0;
+
+    if (autoAllocateOnSave && remaining > 0) {
+      for (const source of lots) {
+        if (remaining <= 0) break;
+        const maxQuantity =
+          parseQuantityValue(source.maxQtyForPrimaryDemand) +
+          (currentBySourceId.get(source.sourceId) ?? 0);
+        const manualQuantity = manualBySourceId.get(source.sourceId) ?? 0;
+        const availableQuantity = Math.max(0, maxQuantity - manualQuantity);
+        const quantity = Math.min(remaining, availableQuantity);
+        if (quantity <= 0) continue;
+        fifoQuantity += quantity;
+        remaining = Math.max(0, remaining - quantity);
+      }
+    }
+
+    return {
+      fifoQuantity: normalizeQuantityNumber(fifoQuantity),
+      totalAllocatedQuantity: normalizeQuantityNumber(
+        manualAllocatedQuantity + fifoQuantity
+      ),
+      openQuantity: normalizeQuantityNumber(remaining),
+    };
+  })();
+  const isOverPlanned = manualAllocatedQuantity > plannedQuantityNumber + 0.0001;
+
+  const setSourceQuantity = (sourceId: string, quantity: string) => {
+    const normalized = normalizeAllocationQuantity(quantity);
+    if (normalized == null) return;
+    const nextBySourceId = new Map(allocationBySourceId);
+
+    if (normalized) {
+      nextBySourceId.set(sourceId, normalized);
+    } else {
+      nextBySourceId.delete(sourceId);
+    }
+
+    onChange(
+      [...nextBySourceId.entries()].map(([nextSourceId, nextQuantity]) => ({
+        sourceId: nextSourceId,
+        quantity: nextQuantity,
+      }))
+    );
+  };
+
+  const autoFillFifo = () => {
+    let remaining = plannedQuantityNumber;
+    const next: IngredientLotAllocationValue["allocations"] = [];
+
+    for (const source of lots) {
+      if (remaining <= 0) break;
+      const maxQuantity =
+        parseQuantityValue(source.maxQtyForPrimaryDemand) +
+        (currentBySourceId.get(source.sourceId) ?? 0);
+      const quantity = Math.min(remaining, maxQuantity);
+      if (quantity <= 0) continue;
+
+      next.push({ sourceId: source.sourceId, quantity: normalizeNumeric(quantity) });
+      remaining = Math.max(0, remaining - quantity);
+    }
+
+    onChange(next);
+  };
+
+  if (plannedQuantityNumber <= 0) return null;
+
+  return (
+    <div className="border">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium">{itemName}</div>
+          <div className="text-[length:var(--text-xs)] text-muted-foreground">
+            Need {formatQuantity(plannedQuantity)} {unitName}
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-right text-[length:var(--text-xs)] text-muted-foreground">
+            <div>
+              {formatQuantity(normalizeNumeric(allocationPreview.totalAllocatedQuantity))}{" "}
+              {autoAllocateOnSave ? "will hold" : "allocated"}
+            </div>
+            {autoAllocateOnSave && allocationPreview.fifoQuantity > 0 ? (
+              <div>
+                {formatQuantity(normalizeNumeric(allocationPreview.fifoQuantity))} FIFO on save
+              </div>
+            ) : null}
+            <div>{formatQuantity(normalizeNumeric(allocationPreview.openQuantity))} open</div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={autoFillFifo}
+            disabled={sourcesQuery.isLoading || lots.length === 0}
+          >
+            Auto FIFO
+          </Button>
+        </div>
+      </div>
+
+      {sourcesQuery.isLoading ? (
+        <div className="px-4 py-4 text-sm text-muted-foreground">Loading lots...</div>
+      ) : sourcesQuery.isError ? (
+        <div className="px-4 py-4 text-sm text-destructive">
+          Failed to load ingredient lots.
+        </div>
+      ) : lots.length === 0 ? (
+        <div className="px-4 py-4 text-sm text-muted-foreground">
+          No available lots found.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Lot</TableHead>
+                <TableHead className="w-28 text-right">Free</TableHead>
+                <TableHead className="w-32 text-right">Allocate</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {lots.map((source) => {
+                const currentQuantity = currentBySourceId.get(source.sourceId) ?? 0;
+                const maxQuantity =
+                  parseQuantityValue(source.maxQtyForPrimaryDemand) + currentQuantity;
+                const sourceValue = allocationBySourceId.get(source.sourceId) ?? "";
+                const sourceQuantity = Number(sourceValue);
+                const sourceInvalid =
+                  sourceValue.trim() !== "" &&
+                  (!Number.isFinite(sourceQuantity) || sourceQuantity <= 0);
+                const sourceOver =
+                  Number.isFinite(sourceQuantity) && sourceQuantity > maxQuantity + 0.0001;
+                return (
+                  <TableRow key={source.sourceKey}>
+                    <TableCell>
+                      <div className="space-y-0.5">
+                        <div className="font-medium">{source.label}</div>
+                        {source.contextLabel ? (
+                          <div className="text-[length:var(--text-xs)] text-muted-foreground">
+                            {source.contextLabel}
+                          </div>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-sm tabular-nums">
+                      {formatQuantity(normalizeNumeric(maxQuantity))}
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        value={sourceValue}
+                        onChange={(event) =>
+                          setSourceQuantity(source.sourceId, event.target.value)
+                        }
+                        inputMode="decimal"
+                        autoComplete="off"
+                        placeholder="0"
+                        aria-invalid={sourceInvalid || sourceOver}
+                        className="ml-auto w-24 text-right"
+                      />
+                      {sourceOver ? (
+                        <div className="mt-1 text-right text-[length:var(--text-2xs)] text-destructive">
+                          {formatQuantity(normalizeNumeric(sourceQuantity - maxQuantity))} over
+                        </div>
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+          {isOverPlanned ? (
+            <div className="border-t px-4 py-2 text-[length:var(--text-xs)] text-destructive">
+              {formatQuantity(normalizeNumeric(manualAllocatedQuantity - plannedQuantityNumber))} over need
+            </div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function formatSalesOrderLabel(
   value: string,
@@ -208,8 +489,9 @@ export function ManufacturingOrderForm({
   const [orderSource, setOrderSource] = useState<OrderSource>(
     initialSalesOrderId ? "sales" : "stock"
   );
-  const [batchQuantityMode, setBatchQuantityMode] =
-    useState<BatchQuantityMode>("batches");
+  const [batchQuantityMode, setBatchQuantityMode] = useState<BatchQuantityMode>(
+    initialData?.manufacturingMode === "batch" ? "output" : "batches"
+  );
   const todayDate = todayInTimeZone(timeZone);
   const formResolver = zodResolver(
     isEditing ? updateManufacturingOrderSchema : manufacturingOrderCreateFormSchema
@@ -231,6 +513,8 @@ export function ManufacturingOrderForm({
             itemId: ingredient.itemId,
             quantityPerUnit: ingredient.quantityPerUnit,
           })),
+          lotAllocations: initialData.lotAllocations,
+          autoAllocateIngredientLots: true,
           groupRemainderChoices: initialData.ingredients
             .filter(
               (ingredient) =>
@@ -276,6 +560,10 @@ export function ManufacturingOrderForm({
   const watchedGroupRemainderChoices = useWatch({
     control: form.control,
     name: "groupRemainderChoices",
+  });
+  const watchedLotAllocations = useWatch({
+    control: form.control,
+    name: "lotAllocations",
   });
 
   const productOptions = useMemo(
@@ -381,8 +669,9 @@ export function ManufacturingOrderForm({
     selectedProduct?.bom,
     watchedProductId,
   ]);
-  const ingredientOptionMap = new Map(
-    ingredientOptions.map((option) => [option.id, option])
+  const ingredientOptionMap = useMemo(
+    () => new Map(ingredientOptions.map((option) => [option.id, option])),
+    [ingredientOptions]
   );
   const selectedSalesOrder = salesOrderMap.get(watchedSalesOrderId ?? "");
   const watchedSalesOrderLineId = useWatch({
@@ -410,9 +699,10 @@ export function ManufacturingOrderForm({
     }
   }, [append, fields, isSalesOrderMode, watchedIngredients, watchedProductId]);
 
-  const selectedBomRows = isEditing
-    ? initialData?.ingredients ?? []
-    : selectedProduct?.bom ?? [];
+  const selectedBomRows = useMemo(
+    () => (isEditing ? initialData?.ingredients ?? [] : selectedProduct?.bom ?? []),
+    [initialData?.ingredients, isEditing, selectedProduct?.bom]
+  );
   const firstBatchBasis = selectedBomRows.find(
     (row) => row.consumptionMode === "per_batch" && row.basisOutputQuantity != null
   )?.basisOutputQuantity;
@@ -424,7 +714,7 @@ export function ManufacturingOrderForm({
   const batchYield = isEditing
     ? initialData?.expectedBatchYield != null ? parseFloat(initialData.expectedBatchYield) : null
     : firstBatchBasis != null ? parseFloat(firstBatchBasis) : null;
-  const isManualBatchCreate =
+  const isBatchCountEntry =
     !isEditing &&
     !isSalesOrderSource &&
     isBatchMode &&
@@ -435,10 +725,10 @@ export function ManufacturingOrderForm({
     if (!isBatchMode || batchYield == null || batchYield <= 0) return null;
     const entered = parseFloat(watchedPlannedQuantity ?? "");
     if (!Number.isFinite(entered) || entered <= 0) return null;
-    const numberOfBatches = isManualBatchCreate
+    const numberOfBatches = isBatchCountEntry
       ? entered
       : Math.ceil(entered / batchYield);
-    const plannedOutput = isManualBatchCreate ? numberOfBatches * batchYield : entered;
+    const plannedOutput = isBatchCountEntry ? numberOfBatches * batchYield : entered;
     return { numberOfBatches, plannedOutput };
   })();
   const effectiveOutputQuantity = batchCalc
@@ -448,12 +738,93 @@ export function ManufacturingOrderForm({
     selectedBomRows,
     effectiveOutputQuantity
   );
-  const groupChoiceMap = new Map(
-    (watchedGroupRemainderChoices ?? []).map((choice) => [
-      makeGroupChoiceKey(choice.basisOutputQuantity),
-      choice.handling,
-    ])
+  const groupChoiceMap = useMemo(
+    () =>
+      new Map(
+        (watchedGroupRemainderChoices ?? []).map((choice) => [
+          makeGroupChoiceKey(choice.basisOutputQuantity),
+          choice.handling,
+        ])
+      ),
+    [watchedGroupRemainderChoices]
   );
+  const visibleIngredientPlans = useMemo(() => {
+    if (isSalesOrderMode) return [];
+
+    return fields
+      .map((field, index) => {
+        const selectedIngredientId = watchedIngredients?.[index]?.itemId ?? field.itemId;
+        if (!selectedIngredientId) return null;
+
+        const material = ingredientOptionMap.get(selectedIngredientId);
+        const quantityPerUnit = watchedIngredients?.[index]?.quantityPerUnit ?? "";
+        const bomRow = selectedBomRows[index];
+        if (!material || !bomRow) return null;
+
+        const calculation = calculateConsumptionRequirement({
+          outputQuantity: effectiveOutputQuantity,
+          quantity: quantityPerUnit,
+          consumptionMode: bomRow.consumptionMode as ConsumptionMode,
+          basisOutputQuantity: bomRow.basisOutputQuantity,
+          batchScalingMode: bomRow.batchScalingMode as BatchScalingMode | null,
+          groupRemainderPolicy:
+            bomRow.groupRemainderPolicy as GroupRemainderPolicy | null,
+          chosenGroupRemainderHandling:
+            bomRow.basisOutputQuantity != null
+              ? groupChoiceMap.get(makeGroupChoiceKey(bomRow.basisOutputQuantity))
+              : undefined,
+        });
+
+        if (parseQuantityValue(calculation.plannedQuantity) <= 0) return null;
+
+        return {
+          fieldId: field.id,
+          itemId: selectedIngredientId,
+          ingredientId: initialData?.ingredients[index]?.id ?? null,
+          itemName: material.name,
+          unitName: material.unitName ?? "",
+          plannedQuantity: calculation.plannedQuantity,
+        };
+      })
+      .filter((plan): plan is NonNullable<typeof plan> => plan != null);
+  }, [
+    effectiveOutputQuantity,
+    fields,
+    groupChoiceMap,
+    initialData?.ingredients,
+    ingredientOptionMap,
+    isSalesOrderMode,
+    selectedBomRows,
+    watchedIngredients,
+  ]);
+  const lotAllocationMap = new Map(
+    (watchedLotAllocations ?? []).map((row) => [row.itemId, row])
+  );
+  const setLotAllocationsForItem = (
+    itemId: string,
+    allocations: IngredientLotAllocationValue["allocations"]
+  ) => {
+    const nextByItemId = new Map(
+      (watchedLotAllocations ?? []).map((row) => [row.itemId, row])
+    );
+
+    if (allocations.length > 0) {
+      nextByItemId.set(itemId, { itemId, allocations });
+    } else {
+      nextByItemId.delete(itemId);
+    }
+
+    form.setValue("lotAllocations", [...nextByItemId.values()], {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+  };
+  const useDefaultFifoForAllLots = () => {
+    form.setValue("lotAllocations", [], {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+  };
   const setGroupChoice = (
     basisOutputQuantity: string,
     handling: GroupRemainderHandling
@@ -573,7 +944,7 @@ export function ManufacturingOrderForm({
       }
 
       const plannedQuantity = (() => {
-        if (!isManualBatchCreate) return values.plannedQuantity ?? "";
+        if (!isBatchCountEntry) return values.plannedQuantity ?? "";
 
         const batchCount = Number(values.plannedQuantity ?? "");
         if (
@@ -591,9 +962,23 @@ export function ManufacturingOrderForm({
 
         return normalizeNumeric(batchCount * batchYield);
       })();
-      const manualBatchCount = isManualBatchCreate
+      const manualBatchCount = isBatchCountEntry
         ? Number(values.plannedQuantity ?? "")
         : null;
+      const activeIngredientIds = new Set(
+        values.ingredients
+          .map((ingredient) => ingredient.itemId)
+          .filter((itemId): itemId is string => itemId.length > 0)
+      );
+      const lotAllocations = (values.lotAllocations ?? [])
+        .filter((row) => activeIngredientIds.has(row.itemId))
+        .map((row) => ({
+          itemId: row.itemId,
+          allocations: row.allocations.filter(
+            (allocation) => parseQuantityValue(allocation.quantity) > 0
+          ),
+        }))
+        .filter((row) => row.allocations.length > 0);
 
       const payload = initialData
         ? {
@@ -604,6 +989,8 @@ export function ManufacturingOrderForm({
             plannedDate: values.plannedDate,
             notes: values.notes,
             groupRemainderChoices: values.groupRemainderChoices,
+            lotAllocations,
+            autoAllocateIngredientLots: true,
             ingredients: values.ingredients,
           }
         : {
@@ -617,6 +1004,8 @@ export function ManufacturingOrderForm({
             plannedDate: values.plannedDate,
             notes: values.notes,
             groupRemainderChoices: values.groupRemainderChoices,
+            lotAllocations,
+            autoAllocateIngredientLots: true,
             ingredients: values.ingredients,
             confirmShortage: true,
           };
@@ -699,6 +1088,7 @@ export function ManufacturingOrderForm({
       form.setValue("productId", "");
       form.setValue("plannedQuantity", "");
       form.setValue("groupRemainderChoices", []);
+      form.setValue("lotAllocations", []);
       form.setValue("ingredients", []);
       return;
     }
@@ -710,6 +1100,7 @@ export function ManufacturingOrderForm({
     form.setValue("salesOrderLineId", null);
     form.setValue("productId", "");
     form.setValue("plannedQuantity", "");
+    form.setValue("lotAllocations", []);
     form.setValue("ingredients", []);
     form.setValue("plannedDate", selected.shipDate ?? selected.requestedDate ?? todayDate, {
       shouldValidate: true,
@@ -731,6 +1122,7 @@ export function ManufacturingOrderForm({
     form.setValue("productId", "");
     form.setValue("plannedQuantity", "");
     form.setValue("groupRemainderChoices", []);
+    form.setValue("lotAllocations", []);
     form.setValue("ingredients", []);
   };
 
@@ -748,6 +1140,7 @@ export function ManufacturingOrderForm({
     setBatchQuantityMode(hasBatchBom ? "batches" : "output");
     form.setValue("plannedQuantity", hasBatchBom ? "1" : "");
     form.setValue("groupRemainderChoices", []);
+    form.setValue("lotAllocations", []);
     form.setValue(
       "ingredients",
       (template?.bom ?? []).map((ingredient) => ({
@@ -813,6 +1206,10 @@ export function ManufacturingOrderForm({
       shouldDirty: true,
     });
     form.setValue("plannedQuantity", selected.quantity, {
+      shouldValidate: true,
+      shouldDirty: true,
+    });
+    form.setValue("lotAllocations", [], {
       shouldValidate: true,
       shouldDirty: true,
     });
@@ -1243,7 +1640,7 @@ export function ManufacturingOrderForm({
                       <Field data-invalid={fieldState.invalid}>
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <FieldLabel htmlFor={field.name}>
-                            {isManualBatchCreate ? (
+                            {isBatchCountEntry ? (
                               "Batches"
                             ) : (
                               <TooltipHeader
@@ -1297,7 +1694,7 @@ export function ManufacturingOrderForm({
                         {" of up to "}
                         {formatQuantity(String(batchYield))}{" "}
                         {selectedProduct?.unitName ?? initialData?.unitName ?? "units"}
-                        {isManualBatchCreate ? (
+                        {isBatchCountEntry ? (
                           <>
                             {"; "}
                             {formatQuantity(String(batchCalc.plannedOutput))} planned
@@ -1684,6 +2081,45 @@ export function ManufacturingOrderForm({
                 )}
 
                 {ingredientsError && <FieldError>{ingredientsError}</FieldError>}
+              </FieldGroup>
+            </CreateSection>
+          ) : null}
+
+          {!isSalesOrderMode && visibleIngredientPlans.length > 0 ? (
+            <CreateSection
+              title="Ingredient lots"
+              action={
+                <div className="flex items-center gap-3">
+                  <Badge variant="outline">FIFO default</Badge>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={useDefaultFifoForAllLots}
+                    disabled={(watchedLotAllocations ?? []).length === 0}
+                  >
+                    Use FIFO all
+                  </Button>
+                </div>
+              }
+            >
+              <FieldGroup>
+                {visibleIngredientPlans.map((plan) => (
+                  <ManufacturingIngredientLotCard
+                    key={`${plan.fieldId}:${plan.itemId}`}
+                    itemId={plan.itemId}
+                    ingredientId={plan.ingredientId}
+                    itemName={plan.itemName}
+                    unitName={plan.unitName}
+                    plannedQuantity={plan.plannedQuantity}
+                    value={lotAllocationMap.get(plan.itemId)}
+                    manufacturingOrderId={initialData?.id ?? null}
+                    autoAllocateOnSave={true}
+                    onChange={(allocations) =>
+                      setLotAllocationsForItem(plan.itemId, allocations)
+                    }
+                  />
+                ))}
               </FieldGroup>
             </CreateSection>
           ) : null}

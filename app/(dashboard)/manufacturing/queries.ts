@@ -106,6 +106,7 @@ import {
   type DomainFieldErrors,
 } from "@/lib/errors/domain-error";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
+import { loadAllocationSourcesForItemInTx } from "@/lib/inventory/allocation/sources";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type {
   CompleteManufacturingBatch,
@@ -1358,6 +1359,8 @@ async function activateManufacturingOrderInTx(
   order: LockedManufacturingOrder,
   params: {
     actorUserId?: string | null;
+    lotAllocations?: InsertManufacturingOrder["lotAllocations"];
+    autoAllocateIngredientLots?: boolean;
   }
 ) {
   await getValidatedProductInTx(tx, order.productId);
@@ -1446,7 +1449,224 @@ async function activateManufacturingOrderInTx(
     })),
   });
 
+  if (params.autoAllocateIngredientLots === true) {
+    await saveManufacturingIngredientLotAllocationsInTx(tx, {
+      organizationId: orgId,
+      actorUserId: params.actorUserId ?? null,
+      ingredients: reservationIngredientRows,
+      lotAllocations: params.lotAllocations ?? [],
+    });
+  }
+
   return orderRow;
+}
+
+type ManufacturingIngredientLotAllocationPlan = NonNullable<
+  InsertManufacturingOrder["lotAllocations"]
+>;
+
+async function insertManufacturingIngredientLotAllocationInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    actorUserId?: string | null;
+    ingredientId: string;
+    itemId: string;
+    lotId: string;
+    quantity: number;
+    sourceLabelSnapshot?: string | null;
+  }
+) {
+  if (params.quantity <= 0) return;
+
+  await tx.insert(stockAllocations).values({
+    organizationId: params.organizationId,
+    demandType: "manufacturing_order_ingredient",
+    demandId: params.ingredientId,
+    itemId: params.itemId,
+    sourceType: "inventory_lot",
+    sourceId: params.lotId,
+    quantity: normalizeNumeric(params.quantity),
+    status: "active",
+    sourceLabelSnapshot: params.sourceLabelSnapshot ?? null,
+    createdBy: params.actorUserId ?? null,
+    updatedBy: params.actorUserId ?? null,
+  });
+}
+
+async function saveManufacturingIngredientLotAllocationsInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    actorUserId?: string | null;
+    ingredients: Array<{
+      ingredientId: string;
+      itemId: string;
+      plannedQuantity: string;
+    }>;
+    lotAllocations: ManufacturingIngredientLotAllocationPlan;
+  }
+) {
+  const allocationItemIds = [
+    ...new Set([
+      ...params.ingredients.map((ingredient) => ingredient.itemId),
+      ...params.lotAllocations.map((allocation) => allocation.itemId),
+    ]),
+  ];
+  await lockItemsInTx(tx, allocationItemIds);
+  if (allocationItemIds.length > 0) {
+    await tx
+      .select({ id: stockAllocations.id })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.organizationId, params.organizationId),
+          inArray(stockAllocations.itemId, allocationItemIds),
+          eq(stockAllocations.status, "active")
+        )
+      )
+      .orderBy(asc(stockAllocations.itemId), asc(stockAllocations.id))
+      .for("update");
+  }
+
+  const manualByItemId = new Map<
+    string,
+    Array<{ sourceId: string; quantity: number }>
+  >();
+  const sourcesByItemId = new Map<
+    string,
+    Awaited<ReturnType<typeof loadAllocationSourcesForItemInTx>>
+  >();
+  const freeQtyBySourceKey = new Map<string, number>();
+
+  const loadSourcesForItem = async (itemId: string) => {
+    const existing = sourcesByItemId.get(itemId);
+    if (existing) return existing;
+
+    const sources = await loadAllocationSourcesForItemInTx(tx, {
+      organizationId: params.organizationId,
+      itemId,
+    });
+    sourcesByItemId.set(itemId, sources);
+    sources.forEach((source) => {
+      freeQtyBySourceKey.set(
+        source.sourceKey,
+        normalizeQuantityNumber(Number(source.maxQtyForPrimaryDemand))
+      );
+    });
+    return sources;
+  };
+
+  const consumeFreeQty = (sourceKey: string, quantity: number) => {
+    freeQtyBySourceKey.set(
+      sourceKey,
+      normalizeQuantityNumber((freeQtyBySourceKey.get(sourceKey) ?? 0) - quantity)
+    );
+  };
+
+  for (const row of params.lotAllocations) {
+    const bySourceId = new Map<string, number>();
+    for (const allocation of row.allocations ?? []) {
+      const quantity = Number(allocation.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) continue;
+      bySourceId.set(
+        allocation.sourceId,
+        normalizeQuantityNumber((bySourceId.get(allocation.sourceId) ?? 0) + quantity)
+      );
+    }
+
+    if (bySourceId.size > 0) {
+      manualByItemId.set(
+        row.itemId,
+        [...bySourceId.entries()].map(([sourceId, quantity]) => ({
+          sourceId,
+          quantity,
+        }))
+      );
+    }
+  }
+
+  for (const ingredient of params.ingredients) {
+    let remainingNeed = normalizeQuantityNumber(Number(ingredient.plannedQuantity));
+    if (remainingNeed <= 0) continue;
+
+    const manualAllocations = manualByItemId.get(ingredient.itemId) ?? [];
+    for (const allocation of manualAllocations) {
+      if (remainingNeed <= 0) break;
+      if (allocation.quantity <= 0) continue;
+
+      const quantity = normalizeQuantityNumber(Math.min(remainingNeed, allocation.quantity));
+      const sources = await loadSourcesForItem(ingredient.itemId);
+      const source = sources.find(
+        (candidate) =>
+          candidate.sourceType === "inventory_lot" &&
+          candidate.sourceId === allocation.sourceId
+      );
+
+      if (!source) {
+        throw new ManufacturingError("Selected ingredient lot is no longer available.", 409);
+      }
+
+      const freeQty = freeQtyBySourceKey.get(source.sourceKey) ?? 0;
+      if (quantity > freeQty) {
+        throw new ManufacturingError(
+          `${source.label} only has ${normalizeNumeric(freeQty)} available.`,
+          409
+        );
+      }
+
+      await insertManufacturingIngredientLotAllocationInTx(tx, {
+        organizationId: params.organizationId,
+        actorUserId: params.actorUserId ?? null,
+        ingredientId: ingredient.ingredientId,
+        itemId: ingredient.itemId,
+        lotId: allocation.sourceId,
+        quantity,
+        sourceLabelSnapshot: source.label,
+      });
+      consumeFreeQty(source.sourceKey, quantity);
+      allocation.quantity = normalizeQuantityNumber(allocation.quantity - quantity);
+      remainingNeed = normalizeQuantityNumber(remainingNeed - quantity);
+    }
+
+    if (remainingNeed <= 0) continue;
+
+    const fifoSources = await loadSourcesForItem(ingredient.itemId);
+
+    for (const source of fifoSources) {
+      if (remainingNeed <= 0) break;
+      if (source.sourceType !== "inventory_lot") continue;
+
+      const freeQty = freeQtyBySourceKey.get(source.sourceKey) ?? 0;
+      const quantity = normalizeQuantityNumber(Math.min(remainingNeed, freeQty));
+      if (quantity <= 0) continue;
+
+      await insertManufacturingIngredientLotAllocationInTx(tx, {
+        organizationId: params.organizationId,
+        actorUserId: params.actorUserId ?? null,
+        ingredientId: ingredient.ingredientId,
+        itemId: ingredient.itemId,
+        lotId: source.sourceId,
+        quantity,
+        sourceLabelSnapshot: source.label,
+      });
+      consumeFreeQty(source.sourceKey, quantity);
+      remainingNeed = normalizeQuantityNumber(remainingNeed - quantity);
+    }
+
+    // Lot holds are opportunistic. Short ingredients should warn in planning and
+    // picking, but they must not block creating/releasing the MO.
+  }
+
+  const overAllocatedItem = [...manualByItemId.entries()].find(([, allocations]) =>
+    allocations.some((allocation) => allocation.quantity > 0.0001)
+  );
+  if (overAllocatedItem) {
+    throw new ManufacturingError(
+      "Ingredient lot allocations cannot exceed planned ingredient demand.",
+      400
+    );
+  }
 }
 
 async function prepareUpdatedIngredientsInTx(
@@ -3768,6 +3988,7 @@ export async function getManufacturingOrderEditData(
     const [order] = await tx
       .select({
         id: manufacturingOrders.id,
+        organizationId: manufacturingOrders.organizationId,
         productId: manufacturingOrders.productId,
         bomRevisionId: manufacturingOrders.bomRevisionId,
         productName: manufacturingOrders.productName,
@@ -3807,6 +4028,42 @@ export async function getManufacturingOrderEditData(
 
     const editableIngredients =
       await getEditableManufacturingIngredientSnapshotInTx(tx, id);
+    const allocationIngredientRows = await tx
+      .select({ id: manufacturingOrderIngredients.id })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, id));
+    const allocationIngredientIds = allocationIngredientRows.map((row) => row.id);
+    const lotAllocationRows =
+      allocationIngredientIds.length > 0
+        ? await tx
+            .select({
+              itemId: stockAllocations.itemId,
+              sourceId: stockAllocations.sourceId,
+              quantity: trimScale(
+                sql`COALESCE(SUM(${stockAllocations.quantity}), 0)`
+              ).as("quantity"),
+            })
+            .from(stockAllocations)
+            .where(
+              and(
+                eq(stockAllocations.organizationId, order.organizationId),
+                eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
+                inArray(stockAllocations.demandId, allocationIngredientIds),
+                eq(stockAllocations.sourceType, "inventory_lot"),
+                eq(stockAllocations.status, "active")
+              )
+            )
+            .groupBy(stockAllocations.itemId, stockAllocations.sourceId)
+        : [];
+    const lotAllocationsByItemId = new Map<
+      string,
+      Array<{ sourceId: string; quantity: string }>
+    >();
+    lotAllocationRows.forEach((row) => {
+      const allocations = lotAllocationsByItemId.get(row.itemId) ?? [];
+      allocations.push({ sourceId: row.sourceId, quantity: row.quantity });
+      lotAllocationsByItemId.set(row.itemId, allocations);
+    });
 
     const bomRows =
       order.bomRevisionId == null
@@ -3820,6 +4077,7 @@ export async function getManufacturingOrderEditData(
       ingredients: editableIngredients.map((ingredient) => {
         const bomRow = bomBySortOrder.get(ingredient.sortOrder);
         return {
+          id: ingredient.id,
           itemId: ingredient.itemId,
           itemName: ingredient.itemName,
           itemSku: ingredient.itemSku,
@@ -3849,6 +4107,9 @@ export async function getManufacturingOrderEditData(
           })),
         };
       }),
+      lotAllocations: [...lotAllocationsByItemId.entries()].map(
+        ([itemId, allocations]) => ({ itemId, allocations })
+      ),
     };
   });
 }
@@ -3896,6 +4157,8 @@ export async function createManufacturingOrderInTx(
   }
   await activateManufacturingOrderInTx(tx, orgId, lockedOrder, {
     actorUserId,
+    lotAllocations: payload.lotAllocations,
+    autoAllocateIngredientLots: payload.autoAllocateIngredientLots,
   });
 
   return { id: order.id };
@@ -4103,6 +4366,8 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
     }
     await activateManufacturingOrderInTx(tx, orgId, lockedOrder, {
       actorUserId,
+      lotAllocations: [],
+      autoAllocateIngredientLots: false,
     });
 
     created.push({
@@ -4288,22 +4553,52 @@ export async function updateManufacturingOrder(
         await tx
           .delete(manufacturingOrderBatches)
           .where(eq(manufacturingOrderBatches.manufacturingOrderId, id));
+      }
+
+      if (scalingPlan.manufacturingMode === "batch") {
         const refreshedOrder = await getLockedManufacturingOrderInTx(tx, id);
         if (refreshedOrder) {
           await ensureBatchExecutionRowsInTx(tx, refreshedOrder);
         }
       }
 
+      const demandIngredientRows =
+        scalingPlan.manufacturingMode === "batch"
+          ? await tx
+              .select({
+                id: manufacturingOrderIngredients.id,
+                itemId: manufacturingOrderIngredients.itemId,
+                plannedQuantity: trimScale(
+                  manufacturingOrderIngredients.plannedQuantity
+                ).as("plannedQuantity"),
+              })
+              .from(manufacturingOrderIngredients)
+              .where(eq(manufacturingOrderIngredients.manufacturingOrderId, id))
+          : insertedIngredients;
+
       await addIngredientDemandForManufacturingInTx(tx, {
         organizationId: orgId,
         manufacturingOrderId: id,
         actorUserId: userId,
-        ingredients: insertedIngredients.map((ingredient) => ({
+        ingredients: demandIngredientRows.map((ingredient) => ({
           ingredientId: ingredient.id,
           itemId: ingredient.itemId,
           quantity: parseFloat(ingredient.plannedQuantity),
         })),
       });
+
+      if (payload.autoAllocateIngredientLots) {
+        await saveManufacturingIngredientLotAllocationsInTx(tx, {
+          organizationId: orgId,
+          actorUserId: userId,
+          ingredients: demandIngredientRows.map((ingredient) => ({
+            ingredientId: ingredient.id,
+            itemId: ingredient.itemId,
+            plannedQuantity: ingredient.plannedQuantity,
+          })),
+          lotAllocations: payload.lotAllocations,
+        });
+      }
     }
 
     await rerankOpenManufacturingOrdersInTx(tx, orgId);

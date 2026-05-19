@@ -16,6 +16,7 @@ import {
   manufacturingOrderOperationCosts,
   manufacturingOrders,
   salesOrderLines,
+  stockAllocations,
 } from "../../../lib/db/schema";
 import {
   createItem,
@@ -149,6 +150,40 @@ test.describe("Manufacturing write-path smoke", () => {
       .from(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
     expect(ingredients).toHaveLength(2);
+    const ingredientIds = ingredients.map((ingredient) => ingredient.id);
+    const ingredientAllocations = await db
+      .select({
+        demandId: stockAllocations.demandId,
+        itemId: stockAllocations.itemId,
+        sourceType: stockAllocations.sourceType,
+        quantity: stockAllocations.quantity,
+      })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
+          inArray(stockAllocations.demandId, ingredientIds),
+          eq(stockAllocations.status, "active")
+        )
+      );
+    expect(ingredientAllocations).toHaveLength(2);
+    const allocatedByItemId = new Map(
+      ingredientAllocations.map((allocation) => [
+        allocation.itemId,
+        {
+          sourceType: allocation.sourceType,
+          quantity: parseFloat(allocation.quantity),
+        },
+      ])
+    );
+    expect(allocatedByItemId.get(sandId)).toMatchObject({
+      sourceType: "inventory_lot",
+      quantity: 10,
+    });
+    expect(allocatedByItemId.get(compostId)).toMatchObject({
+      sourceType: "inventory_lot",
+      quantity: 5,
+    });
 
     await page.goto(`/manufacturing/orders/${orderId}/edit`);
     await page.waitForURL(`**/manufacturing/orders/${orderId}/edit`);
@@ -1889,6 +1924,7 @@ test.describe("Manufacturing write-path smoke", () => {
     if (!editableIngredients[0] || !editableIngredients[1]) {
       throw new Error("Expected editable batch ingredient rows.");
     }
+    const [firstEditableIngredient, secondEditableIngredient] = editableIngredients;
 
     const updateResponse = await testFetch(`/api/manufacturing-orders/${legacyOrderId}`, {
       method: "PUT",
@@ -1899,7 +1935,7 @@ test.describe("Manufacturing write-path smoke", () => {
         plannedDate: null,
         notes: "Open batch linked from edit",
         groupRemainderChoices: [],
-        ingredients: editableIngredients.map((ingredient) => ({
+        ingredients: [firstEditableIngredient, secondEditableIngredient].map((ingredient) => ({
           itemId: ingredient.itemId,
           quantityPerUnit: String(parseFloat(ingredient.quantityPerUnit)),
         })),

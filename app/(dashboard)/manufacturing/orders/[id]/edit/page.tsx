@@ -26,12 +26,10 @@ export default async function EditManufacturingOrderPage({
   ]);
 
   return (
-    <div className="mx-auto w-full max-w-5xl py-8">
-      <ManufacturingOrderForm
-        initialData={order}
-        ingredientItemOptions={ingredientItemOptions}
-        salesLineOptions={salesLineOptions}
-      />
-    </div>
+    <ManufacturingOrderForm
+      initialData={order}
+      ingredientItemOptions={ingredientItemOptions}
+      salesLineOptions={salesLineOptions}
+    />
   );
 }

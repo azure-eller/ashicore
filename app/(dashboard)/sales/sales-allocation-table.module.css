@@ -495,9 +495,24 @@
   flex: 0 0 7px;
 }
 
-.miniSquare[data-status="full"]  { background: var(--color-success); }
-.miniSquare[data-status="part"]  { background: var(--color-warning); }
-.miniSquare[data-status="zero"]  { background: var(--color-muted-2); }
+.miniSquare[data-status="full"] {
+  background: var(--alloc-supply);
+  box-shadow:
+    0 0 2px color-mix(in oklch, var(--alloc-supply) 90%, transparent),
+    0 0 8px color-mix(in oklch, var(--alloc-supply) 42%, transparent);
+}
+
+.miniSquare[data-status="waiting"],
+.miniSquare[data-status="part"] {
+  background: var(--alloc-demand);
+  box-shadow:
+    0 0 2px color-mix(in oklch, var(--alloc-demand) 90%, transparent),
+    0 0 8px color-mix(in oklch, var(--alloc-demand) 38%, transparent);
+}
+
+.miniSquare[data-status="zero"] {
+  background: var(--alloc-disabled);
+}
 
 .allocationCell[data-selected="true"] {
   box-shadow: var(--focus-ring);
@@ -523,16 +538,16 @@
   line-height: 1;
 }
 
-.coverageDelta[data-tone="ok"]    { color: var(--color-success); }
-.coverageDelta[data-tone="tight"] { color: var(--color-warning); }
-.coverageDelta[data-tone="short"] { color: var(--color-danger); }
+.coverageDelta[data-tone="ok"]    { color: var(--alloc-supply); }
+.coverageDelta[data-tone="tight"] { color: var(--alloc-demand); }
+.coverageDelta[data-tone="short"] { color: var(--alloc-short); }
 .coverageDelta[data-tone="idle"]  { color: var(--color-muted-2); }
 
 .coverageMeter {
   position: relative;
   width: 100%;
   height: 4px;
-  background: var(--color-line-2);
+  background: color-mix(in oklch, var(--alloc-disabled) 28%, transparent);
 }
 
 .coverageMeterFill {
@@ -541,9 +556,26 @@
   height: 100%;
 }
 
-.coverageMeterFill[data-tone="ok"]    { background: var(--color-success); }
-.coverageMeterFill[data-tone="tight"] { background: var(--color-warning); }
-.coverageMeterFill[data-tone="short"] { background: var(--color-danger); }
+.coverageMeterFill[data-tone="ok"] {
+  background: var(--alloc-supply);
+  box-shadow:
+    0 0 2px color-mix(in oklch, var(--alloc-supply) 82%, transparent),
+    0 0 8px color-mix(in oklch, var(--alloc-supply) 34%, transparent);
+}
+
+.coverageMeterFill[data-tone="tight"] {
+  background: var(--alloc-demand);
+  box-shadow:
+    0 0 2px color-mix(in oklch, var(--alloc-demand) 82%, transparent),
+    0 0 8px color-mix(in oklch, var(--alloc-demand) 34%, transparent);
+}
+
+.coverageMeterFill[data-tone="short"] {
+  background: var(--alloc-short);
+  box-shadow:
+    0 0 2px color-mix(in oklch, var(--alloc-short) 82%, transparent),
+    0 0 8px color-mix(in oklch, var(--alloc-short) 34%, transparent);
+}
 
 .coverageSub {
   color: var(--color-muted);

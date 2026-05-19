@@ -20,12 +20,12 @@ Manufacturing v1 now covers both planning and simple execution:
 - mobile-first execution flow with a minimal web fallback
 - discrete orders picked once, then completed once
 - batch-mode orders executed one batch at a time
+- ingredient lot allocations on direct create/edit, with FIFO defaults
 - universal partial output from the execution screen, without a product-level mode
 
 Still excluded in v1:
 
 - partial ingredient picks
-- manual lot selection
 - work-center scheduling, operation statuses, or actual labor time tracking
 - child manufacturing orders
 - auto-created orders from sales without an explicit user action
@@ -178,7 +178,15 @@ Only released manufacturing orders can be selected as supply in the Sales Alloca
 On release, manufacturing now does two inventory-side things through the kernel:
 
 - emits `expected_increase` for the finished-product output side
-- emits `demand_increase` for the ingredient side, without reserving stock
+- emits `demand_increase` for the ingredient side
+- records opportunistic active lot allocations for direct MO ingredient demand; manual selections win, otherwise FIFO fills from available lots
+
+Ingredient lot allocations never block creating an MO. If available lots cannot
+cover the whole ingredient need, the MO is still created and only the covered
+lot quantities are held. Automatic FIFO lot holding is opt-in through
+`autoAllocateIngredientLots`; clients that do not present a lot review surface
+must omit it or send `false`. Sales-order bulk MO creation does not silently hold
+ingredient lots because that flow has no lot review step.
 
 For batch-mode orders, expected supply is remaining unfinished output only:
 
@@ -204,7 +212,7 @@ Discrete picking rules:
 
 - pick the full remaining quantity only
 - no partial quantity entry in v1
-- no manual lot choice in v1
+- consume selected ingredient lot allocations first, then FIFO for any unallocated remainder
 
 Batch picking rules:
 
