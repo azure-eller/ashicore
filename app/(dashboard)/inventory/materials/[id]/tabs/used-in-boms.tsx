@@ -45,7 +45,7 @@ export function MaterialUsedInBomsTab({ usedInBoms }: MaterialUsedInBomsTabProps
   if (usedInBoms.length === 0) {
     return (
       <section className={styles.section}>
-        <p className={styles.helper}>Not used in any BOMs yet.</p>
+        <p className={styles.helper}>Not used in any current product recipes.</p>
       </section>
     );
   }
