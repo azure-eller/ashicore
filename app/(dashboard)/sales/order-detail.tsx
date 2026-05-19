@@ -964,6 +964,9 @@ function ShippingPanel({
         : line.itemName;
 
     setAllocationTarget({
+      demandType: "sales_shipment_line",
+      demandLabel: shipment.shipmentNumber,
+      demandContext: `${order.customerName} · Planned shipment`,
       order: {
         id: order.id,
         orderNumber: order.orderNumber,

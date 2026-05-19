@@ -69,7 +69,7 @@ const dashboardNavModules: DashboardNavModule[] = [
     module: "sales",
     items: [
       { title: "Sales Orders", href: "/sales/orders", icon: Invoice01Icon },
-      { title: "Sales Allocation", href: "/sales/allocation", icon: GridTableIcon },
+      { title: "Allocation", href: "/sales/allocation", icon: GridTableIcon },
       { title: "Customers", href: "/sales/customers", icon: Store01Icon },
       { title: "Pricing", href: "/sales/pricing", icon: ChartIcon },
     ],
@@ -183,7 +183,7 @@ export function getDashboardSearchActions(
         group: "Sales",
       },
       {
-        title: "Sales Allocation",
+        title: "Allocation",
         description: "View open sales order allocations",
         href: "/sales/allocation",
         icon: GridTableIcon,

@@ -1,4 +1,4 @@
-/* Sales Allocation V1 — Calm Matrix.
+/* Allocation Matrix V1 — Calm Matrix.
  * All colors come from V2 tokens; spacing/sizing/type use --space-* / --height-* / --text-*.
  * AG Grid is restyled to V1; section banners + cells render with the classes below. */
 
@@ -502,12 +502,27 @@
     0 0 8px color-mix(in oklch, var(--alloc-supply) 42%, transparent);
 }
 
-.miniSquare[data-status="waiting"],
 .miniSquare[data-status="part"] {
   background: var(--alloc-demand);
   box-shadow:
     0 0 2px color-mix(in oklch, var(--alloc-demand) 90%, transparent),
     0 0 8px color-mix(in oklch, var(--alloc-demand) 38%, transparent);
+}
+
+.miniSquare[data-status="waiting"],
+.miniSquare[data-status="production"] {
+  background: var(--alloc-production);
+  box-shadow:
+    0 0 2px color-mix(in oklch, var(--alloc-production) 90%, transparent),
+    0 0 8px color-mix(in oklch, var(--alloc-production) 38%, transparent);
+}
+
+.sourceMiniBadge {
+  flex: 0 0 auto;
+  color: var(--alloc-production);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  line-height: 1;
 }
 
 .miniSquare[data-status="zero"] {

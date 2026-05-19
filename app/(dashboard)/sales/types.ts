@@ -240,9 +240,17 @@ export type SalesOrderItemOption = {
 
 export type SalesOrderListLine = {
   id?: string;
-  allocationDemandType?: "sales_order_line" | "sales_shipment_line";
+  allocationDemandType?:
+    | "sales_order_line"
+    | "sales_shipment_line"
+    | "manufacturing_order_ingredient";
   salesOrderLineId?: string;
   salesShipmentLineId?: string;
+  manufacturingOrderId?: string;
+  manufacturingOrderNumber?: string;
+  manufacturingProductName?: string;
+  pickedQty?: string | null;
+  href?: string | null;
   shipmentId?: string;
   shipmentNumber?: string;
   itemId: string;

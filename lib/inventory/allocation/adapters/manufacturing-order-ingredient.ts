@@ -1,0 +1,135 @@
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import {
+  manufacturingOrderIngredients,
+  manufacturingOrders,
+} from "@/lib/db/schema";
+import { trimScale } from "@/lib/db/numeric";
+import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import type { Tx } from "@/lib/db/with-org-context";
+import type {
+  AllocationDemandAdapter,
+  AllocationDemandAdapterRow,
+} from "../types";
+
+function toQuantity(value: string | number | null | undefined) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function quantityString(value: number) {
+  return normalizeNumeric(roundQuantity(Math.max(0, value)));
+}
+
+function mapManufacturingIngredientDemandRow(row: {
+  ingredientId: string;
+  manufacturingOrderId: string;
+  orderNumber: string;
+  productName: string;
+  plannedDate: string | null;
+  itemId: string;
+  itemName: string;
+  unitName: string;
+  plannedQuantity: string;
+  pickedQuantity: string;
+  sortOrder: number;
+  createdAt: Date;
+}): AllocationDemandAdapterRow {
+  const plannedQty = toQuantity(row.plannedQuantity);
+  const pickedQty = toQuantity(row.pickedQuantity);
+  const openQty = roundQuantity(plannedQty - pickedQty);
+
+  return {
+    demandType: "manufacturing_order_ingredient",
+    demandId: row.ingredientId,
+    parentDemandId: row.manufacturingOrderId,
+    salesOrderId: null,
+    itemId: row.itemId,
+    itemName: row.itemName,
+    unitName: row.unitName,
+    label: row.orderNumber,
+    contextLabel: row.productName,
+    requiredDate: row.plannedDate,
+    openQty: quantityString(openQty),
+    pickedQty: quantityString(pickedQty),
+    href: `/manufacturing/orders/${row.manufacturingOrderId}`,
+    sortDate: row.plannedDate,
+    sortLabel: `${row.orderNumber}:${row.sortOrder}:${row.createdAt.toISOString()}`,
+  };
+}
+
+async function loadManufacturingIngredientRowsInTx(
+  tx: Tx,
+  whereClause: ReturnType<typeof and>
+) {
+  const rows = await tx
+    .select({
+      ingredientId: manufacturingOrderIngredients.id,
+      manufacturingOrderId: manufacturingOrderIngredients.manufacturingOrderId,
+      orderNumber: manufacturingOrders.orderNumber,
+      productName: manufacturingOrders.productName,
+      plannedDate: manufacturingOrders.plannedDate,
+      itemId: manufacturingOrderIngredients.itemId,
+      itemName: manufacturingOrderIngredients.itemName,
+      unitName: manufacturingOrderIngredients.unitName,
+      plannedQuantity: trimScale(
+        manufacturingOrderIngredients.plannedQuantity
+      ).as("plannedQuantity"),
+      pickedQuantity: trimScale(
+        manufacturingOrderIngredients.pickedQuantity
+      ).as("pickedQuantity"),
+      sortOrder: manufacturingOrderIngredients.sortOrder,
+      createdAt: manufacturingOrderIngredients.createdAt,
+    })
+    .from(manufacturingOrderIngredients)
+    .innerJoin(
+      manufacturingOrders,
+      eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrders.id)
+    )
+    .where(whereClause)
+    .orderBy(
+      asc(manufacturingOrders.plannedDate),
+      asc(manufacturingOrders.orderNumber),
+      asc(manufacturingOrderIngredients.sortOrder)
+    );
+
+  return rows
+    .map(mapManufacturingIngredientDemandRow)
+    .filter((row) => toQuantity(row.openQty) > 0);
+}
+
+export const manufacturingOrderIngredientAllocationAdapter: AllocationDemandAdapter = {
+  demandType: "manufacturing_order_ingredient",
+  async loadPrimaryDemandInTx(tx, params) {
+    const rows = await loadManufacturingIngredientRowsInTx(
+      tx,
+      and(
+        eq(manufacturingOrderIngredients.id, params.demandId),
+        eq(manufacturingOrders.organizationId, params.organizationId),
+        eq(manufacturingOrders.status, "open"),
+        isNull(manufacturingOrders.deletedAt),
+        isNull(manufacturingOrders.completedAt),
+        isNull(manufacturingOrders.cancelledAt),
+        sql`${manufacturingOrderIngredients.plannedQuantity} > COALESCE(${manufacturingOrderIngredients.pickedQuantity}, 0)`
+      )
+    );
+    return rows[0] ?? null;
+  },
+  async loadOpenDemandsForItemInTx(tx, params) {
+    return loadManufacturingIngredientRowsInTx(
+      tx,
+      and(
+        eq(manufacturingOrderIngredients.itemId, params.itemId),
+        eq(manufacturingOrders.organizationId, params.organizationId),
+        eq(manufacturingOrders.status, "open"),
+        isNull(manufacturingOrders.deletedAt),
+        isNull(manufacturingOrders.completedAt),
+        isNull(manufacturingOrders.cancelledAt),
+        sql`${manufacturingOrderIngredients.plannedQuantity} > COALESCE(${manufacturingOrderIngredients.pickedQuantity}, 0)`
+      )
+    );
+  },
+  async validateDemandItemInTx(tx, params) {
+    const demand = await this.loadPrimaryDemandInTx(tx, params);
+    return demand?.itemId === params.itemId ? demand : null;
+  },
+};

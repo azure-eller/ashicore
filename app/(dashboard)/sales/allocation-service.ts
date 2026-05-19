@@ -9,6 +9,7 @@ import type {
   SalesAllocationLineSummary,
   SalesAllocationSource,
 } from "./types";
+import type { AllocationDemandRow } from "@/lib/inventory/allocation/types";
 
 function toQuantity(value: string | number | null | undefined) {
   const parsed = Number(value ?? 0);
@@ -43,14 +44,21 @@ function sourceStatus(status: string): SalesAllocationSource["status"] {
   return "available";
 }
 
+function isSalesDemandRow(
+  demand: AllocationDemandRow
+): demand is AllocationDemandRow & {
+  demandType: "sales_order_line" | "sales_shipment_line";
+} {
+  return (
+    demand.demandType === "sales_order_line" ||
+    demand.demandType === "sales_shipment_line"
+  );
+}
+
 function workspaceToSalesReadModel(workspace: AllocationWorkspace) {
   const lineSummaries = new Map<string, SalesAllocationLineSummary>();
   const demandRows: SalesAllocationDemandRow[] = workspace.demands
-    .filter(
-      (demand) =>
-        demand.demandType === "sales_order_line" ||
-        demand.demandType === "sales_shipment_line"
-    )
+    .filter(isSalesDemandRow)
     .map((demand) => {
       const sources = demand.assignments.map((assignment) => ({
         sourceType: assignment.sourceType,

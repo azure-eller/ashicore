@@ -58,6 +58,7 @@ import {
 import { apiJson } from "@/lib/client/api";
 import { formatQuantity } from "@/lib/format";
 import type { ItemRow } from "@/app/(dashboard)/inventory/types";
+import type { ManufacturingAllocationDemandRow } from "@/lib/inventory/allocation/manufacturing-demands";
 import {
   ALLOCATOR_PREFERENCE_ENDPOINT,
   AllocationSourceDialog,
@@ -77,6 +78,7 @@ const PRODUCT_COL_WIDTH = 112;
 
 const COLLAPSED_WEEKS_KEY = "ashicore.allocation.collapsedWeeks";
 const UNPLANNED_OPEN_KEY = "ashicore.allocation.unplannedOpen";
+const MANUFACTURING_OPEN_KEY = "ashicore.allocation.manufacturingOpen";
 const POOL_REFRESHED_AT_KEY = "ashicore.allocation.poolRefreshedAt";
 
 type RibbonFilter = "late" | "shortLines" | "variantsShort";
@@ -95,6 +97,7 @@ export type AllocationPoolRow = {
   stockQty: string;
   incomingQty: string;
   allocatedQty: string;
+  totalDemandQty?: string;
   assignments: Array<{
     demandLabel: string;
     quantity: string;
@@ -114,9 +117,11 @@ type AllocationCell = {
 
 type AllocationRow = {
   id: string;
-  order: SalesOrderListRow;
+  order?: SalesOrderListRow;
+  href?: string | null;
   label: string;
-  demandTypeLabel: "Planned shipment" | "Unplanned demand";
+  demandTypeLabel: "Planned shipment" | "Unplanned demand" | "Production";
+  demandSource: "sales" | "manufacturing";
   demandContext: string;
   customerName: string;
   shipDate: string | null;
@@ -163,12 +168,22 @@ type UnplannedHeaderRowData = {
   orderCount: number;
 };
 
+type ManufacturingHeaderRowData = {
+  id: "manufacturing-header";
+  rowType: "manufacturingHeader";
+  orderCount: number;
+  lineCount: number;
+  shortCount: number;
+};
+
 type OrderGridRow = {
   id: string;
   rowType: "order";
-  order: SalesOrderListRow;
+  order?: SalesOrderListRow;
+  href?: string | null;
   label: string;
-  demandTypeLabel: "Planned shipment" | "Unplanned demand";
+  demandTypeLabel: "Planned shipment" | "Unplanned demand" | "Production";
+  demandSource: "sales" | "manufacturing";
   demandContext: string;
   customerName: string;
   shipDate: string | null;
@@ -176,6 +191,7 @@ type OrderGridRow = {
   progress: RowProgress;
   lateDays: number | null;
   isUnplanned: boolean;
+  isManufacturing: boolean;
   weekKey: string;
 };
 
@@ -183,6 +199,7 @@ type SalesAllocationGridRow =
   | CoverageRowData
   | WeekHeaderRowData
   | UnplannedHeaderRowData
+  | ManufacturingHeaderRowData
   | OrderGridRow;
 
 type BulkAllocationAction = "allocate_fifo" | "unallocate_open";
@@ -227,7 +244,7 @@ function getInventoryProducts(inventory: ItemRow[]) {
     const toStandaloneProduct = (row: ItemRow): AllocationProduct => ({
       itemId: row.id,
       label: row.displayName || row.name,
-      familyLabel: STANDALONE_FAMILY_LABEL,
+      familyLabel: row.category || STANDALONE_FAMILY_LABEL,
       variantLabel: row.displayName || row.name,
       sku: row.sku ?? null,
       unitName: row.unit ?? "units",
@@ -261,7 +278,8 @@ function getInventoryProducts(inventory: ItemRow[]) {
         }));
     }
 
-    if (item.sellable !== true || item.isMaster) return [];
+    if (item.isMaster) return [];
+    if (item.itemType === "product" && item.sellable !== true) return [];
     return [toStandaloneProduct(item)];
   });
 }
@@ -270,7 +288,11 @@ function getInventoryById(items: ItemRow[]) {
   return new Map(flattenProducts(items).map((item) => [item.id, item]));
 }
 
-function getAllocatorProducts(orders: SalesOrderListRow[], inventory: ItemRow[]) {
+function getAllocatorProducts(
+  orders: SalesOrderListRow[],
+  inventory: ItemRow[],
+  manufacturingDemands: ManufacturingAllocationDemandRow[]
+) {
   const productsById = new Map(
     getInventoryProducts(inventory).map((product) => [product.itemId, product])
   );
@@ -304,6 +326,28 @@ function getAllocatorProducts(orders: SalesOrderListRow[], inventory: ItemRow[])
     });
   });
 
+  manufacturingDemands.forEach((row) => {
+    row.ingredients.forEach((ingredient) => {
+      const existing = productsById.get(ingredient.itemId);
+      const inventoryItem = inventoryById.get(ingredient.itemId);
+      productsById.set(ingredient.itemId, {
+        ...existing,
+        itemId: ingredient.itemId,
+        label: inventoryItem?.displayName || ingredient.itemName,
+        familyLabel: inventoryItem?.category || STANDALONE_FAMILY_LABEL,
+        variantLabel: inventoryItem?.displayName || ingredient.itemName,
+        sku: ingredient.itemSku ?? inventoryItem?.sku ?? null,
+        unitName: ingredient.unitName,
+        stockQty: parseQuantity(inventoryItem?.availableQty),
+        incomingQty: parseQuantity(inventoryItem?.expectedQty),
+        allocatedQty: 0,
+        reservationSummaries: [],
+        isStandalone: true,
+        hasActiveDemand: true,
+      });
+    });
+  });
+
   return [...productsById.values()].sort((left, right) => {
     if (left.hasActiveDemand !== right.hasActiveDemand) {
       return left.hasActiveDemand ? -1 : 1;
@@ -317,10 +361,14 @@ function getAllocatorProducts(orders: SalesOrderListRow[], inventory: ItemRow[])
   });
 }
 
-function buildRows(orders: SalesOrderListRow[], products: AllocationProduct[]) {
+function buildRows(
+  orders: SalesOrderListRow[],
+  manufacturingDemands: ManufacturingAllocationDemandRow[],
+  products: AllocationProduct[]
+) {
   const productById = new Map(products.map((product) => [product.itemId, product]));
 
-  return orders
+  const salesRows = orders
     .filter(isOpenSalesOrder)
     .flatMap((order): AllocationRow[] => {
       const rows: AllocationRow[] = [];
@@ -380,6 +428,7 @@ function buildRows(orders: SalesOrderListRow[], products: AllocationProduct[]) {
               order,
               label: shipment.shipmentNumber,
               demandTypeLabel: "Planned shipment",
+              demandSource: "sales",
               demandContext: `Assigned to shipment ${shipment.shipmentNumber}`,
               customerName: order.customerName,
               shipDate: shipment.scheduledDate ?? order.shipDate,
@@ -422,6 +471,7 @@ function buildRows(orders: SalesOrderListRow[], products: AllocationProduct[]) {
           order,
           label: order.orderNumber,
           demandTypeLabel: "Unplanned demand",
+          demandSource: "sales",
           demandContext: "Not assigned to a shipment yet",
           customerName: order.customerName,
           shipDate: order.shipDate,
@@ -430,8 +480,67 @@ function buildRows(orders: SalesOrderListRow[], products: AllocationProduct[]) {
       }
 
       return rows;
+    });
+
+  const manufacturingRows = manufacturingDemands
+    .map((demand): AllocationRow | null => {
+      const cells = new Map<string, AllocationCell>();
+      demand.ingredients.forEach((ingredient) => {
+        const product = productById.get(ingredient.itemId);
+        if (!product) return;
+        const line: SalesOrderListLine & { id: string } = {
+          id: ingredient.id,
+          allocationDemandType: "manufacturing_order_ingredient",
+          manufacturingOrderId: demand.orderId,
+          manufacturingOrderNumber: demand.orderNumber,
+          manufacturingProductName: demand.productName,
+          itemId: ingredient.itemId,
+          itemType: "material",
+          masterName: ingredient.itemName,
+          attrs: [],
+          itemSku: ingredient.itemSku,
+          quantity: ingredient.openQty,
+          remainingQty: ingredient.openQty,
+          allocatedQty: ingredient.allocatedQty,
+          shortQty: ingredient.shortQty,
+          allocationStatus:
+            parseQuantity(ingredient.allocatedQty) <= 0
+              ? "short"
+              : parseQuantity(ingredient.shortQty) > 0
+                ? "partial"
+                : "ready",
+          unitName: ingredient.unitName,
+          pickedQty: ingredient.pickedQty,
+          href: demand.href,
+        };
+        cells.set(product.itemId, {
+          line,
+          product,
+          demand: parseQuantity(ingredient.openQty),
+          alloc: parseQuantity(ingredient.allocatedQty),
+        });
+      });
+
+      if (cells.size === 0) return null;
+      return {
+        id: demand.id,
+        href: demand.href,
+        label: demand.orderNumber,
+        demandTypeLabel: "Production",
+        demandSource: "manufacturing",
+        demandContext: `${demand.productName} · Production`,
+        customerName: demand.productName,
+        shipDate: demand.plannedDate,
+        cells,
+      };
     })
+    .filter((row): row is AllocationRow => row != null);
+
+  return [...salesRows, ...manufacturingRows]
     .sort((left, right) => {
+      if (left.demandSource !== right.demandSource) {
+        return left.demandSource === "sales" ? -1 : 1;
+      }
       const leftIsUnplanned = left.demandTypeLabel === "Unplanned demand";
       const rightIsUnplanned = right.demandTypeLabel === "Unplanned demand";
       if (leftIsUnplanned !== rightIsUnplanned) {
@@ -506,7 +615,7 @@ function getCoverage(products: AllocationProduct[], rows: AllocationRow[]) {
       const demand = rows.reduce((sum, row) => {
         const cell = row.cells.get(product.itemId);
         if (!cell) return sum;
-        return sum + Math.max(0, cell.demand - cell.alloc);
+        return sum + cell.demand;
       }, 0);
       const alloc = rows.reduce((sum, row) => {
         const cell = row.cells.get(product.itemId);
@@ -542,6 +651,9 @@ function getCoverage(products: AllocationProduct[], rows: AllocationRow[]) {
 function getCellStatus(cell: Pick<AllocationCell, "alloc" | "demand" | "line"> | null) {
   if (!cell || cell.demand <= 0) return "empty";
   if (cell.alloc <= 0) return "zero";
+  if (cell.line.allocationDemandType === "manufacturing_order_ingredient" && cell.alloc < cell.demand) {
+    return "production";
+  }
   if (cell.line.allocationStatus === "waiting_production") return "waiting";
   if (cell.alloc >= cell.demand) return "full";
   return "part";
@@ -574,7 +686,7 @@ function getFilteredRows(rows: AllocationRow[], search: string) {
   return rows.filter((row) => {
     if (row.customerName.toLowerCase().includes(normalized)) return true;
     if (row.label.toLowerCase().includes(normalized)) return true;
-    if (row.order.orderNumber.toLowerCase().includes(normalized)) return true;
+    if (row.order?.orderNumber.toLowerCase().includes(normalized)) return true;
 
     return [...row.cells.values()].some((cell) => {
       if (cell.demand <= 0 && cell.alloc <= 0) return false;
@@ -684,11 +796,13 @@ function buildGridRows({
   coverage,
   collapsedWeeks,
   unplannedOpen,
+  manufacturingOpen,
 }: {
   rows: AllocationRow[];
   coverage: Map<string, ColumnCoverage>;
   collapsedWeeks: Set<string>;
   unplannedOpen: boolean;
+  manufacturingOpen: boolean;
 }): {
   topRows: SalesAllocationGridRow[];
   bodyRows: SalesAllocationGridRow[];
@@ -699,12 +813,15 @@ function buildGridRows({
 
   const orderRows: OrderGridRow[] = rows.map((row) => {
     const isUnplanned = row.demandTypeLabel === "Unplanned demand";
+    const isManufacturing = row.demandSource === "manufacturing";
     return {
       id: row.id,
       rowType: "order",
       order: row.order,
+      href: row.href,
       label: row.label,
       demandTypeLabel: row.demandTypeLabel,
+      demandSource: row.demandSource,
       demandContext: row.demandContext,
       customerName: row.customerName,
       shipDate: row.shipDate,
@@ -712,8 +829,11 @@ function buildGridRows({
       progress: rowProgress(row),
       lateDays: getRowLateState(row)?.daysLate ?? null,
       isUnplanned,
+      isManufacturing,
       weekKey: isUnplanned
         ? "unplanned"
+        : isManufacturing
+          ? "manufacturing"
         : row.shipDate
           ? isoWeekMondayOf(row.shipDate)
           : "no-date",
@@ -722,8 +842,9 @@ function buildGridRows({
 
   const bodyRows: SalesAllocationGridRow[] = [];
 
-  const planned = orderRows.filter((row) => !row.isUnplanned);
+  const planned = orderRows.filter((row) => !row.isUnplanned && !row.isManufacturing);
   const unplanned = orderRows.filter((row) => row.isUnplanned);
+  const manufacturing = orderRows.filter((row) => row.isManufacturing);
 
   const weekBuckets = new Map<string, OrderGridRow[]>();
   const weekOrder: string[] = [];
@@ -778,16 +899,43 @@ function buildGridRows({
     }
   }
 
+  if (manufacturing.length > 0) {
+    const lineCount = manufacturing.reduce(
+      (sum, row) =>
+        sum + [...row.cells.values()].filter((cell) => cell.demand > 0).length,
+      0
+    );
+    const shortCount = manufacturing.reduce(
+      (sum, row) =>
+        sum +
+        [...row.cells.values()].filter((cell) => cell.demand > cell.alloc).length,
+      0
+    );
+    bodyRows.push({
+      id: "manufacturing-header",
+      rowType: "manufacturingHeader",
+      orderCount: manufacturing.length,
+      lineCount,
+      shortCount,
+    });
+
+    if (manufacturingOpen) {
+      manufacturing.forEach((row) => bodyRows.push(row));
+    }
+  }
+
   return { topRows, bodyRows };
 }
 
 function getRowsInScope(
   rows: AllocationRow[],
   collapsedWeeks: Set<string>,
-  unplannedOpen: boolean
+  unplannedOpen: boolean,
+  manufacturingOpen: boolean
 ) {
   return rows.filter((row) => {
     if (row.demandTypeLabel === "Unplanned demand") return unplannedOpen;
+    if (row.demandSource === "manufacturing") return manufacturingOpen;
     if (!row.shipDate) return !collapsedWeeks.has("no-date");
     return !collapsedWeeks.has(isoWeekMondayOf(row.shipDate));
   });
@@ -868,8 +1016,29 @@ function OrderIdentityCell({
     );
   }
 
-  if (data.rowType === "weekHeader" || data.rowType === "unplannedHeader") {
+  if (
+    data.rowType === "weekHeader" ||
+    data.rowType === "unplannedHeader" ||
+    data.rowType === "manufacturingHeader"
+  ) {
     return null;
+  }
+
+  if (data.demandSource === "manufacturing") {
+    return (
+      <div className={styles.orderIdentityCell}>
+        <span className={styles.customerName} title={data.demandContext}>
+          {data.label}
+        </span>
+        {data.href ? (
+          <Link href={data.href} className={styles.orderNumber}>
+            {data.customerName}
+          </Link>
+        ) : (
+          <span className={styles.orderNumber}>{data.customerName}</span>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -881,10 +1050,10 @@ function OrderIdentityCell({
         {data.customerName}
       </span>
       <Link
-        href={`/sales/orders/${data.order.id}`}
+        href={`/sales/orders/${data.order!.id}`}
         className={styles.orderNumber}
       >
-        {data.order.orderNumber}
+        {data.order?.orderNumber}
       </Link>
     </div>
   );
@@ -893,7 +1062,11 @@ function OrderIdentityCell({
 function ShipDateCell({ data }: ICellRendererParams<SalesAllocationGridRow>) {
   if (!data) return null;
   if (data.rowType === "coverage") return null;
-  if (data.rowType === "weekHeader" || data.rowType === "unplannedHeader") return null;
+  if (
+    data.rowType === "weekHeader" ||
+    data.rowType === "unplannedHeader" ||
+    data.rowType === "manufacturingHeader"
+  ) return null;
 
   const display = formatShipDateCompact(data.shipDate);
   const late = data.lateDays != null;
@@ -933,6 +1106,8 @@ function CoverageVariantCell({
   const deltaText =
     coverage.verdict === "idle"
       ? "—"
+      : surplusMagnitude < 0.0001
+        ? "0"
       : coverage.verdict === "short"
         ? `−${compactQuantity(surplusMagnitude)}`
         : `+${compactQuantity(surplusMagnitude)}`;
@@ -943,7 +1118,8 @@ function CoverageVariantCell({
       ? 100
       : Math.min(100, (coverage.pool / meterDenominator) * 100);
 
-  const tooltipLabel = `Unallocated pool ${compactQuantity(coverage.pool)} = free on-hand ${compactQuantity(coverage.stock)} + free expected MO ${compactQuantity(coverage.incoming)}.`;
+  const remainingDemand = Math.max(0, coverage.demand - coverage.alloc);
+  const tooltipLabel = `Pool ${compactQuantity(coverage.pool)} = on-hand ${compactQuantity(coverage.stock)} + expected production ${compactQuantity(coverage.incoming)}. Demand ${compactQuantity(coverage.demand)}, allocated ${compactQuantity(coverage.alloc)}, remaining ${compactQuantity(remainingDemand)}.`;
 
   return (
     <Tooltip>
@@ -1012,6 +1188,9 @@ function AllocationProductCell({
             data-status={status}
             aria-hidden="true"
           />
+          {status === "waiting" || status === "production" ? (
+            <span className={styles.sourceMiniBadge}>MO</span>
+          ) : null}
           <span className={styles.allocationCellText}>
             <span>{cell ? compactQuantity(cell.alloc) : "0"}</span>
             <span className={styles.allocationCellQty}>
@@ -1028,6 +1207,11 @@ function AllocationProductCell({
         <span className="font-mono text-muted-foreground">
           {allocationLabel}
         </span>
+        {cell?.line.pickedQty ? (
+          <span className="text-muted-foreground">
+            Picked {formatQuantity(cell.line.pickedQty)}
+          </span>
+        ) : null}
       </TooltipContent>
     </Tooltip>
   );
@@ -1037,14 +1221,18 @@ function SectionBannerRow({
   data,
   collapsedWeeks,
   unplannedOpen,
+  manufacturingOpen,
   onToggleWeek,
   onToggleUnplanned,
+  onToggleManufacturing,
 }: {
-  data: WeekHeaderRowData | UnplannedHeaderRowData;
+  data: WeekHeaderRowData | UnplannedHeaderRowData | ManufacturingHeaderRowData;
   collapsedWeeks: Set<string>;
   unplannedOpen: boolean;
+  manufacturingOpen: boolean;
   onToggleWeek: (weekKey: string) => void;
   onToggleUnplanned: () => void;
+  onToggleManufacturing: () => void;
 }) {
   if (data.rowType === "weekHeader") {
     const collapsed = collapsedWeeks.has(data.weekKey);
@@ -1070,6 +1258,30 @@ function SectionBannerRow({
         {data.lateCount > 0 ? (
           <span className={styles.sectionLate}>{data.lateCount} late</span>
         ) : null}
+      </div>
+    );
+  }
+
+  if (data.rowType === "manufacturingHeader") {
+    return (
+      <div className={styles.sectionRow} data-tone="manufacturing">
+        <button
+          type="button"
+          className={styles.sectionToggle}
+          aria-label={`${manufacturingOpen ? "Collapse" : "Expand"} Manufacturing demand`}
+          aria-expanded={manufacturingOpen}
+          aria-controls="manufacturing-section"
+          onClick={onToggleManufacturing}
+        >
+          <HugeiconsIcon
+            icon={manufacturingOpen ? ArrowDown01Icon : ArrowRight01Icon}
+            className="size-3"
+          />
+        </button>
+        <span className={styles.sectionLabel}>Manufacturing demand</span>
+        <span className={styles.sectionCounts}>
+          {data.orderCount} MOs · {data.lineCount} lines · {data.shortCount} short
+        </span>
       </div>
     );
   }
@@ -1116,7 +1328,7 @@ function AllocationPageHeader({
 }) {
   return (
     <div className={styles.pageHeader}>
-      <h1 className={styles.pageTitle}>Sales Allocation</h1>
+      <h1 className={styles.pageTitle}>Allocation</h1>
       <span className={styles.pageSubtitle}>
         Pool vs. demand · <b>{orderCount}</b> orders, <b>{shortLines}</b> short
         of <b>{totalLines}</b> lines
@@ -1331,10 +1543,14 @@ function AllocationToolbar({
 export function SalesAllocationTable({
   initialData,
   initialPools,
+  initialManufacturingDemands,
+  canReadManufacturing,
   organizationId,
 }: {
   initialData: SalesOrderListRow[];
   initialPools?: AllocationPoolRow[];
+  initialManufacturingDemands: ManufacturingAllocationDemandRow[];
+  canReadManufacturing: boolean;
   organizationId: string;
 }) {
   const searchParams = useSearchParams();
@@ -1357,6 +1573,9 @@ export function SalesAllocationTable({
   const [unplannedOpen, setUnplannedOpen] = useState<boolean>(() =>
     readLocalStorageJson<boolean>(UNPLANNED_OPEN_KEY, true)
   );
+  const [manufacturingOpen, setManufacturingOpen] = useState<boolean>(() =>
+    readLocalStorageJson<boolean>(MANUFACTURING_OPEN_KEY, canReadManufacturing)
+  );
   const [hiddenFamilies, setHiddenFamilies] = useState<Set<string>>(new Set());
   const [shownExtraProductIds, setShownExtraProductIds] = useState<Set<string>>(
     () => new Set()
@@ -1377,14 +1596,26 @@ export function SalesAllocationTable({
     initialData,
   });
   const { data: inventory = [] } = useQuery({
-    queryKey: ["items", organizationId, "product"],
+    queryKey: ["items", organizationId, "allocation"],
     queryFn: () =>
-      apiJson<ItemRow[]>("/api/items?itemType=product", {
-        fallbackError: "Failed to fetch product inventory.",
-      }).then((rows) => rows.filter((row) => row.sellable === true)),
+      apiJson<ItemRow[]>("/api/items", {
+        fallbackError: "Failed to fetch item inventory.",
+      }),
     initialData: [] as ItemRow[],
     staleTime: 0,
     refetchOnMount: "always",
+  });
+  const { data: manufacturingDemands = initialManufacturingDemands } = useQuery({
+    queryKey: ["allocation-manufacturing-demands"],
+    enabled: canReadManufacturing,
+    queryFn: () =>
+      apiJson<ManufacturingAllocationDemandRow[]>(
+        "/api/allocation/manufacturing-demands",
+        {
+          fallbackError: "Failed to fetch manufacturing demand.",
+        }
+      ),
+    initialData: initialManufacturingDemands,
   });
   const preferenceQuery = useQuery({
     queryKey: ["sales-orders-allocator-preference"],
@@ -1451,6 +1682,9 @@ export function SalesAllocationTable({
       void queryClient.invalidateQueries({ queryKey: ["items"] });
       void queryClient.invalidateQueries({ queryKey: ["allocation-pools"] });
       void queryClient.invalidateQueries({ queryKey: ["allocation-workspace"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["allocation-manufacturing-demands"],
+      });
       setPendingBulkAction(null);
     },
     onError: (error) => {
@@ -1463,8 +1697,8 @@ export function SalesAllocationTable({
   });
 
   const allProducts = useMemo(
-    () => getAllocatorProducts(orders, inventory),
-    [orders, inventory]
+    () => getAllocatorProducts(orders, inventory, manufacturingDemands),
+    [orders, inventory, manufacturingDemands]
   );
   const poolParams = useMemo(() => {
     const params = new URLSearchParams();
@@ -1531,16 +1765,22 @@ export function SalesAllocationTable({
     [productsWithPools, hiddenProductIdSet, hiddenFamilies, shownExtraProductIds]
   );
   const allRows = useMemo(
-    () => buildRows(orders, productsWithPools),
-    [orders, productsWithPools]
+    () => buildRows(orders, manufacturingDemands, productsWithPools),
+    [orders, manufacturingDemands, productsWithPools]
   );
   const searchedRows = useMemo(
     () => getFilteredRows(allRows, search),
     [allRows, search]
   );
   const searchedRowsInScope = useMemo(
-    () => getRowsInScope(searchedRows, collapsedWeeks, unplannedOpen),
-    [collapsedWeeks, searchedRows, unplannedOpen]
+    () =>
+      getRowsInScope(
+        searchedRows,
+        collapsedWeeks,
+        unplannedOpen,
+        manufacturingOpen
+      ),
+    [collapsedWeeks, manufacturingOpen, searchedRows, unplannedOpen]
   );
   const coverageById = useMemo(
     () => getCoverage(visibleProducts, searchedRowsInScope),
@@ -1560,8 +1800,14 @@ export function SalesAllocationTable({
     return applyRibbonFilter(searchedRows, activeFilter, coverageById);
   }, [searchedRows, activeFilter, coverageById]);
   const filteredRowsInScope = useMemo(
-    () => getRowsInScope(filteredRows, collapsedWeeks, unplannedOpen),
-    [collapsedWeeks, filteredRows, unplannedOpen]
+    () =>
+      getRowsInScope(
+        filteredRows,
+        collapsedWeeks,
+        unplannedOpen,
+        manufacturingOpen
+      ),
+    [collapsedWeeks, filteredRows, manufacturingOpen, unplannedOpen]
   );
 
   const familiesAll = useMemo(() => {
@@ -1577,8 +1823,9 @@ export function SalesAllocationTable({
         coverage: coverageById,
         collapsedWeeks,
         unplannedOpen,
+        manufacturingOpen,
       }),
-    [filteredRows, coverageById, collapsedWeeks, unplannedOpen]
+    [filteredRows, coverageById, collapsedWeeks, unplannedOpen, manufacturingOpen]
   );
 
   const orderRowCount = filteredRowsInScope.length;
@@ -1673,6 +1920,14 @@ export function SalesAllocationTable({
     });
   }, []);
 
+  const toggleManufacturing = useCallback(() => {
+    setManufacturingOpen((previous) => {
+      const next = !previous;
+      writeLocalStorageJson(MANUFACTURING_OPEN_KEY, next);
+      return next;
+    });
+  }, []);
+
   const toggleRibbonFilter = useCallback((filter: RibbonFilter) => {
     setActiveFilter((previous) => (previous === filter ? null : filter));
   }, []);
@@ -1697,6 +1952,9 @@ export function SalesAllocationTable({
     (row: OrderGridRow, cell: AllocationCell) => {
       setSelected({ rowId: row.id, colId: cell.product.itemId });
       setAllocationTarget({
+        demandType: cell.line.allocationDemandType ?? "sales_order_line",
+        demandLabel: row.label,
+        demandContext: row.demandContext,
         order: row.order,
         line: cell.line,
         product: cell.product,
@@ -1717,7 +1975,7 @@ export function SalesAllocationTable({
         if (
           !node &&
           rowNode.data?.rowType === "order" &&
-          rowNode.data.order.id === highlightedOrderId
+          rowNode.data.order?.id === highlightedOrderId
         ) {
           node = rowNode;
         }
@@ -1836,13 +2094,19 @@ export function SalesAllocationTable({
 
   const isFullWidthRow = useCallback(
     (row: SalesAllocationGridRow) =>
-      row.rowType === "weekHeader" || row.rowType === "unplannedHeader",
+      row.rowType === "weekHeader" ||
+      row.rowType === "unplannedHeader" ||
+      row.rowType === "manufacturingHeader",
     []
   );
 
   const fullWidthCellRenderer = useCallback(
     (row: SalesAllocationGridRow): ReactNode => {
-      if (row.rowType !== "weekHeader" && row.rowType !== "unplannedHeader") {
+      if (
+        row.rowType !== "weekHeader" &&
+        row.rowType !== "unplannedHeader" &&
+        row.rowType !== "manufacturingHeader"
+      ) {
         return null;
       }
       return (
@@ -1850,18 +2114,29 @@ export function SalesAllocationTable({
           data={row}
           collapsedWeeks={collapsedWeeks}
           unplannedOpen={unplannedOpen}
+          manufacturingOpen={manufacturingOpen}
           onToggleWeek={toggleWeek}
           onToggleUnplanned={toggleUnplanned}
+          onToggleManufacturing={toggleManufacturing}
         />
       );
     },
-    [collapsedWeeks, toggleUnplanned, toggleWeek, unplannedOpen]
+    [
+      collapsedWeeks,
+      manufacturingOpen,
+      toggleManufacturing,
+      toggleUnplanned,
+      toggleWeek,
+      unplannedOpen,
+    ]
   );
 
   const rowClassRules = useMemo(
     () => ({
       "unplanned-row": (params: { data?: SalesAllocationGridRow }) =>
         params.data?.rowType === "order" && params.data.isUnplanned,
+      "manufacturing-row": (params: { data?: SalesAllocationGridRow }) =>
+        params.data?.rowType === "order" && params.data.isManufacturing,
       "late-row": (params: { data?: SalesAllocationGridRow }) =>
         params.data?.rowType === "order" && params.data.lateDays != null,
       "complete-row": (params: { data?: SalesAllocationGridRow }) =>
@@ -1869,7 +2144,7 @@ export function SalesAllocationTable({
         params.data.progress.state === "complete",
       "highlighted-row": (params: { data?: SalesAllocationGridRow }) =>
         params.data?.rowType === "order" &&
-        params.data.order.id === highlightedOrderId,
+        params.data.order?.id === highlightedOrderId,
     }),
     [highlightedOrderId]
   );
@@ -1934,7 +2209,9 @@ export function SalesAllocationTable({
             isFullWidthRow={isFullWidthRow}
             fullWidthCellRenderer={fullWidthCellRenderer}
             getRowHeight={(row) =>
-              row.rowType === "weekHeader" || row.rowType === "unplannedHeader"
+              row.rowType === "weekHeader" ||
+              row.rowType === "unplannedHeader" ||
+              row.rowType === "manufacturingHeader"
                 ? 36
                 : row.rowType === "coverage"
                   ? 56
