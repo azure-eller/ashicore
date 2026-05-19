@@ -259,7 +259,7 @@ export function LotGridTab({
   const handleVariantChange = (nextVariantId: string) => {
     if (nextVariantId === focusItemId) return;
     const segment = card.family.itemType === "material" ? "materials" : "products";
-    router.push(`/inventory/${segment}/${nextVariantId}?view=card&tab=lots`);
+    router.push(`/inventory/${segment}/${nextVariantId}?tab=lots`);
   };
 
   const handleRowsChange = (

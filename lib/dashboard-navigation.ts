@@ -126,8 +126,8 @@ const dashboardNavModules: DashboardNavModule[] = [
 const dashboardCreateActions: DashboardCreateAction[] = [
   { title: "Sales Order", href: "/sales/orders/new", module: "sales" },
   { title: "Customer", href: "/sales/customers/new", module: "sales" },
-  { title: "Material", href: "/inventory/materials/new", module: "inventory" },
-  { title: "Product", href: "/inventory/products/new", module: "inventory" },
+  { title: "Material", href: "/inventory/material", module: "inventory" },
+  { title: "Product", href: "/inventory/product", module: "inventory" },
   { title: "Stocktake", href: "/inventory/stocktakes/new", module: "inventory" },
   {
     title: "Purchase Order",
@@ -211,14 +211,14 @@ export function getDashboardSearchActions(
       {
         title: "New Material",
         description: "Create a new material",
-        href: "/inventory/materials/new",
+        href: "/inventory/material",
         icon: Add01Icon,
         group: "Inventory",
       },
       {
         title: "New Product",
         description: "Create a new product",
-        href: "/inventory/products/new",
+        href: "/inventory/product",
         icon: Add01Icon,
         group: "Inventory",
       },

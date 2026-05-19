@@ -108,7 +108,7 @@ export function ProductRecipeTab({
       if (!confirmed) return;
     }
     const segment = card.family.itemType === "material" ? "materials" : "products";
-    router.push(`/inventory/${segment}/${nextVariantId}?view=card&tab=recipe`);
+    router.push(`/inventory/${segment}/${nextVariantId}?tab=recipe`);
   };
 
   const handleRowsChange = (next: BomPayloadRow[]) => {

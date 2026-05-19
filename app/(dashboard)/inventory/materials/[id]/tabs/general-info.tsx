@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,12 +18,15 @@ import { VariantTable } from "@/components/card-page/variant-table";
 import { GenerateBarcodesButton } from "@/components/card-page/generate-barcodes-button";
 import styles from "@/components/card-page/card-page.module.css";
 import {
-  createItemCard,
   updateItemCard,
   type ItemCardDto,
   type ItemCardVariantDto,
   type UpdateItemCardInput,
 } from "@/lib/api/clients/item-cards";
+
+type DraftFamilyPatch = Partial<
+  Pick<ItemCardDto["family"], "name" | "category" | "description" | "unitDefinitionId">
+>;
 
 export type MaterialGeneralInfoTabProps = {
   card: ItemCardDto;
@@ -33,6 +35,9 @@ export type MaterialGeneralInfoTabProps = {
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
   onOpenConfig: () => void;
   onAddInitialStock: (variant: ItemCardVariantDto) => void;
+  onDraftFamilyChange: (patch: DraftFamilyPatch) => void;
+  onDraftCommit: (patch?: DraftFamilyPatch) => void;
+  draftCreatePending?: boolean;
 };
 
 export function MaterialGeneralInfoTab({
@@ -41,6 +46,9 @@ export function MaterialGeneralInfoTab({
   unitOptions,
   onOpenConfig,
   onAddInitialStock,
+  onDraftFamilyChange,
+  onDraftCommit,
+  draftCreatePending,
 }: MaterialGeneralInfoTabProps) {
   const hasOptions = card.options.some((option) => option.disabledAt == null);
   const visibleVariantCount = card.variants.filter((variant) => variant.deletedAt == null)
@@ -53,33 +61,34 @@ export function MaterialGeneralInfoTab({
         <CardPageTwoColumn
         left={
           <>
-            {isDraft ? (
-              <DraftNameInput
-                unitDefinitionId={card.family.unitDefinitionId}
-              />
-            ) : (
-              <EditableFieldText
-                focusItemId={focusItemId}
-                field="name"
-                label="Material name"
-                value={card.family.name}
-                required
-              />
-            )}
+            <EditableFieldText
+              focusItemId={focusItemId}
+              field="name"
+              label="Material name"
+              value={card.family.name}
+              required
+              onDraftFamilyChange={onDraftFamilyChange}
+              onDraftCommit={onDraftCommit}
+              disabled={draftCreatePending}
+            />
             <EditableFieldText
               focusItemId={focusItemId}
               field="category"
               label="Category"
               value={card.family.category}
               placeholder="Select or create category"
-              disabled={isDraft}
+              onDraftFamilyChange={onDraftFamilyChange}
+              onDraftCommit={onDraftCommit}
+              disabled={draftCreatePending}
             />
             <EditableFieldTextarea
               focusItemId={focusItemId}
               field="description"
               label="Additional info"
               value={card.family.description}
-              disabled={isDraft}
+              onDraftFamilyChange={onDraftFamilyChange}
+              onDraftCommit={onDraftCommit}
+              disabled={draftCreatePending}
             />
           </>
         }
@@ -89,7 +98,9 @@ export function MaterialGeneralInfoTab({
               focusItemId={focusItemId}
               currentUnitId={card.family.unitDefinitionId}
               unitOptions={unitOptions}
-              disabled={isDraft}
+              onDraftFamilyChange={onDraftFamilyChange}
+              onDraftCommit={onDraftCommit}
+              disabled={draftCreatePending}
             />
           </>
         }
@@ -132,54 +143,6 @@ export function MaterialGeneralInfoTab({
   );
 }
 
-function DraftNameInput({ unitDefinitionId }: { unitDefinitionId: string }) {
-  const router = useRouter();
-  const [value, setValue] = useState("");
-
-  const mutation = useMutation({
-    mutationKey: ["item-card", "__draft__", "create"],
-    mutationFn: () =>
-      createItemCard({
-        itemType: "material",
-        name: value.trim(),
-        unitDefinitionId,
-      }),
-    onSuccess: (result) => {
-      router.replace(`/inventory/materials/${result.id}?view=card`);
-    },
-  });
-
-  const commit = () => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    if (mutation.isPending || mutation.isSuccess) return;
-    mutation.mutate();
-  };
-
-  return (
-    <Field data-invalid={mutation.isError || undefined}>
-      <FieldLabel>
-        Material name <span style={{ color: "var(--color-danger)" }}>*</span>
-      </FieldLabel>
-      <Input
-        autoFocus
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            commit();
-          }
-        }}
-        placeholder="Type material name"
-        disabled={mutation.isPending || mutation.isSuccess}
-        aria-invalid={mutation.isError || undefined}
-      />
-    </Field>
-  );
-}
-
 type EditableFieldTextProps = {
   focusItemId: string | null;
   field: keyof UpdateItemCardInput;
@@ -188,6 +151,8 @@ type EditableFieldTextProps = {
   placeholder?: string;
   required?: boolean;
   disabled?: boolean;
+  onDraftFamilyChange: (patch: DraftFamilyPatch) => void;
+  onDraftCommit: (patch?: DraftFamilyPatch) => void;
 };
 
 function EditableFieldText({
@@ -198,6 +163,8 @@ function EditableFieldText({
   placeholder,
   required,
   disabled,
+  onDraftFamilyChange,
+  onDraftCommit,
 }: EditableFieldTextProps) {
   const [draft, setDraft] = useState(value ?? "");
   const queryClient = useQueryClient();
@@ -214,18 +181,36 @@ function EditableFieldText({
     <Field>
       <FieldLabel>{label}</FieldLabel>
       <Input
+        autoFocus={focusItemId == null && field === "name"}
         value={draft}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) => {
+          const next = event.target.value;
+          setDraft(next);
+          if (focusItemId == null) {
+            onDraftFamilyChange({ [field]: next } as DraftFamilyPatch);
+          }
+        }}
         onBlur={() => {
-          if (disabled || focusItemId == null) return;
+          if (disabled) return;
           const trimmed = draft.trim();
           const next = trimmed === "" ? null : trimmed;
+          if (focusItemId == null) {
+            const patch = { [field]: next } as DraftFamilyPatch;
+            onDraftFamilyChange(patch);
+            onDraftCommit(patch);
+            return;
+          }
           if (next === (value ?? null)) return;
           if (required && next == null) {
             setDraft(value ?? "");
             return;
           }
           mutation.mutate(next);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          event.currentTarget.blur();
         }}
         placeholder={placeholder}
         disabled={disabled}
@@ -241,6 +226,8 @@ function EditableFieldTextarea({
   label,
   value,
   disabled,
+  onDraftFamilyChange,
+  onDraftCommit,
 }: Omit<EditableFieldTextProps, "placeholder" | "required">) {
   const [draft, setDraft] = useState(value ?? "");
   const queryClient = useQueryClient();
@@ -259,11 +246,23 @@ function EditableFieldTextarea({
       <Textarea
         rows={3}
         value={draft}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) => {
+          const next = event.target.value;
+          setDraft(next);
+          if (focusItemId == null) {
+            onDraftFamilyChange({ [field]: next } as DraftFamilyPatch);
+          }
+        }}
         onBlur={() => {
-          if (disabled || focusItemId == null) return;
+          if (disabled) return;
           const trimmed = draft.trim();
           const next = trimmed === "" ? null : trimmed;
+          if (focusItemId == null) {
+            const patch = { [field]: next } as DraftFamilyPatch;
+            onDraftFamilyChange(patch);
+            onDraftCommit(patch);
+            return;
+          }
           if (next === (value ?? null)) return;
           mutation.mutate(next);
         }}
@@ -279,11 +278,15 @@ function MaterialUnitSelectField({
   currentUnitId,
   unitOptions,
   disabled,
+  onDraftFamilyChange,
+  onDraftCommit,
 }: {
   focusItemId: string | null;
   currentUnitId: string;
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
   disabled?: boolean;
+  onDraftFamilyChange: (patch: DraftFamilyPatch) => void;
+  onDraftCommit: (patch?: DraftFamilyPatch) => void;
 }) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
@@ -301,7 +304,13 @@ function MaterialUnitSelectField({
       <Select
         value={currentUnitId}
         onValueChange={(value) => {
-          if (disabled || focusItemId == null) return;
+          if (disabled) return;
+          if (focusItemId == null) {
+            const patch = { unitDefinitionId: value };
+            onDraftFamilyChange(patch);
+            onDraftCommit(patch);
+            return;
+          }
           if (value !== currentUnitId) mutation.mutate(value);
         }}
         disabled={disabled}

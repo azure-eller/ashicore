@@ -1551,7 +1551,7 @@ export function ManufacturingOrderForm({
                             emptyMessage="No products found"
                             createLinks={[
                               {
-                                href: "/inventory/products/new",
+                                href: "/inventory/product",
                                 label: "Create product",
                               },
                             ]}

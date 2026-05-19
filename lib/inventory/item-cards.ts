@@ -570,7 +570,10 @@ export async function createItemCard(
   options?: { idempotencyKey?: string | null },
 ) {
   return withAuthedOrgContext(async (tx, orgId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
+    const replay = await beginInventoryOperationInTx<{
+      itemId: string;
+      card: ItemCardDto;
+    }>(tx, {
       organizationId: orgId,
       operationName: "createItemCard",
       idempotencyKey: options?.idempotencyKey ?? null,
@@ -625,12 +628,17 @@ export async function createItemCard(
       })
       .returning({ id: items.id });
 
+    const result = {
+      itemId: item.id,
+      card: await getItemCardInTx(tx, item.id),
+    };
+
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
       idempotencyKey: options?.idempotencyKey ?? null,
-      result: item,
+      result,
     });
-    return item;
+    return result;
   });
 }
 

@@ -387,11 +387,11 @@ function ComponentCellEditor(
         showTypeBadge
         createLinks={[
           {
-            href: "/inventory/products/new",
+            href: "/inventory/product",
             label: "Create product",
           },
           {
-            href: "/inventory/materials/new",
+            href: "/inventory/material",
             label: "Create material",
           },
         ]}

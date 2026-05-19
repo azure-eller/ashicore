@@ -27,7 +27,7 @@ export function MaterialUsedInBomsTab({ usedInBoms }: MaterialUsedInBomsTabProps
           if (!params.data) return null;
           return (
             <Link
-              href={`/inventory/products/${params.data.id}?view=card&tab=recipe&variant=${params.data.id}`}
+              href={`/inventory/products/${params.data.id}?tab=recipe&variant=${params.data.id}`}
               style={{
                 color: "var(--color-accent)",
                 textDecoration: "underline",

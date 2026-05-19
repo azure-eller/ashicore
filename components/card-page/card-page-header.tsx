@@ -27,6 +27,7 @@ export type CardPageHeaderProps = {
   fallbackHref: string;
   /** True for the /new draft page — shows "Not saved" instead of save status. */
   isDraft?: boolean;
+  saveStatus?: CardSaveStatus | "draft";
   onDelete?: () => void;
   deleteDisabledReason?: string;
 };
@@ -40,6 +41,7 @@ export function CardPageHeader({
   skuGroup,
   fallbackHref,
   isDraft,
+  saveStatus,
   onDelete,
   deleteDisabledReason,
 }: CardPageHeaderProps) {
@@ -71,7 +73,7 @@ export function CardPageHeader({
         </div>
       </div>
       <div className={styles.headerRight}>
-        <SaveStatusIndicator status={isDraft ? "draft" : status.status} />
+        <SaveStatusIndicator status={saveStatus ?? (isDraft ? "draft" : status.status)} />
         <button
           type="button"
           className={styles.iconBtn}

@@ -5,7 +5,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import { getColumns } from "./columns";
 import type { ItemRow, ItemType } from "./types";
-import { ITEM_TYPE_SEGMENTS } from "./types";
 
 interface DataTableProps {
   initialData: ItemRow[];
@@ -45,7 +44,7 @@ export function DataTable({
         return response.json();
       }}
       searchAriaLabel="Search items"
-      addHref={`/inventory/${ITEM_TYPE_SEGMENTS[itemType]}/new`}
+      addHref={itemType === "product" ? "/inventory/product" : "/inventory/material"}
       addAriaLabel={itemType === "product" ? "New Product" : "New Material"}
       emptyMessage={isProduct ? "No items yet." : "No materials yet."}
       deleteAction={{

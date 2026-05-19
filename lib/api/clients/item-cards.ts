@@ -179,7 +179,12 @@ export async function getItemCard(itemId: string): Promise<ItemCardDto> {
   return (await response.json()) as ItemCardDto;
 }
 
-export async function createItemCard(input: CreateItemCardInput): Promise<{ id: string }> {
+export type CreateItemCardResult = {
+  itemId: string;
+  card: ItemCardDto;
+};
+
+export async function createItemCard(input: CreateItemCardInput): Promise<CreateItemCardResult> {
   const path = `/api/item-cards`;
   const response = await fetch(path, {
     method: "POST",
@@ -187,7 +192,7 @@ export async function createItemCard(input: CreateItemCardInput): Promise<{ id: 
     body: JSON.stringify(input),
   });
   if (!response.ok) return parseError(response, path);
-  return (await response.json()) as { id: string };
+  return (await response.json()) as CreateItemCardResult;
 }
 
 export async function updateItemCard(

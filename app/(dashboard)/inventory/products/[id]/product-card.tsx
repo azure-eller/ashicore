@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -16,8 +16,10 @@ import {
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CardTabs, type CardTab } from "@/components/card-page/card-tabs";
 import {
+  createItemCard,
   deleteItemCard,
   getItemCard,
+  type CreateItemCardInput,
   type ItemCardDto,
   type ItemCardVariantDto,
 } from "@/lib/api/clients/item-cards";
@@ -69,24 +71,71 @@ export function ProductCard({
 }: ProductCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const isDraft = initialItemId == null;
+  const [currentItemId, setCurrentItemId] = useState<string | null>(initialItemId);
+  const [draftCard, setDraftCard] = useState<ItemCardDto>(initialCard);
+  const isDraft = currentItemId == null;
 
   const cardQuery = useQuery({
-    queryKey: ["item-card", initialItemId ?? "__draft__"],
-    queryFn: () => getItemCard(initialItemId as string),
+    queryKey: ["item-card", currentItemId ?? "__draft__"],
+    queryFn: () => getItemCard(currentItemId as string),
     initialData: initialCard,
     enabled: !isDraft,
     refetchOnWindowFocus: false,
   });
-  const card = cardQuery.data ?? initialCard;
+  const card = isDraft ? draftCard : cardQuery.data ?? draftCard;
 
   const [stockDialogVariant, setStockDialogVariant] = useState<ItemCardVariantDto | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
   const [confirmDeleteCard, setConfirmDeleteCard] = useState(false);
 
+  const createMutation = useMutation({
+    mutationKey: ["item-card", "__draft__", "create"],
+    mutationFn: (input: CreateItemCardInput) => createItemCard(input),
+    onSuccess: (result) => {
+      setCurrentItemId(result.itemId);
+      setDraftCard(result.card);
+      queryClient.setQueryData(["item-card", result.itemId], result.card);
+      void queryClient.invalidateQueries({ queryKey: ["item-cards"] });
+      window.history.replaceState(null, "", `/inventory/products/${result.itemId}`);
+    },
+  });
+
+  const updateDraftFamily = useCallback((patch: Partial<ItemCardDto["family"]>) => {
+    setDraftCard((current) => ({
+      ...current,
+      family: {
+        ...current.family,
+        ...patch,
+      },
+    }));
+  }, []);
+
+  const commitDraft = useCallback(
+    (patch?: Partial<ItemCardDto["family"]>) => {
+      if (currentItemId != null || createMutation.isPending || createMutation.isSuccess) {
+        return;
+      }
+
+      const family = { ...draftCard.family, ...patch };
+      const name = family.name.trim();
+      if (!name || !family.unitDefinitionId) {
+        return;
+      }
+
+      createMutation.mutate({
+        itemType: "product",
+        name,
+        unitDefinitionId: family.unitDefinitionId,
+        category: family.category,
+        description: family.description,
+      });
+    },
+    [createMutation, currentItemId, draftCard.family],
+  );
+
   const deleteCardMutation = useMutation({
-    mutationKey: ["item-card", initialItemId ?? "__draft__", "delete-card"],
-    mutationFn: () => deleteItemCard(initialItemId as string),
+    mutationKey: ["item-card", currentItemId ?? "__draft__", "delete-card"],
+    mutationFn: () => deleteItemCard(currentItemId as string),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["item-cards"] });
       router.push("/inventory/products");
@@ -110,13 +159,22 @@ export function ProductCard({
   return (
     <div className={styles.sheet}>
       <CardPageHeader
-        itemId={initialItemId ?? ""}
+        itemId={currentItemId ?? ""}
         typeLabel="Product"
         name={card.family.name}
         category={card.family.category}
         variantCount={visibleVariantCount}
         fallbackHref="/inventory/products"
         isDraft={isDraft}
+        saveStatus={
+          isDraft
+            ? createMutation.isPending
+              ? "saving"
+              : createMutation.isError
+                ? "error"
+                : "draft"
+            : undefined
+        }
         onDelete={isDraft ? undefined : () => setConfirmDeleteCard(true)}
       />
 
@@ -127,31 +185,34 @@ export function ProductCard({
           general: (
             <ProductGeneralInfoTab
               card={card}
-              focusItemId={initialItemId}
+              focusItemId={currentItemId}
               unitOptions={unitOptions}
               onOpenConfig={() => setConfigOpen(true)}
               onAddInitialStock={(variant) => setStockDialogVariant(variant)}
+              onDraftFamilyChange={updateDraftFamily}
+              onDraftCommit={commitDraft}
+              draftCreatePending={createMutation.isPending}
             />
           ),
           recipe: (
             <ProductRecipeTab
               card={card}
-              focusItemId={initialItemId ?? ""}
+              focusItemId={currentItemId ?? ""}
               initialBomRows={initialBomRows}
               availableComponents={availableComponents}
-              canViewBom={canViewBom}
+              canViewBom={!isDraft && canViewBom}
             />
           ),
           lots: (
             <LotGridTab
               card={card}
-              focusItemId={initialItemId ?? ""}
+              focusItemId={currentItemId ?? ""}
               lots={initialLots}
               unitLabel={card.family.unitName}
             />
           ),
           operations: (
-            <ProductOperationsTab card={card} focusItemId={initialItemId ?? ""} />
+            <ProductOperationsTab card={card} focusItemId={currentItemId ?? ""} />
           ),
         }}
       />

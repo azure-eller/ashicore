@@ -714,7 +714,7 @@ function PurchaseMaterialCellEditor(
         contentClassName="w-[min(32rem,calc(100vw-2rem))]"
         createLinks={[
           {
-            href: "/inventory/materials/new",
+            href: "/inventory/material",
             label: "Create material",
           },
         ]}

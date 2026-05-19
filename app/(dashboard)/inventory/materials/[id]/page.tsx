@@ -29,7 +29,7 @@ export default async function MaterialDetailPage({
   const item = await getItem(id);
   if (!item) redirect("/inventory/materials");
 
-  if (view === "card") {
+  if (view !== "legacy") {
     const cardResult = await getItemCard(id).catch((error: unknown) => {
       if (error instanceof ItemCardError && error.status === 404) {
         return null;
