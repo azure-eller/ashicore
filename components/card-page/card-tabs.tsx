@@ -12,6 +12,8 @@ export type CardTab = {
   label: string;
   count?: ReactNode;
   href?: string;
+  disabled?: boolean;
+  disabledReason?: string;
 };
 
 export type CardTabsProps = {
@@ -35,9 +37,11 @@ export function CardTabs({
   const searchParams = useSearchParams();
   const router = useRouter();
   const qsTab = searchParams.get("tab");
+  const isEnabledTab = (value: string) =>
+    tabs.some((tab) => tab.value === value && !tab.disabled);
   const activeTab =
     controlledActiveTab ??
-    (qsTab && tabs.some((t) => t.value === qsTab) ? qsTab : defaultTab);
+    (qsTab && isEnabledTab(qsTab) ? qsTab : defaultTab);
   const [optimisticTab, setOptimisticTab] = useState(activeTab);
   const isRouteTabLoading = controlledActiveTab != null && optimisticTab !== activeTab;
   const renderedTab = controlledActiveTab != null ? activeTab : optimisticTab;
@@ -48,6 +52,7 @@ export function CardTabs({
 
   const selectTab = (next: string) => {
     if (next === activeTab) return;
+    if (!isEnabledTab(next)) return;
     setOptimisticTab(next);
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", next);
@@ -59,6 +64,26 @@ export function CardTabs({
       <nav className={styles.tabs} aria-label="Card sections">
         {tabs.map((tab) => {
           const isActive = tab.value === optimisticTab;
+          if (tab.disabled) {
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                aria-current={isActive ? "page" : undefined}
+                aria-controls={`card-tab-panel-${tab.value}`}
+                aria-disabled="true"
+                className={cn(styles.tab, styles.tabDisabled, isActive && styles.tabActive)}
+                title={tab.disabledReason}
+                disabled
+              >
+                {tab.label}
+                {tab.count != null ? (
+                  <span className={styles.tabCount}>{tab.count}</span>
+                ) : null}
+              </button>
+            );
+          }
+
           return (
             tab.href ? (
               <Link

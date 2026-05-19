@@ -129,15 +129,28 @@ export function MaterialCard({
   const tabs: CardTab[] = useMemo(
     () => [
       { value: "general", label: "General info" },
-      { value: "lots", label: "Lots", count: initialLots.length || undefined },
+      {
+        value: "lots",
+        label: "Lots",
+        count: initialLots.length || undefined,
+        disabled: !currentItemId,
+        disabledReason: "Enter a material name first.",
+      },
       {
         value: "used-in-boms",
         label: "Used in BOMs",
         count: usedInBoms.length || undefined,
+        disabled: !currentItemId,
+        disabledReason: "Enter a material name first.",
       },
-      { value: "supply", label: "Supply details" },
+      {
+        value: "supply",
+        label: "Supply details",
+        disabled: !currentItemId,
+        disabledReason: "Enter a material name first.",
+      },
     ],
-    [initialLots.length, usedInBoms.length],
+    [currentItemId, initialLots.length, usedInBoms.length],
   );
 
   const visibleVariantCount = card.variants.filter(

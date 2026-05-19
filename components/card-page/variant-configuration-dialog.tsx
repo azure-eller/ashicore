@@ -5,16 +5,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Field, FieldLabel } from "@/components/ui/field";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon, Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+import {
+  Add01Icon,
+  Cancel01Icon,
+  Copy01Icon,
+  Delete02Icon,
+} from "@hugeicons/core-free-icons";
 import {
   EndpointNotReadyError,
   generateVariants,
@@ -25,6 +28,7 @@ import {
   type ItemCardDto,
   type VariantConfigInput,
 } from "@/lib/api/clients/item-cards";
+import styles from "./card-page.module.css";
 
 const MAX_OPTIONS = 3;
 
@@ -50,7 +54,7 @@ export function VariantConfigurationDialog({
   // each time the dialog opens.
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="lg" className="max-h-[80vh] overflow-y-auto">
+      <DialogContent size="lg" className="max-h-[80vh] overflow-y-auto p-0">
         {open ? (
           <DialogBody card={card} onOpenChange={onOpenChange} />
         ) : null}
@@ -81,7 +85,6 @@ function DialogBody({
     (variant) => variant.deletedAt == null && variant.optionValues.length > 0,
   );
   const dirty = !configEqualsCard(options, card);
-  const totalValues = options.reduce((sum, option) => sum + option.values.length, 0);
   const canPreview = options.length > 0 && options.every((option) => option.values.length > 0);
 
   // Preview always reads the persisted config; if local edits exist, the
@@ -146,24 +149,32 @@ function DialogBody({
 
   return (
     <>
-      <DialogHeader>
+      <DialogHeader className="flex flex-row items-center justify-between gap-(--space-4) border-b border-border px-(--space-6) py-(--space-5)">
         <DialogTitle>
           {card.family.itemType === "material"
             ? "Material variant configuration"
             : "Product variant configuration"}
         </DialogTitle>
-        <DialogDescription>
-          Define options and values. Generate variants from any missing combinations.
-        </DialogDescription>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled
+          title="Copying variant configuration from another item is not wired yet."
+        >
+          <HugeiconsIcon icon={Copy01Icon} size={14} className="mr-(--space-1)" />
+          Copy variant config from
+        </Button>
       </DialogHeader>
 
-      {configLocked ? (
+      <div className="space-y-(--space-5) px-(--space-6) py-(--space-5)">
+        {configLocked ? (
           <div className="border border-border bg-muted/40 p-(--space-3) text-[length:var(--text-sm)] text-muted-foreground">
             Configuration is locked once variants exist. Delete variants to change options or values.
           </div>
         ) : null}
 
-        <div className="space-y-(--space-4)">
+        <div className="space-y-(--space-3)">
           {options.map((option, optionIndex) => (
             <OptionEditor
               key={`option-${optionIndex}`}
@@ -217,11 +228,11 @@ function DialogBody({
         </div>
 
         <PreviewPanel
+          options={options}
           preview={previewQuery.data}
           loading={previewQuery.isFetching}
           dirty={dirty}
           canPreview={canPreview}
-          totalValues={totalValues}
         />
 
         {errorMessage ? (
@@ -229,8 +240,9 @@ function DialogBody({
             {errorMessage}
           </p>
         ) : null}
+      </div>
 
-        <DialogFooter>
+        <DialogFooter className="border-t border-border px-(--space-6) py-(--space-4)">
           <Button
             type="button"
             variant="outline"
@@ -290,39 +302,26 @@ function OptionEditor({
   };
 
   return (
-    <div className="border border-border p-(--space-3) space-y-(--space-3)">
-      <Field>
-        <FieldLabel>Option name</FieldLabel>
-        <div className="flex items-center gap-(--space-2)">
-          <Input
-            value={option.name}
-            onChange={(event) => onChangeName(event.target.value)}
-            placeholder="e.g. Package, Size, Blend"
-            disabled={locked}
-          />
-          {!locked ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={onRemoveOption}
-              aria-label="Remove option"
-            >
-              <HugeiconsIcon icon={Delete02Icon} size={16} />
-            </Button>
-          ) : null}
-        </div>
-      </Field>
+    <div className={styles.variantOptionRow}>
+      <div className={styles.variantOptionName}>
+        <label className={styles.variantConfigLabel}>Variant option</label>
+        <Input
+          value={option.name}
+          onChange={(event) => onChangeName(event.target.value)}
+          placeholder="e.g. size"
+          disabled={locked}
+        />
+      </div>
 
-      <div>
-        <div className="text-[length:var(--text-xs)] text-muted-foreground mb-(--space-2)">
-          Values
-        </div>
-        <div className="flex flex-wrap gap-(--space-2)">
+      <div className={styles.variantOptionValues}>
+        <label className={styles.variantConfigLabel}>
+          Option values, separated by commas
+        </label>
+        <div className={styles.chipInput}>
           {option.values.map((value, valueIndex) => (
             <span
               key={`${valueIndex}-${value.label}`}
-              className="inline-flex items-center gap-(--space-1) border border-border px-(--space-2) py-(--space-1) text-[length:var(--text-sm)]"
+              className={styles.chip}
             >
               {value.label}
               {!locked ? (
@@ -330,17 +329,15 @@ function OptionEditor({
                   type="button"
                   onClick={() => onRemoveValue(valueIndex)}
                   aria-label={`Remove value ${value.label}`}
-                  className="text-muted-foreground hover:text-foreground"
+                  className={styles.x}
                 >
-                  <HugeiconsIcon icon={Cancel01Icon} size={12} />
+                  <HugeiconsIcon icon={Cancel01Icon} size={10} />
                 </button>
               ) : null}
             </span>
           ))}
-        </div>
-        {!locked ? (
-          <div className="flex items-center gap-(--space-2) mt-(--space-2)">
-            <Input
+          {!locked ? (
+            <input
               value={valueDraft}
               onChange={(event) => setValueDraft(event.target.value)}
               onKeyDown={(event) => {
@@ -350,9 +347,23 @@ function OptionEditor({
                 }
               }}
               onBlur={commitValue}
-              placeholder="e.g. 1cf bag, 2cf bag"
+              placeholder="Add value..."
             />
-          </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className={styles.variantOptionAction}>
+        {!locked ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={onRemoveOption}
+            aria-label="Remove option"
+          >
+            <HugeiconsIcon icon={Delete02Icon} size={15} />
+          </Button>
         ) : null}
       </div>
     </div>
@@ -360,14 +371,20 @@ function OptionEditor({
 }
 
 type PreviewPanelProps = {
+  options: LocalOption[];
   preview: GenerationPreviewDto | undefined;
   loading: boolean;
   dirty: boolean;
   canPreview: boolean;
-  totalValues: number;
 };
 
-function PreviewPanel({ preview, loading, dirty, canPreview, totalValues }: PreviewPanelProps) {
+function PreviewPanel({
+  options,
+  preview,
+  loading,
+  dirty,
+  canPreview,
+}: PreviewPanelProps) {
   if (!canPreview) {
     return (
       <p className="text-[length:var(--text-sm)] text-muted-foreground">
@@ -378,8 +395,9 @@ function PreviewPanel({ preview, loading, dirty, canPreview, totalValues }: Prev
   if (dirty) {
     return (
       <p className="text-[length:var(--text-sm)] text-muted-foreground">
-        Save the configuration to see exact combination counts. (Local values:{" "}
-        {totalValues})
+        Generating will create {getLocalCombinationCount(options)} variants — one per
+        combination of {formatOptionNames(options)}. Existing variants with matching keys keep
+        their data.
       </p>
     );
   }
@@ -390,37 +408,17 @@ function PreviewPanel({ preview, loading, dirty, canPreview, totalValues }: Prev
       </p>
     );
   }
+  const optionNames = formatOptionNames(options);
   return (
-    <div className="space-y-(--space-2) text-[length:var(--text-sm)]">
-      <div className="flex justify-between">
-        <span>Potential combinations</span>
-        <span className="font-medium">{preview.potentialCount}</span>
-      </div>
-      <div className="flex justify-between">
-        <span>Already existing</span>
-        <span className="font-medium">{preview.existingCount}</span>
-      </div>
-      <div className="flex justify-between">
-        <span>Missing</span>
-        <span
-          className="font-medium"
-          style={{
-            color: preview.blocksGenerateAll
-              ? "var(--color-danger)"
-              : preview.warnOver100
-              ? "var(--color-warning)"
-              : undefined,
-          }}
-        >
-          {preview.missingCount}
-        </span>
-      </div>
+    <div className="text-[length:var(--text-sm)] text-muted-foreground">
+      Generating will create {preview.potentialCount} variants — one per combination of{" "}
+      {optionNames}. Existing variants with matching keys keep their data.
       {preview.blocksGenerateAll ? (
-        <p style={{ color: "var(--color-danger)" }}>
+        <p className="mt-(--space-2)" style={{ color: "var(--color-danger)" }}>
           Too many combinations to generate at once (over 250). Reduce option values first.
         </p>
       ) : preview.warnOver100 ? (
-        <p style={{ color: "var(--color-warning)" }}>
+        <p className="mt-(--space-2)" style={{ color: "var(--color-warning)" }}>
           Over 100 missing combinations. Consider trimming values before generating.
         </p>
       ) : null}
@@ -451,4 +449,17 @@ function configEqualsCard(local: LocalOption[], card: ItemCardDto): boolean {
     }
   }
   return true;
+}
+
+function getLocalCombinationCount(options: LocalOption[]) {
+  return options.reduce((total, option) => total * Math.max(option.values.length, 1), 1);
+}
+
+function formatOptionNames(options: LocalOption[]) {
+  return (
+    options
+      .map((option) => option.name.trim())
+      .filter(Boolean)
+      .join(" × ") || "the configured options"
+  );
 }

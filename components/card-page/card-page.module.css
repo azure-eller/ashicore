@@ -177,6 +177,12 @@
   border-right: 1px solid var(--color-line);
 }
 
+.tabDisabled {
+  color: var(--color-muted-2);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .tabCount {
   margin-left: 6px;
   display: inline-flex;
@@ -843,4 +849,34 @@
 .chipDisabled {
   text-decoration: line-through;
   opacity: 0.6;
+}
+
+.variantOptionRow {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.62fr) minmax(260px, 1.38fr) 34px;
+  gap: 10px;
+  align-items: end;
+}
+
+.variantConfigLabel {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--color-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.variantOptionName,
+.variantOptionValues {
+  min-width: 0;
+}
+
+.variantOptionAction {
+  display: flex;
+  align-items: end;
+  justify-content: flex-end;
+  min-height: 34px;
 }
