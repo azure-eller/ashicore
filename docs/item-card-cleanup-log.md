@@ -18,8 +18,9 @@ model after the item-card UI and mobile clients are migrated.
 - All inventory, sales, purchasing, manufacturing, stocktake, planning, ledger,
   accounting, and Android pickers consume concrete item rows from `/api/items`
   and display `displayName`.
-- Paonia loader creates `item_families`, normalized options/values, and concrete
-  operational variants directly. It no longer seeds fake masters.
+- Paonia loader creates package-first `item_families`, normalized options/values,
+  and concrete operational variants for soil bag/tote products directly. It no
+  longer seeds fake masters for those SKUs.
 - Fast and slow inventory suites cover card create/update/delete, variant
   generation/promotion, duplicate-combination warnings, disabled historical
   values, BOM copy, and picker contracts.
@@ -28,8 +29,11 @@ model after the item-card UI and mobile clients are migrated.
 
 Remove only after the stabilization gates are met.
 
-- `/inventory/products/[id]/variants/new`
+- `/inventory/products/[id]/variants/new` removed.
 - Legacy variant form components that write `variantAxes` or `variantAttrs`
+  removed for the product variant create flow.
+- Product create/edit form no longer exposes the fake-master toggle; direct
+  edits of legacy master rows redirect to the detail page.
 - Product/material edit controls that send family-owned fields through
   `/api/items/:id`
 - Any route logic branching on `isMaster` for editable product identity
@@ -71,7 +75,8 @@ Migration sequence:
 
 - Legacy variant display helpers that format from `variantAxes`/`variantAttrs`
 - Legacy master/child query branches in inventory list/detail reads
-- Loader family-builder paths that create `isMaster: true`
+- Paonia soil bag/tote and nute-bag loader paths no longer create legacy fake
+  masters; keep future loader seeds on normalized `item_families`.
 - Tests whose assertions depend on fake master rows being visible or editable
 
 ## Android Contract Cleanup

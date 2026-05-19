@@ -68,7 +68,9 @@ export async function applyChanges(
       itemByName,
       itemIdByKey,
       report,
-      config.internalOnlyProductCategories
+      config.internalOnlyProductCategories,
+      config.obsoleteMasterSkus,
+      config.obsoleteMasterNames
     );
 
     logProgress("loading BOMs");
