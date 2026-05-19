@@ -40,16 +40,6 @@ export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("inventory", request.headers);
   const body = await request.json();
 
-  if (body.isMaster) {
-    return NextResponse.json(
-      {
-        error:
-          "Legacy variant master creation is disabled. Use /api/item-cards and variant-config instead.",
-      },
-      { status: 410 }
-    );
-  }
-
   const idempotencyKey = requireIdempotencyKey(request, "createItemWithLot");
   const { stock, bom, operationCosts, revisionNote, ...data } =
     insertItemSchema.parse(body);

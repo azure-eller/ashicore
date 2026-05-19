@@ -814,11 +814,7 @@ export async function getItems(filters?: {
                 estimatedUnitCost,
               ),
               marginTier: null,
-              isMaster: false,
-              parentId: null,
               variantCount: 0,
-              variantAxes: null,
-              variantAttrs: null,
               priceRange: null,
               sellable: row.sellable,
               hasBom: hasBomSet.has(row.id),
@@ -902,8 +898,6 @@ export async function getItem(id: string) {
         standardCostQuantity: trimScaleNullable(items.standardCostQuantity).as(
           "standardCostQuantity"
         ),
-        isMaster: items.isMaster,
-        parentId: items.parentId,
         optionCombinationKey: items.optionCombinationKey,
         registeredBarcode: items.registeredBarcode,
         internalBarcode: items.internalBarcode,
@@ -1021,8 +1015,6 @@ export async function getItem(id: string) {
       xeroPurchaseTaxType: accountingClassification?.taxType ?? null,
       xeroUpdatedAt: externalItemRecord?.externalUpdatedAt ?? null,
       parentName: null,
-      variantAxes: null,
-      variantAttrs: null,
       optionValues,
       duplicateCombinationWarnings:
         duplicateWarningsByItemId.get(row.id) ?? [],
@@ -1108,21 +1100,9 @@ export async function deleteItem(
   usedInActiveManufacturing?: boolean;
   usedInActivePurchasing?: boolean;
   usedInDraftStocktakes?: boolean;
-  hasActiveVariants?: boolean;
 }> {
   return withAuthedOrgContext(async (tx) => {
     await lockItemsInTx(tx, [id]);
-
-    // Check for active variants (masters can't be deleted while variants exist)
-    const [activeVariant] = await tx
-      .select({ id: items.id })
-      .from(items)
-      .where(and(eq(items.parentId, id), isNull(items.deletedAt)))
-      .limit(1);
-
-    if (activeVariant) {
-      return { deleted: false, hasActiveVariants: true };
-    }
 
     // Check BOM usage inside the same transaction to avoid race conditions
     const [bomRef] = await tx
@@ -1235,20 +1215,6 @@ export async function deleteItems(
     const uniqueIds = [...new Set(ids)];
 
     await lockItemsInTx(tx, uniqueIds);
-
-    // Check for active variants
-    const [activeVariantRef] = await tx
-      .select({ id: items.id })
-      .from(items)
-      .where(and(inArray(items.parentId, uniqueIds), isNull(items.deletedAt)))
-      .limit(1);
-
-    if (activeVariantRef) {
-      return {
-        deletedCount: 0,
-        error: "Cannot delete: one or more products still have active variants.",
-      };
-    }
 
     const [bomRef] = await tx
       .select({ componentId: bomRevisionComponents.componentId })

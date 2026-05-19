@@ -31,7 +31,6 @@ export type VariantRow = {
   optionCombinationKey: string;
   optionValues: VariantOptionValueDisplay[];
   duplicateCombinationWarnings: DuplicateCombinationWarning[];
-  variantAttrs: Record<string, string> | null;
 };
 
 export type VariantOptionValueDisplay = {
@@ -79,11 +78,7 @@ export type ItemRow = {
   estimatedUnitCost: string | null;
   marginPercent: string | null;
   marginTier: "negative" | "low" | "mid" | "high" | null;
-  isMaster: boolean;
-  parentId: string | null;
   variantCount: number;
-  variantAxes: string[] | null;
-  variantAttrs: Record<string, string> | null;
   priceRange: string | null;
   sellable: boolean | null;
   hasBom: boolean;

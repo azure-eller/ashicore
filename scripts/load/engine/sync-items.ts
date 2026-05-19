@@ -446,7 +446,6 @@ export async function loadExistingItemsInTx(tx: Tx): Promise<ExistingItem[]> {
       typicalGroupSize: items.typicalGroupSize,
       bomLocked: items.bomLocked,
       safetyStock: items.safetyStock,
-      parentId: items.parentId,
       sellable: items.sellable,
       familyId: items.familyId,
       optionCombinationKey: items.optionCombinationKey,
@@ -599,10 +598,6 @@ export async function applyItemsSyncInTx(
           bomLocked: seed.bomLocked ?? false,
           familyId: variantAssignment?.familyId ?? null,
           optionCombinationKey: variantAssignment?.optionCombinationKey ?? "",
-          isMaster: false,
-          parentId: null,
-          variantAxes: null,
-          variantAttrs: null,
           sellable,
         })
         .returning({ id: items.id });
@@ -619,10 +614,6 @@ export async function applyItemsSyncInTx(
         description: seed.description,
         familyId: variantAssignment?.familyId ?? null,
         optionCombinationKey: variantAssignment?.optionCombinationKey ?? "",
-        isMaster: false,
-        parentId: null,
-        variantAxes: null,
-        variantAttrs: null,
         sellable,
         deletedAt: null,
         updatedAt: new Date(),
@@ -693,7 +684,6 @@ export async function applyItemsSyncInTx(
           !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0")) ||
         existing.familyId !== (variantAssignment?.familyId ?? null) ||
         existing.optionCombinationKey !== (variantAssignment?.optionCombinationKey ?? "") ||
-        existing.parentId !== null ||
         existing.sellable !== sellable;
 
       if (hasChanges) {

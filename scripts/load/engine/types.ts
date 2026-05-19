@@ -92,7 +92,6 @@ export type ExistingItem = {
   typicalGroupSize: string | null;
   bomLocked: boolean;
   safetyStock: string;
-  parentId: string | null;
   sellable: boolean | null;
   familyId: string | null;
   optionCombinationKey: string;
