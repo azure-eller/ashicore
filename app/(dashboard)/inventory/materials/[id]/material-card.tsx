@@ -36,12 +36,14 @@ export type MaterialCardProps = {
     name: string;
     displayName: string;
   }>;
+  unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
 };
 
 export function MaterialCard({
   initialItemId,
   initialCard,
   usedInBoms,
+  unitOptions,
 }: MaterialCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -104,6 +106,7 @@ export function MaterialCard({
             <MaterialGeneralInfoTab
               card={card}
               focusItemId={initialItemId}
+              unitOptions={unitOptions}
               onOpenConfig={() => setConfigOpen(true)}
               onAddInitialStock={(variant) => setStockDialogVariant(variant)}
             />

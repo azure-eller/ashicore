@@ -1,14 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  EditableLineDataGrid,
+  type ColDef,
+  type EditableLineDataGridChange,
+} from "@/components/editable-line-data-grid";
+import {
   updateItemCard,
   updateItemCardVariant,
   type ItemCardDto,
+  type ItemCardVariantDto,
   type UpdateItemCardVariantInput,
 } from "@/lib/api/clients/item-cards";
 import { formatQuantity } from "@/lib/format";
@@ -42,7 +49,10 @@ export function MaterialSupplyDetailsTab({
     },
   });
 
-  const variants = card.variants.filter((variant) => variant.deletedAt == null);
+  const visibleVariants = useMemo(
+    () => card.variants.filter((variant) => variant.deletedAt == null),
+    [card.variants],
+  );
 
   return (
     <>
@@ -53,7 +63,7 @@ export function MaterialSupplyDetailsTab({
             <FieldLabel>Default supplier</FieldLabel>
             <Input
               value=""
-              placeholder="Pending backend — supplier field not in update schema yet"
+              placeholder="Pending backend — supplier picker not wired yet"
               disabled
             />
           </Field>
@@ -108,50 +118,182 @@ export function MaterialSupplyDetailsTab({
 
       <section className={styles.section}>
         <h2 className={styles.sectionHeading}>Variants</h2>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Variant</th>
-              <th>Supplier item code</th>
-              <th className={styles.num}>Lead time (days)</th>
-              <th className={styles.num}>MOQ</th>
-              <th className={styles.num}>Default purchase price (USD)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {variants.map((variant) => (
-              <tr key={variant.id}>
-                <td>{variant.displayName}</td>
-                <SupplyEditableTextCell
-                  variantId={variant.id}
-                  field="supplierItemCode"
-                  value={variant.supplierItemCode}
-                />
-                <SupplyEditableNumberCell
-                  variantId={variant.id}
-                  field="defaultLeadTimeDays"
-                  value={
-                    variant.defaultLeadTimeDays != null
-                      ? String(variant.defaultLeadTimeDays)
-                      : null
-                  }
-                  integer
-                />
-                <SupplyEditableNumberCell
-                  variantId={variant.id}
-                  field="minimumOrderQuantity"
-                  value={variant.minimumOrderQuantity}
-                />
-                <td className={styles.num}>
-                  <span className={styles.placeholder}>—</span>
-                  {/* TODO(card-dto): default purchase price not in DTO yet. */}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <SupplyVariantsGrid variants={visibleVariants} />
       </section>
     </>
+  );
+}
+
+function SupplyVariantsGrid({
+  variants,
+}: {
+  variants: ItemCardVariantDto[];
+}) {
+  const queryClient = useQueryClient();
+  const [rows, setRows] = useState<ItemCardVariantDto[]>(variants);
+  const [lastSynced, setLastSynced] = useState(variants);
+  if (lastSynced !== variants) {
+    setLastSynced(variants);
+    setRows(variants);
+  }
+
+  const cellMutation = useMutation({
+    mutationKey: ["item-card", variants[0]?.id ?? "supply", "variant-cell"],
+    mutationFn: ({
+      variantId,
+      payload,
+    }: {
+      variantId: string;
+      payload: UpdateItemCardVariantInput;
+    }) => updateItemCardVariant(variantId, payload),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+    },
+  });
+
+  const handleRowsChange = useCallback(
+    (next: ItemCardVariantDto[], change: EditableLineDataGridChange<ItemCardVariantDto>) => {
+      setRows(next);
+      if (change.type !== "cell_edit_committed" || !change.row || !change.field) return;
+      const raw = change.newValue;
+      const blank = raw == null || raw === "";
+      const payload: UpdateItemCardVariantInput | null = (() => {
+        switch (change.field) {
+          case "supplierItemCode":
+            return {
+              supplierItemCode: blank ? null : String(raw).trim() || null,
+            };
+          case "defaultLeadTimeDays": {
+            if (blank) return { defaultLeadTimeDays: null };
+            const parsed = Number(raw);
+            if (!Number.isFinite(parsed) || parsed < 0) return null;
+            return { defaultLeadTimeDays: Math.trunc(parsed) };
+          }
+          case "minimumOrderQuantity": {
+            if (blank) return { minimumOrderQuantity: null };
+            const parsed = Number(raw);
+            if (!Number.isFinite(parsed) || parsed <= 0) return null;
+            return { minimumOrderQuantity: String(raw).trim() };
+          }
+          default:
+            return null;
+        }
+      })();
+      if (!payload) return;
+      cellMutation.mutate({ variantId: change.row.id, payload });
+    },
+    [cellMutation],
+  );
+
+  const columns = useMemo<ColDef<ItemCardVariantDto>[]>(
+    () => [
+      {
+        colId: "variant",
+        headerName: "Variant",
+        flex: 1.4,
+        minWidth: 200,
+        cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) =>
+          params.data?.displayName ?? "",
+        valueGetter: (params) => params.data?.displayName ?? "",
+      },
+      {
+        field: "supplierItemCode",
+        headerName: "Supplier item code",
+        editable: true,
+        cellEditor: "agTextCellEditor",
+        cellClass: styles.mono,
+        flex: 1,
+        minWidth: 140,
+        valueSetter: (params: ValueSetterParams<ItemCardVariantDto>) => {
+          const trimmed =
+            typeof params.newValue === "string"
+              ? params.newValue.trim() || null
+              : params.newValue;
+          if (params.data.supplierItemCode === trimmed) return false;
+          params.data.supplierItemCode = (trimmed as string | null) ?? null;
+          return true;
+        },
+      },
+      {
+        field: "defaultLeadTimeDays",
+        headerName: "Lead time (days)",
+        type: "rightAligned",
+        editable: true,
+        cellEditor: "agNumberCellEditor",
+        cellClass: styles.mono,
+        flex: 0.7,
+        minWidth: 120,
+        valueSetter: (params: ValueSetterParams<ItemCardVariantDto>) => {
+          const raw = params.newValue;
+          if (raw === "" || raw == null) {
+            if (params.data.defaultLeadTimeDays == null) return false;
+            params.data.defaultLeadTimeDays = null;
+            return true;
+          }
+          const parsed = Number(raw);
+          if (!Number.isFinite(parsed) || parsed < 0) return false;
+          const truncated = Math.trunc(parsed);
+          if (params.data.defaultLeadTimeDays === truncated) return false;
+          params.data.defaultLeadTimeDays = truncated;
+          return true;
+        },
+      },
+      {
+        field: "minimumOrderQuantity",
+        headerName: "MOQ",
+        type: "rightAligned",
+        editable: true,
+        cellEditor: "agTextCellEditor",
+        cellClass: styles.mono,
+        flex: 0.6,
+        minWidth: 100,
+        valueSetter: (params: ValueSetterParams<ItemCardVariantDto>) => {
+          const raw = params.newValue;
+          if (raw === "" || raw == null) {
+            if (params.data.minimumOrderQuantity == null) return false;
+            params.data.minimumOrderQuantity = null;
+            return true;
+          }
+          const trimmed = String(raw).trim();
+          const parsed = Number(trimmed);
+          if (!Number.isFinite(parsed) || parsed <= 0) return false;
+          if (params.data.minimumOrderQuantity === trimmed) return false;
+          params.data.minimumOrderQuantity = trimmed;
+          return true;
+        },
+      },
+      {
+        colId: "defaultPurchasePrice",
+        headerName: "Default purchase price (USD)",
+        type: "rightAligned",
+        flex: 0.9,
+        minWidth: 160,
+        cellRenderer: () => <span className={styles.placeholder}>—</span>,
+      },
+    ],
+    [],
+  );
+
+  if (rows.length === 0) {
+    return (
+      <p className={styles.helper}>No variants yet.</p>
+    );
+  }
+
+  return (
+    <EditableLineDataGrid<ItemCardVariantDto>
+      rows={rows}
+      columns={columns}
+      getRowId={(row) => row.id}
+      createRow={() => ({ ...rows[0]! })}
+      onRowsChange={handleRowsChange}
+      addLabel=""
+      enableAddRow={false}
+      enableReorder={false}
+      enableDelete={false}
+      headerHeight={30}
+      rowHeight={34}
+    />
   );
 }
 
@@ -204,113 +346,5 @@ function ConversionField({
         </p>
       ) : null}
     </Field>
-  );
-}
-
-function SupplyEditableTextCell({
-  variantId,
-  field,
-  value,
-}: {
-  variantId: string;
-  field: "supplierItemCode";
-  value: string | null;
-}) {
-  const remote = value ?? "";
-  const [draft, setDraft] = useState(remote);
-  const [lastSyncedRemote, setLastSyncedRemote] = useState(remote);
-  if (remote !== lastSyncedRemote) {
-    setLastSyncedRemote(remote);
-    setDraft(remote);
-  }
-  const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationKey: ["item-card", variantId, "patch", field],
-    mutationFn: (next: string | null) =>
-      updateItemCardVariant(variantId, { [field]: next } satisfies UpdateItemCardVariantInput),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
-    },
-  });
-  return (
-    <td>
-      <input
-        type="text"
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => {
-          const trimmed = draft.trim();
-          const next = trimmed === "" ? null : trimmed;
-          if (next === (value ?? null)) return;
-          mutation.mutate(next);
-        }}
-        placeholder="—"
-        aria-invalid={mutation.isError || undefined}
-        className={`${styles.cellInput} ${styles.mono}`}
-      />
-    </td>
-  );
-}
-
-function SupplyEditableNumberCell({
-  variantId,
-  field,
-  value,
-  integer,
-}: {
-  variantId: string;
-  field: "defaultLeadTimeDays" | "minimumOrderQuantity";
-  value: string | null;
-  integer?: boolean;
-}) {
-  const remote = value ?? "";
-  const [draft, setDraft] = useState(remote);
-  const [lastSyncedRemote, setLastSyncedRemote] = useState(remote);
-  if (remote !== lastSyncedRemote) {
-    setLastSyncedRemote(remote);
-    setDraft(remote);
-  }
-  const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationKey: ["item-card", variantId, "patch", field],
-    mutationFn: (next: string | number | null) => {
-      const payload: UpdateItemCardVariantInput =
-        field === "defaultLeadTimeDays"
-          ? { defaultLeadTimeDays: next == null ? null : Number(next) }
-          : { minimumOrderQuantity: next == null ? null : String(next) };
-      return updateItemCardVariant(variantId, payload);
-    },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
-    },
-  });
-  return (
-    <td className={styles.num}>
-      <input
-        type="text"
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => {
-          const trimmed = draft.trim();
-          if (trimmed === "") {
-            if (value != null) mutation.mutate(null);
-            return;
-          }
-          const parsed = Number(trimmed);
-          if (!Number.isFinite(parsed) || parsed < 0) {
-            setDraft(value ?? "");
-            return;
-          }
-          const next = integer ? Math.trunc(parsed) : trimmed;
-          if (String(next) === (value ?? "")) return;
-          mutation.mutate(next);
-        }}
-        placeholder="—"
-        inputMode={integer ? "numeric" : "decimal"}
-        aria-invalid={mutation.isError || undefined}
-        className={`${styles.cellInput} ${styles.mono}`}
-        style={{ textAlign: "right" }}
-      />
-    </td>
   );
 }

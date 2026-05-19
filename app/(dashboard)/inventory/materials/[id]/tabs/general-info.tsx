@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldLabel } from "@/components/ui/field";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { CardPageTwoColumn } from "@/components/card-page/card-page-two-column";
 import { VariantTable } from "@/components/card-page/variant-table";
 import { GenerateBarcodesButton } from "@/components/card-page/generate-barcodes-button";
@@ -20,6 +27,7 @@ import {
 export type MaterialGeneralInfoTabProps = {
   card: ItemCardDto;
   focusItemId: string;
+  unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
   onOpenConfig: () => void;
   onAddInitialStock: (variant: ItemCardVariantDto) => void;
 };
@@ -27,6 +35,7 @@ export type MaterialGeneralInfoTabProps = {
 export function MaterialGeneralInfoTab({
   card,
   focusItemId,
+  unitOptions,
   onOpenConfig,
   onAddInitialStock,
 }: MaterialGeneralInfoTabProps) {
@@ -64,13 +73,11 @@ export function MaterialGeneralInfoTab({
         }
         right={
           <>
-            <Field>
-              <FieldLabel>Unit of measure</FieldLabel>
-              <Input value={card.family.unitName ?? ""} disabled />
-              <p className="text-[length:var(--text-xs)] text-muted-foreground mt-(--space-1)">
-                Unit of measure is fixed after the card is created.
-              </p>
-            </Field>
+            <MaterialUnitSelectField
+              focusItemId={focusItemId}
+              currentUnitId={card.family.unitDefinitionId}
+              unitOptions={unitOptions}
+            />
           </>
         }
       />
@@ -188,6 +195,49 @@ function EditableFieldTextarea({
         }}
         aria-invalid={mutation.isError || undefined}
       />
+    </Field>
+  );
+}
+
+function MaterialUnitSelectField({
+  focusItemId,
+  currentUnitId,
+  unitOptions,
+}: {
+  focusItemId: string;
+  currentUnitId: string;
+  unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
+}) {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationKey: ["item-card", focusItemId, "patch", "unitDefinitionId"],
+    mutationFn: (next: string) =>
+      updateItemCard(focusItemId, { unitDefinitionId: next }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["item-card", focusItemId] });
+    },
+  });
+
+  return (
+    <Field>
+      <FieldLabel>Unit of measure</FieldLabel>
+      <Select
+        value={currentUnitId}
+        onValueChange={(value) => {
+          if (value !== currentUnitId) mutation.mutate(value);
+        }}
+      >
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder="Select a unit" />
+        </SelectTrigger>
+        <SelectContent>
+          {unitOptions.map((unit) => (
+            <SelectItem key={unit.id} value={unit.id}>
+              {unit.name} ({unit.size} {unit.uom})
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </Field>
   );
 }

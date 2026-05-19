@@ -116,7 +116,7 @@ export type CreateItemCardInput = {
   minimumOrderQuantity?: string | null;
 };
 
-export type UpdateItemCardInput = Partial<Omit<CreateItemCardInput, "itemType" | "unitDefinitionId">>;
+export type UpdateItemCardInput = Partial<Omit<CreateItemCardInput, "itemType">>;
 
 /**
  * Variant-level fields editable through `PATCH /api/item-cards/:itemId/variant`.
@@ -355,6 +355,42 @@ export async function copyBomFromVariant(
   });
   if (!response.ok) return parseError(response, path);
   return (await response.json()) as { revisionId: string };
+}
+
+/**
+ * Persist a new BOM revision for the given variant (product). Called from the
+ * Recipe tab when the user clicks Save. Each row is `{ componentId, quantity,
+ * consumptionMode?, basisOutputQuantity?, batchScalingMode?,
+ * groupRemainderPolicy?, minimumLotAgeDays?, alternates? }`.
+ */
+export type SaveBomRevisionInput = {
+  bom: Array<{
+    componentId: string;
+    quantity: string;
+    consumptionMode?: "per_output_unit" | "per_batch" | "per_group" | null;
+    basisOutputQuantity?: string | null;
+    batchScalingMode?: "proportional" | "full_batches_only" | null;
+    groupRemainderPolicy?: "ask" | "leave_loose" | "create_partial_group" | null;
+    minimumLotAgeDays?: string | number | null;
+    alternates?: Array<{ itemId: string }>;
+  }>;
+  note?: string | null;
+};
+
+export async function saveBomRevision(
+  variantId: string,
+  input: SaveBomRevisionInput,
+): Promise<{ revisionId: string; revisionNumber: number }> {
+  const path = `/api/items/${variantId}/bom-revisions`;
+  const response = await fetch(path, {
+    method: "POST",
+    headers: createIdempotencyHeaders("createBomRevision", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as { revisionId: string; revisionNumber: number };
 }
 
 /**

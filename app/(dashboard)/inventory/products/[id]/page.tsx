@@ -1,10 +1,12 @@
 import { redirect } from "next/navigation";
 import {
+  getAvailableComponents,
   getItem,
   getLots,
   getStockMovements,
   getBomComponents,
   getItemCommitmentSummary,
+  getUnitDefinitions,
   getUsedInParents,
   getVariants,
 } from "@/app/(dashboard)/inventory/queries";
@@ -40,10 +42,59 @@ export default async function ProductDetailPage({
       throw error;
     });
     if (card) {
-      // Unit options are passed in as empty for v1 (Unit of measure is shown
-      // read-only); plumb through later when the unit-change flow lands.
+      const canViewBom = item.bomLocked
+        ? canViewLockedBom(context.assignedRoles)
+        : canViewUnlockedBom(context.assignedRoles);
+      const [unitOptions, bomRows, availableComponents] = await Promise.all([
+        getUnitDefinitions(),
+        canViewBom ? getBomComponents(id) : Promise.resolve([]),
+        getAvailableComponents(id),
+      ]);
       return (
-        <ProductCard initialItemId={id} initialCard={card} unitOptions={[]} />
+        <ProductCard
+          initialItemId={id}
+          initialCard={card}
+          unitOptions={unitOptions.map((unit) => ({
+            id: unit.id,
+            name: unit.name,
+            size: unit.size,
+            uom: unit.uom,
+          }))}
+          initialBomRows={bomRows.map((row) => ({
+            componentId: row.componentId,
+            quantity: row.quantity,
+            consumptionMode:
+              (row.consumptionMode as
+                | "per_output_unit"
+                | "per_batch"
+                | "per_group"
+                | null) ?? null,
+            basisOutputQuantity: row.basisOutputQuantity ?? null,
+            batchScalingMode:
+              (row.batchScalingMode as
+                | "proportional"
+                | "full_batches_only"
+                | null) ?? null,
+            groupRemainderPolicy:
+              (row.groupRemainderPolicy as
+                | "ask"
+                | "leave_loose"
+                | "create_partial_group"
+                | null) ?? null,
+            minimumLotAgeDays: row.minimumLotAgeDays ?? null,
+            alternates: row.alternates.map((alternate) => ({
+              itemId: alternate.itemId,
+            })),
+          }))}
+          availableComponents={availableComponents.map((component) => ({
+            id: component.id,
+            name: component.name,
+            displayName: component.displayName,
+            itemType: component.itemType,
+            unit: component.unit,
+          }))}
+          canViewBom={canViewBom}
+        />
       );
     }
     // 404 from the card endpoint — fall through to legacy detail rendering.

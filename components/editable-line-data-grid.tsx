@@ -44,6 +44,14 @@ export type EditableLineDataGridChange<TData> = {
   type: EditableLineDataGridChangeType;
   rows: TData[];
   row?: TData;
+  /**
+   * For `cell_edit_committed` / `blank_row_committed` changes, the colDef field
+   * the user edited (e.g. `"sku"`). Useful for per-cell autosave consumers
+   * that need to know which API field to PATCH.
+   */
+  field?: string | null;
+  oldValue?: unknown;
+  newValue?: unknown;
 };
 
 export type EditableLineDataGridProps<TData> = {
@@ -64,6 +72,13 @@ export type EditableLineDataGridProps<TData> = {
   defaultColDef?: ColDef<TData>;
   enableReorder?: boolean;
   enableDelete?: boolean;
+  /**
+   * When false, the "+ Add row" button is hidden and the auto-initialized
+   * blank row is suppressed. Use for list-style editable grids whose rows
+   * come from elsewhere (e.g. the variant table — variants are generated
+   * from option combinations, not row-add).
+   */
+  enableAddRow?: boolean;
   isBlankRow?: (row: TData) => boolean;
   rowHasError?: (row: TData) => boolean;
   error?: string | null;
@@ -158,6 +173,7 @@ export function EditableLineDataGrid<TData>({
   defaultColDef: defaultColDefOverrides,
   enableReorder = true,
   enableDelete = true,
+  enableAddRow = true,
   isBlankRow,
   rowHasError,
   error,
@@ -172,6 +188,7 @@ export function EditableLineDataGrid<TData>({
   }, [getRowId, onRowsChange, rows]);
 
   useEffect(() => {
+    if (!enableAddRow) return;
     if (hasInitializedBlankRowRef.current || rows.length > 0) {
       return;
     }
@@ -183,7 +200,7 @@ export function EditableLineDataGrid<TData>({
       rows: [row],
       row,
     });
-  }, [createRow, onRowsChange, rows.length]);
+  }, [createRow, enableAddRow, onRowsChange, rows.length]);
 
   const emitRowsChange = useCallback(
     (nextRows: TData[], change: Omit<EditableLineDataGridChange<TData>, "rows">) => {
@@ -322,6 +339,9 @@ export function EditableLineDataGrid<TData>({
         type,
         rows: finalRows,
         row: editedRow,
+        field: event.colDef.field ?? null,
+        oldValue: event.oldValue,
+        newValue: event.newValue,
       });
     },
     [createRow, isBlankRow]
@@ -408,12 +428,14 @@ export function EditableLineDataGrid<TData>({
 
       {error ? <FieldError>{error}</FieldError> : null}
 
-      <div>
-        <Button type="button" variant="outline" onClick={handleAddRow}>
-          <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
-          {addLabel}
-        </Button>
-      </div>
+      {enableAddRow ? (
+        <div>
+          <Button type="button" variant="outline" onClick={handleAddRow}>
+            <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
+            {addLabel}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

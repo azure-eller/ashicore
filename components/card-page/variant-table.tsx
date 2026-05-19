@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -18,31 +19,62 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Delete02Icon, Add01Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+import {
+  EditableLineDataGrid,
+  type ColDef,
+  type EditableLineDataGridChange,
+} from "@/components/editable-line-data-grid";
 import {
   deleteVariant,
   updateItemCardVariant,
   type ItemCardDto,
   type ItemCardVariantDto,
   type UpdateItemCardVariantInput,
-  type VariantOptionDto,
 } from "@/lib/api/clients/item-cards";
 import { cn } from "@/lib/utils";
 import styles from "./card-page.module.css";
 
-type EditableTextField = "sku" | "registeredBarcode" | "internalBarcode" | "supplierItemCode";
-type EditableNumberField = "defaultLeadTimeDays" | "minimumOrderQuantity";
-
 export type VariantTableProps = {
-  /** The card being viewed. Used to derive options + variants + family. */
   card: ItemCardDto;
-  /** Which set of columns to render — products show pricing-ish, materials show supplier. */
   viewMode: "product" | "material";
-  /** Called when the user clicks "Add initial stock" on a row. */
   onAddInitialStock?: (variant: ItemCardVariantDto) => void;
-  /** Whether the Add initial stock endpoint is available; if not, button disables with tooltip. */
   addInitialStockEndpointReady?: boolean;
 };
+
+/**
+ * Maps a colDef field touched by AG Grid to the matching variant PATCH
+ * payload. Numeric fields are coerced to the API's expected primitive.
+ */
+function buildVariantPatch(
+  field: string,
+  next: unknown,
+): UpdateItemCardVariantInput | null {
+  const value = typeof next === "string" ? next.trim() : next;
+  const blank = value == null || value === "";
+
+  switch (field) {
+    case "sku":
+    case "registeredBarcode":
+    case "internalBarcode":
+    case "supplierItemCode":
+      return { [field]: blank ? null : String(value) } as UpdateItemCardVariantInput;
+    case "defaultLeadTimeDays": {
+      if (blank) return { defaultLeadTimeDays: null };
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed < 0) return null;
+      return { defaultLeadTimeDays: Math.trunc(parsed) };
+    }
+    case "minimumOrderQuantity": {
+      if (blank) return { minimumOrderQuantity: null };
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed) || parsed <= 0) return null;
+      return { minimumOrderQuantity: String(value) };
+    }
+    default:
+      return null;
+  }
+}
 
 export function VariantTable({
   card,
@@ -51,9 +83,306 @@ export function VariantTable({
   addInitialStockEndpointReady = false,
 }: VariantTableProps) {
   const activeOptions = card.options.filter((option) => option.disabledAt == null);
-  const variants = card.variants.filter((variant) => variant.deletedAt == null);
+  const visibleVariants = useMemo(
+    () => card.variants.filter((variant) => variant.deletedAt == null),
+    [card.variants],
+  );
 
-  if (variants.length === 0) {
+  // Local copy of the rows AG Grid renders. Sync from props on every render
+  // via the "adjust state in render" pattern (React 19-recommended).
+  const [rows, setRows] = useState<ItemCardVariantDto[]>(visibleVariants);
+  const [lastSynced, setLastSynced] = useState(visibleVariants);
+  if (lastSynced !== visibleVariants) {
+    setLastSynced(visibleVariants);
+    setRows(visibleVariants);
+  }
+
+  const queryClient = useQueryClient();
+  const [confirmDeleteVariant, setConfirmDeleteVariant] =
+    useState<ItemCardVariantDto | null>(null);
+
+  const cellMutation = useMutation({
+    // mutationKey prefix matches the card's useQuery so the save-status pill
+    // picks up edits across every variant in the family.
+    mutationKey: ["item-card", card.variants[0]?.id ?? card.family.id, "variant-cell"],
+    mutationFn: ({
+      variantId,
+      payload,
+    }: {
+      variantId: string;
+      payload: UpdateItemCardVariantInput;
+    }) => updateItemCardVariant(variantId, payload),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationKey: ["item-card", card.variants[0]?.id ?? card.family.id, "variant-delete"],
+    mutationFn: (variantId: string) => deleteVariant(variantId),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+    },
+  });
+
+  const handleRowsChange = useCallback(
+    (next: ItemCardVariantDto[], change: EditableLineDataGridChange<ItemCardVariantDto>) => {
+      setRows(next);
+      if (change.type !== "cell_edit_committed" || !change.row || !change.field) return;
+      const payload = buildVariantPatch(change.field, change.newValue);
+      if (!payload) return;
+      cellMutation.mutate({ variantId: change.row.id, payload });
+    },
+    [cellMutation],
+  );
+
+  const columns = ((): ColDef<ItemCardVariantDto>[] => {
+    const cols: ColDef<ItemCardVariantDto>[] = [];
+
+    // Option-value columns — read-only pills.
+    for (const option of activeOptions) {
+      cols.push({
+        colId: `option:${option.id}`,
+        headerName: option.name,
+        flex: 1,
+        minWidth: 96,
+        cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => {
+          if (!params.data) return null;
+          const assigned = params.data.optionValues.find(
+            (value) => value.optionId === option.id,
+          );
+          if (!assigned) {
+            return <span className={styles.placeholder}>—</span>;
+          }
+          return (
+            <span
+              className={cn(
+                styles.sizePill,
+                assigned.valueDisabledAt && styles.chipDisabled,
+              )}
+            >
+              {assigned.valueLabel}
+            </span>
+          );
+        },
+        valueGetter: (params) => {
+          const assigned = params.data?.optionValues.find(
+            (value) => value.optionId === option.id,
+          );
+          return assigned?.valueLabel ?? "";
+        },
+      });
+    }
+
+    const textEditable = (field: keyof ItemCardVariantDto): ColDef<ItemCardVariantDto> => ({
+      field,
+      editable: true,
+      cellEditor: "agTextCellEditor",
+      cellClass: styles.mono,
+      valueSetter: (params: ValueSetterParams<ItemCardVariantDto>) => {
+        const trimmed =
+          typeof params.newValue === "string"
+            ? params.newValue.trim() || null
+            : params.newValue;
+        const current = (params.data as Record<string, unknown>)[field as string] ?? null;
+        if (trimmed === current) return false;
+        (params.data as Record<string, unknown>)[field as string] = trimmed;
+        return true;
+      },
+    });
+
+    cols.push({
+      ...textEditable("sku"),
+      headerName: "Variant code/SKU",
+      flex: 1.1,
+      minWidth: 140,
+      cellEditorParams: { placeholder: "E.g. P-1, M-1" },
+    });
+
+    if (viewMode === "product") {
+      cols.push({
+        colId: "defaultSalesPrice",
+        headerName: "Default sales price",
+        type: "rightAligned",
+        flex: 0.9,
+        minWidth: 140,
+        cellRenderer: () => (
+          <>
+            <span className={styles.placeholder}>—</span>
+            <span className={styles.uom}>USD</span>
+          </>
+        ),
+      });
+    }
+
+    cols.push({
+      ...textEditable("registeredBarcode"),
+      headerName: "Registered barcode",
+      flex: 1,
+      minWidth: 140,
+    });
+    cols.push({
+      ...textEditable("internalBarcode"),
+      headerName: "Internal barcode",
+      flex: 1,
+      minWidth: 140,
+    });
+
+    if (viewMode === "product") {
+      cols.push({
+        colId: "ingredientsCost",
+        headerName: "Ingredients cost",
+        type: "rightAligned",
+        flex: 0.9,
+        minWidth: 140,
+        cellRenderer: () => (
+          <>
+            <span className={styles.placeholder}>—</span>
+            <span className={styles.uom}>USD</span>
+          </>
+        ),
+      });
+      cols.push({
+        colId: "operationsCost",
+        headerName: "Operations cost",
+        type: "rightAligned",
+        flex: 0.9,
+        minWidth: 140,
+        cellRenderer: () => (
+          <>
+            <span className={styles.placeholder}>—</span>
+            <span className={styles.uom}>USD</span>
+          </>
+        ),
+      });
+    }
+
+    if (viewMode === "material") {
+      cols.push({
+        ...textEditable("supplierItemCode"),
+        headerName: "Supplier item code",
+        flex: 1,
+        minWidth: 140,
+      });
+      cols.push({
+        field: "defaultLeadTimeDays",
+        headerName: "Lead time",
+        type: "rightAligned",
+        editable: true,
+        cellEditor: "agNumberCellEditor",
+        cellClass: styles.mono,
+        flex: 0.6,
+        minWidth: 100,
+        valueSetter: (params: ValueSetterParams<ItemCardVariantDto>) => {
+          const next = params.newValue;
+          if (next === "" || next == null) {
+            if (params.data.defaultLeadTimeDays == null) return false;
+            params.data.defaultLeadTimeDays = null;
+            return true;
+          }
+          const parsed = Number(next);
+          if (!Number.isFinite(parsed) || parsed < 0) return false;
+          const truncated = Math.trunc(parsed);
+          if (params.data.defaultLeadTimeDays === truncated) return false;
+          params.data.defaultLeadTimeDays = truncated;
+          return true;
+        },
+      });
+      cols.push({
+        field: "minimumOrderQuantity",
+        headerName: "MOQ",
+        type: "rightAligned",
+        editable: true,
+        cellEditor: "agTextCellEditor",
+        cellClass: styles.mono,
+        flex: 0.6,
+        minWidth: 100,
+        valueSetter: (params: ValueSetterParams<ItemCardVariantDto>) => {
+          const raw = params.newValue;
+          if (raw === "" || raw == null) {
+            if (params.data.minimumOrderQuantity == null) return false;
+            params.data.minimumOrderQuantity = null;
+            return true;
+          }
+          const trimmed = String(raw).trim();
+          const parsed = Number(trimmed);
+          if (!Number.isFinite(parsed) || parsed <= 0) return false;
+          if (params.data.minimumOrderQuantity === trimmed) return false;
+          params.data.minimumOrderQuantity = trimmed;
+          return true;
+        },
+      });
+    }
+
+    // In stock — RO placeholder until backend extends DTO with lot balances.
+    cols.push({
+      colId: "inStock",
+      headerName: "In stock",
+      type: "rightAligned",
+      flex: 0.8,
+      minWidth: 140,
+      cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => {
+        if (!params.data || !onAddInitialStock) {
+          return <span className={styles.placeholder}>—</span>;
+        }
+        return (
+          <StockCellLink
+            ready={addInitialStockEndpointReady}
+            onClick={() => onAddInitialStock(params.data!)}
+          />
+        );
+      },
+    });
+
+    // Add initial stock + delete actions, manually rendered since we set
+    // enableDelete=false on the foundation (its built-in delete doesn't go
+    // through the API + confirm dialog).
+    if (onAddInitialStock) {
+      cols.push({
+        colId: "addStock",
+        headerName: "",
+        width: 44,
+        minWidth: 44,
+        maxWidth: 44,
+        resizable: false,
+        cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => {
+          if (!params.data) return null;
+          return (
+            <AddInitialStockButton
+              ready={addInitialStockEndpointReady}
+              onClick={() => onAddInitialStock(params.data!)}
+            />
+          );
+        },
+      });
+    }
+    cols.push({
+      colId: "delete",
+      headerName: "",
+      width: 44,
+      minWidth: 44,
+      maxWidth: 44,
+      resizable: false,
+      cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => {
+        if (!params.data) return null;
+        return (
+          <button
+            type="button"
+            className={cn(styles.iButton, styles.iButtonDanger)}
+            aria-label={`Delete variant ${params.data.displayName}`}
+            onClick={() => setConfirmDeleteVariant(params.data!)}
+            disabled={deleteMutation.isPending}
+          >
+            <HugeiconsIcon icon={Delete02Icon} size={14} />
+          </button>
+        );
+      },
+    });
+
+    return cols;
+  })();
+
+  if (visibleVariants.length === 0) {
     return (
       <p className="text-[length:var(--text-sm)] text-muted-foreground py-(--space-4)">
         No variants yet. Open configuration to add some.
@@ -62,207 +391,34 @@ export function VariantTable({
   }
 
   return (
-    <table className={styles.table}>
-      <thead>
-        <tr>
-          {activeOptions.map((option) => (
-            <th key={option.id}>{option.name}</th>
-          ))}
-          <th>Variant code/SKU</th>
-          {viewMode === "product" ? (
-            <th className={styles.num}>Default sales price</th>
-          ) : null}
-          <th>Registered barcode</th>
-          <th>Internal barcode</th>
-          {viewMode === "product" ? (
-            <>
-              <th className={styles.num}>Ingredients cost</th>
-              <th className={styles.num}>Operations cost</th>
-            </>
-          ) : null}
-          {viewMode === "material" ? (
-            <>
-              <th>Supplier item code</th>
-              <th className={styles.num}>Lead time</th>
-              <th className={styles.num}>MOQ</th>
-            </>
-          ) : null}
-          <th className={styles.num}>In stock</th>
-          <th className={styles.colAct}></th>
-          <th className={styles.colAct}></th>
-        </tr>
-      </thead>
-      <tbody>
-        {variants.map((variant) => (
-          <VariantRow
-            key={variant.id}
-            variant={variant}
-            activeOptions={activeOptions}
-            viewMode={viewMode}
-            onAddInitialStock={onAddInitialStock}
-            addInitialStockEndpointReady={addInitialStockEndpointReady}
-          />
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-type VariantRowProps = {
-  variant: ItemCardVariantDto;
-  activeOptions: VariantOptionDto[];
-  viewMode: "product" | "material";
-  onAddInitialStock?: (variant: ItemCardVariantDto) => void;
-  addInitialStockEndpointReady?: boolean;
-};
-
-function VariantRow({
-  variant,
-  activeOptions,
-  viewMode,
-  onAddInitialStock,
-  addInitialStockEndpointReady,
-}: VariantRowProps) {
-  const valueByOption = new Map(
-    variant.optionValues.map((value) => [value.optionId, value]),
-  );
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const queryClient = useQueryClient();
-
-  const deleteMutation = useMutation({
-    mutationKey: ["item-card", variant.id, "delete"],
-    mutationFn: () => deleteVariant(variant.id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card", variant.familyId] });
-      void queryClient.invalidateQueries({ queryKey: ["item-cards"] });
-    },
-  });
-
-  return (
     <>
-      <tr className={cn(variant.deletedAt && styles.chipDisabled)}>
-        {activeOptions.map((option) => {
-          const assigned = valueByOption.get(option.id);
-          return (
-            <td key={option.id}>
-              {assigned ? (
-                <span
-                  className={cn(
-                    styles.sizePill,
-                    assigned.valueDisabledAt && styles.chipDisabled,
-                  )}
-                >
-                  {assigned.valueLabel}
-                </span>
-              ) : (
-                <span className={styles.placeholder}>—</span>
-              )}
-            </td>
-          );
-        })}
-        <EditableTextCell
-          variantId={variant.id}
-          field="sku"
-          value={variant.sku}
-          placeholder="E.g. P-1, M-1"
-        />
-        {viewMode === "product" ? (
-          <td className={styles.num}>
-            <span className={styles.placeholder}>—</span>
-            <span className={styles.uom}>USD</span>
-          </td>
-        ) : null}
-        <EditableTextCell
-          variantId={variant.id}
-          field="registeredBarcode"
-          value={variant.registeredBarcode}
-          placeholder="—"
-        />
-        <EditableTextCell
-          variantId={variant.id}
-          field="internalBarcode"
-          value={variant.internalBarcode}
-          placeholder="—"
-        />
-        {viewMode === "product" ? (
-          <>
-            <td className={styles.num}>
-              <span className={styles.placeholder}>—</span>
-              <span className={styles.uom}>USD</span>
-            </td>
-            <td className={styles.num}>
-              <span className={styles.placeholder}>—</span>
-              <span className={styles.uom}>USD</span>
-            </td>
-          </>
-        ) : null}
-        {viewMode === "material" ? (
-          <>
-            <EditableTextCell
-              variantId={variant.id}
-              field="supplierItemCode"
-              value={variant.supplierItemCode}
-              placeholder="—"
-            />
-            <EditableNumberCell
-              variantId={variant.id}
-              field="defaultLeadTimeDays"
-              value={
-                variant.defaultLeadTimeDays != null
-                  ? String(variant.defaultLeadTimeDays)
-                  : null
-              }
-              placeholder="—"
-              integer
-            />
-            <EditableNumberCell
-              variantId={variant.id}
-              field="minimumOrderQuantity"
-              value={variant.minimumOrderQuantity}
-              placeholder="—"
-            />
-          </>
-        ) : null}
-        <td className={styles.num}>
-          {/* In stock — backend DTO doesn't expose lot balances yet. When ready,
-              render a mono number (red if negative) or the "Add initial stock"
-              link if zero. Until then: clickable "Add initial stock" link. */}
-          {onAddInitialStock ? (
-            <StockCellLink
-              ready={addInitialStockEndpointReady}
-              onClick={() => onAddInitialStock(variant)}
-            />
-          ) : (
-            <span className={styles.placeholder}>—</span>
-          )}
-        </td>
-        <td className={styles.colAct}>
-          {onAddInitialStock ? (
-            <AddInitialStockButton
-              ready={addInitialStockEndpointReady}
-              onClick={() => onAddInitialStock(variant)}
-            />
-          ) : null}
-        </td>
-        <td className={styles.colAct}>
-          <button
-            type="button"
-            className={cn(styles.iButton, styles.iButtonDanger)}
-            aria-label="Delete variant"
-            onClick={() => setConfirmDelete(true)}
-            disabled={deleteMutation.isPending}
-          >
-            <HugeiconsIcon icon={Delete02Icon} size={14} />
-          </button>
-        </td>
-      </tr>
+      <EditableLineDataGrid<ItemCardVariantDto>
+        rows={rows}
+        columns={columns}
+        getRowId={(row) => row.id}
+        createRow={() => ({ ...visibleVariants[0]! })}
+        onRowsChange={handleRowsChange}
+        addLabel=""
+        enableAddRow={false}
+        enableReorder={false}
+        enableDelete={false}
+        // Match Calm Matrix design: 30px header, 34px body row.
+        headerHeight={30}
+        rowHeight={34}
+        rowHasError={(row) => row.duplicateCombinationWarnings.length > 0}
+      />
 
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+      <AlertDialog
+        open={confirmDeleteVariant != null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDeleteVariant(null);
+        }}
+      >
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete variant?</AlertDialogTitle>
             <AlertDialogDescription>
-              {variant.displayName} will be removed from this card.
+              {confirmDeleteVariant?.displayName} will be removed from this card.
               {deleteMutation.error ? (
                 <span className="block mt-(--space-2) text-destructive">
                   {(deleteMutation.error as Error).message}
@@ -277,8 +433,9 @@ function VariantRow({
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault();
-                deleteMutation.mutate(undefined, {
-                  onSuccess: () => setConfirmDelete(false),
+                if (!confirmDeleteVariant) return;
+                deleteMutation.mutate(confirmDeleteVariant.id, {
+                  onSuccess: () => setConfirmDeleteVariant(null),
                 });
               }}
               disabled={deleteMutation.isPending}
@@ -289,32 +446,6 @@ function VariantRow({
         </AlertDialogContent>
       </AlertDialog>
     </>
-  );
-}
-
-function StockCellLink({
-  ready,
-  onClick,
-}: {
-  ready: boolean | undefined;
-  onClick: () => void;
-}) {
-  if (!ready) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button type="button" className={styles.stockAdd} disabled>
-            Add initial stock
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Pending backend.</TooltipContent>
-      </Tooltip>
-    );
-  }
-  return (
-    <button type="button" className={styles.stockAdd} onClick={onClick}>
-      Add initial stock
-    </button>
   );
 }
 
@@ -355,143 +486,29 @@ function AddInitialStockButton({
   );
 }
 
-function useTextVariantMutation(variantId: string, field: EditableTextField) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationKey: ["item-card", variantId, "patch", field] as const,
-    mutationFn: (next: string | null) =>
-      updateItemCardVariant(variantId, { [field]: next } satisfies UpdateItemCardVariantInput),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
-    },
-  });
-}
-
-function useNumberVariantMutation(variantId: string, field: EditableNumberField) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationKey: ["item-card", variantId, "patch", field] as const,
-    mutationFn: (next: number | string | null) => {
-      const payload: UpdateItemCardVariantInput =
-        field === "defaultLeadTimeDays"
-          ? { defaultLeadTimeDays: next == null ? null : Number(next) }
-          : { minimumOrderQuantity: next == null ? null : String(next) };
-      return updateItemCardVariant(variantId, payload);
-    },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
-    },
-  });
-}
-
-type EditableTextCellProps = {
-  variantId: string;
-  field: EditableTextField;
-  value: string | null;
-  placeholder?: string;
-};
-
-function EditableTextCell({ variantId, field, value, placeholder }: EditableTextCellProps) {
-  const remote = value ?? "";
-  const [draft, setDraft] = useState(remote);
-  const [lastSyncedRemote, setLastSyncedRemote] = useState(remote);
-  // Sync local draft when the server value changes (e.g. after invalidate).
-  // We use a remembered "lastSynced" so a typed-but-not-blurred edit isn't
-  // clobbered the moment its own save resolves.
-  if (remote !== lastSyncedRemote) {
-    setLastSyncedRemote(remote);
-    setDraft(remote);
+function StockCellLink({
+  ready,
+  onClick,
+}: {
+  ready: boolean | undefined;
+  onClick: () => void;
+}) {
+  if (!ready) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button type="button" className={styles.stockAdd} disabled>
+            Add initial stock
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>Pending backend.</TooltipContent>
+      </Tooltip>
+    );
   }
-  const mutation = useTextVariantMutation(variantId, field);
-
   return (
-    <td>
-      <input
-        type="text"
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => {
-          const trimmed = draft.trim();
-          const next = trimmed === "" ? null : trimmed;
-          const current = value ?? null;
-          if (next === current) return;
-          mutation.mutate(next);
-        }}
-        placeholder={placeholder}
-        aria-invalid={mutation.isError || undefined}
-        className={cn(styles.cellInput, isMonoField(field) && styles.mono)}
-      />
-    </td>
+    <button type="button" className={styles.stockAdd} onClick={onClick}>
+      Add initial stock
+    </button>
   );
 }
 
-type EditableNumberCellProps = {
-  variantId: string;
-  field: EditableNumberField;
-  value: string | null;
-  placeholder?: string;
-  integer?: boolean;
-};
-
-function EditableNumberCell({
-  variantId,
-  field,
-  value,
-  placeholder,
-  integer,
-}: EditableNumberCellProps) {
-  const remote = value ?? "";
-  const [draft, setDraft] = useState(remote);
-  const [lastSyncedRemote, setLastSyncedRemote] = useState(remote);
-  if (remote !== lastSyncedRemote) {
-    setLastSyncedRemote(remote);
-    setDraft(remote);
-  }
-  const mutation = useNumberVariantMutation(variantId, field);
-
-  return (
-    <td className={styles.num}>
-      <input
-        type="text"
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => {
-          const trimmed = draft.trim();
-          if (trimmed === "") {
-            if (value != null) mutation.mutate(null);
-            return;
-          }
-          const parsed = Number(trimmed);
-          if (!Number.isFinite(parsed) || parsed < 0) {
-            setDraft(value ?? "");
-            return;
-          }
-          const next = integer ? String(Math.trunc(parsed)) : trimmed;
-          if (next === (value ?? "")) return;
-          mutation.mutate(integer ? Math.trunc(parsed) : next);
-        }}
-        placeholder={placeholder}
-        inputMode={integer ? "numeric" : "decimal"}
-        aria-invalid={mutation.isError || undefined}
-        className={cn(styles.cellInput, styles.mono)}
-        style={{ textAlign: "right" }}
-      />
-    </td>
-  );
-}
-
-function isMonoField(field: EditableTextField): boolean {
-  // Mono on machine identifiers and numerics
-  return (
-    field === "sku" ||
-    field === "registeredBarcode" ||
-    field === "internalBarcode" ||
-    field === "supplierItemCode"
-  );
-}
-
-// TODO(card-dto): When Codex extends ItemCardDto with defaultSellingPrice,
-// defaultPurchasePrice, currentStockUnitCost, safetyStock, stock-on-hand,
-// ingredientsCost, operationsCost on each variant, render those columns here.
-// The PATCH /api/item-cards/:variantId already accepts these fields; only
-// the READ side needs extending.

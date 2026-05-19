@@ -1,7 +1,16 @@
 import { NextResponse } from "next/server";
-import { apiHandler, type RouteContext } from "@/lib/api/handler";
-import { assertBomViewAccess, assertModuleReadAccess } from "@/lib/dal/auth";
+import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
+import {
+  assertBomViewAccess,
+  assertLockedBomManagementAccess,
+  assertModuleReadAccess,
+  assertModuleWriteAccess,
+} from "@/lib/dal/auth";
 import { getBomRevisionHistory, getItem } from "@/app/(dashboard)/inventory/queries";
+import {
+  createBomRevision,
+  createBomRevisionSchema,
+} from "@/lib/inventory/bom-revisions";
 
 export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleReadAccess("inventory", request.headers);
@@ -16,4 +25,29 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
 
   const revisions = await getBomRevisionHistory(id);
   return NextResponse.json(revisions);
+});
+
+export const POST = apiHandler(async (request: Request, ctx: unknown) => {
+  await assertModuleWriteAccess("inventory", request.headers);
+  // Idempotency required: this writes a new revision row + components and
+  // would otherwise duplicate on a network retry.
+  void requireIdempotencyKey(request, "createBomRevision");
+  const { id } = await (ctx as RouteContext).params;
+  const item = await getItem(id);
+  if (!item) {
+    return NextResponse.json({ error: "Item not found" }, { status: 404 });
+  }
+  if (item.itemType !== "product") {
+    return NextResponse.json(
+      { error: "BOM revisions are only valid on products." },
+      { status: 400 },
+    );
+  }
+  if (item.bomLocked) {
+    await assertLockedBomManagementAccess(request.headers);
+  }
+
+  const data = createBomRevisionSchema.parse(await request.json());
+  const result = await createBomRevision(id, data);
+  return NextResponse.json(result, { status: 201 });
 });

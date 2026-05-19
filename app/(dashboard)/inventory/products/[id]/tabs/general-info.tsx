@@ -74,6 +74,7 @@ export function ProductGeneralInfoTab({
         right={
           <>
             <UnitSelectField
+              focusItemId={focusItemId}
               currentUnitId={card.family.unitDefinitionId}
               unitOptions={unitOptions}
             />
@@ -199,17 +200,35 @@ function EditableFieldTextarea({
 }
 
 type UnitSelectFieldProps = {
+  focusItemId: string;
   currentUnitId: string;
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
 };
 
-function UnitSelectField({ currentUnitId, unitOptions }: UnitSelectFieldProps) {
-  // Unit changes are intentionally not supported — Codex's itemCardUpdateSchema
-  // omits unitDefinitionId. Render as disabled with explanatory copy.
+function UnitSelectField({
+  focusItemId,
+  currentUnitId,
+  unitOptions,
+}: UnitSelectFieldProps) {
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationKey: ["item-card", focusItemId, "patch", "unitDefinitionId"],
+    mutationFn: (next: string) =>
+      updateItemCard(focusItemId, { unitDefinitionId: next }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["item-card", focusItemId] });
+    },
+  });
+
   return (
     <Field>
       <FieldLabel>Unit of measure</FieldLabel>
-      <Select value={currentUnitId} disabled>
+      <Select
+        value={currentUnitId}
+        onValueChange={(value) => {
+          if (value !== currentUnitId) mutation.mutate(value);
+        }}
+      >
         <SelectTrigger className="w-full">
           <SelectValue placeholder="Select a unit" />
         </SelectTrigger>
@@ -221,9 +240,6 @@ function UnitSelectField({ currentUnitId, unitOptions }: UnitSelectFieldProps) {
           ))}
         </SelectContent>
       </Select>
-      <p className="text-[length:var(--text-xs)] text-muted-foreground mt-(--space-1)">
-        Unit of measure is fixed after the card is created.
-      </p>
     </Field>
   );
 }

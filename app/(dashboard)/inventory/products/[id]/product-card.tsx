@@ -28,16 +28,41 @@ import { ProductRecipeTab } from "./tabs/recipe";
 import { ProductOperationsTab } from "./tabs/operations";
 import styles from "@/components/card-page/card-page.module.css";
 
+type BomPayloadRow = {
+  componentId: string | null;
+  quantity: string | null;
+  consumptionMode?: "per_output_unit" | "per_batch" | "per_group" | null;
+  basisOutputQuantity?: string | null;
+  batchScalingMode?: "proportional" | "full_batches_only" | null;
+  groupRemainderPolicy?: "ask" | "leave_loose" | "create_partial_group" | null;
+  minimumLotAgeDays?: string | number | null;
+  alternates?: Array<{ itemId: string }>;
+};
+
+type AvailableComponent = {
+  id: string;
+  name: string;
+  displayName: string;
+  itemType: string;
+  unit: string;
+};
+
 export type ProductCardProps = {
   initialItemId: string;
   initialCard: ItemCardDto;
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
+  initialBomRows: BomPayloadRow[];
+  availableComponents: AvailableComponent[];
+  canViewBom: boolean;
 };
 
 export function ProductCard({
   initialItemId,
   initialCard,
   unitOptions,
+  initialBomRows,
+  availableComponents,
+  canViewBom,
 }: ProductCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -102,7 +127,13 @@ export function ProductCard({
             />
           ),
           recipe: (
-            <ProductRecipeTab card={card} focusItemId={initialItemId} />
+            <ProductRecipeTab
+              card={card}
+              focusItemId={initialItemId}
+              initialBomRows={initialBomRows}
+              availableComponents={availableComponents}
+              canViewBom={canViewBom}
+            />
           ),
           operations: (
             <ProductOperationsTab card={card} focusItemId={initialItemId} />

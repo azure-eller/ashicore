@@ -4,6 +4,7 @@ import {
   getItemCommitmentSummary,
   getLots,
   getStockMovements,
+  getUnitDefinitions,
   getUsedInParents,
 } from "@/app/(dashboard)/inventory/queries";
 import {
@@ -36,12 +37,21 @@ export default async function MaterialDetailPage({
       throw error;
     });
     if (cardResult) {
-      const usedInParents = await getUsedInParents(id);
+      const [usedInParents, unitOptions] = await Promise.all([
+        getUsedInParents(id),
+        getUnitDefinitions(),
+      ]);
       return (
         <MaterialCard
           initialItemId={id}
           initialCard={cardResult}
           usedInBoms={usedInParents}
+          unitOptions={unitOptions.map((unit) => ({
+            id: unit.id,
+            name: unit.name,
+            size: unit.size,
+            uom: unit.uom,
+          }))}
         />
       );
     }

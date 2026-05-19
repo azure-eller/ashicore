@@ -4,16 +4,24 @@
   position: relative;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
 }
 
+/*
+ * The card renders as a normal block inside the dashboard layout so the top
+ * nav + inventory sub-tabs stay visible. The design spec's full-bleed sheet
+ * overlay on top of the Items list is tracked as a v1.1 task — it needs a
+ * Next.js parallel-route (interception) implementation to overlay the list
+ * page underneath. For v1 we keep the Calm Matrix sheet aesthetic (border,
+ * surface bg, drop shadow, dense interior) but the card flows in document
+ * order beneath the nav rather than absolute-positioning over it.
+ */
 .sheet {
-  position: absolute;
-  inset: 12px 12px 0 12px;
+  position: relative;
   background: var(--color-surface, #fff);
   border: 1px solid var(--color-line);
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-height: 0;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.18);
   font-family: var(--font-sans, Geist, "Helvetica Neue", sans-serif);
