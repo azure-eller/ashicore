@@ -7149,14 +7149,17 @@ export async function getManufacturingExecutionDetail(
         ),
         numberOfBatches: manufacturingOrders.numberOfBatches,
         salesOrderId: manufacturingOrders.salesOrderId,
+        salesOrderLineId: manufacturingOrders.salesOrderLineId,
         salesOrderNumber: manufacturingOrders.salesOrderNumber,
         salesCustomerName: manufacturingOrders.salesCustomerName,
         priorityRank: manufacturingOrders.priorityRank,
         plannedDate: manufacturingOrders.plannedDate,
         notes: manufacturingOrders.notes,
+        bomRevisionId: manufacturingOrders.bomRevisionId,
       })
       .from(manufacturingOrders)
-      .where(and(eq(manufacturingOrders.id, orderId), isNull(manufacturingOrders.deletedAt)));
+      .where(and(eq(manufacturingOrders.id, orderId), isNull(manufacturingOrders.deletedAt)))
+      .for("update");
 
     if (!order) {
       return null;
@@ -7164,7 +7167,11 @@ export async function getManufacturingExecutionDetail(
 
     let batches: ExecutionBatchRow[] = [];
     if (order.manufacturingMode === "batch") {
-      batches = await getBatchRowsInTx(tx, orderId);
+      const existingBatches = await getBatchRowsInTx(tx, orderId);
+      batches =
+        existingBatches.length > 0
+          ? existingBatches
+          : await ensureBatchExecutionRowsInTx(tx, order);
     }
 
     const currentBatch =
