@@ -1509,6 +1509,39 @@ async function insertManufacturingIngredientLotAllocationInTx(
 ) {
   if (params.quantity <= 0) return;
 
+  const [existing] = await tx
+    .select({
+      id: stockAllocations.id,
+      quantity: stockAllocations.quantity,
+    })
+    .from(stockAllocations)
+    .where(
+      and(
+        eq(stockAllocations.organizationId, params.organizationId),
+        eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
+        eq(stockAllocations.demandId, params.ingredientId),
+        eq(stockAllocations.itemId, params.itemId),
+        eq(stockAllocations.sourceType, "inventory_lot"),
+        eq(stockAllocations.sourceId, params.lotId),
+        eq(stockAllocations.status, "active")
+      )
+    )
+    .for("update");
+
+  const now = new Date();
+  if (existing) {
+    await tx
+      .update(stockAllocations)
+      .set({
+        quantity: normalizeNumeric(parseFloat(existing.quantity) + params.quantity),
+        sourceLabelSnapshot: params.sourceLabelSnapshot ?? null,
+        updatedBy: params.actorUserId ?? null,
+        updatedAt: now,
+      })
+      .where(eq(stockAllocations.id, existing.id));
+    return;
+  }
+
   await tx.insert(stockAllocations).values({
     organizationId: params.organizationId,
     demandType: "manufacturing_order_ingredient",

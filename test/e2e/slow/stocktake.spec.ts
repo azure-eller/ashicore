@@ -224,8 +224,12 @@ test.describe("Stocktake flow", () => {
 
     expect(stocktakeDeleteResponse.status, stocktakeDeleteBody).toBe(200);
 
-    const deleteResponse = await deleteItem(noCostMaterialId);
-    expect(deleteResponse.status).toBe(200);
+    const deleteResponse = await testFetch(`/api/item-cards/${noCostMaterialId}`, {
+      method: "DELETE",
+    });
+    const deleteBody = await deleteResponse.json().catch(() => null);
+    expect(deleteResponse.status, JSON.stringify(deleteBody)).toBe(200);
+    expect(deleteBody?.deleted).toBe(true);
   });
 
   test("creates an all-items stocktake and blocks draft item deletion", async ({

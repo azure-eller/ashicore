@@ -152,18 +152,22 @@ test.describe("Purchasing flow", () => {
     await selectDate(page, page.locator("#expectedDate"), expectedCreateDate);
     await page.locator("#notes").fill("Rush first load, standard second load.");
 
-    const firstMaterialInput = page.getByRole("combobox", { name: "Material" }).first();
-    await firstMaterialInput.click();
-    await firstMaterialInput.pressSequentially(barkName);
+    const materialGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
+    const firstRow = materialGrid.locator('[role="row"][row-index="0"]');
+    await firstRow.locator('[col-id="itemId"]').click();
+    await page.getByPlaceholder("Search materials...").pressSequentially(barkName);
     await page.getByRole("option", { name: new RegExp(barkName) }).click();
-    await page.getByPlaceholder("0").first().fill("10");
+    await firstRow.locator('[col-id="quantityOrdered"]').click();
+    await page.keyboard.type("10");
+    await page.keyboard.press("Enter");
 
-    const secondRow = page.getByRole("row", { name: /Reorder line 2/ });
-    const secondMaterialInput = secondRow.getByRole("combobox").first();
-    await secondMaterialInput.click();
-    await page.keyboard.type(sandName);
+    const secondRow = materialGrid.locator('[role="row"][row-index="1"]');
+    await secondRow.locator('[col-id="itemId"]').click();
+    await page.getByPlaceholder("Search materials...").pressSequentially(sandName);
     await page.getByRole("option", { name: new RegExp(sandName) }).click();
-    await secondRow.locator('input[name="lines.1.quantityOrdered"]').fill("5");
+    await secondRow.locator('[col-id="quantityOrdered"]').click();
+    await page.keyboard.type("5");
+    await page.keyboard.press("Enter");
 
     const createOrderResponsePromise = page.waitForResponse(
       (response) =>

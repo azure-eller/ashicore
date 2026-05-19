@@ -398,10 +398,11 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       const q0 = await captureExpectedQty(db, productP);
 
       await page.goto("/manufacturing/orders/new");
+      await page.getByRole("radio", { name: "Sales order" }).click();
 
-      const salesLineInput = page.getByLabel("Sales Order Line");
-      await salesLineInput.click();
-      await salesLineInput.fill(soRow.orderNumber);
+      const salesOrderInput = page.getByPlaceholder("Search open sales orders...");
+      await salesOrderInput.click();
+      await salesOrderInput.fill(soRow.orderNumber);
       await page
         .getByRole("option", {
           name: new RegExp(`${soRow.orderNumber}`, "i"),
@@ -409,17 +410,23 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
         .first()
         .click();
 
+      await expect(
+        page.getByRole("row", { name: new RegExp(`S01 Prod ${ts}.*Will create`, "i") })
+      ).toBeVisible();
+
       const createResponsePromise = page.waitForResponse(
         (response) =>
-          response.url().endsWith("/api/manufacturing-orders") &&
+          response.url().endsWith(`/api/sales-orders/${soId}/manufacturing-orders`) &&
           response.request().method() === "POST"
       );
-      await page.getByRole("button", { name: /create order/i }).click();
+      await page.getByRole("button", { name: /create .*order/i }).click();
       const createResponse = await createResponsePromise;
       expect(createResponse.status()).toBe(201);
+      const createBody = await createResponse.json();
+      expect(createBody.created).toHaveLength(1);
 
-      await page.waitForURL(/\/manufacturing\/orders\/[0-9a-f-]+$/);
-      const moId = page.url().split("/").at(-1)!;
+      await page.waitForURL(new RegExp(`/sales/orders/${soId}$`));
+      const moId = createBody.created[0].manufacturingOrderId as string;
 
       const mo = await readMO(db, moId);
       expect(mo.salesOrderId).toBe(soId);

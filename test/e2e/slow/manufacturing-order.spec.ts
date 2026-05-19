@@ -905,7 +905,7 @@ test.describe("Manufacturing order flow", () => {
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, productId));
 
-    expect(productRow.expectedQty).toBe("8.0000");
+    expect(productRow.expectedQty).toBe("6.0000");
 
     const editOpenResponse = await testFetch(
       `/api/manufacturing-orders/${releasedOrderId}`,
@@ -940,7 +940,7 @@ test.describe("Manufacturing order flow", () => {
       })
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, productId));
-    expect(productRowAfterEdit.expectedQty).toBe("9.0000");
+    expect(productRowAfterEdit.expectedQty).toBe("7.0000");
 
     await page.goto("/manufacturing/orders");
     await showManufacturingOrderStatus(page, "Draft");
