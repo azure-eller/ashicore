@@ -225,9 +225,16 @@ const rawBaseItemSchema = createInsertSchema(items, {
   typicalGroupSize: nullableStringOptional,
   standardCostQuantity: nullableStringOptional,
   safetyStock: z.string().transform((v) => (v.trim() === "" ? "0" : v)),
+  registeredBarcode: nullableStringOptional,
+  internalBarcode: nullableStringOptional,
+  supplierItemCode: nullableStringOptional,
+  defaultLeadTimeDays: z.coerce.number().int().nonnegative().nullable().optional(),
+  minimumOrderQuantity: nullableStringOptional,
 }).omit({
   id: true,
   organizationId: true,
+  familyId: true,
+  optionCombinationKey: true,
   isMaster: true,
   parentId: true,
   variantAxes: true,
@@ -428,6 +435,7 @@ export const insertItemSchema = rawBaseItemSchema.superRefine((data, ctx) => {
   positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
   positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);
   positiveOptionalRefine(data.standardCostQuantity, "Standard costing quantity", "standardCostQuantity", ctx);
+  positiveOptionalRefine(data.minimumOrderQuantity, "Minimum order quantity", "minimumOrderQuantity", ctx);
 });
 
 export type InsertItem = z.infer<typeof insertItemSchema>;
@@ -456,6 +464,7 @@ export const updateItemSchema = rawBaseItemSchema.omit({
   positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
   positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);
   positiveOptionalRefine(data.standardCostQuantity, "Standard costing quantity", "standardCostQuantity", ctx);
+  positiveOptionalRefine(data.minimumOrderQuantity, "Minimum order quantity", "minimumOrderQuantity", ctx);
 });
 
 export type UpdateItem = z.infer<typeof updateItemSchema>;

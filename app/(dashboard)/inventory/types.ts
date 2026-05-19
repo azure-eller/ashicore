@@ -14,7 +14,10 @@ export function itemDetailHref(itemType: ItemType | string, id: string) {
 
 export type VariantRow = {
   id: string;
+  familyId: string | null;
+  familyName: string | null;
   name: string;
+  displayName: string;
   sku: string | null;
   stock: string;
   committedQty: string;
@@ -25,11 +28,34 @@ export type VariantRow = {
   safetyStock: string;
   defaultSellingPrice: string | null;
   unit: string | null;
+  optionCombinationKey: string;
+  optionValues: VariantOptionValueDisplay[];
+  duplicateCombinationWarnings: DuplicateCombinationWarning[];
   variantAttrs: Record<string, string> | null;
+};
+
+export type VariantOptionValueDisplay = {
+  optionId: string;
+  optionName: string;
+  optionCode: string;
+  valueId: string;
+  valueLabel: string;
+  valueCode: string;
+  optionDisabledAt: Date | null;
+  valueDisabledAt: Date | null;
+};
+
+export type DuplicateCombinationWarning = {
+  variantId: string;
+  duplicateOfVariantIds: string[];
+  optionCombinationKey: string;
+  message: string;
 };
 
 export type ItemRow = {
   id: string;
+  familyId: string | null;
+  familyName: string | null;
   name: string;
   displayName: string;
   sku: string | null;
@@ -46,6 +72,9 @@ export type ItemRow = {
   unitSize: string | null;
   unitUom: string | null;
   category: string | null;
+  optionCombinationKey: string;
+  optionValues: VariantOptionValueDisplay[];
+  duplicateCombinationWarnings: DuplicateCombinationWarning[];
   potential: string | null;
   estimatedUnitCost: string | null;
   marginPercent: string | null;

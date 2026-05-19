@@ -15,6 +15,8 @@ import {
   inventoryEvents,
   inventoryLotBalances,
   inventoryReservationsSummary,
+  itemFamilies,
+  itemVariantValues,
   items,
   accountingClassifications,
   integrationExternalRecords,
@@ -32,6 +34,8 @@ import {
   supplierItems,
   suppliers,
   unitDefinitions,
+  variantOptions,
+  variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { formatVariantDisplay, normalizeNumeric, normalizeNumericScale } from "@/lib/format";
@@ -91,8 +95,10 @@ import type { InsertUnitDefinition } from "@/lib/schemas/units";
 import { DomainError } from "@/lib/errors/domain-error";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type {
+  DuplicateCombinationWarning,
   ItemRow,
   ItemType,
+  VariantOptionValueDisplay,
 } from "../types";
 import {
   buildItemCommitmentSummary,
@@ -228,6 +234,102 @@ const potentialSubquery = projectedPotentialQty(
   items.id,
   items.itemType
 ).as("potential");
+
+async function getVariantOptionValuesByItemIdInTx(tx: Tx, itemIds: string[]) {
+  const uniqueItemIds = [...new Set(itemIds)];
+  if (uniqueItemIds.length === 0) {
+    return new Map<string, VariantOptionValueDisplay[]>();
+  }
+
+  const rows = await tx
+    .select({
+      itemId: itemVariantValues.itemId,
+      optionId: variantOptions.id,
+      optionName: variantOptions.name,
+      optionCode: variantOptions.code,
+      valueId: variantOptionValues.id,
+      valueLabel: variantOptionValues.label,
+      valueCode: variantOptionValues.code,
+      optionDisabledAt: variantOptions.disabledAt,
+      valueDisabledAt: variantOptionValues.disabledAt,
+      sortOrder: variantOptions.sortOrder,
+    })
+    .from(itemVariantValues)
+    .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
+    .innerJoin(
+      variantOptionValues,
+      eq(itemVariantValues.optionValueId, variantOptionValues.id),
+    )
+    .where(inArray(itemVariantValues.itemId, uniqueItemIds))
+    .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder));
+
+  const byItemId = new Map<string, VariantOptionValueDisplay[]>();
+  for (const row of rows) {
+    const values = byItemId.get(row.itemId) ?? [];
+    values.push({
+      optionId: row.optionId,
+      optionName: row.optionName,
+      optionCode: row.optionCode,
+      valueId: row.valueId,
+      valueLabel: row.valueLabel,
+      valueCode: row.valueCode,
+      optionDisabledAt: row.optionDisabledAt,
+      valueDisabledAt: row.valueDisabledAt,
+    });
+    byItemId.set(row.itemId, values);
+  }
+
+  return byItemId;
+}
+
+function formatNormalizedVariantDisplay(
+  familyName: string | null,
+  itemName: string,
+  optionValues: VariantOptionValueDisplay[],
+  deletedAt?: Date | null,
+) {
+  const baseName = familyName ?? itemName;
+  const display =
+    optionValues.length === 0
+      ? baseName
+      : `${baseName} / ${optionValues.map((value) => value.valueLabel).join(" / ")}`;
+  return deletedAt ? `${display} (deleted)` : display;
+}
+
+function buildDuplicateCombinationWarnings(
+  rows: Array<{
+    id: string;
+    optionCombinationKey: string;
+  }>,
+) {
+  const idsByKey = new Map<string, string[]>();
+  for (const row of rows) {
+    if (!row.optionCombinationKey) continue;
+    idsByKey.set(row.optionCombinationKey, [
+      ...(idsByKey.get(row.optionCombinationKey) ?? []),
+      row.id,
+    ]);
+  }
+
+  const warningsByVariantId = new Map<string, DuplicateCombinationWarning[]>();
+  for (const [optionCombinationKey, variantIds] of idsByKey.entries()) {
+    if (variantIds.length < 2) continue;
+
+    for (const variantId of variantIds) {
+      warningsByVariantId.set(variantId, [
+        ...(warningsByVariantId.get(variantId) ?? []),
+        {
+          variantId,
+          duplicateOfVariantIds: variantIds.filter((id) => id !== variantId),
+          optionCombinationKey,
+          message: "Another variant uses the same option values.",
+        },
+      ]);
+    }
+  }
+
+  return warningsByVariantId;
+}
 
 type BomViewPermissions = {
   canViewUnlockedBom: boolean;
@@ -369,7 +471,7 @@ async function getRevenue30dByItemIdInTx(tx: Tx, itemIds: string[]) {
   );
 }
 
-async function createBomRevisionInTx(
+export async function createBomRevisionInTx(
   tx: Tx,
   params: {
     orgId: string;
@@ -620,87 +722,16 @@ export async function getItems(filters?: {
       const bomViewPermissions = getBomViewPermissions(context.assignedRoles);
 
       return withAuthedOrgContext<ItemRow[]>(async (tx) => {
-        if (filters?.itemType !== "product") {
-          const materialRows = await tx
-            .select({
-              id: items.id,
-              name: items.name,
-              sku: items.sku,
-              itemType: items.itemType,
-              stock: stockSubquery,
-              committedQty: committedQtySubquery,
-              demandQty: demandQtySubquery,
-              shortageQty: shortageQtySubquery,
-              availableQty: availableQtySubquery,
-              expectedQty: expectedQtySubquery,
-              safetyStock: trimScale(items.safetyStock).as("safetyStock"),
-              currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
-                "currentStockUnitCost"
-              ),
-              unit: unitDefinitions.name,
-              unitSize: unitDefinitions.size,
-              unitUom: unitDefinitions.uom,
-              category: items.category,
-              potential: potentialSubquery,
-              createdAt: items.createdAt,
-            })
-            .from(items)
-            .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-            .where(
-              and(
-                isNull(items.deletedAt),
-                isNull(items.parentId),
-                ...(filters?.itemType ? [eq(items.itemType, filters.itemType)] : []),
-              ),
-            );
-
-          const results: ItemRow[] = materialRows.map((row) => ({
-            id: row.id,
-            name: row.name,
-            displayName: row.name,
-            sku: row.sku,
-            itemType: row.itemType as ItemType,
-            stock: row.stock,
-            committedQty: row.committedQty,
-            demandQty: row.demandQty,
-            shortageQty: row.shortageQty,
-            availableQty: row.availableQty,
-            expectedQty: row.expectedQty,
-            safetyStock: row.safetyStock,
-            currentStockUnitCost: row.currentStockUnitCost,
-            unit: row.unit ?? null,
-            unitSize: row.unitSize ?? null,
-            unitUom: row.unitUom ?? null,
-            category: row.category,
-            potential: row.potential,
-            estimatedUnitCost: null,
-            marginPercent: null,
-            marginTier: null,
-            isMaster: false,
-            parentId: null,
-            variantCount: 0,
-            variantAxes: null,
-            variantAttrs: null,
-            priceRange: null,
-            sellable: null,
-            hasBom: false,
-            usedInBom: false,
-            usedInCount: 0,
-            revenue30d: null,
-            createdAt: row.createdAt,
-          }));
-
-          return results;
-        }
-
-        const topLevelRows = await tx
+        const rows = await tx
           .select({
             id: items.id,
+            familyId: items.familyId,
+            familyName: itemFamilies.name,
             name: items.name,
             sku: items.sku,
             itemType: items.itemType,
-            isMaster: items.isMaster,
             parentId: items.parentId,
+            optionCombinationKey: items.optionCombinationKey,
             stock: stockSubquery,
             committedQty: committedQtySubquery,
             demandQty: demandQtySubquery,
@@ -709,166 +740,129 @@ export async function getItems(filters?: {
             expectedQty: expectedQtySubquery,
             safetyStock: trimScale(items.safetyStock).as("safetyStock"),
             defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
+            currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
+              "currentStockUnitCost"
+            ),
             unit: unitDefinitions.name,
             unitSize: unitDefinitions.size,
             unitUom: unitDefinitions.uom,
             category: items.category,
+            familyCategory: itemFamilies.category,
             potential: potentialSubquery,
-            variantAxes: items.variantAxes,
+            variantAttrs: items.variantAttrs,
             sellable: items.sellable,
             createdAt: items.createdAt,
           })
           .from(items)
+          .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
           .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
           .where(
             and(
               isNull(items.deletedAt),
-              isNull(items.parentId),
-              eq(items.itemType, "product"),
+              eq(items.isMaster, false),
+              ...(filters?.itemType ? [eq(items.itemType, filters.itemType)] : []),
             ),
           );
 
-        const masterIds = topLevelRows.filter((row) => row.isMaster).map((row) => row.id);
-        const variantRows = masterIds.length > 0
-          ? await tx
-              .select({
-                id: items.id,
-                name: items.name,
-                sku: items.sku,
-                itemType: items.itemType,
-                isMaster: items.isMaster,
-                parentId: items.parentId,
-                stock: stockSubquery,
-                committedQty: committedQtySubquery,
-                demandQty: demandQtySubquery,
-                shortageQty: shortageQtySubquery,
-                availableQty: availableQtySubquery,
-                expectedQty: expectedQtySubquery,
-                safetyStock: trimScale(items.safetyStock).as("safetyStock"),
-                defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
-                unit: unitDefinitions.name,
-                unitSize: unitDefinitions.size,
-                unitUom: unitDefinitions.uom,
-                category: items.category,
-                potential: potentialSubquery,
-                variantAttrs: items.variantAttrs,
-                sellable: items.sellable,
-                createdAt: items.createdAt,
-              })
-              .from(items)
-              .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-              .where(and(inArray(items.parentId, masterIds), isNull(items.deletedAt)))
-          : [];
-
-        const leafIds = [
-          ...topLevelRows.filter((row) => !row.isMaster).map((row) => row.id),
-          ...variantRows.map((row) => row.id),
-        ];
+        const leafIds = rows.map((row) => row.id);
         const [hasBomSet, usedInCounts, revenueByItemId, estimatedUnitCostByItemId] = await Promise.all([
           getCurrentBomProductIdSetInTx(tx, leafIds),
           getUsedInCountsInTx(tx, leafIds, bomViewPermissions),
           getRevenue30dByItemIdInTx(tx, leafIds),
           getEstimatedUnitCostsByItemIdInTx(tx, leafIds),
         ]);
+        const optionValuesByItemId = await getVariantOptionValuesByItemIdInTx(tx, leafIds);
+        const duplicateWarningsByItemId = buildDuplicateCombinationWarnings(rows);
+        const legacyParentIds = [
+          ...new Set(
+            rows
+              .map((row) => row.parentId)
+              .filter((parentId): parentId is string => parentId != null),
+          ),
+        ];
+        const legacyParents =
+          legacyParentIds.length > 0
+            ? await tx
+                .select({
+                  id: items.id,
+                  name: items.name,
+                  variantAxes: items.variantAxes,
+                })
+                .from(items)
+                .where(inArray(items.id, legacyParentIds))
+            : [];
+        const legacyParentById = new Map(
+          legacyParents.map((parent) => [
+            parent.id,
+            {
+              name: parent.name,
+              variantAxes: (parent.variantAxes as string[] | null) ?? [],
+            },
+          ]),
+        );
 
-        const variantsByParent = new Map<string, typeof variantRows>();
-        for (const variant of variantRows) {
-          const parentVariants = variantsByParent.get(variant.parentId!) ?? [];
-          parentVariants.push(variant);
-          variantsByParent.set(variant.parentId!, parentVariants);
-        }
-
-        const results: ItemRow[] = topLevelRows
-          .flatMap<ItemRow>((row): ItemRow[] => {
-            if (!row.isMaster) {
-              const usedInCount = usedInCounts.get(row.id) ?? 0;
-              const estimatedUnitCost = estimatedUnitCostByItemId.get(row.id) ?? null;
-              return [{
-                id: row.id,
-                name: row.name,
-                displayName: row.name,
-                sku: row.sku,
-                itemType: row.itemType as ItemType,
-                stock: row.stock,
-                committedQty: row.committedQty,
-                demandQty: row.demandQty,
-                shortageQty: row.shortageQty,
-                availableQty: row.availableQty,
-                expectedQty: row.expectedQty,
-                safetyStock: row.safetyStock,
-                currentStockUnitCost: null,
-                unit: row.unit ?? null,
-                unitSize: row.unitSize ?? null,
-                unitUom: row.unitUom ?? null,
-                category: row.category,
-                potential: row.potential,
-                estimatedUnitCost,
-                marginPercent: calculateMarginPercent(row.defaultSellingPrice, estimatedUnitCost),
-                marginTier: null,
-                isMaster: false,
-                parentId: null,
-                variantCount: 0,
-                variantAxes: null,
-                variantAttrs: null,
-                priceRange: null,
-                sellable: row.sellable,
-                hasBom: hasBomSet.has(row.id),
-                usedInBom: usedInCount > 0,
-                usedInCount,
-                revenue30d: revenueByItemId.get(row.id) ?? null,
-                createdAt: row.createdAt,
-              } satisfies ItemRow];
-            }
-
-            return (variantsByParent.get(row.id) ?? []).map((variant) => {
-              const variantUsedInCount = usedInCounts.get(variant.id) ?? 0;
-              const estimatedUnitCost = estimatedUnitCostByItemId.get(variant.id) ?? null;
-
-              return {
-                id: variant.id,
-                name: variant.name,
-                displayName: row.variantAxes
+        const results: ItemRow[] = rows
+          .map<ItemRow>((row) => {
+            const usedInCount = usedInCounts.get(row.id) ?? 0;
+            const estimatedUnitCost = estimatedUnitCostByItemId.get(row.id) ?? null;
+            const optionValues = optionValuesByItemId.get(row.id) ?? [];
+            const legacyParent = row.parentId ? legacyParentById.get(row.parentId) : null;
+            const displayName =
+              optionValues.length > 0
+                ? formatNormalizedVariantDisplay(row.familyName, row.name, optionValues)
+                : legacyParent && legacyParent.variantAxes.length > 0
                   ? formatVariantDisplay(
-                      row.name,
-                      (variant.variantAttrs as Record<string, string>) ?? {},
-                      row.variantAxes as string[],
+                      legacyParent.name,
+                      (row.variantAttrs as Record<string, string>) ?? {},
+                      legacyParent.variantAxes,
                     )
-                  : variant.name,
-                sku: variant.sku,
-                itemType: variant.itemType as ItemType,
-                stock: variant.stock,
-                committedQty: variant.committedQty,
-                demandQty: variant.demandQty,
-                shortageQty: variant.shortageQty,
-                availableQty: variant.availableQty,
-                expectedQty: variant.expectedQty,
-                safetyStock: variant.safetyStock,
-                currentStockUnitCost: null,
-                unit: variant.unit ?? null,
-                unitSize: variant.unitSize ?? null,
-                unitUom: variant.unitUom ?? null,
-                category: variant.category,
-                potential: variant.potential,
+                  : row.familyName ?? row.name;
+
+            return {
+              id: row.id,
+              familyId: row.familyId,
+              familyName: row.familyName,
+              name: row.name,
+              displayName,
+              sku: row.sku,
+              itemType: row.itemType as ItemType,
+              stock: row.stock,
+              committedQty: row.committedQty,
+              demandQty: row.demandQty,
+              shortageQty: row.shortageQty,
+              availableQty: row.availableQty,
+              expectedQty: row.expectedQty,
+              safetyStock: row.safetyStock,
+              currentStockUnitCost:
+                row.itemType === "material" ? row.currentStockUnitCost : null,
+              unit: row.unit ?? null,
+              unitSize: row.unitSize ?? null,
+              unitUom: row.unitUom ?? null,
+              category: row.familyCategory ?? row.category,
+              optionCombinationKey: row.optionCombinationKey,
+              optionValues,
+              duplicateCombinationWarnings:
+                duplicateWarningsByItemId.get(row.id) ?? [],
+              potential: row.potential,
+              estimatedUnitCost,
+              marginPercent: calculateMarginPercent(
+                row.defaultSellingPrice,
                 estimatedUnitCost,
-                marginPercent: calculateMarginPercent(
-                  variant.defaultSellingPrice,
-                  estimatedUnitCost,
-                ),
-                marginTier: null,
-                isMaster: false,
-                parentId: variant.parentId,
-                variantCount: 0,
-                variantAxes: null,
-                variantAttrs: (variant.variantAttrs as Record<string, string> | null) ?? null,
-                priceRange: null,
-                sellable: variant.sellable,
-                hasBom: hasBomSet.has(variant.id),
-                usedInBom: variantUsedInCount > 0,
-                usedInCount: variantUsedInCount,
-                revenue30d: revenueByItemId.get(variant.id) ?? null,
-                createdAt: variant.createdAt,
-              } satisfies ItemRow;
-            });
+              ),
+              marginTier: null,
+              isMaster: false,
+              parentId: row.parentId,
+              variantCount: 0,
+              variantAxes: null,
+              variantAttrs: (row.variantAttrs as Record<string, string> | null) ?? null,
+              priceRange: null,
+              sellable: row.sellable,
+              hasBom: hasBomSet.has(row.id),
+              usedInBom: usedInCount > 0,
+              usedInCount,
+              revenue30d: revenueByItemId.get(row.id) ?? null,
+              createdAt: row.createdAt,
+            };
           })
           .sort((a, b) => {
             if (a.sellable !== b.sellable) {
@@ -910,16 +904,18 @@ export async function getItem(id: string) {
     const [row] = await tx
       .select({
         id: items.id,
+        familyId: items.familyId,
+        familyName: itemFamilies.name,
         name: items.name,
         sku: items.sku,
         itemType: items.itemType,
-        category: items.category,
-        description: items.description,
-        unitDefinitionId: items.unitDefinitionId,
-        purchaseUnitDefinitionId: items.purchaseUnitDefinitionId,
-        purchaseToStockFactor: trimScaleNullable(items.purchaseToStockFactor).as(
-          "purchaseToStockFactor"
-        ),
+        category: sql<string | null>`COALESCE(${itemFamilies.category}, ${items.category})`,
+        description: sql<string | null>`COALESCE(${itemFamilies.description}, ${items.description})`,
+        unitDefinitionId: sql<string | null>`COALESCE(${itemFamilies.unitDefinitionId}, ${items.unitDefinitionId})`,
+        purchaseUnitDefinitionId: sql<string | null>`COALESCE(${itemFamilies.purchaseUnitDefinitionId}, ${items.purchaseUnitDefinitionId})`,
+        purchaseToStockFactor: trimScaleNullable(
+          sql`COALESCE(${itemFamilies.purchaseToStockFactor}, ${items.purchaseToStockFactor})`
+        ).as("purchaseToStockFactor"),
         defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
           "defaultPurchasePrice"
         ),
@@ -944,8 +940,16 @@ export async function getItem(id: string) {
         ),
         isMaster: items.isMaster,
         parentId: items.parentId,
+        optionCombinationKey: items.optionCombinationKey,
         variantAxes: items.variantAxes,
         variantAttrs: items.variantAttrs,
+        registeredBarcode: items.registeredBarcode,
+        internalBarcode: items.internalBarcode,
+        supplierItemCode: items.supplierItemCode,
+        defaultLeadTimeDays: items.defaultLeadTimeDays,
+        minimumOrderQuantity: trimScaleNullable(items.minimumOrderQuantity).as(
+          "minimumOrderQuantity"
+        ),
         bomLocked: items.bomLocked,
         bomLockedAt: items.bomLockedAt,
         bomLockedByUserId: items.bomLockedByUserId,
@@ -961,6 +965,7 @@ export async function getItem(id: string) {
         unitUom: unitDefinitions.uom,
       })
       .from(items)
+      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
       .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
       .where(and(eq(items.id, id), isNull(items.deletedAt)));
 
@@ -1012,6 +1017,20 @@ export async function getItem(id: string) {
         )
       );
 
+    const optionValuesByItemId = await getVariantOptionValuesByItemIdInTx(tx, [id]);
+    const optionValues = optionValuesByItemId.get(id) ?? [];
+    const familyVariants = row.familyId
+      ? await tx
+          .select({
+            id: items.id,
+            optionCombinationKey: items.optionCombinationKey,
+          })
+          .from(items)
+          .where(and(eq(items.familyId, row.familyId), isNull(items.deletedAt)))
+      : [{ id: row.id, optionCombinationKey: row.optionCombinationKey }];
+    const duplicateWarningsByItemId =
+      buildDuplicateCombinationWarnings(familyVariants);
+
     const parentName = row.parentId
       ? await tx
           .select({ name: items.name })
@@ -1058,8 +1077,12 @@ export async function getItem(id: string) {
       parentName,
       variantAxes: (row.variantAxes as string[] | null) ?? null,
       variantAttrs: (row.variantAttrs as Record<string, string> | null) ?? null,
-      displayName:
-        row.parentId && parentName && masterAxes && masterAxes.length > 0
+      optionValues,
+      duplicateCombinationWarnings:
+        duplicateWarningsByItemId.get(row.id) ?? [],
+      displayName: optionValues.length > 0
+        ? formatNormalizedVariantDisplay(row.familyName, row.name, optionValues)
+        : row.parentId && parentName && masterAxes && masterAxes.length > 0
           ? formatVariantDisplay(
               parentName,
               (row.variantAttrs as Record<string, string>) ?? {},
@@ -1994,7 +2017,9 @@ export async function updateItem(
     const [existingItem] = await tx
       .select({
         id: items.id,
+        familyId: items.familyId,
         itemType: items.itemType,
+        unitDefinitionId: items.unitDefinitionId,
         purchaseUnitDefinitionId: items.purchaseUnitDefinitionId,
         purchaseToStockFactor: trimScaleNullable(items.purchaseToStockFactor).as(
           "purchaseToStockFactor"
@@ -2041,6 +2066,29 @@ export async function updateItem(
       .set({ ...normalizedItemData, updatedAt: new Date() })
       .where(and(eq(items.id, id), isNull(items.deletedAt)))
       .returning({ id: items.id });
+
+    if (existingItem.familyId) {
+      const activeFamilyRows = await tx
+        .select({ id: items.id })
+        .from(items)
+        .where(and(eq(items.familyId, existingItem.familyId), isNull(items.deletedAt)))
+        .for("update");
+
+      if (activeFamilyRows.length <= 1) {
+        await tx
+          .update(itemFamilies)
+          .set({
+            name: normalizedItemData.name,
+            category: normalizedItemData.category,
+            description: normalizedItemData.description,
+            unitDefinitionId: existingItem.unitDefinitionId ?? undefined,
+            purchaseUnitDefinitionId: normalizedItemData.purchaseUnitDefinitionId,
+            purchaseToStockFactor: normalizedItemData.purchaseToStockFactor,
+            updatedAt: new Date(),
+          })
+          .where(eq(itemFamilies.id, existingItem.familyId));
+      }
+    }
 
     if (bom !== undefined || operationCosts !== undefined) {
       const nextBom = bom ?? currentBom.map((row) => ({
@@ -2263,10 +2311,28 @@ export async function createItemWithLot(
             : null)
         : null;
 
+    const [family] = await tx
+      .insert(itemFamilies)
+      .values({
+        organizationId: orgId,
+        itemType: data.itemType,
+        name: data.name,
+        category: data.category ?? null,
+        description: data.description ?? null,
+        unitDefinitionId: data.unitDefinitionId,
+        purchaseUnitDefinitionId:
+          data.itemType === "material" ? data.purchaseUnitDefinitionId ?? null : null,
+        purchaseToStockFactor:
+          data.itemType === "material" ? data.purchaseToStockFactor ?? null : null,
+      })
+      .returning({ id: itemFamilies.id });
+
     const [item] = await tx
       .insert(items)
       .values({
         ...data,
+        familyId: family.id,
+        optionCombinationKey: "",
         manufacturingMode: "discrete",
         expectedBatchYield: null,
         currentStockUnitCost: initialCurrentStockUnitCost,
@@ -2538,6 +2604,142 @@ export async function getBomOperationCosts(itemId: string) {
   return withAuthedOrgContext(async (tx) =>
     getCurrentBomOperationCostsInTx(tx, itemId)
   );
+}
+
+export async function copyCurrentBomToVariants(
+  sourceItemId: string,
+  targetVariantIds?: string[],
+  note?: string | null,
+  options?: { idempotencyKey?: string | null }
+) {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ copied: Array<{ id: string }> }>(tx, {
+      organizationId: orgId,
+      operationName: "copyItemCardBom",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { sourceItemId, targetVariantIds: targetVariantIds ?? null, note: note ?? null },
+    });
+
+    if (replay.replayed) {
+      return replay.result;
+    }
+
+    const [source] = await tx
+      .select({
+        id: items.id,
+        familyId: items.familyId,
+        itemType: items.itemType,
+      })
+      .from(items)
+      .where(and(eq(items.id, sourceItemId), isNull(items.deletedAt)));
+
+    if (!source?.familyId || source.itemType !== "product") {
+      throw new InventoryError("Source product variant not found", 404);
+    }
+
+    const targets = await tx
+      .select({
+        id: items.id,
+        itemType: items.itemType,
+      })
+      .from(items)
+      .where(
+        and(
+          eq(items.familyId, source.familyId),
+          isNull(items.deletedAt),
+          targetVariantIds && targetVariantIds.length > 0
+            ? inArray(items.id, [...new Set(targetVariantIds)])
+            : sql`${items.id} <> ${sourceItemId}`
+        )
+      );
+
+    const targetIds = targets
+      .filter((target) => target.id !== sourceItemId && target.itemType === "product")
+      .map((target) => target.id);
+
+    if (targetVariantIds && targetIds.length !== new Set(targetVariantIds).size) {
+      throw new InventoryError("One or more target variants were not found on this card", 400);
+    }
+
+    const sourceBom = await getCurrentBomComponentsInTx(tx, sourceItemId);
+    const sourceOperationCosts = await getCurrentBomOperationCostsInTx(tx, sourceItemId);
+    const bom: BomInputRow[] = sourceBom.map((row) => ({
+      componentId: row.componentId,
+      quantity: row.quantity,
+      consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
+      basisOutputQuantity: row.basisOutputQuantity,
+      batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
+      groupRemainderPolicy: row.groupRemainderPolicy as BomInputRow["groupRemainderPolicy"],
+      minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
+      alternates: row.alternates.map((alternate) => ({
+        itemId: alternate.alternateItemId,
+      })),
+    }));
+    const operationCosts: BomOperationCostInputRow[] = sourceOperationCosts.map((row) => ({
+      operationName: row.operationName,
+      resourceId: row.resourceId,
+      costScalingMode: row.costScalingMode as BomOperationCostInputRow["costScalingMode"],
+      crewSize: row.crewSize,
+      plannedMinutes: row.plannedMinutes,
+      loadedCostPerHour: row.loadedCostPerHour,
+    }));
+
+    const copied: Array<{ id: string }> = [];
+    for (const productId of targetIds) {
+      await createBomRevisionInTx(tx, {
+        orgId,
+        userId,
+        productId,
+        note: note ?? `Copied from ${sourceItemId}`,
+        bom,
+        operationCosts,
+      });
+      copied.push({ id: productId });
+    }
+
+    const result = { copied };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
+  });
+}
+
+export async function hasLockedBomCopyTarget(
+  sourceItemId: string,
+  targetVariantIds?: string[]
+) {
+  return withAuthedOrgContext(async (tx) => {
+    const [source] = await tx
+      .select({ familyId: items.familyId })
+      .from(items)
+      .where(and(eq(items.id, sourceItemId), isNull(items.deletedAt)));
+
+    if (!source?.familyId) {
+      throw new InventoryError("Source product variant not found", 404);
+    }
+
+    const rows = await tx
+      .select({ id: items.id })
+      .from(items)
+      .where(
+        and(
+          eq(items.familyId, source.familyId),
+          eq(items.itemType, "product"),
+          eq(items.bomLocked, true),
+          isNull(items.deletedAt),
+          targetVariantIds && targetVariantIds.length > 0
+            ? inArray(items.id, [...new Set(targetVariantIds)])
+            : sql`${items.id} <> ${sourceItemId}`
+        )
+      )
+      .limit(1);
+
+    return rows.length > 0;
+  });
 }
 
 export async function getBomRevisionHistory(itemId: string) {
@@ -2897,11 +3099,27 @@ export async function createVariant(
 
 export async function getVariants(parentId: string) {
   return withAuthedOrgContext(async (tx) => {
+    const [source] = await tx
+      .select({
+        id: items.id,
+        familyId: items.familyId,
+      })
+      .from(items)
+      .where(and(eq(items.id, parentId), isNull(items.deletedAt)));
+
+    const familyId = source?.familyId ?? null;
+    if (!familyId) {
+      return [];
+    }
+
     const rows = await tx
       .select({
         id: items.id,
+        familyId: items.familyId,
+        familyName: itemFamilies.name,
         name: items.name,
         sku: items.sku,
+        optionCombinationKey: items.optionCombinationKey,
         stock: stockSubquery,
         committedQty: committedQtySubquery,
         demandQty: demandQtySubquery,
@@ -2914,12 +3132,26 @@ export async function getVariants(parentId: string) {
         variantAttrs: items.variantAttrs,
       })
       .from(items)
+      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
       .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-      .where(and(eq(items.parentId, parentId), isNull(items.deletedAt)));
+      .where(and(eq(items.familyId, familyId), eq(items.isMaster, false), isNull(items.deletedAt)));
+
+    const optionValuesByItemId = await getVariantOptionValuesByItemIdInTx(
+      tx,
+      rows.map((row) => row.id),
+    );
+    const duplicateWarningsByItemId = buildDuplicateCombinationWarnings(rows);
 
     return rows.map((r) => ({
       ...r,
+      displayName: formatNormalizedVariantDisplay(
+        r.familyName,
+        r.name,
+        optionValuesByItemId.get(r.id) ?? [],
+      ),
       unit: r.unit ?? null,
+      optionValues: optionValuesByItemId.get(r.id) ?? [],
+      duplicateCombinationWarnings: duplicateWarningsByItemId.get(r.id) ?? [],
       variantAttrs: (r.variantAttrs as Record<string, string> | null) ?? null,
     }));
   });

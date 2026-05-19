@@ -750,6 +750,13 @@
       "when": 1779109500000,
       "tag": "0106_standard_crew_labor_costs",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1779120000000,
+      "tag": "0107_variant_first_item_cards",
+      "breakpoints": true
     }
   ]
 }

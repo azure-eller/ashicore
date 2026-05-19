@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { getItems, createItemWithLot, createMasterProduct, deleteItems } from "@/app/(dashboard)/inventory/queries";
+import { getItems, createItemWithLot, deleteItems } from "@/app/(dashboard)/inventory/queries";
 import { ITEM_TYPES, type ItemType } from "@/app/(dashboard)/inventory/types";
 import { MissingCostBasisError } from "@/lib/inventory/kernel";
-import { insertItemSchema, insertMasterItemSchema } from "@/lib/schemas/items";
+import { insertItemSchema } from "@/lib/schemas/items";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
 import {
@@ -41,10 +41,13 @@ export const POST = apiHandler(async (request) => {
   const body = await request.json();
 
   if (body.isMaster) {
-    const idempotencyKey = requireIdempotencyKey(request, "createMasterProduct");
-    const data = insertMasterItemSchema.parse(body);
-    const item = await createMasterProduct(data, { idempotencyKey });
-    return NextResponse.json(item, { status: 201 });
+    return NextResponse.json(
+      {
+        error:
+          "Legacy variant master creation is disabled. Use /api/item-cards and variant-config instead.",
+      },
+      { status: 410 }
+    );
   }
 
   const idempotencyKey = requireIdempotencyKey(request, "createItemWithLot");

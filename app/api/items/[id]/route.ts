@@ -12,6 +12,7 @@ import {
   updateItem,
   updateMasterProduct,
 } from "@/app/(dashboard)/inventory/queries";
+import { deleteVariant, ItemCardError } from "@/lib/inventory/item-cards";
 
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
@@ -29,6 +30,17 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   }
 
   const body = await request.json();
+  if (
+    existingItem.familyId &&
+    Object.prototype.hasOwnProperty.call(body, "unitDefinitionId") &&
+    body.unitDefinitionId !== existingItem.unitDefinitionId
+  ) {
+    return NextResponse.json(
+      { error: "Unit changes for family-backed items must use the item card API." },
+      { status: 400 }
+    );
+  }
+
   if (existingItem.isMaster) {
     const data = insertMasterItemSchema.parse(body);
     const item = await updateMasterProduct(id, data, { idempotencyKey });
@@ -92,9 +104,28 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   }
 });
 
+export const PATCH = PUT;
+
 export const DELETE = apiHandler(async (_req: Request, ctx: unknown) => {
   await assertModuleWriteAccess("inventory", _req.headers);
   const { id } = await (ctx as RouteContext).params;
+  const existingItem = await getItem(id);
+
+  if (!existingItem) {
+    return NextResponse.json({ error: "Item not found" }, { status: 404 });
+  }
+
+  if (existingItem.familyId && !existingItem.isMaster) {
+    const idempotencyKey = requireIdempotencyKey(_req, "deleteItemCardVariant");
+    try {
+      return NextResponse.json(await deleteVariant(id, { idempotencyKey }));
+    } catch (error) {
+      if (error instanceof ItemCardError) {
+        return NextResponse.json({ error: error.message }, { status: error.status });
+      }
+      throw error;
+    }
+  }
 
   const result = await deleteItem(id);
   if (result.hasActiveVariants) {
