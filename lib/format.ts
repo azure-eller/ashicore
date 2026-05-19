@@ -474,6 +474,22 @@ export function resolveVariantDisplay(
   return { masterName: itemName, attrs: [] };
 }
 
+/**
+ * Build the canonical display name for a variant from the item-card DTO shape.
+ * Mirrors what the backend produces in ItemCardVariantDto.displayName — useful
+ * for building previews/readouts when only the family + option-values map is
+ * known (e.g. preview combinations not yet persisted).
+ *
+ * Inputs come ordered by option sortOrder; values are joined with " / ".
+ */
+export function formatVariantDisplayFromFamily(
+  family: { name: string },
+  optionValues: ReadonlyArray<{ valueLabel: string }>,
+): string {
+  if (optionValues.length === 0) return family.name;
+  return `${family.name} / ${optionValues.map((value) => value.valueLabel).join(" / ")}`;
+}
+
 export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")

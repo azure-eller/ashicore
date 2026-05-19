@@ -1,0 +1,418 @@
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import type {
+  DuplicateCombinationWarning,
+  ItemType,
+  VariantOptionValueDisplay,
+} from "@/app/(dashboard)/inventory/types";
+
+export class EndpointNotReadyError extends Error {
+  constructor(public path: string) {
+    super(`Endpoint not ready: ${path}`);
+    this.name = "EndpointNotReadyError";
+  }
+}
+
+export class ItemCardApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public fieldErrors?: Record<string, string[]>
+  ) {
+    super(message);
+    this.name = "ItemCardApiError";
+  }
+}
+
+// Date-like fields tolerate both Date (server-side, fresh from DAL) and string
+// (after server→client RSC serialization). Client code should not depend on
+// these being Date instances.
+type DateOrIso = Date | string | null;
+
+export type VariantOptionValueDto = {
+  id: string;
+  label: string;
+  code: string;
+  sortOrder: number;
+  disabledAt: DateOrIso;
+};
+
+export type VariantOptionDto = {
+  id: string;
+  name: string;
+  code: string;
+  sortOrder: number;
+  disabledAt: DateOrIso;
+  values: VariantOptionValueDto[];
+};
+
+export type ItemCardVariantDto = {
+  id: string;
+  familyId: string;
+  name: string;
+  displayName: string;
+  sku: string | null;
+  itemType: ItemType;
+  optionCombinationKey: string;
+  optionValues: VariantOptionValueDisplay[];
+  duplicateCombinationWarnings: DuplicateCombinationWarning[];
+  deletedAt: DateOrIso;
+  registeredBarcode: string | null;
+  internalBarcode: string | null;
+  supplierItemCode: string | null;
+  defaultLeadTimeDays: number | null;
+  minimumOrderQuantity: string | null;
+};
+
+export type ItemCardFamilyDto = {
+  id: string;
+  itemType: ItemType;
+  name: string;
+  category: string | null;
+  description: string | null;
+  unitDefinitionId: string;
+  unitName: string | null;
+  purchaseUnitDefinitionId: string | null;
+  purchaseToStockFactor: string | null;
+  deletedAt: DateOrIso;
+};
+
+export type ItemCardDto = {
+  family: ItemCardFamilyDto;
+  options: VariantOptionDto[];
+  variants: ItemCardVariantDto[];
+};
+
+export type GenerationPreviewDto = {
+  familyId: string;
+  potentialCount: number;
+  existingCount: number;
+  missingCount: number;
+  warnOver100: boolean;
+  blocksGenerateAll: boolean;
+  missingCombinations: Array<{
+    optionValueIdsByOptionId: Record<string, string>;
+    optionCombinationKey: string;
+    displayName: string;
+  }>;
+};
+
+export type CreateItemCardInput = {
+  itemType: ItemType;
+  name: string;
+  unitDefinitionId: string;
+  category?: string | null;
+  description?: string | null;
+  purchaseUnitDefinitionId?: string | null;
+  purchaseToStockFactor?: string | null;
+  sku?: string | null;
+  sellable?: boolean;
+  defaultSellingPrice?: string | null;
+  defaultPurchasePrice?: string | null;
+  currentStockUnitCost?: string | null;
+  registeredBarcode?: string | null;
+  internalBarcode?: string | null;
+  supplierItemCode?: string | null;
+  defaultLeadTimeDays?: number | null;
+  minimumOrderQuantity?: string | null;
+};
+
+export type UpdateItemCardInput = Partial<Omit<CreateItemCardInput, "itemType" | "unitDefinitionId">>;
+
+/**
+ * Variant-level fields editable through `PATCH /api/item-cards/:itemId/variant`.
+ * Distinct from `UpdateItemCardInput` (family-level fields only).
+ */
+export type UpdateItemCardVariantInput = {
+  sku?: string | null;
+  registeredBarcode?: string | null;
+  internalBarcode?: string | null;
+  supplierItemCode?: string | null;
+  defaultLeadTimeDays?: number | null;
+  minimumOrderQuantity?: string | null;
+  defaultSellingPrice?: string | null;
+  defaultPurchasePrice?: string | null;
+  currentStockUnitCost?: string | null;
+  safetyStock?: string;
+  sellable?: boolean;
+};
+
+export type VariantConfigInput = {
+  options: Array<{
+    id?: string;
+    name: string;
+    code?: string;
+    sortOrder?: number;
+    values: Array<{
+      id?: string;
+      label: string;
+      code?: string;
+      sortOrder?: number;
+    }>;
+  }>;
+};
+
+export type GenerateVariantsInput = {
+  combinations?: Array<Record<string, string>>;
+};
+
+async function parseError(response: Response, path: string): Promise<never> {
+  if (response.status === 404) {
+    throw new EndpointNotReadyError(path);
+  }
+  let message = `${response.status} ${response.statusText}`;
+  let fieldErrors: Record<string, string[]> | undefined;
+  try {
+    const body = (await response.json()) as { error?: string; errors?: Record<string, string[]> };
+    if (body.error) message = body.error;
+    if (body.errors) fieldErrors = body.errors;
+  } catch {
+    // body wasn't JSON; keep status-based message
+  }
+  throw new ItemCardApiError(message, response.status, fieldErrors);
+}
+
+export async function getItemCard(itemId: string): Promise<ItemCardDto> {
+  const path = `/api/item-cards/${itemId}`;
+  const response = await fetch(path);
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as ItemCardDto;
+}
+
+export async function createItemCard(input: CreateItemCardInput): Promise<{ id: string }> {
+  const path = `/api/item-cards`;
+  const response = await fetch(path, {
+    method: "POST",
+    headers: createIdempotencyHeaders("createItemCard", { "Content-Type": "application/json" }),
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as { id: string };
+}
+
+export async function updateItemCard(
+  itemId: string,
+  input: UpdateItemCardInput
+): Promise<{ id: string }> {
+  const path = `/api/item-cards/${itemId}`;
+  const response = await fetch(path, {
+    method: "PATCH",
+    headers: createIdempotencyHeaders("updateItemCard", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as { id: string };
+}
+
+/**
+ * PATCH variant-level fields for a single variant items row. Family-level
+ * fields go through `updateItemCard`; this companion handles the inline-cell
+ * autosaves (SKU, barcodes, supplier item code, lead time, MOQ, pricing).
+ */
+export async function updateItemCardVariant(
+  variantItemId: string,
+  input: UpdateItemCardVariantInput
+): Promise<{ id: string }> {
+  const path = `/api/item-cards/${variantItemId}/variant`;
+  const response = await fetch(path, {
+    method: "PATCH",
+    headers: createIdempotencyHeaders("updateItemCardVariant", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as { id: string };
+}
+
+export async function deleteItemCard(itemId: string): Promise<{ deleted: boolean }> {
+  const path = `/api/item-cards/${itemId}`;
+  const response = await fetch(path, {
+    method: "DELETE",
+    headers: createIdempotencyHeaders("deleteItemCard"),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as { deleted: boolean };
+}
+
+export async function updateVariantConfig(
+  itemId: string,
+  input: VariantConfigInput
+): Promise<ItemCardDto> {
+  const path = `/api/item-cards/${itemId}/variant-config`;
+  const response = await fetch(path, {
+    method: "PUT",
+    headers: createIdempotencyHeaders("updateItemCardVariantConfig", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as ItemCardDto;
+}
+
+export async function previewVariantGeneration(itemId: string): Promise<GenerationPreviewDto> {
+  const path = `/api/item-cards/${itemId}/variants/generate-preview`;
+  const response = await fetch(path, { method: "POST" });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as GenerationPreviewDto;
+}
+
+export async function generateVariants(
+  itemId: string,
+  input: GenerateVariantsInput
+): Promise<{ created: Array<{ id: string }> }> {
+  const path = `/api/item-cards/${itemId}/variants/generate`;
+  const response = await fetch(path, {
+    method: "POST",
+    headers: createIdempotencyHeaders("generateItemCardVariants", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as { created: Array<{ id: string }> };
+}
+
+/**
+ * Delete a single variant (operational items row).
+ * Uses the existing /api/items/:id DELETE endpoint, which blocks if the variant
+ * is referenced by orders/BOMs/MOs/POs/stocktakes.
+ */
+export async function deleteVariant(variantId: string): Promise<{ success: boolean }> {
+  const path = `/api/items/${variantId}`;
+  const response = await fetch(path, {
+    method: "DELETE",
+    headers: createIdempotencyHeaders("deleteItemCardVariant"),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as { success: boolean };
+}
+
+/**
+ * Add initial stock to a variant. Backend-pending — Codex hasn't shipped this endpoint yet.
+ * Will throw EndpointNotReadyError on 404 until the route exists.
+ */
+export type AddInitialStockInput = {
+  quantity: string;
+  costPerUnit?: string | null;
+  locationId: string;
+  occurredAt: string;
+  adjustmentNumber?: string | null;
+};
+
+export async function addInitialStock(
+  variantId: string,
+  input: AddInitialStockInput
+): Promise<{ lotId: string }> {
+  const path = `/api/items/${variantId}/stock-adjustments`;
+  const response = await fetch(path, {
+    method: "POST",
+    headers: createIdempotencyHeaders("addInitialStock", { "Content-Type": "application/json" }),
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as { lotId: string };
+}
+
+/**
+ * Copy BOM between variants. Backend-pending.
+ */
+export type CopyBomInput = {
+  targetVariantIds: string[];
+  note?: string | null;
+};
+
+export async function copyBomToVariants(
+  sourceVariantId: string,
+  input: CopyBomInput
+): Promise<{ revisions: Array<{ variantId: string; revisionId: string }> }> {
+  const path = `/api/items/${sourceVariantId}/bom/copy-to`;
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as { revisions: Array<{ variantId: string; revisionId: string }> };
+}
+
+export type CopyBomFromInput = {
+  sourceVariantId: string;
+  note?: string | null;
+};
+
+export async function copyBomFromVariant(
+  targetVariantId: string,
+  input: CopyBomFromInput
+): Promise<{ revisionId: string }> {
+  const path = `/api/items/${targetVariantId}/bom/copy-from`;
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as { revisionId: string };
+}
+
+/**
+ * Copy production operations between variants. Backend-pending.
+ */
+export async function copyOperationsToVariants(
+  sourceVariantId: string,
+  input: CopyBomInput
+): Promise<{ revisions: Array<{ variantId: string; revisionId: string }> }> {
+  const path = `/api/items/${sourceVariantId}/operations/copy-to`;
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as { revisions: Array<{ variantId: string; revisionId: string }> };
+}
+
+export async function copyOperationsFromVariant(
+  targetVariantId: string,
+  input: CopyBomFromInput
+): Promise<{ revisionId: string }> {
+  const path = `/api/items/${targetVariantId}/operations/copy-from`;
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as { revisionId: string };
+}
+
+/**
+ * Fetch the org's highest numeric internal barcode so the UI can mint the next
+ * sequential one client-side. v1.1 should replace this with a Postgres sequence
+ * (e.g. `internal_barcode_seq`) exposed via a dedicated endpoint — at that
+ * point this function disappears.
+ */
+export async function getMaxNumericInternalBarcode(): Promise<number> {
+  // Fetch flat variant rows (existing endpoint). We pick the maximum value
+  // among internal barcodes that parse as positive integers; anything else
+  // (alphanumeric custom codes) is ignored for the sequence.
+  const [products, materials] = await Promise.all([
+    fetch("/api/items?itemType=product").then((r) => (r.ok ? r.json() : [])),
+    fetch("/api/items?itemType=material").then((r) => (r.ok ? r.json() : [])),
+  ]);
+  const allRows = [
+    ...(Array.isArray(products) ? products : []),
+    ...(Array.isArray(materials) ? materials : []),
+  ];
+  let max = 9999; // Start the sequence at 10000 to match Katana's pattern.
+  for (const row of allRows) {
+    const value = (row as { internalBarcode?: string | null })?.internalBarcode;
+    if (typeof value !== "string") continue;
+    if (!/^\d+$/.test(value)) continue;
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > max) max = parsed;
+  }
+  return max;
+}

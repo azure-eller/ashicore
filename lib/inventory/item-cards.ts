@@ -176,6 +176,69 @@ export const itemCardUpdateSchema = z.object({
   }
 });
 
+/**
+ * Variant-level field PATCH for the card UI. Updates fields that live on
+ * `inventory.items` for a single focused variant (not the family). All fields
+ * are optional — only those present are applied, matching the inline-cell
+ * autosave pattern used by the card's variant table.
+ */
+export const itemCardVariantUpdateSchema = z.object({
+  sku: patchNullableText,
+  registeredBarcode: patchNullableText,
+  internalBarcode: patchNullableText,
+  supplierItemCode: patchNullableText,
+  defaultLeadTimeDays: z.number().int().nonnegative().nullable().optional(),
+  minimumOrderQuantity: patchPositiveOptionalDecimalString("Minimum order quantity"),
+  defaultSellingPrice: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return undefined;
+      return value != null ? value.trim() || null : null;
+    })
+    .refine(
+      (value) => value == null || (Number.isFinite(Number(value)) && Number(value) >= 0),
+      "Default selling price must be a non-negative number",
+    ),
+  defaultPurchasePrice: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return undefined;
+      return value != null ? value.trim() || null : null;
+    })
+    .refine(
+      (value) => value == null || (Number.isFinite(Number(value)) && Number(value) >= 0),
+      "Default purchase price must be a non-negative number",
+    ),
+  currentStockUnitCost: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return undefined;
+      return value != null ? value.trim() || null : null;
+    })
+    .refine(
+      (value) => value == null || (Number.isFinite(Number(value)) && Number(value) >= 0),
+      "Current stock unit cost must be a non-negative number",
+    ),
+  safetyStock: z
+    .string()
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return undefined;
+      return value.trim() || "0";
+    })
+    .refine(
+      (value) => value == null || (Number.isFinite(Number(value)) && Number(value) >= 0),
+      "Safety stock must be a non-negative number",
+    ),
+  sellable: z.boolean().optional(),
+});
+
 export const generateVariantsSchema = z.object({
   combinations: z
     .array(z.record(z.string().uuid(), z.string().uuid()))
@@ -615,6 +678,62 @@ export async function updateItemCard(
         updatedAt: new Date(),
       })
       .where(eq(itemFamilies.id, familyId));
+
+    const result = { id: itemId };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+    return result;
+  });
+}
+
+/**
+ * Update variant-level fields for a single items row. Used by the card UI's
+ * inline-cell autosave (SKU, barcodes, supplier item code, lead time, MOQ,
+ * pricing). Does not touch `item_families`.
+ */
+export async function updateItemCardVariant(
+  itemId: string,
+  data: z.infer<typeof itemCardVariantUpdateSchema>,
+  options?: { idempotencyKey?: string | null },
+) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
+      organizationId: orgId,
+      operationName: "updateItemCardVariant",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { itemId, data },
+    });
+    if (replay.replayed) return replay.result;
+
+    const [variant] = await tx
+      .select({ id: items.id, familyId: items.familyId })
+      .from(items)
+      .where(and(eq(items.id, itemId), isNull(items.deletedAt)))
+      .for("update");
+    if (!variant?.familyId) {
+      throw new ItemCardError("Item card variant not found", 404);
+    }
+
+    await tx
+      .update(items)
+      .set({
+        sku: data.sku,
+        registeredBarcode: data.registeredBarcode,
+        internalBarcode: data.internalBarcode,
+        supplierItemCode: data.supplierItemCode,
+        defaultLeadTimeDays: data.defaultLeadTimeDays,
+        minimumOrderQuantity: data.minimumOrderQuantity,
+        defaultSellingPrice: data.defaultSellingPrice,
+        defaultPurchasePrice: data.defaultPurchasePrice,
+        currentStockUnitCost: data.currentStockUnitCost,
+        safetyStock: data.safetyStock,
+        sellable: data.sellable,
+        updatedAt: new Date(),
+      })
+      .where(eq(items.id, itemId));
 
     const result = { id: itemId };
     await finishInventoryOperationInTx(tx, {
