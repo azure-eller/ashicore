@@ -285,6 +285,13 @@
   background: var(--color-accent-soft);
 }
 
+.gridShell :global(.ag-cell-focus),
+.gridShell :global(.ag-cell-focus:focus) {
+  border: 0 !important;
+  border-right: 1px solid var(--color-line-2) !important;
+  outline: none;
+}
+
 /* ---------- Family + variant column headers ---------- */
 
 .familyHeader {

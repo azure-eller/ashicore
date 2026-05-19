@@ -160,6 +160,7 @@ async function bulkAllocateOpenSalesOrdersFifoInTx(
         demandId: demand.demandId,
         itemId: demand.itemId,
         allocations: mergeAllocations(demand.assignments, additions),
+        returnWorkspace: false,
       });
       lineCount += 1;
     }
@@ -210,6 +211,7 @@ async function bulkUnallocateOpenSalesOrdersInTx(
         demandId: demand.demandId,
         itemId: demand.itemId,
         allocations: [],
+        returnWorkspace: false,
       });
       lineCount += 1;
     }

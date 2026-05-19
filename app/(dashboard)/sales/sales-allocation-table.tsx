@@ -227,6 +227,10 @@ function compactQuantity(value: number) {
   return formatQuantity(value.toFixed(4).replace(/\.?0+$/, ""));
 }
 
+function fullQuantity(value: number) {
+  return formatQuantity(value.toFixed(4).replace(/\.?0+$/, ""));
+}
+
 function quantityString(value: number) {
   return value.toFixed(4).replace(/\.?0+$/, "");
 }
@@ -1116,7 +1120,7 @@ function CoverageVariantCell({
       : Math.min(100, (coverage.pool / meterDenominator) * 100);
 
   const remainingDemand = Math.max(0, coverage.demand - coverage.alloc);
-  const tooltipLabel = `Pool ${compactQuantity(coverage.pool)} = on-hand ${compactQuantity(coverage.stock)} + expected production ${compactQuantity(coverage.incoming)}. Demand ${compactQuantity(coverage.demand)} = sales ${compactQuantity(coverage.salesDemand)} + MO ${compactQuantity(coverage.manufacturingDemand)}. Allocated ${compactQuantity(coverage.alloc)}, remaining ${compactQuantity(remainingDemand)}.`;
+  const tooltipLabel = `Pool ${fullQuantity(coverage.pool)} = on-hand ${fullQuantity(coverage.stock)} + expected production ${fullQuantity(coverage.incoming)}. Demand ${fullQuantity(coverage.demand)} = sales ${fullQuantity(coverage.salesDemand)} + MO ${fullQuantity(coverage.manufacturingDemand)}. Allocated ${fullQuantity(coverage.alloc)}, remaining ${fullQuantity(remainingDemand)}.`;
 
   return (
     <Tooltip>

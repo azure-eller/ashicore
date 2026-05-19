@@ -115,7 +115,10 @@ async function validateSourceInTx(
 
 export async function saveAllocationsForDemandInTx(
   tx: Tx,
-  input: SaveAllocationsForDemandInput & { organizationId: string }
+  input: SaveAllocationsForDemandInput & {
+    organizationId: string;
+    returnWorkspace?: boolean;
+  }
 ) {
   if (!isDemandType(input.demandType)) {
     throw new AllocationError("Unsupported allocation demand type.");
@@ -285,6 +288,10 @@ export async function saveAllocationsForDemandInTx(
     actorUserId: input.actorUserId ?? null,
     inventoryLotAllocationQty,
   });
+
+  if (input.returnWorkspace === false) {
+    return null;
+  }
 
   return getAllocationWorkspaceInTx(tx, {
     organizationId: input.organizationId,

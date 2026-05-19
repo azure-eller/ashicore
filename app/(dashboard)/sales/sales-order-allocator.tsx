@@ -392,8 +392,8 @@ function AllocationSourceEditor({
   const hasChanges = draftSignature(draft) !== draftSignature(initialDraft);
 
   const saveMutation = useMutation({
-    mutationFn: async () => {
-      await apiJson<AllocationWorkspace>("/api/allocation/save", {
+    mutationFn: async () =>
+      apiJson<{ ok: true }>("/api/allocation/save", {
         method: "POST",
         body: {
           demandType: target.demandType,
@@ -414,22 +414,19 @@ function AllocationSourceEditor({
             .filter((allocation) => parseQuantity(allocation.quantity) > 0),
         },
         fallbackError: "Failed to save allocation.",
-      });
-    },
+      }),
     onMutate: () => {
       setFormError(null);
     },
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
-        queryClient.invalidateQueries({ queryKey: ["items"] }),
-        queryClient.invalidateQueries({ queryKey: ["allocation-workspace"] }),
-        queryClient.invalidateQueries({ queryKey: ["allocation-pools"] }),
-        queryClient.invalidateQueries({
-          queryKey: ["allocation-manufacturing-demands"],
-        }),
-      ]);
+    onSuccess: () => {
       onSaved();
+      void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+      void queryClient.invalidateQueries({ queryKey: ["items"] });
+      void queryClient.invalidateQueries({ queryKey: ["allocation-workspace"] });
+      void queryClient.invalidateQueries({ queryKey: ["allocation-pools"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["allocation-manufacturing-demands"],
+      });
     },
     onError: (error) => {
       setFormError(

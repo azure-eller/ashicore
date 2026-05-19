@@ -13,12 +13,16 @@ export async function getAllocationWorkspace(params: {
   );
 }
 
-export async function saveAllocationWorkspace(input: SaveAllocationsForDemandInput) {
+export async function saveAllocationWorkspace(
+  input: SaveAllocationsForDemandInput,
+  options: { returnWorkspace?: boolean } = {}
+) {
   return withAuthedOrgContext((tx, organizationId, actorUserId) =>
     saveAllocationsForDemandInTx(tx, {
       ...input,
       organizationId,
       actorUserId,
+      returnWorkspace: options.returnWorkspace,
     })
   );
 }

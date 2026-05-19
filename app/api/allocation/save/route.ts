@@ -39,8 +39,8 @@ export const POST = apiHandler(async (request: Request) => {
   );
 
   try {
-    const workspace = await saveAllocationWorkspace(input);
-    return NextResponse.json(workspace);
+    await saveAllocationWorkspace(input, { returnWorkspace: false });
+    return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof AllocationError) return error.toResponse();
     throw error;
