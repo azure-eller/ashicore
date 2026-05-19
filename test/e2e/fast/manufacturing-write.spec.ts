@@ -827,7 +827,18 @@ test.describe("Manufacturing write-path smoke", () => {
     const requirementOrderId = order.body.id as string;
 
     await page.goto(`/manufacturing/orders/${requirementOrderId}/execute`);
-    await page.getByRole("button", { name: "Mark Done", exact: true }).click();
+    const [pickResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().includes(
+            `/api/manufacturing-orders/${requirementOrderId}/ingredients/`
+          ) &&
+          response.url().endsWith("/pick")
+      ),
+      page.getByRole("button", { name: "Mark Done", exact: true }).click(),
+    ]);
+    expect(pickResponse.status()).toBe(409);
 
     const warningDialog = page.getByRole("alertdialog", {
       name: "Mark done with requirement override?",
