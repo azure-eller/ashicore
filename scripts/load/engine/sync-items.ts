@@ -66,6 +66,8 @@ function assertCompatibleFamilySeed(
       | "familyUnitKey"
       | "variantOptionName"
       | "variantOptionCode"
+      | "purchaseUnitKey"
+      | "purchaseToStockFactor"
     >
   > = [
     "familyName",
@@ -74,6 +76,8 @@ function assertCompatibleFamilySeed(
     "familyUnitKey",
     "variantOptionName",
     "variantOptionCode",
+    "purchaseUnitKey",
+    "purchaseToStockFactor",
   ];
 
   for (const field of fields) {
@@ -85,6 +89,32 @@ function assertCompatibleFamilySeed(
       );
     }
   }
+}
+
+function resolveFamilyPurchaseFields(
+  seed: ItemSeed,
+  unitIdByKey: Map<string, string>
+) {
+  if (seed.itemType !== "material") {
+    return {
+      purchaseUnitDefinitionId: null,
+      purchaseToStockFactor: null,
+    };
+  }
+
+  const purchaseUnitDefinitionId = seed.purchaseUnitKey
+    ? unitIdByKey.get(seed.purchaseUnitKey) ?? null
+    : null;
+  if (seed.purchaseUnitKey && !purchaseUnitDefinitionId) {
+    throw new Error(
+      `Purchase unit key "${seed.purchaseUnitKey}" was not resolved for ${seed.name}.`
+    );
+  }
+
+  return {
+    purchaseUnitDefinitionId,
+    purchaseToStockFactor: seed.purchaseToStockFactor ?? null,
+  };
 }
 
 async function prepareVariantFamiliesInTx(
@@ -115,6 +145,8 @@ async function prepareVariantFamiliesInTx(
       category: itemFamilies.category,
       description: itemFamilies.description,
       unitDefinitionId: itemFamilies.unitDefinitionId,
+      purchaseUnitDefinitionId: itemFamilies.purchaseUnitDefinitionId,
+      purchaseToStockFactor: itemFamilies.purchaseToStockFactor,
     })
     .from(itemFamilies)
     .where(isNull(itemFamilies.deletedAt));
@@ -128,6 +160,7 @@ async function prepareVariantFamiliesInTx(
     if (!familyUnitId) {
       throw new Error(`Unit key "${familyUnitKey}" was not resolved for family ${familyName}.`);
     }
+    const familyPurchaseFields = resolveFamilyPurchaseFields(seed, unitIdByKey);
 
     const matches = activeFamilies.filter(
       (family) => family.itemType === seed.itemType && family.name === familyName
@@ -148,6 +181,8 @@ async function prepareVariantFamiliesInTx(
           category: familyCategory,
           description: familyDescription,
           unitDefinitionId: familyUnitId,
+          purchaseUnitDefinitionId: familyPurchaseFields.purchaseUnitDefinitionId,
+          purchaseToStockFactor: familyPurchaseFields.purchaseToStockFactor,
         })
         .returning({ id: itemFamilies.id });
       familyIdByKey.set(familyKey, created.id);
@@ -158,13 +193,20 @@ async function prepareVariantFamiliesInTx(
         category: familyCategory,
         description: familyDescription,
         unitDefinitionId: familyUnitId,
+        purchaseUnitDefinitionId: familyPurchaseFields.purchaseUnitDefinitionId,
+        purchaseToStockFactor: familyPurchaseFields.purchaseToStockFactor,
       });
     } else {
       familyIdByKey.set(familyKey, existing.id);
       if (
         existing.category !== familyCategory ||
         (existing.description ?? null) !== familyDescription ||
-        existing.unitDefinitionId !== familyUnitId
+        existing.unitDefinitionId !== familyUnitId ||
+        existing.purchaseUnitDefinitionId !== familyPurchaseFields.purchaseUnitDefinitionId ||
+        !numericStringEquals(
+          existing.purchaseToStockFactor,
+          familyPurchaseFields.purchaseToStockFactor
+        )
       ) {
         await tx
           .update(itemFamilies)
@@ -172,6 +214,8 @@ async function prepareVariantFamiliesInTx(
             category: familyCategory,
             description: familyDescription,
             unitDefinitionId: familyUnitId,
+            purchaseUnitDefinitionId: familyPurchaseFields.purchaseUnitDefinitionId,
+            purchaseToStockFactor: familyPurchaseFields.purchaseToStockFactor,
             updatedAt: new Date(),
           })
           .where(eq(itemFamilies.id, existing.id));
@@ -329,6 +373,8 @@ async function prepareDefaultFamiliesInTx(
       category: itemFamilies.category,
       description: itemFamilies.description,
       unitDefinitionId: itemFamilies.unitDefinitionId,
+      purchaseUnitDefinitionId: itemFamilies.purchaseUnitDefinitionId,
+      purchaseToStockFactor: itemFamilies.purchaseToStockFactor,
     })
     .from(itemFamilies)
     .where(isNull(itemFamilies.deletedAt));
@@ -341,6 +387,7 @@ async function prepareDefaultFamiliesInTx(
     if (!familyUnitId) {
       throw new Error(`Unit key "${seed.unitKey}" was not resolved for ${seed.name}.`);
     }
+    const familyPurchaseFields = resolveFamilyPurchaseFields(seed, unitIdByKey);
 
     const matches = activeFamilies.filter(
       (family) => family.itemType === seed.itemType && family.name === seed.name
@@ -364,6 +411,8 @@ async function prepareDefaultFamiliesInTx(
           category: seed.category,
           description: seed.description,
           unitDefinitionId: familyUnitId,
+          purchaseUnitDefinitionId: familyPurchaseFields.purchaseUnitDefinitionId,
+          purchaseToStockFactor: familyPurchaseFields.purchaseToStockFactor,
         })
         .returning({ id: itemFamilies.id });
       existingAssignmentBySeedKey.set(seed.key, {
@@ -379,6 +428,8 @@ async function prepareDefaultFamiliesInTx(
         category: seed.category,
         description: seed.description,
         unitDefinitionId: familyUnitId,
+        purchaseUnitDefinitionId: familyPurchaseFields.purchaseUnitDefinitionId,
+        purchaseToStockFactor: familyPurchaseFields.purchaseToStockFactor,
       });
     } else {
       existingAssignmentBySeedKey.set(seed.key, {
@@ -390,7 +441,12 @@ async function prepareDefaultFamiliesInTx(
       if (
         existing.category !== seed.category ||
         (existing.description ?? null) !== seed.description ||
-        existing.unitDefinitionId !== familyUnitId
+        existing.unitDefinitionId !== familyUnitId ||
+        existing.purchaseUnitDefinitionId !== familyPurchaseFields.purchaseUnitDefinitionId ||
+        !numericStringEquals(
+          existing.purchaseToStockFactor,
+          familyPurchaseFields.purchaseToStockFactor
+        )
       ) {
         await tx
           .update(itemFamilies)
@@ -398,6 +454,8 @@ async function prepareDefaultFamiliesInTx(
             category: seed.category,
             description: seed.description,
             unitDefinitionId: familyUnitId,
+            purchaseUnitDefinitionId: familyPurchaseFields.purchaseUnitDefinitionId,
+            purchaseToStockFactor: familyPurchaseFields.purchaseToStockFactor,
             updatedAt: new Date(),
           })
           .where(eq(itemFamilies.id, existing.id));
