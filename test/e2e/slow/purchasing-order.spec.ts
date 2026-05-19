@@ -157,17 +157,23 @@ test.describe("Purchasing flow", () => {
     await firstRow.locator('[col-id="itemId"]').click();
     await page.getByPlaceholder("Search materials...").pressSequentially(barkName);
     await page.getByRole("option", { name: new RegExp(barkName) }).click();
-    await firstRow.locator('[col-id="quantityOrdered"]').click();
-    await page.keyboard.type("10");
-    await page.keyboard.press("Enter");
+    const firstQuantityCell = firstRow.locator('[col-id="quantityOrdered"]');
+    await firstQuantityCell.click();
+    const firstQuantityEditor = firstQuantityCell.locator("input").first();
+    await expect(firstQuantityEditor).toBeVisible();
+    await firstQuantityEditor.fill("10");
+    await firstQuantityEditor.press("Enter");
 
     const secondRow = materialGrid.locator('[role="row"][row-index="1"]');
     await secondRow.locator('[col-id="itemId"]').click();
     await page.getByPlaceholder("Search materials...").pressSequentially(sandName);
     await page.getByRole("option", { name: new RegExp(sandName) }).click();
-    await secondRow.locator('[col-id="quantityOrdered"]').click();
-    await page.keyboard.type("5");
-    await page.keyboard.press("Enter");
+    const secondQuantityCell = secondRow.locator('[col-id="quantityOrdered"]');
+    await secondQuantityCell.click();
+    const secondQuantityEditor = secondQuantityCell.locator("input").first();
+    await expect(secondQuantityEditor).toBeVisible();
+    await secondQuantityEditor.fill("5");
+    await secondQuantityEditor.press("Enter");
 
     const createOrderResponsePromise = page.waitForResponse(
       (response) =>
@@ -242,8 +248,14 @@ test.describe("Purchasing flow", () => {
     await selectDate(page, page.locator("#expectedDate"), expectedEditDate);
     await page.locator("#notes").fill("Updated delivery window after supplier confirmation.");
 
-    const secondRow = page.getByRole("row", { name: /Reorder line 2/ });
-    await secondRow.getByRole("textbox", { name: "Ordered Qty" }).fill("6");
+    const materialGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
+    const secondRow = materialGrid.locator('[role="row"][row-index="1"]');
+    const quantityCell = secondRow.locator('[col-id="quantityOrdered"]');
+    await quantityCell.click();
+    const quantityEditor = quantityCell.locator("input").first();
+    await expect(quantityEditor).toBeVisible();
+    await quantityEditor.fill("6");
+    await quantityEditor.press("Enter");
 
     await page.getByRole("button", { name: "Save Changes" }).click();
     await page.waitForURL(`**/purchasing/orders/${purchaseOrderId}`);

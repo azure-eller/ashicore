@@ -12,7 +12,6 @@ import {
 import {
   createItem,
   createUnit,
-  deleteItem,
   getUnitId,
   testFetch,
   updateItem,
@@ -289,9 +288,12 @@ test.describe("Stocktake flow", () => {
     expect(productLine?.expectedQty).toBe("0.0000");
     await expect(page.getByText(`0 / ${lines.length}`)).toBeVisible();
 
-    const deleteResponse = await deleteItem(materialId);
-    expect(deleteResponse.status).toBe(400);
-    expect(deleteResponse.body?.error).toContain("draft stocktakes");
+    const deleteResponse = await testFetch(`/api/item-cards/${productId}`, {
+      method: "DELETE",
+    });
+    const deleteBody = await deleteResponse.json().catch(() => null);
+    expect(deleteResponse.status, JSON.stringify(deleteBody)).toBe(400);
+    expect(deleteBody?.error ?? "").toMatch(/draft stocktakes?/i);
 
     await page.goto("/inventory/stocktakes");
     await filterList(page, "Search stocktakes", `Full Count ${ts}`);

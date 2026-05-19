@@ -1986,6 +1986,8 @@ test.describe("Manufacturing write-path smoke", () => {
       draftTemplateIngredients[1],
     ];
 
+    await page.close();
+
     await db
       .delete(manufacturingOrderBatches)
       .where(eq(manufacturingOrderBatches.manufacturingOrderId, legacyOrderId));

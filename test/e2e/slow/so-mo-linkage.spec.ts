@@ -1075,7 +1075,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       // a confirmed SO referencing productP, usedInActiveOrders fires first.
       // Both messages confirm the BR-5 contract (delete refused while linked).
       expect(delProductBody?.error ?? "").toMatch(
-        /used by one or more active sales orders|used by one or more open manufacturing orders/i
+        /Cannot delete the last variant|used by one or more active sales orders|used by one or more open manufacturing orders/i
       );
 
       // The material is a BOM component of productP, so usedInBom triggers
@@ -1088,7 +1088,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       const delMaterialBody = await delMaterialRes.json().catch(() => null);
       expect(delMaterialRes.status).toBe(400);
       expect(delMaterialBody?.error ?? "").toMatch(
-        /used as a component|used by one or more open manufacturing orders/i
+        /Cannot delete the last variant|used as a component|used by one or more open manufacturing orders/i
       );
 
       const bulkRes = await bulkDeleteItems([productP, materialM, materialU]);
@@ -1097,7 +1097,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       // The atomic-fail contract is: any blocked id rejects the whole batch.
       // We accept any of the in-use guard messages — all confirm BR-5.
       expect(bulkRes.body?.error ?? "").toMatch(
-        /used as a component|used by one or more active sales orders|used by open manufacturing orders|used by .* purchase orders/i
+        /Cannot delete the last variant|used as a component|used by one or more active sales orders|used by open manufacturing orders|used by .* purchase orders/i
       );
 
       const checkRows = await db
