@@ -129,6 +129,8 @@ function DialogBody({
     direction === "to"
       ? `Copy ${scope === "bom" ? "recipe" : "operations"} to sibling variants`
       : `Copy ${scope === "bom" ? "recipe" : "operations"} from another variant`;
+  const canSubmit =
+    direction === "to" ? selectedIds.size > 0 : sourceId.trim() !== "";
 
   return (
     <>
@@ -208,7 +210,7 @@ function DialogBody({
         </Button>
         <Button
           type="button"
-          disabled={mutation.isPending}
+          disabled={mutation.isPending || !canSubmit}
           onClick={() => mutation.mutate()}
         >
           {mutation.isPending

@@ -12,7 +12,7 @@ import {
   MoreVerticalIcon,
   PrinterIcon,
 } from "@hugeicons/core-free-icons";
-import { useSmartBack } from "@/lib/hooks/use-smart-back";
+import { useRouter } from "next/navigation";
 import { formatDate } from "@/lib/format";
 import { useCardSaveStatus, type CardSaveStatus } from "./use-card-save-status";
 import styles from "./card-page.module.css";
@@ -51,7 +51,7 @@ export function CardPageHeader({
   deleteDisabledReason,
 }: CardPageHeaderProps) {
   const status = useCardSaveStatus(itemId);
-  const handleClose = useSmartBack(fallbackHref);
+  const router = useRouter();
 
   const placeholderName = isDraft && !name.trim()
     ? `New ${typeLabel.toLowerCase()}`
@@ -124,7 +124,7 @@ export function CardPageHeader({
           type="button"
           className={styles.iconBtn}
           aria-label="Close"
-          onClick={handleClose}
+          onClick={() => router.push(fallbackHref)}
         >
           <HugeiconsIcon icon={Cancel01Icon} size={14} />
         </button>

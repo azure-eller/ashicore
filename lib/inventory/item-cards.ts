@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -751,9 +752,9 @@ async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
     };
 }
 
-export async function getItemCard(itemId: string): Promise<ItemCardDto> {
+export const getItemCard = cache(async (itemId: string): Promise<ItemCardDto> => {
   return withAuthedOrgContext((tx) => getItemCardInTx(tx, itemId));
-}
+});
 
 export async function createItemCard(
   data: z.infer<typeof itemCardCreateSchema>,
@@ -1369,7 +1370,11 @@ async function generationPreviewInTx(tx: Tx, itemId: string): Promise<Generation
     (acc, set) => acc.flatMap((combo) => set.map((value) => [...combo, value])),
     [[]],
   );
-  const existingKeys = new Set(card.variants.map((variant) => variant.optionCombinationKey));
+  const existingKeys = new Set(
+    card.variants
+      .filter((variant) => variant.deletedAt == null)
+      .map((variant) => variant.optionCombinationKey),
+  );
   const missingCombinations = combinations
     .map((combo) => {
       const optionCombinationKey = buildCombinationKey(
@@ -1392,7 +1397,7 @@ async function generationPreviewInTx(tx: Tx, itemId: string): Promise<Generation
   return {
     familyId,
     potentialCount: combinations.length,
-    existingCount: card.variants.length,
+    existingCount: card.variants.filter((variant) => variant.deletedAt == null).length,
     missingCount: missingCombinations.length,
     warnOver100: missingCombinations.length > 100,
     blocksGenerateAll: missingCombinations.length > 250,

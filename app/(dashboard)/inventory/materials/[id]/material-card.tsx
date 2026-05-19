@@ -29,6 +29,7 @@ import { VariantConfigurationDialog } from "@/components/card-page/variant-confi
 import { MaterialGeneralInfoTab } from "./tabs/general-info";
 import { MaterialUsedInBomsTab } from "./tabs/used-in-boms";
 import { MaterialSupplyDetailsTab } from "./tabs/supply-details";
+import type { SupplierOption } from "@/app/(dashboard)/purchasing/types";
 import styles from "@/components/card-page/card-page.module.css";
 
 export type MaterialCardProps = {
@@ -40,6 +41,7 @@ export type MaterialCardProps = {
     displayName: string;
   }>;
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
+  supplierOptions: SupplierOption[];
   initialLots: CardLotRow[];
 };
 
@@ -48,6 +50,7 @@ export function MaterialCard({
   initialCard,
   usedInBoms,
   unitOptions,
+  supplierOptions,
   initialLots,
 }: MaterialCardProps) {
   const router = useRouter();
@@ -98,7 +101,7 @@ export function MaterialCard({
       }
 
       const family = { ...draftCard.family, ...patch };
-      const name = family.name.trim();
+      const name = (family.name ?? "").trim();
       if (!name || !family.unitDefinitionId) {
         return;
       }
@@ -197,7 +200,12 @@ export function MaterialCard({
           ),
           "used-in-boms": <MaterialUsedInBomsTab usedInBoms={usedInBoms} />,
           supply: (
-            <MaterialSupplyDetailsTab card={card} focusItemId={currentItemId ?? ""} />
+            <MaterialSupplyDetailsTab
+              card={card}
+              focusItemId={currentItemId ?? ""}
+              unitOptions={unitOptions}
+              supplierOptions={supplierOptions}
+            />
           ),
         }}
       />

@@ -3,6 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  CheckmarkCircle02Icon,
+  Download01Icon,
+  Undo03Icon,
+  Upload01Icon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
@@ -134,23 +141,26 @@ export function ProductRecipeTab({
           onChange={handleVariantChange}
           hideWhenSingle={false}
         />
-        <div className="flex flex-wrap items-center gap-(--space-2)">
+        <div className="flex shrink-0 flex-nowrap items-center justify-end gap-(--space-1) overflow-x-auto">
           <Button
             type="button"
             variant="outline"
             size="sm"
+            className="px-(--space-4)"
             onClick={() => setCopyToOpen(true)}
             disabled={visibleVariants.length < 2}
           >
+            <HugeiconsIcon icon={Upload01Icon} data-icon="inline-start" />
             Copy to…
           </Button>
           <Button
             type="button"
             variant="outline"
             size="sm"
+            className="px-(--space-4)"
             onClick={() => setCopyFromOpen(true)}
-            disabled={visibleVariants.length < 2}
           >
+            <HugeiconsIcon icon={Download01Icon} data-icon="inline-start" />
             Copy from…
           </Button>
           {dirty ? (
@@ -158,21 +168,25 @@ export function ProductRecipeTab({
               type="button"
               variant="outline"
               size="sm"
+              className="px-(--space-4)"
               onClick={() => {
                 setRows(initialBomRows);
                 setDirty(false);
               }}
               disabled={saveMutation.isPending}
             >
+              <HugeiconsIcon icon={Undo03Icon} data-icon="inline-start" />
               Discard
             </Button>
           ) : null}
           <Button
             type="button"
             size="sm"
+            className="px-(--space-4)"
             onClick={() => saveMutation.mutate()}
             disabled={!dirty || saveMutation.isPending}
           >
+            <HugeiconsIcon icon={CheckmarkCircle02Icon} data-icon="inline-start" />
             {saveMutation.isPending ? "Saving…" : "Save recipe"}
           </Button>
         </div>
@@ -204,45 +218,6 @@ export function ProductRecipeTab({
         </span>
       </div>
 
-      <h2 className={styles.sectionHeading} style={{ marginTop: "var(--space-5)" }}>
-        Variant summary
-        <span className={styles.hint}>read-only · per active variant</span>
-      </h2>
-      <div className={styles.summaryGrid}>
-        <SummaryTile
-          label="Active variant"
-          value={activeVariant.optionValues[0]?.valueLabel ?? activeVariant.displayName}
-          sub={activeVariant.sku ?? "No SKU"}
-        />
-        <SummaryTile
-          label="Default sales price"
-          value={
-            activeVariant.defaultSellingPrice == null
-              ? "—"
-              : Number(activeVariant.defaultSellingPrice).toFixed(2)
-          }
-          sub={activeVariant.defaultSellingPrice == null ? "no price" : "USD"}
-        />
-        <SummaryTile
-          label="Ingredients cost"
-          value={
-            activeVariant.ingredientsCost == null
-              ? "—"
-              : Number(activeVariant.ingredientsCost).toFixed(5)
-          }
-          sub={activeVariant.ingredientsCost == null ? "no BOM cost" : "USD · stock cost"}
-        />
-        <SummaryTile
-          label="In stock"
-          value={activeVariant.inStockQty === "0" ? "—" : activeVariant.inStockQty}
-          sub={
-            activeVariant.inStockQty === "0"
-              ? "no stock yet"
-              : card.family.unitName ?? "on hand"
-          }
-        />
-      </div>
-
       <CopyDialog
         open={copyToOpen}
         onOpenChange={setCopyToOpen}
@@ -260,23 +235,5 @@ export function ProductRecipeTab({
         siblings={visibleVariants}
       />
     </section>
-  );
-}
-
-function SummaryTile({
-  label,
-  value,
-  sub,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-}) {
-  return (
-    <div className={styles.summaryTile}>
-      <span className={styles.eyebrow}>{label}</span>
-      <span className={styles.val}>{value}</span>
-      <span className={styles.sub}>{sub}</span>
-    </div>
   );
 }

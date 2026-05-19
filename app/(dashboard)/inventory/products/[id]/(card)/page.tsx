@@ -1,6 +1,4 @@
 import { redirect } from "next/navigation";
-import { getItem } from "@/app/(dashboard)/inventory/queries";
-import { ProductCardShell } from "./card-shell";
 
 export default async function ProductDetailPage({
   params,
@@ -10,9 +8,7 @@ export default async function ProductDetailPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
-  const { tab } = await searchParams;
-  const item = await getItem(id);
-  if (!item || item.itemType !== "product") redirect("/inventory/products");
+  const { tab, view } = await searchParams;
 
   const selectedTab = Array.isArray(tab) ? tab[0] : tab;
   if (selectedTab === "recipe") redirect(`/inventory/products/${id}/recipe`);
@@ -21,6 +17,7 @@ export default async function ProductDetailPage({
   }
   if (selectedTab === "lots") redirect(`/inventory/products/${id}/lots`);
   if (selectedTab === "general") redirect(`/inventory/products/${id}`);
+  if (view === "legacy") redirect(`/inventory/products/${id}`);
 
-  return <ProductCardShell itemId={id} activeTab="general" />;
+  return null;
 }

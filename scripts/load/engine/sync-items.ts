@@ -1,5 +1,11 @@
-import { eq } from "drizzle-orm";
-import { items } from "@/lib/db/schema";
+import { eq, inArray } from "drizzle-orm";
+import {
+  itemFamilies,
+  itemVariantValues,
+  items,
+  variantOptions,
+  variantOptionValues,
+} from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { normalizeNumeric } from "@/lib/format";
 import {
@@ -44,6 +50,7 @@ export async function loadExistingItemsInTx(tx: Tx): Promise<ExistingItem[]> {
       sku: items.sku,
       name: items.name,
       itemType: items.itemType,
+      familyId: items.familyId,
       unitDefinitionId: items.unitDefinitionId,
       purchaseUnitDefinitionId: items.purchaseUnitDefinitionId,
       purchaseToStockFactor: items.purchaseToStockFactor,
@@ -85,6 +92,269 @@ function numericStringEquals(
   return normalizeNumeric(existingNumber) === normalizeNumeric(desiredNumber);
 }
 
+function stableCode(prefix: string, value: string) {
+  return `${prefix}_${value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48) || "value"}`;
+}
+
+function optionCombinationKeyForVariant(
+  axes: string[],
+  valueCodeByAxis: Map<string, Map<string, string>>,
+  variantAttrs?: Record<string, string>
+) {
+  if (!variantAttrs || axes.length === 0) return "";
+
+  return axes
+    .map((axis) => {
+      const value = variantAttrs[axis];
+      const valueCode = value ? valueCodeByAxis.get(axis)?.get(value) : null;
+      return `${stableCode("opt", axis)}:${valueCode ?? stableCode("val", value ?? "")}`;
+    })
+    .join("|");
+}
+
+function familyKeyForSeed(seed: ItemSeed) {
+  return seed.parentKey ?? seed.key;
+}
+
+function isFamilySeed(seed: ItemSeed) {
+  return seed.isMaster === true || !seed.parentKey;
+}
+
+function childSeedsForFamily(seeds: ItemSeed[], familyKey: string) {
+  return seeds.filter((seed) => seed.parentKey === familyKey);
+}
+
+function variantSeedsForFamily(seeds: ItemSeed[], familySeed: ItemSeed) {
+  return familySeed.isMaster ? childSeedsForFamily(seeds, familySeed.key) : [familySeed];
+}
+
+function firstVariantUnitKey(seeds: ItemSeed[], familySeed: ItemSeed) {
+  if (familySeed.unitKey) return familySeed.unitKey;
+
+  return variantSeedsForFamily(seeds, familySeed).find((seed) => seed.unitKey)?.unitKey ?? null;
+}
+
+function axesForFamily(familySeed: ItemSeed, variantSeeds: ItemSeed[]) {
+  if (familySeed.variantAxes?.length) return familySeed.variantAxes;
+
+  const axes: string[] = [];
+  for (const seed of variantSeeds) {
+    for (const axis of Object.keys(seed.variantAttrs ?? {})) {
+      if (!axes.includes(axis)) axes.push(axis);
+    }
+  }
+  return axes;
+}
+
+function findExistingForSeed(
+  seed: ItemSeed,
+  itemBySku: Map<string, ExistingItem>,
+  itemByName: Map<string, ExistingItem[]>
+) {
+  const isMaster = seed.isMaster === true;
+  return findExistingItem(seed, itemBySku, itemByName, {
+    allowNameMatch: true,
+    nameMatchPredicate: isMaster
+      ? (item) => item.isMaster === true
+      : (item) => item.isMaster !== true,
+  });
+}
+
+function findExistingFamilyId(
+  familySeed: ItemSeed,
+  variantSeeds: ItemSeed[],
+  itemBySku: Map<string, ExistingItem>,
+  itemByName: Map<string, ExistingItem[]>
+) {
+  const existingFamilySeedItem = findExistingForSeed(familySeed, itemBySku, itemByName);
+  if (existingFamilySeedItem?.familyId) return existingFamilySeedItem.familyId;
+
+  for (const variantSeed of variantSeeds) {
+    const existingVariant = findExistingForSeed(variantSeed, itemBySku, itemByName);
+    if (existingVariant?.familyId) return existingVariant.familyId;
+  }
+
+  return null;
+}
+
+type FamilyOptionMap = {
+  axes: string[];
+  optionIdByAxis: Map<string, string>;
+  valueIdByAxisAndLabel: Map<string, Map<string, string>>;
+  valueCodeByAxisAndLabel: Map<string, Map<string, string>>;
+};
+
+async function syncFamilyOptionsInTx(
+  tx: Tx,
+  orgId: string,
+  familyId: string,
+  axes: string[],
+  variantSeeds: ItemSeed[]
+): Promise<FamilyOptionMap> {
+  const optionIdByAxis = new Map<string, string>();
+  const valueIdByAxisAndLabel = new Map<string, Map<string, string>>();
+  const valueCodeByAxisAndLabel = new Map<string, Map<string, string>>();
+
+  if (axes.length === 0) {
+    return {
+      axes,
+      optionIdByAxis,
+      valueIdByAxisAndLabel,
+      valueCodeByAxisAndLabel,
+    };
+  }
+
+  const existingOptions = await tx
+    .select({
+      id: variantOptions.id,
+      code: variantOptions.code,
+    })
+    .from(variantOptions)
+    .where(eq(variantOptions.familyId, familyId));
+  const existingOptionByCode = new Map(existingOptions.map((option) => [option.code, option]));
+
+  for (const [sortOrder, axis] of axes.entries()) {
+    const optionCode = stableCode("opt", axis);
+    const existingOption = existingOptionByCode.get(optionCode);
+    const option = existingOption
+      ? (
+          await tx
+            .update(variantOptions)
+            .set({
+              name: axis,
+              sortOrder,
+              disabledAt: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(variantOptions.id, existingOption.id))
+            .returning({ id: variantOptions.id })
+        )[0]
+      : (
+          await tx
+            .insert(variantOptions)
+            .values({
+              organizationId: orgId,
+              familyId,
+              name: axis,
+              code: optionCode,
+              sortOrder,
+              disabledAt: null,
+            })
+            .returning({ id: variantOptions.id })
+        )[0];
+    optionIdByAxis.set(axis, option.id);
+  }
+
+  const optionIds = [...optionIdByAxis.values()];
+  const existingValues = optionIds.length
+    ? await tx
+        .select({
+          id: variantOptionValues.id,
+          optionId: variantOptionValues.optionId,
+          code: variantOptionValues.code,
+        })
+        .from(variantOptionValues)
+        .where(inArray(variantOptionValues.optionId, optionIds))
+    : [];
+  const existingValueByOptionAndCode = new Map(
+    existingValues.map((value) => [`${value.optionId}:${value.code}`, value])
+  );
+
+  for (const axis of axes) {
+    const optionId = optionIdByAxis.get(axis);
+    if (!optionId) continue;
+
+    const labels: string[] = [];
+    for (const seed of variantSeeds) {
+      const label = seed.variantAttrs?.[axis];
+      if (label && !labels.includes(label)) labels.push(label);
+    }
+
+    const valueIdByLabel = new Map<string, string>();
+    const valueCodeByLabel = new Map<string, string>();
+    for (const [sortOrder, label] of labels.entries()) {
+      const valueCode = stableCode("val", label);
+      const existingValue = existingValueByOptionAndCode.get(`${optionId}:${valueCode}`);
+      const value = existingValue
+        ? (
+            await tx
+              .update(variantOptionValues)
+              .set({
+                label,
+                sortOrder,
+                disabledAt: null,
+                updatedAt: new Date(),
+              })
+              .where(eq(variantOptionValues.id, existingValue.id))
+              .returning({ id: variantOptionValues.id })
+          )[0]
+        : (
+            await tx
+              .insert(variantOptionValues)
+              .values({
+                organizationId: orgId,
+                optionId,
+                label,
+                code: valueCode,
+                sortOrder,
+                disabledAt: null,
+              })
+              .returning({ id: variantOptionValues.id })
+          )[0];
+      valueIdByLabel.set(label, value.id);
+      valueCodeByLabel.set(label, valueCode);
+    }
+    valueIdByAxisAndLabel.set(axis, valueIdByLabel);
+    valueCodeByAxisAndLabel.set(axis, valueCodeByLabel);
+  }
+
+  return {
+    axes,
+    optionIdByAxis,
+    valueIdByAxisAndLabel,
+    valueCodeByAxisAndLabel,
+  };
+}
+
+async function syncItemVariantValuesInTx(
+  tx: Tx,
+  orgId: string,
+  itemId: string,
+  seed: ItemSeed,
+  optionMap: FamilyOptionMap
+) {
+  await tx.delete(itemVariantValues).where(eq(itemVariantValues.itemId, itemId));
+
+  if (!seed.variantAttrs || optionMap.axes.length === 0) return;
+
+  const values = optionMap.axes.map((axis) => {
+    const optionId = optionMap.optionIdByAxis.get(axis);
+    const label = seed.variantAttrs?.[axis];
+    const optionValueId = label
+      ? optionMap.valueIdByAxisAndLabel.get(axis)?.get(label)
+      : null;
+    if (!optionId || !optionValueId) {
+      throw new Error(`Variant ${seed.name} is missing a configured ${axis} value.`);
+    }
+    return {
+      organizationId: orgId,
+      itemId,
+      optionId,
+      optionValueId,
+      updatedAt: new Date(),
+    };
+  });
+
+  if (values.length > 0) {
+    await tx.insert(itemVariantValues).values(values);
+  }
+}
+
 export function planItemsSync(
   seeds: ItemSeed[],
   unitByKey: Map<string, UnitSeed>,
@@ -97,15 +367,14 @@ export function planItemsSync(
   const orderedSeeds = orderSeedsForSync(seeds);
 
   for (const seed of orderedSeeds) {
-    const isMaster = seed.isMaster === true;
+    if (seed.isMaster === true) continue;
+
     const existing = findExistingItem(seed, existingItemsBySku, existingItemsByName, {
       allowNameMatch: true,
-      nameMatchPredicate: isMaster
-        ? (item) => item.isMaster === true
-        : (item) => item.isMaster !== true,
+      nameMatchPredicate: (item) => item.isMaster !== true,
     });
     const desiredUnitSeed = seed.unitKey ? unitByKey.get(seed.unitKey) : null;
-    if (!isMaster && !desiredUnitSeed) {
+    if (!desiredUnitSeed) {
       throw new Error(`Unknown unit key "${seed.unitKey}" for ${seed.name}.`);
     }
     const desiredUnit = desiredUnitSeed
@@ -122,11 +391,10 @@ export function planItemsSync(
       existing.sku !== seed.sku ||
       existing.name !== seed.name ||
       existing.itemType !== seed.itemType ||
-      (isMaster
-        ? existing.unitDefinitionId !== null
-        : desiredUnit
-          ? existing.unitDefinitionId !== desiredUnit.id
-          : true) ||
+      (desiredUnit ? existing.unitDefinitionId !== desiredUnit.id : true) ||
+      existing.familyId == null ||
+      existing.isMaster !== false ||
+      existing.parentId !== null ||
       (existing.category ?? null) !== seed.category ||
       (existing.description ?? null) !== seed.description ||
       (seed.defaultPurchasePrice !== undefined &&
@@ -145,9 +413,7 @@ export function planItemsSync(
         !numericStringEquals(existing.typicalGroupSize, seed.typicalGroupSize)) ||
       (seed.bomLocked !== undefined && existing.bomLocked !== seed.bomLocked) ||
       (seed.safetyStock !== undefined &&
-        !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0")) ||
-      JSON.stringify(existing.variantAxes ?? null) !== JSON.stringify(seed.variantAxes ?? null) ||
-      JSON.stringify(existing.variantAttrs ?? null) !== JSON.stringify(seed.variantAttrs ?? null)
+        !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0"))
     ) {
       matchedItemByKey.set(seed.key, existing);
       report.updatedItems.push(seed.name);
@@ -174,27 +440,95 @@ export async function applyItemsSyncInTx(
   internalOnlyProductCategories?: Set<string>
 ) {
   const orderedSeeds = orderSeedsForSync(seeds);
+  const familyIdByKey = new Map<string, string>();
+  const optionMapByFamilyKey = new Map<string, FamilyOptionMap>();
 
-  for (const seed of orderedSeeds) {
-    const isMaster = seed.isMaster === true;
+  for (const familySeed of seeds.filter(isFamilySeed)) {
+    const familyKey = familySeed.key;
+    const variants = variantSeedsForFamily(seeds, familySeed);
+    const unitKey = firstVariantUnitKey(seeds, familySeed);
+    const unitDefinitionId = unitKey ? unitIdByKey.get(unitKey) : null;
+    if (!unitDefinitionId) {
+      throw new Error(`Unit key "${unitKey ?? "(none)"}" was not resolved for ${familySeed.name}.`);
+    }
+
+    const purchaseUnitDefinitionId = familySeed.purchaseUnitKey
+      ? unitIdByKey.get(familySeed.purchaseUnitKey) ?? null
+      : null;
+    const existingFamilyId = findExistingFamilyId(
+      familySeed,
+      variants,
+      itemBySku,
+      itemByName
+    );
+    const familyValues = {
+      organizationId: orgId,
+      itemType: familySeed.itemType,
+      name: familySeed.name,
+      category: familySeed.category,
+      description: familySeed.description,
+      unitDefinitionId,
+      purchaseUnitDefinitionId,
+      purchaseToStockFactor: familySeed.purchaseToStockFactor ?? null,
+      deletedAt: null,
+      updatedAt: new Date(),
+    };
+    const familyId = existingFamilyId
+      ? (
+          await tx
+            .update(itemFamilies)
+            .set(familyValues)
+            .where(eq(itemFamilies.id, existingFamilyId))
+            .returning({ id: itemFamilies.id })
+        )[0].id
+      : (
+          await tx
+            .insert(itemFamilies)
+            .values(familyValues)
+            .returning({ id: itemFamilies.id })
+        )[0].id;
+
+    familyIdByKey.set(familyKey, familyId);
+
+    const axes = axesForFamily(familySeed, variants);
+    optionMapByFamilyKey.set(
+      familyKey,
+      await syncFamilyOptionsInTx(tx, orgId, familyId, axes, variants)
+    );
+
+    if (familySeed.isMaster) {
+      const existingMaster = findExistingForSeed(familySeed, itemBySku, itemByName);
+      if (existingMaster && existingMaster.deletedAt == null) {
+        await tx
+          .update(items)
+          .set({ deletedAt: new Date(), updatedAt: new Date() })
+          .where(eq(items.id, existingMaster.id));
+      }
+    }
+  }
+
+  for (const seed of orderedSeeds.filter((item) => item.isMaster !== true)) {
     const unitDefinitionId = seed.unitKey ? unitIdByKey.get(seed.unitKey) : null;
-    if (!isMaster && !unitDefinitionId) {
+    if (!unitDefinitionId) {
       throw new Error(`Unit key "${seed.unitKey}" was not resolved for ${seed.name}.`);
     }
 
     const purchaseUnitDefinitionId = seed.purchaseUnitKey
       ? unitIdByKey.get(seed.purchaseUnitKey) ?? null
       : undefined;
-    const resolvedParentId = seed.parentKey
-      ? itemIdByKey.get(seed.parentKey) ?? null
-      : null;
+    const familyKey = familyKeyForSeed(seed);
+    const familyId = familyIdByKey.get(familyKey);
+    const optionMap = optionMapByFamilyKey.get(familyKey);
+    if (!familyId || !optionMap) {
+      throw new Error(`Family was not resolved for ${seed.name}.`);
+    }
+    const optionCombinationKey = optionCombinationKeyForVariant(
+      optionMap.axes,
+      optionMap.valueCodeByAxisAndLabel,
+      seed.variantAttrs
+    );
 
-    const existing = findExistingItem(seed, itemBySku, itemByName, {
-      allowNameMatch: true,
-      nameMatchPredicate: isMaster
-        ? (item) => item.isMaster === true
-        : (item) => item.isMaster !== true,
-    });
+    const existing = findExistingForSeed(seed, itemBySku, itemByName);
     if (!existing) {
       const sellable = resolveSeedSellable(seed, internalOnlyProductCategories);
       const [created] = await tx
@@ -218,14 +552,17 @@ export async function applyItemsSyncInTx(
           typicalBatchSize: seed.typicalBatchSize ?? null,
           typicalGroupSize: seed.typicalGroupSize ?? null,
           bomLocked: seed.bomLocked ?? false,
-          isMaster: seed.isMaster ?? false,
-          parentId: resolvedParentId,
-          variantAxes: seed.variantAxes ?? null,
-          variantAttrs: seed.variantAttrs ?? null,
+          familyId,
+          optionCombinationKey,
+          isMaster: false,
+          parentId: null,
+          variantAxes: null,
+          variantAttrs: null,
           sellable,
         })
         .returning({ id: items.id });
       itemIdByKey.set(seed.key, created.id);
+      await syncItemVariantValuesInTx(tx, orgId, created.id, seed, optionMap);
       report.createdItems.push(seed.name);
     } else {
       const sellable = resolveSeedSellable(seed, internalOnlyProductCategories);
@@ -236,10 +573,12 @@ export async function applyItemsSyncInTx(
         unitDefinitionId: unitDefinitionId ?? null,
         category: seed.category,
         description: seed.description,
-        isMaster: seed.isMaster ?? false,
-        parentId: resolvedParentId,
-        variantAxes: seed.variantAxes ?? null,
-        variantAttrs: seed.variantAttrs ?? null,
+        familyId,
+        optionCombinationKey,
+        isMaster: false,
+        parentId: null,
+        variantAxes: null,
+        variantAttrs: null,
         sellable,
         deletedAt: null,
         updatedAt: new Date(),
@@ -308,11 +647,12 @@ export async function applyItemsSyncInTx(
         (seed.bomLocked !== undefined && existing.bomLocked !== seed.bomLocked) ||
         (seed.safetyStock !== undefined &&
           !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0")) ||
-        existing.isMaster !== (seed.isMaster ?? false) ||
-        existing.parentId !== resolvedParentId ||
+        existing.familyId !== familyId ||
+        existing.isMaster !== false ||
+        existing.parentId !== null ||
         existing.sellable !== sellable ||
-        JSON.stringify(existing.variantAxes ?? null) !== JSON.stringify(seed.variantAxes ?? null) ||
-        JSON.stringify(existing.variantAttrs ?? null) !== JSON.stringify(seed.variantAttrs ?? null);
+        JSON.stringify(existing.variantAxes ?? null) !== JSON.stringify(null) ||
+        JSON.stringify(existing.variantAttrs ?? null) !== JSON.stringify(null);
 
       if (hasChanges) {
         await tx.update(items).set(nextValues).where(eq(items.id, existing.id));
@@ -326,28 +666,11 @@ export async function applyItemsSyncInTx(
       }
 
       itemIdByKey.set(seed.key, existing.id);
+      await syncItemVariantValuesInTx(tx, orgId, existing.id, seed, optionMap);
     }
 
     if (seed.unresolvedFormulaNote) {
       report.unresolvedFormulae.push(seed.unresolvedFormulaNote);
     }
-  }
-
-  // Second pass: ensure parent IDs are wired up after all items exist.
-  for (const seed of orderedSeeds) {
-    if (!seed.parentKey) continue;
-
-    const itemId = itemIdByKey.get(seed.key);
-    const parentId = itemIdByKey.get(seed.parentKey);
-
-    if (!itemId || !parentId) continue;
-
-    await tx
-      .update(items)
-      .set({
-        parentId,
-        updatedAt: new Date(),
-      })
-      .where(eq(items.id, itemId));
   }
 }

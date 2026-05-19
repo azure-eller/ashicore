@@ -1612,7 +1612,7 @@ export async function getLots(itemId: string) {
         receivedAt: lots.receivedAt,
       })
       .from(lots)
-      .leftJoin(
+      .innerJoin(
         inventoryLotBalances,
         and(
           eq(inventoryLotBalances.organizationId, lots.organizationId),

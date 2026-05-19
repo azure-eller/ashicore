@@ -1,8 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import styles from "./card-page.module.css";
 
@@ -37,11 +38,17 @@ export function CardTabs({
   const activeTab =
     controlledActiveTab ??
     (qsTab && tabs.some((t) => t.value === qsTab) ? qsTab : defaultTab);
+  const [optimisticTab, setOptimisticTab] = useState(activeTab);
+  const isRouteTabLoading = controlledActiveTab != null && optimisticTab !== activeTab;
+  const renderedTab = controlledActiveTab != null ? activeTab : optimisticTab;
 
-  // Tab change is instant per design §5: the body content swaps in place with
-  // no spinner. URL update is fire-and-forget; React will rerender immediately.
+  useEffect(() => {
+    setOptimisticTab(activeTab);
+  }, [activeTab]);
+
   const selectTab = (next: string) => {
     if (next === activeTab) return;
+    setOptimisticTab(next);
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", next);
     router.replace(`?${params.toString()}`, { scroll: false });
@@ -51,7 +58,7 @@ export function CardTabs({
     <>
       <nav className={styles.tabs} aria-label="Card sections">
         {tabs.map((tab) => {
-          const isActive = tab.value === activeTab;
+          const isActive = tab.value === optimisticTab;
           return (
             tab.href ? (
               <Link
@@ -60,6 +67,7 @@ export function CardTabs({
                 aria-current={isActive ? "page" : undefined}
                 aria-controls={`card-tab-panel-${tab.value}`}
                 className={cn(styles.tab, isActive && styles.tabActive)}
+                onClick={() => setOptimisticTab(tab.value)}
                 prefetch
               >
                 {tab.label}
@@ -89,10 +97,16 @@ export function CardTabs({
 
       <div className={styles.body}>
         <section
-          id={`card-tab-panel-${activeTab}`}
-          aria-labelledby={`card-tab-${activeTab}`}
+          id={`card-tab-panel-${optimisticTab}`}
+          aria-labelledby={`card-tab-${optimisticTab}`}
         >
-          {children ?? panels?.[activeTab] ?? null}
+          {isRouteTabLoading ? (
+            <div className={styles.tabLoading} role="status" aria-live="polite">
+              <Spinner className="size-5 text-muted-foreground" />
+            </div>
+          ) : (
+            children ?? panels?.[renderedTab] ?? null
+          )}
         </section>
       </div>
     </>

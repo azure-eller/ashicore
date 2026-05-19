@@ -6,6 +6,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Checkbox } from "@/components/ui/checkbox";
+import { EntityCombobox } from "@/components/entity-combobox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   EditableLineDataGrid,
   type ColDef,
@@ -19,24 +27,26 @@ import {
   type UpdateItemCardVariantInput,
 } from "@/lib/api/clients/item-cards";
 import { formatQuantity } from "@/lib/format";
+import type { SupplierOption } from "@/app/(dashboard)/purchasing/types";
 import styles from "@/components/card-page/card-page.module.css";
 
 export type MaterialSupplyDetailsTabProps = {
   card: ItemCardDto;
   focusItemId: string;
+  unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
+  supplierOptions: SupplierOption[];
 };
 
 export function MaterialSupplyDetailsTab({
   card,
   focusItemId,
+  unitOptions,
+  supplierOptions,
 }: MaterialSupplyDetailsTabProps) {
   const queryClient = useQueryClient();
   const purchaseUnitEnabled = card.family.purchaseUnitDefinitionId != null;
   const [purchaseUnitOn, setPurchaseUnitOn] = useState(purchaseUnitEnabled);
 
-  // Toggle is a one-way OFF switch in v1: turning ON requires a unit picker
-  // that isn't built yet (see cleanup doc). When OFF we send nulls to clear
-  // the purchase unit + factor; when ON we leave the values alone.
   const disablePurchaseUnit = useMutation({
     mutationKey: ["item-card", focusItemId, "patch", "purchase-unit-off"],
     mutationFn: () =>
@@ -44,6 +54,22 @@ export function MaterialSupplyDetailsTab({
         purchaseUnitDefinitionId: null,
         purchaseToStockFactor: null,
       }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+    },
+  });
+  const supplierMutation = useMutation({
+    mutationKey: ["item-card", focusItemId, "patch", "defaultSupplierId"],
+    mutationFn: (defaultSupplierId: string | null) =>
+      updateItemCard(focusItemId, { defaultSupplierId }),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+    },
+  });
+  const purchaseUnitMutation = useMutation({
+    mutationKey: ["item-card", focusItemId, "patch", "purchaseUnitDefinitionId"],
+    mutationFn: (purchaseUnitDefinitionId: string | null) =>
+      updateItemCard(focusItemId, { purchaseUnitDefinitionId }),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["item-card"] });
     },
@@ -61,10 +87,25 @@ export function MaterialSupplyDetailsTab({
         <div className="grid gap-(--space-4) md:grid-cols-2">
           <Field>
             <FieldLabel>Default supplier</FieldLabel>
-            <Input
-              value=""
-              placeholder="Pending backend — supplier picker not wired yet"
-              disabled
+            <EntityCombobox
+              options={supplierOptions}
+              value={card.family.defaultSupplierId}
+              onValueChange={(value) => supplierMutation.mutate(value)}
+              placeholder="Search suppliers..."
+              emptyMessage="No suppliers found"
+              createLinks={[
+                {
+                  href: "/purchasing/suppliers/new",
+                  label: "Create supplier",
+                },
+              ]}
+              renderSecondary={(supplier) =>
+                supplier.code ? (
+                  <span className="ml-auto shrink-0 text-[length:var(--text-xs)] text-muted-foreground">
+                    {supplier.code}
+                  </span>
+                ) : null
+              }
             />
           </Field>
           <Field>
@@ -76,23 +117,19 @@ export function MaterialSupplyDetailsTab({
             <label className="flex items-center gap-(--space-2) text-[length:var(--text-sm)]">
               <Checkbox
                 checked={purchaseUnitOn}
-                disabled={!purchaseUnitOn}
-                title={
-                  purchaseUnitOn
-                    ? "Click to disable and clear the purchase unit."
-                    : "Purchase-unit picker is pending. Once shipped, enable it from here."
-                }
+                disabled={disablePurchaseUnit.isPending || purchaseUnitMutation.isPending}
                 onCheckedChange={(checked) => {
-                  if (purchaseUnitOn && checked !== true) {
+                  if (checked === true) {
+                    setPurchaseUnitOn(true);
+                    return;
+                  }
+                  if (purchaseUnitOn) {
                     setPurchaseUnitOn(false);
                     disablePurchaseUnit.mutate();
                   }
                 }}
               />
               Use a different purchase unit
-              {!purchaseUnitOn ? (
-                <span className={styles.helper}> · picker pending</span>
-              ) : null}
             </label>
           </Field>
 
@@ -100,11 +137,21 @@ export function MaterialSupplyDetailsTab({
             <>
               <Field>
                 <FieldLabel>Default purchase unit of measure</FieldLabel>
-                <Input
+                <Select
                   value={card.family.purchaseUnitDefinitionId ?? ""}
-                  placeholder="Unit picker — pending wire-up"
-                  disabled
-                />
+                  onValueChange={(value) => purchaseUnitMutation.mutate(value)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select a purchase unit" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {unitOptions.map((unit) => (
+                      <SelectItem key={unit.id} value={unit.id}>
+                        {unit.name} ({unit.size} {unit.uom})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </Field>
               <ConversionField
                 focusItemId={focusItemId}

@@ -72,6 +72,7 @@ export type ExistingItem = {
   sku: string | null;
   name: string;
   itemType: string;
+  familyId: string | null;
   unitDefinitionId: string | null;
   purchaseUnitDefinitionId: string | null;
   purchaseToStockFactor: string | null;

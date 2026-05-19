@@ -605,6 +605,7 @@ export function OperationCostEditor({
         cellEditor: "agSelectCellEditor",
         cellEditorParams: {
           values: [
+            "",
             ...localResources.map((resource) => resource.id),
             CREATE_NEW_RESOURCE,
           ],

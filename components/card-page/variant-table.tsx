@@ -14,29 +14,40 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon } from "@hugeicons/core-free-icons";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   EditableLineDataGrid,
   type ColDef,
   type EditableLineDataGridChange,
 } from "@/components/editable-line-data-grid";
+import { Button } from "@/components/ui/button";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import {
+  addInitialStock,
   deleteVariant,
   generateVariants,
   previewVariantGeneration,
   reorderItemCardVariants,
   updateItemCardVariant,
+  type AddInitialStockInput,
   type ItemCardDto,
   type ItemCardVariantDto,
   type VariantOptionDto,
   type UpdateItemCardVariantInput,
 } from "@/lib/api/clients/item-cards";
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { formatQuantity } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import type { CardLotRow } from "./lot-grid-tab";
 import styles from "./card-page.module.css";
 
 export type VariantTableProps = {
@@ -112,36 +123,332 @@ function NumericMoneyCell({
   );
 }
 
+function StockQuantityAdjustmentDialog({
+  adjustment,
+  unitLabel,
+  onOpenChange,
+  onSaved,
+}: {
+  adjustment: {
+    variant: ItemCardVariantDto;
+    nextQuantity: string;
+    previousQuantity: string;
+  } | null;
+  unitLabel?: string;
+  onOpenChange: (open: boolean) => void;
+  onSaved: () => void;
+}) {
+  return (
+    <Dialog open={adjustment != null} onOpenChange={onOpenChange}>
+      <DialogContent size="lg">
+        {adjustment ? (
+          <StockQuantityAdjustmentBody
+            adjustment={adjustment}
+            unitLabel={unitLabel}
+            onCancel={() => onOpenChange(false)}
+            onSaved={onSaved}
+          />
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function StockQuantityAdjustmentBody({
+  adjustment,
+  unitLabel,
+  onCancel,
+  onSaved,
+}: {
+  adjustment: {
+    variant: ItemCardVariantDto;
+    nextQuantity: string;
+    previousQuantity: string;
+  };
+  unitLabel?: string;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const previous = toNumber(adjustment.previousQuantity);
+  const next = toNumber(adjustment.nextQuantity);
+  const delta = roundQty(next - previous);
+  const isIncrease = delta > 0;
+  const [occurredAt, setOccurredAt] = useState(() => nowLocalIsoSecond());
+  const [costPerUnit, setCostPerUnit] = useState("");
+  const [note, setNote] = useState("");
+  const lotsQuery = useQuery({
+    queryKey: ["item-lots", adjustment.variant.id],
+    queryFn: async () => {
+      const response = await fetch(`/api/items/${adjustment.variant.id}/lots`);
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to load lots.");
+      }
+      return body as CardLotRow[];
+    },
+    enabled: !isIncrease,
+  });
+
+  const draftKey = isIncrease
+    ? `${adjustment.variant.id}:increase:${delta}`
+    : `${adjustment.variant.id}:decrease:${delta}:${(lotsQuery.data ?? [])
+        .map((lot) => `${lot.id}:${lot.quantity}`)
+        .join("|")}`;
+  const defaultDraftLots = useMemo(
+    () => (isIncrease ? [] : buildDecreaseDraft(lotsQuery.data ?? [], Math.abs(delta))),
+    [delta, isIncrease, lotsQuery.data],
+  );
+  const [draftLotsState, setDraftLotsState] = useState<{
+    key: string;
+    rows: Array<{ lot: CardLotRow; nextQuantity: string }>;
+  }>(() => ({ key: draftKey, rows: defaultDraftLots }));
+
+  if (draftLotsState.key !== draftKey) {
+    setDraftLotsState({ key: draftKey, rows: defaultDraftLots });
+  }
+
+  const draftLots = draftLotsState.rows;
+
+  const increaseMutation = useMutation({
+    mutationKey: ["item-card", adjustment.variant.id, "stock-increase"],
+    mutationFn: (input: AddInitialStockInput) => addInitialStock(adjustment.variant.id, input),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["item-card"] });
+      onSaved();
+    },
+  });
+
+  const decreaseMutation = useMutation({
+    mutationKey: ["item-card", adjustment.variant.id, "stock-decrease"],
+    mutationFn: async () => {
+      for (const row of draftLots) {
+        if (row.nextQuantity === row.lot.quantity) continue;
+        const response = await fetch(
+          `/api/items/${adjustment.variant.id}/lots/${row.lot.id}/quantity`,
+          {
+            method: "PUT",
+            headers: createIdempotencyHeaders("variant-stock-adjust", {
+              "Content-Type": "application/json",
+            }),
+            body: JSON.stringify({
+              quantity: row.nextQuantity,
+              note: note.trim() === "" ? null : note.trim(),
+            }),
+          },
+        );
+        const body = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(body?.error ?? "Failed to adjust stock.");
+        }
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["item-card"] });
+      onSaved();
+    },
+  });
+
+  const adjustedDelta = roundQty(
+    draftLots.reduce(
+      (sum, row) => sum + Math.max(0, toNumber(row.lot.quantity) - toNumber(row.nextQuantity)),
+      0,
+    ),
+  );
+  const decreaseNeeded = Math.abs(delta);
+  const decreaseValid = isIncrease || Math.abs(adjustedDelta - decreaseNeeded) <= 0.0001;
+  const mutationError = (increaseMutation.error ?? decreaseMutation.error) as Error | null;
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>{isIncrease ? "Increase stock" : "Reduce stock"}</DialogTitle>
+        <DialogDescription>
+          {adjustment.variant.displayName} · {formatQuantity(adjustment.previousQuantity)} to{" "}
+          {formatQuantity(adjustment.nextQuantity)} {unitLabel ?? ""}
+        </DialogDescription>
+      </DialogHeader>
+
+      {isIncrease ? (
+        <div className="grid gap-(--space-4) md:grid-cols-2">
+          <Field>
+            <FieldLabel>Quantity to add</FieldLabel>
+            <div className="flex items-center gap-(--space-2)">
+              <Input value={String(delta)} readOnly className={styles.mono} />
+              {unitLabel ? (
+                <span className="text-[length:var(--text-sm)] text-muted-foreground">
+                  {unitLabel}
+                </span>
+              ) : null}
+            </div>
+          </Field>
+          <Field>
+            <FieldLabel>Cost per unit</FieldLabel>
+            <div className="flex items-center gap-(--space-2)">
+              <Input
+                value={costPerUnit}
+                onChange={(event) => setCostPerUnit(event.target.value)}
+                inputMode="decimal"
+              />
+              <span className="text-[length:var(--text-sm)] text-muted-foreground">USD</span>
+            </div>
+          </Field>
+          <Field>
+            <FieldLabel>Occurred at</FieldLabel>
+            <DateTimePicker value={occurredAt} onChange={setOccurredAt} />
+          </Field>
+          <Field>
+            <FieldLabel>Note</FieldLabel>
+            <Input value={note} onChange={(event) => setNote(event.target.value)} />
+          </Field>
+        </div>
+      ) : lotsQuery.isLoading ? (
+        <div className="grid min-h-40 place-items-center">
+          <Spinner className="text-muted-foreground" />
+        </div>
+      ) : lotsQuery.error ? (
+        <FieldError>
+          {lotsQuery.error instanceof Error ? lotsQuery.error.message : "Failed to load lots."}
+        </FieldError>
+      ) : (
+        <div className="grid gap-(--space-4)">
+          <div className="grid gap-(--space-2)">
+            <div className="grid grid-cols-[1fr_120px_120px] gap-(--space-2) text-[length:var(--text-xs)] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+              <span>Lot</span>
+              <span>Current</span>
+              <span>After</span>
+            </div>
+            {draftLots.length === 0 ? (
+              <p className="text-[length:var(--text-sm)] text-muted-foreground">
+                No available lots to reduce.
+              </p>
+            ) : (
+              draftLots.map((row, index) => (
+                <div
+                  key={row.lot.id}
+                  className="grid grid-cols-[1fr_120px_120px] items-center gap-(--space-2)"
+                >
+                  <span className={styles.mono}>{row.lot.lotNumber}</span>
+                  <span className={styles.mono}>{formatQuantity(row.lot.quantity)}</span>
+                  <Input
+                    value={row.nextQuantity}
+                    inputMode="decimal"
+                    className={styles.mono}
+                    onChange={(event) => {
+                      const value = event.target.value.trim();
+                      setDraftLotsState((current) => ({
+                        ...current,
+                        rows: current.rows.map((currentRow, currentIndex) =>
+                          currentIndex === index
+                            ? { ...currentRow, nextQuantity: value }
+                            : currentRow,
+                        ),
+                      }));
+                    }}
+                  />
+                </div>
+              ))
+            )}
+          </div>
+          <Field>
+            <FieldLabel>Note</FieldLabel>
+            <Input value={note} onChange={(event) => setNote(event.target.value)} />
+          </Field>
+          <p className="text-[length:var(--text-sm)] text-muted-foreground">
+            Reducing {formatQuantity(String(adjustedDelta))} of{" "}
+            {formatQuantity(String(decreaseNeeded))} {unitLabel ?? ""}.
+          </p>
+        </div>
+      )}
+
+      {mutationError ? <FieldError>{mutationError.message}</FieldError> : null}
+
+      <DialogFooter>
+        <Button type="button" variant="outline" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          disabled={
+            increaseMutation.isPending ||
+            decreaseMutation.isPending ||
+            (!isIncrease && !decreaseValid)
+          }
+          onClick={() => {
+            if (isIncrease) {
+              increaseMutation.mutate({
+                quantity: String(delta),
+                costPerUnit: costPerUnit.trim() === "" ? null : costPerUnit.trim(),
+                occurredAt: new Date(occurredAt).toISOString(),
+                note: note.trim() === "" ? null : note.trim(),
+              });
+              return;
+            }
+            decreaseMutation.mutate();
+          }}
+        >
+          {increaseMutation.isPending || decreaseMutation.isPending
+            ? "Adjusting..."
+            : "Adjust stock"}
+        </Button>
+      </DialogFooter>
+    </>
+  );
+}
+
+function buildDecreaseDraft(lots: CardLotRow[], decreaseQuantity: number) {
+  let remaining = decreaseQuantity;
+  const rows: Array<{ lot: CardLotRow; nextQuantity: string }> = [];
+
+  for (const lot of lots) {
+    if (remaining <= 0) {
+      rows.push({ lot, nextQuantity: lot.quantity });
+      continue;
+    }
+    const current = toNumber(lot.quantity);
+    const deduction = Math.min(current, remaining);
+    rows.push({
+      lot,
+      nextQuantity: String(roundQty(current - deduction)),
+    });
+    remaining = roundQty(remaining - deduction);
+  }
+
+  return rows;
+}
+
+function toNumber(value: string | null | undefined) {
+  const parsed = Number(value ?? "0");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function roundQty(value: number) {
+  return Math.round(value * 10000) / 10000;
+}
+
+function nowLocalIsoSecond(): string {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(
+    now.getHours(),
+  )}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+}
+
 function StockQuantityCell({
   quantity,
   unitLabel,
-  onAddInitialStock,
-  addInitialStockEndpointReady,
 }: {
   quantity: string;
   unitLabel: string | null | undefined;
-  onAddInitialStock?: () => void;
-  addInitialStockEndpointReady?: boolean;
 }) {
   const numeric = Number(quantity);
-  if (Number.isFinite(numeric) && numeric !== 0) {
-    return (
-      <>
-        <span className={numeric < 0 ? styles.stockNeg : styles.mono}>
-          {quantity}
-        </span>
-        {unitLabel ? <span className={styles.uom}>{unitLabel}</span> : null}
-      </>
-    );
-  }
-  if (!onAddInitialStock) {
-    return <span className={styles.placeholder}>—</span>;
-  }
   return (
-    <StockCellLink
-      ready={addInitialStockEndpointReady}
-      onClick={onAddInitialStock}
-    />
+    <>
+      <span className={Number.isFinite(numeric) && numeric < 0 ? styles.stockNeg : styles.mono}>
+        {formatQuantity(quantity)}
+      </span>
+      {unitLabel ? <span className={styles.uom}>{unitLabel}</span> : null}
+    </>
   );
 }
 
@@ -197,8 +504,6 @@ function replaceVariantOptionValue(
 export function VariantTable({
   card,
   viewMode,
-  onAddInitialStock,
-  addInitialStockEndpointReady = false,
 }: VariantTableProps) {
   const activeOptions = useMemo(
     () => card.options.filter((option) => option.disabledAt == null),
@@ -209,6 +514,7 @@ export function VariantTable({
     () => card.variants.filter((variant) => variant.deletedAt == null),
     [card.variants],
   );
+  const mutationItemId = visibleVariants[0]?.id ?? card.variants[0]?.id ?? card.family.id;
 
   // Local copy of the rows AG Grid renders. Sync from props on every render
   // via the "adjust state in render" pattern (React 19-recommended).
@@ -222,11 +528,16 @@ export function VariantTable({
   const queryClient = useQueryClient();
   const [confirmDeleteVariant, setConfirmDeleteVariant] =
     useState<ItemCardVariantDto | null>(null);
+  const [stockAdjustment, setStockAdjustment] = useState<{
+    variant: ItemCardVariantDto;
+    nextQuantity: string;
+    previousQuantity: string;
+  } | null>(null);
 
   const cellMutation = useMutation({
     // mutationKey prefix matches the card's useQuery so the save-status pill
     // picks up edits across every variant in the family.
-    mutationKey: ["item-card", card.variants[0]?.id ?? card.family.id, "variant-cell"],
+    mutationKey: ["item-card", mutationItemId, "variant-cell"],
     mutationFn: ({
       variantId,
       payload,
@@ -240,7 +551,7 @@ export function VariantTable({
   });
 
   const deleteMutation = useMutation({
-    mutationKey: ["item-card", card.variants[0]?.id ?? card.family.id, "variant-delete"],
+    mutationKey: ["item-card", mutationItemId, "variant-delete"],
     mutationFn: (variantId: string) => deleteVariant(variantId),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["item-card"] });
@@ -248,24 +559,24 @@ export function VariantTable({
   });
 
   const reorderMutation = useMutation({
-    mutationKey: ["item-card", card.variants[0]?.id ?? card.family.id, "variant-reorder"],
+    mutationKey: ["item-card", mutationItemId, "variant-reorder"],
     mutationFn: (orderedVariantIds: string[]) =>
-      reorderItemCardVariants(card.variants[0]?.id ?? card.family.id, orderedVariantIds),
+      reorderItemCardVariants(mutationItemId, orderedVariantIds),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["item-card"] });
     },
   });
 
   const previewQuery = useQuery({
-    queryKey: ["item-card", card.variants[0]?.id ?? card.family.id, "variants-preview"],
-    queryFn: () => previewVariantGeneration(card.variants[0]?.id ?? card.family.id),
+    queryKey: ["item-card", mutationItemId, "variants-preview"],
+    queryFn: () => previewVariantGeneration(mutationItemId),
     enabled: visibleVariants.length > 0 && activeOptions.length > 0,
   });
 
   const addVariantMutation = useMutation({
-    mutationKey: ["item-card", card.variants[0]?.id ?? card.family.id, "variant-add-row"],
+    mutationKey: ["item-card", mutationItemId, "variant-add-row"],
     mutationFn: async () => {
-      const focusItemId = card.variants[0]?.id;
+      const focusItemId = visibleVariants[0]?.id;
       if (!focusItemId) return null;
       const preview = await previewVariantGeneration(focusItemId);
       const nextCombination = preview.missingCombinations[0];
@@ -288,6 +599,14 @@ export function VariantTable({
         return;
       }
       if (change.type !== "cell_edit_committed" || !change.row) return;
+      if (change.colId === "inStock") {
+        setStockAdjustment({
+          variant: change.row,
+          nextQuantity: String(change.newValue ?? "0"),
+          previousQuantity: String(change.oldValue ?? "0"),
+        });
+        return;
+      }
       const payload = change.colId?.startsWith("option:")
         ? buildVariantOptionPatch(change.row, activeOptions)
         : change.field
@@ -502,11 +821,23 @@ export function VariantTable({
     }
 
     cols.push({
+      field: "inStockQty",
       colId: "inStock",
       headerName: "In stock",
       type: "rightAligned",
+      editable: true,
+      cellEditor: "agTextCellEditor",
       flex: 0.8,
       minWidth: 140,
+      valueSetter: (params: ValueSetterParams<ItemCardVariantDto>) => {
+        const trimmed = String(params.newValue ?? "").trim();
+        const parsed = Number(trimmed);
+        if (!trimmed || !Number.isFinite(parsed) || parsed < 0) return false;
+        const next = String(Math.round(parsed * 10000) / 10000);
+        if (params.data.inStockQty === next) return false;
+        params.data.inStockQty = next;
+        return true;
+      },
       cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => {
         if (!params.data) {
           return <span className={styles.placeholder}>—</span>;
@@ -515,10 +846,6 @@ export function VariantTable({
           <StockQuantityCell
             quantity={params.data.inStockQty}
             unitLabel={unitName}
-            addInitialStockEndpointReady={addInitialStockEndpointReady}
-            onAddInitialStock={
-              onAddInitialStock ? () => onAddInitialStock(params.data!) : undefined
-            }
           />
         );
       },
@@ -527,34 +854,9 @@ export function VariantTable({
     return cols;
   }, [
     activeOptions,
-    addInitialStockEndpointReady,
-    onAddInitialStock,
     unitName,
     viewMode,
   ]);
-
-  const extraEndColumns = useMemo<ColDef<ItemCardVariantDto>[]>(() => {
-    if (!onAddInitialStock) return [];
-    return [
-      {
-        colId: "addStock",
-        headerName: "",
-        width: 44,
-        minWidth: 44,
-        maxWidth: 44,
-        resizable: false,
-        cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => {
-          if (!params.data) return null;
-          return (
-            <AddInitialStockButton
-              ready={addInitialStockEndpointReady}
-              onClick={() => onAddInitialStock(params.data!)}
-            />
-          );
-        },
-      },
-    ];
-  }, [addInitialStockEndpointReady, onAddInitialStock]);
 
   const addDisabledReason =
     activeOptions.length === 0
@@ -594,7 +896,6 @@ export function VariantTable({
         onDeleteRow={(row) => setConfirmDeleteVariant(row)}
         onAddRow={() => addVariantMutation.mutateAsync()}
         addDisabledReason={addDisabledReason}
-        extraEndColumns={extraEndColumns}
         // Match Calm Matrix design: 30px header, 34px body row.
         headerHeight={30}
         rowHeight={34}
@@ -638,69 +939,20 @@ export function VariantTable({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <StockQuantityAdjustmentDialog
+        adjustment={stockAdjustment}
+        unitLabel={unitName ?? undefined}
+        onOpenChange={(open) => {
+          if (open) return;
+          setStockAdjustment(null);
+          setRows(visibleVariants);
+        }}
+        onSaved={() => {
+          setStockAdjustment(null);
+          void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+        }}
+      />
     </>
-  );
-}
-
-function AddInitialStockButton({
-  ready,
-  onClick,
-}: {
-  ready: boolean | undefined;
-  onClick: () => void;
-}) {
-  if (!ready) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            className={styles.iButton}
-            aria-label="Add initial stock"
-            disabled
-          >
-            <HugeiconsIcon icon={Add01Icon} size={14} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Pending backend.</TooltipContent>
-      </Tooltip>
-    );
-  }
-  return (
-    <button
-      type="button"
-      className={styles.iButton}
-      aria-label="Add initial stock"
-      onClick={onClick}
-      style={{ color: "var(--color-accent)" }}
-    >
-      <HugeiconsIcon icon={Add01Icon} size={14} />
-    </button>
-  );
-}
-
-function StockCellLink({
-  ready,
-  onClick,
-}: {
-  ready: boolean | undefined;
-  onClick: () => void;
-}) {
-  if (!ready) {
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button type="button" className={styles.stockAdd} disabled>
-            Add initial stock
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Pending backend.</TooltipContent>
-      </Tooltip>
-    );
-  }
-  return (
-    <button type="button" className={styles.stockAdd} onClick={onClick}>
-      Add initial stock
-    </button>
   );
 }

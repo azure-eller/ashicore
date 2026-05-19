@@ -5,7 +5,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -51,6 +52,7 @@ export function MaterialGeneralInfoTab({
   draftCreatePending,
 }: MaterialGeneralInfoTabProps) {
   const hasOptions = card.options.some((option) => option.disabledAt == null);
+  const [variantsEnabled, setVariantsEnabled] = useState(hasOptions);
   const visibleVariantCount = card.variants.filter((variant) => variant.deletedAt == null)
     .length;
   const isDraft = focusItemId == null;
@@ -115,15 +117,17 @@ export function MaterialGeneralInfoTab({
             <span className={styles.count}>· {visibleVariantCount} variants</span>
           ) : null}
           <span className={styles.hint} style={{ display: "flex", gap: "var(--space-2)" }}>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={onOpenConfig}
-              disabled={isDraft}
-            >
-              Open configuration…
-            </Button>
+            {hasOptions || variantsEnabled ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onOpenConfig}
+                disabled={isDraft}
+              >
+                Open configuration…
+              </Button>
+            ) : null}
             <GenerateBarcodesButton
               cardItemId={focusItemId ?? ""}
               variants={card.variants}
@@ -131,6 +135,18 @@ export function MaterialGeneralInfoTab({
             />
           </span>
         </h2>
+        <label className="mb-(--space-2) flex items-center gap-(--space-2) text-[length:var(--text-sm)] text-muted-foreground">
+          <Checkbox
+            checked={hasOptions || variantsEnabled}
+            disabled={isDraft || hasOptions}
+            onCheckedChange={(checked) => {
+              const enabled = checked === true;
+              setVariantsEnabled(enabled);
+              if (enabled) onOpenConfig();
+            }}
+          />
+          This material has multiple variants
+        </label>
 
         <VariantTable
           card={card}
@@ -177,9 +193,11 @@ function EditableFieldText({
       void queryClient.invalidateQueries({ queryKey: ["item-card", focusItemId] });
     },
   });
+  const showRequiredError =
+    required && draft.trim() === "" && (focusItemId == null || mutation.isError);
 
   return (
-    <Field>
+    <Field data-invalid={showRequiredError || mutation.isError}>
       <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
       <Input
         id={inputId}
@@ -197,6 +215,10 @@ function EditableFieldText({
           const trimmed = draft.trim();
           const next = trimmed === "" ? null : trimmed;
           if (focusItemId == null) {
+            if (required && next == null) {
+              onDraftFamilyChange({ [field]: "" } as DraftFamilyPatch);
+              return;
+            }
             const patch = { [field]: next } as DraftFamilyPatch;
             onDraftFamilyChange(patch);
             onDraftCommit(patch);
@@ -216,8 +238,9 @@ function EditableFieldText({
         }}
         placeholder={placeholder}
         disabled={disabled}
-        aria-invalid={mutation.isError || undefined}
+        aria-invalid={showRequiredError || mutation.isError || undefined}
       />
+      {showRequiredError ? <FieldError>Name is required</FieldError> : null}
     </Field>
   );
 }

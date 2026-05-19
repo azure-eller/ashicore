@@ -77,6 +77,7 @@ export type ItemCardFamilyDto = {
   description: string | null;
   unitDefinitionId: string;
   unitName: string | null;
+  defaultSupplierId: string | null;
   purchaseUnitDefinitionId: string | null;
   purchaseToStockFactor: string | null;
   deletedAt: DateOrIso;
@@ -110,6 +111,7 @@ export type CreateItemCardInput = {
   unitDefinitionId: string;
   category?: string | null;
   description?: string | null;
+  defaultSupplierId?: string | null;
   purchaseUnitDefinitionId?: string | null;
   purchaseToStockFactor?: string | null;
   sku?: string | null;

@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 import { getItem, getLots } from "@/app/(dashboard)/inventory/queries";
 import { LotGridTab } from "@/components/card-page/lot-grid-tab";
 import { getItemCard } from "@/lib/inventory/item-cards";
-import { ProductCardShell } from "../card-shell";
 
 export default async function ProductLotsPage({
   params,
@@ -19,13 +18,11 @@ export default async function ProductLotsPage({
   if (!item || item.itemType !== "product") redirect("/inventory/products");
 
   return (
-    <ProductCardShell itemId={id} activeTab="lots" lotsCount={lots.length}>
-      <LotGridTab
-        card={card}
-        focusItemId={id}
-        lots={lots}
-        unitLabel={card.family.unitName}
-      />
-    </ProductCardShell>
+    <LotGridTab
+      card={card}
+      focusItemId={id}
+      lots={lots}
+      unitLabel={card.family.unitName}
+    />
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -43,11 +43,12 @@ export function ProductCard({
   initialItemId,
   initialCard,
   unitOptions,
-  activeTab = "general",
+  activeTab,
   lotsCount,
   children,
 }: ProductCardProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [currentItemId, setCurrentItemId] = useState<string | null>(initialItemId);
@@ -117,7 +118,7 @@ export function ProductCard({
       }
 
       const family = { ...draftCard.family, ...patch };
-      const name = family.name.trim();
+      const name = (family.name ?? "").trim();
       if (!name || !family.unitDefinitionId) {
         return;
       }
@@ -173,6 +174,7 @@ export function ProductCard({
     (variant) => variant.deletedAt == null,
   ).length;
   const avgIngredientsCost = getAverageIngredientsCost(card);
+  const resolvedActiveTab = activeTab ?? getProductCardTabFromPath(pathname);
 
   return (
     <div className={styles.sheet}>
@@ -201,14 +203,14 @@ export function ProductCard({
       <CardTabs
         tabs={tabs}
         defaultTab="general"
-        activeTab={activeTab}
+        activeTab={resolvedActiveTab}
         caption={
           avgIngredientsCost == null
             ? "Ingredients · — avg"
             : `Ingredients · ${avgIngredientsCost.toFixed(5)} USD avg`
         }
       >
-        {activeTab === "general" || isDraft ? (
+        {resolvedActiveTab === "general" || isDraft ? (
           <ProductGeneralInfoTab
             card={card}
             focusItemId={currentItemId}
@@ -283,4 +285,11 @@ function getAverageIngredientsCost(card: ItemCardDto) {
     .filter((value) => Number.isFinite(value));
   if (costs.length === 0) return null;
   return costs.reduce((total, value) => total + value, 0) / costs.length;
+}
+
+function getProductCardTabFromPath(pathname: string): ProductCardTab {
+  if (pathname.endsWith("/recipe")) return "recipe";
+  if (pathname.endsWith("/production")) return "production";
+  if (pathname.endsWith("/lots")) return "lots";
+  return "general";
 }

@@ -14,6 +14,7 @@ function emptyCard(itemType: "product", unitDefinitionId: string): ItemCardDto {
       description: null,
       unitDefinitionId,
       unitName: null,
+      defaultSupplierId: null,
       purchaseUnitDefinitionId: null,
       purchaseToStockFactor: null,
       deletedAt: null,

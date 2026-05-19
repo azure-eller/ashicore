@@ -5,6 +5,7 @@ import {
   getUnitDefinitions,
   getUsedInParents,
 } from "@/app/(dashboard)/inventory/queries";
+import { getSuppliers } from "@/app/(dashboard)/purchasing/queries";
 import { getItemCard } from "@/lib/inventory/item-cards";
 import { MaterialCard } from "./material-card";
 
@@ -18,10 +19,11 @@ export default async function MaterialDetailPage({
   if (!item) redirect("/inventory/materials");
 
   const card = await getItemCard(id);
-  const [usedInParents, unitOptions, lots] = await Promise.all([
+  const [usedInParents, unitOptions, lots, suppliers] = await Promise.all([
     getUsedInParents(id),
     getUnitDefinitions(),
     getLots(id),
+    getSuppliers(),
   ]);
 
   return (
@@ -34,6 +36,11 @@ export default async function MaterialDetailPage({
         name: unit.name,
         size: unit.size,
         uom: unit.uom,
+      }))}
+      supplierOptions={suppliers.map((supplier) => ({
+        id: supplier.id,
+        name: supplier.name,
+        code: supplier.code,
       }))}
       initialLots={lots}
     />

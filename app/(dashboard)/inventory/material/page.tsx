@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/lib/dal/auth";
 import { getUnitDefinitions } from "@/app/(dashboard)/inventory/queries";
+import { getSuppliers } from "@/app/(dashboard)/purchasing/queries";
 import type { ItemCardDto } from "@/lib/api/clients/item-cards";
 import { MaterialCard } from "../materials/[id]/material-card";
 
@@ -14,6 +15,7 @@ function emptyCard(itemType: "material", unitDefinitionId: string): ItemCardDto 
       description: null,
       unitDefinitionId,
       unitName: null,
+      defaultSupplierId: null,
       purchaseUnitDefinitionId: null,
       purchaseToStockFactor: null,
       deletedAt: null,
@@ -27,7 +29,7 @@ function emptyCard(itemType: "material", unitDefinitionId: string): ItemCardDto 
 
 export default async function MaterialDraftPage() {
   await requireModuleAccess("inventory", "operate");
-  const units = await getUnitDefinitions();
+  const [units, suppliers] = await Promise.all([getUnitDefinitions(), getSuppliers()]);
   const defaultUnit =
     units.find((unit) => unit.name.toLowerCase() === "each") ?? units[0];
   if (!defaultUnit) {
@@ -44,6 +46,11 @@ export default async function MaterialDraftPage() {
         name: unit.name,
         size: unit.size,
         uom: unit.uom,
+      }))}
+      supplierOptions={suppliers.map((supplier) => ({
+        id: supplier.id,
+        name: supplier.name,
+        code: supplier.code,
       }))}
       initialLots={[]}
     />
