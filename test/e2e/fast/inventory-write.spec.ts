@@ -65,6 +65,7 @@ test.describe("Inventory write-path smoke (card UI)", () => {
     expect(material.name).toBe(materialName);
 
     // Inline-edit the description on the saved card — autosaves on blur.
+    await page.getByRole("button", { name: "General info" }).click();
     const descTextarea = page.getByLabel("Additional info");
     await descTextarea.click();
     await descTextarea.clear();
