@@ -14,10 +14,7 @@ import { Button } from "@/components/ui/button";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
 import { BomEditor, type BomPayloadRow } from "@/app/(dashboard)/inventory/bom-editor";
-import {
-  saveBomRevision,
-  type ItemCardDto,
-} from "@/lib/api/clients/item-cards";
+import { saveBomRevision, type ItemCardDto } from "@/lib/api/clients/item-cards";
 import styles from "@/components/card-page/card-page.module.css";
 
 type AvailableComponent = {
@@ -83,7 +80,6 @@ export function ProductRecipeTab({
     onSuccess: () => {
       setDirty(false);
       void queryClient.invalidateQueries({ queryKey: ["item-card"] });
-      // Refetch the server-side BOM rows so the editor shows the saved state.
       router.refresh();
     },
   });
@@ -91,9 +87,7 @@ export function ProductRecipeTab({
   if (!canViewBom) {
     return (
       <section className={styles.section}>
-        <p className={styles.helper}>
-          You don&apos;t have access to view this recipe.
-        </p>
+        <p className={styles.helper}>You don&apos;t have access to view this recipe.</p>
       </section>
     );
   }
@@ -121,13 +115,12 @@ export function ProductRecipeTab({
   };
 
   const handleRowsChange = (next: BomPayloadRow[]) => {
+    if (!canEditProduct) return;
     setRows(next);
     setDirty(true);
   };
 
-  const errorMessage = saveMutation.error
-    ? (saveMutation.error as Error).message
-    : null;
+  const errorMessage = saveMutation.error ? (saveMutation.error as Error).message : null;
 
   return (
     <section className={styles.section}>
@@ -162,6 +155,7 @@ export function ProductRecipeTab({
               size="sm"
               className="px-(--space-4)"
               onClick={() => setCopyFromOpen(true)}
+              disabled={visibleVariants.length < 2}
             >
               <HugeiconsIcon icon={Download01Icon} data-icon="inline-start" />
               Copy from…
@@ -206,7 +200,7 @@ export function ProductRecipeTab({
       <BomEditor
         initialRows={initialBomRows}
         availableComponents={availableComponents}
-        onRowsChange={(nextRows) => handleRowsChange(nextRows)}
+        onRowsChange={handleRowsChange}
         error={errorMessage}
       />
 
