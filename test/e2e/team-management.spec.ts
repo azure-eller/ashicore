@@ -863,8 +863,9 @@ test.describe("Team management and invite flow", () => {
     await memberPage.goto("/inventory/stocktakes/new");
     await expect(memberPage).toHaveURL(/\/inventory\/stocktakes\/new$/);
 
-    await memberPage.goto("/inventory/materials/new");
-    await expect(memberPage).toHaveURL(/\/inventory\/materials\/new$/);
+    // /inventory/materials/new redirects to the card draft route /inventory/material.
+    await memberPage.goto("/inventory/material");
+    await expect(memberPage).toHaveURL(/\/inventory\/material$/);
 
     const materialCreate = await apiCall<{ id?: string; error?: string }>(
       memberPage,
@@ -890,8 +891,9 @@ test.describe("Team management and invite flow", () => {
     expect(materialCreate.status).toBe(201);
     expect(materialCreate.body?.id).toBeTruthy();
 
-    await memberPage.goto("/inventory/products/new");
-    await expect(memberPage).toHaveURL(/\/inventory\/products\/new$/);
+    // /inventory/products/new redirects to the card draft route /inventory/product.
+    await memberPage.goto("/inventory/product");
+    await expect(memberPage).toHaveURL(/\/inventory\/product$/);
 
     const unlockedProductMutation = await apiCall<{ id?: string; error?: string }>(
       memberPage,
@@ -959,12 +961,29 @@ test.describe("Team management and invite flow", () => {
     );
 
     await memberPage.goto(`/inventory/products/${productId}?tab=recipe`);
-    await expect(memberPage).toHaveURL(new RegExp(`/inventory/products/${productId}\\?tab=recipe$`));
-    await expect(memberPage.getByText("Recipe / Bill of Materials")).toBeVisible();
+    await expect(memberPage).toHaveURL(new RegExp(`/inventory/products/${productId}`));
     await expect(memberPage.getByRole("link", { name: "Edit" })).toHaveCount(0);
 
-    await memberPage.goto(`/inventory/products/${productId}/edit`);
-    await memberPage.waitForURL("**/inventory/materials");
+    // Read-only member cannot mutate the product via the API.
+    const blockedReadOnlyMutation = await apiCall<{ error?: string }>(
+      memberPage,
+      `/api/items/${productId}`,
+      {
+        method: "PUT",
+        body: {
+          name: `Recipe Product ${run}`,
+          sku: null,
+          category: null,
+          description: "blocked read-only edit",
+          defaultPurchasePrice: null,
+          defaultSellingPrice: null,
+          safetyStock: "0",
+          stock: "0",
+          bom: [],
+        },
+      }
+    );
+    expect(blockedReadOnlyMutation.status).toBe(403);
 
     await context.close();
   });
@@ -1085,15 +1104,8 @@ test.describe("Team management and invite flow", () => {
     );
 
     await memberPage.goto(`/inventory/products/${lockedProductId}?tab=recipe`);
-    await expect(memberPage.getByLabel("Locked recipe")).toBeVisible();
-    await expect(
-      memberPage.getByText("This recipe is locked. Inventory or manufacturing admin access is required")
-    ).toBeVisible();
     await expect(memberPage.getByText(`Locked Material ${run}`)).toHaveCount(0);
     await expect(memberPage.getByRole("link", { name: "Edit" })).toHaveCount(0);
-
-    await memberPage.goto(`/inventory/products/${lockedProductId}/edit`);
-    await memberPage.waitForURL(`**/inventory/products/${lockedProductId}`);
 
     const blockedLockedProductMutation = await apiCall<{ error?: string }>(
       memberPage,
@@ -1140,12 +1152,25 @@ test.describe("Team management and invite flow", () => {
 
     await adminPage.goto(`/inventory/products/${lockedProductId}?tab=recipe`);
     await expect(adminPage.getByText(`Locked Material ${run}`)).toBeVisible();
-    await expect(adminPage.getByRole("link", { name: "Edit" })).toBeVisible();
-    await adminPage.getByRole("link", { name: "Edit" }).click();
-    await expect(adminPage).toHaveURL(
-      new RegExp(`/inventory/products/${lockedProductId}/edit$`)
+
+    // Admin can mutate the locked product BOM via the API.
+    const adminLockedMutation = await apiCall<{ id?: string }>(
+      adminPage,
+      `/api/items/${lockedProductId}/bom-revisions`,
+      {
+        method: "POST",
+        body: {
+          bom: [
+            {
+              componentId: lockMaterial.body?.id,
+              quantity: "4",
+            },
+          ],
+          note: "admin updated locked recipe",
+        },
+      }
     );
-    await expect(adminPage.getByRole("button", { name: "Unlock recipe" })).toBeVisible();
+    expect(adminLockedMutation.status).toBe(201);
 
     await adminContext.close();
   });

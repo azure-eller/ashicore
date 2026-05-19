@@ -168,6 +168,7 @@ function EditableFieldText({
 }: EditableFieldTextProps) {
   const [draft, setDraft] = useState(value ?? "");
   const queryClient = useQueryClient();
+  const inputId = `card-field-${String(field)}`;
   const mutation = useMutation({
     mutationKey: ["item-card", focusItemId, "patch", field],
     mutationFn: (next: string | null) =>
@@ -179,8 +180,9 @@ function EditableFieldText({
 
   return (
     <Field>
-      <FieldLabel>{label}</FieldLabel>
+      <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
       <Input
+        id={inputId}
         autoFocus={focusItemId == null && field === "name"}
         value={draft}
         onChange={(event) => {
@@ -231,6 +233,7 @@ function EditableFieldTextarea({
 }: Omit<EditableFieldTextProps, "placeholder" | "required">) {
   const [draft, setDraft] = useState(value ?? "");
   const queryClient = useQueryClient();
+  const inputId = `card-field-${String(field)}`;
   const mutation = useMutation({
     mutationKey: ["item-card", focusItemId, "patch", field],
     mutationFn: (next: string | null) =>
@@ -242,8 +245,9 @@ function EditableFieldTextarea({
 
   return (
     <Field>
-      <FieldLabel>{label}</FieldLabel>
+      <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
       <Textarea
+        id={inputId}
         rows={3}
         value={draft}
         onChange={(event) => {

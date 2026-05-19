@@ -690,6 +690,24 @@ export async function updateItemCard(
       })
       .where(eq(itemFamilies.id, familyId));
 
+    // Mirror card-level fields to every variant on the family so list pages,
+    // inventory queries, and downstream sales/MO/PO references keep showing
+    // the latest name/category/description/unit.
+    await tx
+      .update(items)
+      .set({
+        name: data.name,
+        category: data.category,
+        description: data.description,
+        unitDefinitionId: data.unitDefinitionId,
+        purchaseUnitDefinitionId:
+          family.itemType === "material" ? data.purchaseUnitDefinitionId : undefined,
+        purchaseToStockFactor:
+          family.itemType === "material" ? data.purchaseToStockFactor : undefined,
+        updatedAt: new Date(),
+      })
+      .where(eq(items.familyId, familyId));
+
     const result = { id: itemId };
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,

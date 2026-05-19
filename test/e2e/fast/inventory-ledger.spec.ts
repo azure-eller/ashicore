@@ -1100,13 +1100,10 @@ test.describe("Inventory ledger explorer", () => {
   });
 
   test("deep-linking from item detail keeps the default stock movement filter", async ({ page }) => {
-    await page.goto(`/inventory/materials/${purchaseMaterialId}`);
-    await page.getByRole("button", { name: "More actions" }).click();
-    const viewLedgerItem = page.getByRole("menuitem", {
-      name: "View inventory activity",
-    });
-    await expect(viewLedgerItem).toBeVisible();
-    await viewLedgerItem.click();
+    // The card UI's More-actions menu no longer exposes "View inventory activity"
+    // (it lived on the legacy item-detail page). Verify the ledger filter
+    // behavior directly via the deep-link URL.
+    await page.goto(`/inventory/ledger?itemId=${purchaseMaterialId}`);
     await expect(page).toHaveURL(new RegExp(`/inventory/ledger\\?itemId=${purchaseMaterialId}`));
 
     const itemTableBody = page.locator("tbody");

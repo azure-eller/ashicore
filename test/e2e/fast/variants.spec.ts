@@ -21,7 +21,7 @@ test.describe("variant product cards", () => {
     });
     expect(create.status).toBe(201);
     const created = await create.json();
-    const variantId = created.id as string;
+    const variantId = (created.itemId ?? created.id) as string;
 
     const config = await testFetch(`/api/item-cards/${variantId}/variant-config`, {
       method: "PUT",

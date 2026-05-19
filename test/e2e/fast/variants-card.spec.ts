@@ -24,8 +24,8 @@ test.describe("variant-first item card", () => {
     });
     expect(response.status).toBe(201);
     const body = await response.json();
-    expect(body.id).toBeTruthy();
-    productItemId = body.id;
+    productItemId = (body.itemId ?? body.id) as string;
+    expect(productItemId).toBeTruthy();
 
     await page.goto(`/inventory/products/${productItemId}?view=card`);
     await expect(

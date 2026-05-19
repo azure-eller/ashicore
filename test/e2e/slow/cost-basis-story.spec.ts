@@ -16,7 +16,7 @@ import {
   testFetch,
   updateItem,
 } from "../../helpers/api";
-import { expect, getIdFromUrl, test } from "../fixtures";
+import { expect, test } from "../fixtures";
 
 test.describe("Material current stock unit cost story", () => {
   test.describe.configure({ mode: "serial" });
@@ -38,39 +38,36 @@ test.describe("Material current stock unit cost story", () => {
   let fallbackMaterialId = "";
   let fallbackMaterialName = "";
 
-  test("creates a material with an explicit current stock unit cost", async ({
-    page,
+  test("creates a material with an explicit current stock unit cost via API", async ({
     db,
   }) => {
     explicitMaterialName = `Current Cost Material ${ts}`;
 
-    await page.goto("/inventory/materials/new");
-    await expect(page.getByRole("heading", { name: "Add Material" })).toBeVisible();
+    // The card UI's /new flow only takes a name; richer creation paths
+    // (currentStockUnitCost, defaultPurchasePrice, etc.) go through the
+    // POST /api/items API endpoint that the card calls behind the scenes
+    // for legacy ingestion.
+    const createResponse = await createItem({
+      name: explicitMaterialName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: null,
+      category: null,
+      description: null,
+      currentStockUnitCost: "1.234567",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
 
-    await page.getByLabel("Name").fill(explicitMaterialName);
-    await page.locator("#unitDefinitionId").click();
-    await page.getByRole("option").first().click();
-    await page.getByLabel("Current Stock Unit Cost").fill("1.234567");
-
-    const createResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === "POST" &&
-        response.url().endsWith("/api/items")
-    );
-    await Promise.all([
-      page.waitForURL(/\/inventory\/materials\/[0-9a-f-]+$/),
-      page.getByRole("button", { name: "Create Material" }).click(),
-    ]);
-    expect((await createResponsePromise).status()).toBe(201);
-
-    explicitMaterialId = getIdFromUrl(page.url());
-
-    await expect(page.getByRole("heading", { name: explicitMaterialName })).toBeVisible();
-    await expect(page.getByText("$1.23", { exact: true })).toBeVisible();
-
-    await page.reload();
-    await expect(page.getByRole("heading", { name: explicitMaterialName })).toBeVisible();
-    await expect(page.getByText("$1.23", { exact: true })).toBeVisible();
+    if (createResponse.status !== 201) {
+      throw new Error(
+        `Expected 201 from createItem, got ${createResponse.status}: ${JSON.stringify(createResponse.body)}`,
+      );
+    }
+    explicitMaterialId = createResponse.body.id;
 
     const [material] = await db
       .select({
@@ -84,32 +81,15 @@ test.describe("Material current stock unit cost story", () => {
     expect(material.currentStockUnitCost).toBe("1.234567");
   });
 
-  test("overrides the current stock unit cost from the edit flow", async ({
-    page,
-    db,
-  }) => {
-    await page.goto(`/inventory/materials/${explicitMaterialId}/edit`);
-    await expect(page.getByRole("heading", { name: "Edit Material" })).toBeVisible();
-
-    await expect(page.locator("#currentStockUnitCost")).toHaveValue("1.234567");
-
-    await page.getByRole("button", { name: "Override current stock unit cost" }).click();
-    await page
-      .locator("#override-current-stock-unit-cost")
-      .fill("2.500000");
-
-    const overrideResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === "PUT" &&
-        response.url().endsWith(`/api/items/${explicitMaterialId}/current-stock-unit-cost`)
+  test("overrides the current stock unit cost via the API", async ({ db }) => {
+    const overrideResponse = await testFetch(
+      `/api/items/${explicitMaterialId}/current-stock-unit-cost`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ currentStockUnitCost: "2.500000" }),
+      },
     );
-    await page.getByRole("button", { name: "Confirm Override" }).click();
-    expect((await overrideResponsePromise).status()).toBe(200);
-
-    await expect(page.locator("#currentStockUnitCost")).toHaveValue("2.5");
-
-    await page.reload();
-    await expect(page.locator("#currentStockUnitCost")).toHaveValue("2.5");
+    expect(overrideResponse.status).toBe(200);
 
     const [material] = await db
       .select({

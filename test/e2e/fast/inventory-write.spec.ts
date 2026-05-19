@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import type { Page } from "@playwright/test";
-import { filterList, test, expect } from "../fixtures";
+import { test, expect } from "../fixtures";
 import {
   bomRevisionComponents,
   bomRevisions,
@@ -9,12 +9,13 @@ import {
   lots,
 } from "../../../lib/db/schema";
 import { todayInTimeZone } from "../../../lib/format";
-import { testFetch } from "../../helpers/api";
+import { createItem, getUnitId, testFetch } from "../../helpers/api";
 
-test.describe("Inventory write-path smoke", () => {
+test.describe("Inventory write-path smoke (card UI)", () => {
   test.describe.configure({ mode: "serial" });
 
   const ts = Date.now();
+  const unitId = getUnitId();
   let materialId = "";
   let materialLotId = "";
   let materialName = "";
@@ -36,118 +37,93 @@ test.describe("Inventory write-path smoke", () => {
     await editor.press("Enter");
   }
 
-  test("creates and edits a material through the browser form", async ({ page, db }) => {
+  test("creates and edits a material through the card UI", async ({ page, db }) => {
     materialName = `Fast Inventory Sand ${ts}`;
-    const sku = `FAST-MAT-${ts}`;
 
-    await page.goto("/inventory/materials/new");
-    await expect(page.getByText("Add Material")).toBeVisible();
-
-    await page.getByLabel("Name").fill(materialName);
-    await page.getByLabel("Description").fill("Fast smoke material");
-    await page.getByLabel("SKU").fill(sku);
-
-    const categoryInput = page.getByPlaceholder("Search or create category...");
-    await categoryInput.click();
-    await categoryInput.fill(`Fast Inventory ${ts}`);
-    await page.getByRole("option", { name: new RegExp(`Fast Inventory ${ts}`) }).first().click();
-
-    await page.locator("#unitDefinitionId").click();
-    await page.getByRole("option", { name: "+ Create new unit" }).click();
-    await page.locator("#unit-name").fill(`Bag ${ts}`);
-    await page.locator("#unit-size").fill("25");
-    await page.locator("#unit-uom").click();
-    await page.getByRole("option", { name: /kilogram/i }).click();
-
-    const [unitResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.request().method() === "POST" &&
-          response.url().endsWith("/api/units")
-      ),
-      page.getByRole("button", { name: "Create", exact: true }).click(),
-    ]);
-    expect(unitResponse.status()).toBe(201);
-
-    await page.getByLabel("Purchase Price").fill("3.50");
-    await page.getByLabel("Selling Price").fill("6.00");
-    await page.getByLabel("Stock", { exact: true }).fill("200");
-    await page.getByLabel("Safety Stock").fill("25");
+    await page.goto("/inventory/material");
+    const nameInput = page.getByLabel("Material name");
+    await expect(nameInput).toBeVisible();
+    await nameInput.fill(materialName);
 
     const [createResponse] = await Promise.all([
       page.waitForResponse(
         (response) =>
           response.request().method() === "POST" &&
-          response.url().endsWith("/api/items")
+          response.url().endsWith("/api/item-cards"),
       ),
-      page.getByRole("button", { name: "Create Material" }).click(),
+      nameInput.blur(),
     ]);
-
+    expect(createResponse.status()).toBe(201);
     const createBody = await createResponse.json();
-    materialId = createBody.id;
+    materialId = createBody.itemId ?? createBody.id;
 
-    await page.waitForURL(`**/inventory/materials/${materialId}`);
+    await page.waitForURL(`**/inventory/materials/${materialId}*`);
     await expect(page.getByRole("heading", { name: materialName })).toBeVisible();
 
     const [material] = await db.select().from(items).where(eq(items.id, materialId));
     expect(material.itemType).toBe("material");
-    expect(material.description).toBe("Fast smoke material");
-    expect(material.sku).toBe(sku);
-    expect(material.category).toBe(`Fast Inventory ${ts}`);
-    expect(material.defaultPurchasePrice).toBe("3.5000");
-    expect(material.defaultSellingPrice).toBe("6.00");
-    expect(material.safetyStock).toBe("25.0000");
+    expect(material.name).toBe(materialName);
 
-    const materialLots = await db.select().from(lots).where(eq(lots.itemId, materialId));
-    expect(materialLots).toHaveLength(1);
-    materialLotId = materialLots[0].id;
-    expect(materialLots[0].lotNumber).toBe(
-      `LOT-${todayInTimeZone("America/Denver")}`
-    );
-    expect(materialLots[0].quantity).toBe("200.0000");
+    // Inline-edit the description on the saved card — autosaves on blur.
+    const descTextarea = page.getByLabel("Additional info");
+    await descTextarea.click();
+    await descTextarea.clear();
+    await descTextarea.fill("Fast smoke material");
+    const [descResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "PATCH" &&
+          response.url().includes(`/api/item-cards/${materialId}`),
+      ),
+      descTextarea.blur(),
+    ]);
+    expect(descResponse.status()).toBe(200);
 
-    await page.getByRole("link", { name: "Edit" }).click();
-    await page.waitForURL(`**/inventory/materials/${materialId}/edit`);
-    await expect(page.getByRole("heading", { name: "Edit Material" })).toBeVisible({
-      timeout: 15_000,
-    });
-    await expect(page.getByRole("button", { name: "Save Changes" })).toBeVisible({
-      timeout: 15_000,
-    });
-    await expect(page.getByLabel("Description")).toBeVisible({ timeout: 15_000 });
-
-    await page.getByLabel("Description").fill("Fast smoke material updated");
-    await page.getByLabel("Safety Stock").fill("30");
-    const updateResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === "PUT" &&
-        response.url().endsWith(`/api/items/${materialId}`)
-    );
-    await page.getByRole("button", { name: "Save Changes" }).click();
-    expect((await updateResponsePromise).status()).toBe(200);
-
-    await page.waitForURL(`**/inventory/materials/${materialId}`);
-    await expect(page.getByRole("heading", { name: materialName })).toBeVisible();
-
-    const [updatedMaterial] = await db.select().from(items).where(eq(items.id, materialId));
-    expect(updatedMaterial.description).toBe("Fast smoke material updated");
-    expect(updatedMaterial.safetyStock).toBe("30.0000");
+    const [updated] = await db.select().from(items).where(eq(items.id, materialId));
+    expect(updated.description).toBe("Fast smoke material");
   });
 
   test("adjusts an existing lot quantity through the API", async ({ db }) => {
+    // The card UI's Add Initial Stock endpoint is not yet shipped, so create a
+    // separate material with stock via the legacy POST /api/items endpoint to
+    // exercise the lot quantity adjust API.
+    const lotMaterialName = `Fast Inventory Lot ${ts}`;
+    const created = await createItem({
+      itemType: "material",
+      name: lotMaterialName,
+      unitDefinitionId: unitId,
+      sku: null,
+      category: null,
+      description: null,
+      defaultPurchasePrice: "3.50",
+      defaultSellingPrice: null,
+      stock: "200",
+      safetyStock: "0",
+      bom: [],
+    });
+    if (created.status !== 201) {
+      throw new Error(
+        `Expected 201 from createItem, got ${created.status}: ${JSON.stringify(created.body)}`,
+      );
+    }
+    const lotMaterialId = created.body.id;
+
+    const [lot] = await db.select().from(lots).where(eq(lots.itemId, lotMaterialId));
+    expect(lot).toBeDefined();
+    materialLotId = lot.id;
+    expect(lot.quantity).toBe("200.0000");
+    expect(lot.lotNumber).toBe(`LOT-${todayInTimeZone("America/Denver")}`);
+
     const response = await testFetch(
-      `/api/items/${materialId}/lots/${materialLotId}/quantity`,
+      `/api/items/${lotMaterialId}/lots/${materialLotId}/quantity`,
       {
         method: "PUT",
         body: JSON.stringify({ quantity: "205", note: null }),
-      }
+      },
     );
     const body = await response.json();
     expect(response.status).toBe(200);
-    expect(body).toMatchObject({
-      lotId: materialLotId,
-      quantity: "205",
-    });
+    expect(body).toMatchObject({ lotId: materialLotId, quantity: "205" });
 
     const [updatedLot] = await db
       .select({ quantity: lots.quantity })
@@ -170,25 +146,30 @@ test.describe("Inventory write-path smoke", () => {
     });
   });
 
-  test("creates a BOM-backed product through the browser form", async ({ page, db }) => {
+  test("creates a BOM-backed product through the card UI", async ({ page, db }) => {
     productName = `Fast Blend ${ts}`;
 
-    await page.goto("/inventory/products/new");
-    await expect(page.getByText("Add Product")).toBeVisible();
+    await page.goto("/inventory/product");
+    const nameInput = page.getByLabel("Product name");
+    await expect(nameInput).toBeVisible();
+    await nameInput.fill(productName);
 
-    await page.getByLabel("Name").fill(productName);
-    await page.getByLabel("Description").fill("Fast smoke product");
+    const [createResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/api/item-cards"),
+      ),
+      nameInput.blur(),
+    ]);
+    expect(createResponse.status()).toBe(201);
+    const createBody = await createResponse.json();
+    productId = createBody.itemId ?? createBody.id;
 
-    const categoryInput = page.getByPlaceholder("Search or create category...");
-    await categoryInput.click();
-    await categoryInput.fill(`Fast Products ${ts}`);
-    await page.getByRole("option", { name: new RegExp(`Fast Products ${ts}`) }).first().click();
+    await page.waitForURL(`**/inventory/products/${productId}*`);
+    await expect(page.getByRole("heading", { name: productName })).toBeVisible();
 
-    await page.locator("#unitDefinitionId").click();
-    await page.getByRole("option").first().click();
-    await page.getByLabel("Selling Price").fill("19.99");
-    await page.getByLabel("Safety Stock").fill("5");
-
+    await page.getByRole("button", { name: /Product recipe/ }).click();
     await page.getByRole("button", { name: "Add ingredient" }).click();
     const componentInput = page.getByPlaceholder("Search items...").first();
     await expect(componentInput).toBeVisible();
@@ -197,30 +178,19 @@ test.describe("Inventory write-path smoke", () => {
     await page.getByRole("option", { name: materialName }).click();
     await fillBomQuantity(page, materialName, "1.25");
 
-    const [createResponse] = await Promise.all([
+    const [saveResponse] = await Promise.all([
       page.waitForResponse(
         (response) =>
           response.request().method() === "POST" &&
-          response.url().endsWith("/api/items")
+          response.url().endsWith(`/api/items/${productId}/bom-revisions`),
       ),
-      page.getByRole("button", { name: "Create Product" }).click(),
+      page.getByRole("button", { name: "Save recipe" }).click(),
     ]);
-
-    const createBody = await createResponse.json();
-    productId = createBody.id;
-
-    await page.waitForURL(`**/inventory/products/${productId}`);
-    await expect(page.getByRole("heading", { name: productName })).toBeVisible();
-    await page.goto("/inventory/products");
-    await filterList(page, "Search items", productName);
-    await expect(page.getByRole("link", { name: productName }).first()).toBeVisible();
+    expect(saveResponse.status()).toBe(201);
 
     const [product] = await db.select().from(items).where(eq(items.id, productId));
     expect(product.itemType).toBe("product");
-    expect(product.description).toBe("Fast smoke product");
-    expect(product.category).toBe(`Fast Products ${ts}`);
-    expect(product.defaultSellingPrice).toBe("19.99");
-    expect(product.safetyStock).toBe("5.0000");
+    expect(product.name).toBe(productName);
 
     const [currentRevision] = await db
       .select()
@@ -238,26 +208,20 @@ test.describe("Inventory write-path smoke", () => {
     expect(productBom[0].quantity).toBe("1.2500");
   });
 
-  test("editing BOM fields creates a new BOM revision", async ({ page, db }) => {
-    await page.goto(`/inventory/products/${productId}/edit`);
-    await expect(page.getByRole("heading", { name: "Edit Product" })).toBeVisible();
-
+  test("editing BOM quantity creates a new BOM revision", async ({ page, db }) => {
+    await page.goto(`/inventory/products/${productId}`);
+    await page.getByRole("button", { name: /Product recipe/ }).click();
     await fillBomQuantity(page, materialName, "1.5");
-    await expect(page.getByLabel("Revision Note")).toBeVisible();
-    await page.getByLabel("Revision Note").fill("Increase sand ratio");
 
-    const updateResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === "PUT" &&
-        response.url().endsWith(`/api/items/${productId}`)
-    );
-    await page.getByRole("button", { name: "Save Changes" }).click();
-    expect((await updateResponsePromise).status()).toBe(200);
-
-    await page.waitForURL(`**/inventory/products/${productId}`);
-    await expect(page.getByText("Rev 2", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: /^Recipe/ }).click();
-    await expect(page.getByText("Increase sand ratio")).toBeVisible();
+    const [saveResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith(`/api/items/${productId}/bom-revisions`),
+      ),
+      page.getByRole("button", { name: "Save recipe" }).click(),
+    ]);
+    expect(saveResponse.status()).toBe(201);
 
     const revisions = await db
       .select()
@@ -267,7 +231,6 @@ test.describe("Inventory write-path smoke", () => {
 
     const currentRevision = revisions.find((revision) => revision.isCurrent);
     expect(currentRevision?.revisionNumber).toBe(2);
-    expect(currentRevision?.note).toBe("Increase sand ratio");
 
     const currentBom = await db
       .select()

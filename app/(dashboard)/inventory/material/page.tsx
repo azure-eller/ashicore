@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/lib/dal/auth";
 import { getUnitDefinitions } from "@/app/(dashboard)/inventory/queries";
 import type { ItemCardDto } from "@/lib/api/clients/item-cards";
@@ -28,12 +29,7 @@ export default async function MaterialDraftPage() {
   const defaultUnit =
     units.find((unit) => unit.name.toLowerCase() === "each") ?? units[0];
   if (!defaultUnit) {
-    const { getCategories } = await import("@/app/(dashboard)/inventory/queries");
-    const { ItemForm } = await import("@/app/(dashboard)/inventory/item-form");
-    const categories = await getCategories();
-    return (
-      <ItemForm itemType="material" units={units} categories={categories} />
-    );
+    redirect("/inventory/materials");
   }
 
   return (

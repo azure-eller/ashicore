@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/lib/dal/auth";
 import { getUnitDefinitions } from "@/app/(dashboard)/inventory/queries";
 import type { ItemCardDto } from "@/lib/api/clients/item-cards";
@@ -28,31 +29,7 @@ export default async function ProductDraftPage() {
   const defaultUnit =
     units.find((unit) => unit.name.toLowerCase() === "each") ?? units[0];
   if (!defaultUnit) {
-    const { getCategories, getAvailableComponents } = await import(
-      "@/app/(dashboard)/inventory/queries"
-    );
-    const { getManufacturingResources } = await import(
-      "@/lib/dal/manufacturing-resources"
-    );
-    const { ItemForm } = await import("@/app/(dashboard)/inventory/item-form");
-    const { getAuthedMemberContext } = await import("@/lib/dal/auth");
-    const { hasModuleAccess } = await import("@/lib/authz");
-    const [context, categories, components, resources] = await Promise.all([
-      getAuthedMemberContext(),
-      getCategories(),
-      getAvailableComponents(),
-      getManufacturingResources(),
-    ]);
-    return (
-      <ItemForm
-        itemType="product"
-        units={units}
-        categories={categories}
-        availableComponents={components}
-        manufacturingResources={resources}
-        canManageBomLock={hasModuleAccess(context.assignedRoles, "inventory", "admin")}
-      />
-    );
+    redirect("/inventory/products");
   }
 
   return (

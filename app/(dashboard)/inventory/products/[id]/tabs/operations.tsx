@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
@@ -55,13 +54,6 @@ export function ProductOperationsTab({ card, focusItemId }: ProductOperationsTab
           >
             Copy from…
           </Button>
-          {activeVariant ? (
-            <Button type="button" size="sm" asChild>
-              <Link href={`/inventory/products/${activeVariant.id}/edit`}>
-                Edit operations
-              </Link>
-            </Button>
-          ) : null}
         </div>
       </div>
 
@@ -70,8 +62,7 @@ export function ProductOperationsTab({ card, focusItemId }: ProductOperationsTab
           Production operations live on each variant&rsquo;s BOM revision
           (operation name, resource, crew size, planned minutes; cost flows
           into estimated unit cost / margin). Inline editing on the card is a
-          v1.1 task — for now, use <strong>Edit operations</strong> to open
-          the existing edit page.
+          v1.1 task — view-only for now.
         </p>
         {activeVariant ? (
           <p className="text-[length:var(--text-sm)] text-muted-foreground mt-(--space-2)">
