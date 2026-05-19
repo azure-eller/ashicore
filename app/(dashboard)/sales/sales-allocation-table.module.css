@@ -240,6 +240,10 @@
   border-left: 2px dashed var(--color-muted-2);
 }
 
+.gridShell :global(.ag-pinned-left-cols-container .ag-row.manufacturing-row .ag-cell:first-child) {
+  border-left: 2px solid var(--alloc-production);
+}
+
 .gridShell :global(.ag-row.late-row .ag-cell) {
   /* late row: subtle inset on the very left edge */
   box-shadow: none;

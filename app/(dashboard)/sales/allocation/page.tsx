@@ -6,6 +6,10 @@ import {
 } from "@/app/(dashboard)/sales/sales-allocation-table";
 import { getAuthedMemberContext, withAuthedOrgContext } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
+import {
+  getManufacturingAllocationDemandRowsInTx,
+  type ManufacturingAllocationDemandRow,
+} from "@/lib/inventory/allocation/manufacturing-demands";
 import { getAllocationWorkspaceInTx } from "@/lib/inventory/allocation/read-model";
 import OrdersTableLoading from "../orders-table-loading";
 
@@ -27,18 +31,24 @@ async function SalesAllocationData() {
     "manufacturing",
     "read"
   );
-  const initialPools = await getInitialAllocationPools(
-    orders.flatMap((order) =>
+  const salesProductIds = orders
+    .filter((order) => order.status === "open")
+    .flatMap((order) =>
       order.lines
         .filter((line) => line.itemType === "product")
         .map((line) => line.itemId)
-    ),
+    );
+  const [initialPools, manufacturingDemandRows] = await Promise.all([
+    getInitialAllocationPools(salesProductIds, canReadManufacturing),
     canReadManufacturing
-  );
+      ? getInitialManufacturingDemandRows(salesProductIds)
+      : Promise.resolve([] as ManufacturingAllocationDemandRow[]),
+  ]);
   return (
     <SalesAllocationTable
       initialData={orders}
       initialPools={initialPools}
+      initialManufacturingDemandRows={manufacturingDemandRows}
       organizationId={context.orgId}
     />
   );
@@ -114,4 +124,15 @@ async function getInitialAllocationPools(
 
     return rows;
   });
+}
+
+async function getInitialManufacturingDemandRows(
+  itemIds: string[]
+): Promise<ManufacturingAllocationDemandRow[]> {
+  const uniqueItemIds = [...new Set(itemIds)];
+  if (uniqueItemIds.length === 0) return [];
+
+  return withAuthedOrgContext((tx, orgId) =>
+    getManufacturingAllocationDemandRowsInTx(tx, orgId, uniqueItemIds)
+  );
 }

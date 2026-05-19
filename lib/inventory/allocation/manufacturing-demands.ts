@@ -42,8 +42,10 @@ function quantityString(value: number) {
 
 export async function getManufacturingAllocationDemandRowsInTx(
   tx: Tx,
-  organizationId: string
+  organizationId: string,
+  itemIds?: string[]
 ): Promise<ManufacturingAllocationDemandRow[]> {
+  const uniqueItemIds = [...new Set(itemIds ?? [])].filter(Boolean);
   const ingredientRows = await tx
     .select({
       id: manufacturingOrderIngredients.id,
@@ -75,6 +77,9 @@ export async function getManufacturingAllocationDemandRowsInTx(
         isNull(manufacturingOrders.deletedAt),
         isNull(manufacturingOrders.completedAt),
         isNull(manufacturingOrders.cancelledAt),
+        uniqueItemIds.length > 0
+          ? inArray(manufacturingOrderIngredients.itemId, uniqueItemIds)
+          : undefined,
         sql`${manufacturingOrderIngredients.plannedQuantity} > COALESCE(${manufacturingOrderIngredients.pickedQuantity}, 0)`
       )
     )
