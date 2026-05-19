@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,7 @@ import { VariantTable } from "@/components/card-page/variant-table";
 import { GenerateBarcodesButton } from "@/components/card-page/generate-barcodes-button";
 import styles from "@/components/card-page/card-page.module.css";
 import {
+  createItemCard,
   updateItemCard,
   type ItemCardDto,
   type ItemCardVariantDto,
@@ -26,7 +28,8 @@ import {
 
 export type MaterialGeneralInfoTabProps = {
   card: ItemCardDto;
-  focusItemId: string;
+  /** Null on the /new draft page; the name input bootstraps creation. */
+  focusItemId: string | null;
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
   onOpenConfig: () => void;
   onAddInitialStock: (variant: ItemCardVariantDto) => void;
@@ -42,6 +45,7 @@ export function MaterialGeneralInfoTab({
   const hasOptions = card.options.some((option) => option.disabledAt == null);
   const visibleVariantCount = card.variants.filter((variant) => variant.deletedAt == null)
     .length;
+  const isDraft = focusItemId == null;
 
   return (
     <>
@@ -49,25 +53,33 @@ export function MaterialGeneralInfoTab({
         <CardPageTwoColumn
         left={
           <>
-            <EditableFieldText
-              focusItemId={focusItemId}
-              field="name"
-              label="Material name"
-              value={card.family.name}
-              required
-            />
+            {isDraft ? (
+              <DraftNameInput
+                unitDefinitionId={card.family.unitDefinitionId}
+              />
+            ) : (
+              <EditableFieldText
+                focusItemId={focusItemId}
+                field="name"
+                label="Material name"
+                value={card.family.name}
+                required
+              />
+            )}
             <EditableFieldText
               focusItemId={focusItemId}
               field="category"
               label="Category"
               value={card.family.category}
               placeholder="Select or create category"
+              disabled={isDraft}
             />
             <EditableFieldTextarea
               focusItemId={focusItemId}
               field="description"
               label="Additional info"
               value={card.family.description}
+              disabled={isDraft}
             />
           </>
         }
@@ -77,6 +89,7 @@ export function MaterialGeneralInfoTab({
               focusItemId={focusItemId}
               currentUnitId={card.family.unitDefinitionId}
               unitOptions={unitOptions}
+              disabled={isDraft}
             />
           </>
         }
@@ -91,12 +104,19 @@ export function MaterialGeneralInfoTab({
             <span className={styles.count}>· {visibleVariantCount} variants</span>
           ) : null}
           <span className={styles.hint} style={{ display: "flex", gap: "var(--space-2)" }}>
-            <Button type="button" variant="outline" size="sm" onClick={onOpenConfig}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onOpenConfig}
+              disabled={isDraft}
+            >
               Open configuration…
             </Button>
             <GenerateBarcodesButton
-              cardItemId={focusItemId}
+              cardItemId={focusItemId ?? ""}
               variants={card.variants}
+              disabled={isDraft}
             />
           </span>
         </h2>
@@ -112,13 +132,62 @@ export function MaterialGeneralInfoTab({
   );
 }
 
+function DraftNameInput({ unitDefinitionId }: { unitDefinitionId: string }) {
+  const router = useRouter();
+  const [value, setValue] = useState("");
+
+  const mutation = useMutation({
+    mutationKey: ["item-card", "__draft__", "create"],
+    mutationFn: () =>
+      createItemCard({
+        itemType: "material",
+        name: value.trim(),
+        unitDefinitionId,
+      }),
+    onSuccess: (result) => {
+      router.replace(`/inventory/materials/${result.id}?view=card`);
+    },
+  });
+
+  const commit = () => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if (mutation.isPending || mutation.isSuccess) return;
+    mutation.mutate();
+  };
+
+  return (
+    <Field data-invalid={mutation.isError || undefined}>
+      <FieldLabel>
+        Material name <span style={{ color: "var(--color-danger)" }}>*</span>
+      </FieldLabel>
+      <Input
+        autoFocus
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+          }
+        }}
+        placeholder="Type material name"
+        disabled={mutation.isPending || mutation.isSuccess}
+        aria-invalid={mutation.isError || undefined}
+      />
+    </Field>
+  );
+}
+
 type EditableFieldTextProps = {
-  focusItemId: string;
+  focusItemId: string | null;
   field: keyof UpdateItemCardInput;
   label: string;
   value: string | null;
   placeholder?: string;
   required?: boolean;
+  disabled?: boolean;
 };
 
 function EditableFieldText({
@@ -128,13 +197,14 @@ function EditableFieldText({
   value,
   placeholder,
   required,
+  disabled,
 }: EditableFieldTextProps) {
   const [draft, setDraft] = useState(value ?? "");
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationKey: ["item-card", focusItemId, "patch", field],
     mutationFn: (next: string | null) =>
-      updateItemCard(focusItemId, { [field]: next } as UpdateItemCardInput),
+      updateItemCard(focusItemId as string, { [field]: next } as UpdateItemCardInput),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["item-card", focusItemId] });
     },
@@ -147,6 +217,7 @@ function EditableFieldText({
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => {
+          if (disabled || focusItemId == null) return;
           const trimmed = draft.trim();
           const next = trimmed === "" ? null : trimmed;
           if (next === (value ?? null)) return;
@@ -157,6 +228,7 @@ function EditableFieldText({
           mutation.mutate(next);
         }}
         placeholder={placeholder}
+        disabled={disabled}
         aria-invalid={mutation.isError || undefined}
       />
     </Field>
@@ -168,13 +240,14 @@ function EditableFieldTextarea({
   field,
   label,
   value,
+  disabled,
 }: Omit<EditableFieldTextProps, "placeholder" | "required">) {
   const [draft, setDraft] = useState(value ?? "");
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationKey: ["item-card", focusItemId, "patch", field],
     mutationFn: (next: string | null) =>
-      updateItemCard(focusItemId, { [field]: next } as UpdateItemCardInput),
+      updateItemCard(focusItemId as string, { [field]: next } as UpdateItemCardInput),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["item-card", focusItemId] });
     },
@@ -188,11 +261,13 @@ function EditableFieldTextarea({
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => {
+          if (disabled || focusItemId == null) return;
           const trimmed = draft.trim();
           const next = trimmed === "" ? null : trimmed;
           if (next === (value ?? null)) return;
           mutation.mutate(next);
         }}
+        disabled={disabled}
         aria-invalid={mutation.isError || undefined}
       />
     </Field>
@@ -203,16 +278,18 @@ function MaterialUnitSelectField({
   focusItemId,
   currentUnitId,
   unitOptions,
+  disabled,
 }: {
-  focusItemId: string;
+  focusItemId: string | null;
   currentUnitId: string;
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
+  disabled?: boolean;
 }) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationKey: ["item-card", focusItemId, "patch", "unitDefinitionId"],
     mutationFn: (next: string) =>
-      updateItemCard(focusItemId, { unitDefinitionId: next }),
+      updateItemCard(focusItemId as string, { unitDefinitionId: next }),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["item-card", focusItemId] });
     },
@@ -224,8 +301,10 @@ function MaterialUnitSelectField({
       <Select
         value={currentUnitId}
         onValueChange={(value) => {
+          if (disabled || focusItemId == null) return;
           if (value !== currentUnitId) mutation.mutate(value);
         }}
+        disabled={disabled}
       >
         <SelectTrigger className="w-full">
           <SelectValue placeholder="Select a unit" />

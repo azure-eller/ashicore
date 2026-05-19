@@ -25,6 +25,8 @@ export type CardPageHeaderProps = {
   skuGroup?: string | null;
   /** Where to navigate when ✕ is clicked and there's no in-app history. */
   fallbackHref: string;
+  /** True for the /new draft page — shows "Not saved" instead of save status. */
+  isDraft?: boolean;
   onDelete?: () => void;
   deleteDisabledReason?: string;
 };
@@ -37,11 +39,16 @@ export function CardPageHeader({
   variantCount,
   skuGroup,
   fallbackHref,
+  isDraft,
   onDelete,
   deleteDisabledReason,
 }: CardPageHeaderProps) {
   const status = useCardSaveStatus(itemId);
   const handleClose = useSmartBack(fallbackHref);
+
+  const placeholderName = isDraft && !name.trim()
+    ? `New ${typeLabel.toLowerCase()}`
+    : name;
 
   return (
     <header className={styles.header}>
@@ -50,7 +57,7 @@ export function CardPageHeader({
           {typeLabel}
           {category ? ` · ${category}` : ""}
         </div>
-        <h1 className={styles.title}>{name}</h1>
+        <h1 className={styles.title}>{placeholderName}</h1>
         <div className={styles.meta}>
           {skuGroup ? (
             <>
@@ -64,7 +71,7 @@ export function CardPageHeader({
         </div>
       </div>
       <div className={styles.headerRight}>
-        <SaveStatusIndicator status={status.status} />
+        <SaveStatusIndicator status={isDraft ? "draft" : status.status} />
         <button
           type="button"
           className={styles.iconBtn}
@@ -112,7 +119,18 @@ export function CardPageHeader({
   );
 }
 
-function SaveStatusIndicator({ status }: { status: CardSaveStatus }) {
+function SaveStatusIndicator({
+  status,
+}: {
+  status: CardSaveStatus | "draft";
+}) {
+  if (status === "draft") {
+    return (
+      <span className={styles.failedPill}>
+        <span className={styles.pillSquare} /> Not saved
+      </span>
+    );
+  }
   if (status === "saving") {
     return (
       <span className={styles.savingPill}>

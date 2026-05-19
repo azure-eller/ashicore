@@ -30,6 +30,7 @@ import {
   updateItemCardVariant,
   type ItemCardDto,
   type ItemCardVariantDto,
+  type VariantOptionDto,
   type UpdateItemCardVariantInput,
 } from "@/lib/api/clients/item-cards";
 import { cn } from "@/lib/utils";
@@ -76,13 +77,65 @@ function buildVariantPatch(
   }
 }
 
+function buildVariantOptionPatch(
+  row: ItemCardVariantDto,
+  activeOptions: VariantOptionDto[],
+): UpdateItemCardVariantInput | null {
+  const optionValueIdsByOptionId: Record<string, string> = {};
+  for (const option of activeOptions) {
+    const assigned = row.optionValues.find((value) => value.optionId === option.id);
+    if (!assigned) return null;
+    optionValueIdsByOptionId[option.id] = assigned.valueId;
+  }
+  return { optionValueIdsByOptionId };
+}
+
+function replaceVariantOptionValue(
+  row: ItemCardVariantDto,
+  option: VariantOptionDto,
+  nextLabel: string,
+  activeOptions: VariantOptionDto[],
+) {
+  const selectedValue = option.values.find(
+    (value) => value.disabledAt == null && value.label === nextLabel,
+  );
+  if (!selectedValue) return false;
+
+  const current = row.optionValues.find((value) => value.optionId === option.id);
+  if (current?.valueId === selectedValue.id) return false;
+
+  const optionOrder = new Map(activeOptions.map((activeOption, index) => [activeOption.id, index]));
+  row.optionValues = [
+    ...row.optionValues.filter((value) => value.optionId !== option.id),
+    {
+      optionId: option.id,
+      optionName: option.name,
+      optionCode: option.code,
+      valueId: selectedValue.id,
+      valueLabel: selectedValue.label,
+      valueCode: selectedValue.code,
+      optionDisabledAt: option.disabledAt as Date | null,
+      valueDisabledAt: selectedValue.disabledAt as Date | null,
+    },
+  ].sort(
+    (left, right) =>
+      (optionOrder.get(left.optionId) ?? Number.MAX_SAFE_INTEGER) -
+      (optionOrder.get(right.optionId) ?? Number.MAX_SAFE_INTEGER),
+  );
+
+  return true;
+}
+
 export function VariantTable({
   card,
   viewMode,
   onAddInitialStock,
   addInitialStockEndpointReady = false,
 }: VariantTableProps) {
-  const activeOptions = card.options.filter((option) => option.disabledAt == null);
+  const activeOptions = useMemo(
+    () => card.options.filter((option) => option.disabledAt == null),
+    [card.options],
+  );
   const visibleVariants = useMemo(
     () => card.variants.filter((variant) => variant.deletedAt == null),
     [card.variants],
@@ -128,24 +181,52 @@ export function VariantTable({
   const handleRowsChange = useCallback(
     (next: ItemCardVariantDto[], change: EditableLineDataGridChange<ItemCardVariantDto>) => {
       setRows(next);
-      if (change.type !== "cell_edit_committed" || !change.row || !change.field) return;
-      const payload = buildVariantPatch(change.field, change.newValue);
+      if (change.type !== "cell_edit_committed" || !change.row) return;
+      const payload = change.colId?.startsWith("option:")
+        ? buildVariantOptionPatch(change.row, activeOptions)
+        : change.field
+          ? buildVariantPatch(change.field, change.newValue)
+          : null;
       if (!payload) return;
       cellMutation.mutate({ variantId: change.row.id, payload });
     },
-    [cellMutation],
+    [activeOptions, cellMutation],
   );
 
-  const columns = ((): ColDef<ItemCardVariantDto>[] => {
+  const isDeletePending = deleteMutation.isPending;
+  const rowCount = rows.length;
+  const columns = useMemo<ColDef<ItemCardVariantDto>[]>(() => {
     const cols: ColDef<ItemCardVariantDto>[] = [];
 
-    // Option-value columns — read-only pills.
+    // Option-value columns are specialized variant axes: dropdown-only edits
+    // constrained to the configured values for that axis.
     for (const option of activeOptions) {
+      const activeValues = option.values.filter((value) => value.disabledAt == null);
       cols.push({
         colId: `option:${option.id}`,
         headerName: option.name,
+        editable: activeValues.length > 0,
+        cellEditor: "agSelectCellEditor",
+        cellEditorParams: {
+          values: activeValues.map((value) => value.label),
+        },
         flex: 1,
         minWidth: 96,
+        valueGetter: (params) => {
+          const assigned = params.data?.optionValues.find(
+            (value) => value.optionId === option.id,
+          );
+          return assigned?.valueLabel ?? "";
+        },
+        valueSetter: (params: ValueSetterParams<ItemCardVariantDto>) => {
+          if (!params.data || typeof params.newValue !== "string") return false;
+          return replaceVariantOptionValue(
+            params.data,
+            option,
+            params.newValue,
+            activeOptions,
+          );
+        },
         cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => {
           if (!params.data) return null;
           const assigned = params.data.optionValues.find(
@@ -164,12 +245,6 @@ export function VariantTable({
               {assigned.valueLabel}
             </span>
           );
-        },
-        valueGetter: (params) => {
-          const assigned = params.data?.optionValues.find(
-            (value) => value.optionId === option.id,
-          );
-          return assigned?.valueLabel ?? "";
         },
       });
     }
@@ -356,31 +431,40 @@ export function VariantTable({
         },
       });
     }
-    cols.push({
-      colId: "delete",
-      headerName: "",
-      width: 44,
-      minWidth: 44,
-      maxWidth: 44,
-      resizable: false,
-      cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => {
-        if (!params.data) return null;
-        return (
-          <button
-            type="button"
-            className={cn(styles.iButton, styles.iButtonDanger)}
-            aria-label={`Delete variant ${params.data.displayName}`}
-            onClick={() => setConfirmDeleteVariant(params.data!)}
-            disabled={deleteMutation.isPending}
-          >
-            <HugeiconsIcon icon={Delete02Icon} size={14} />
-          </button>
-        );
-      },
-    });
+    if (activeOptions.length > 0) {
+      cols.push({
+        colId: "delete",
+        headerName: "",
+        width: 44,
+        minWidth: 44,
+        maxWidth: 44,
+        resizable: false,
+        cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => {
+          if (!params.data) return null;
+          return (
+            <button
+              type="button"
+              className={cn(styles.iButton, styles.iButtonDanger)}
+              aria-label={`Delete variant ${params.data.displayName}`}
+              onClick={() => setConfirmDeleteVariant(params.data!)}
+              disabled={isDeletePending || rowCount <= 1}
+            >
+              <HugeiconsIcon icon={Delete02Icon} size={14} />
+            </button>
+          );
+        },
+      });
+    }
 
     return cols;
-  })();
+  }, [
+    activeOptions,
+    addInitialStockEndpointReady,
+    isDeletePending,
+    onAddInitialStock,
+    rowCount,
+    viewMode,
+  ]);
 
   if (visibleVariants.length === 0) {
     return (
@@ -511,4 +595,3 @@ function StockCellLink({
     </button>
   );
 }
-

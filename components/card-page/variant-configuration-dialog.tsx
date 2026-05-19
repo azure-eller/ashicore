@@ -239,18 +239,6 @@ function DialogBody({
           >
             Cancel
           </Button>
-          {dirty && !configLocked ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() =>
-                saveAndGenerateMutation.mutate({ mode: "save-only" })
-              }
-              disabled={saveAndGenerateMutation.isPending || !canPreview}
-            >
-              {saveAndGenerateMutation.isPending ? "Saving…" : "Save configuration"}
-            </Button>
-          ) : null}
           <Button
             type="button"
             onClick={() =>

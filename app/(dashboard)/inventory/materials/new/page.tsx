@@ -1,6 +1,26 @@
 import { requireModuleAccess } from "@/lib/dal/auth";
 import { getUnitDefinitions } from "@/app/(dashboard)/inventory/queries";
-import { NewCardPage } from "@/components/card-page/new-card-page";
+import type { ItemCardDto } from "@/lib/api/clients/item-cards";
+import { MaterialCard } from "../[id]/material-card";
+
+function emptyCard(itemType: "material", unitDefinitionId: string): ItemCardDto {
+  return {
+    family: {
+      id: "",
+      itemType,
+      name: "",
+      category: null,
+      description: null,
+      unitDefinitionId,
+      unitName: null,
+      purchaseUnitDefinitionId: null,
+      purchaseToStockFactor: null,
+      deletedAt: null,
+    },
+    options: [],
+    variants: [],
+  };
+}
 
 export default async function NewMaterialPage() {
   await requireModuleAccess("inventory", "operate");
@@ -17,9 +37,10 @@ export default async function NewMaterialPage() {
   }
 
   return (
-    <NewCardPage
-      itemType="material"
-      defaultUnitId={defaultUnit.id}
+    <MaterialCard
+      initialItemId={null}
+      initialCard={emptyCard("material", defaultUnit.id)}
+      usedInBoms={[]}
       unitOptions={units.map((unit) => ({
         id: unit.id,
         name: unit.name,

@@ -237,6 +237,9 @@ export const itemCardVariantUpdateSchema = z.object({
       "Safety stock must be a non-negative number",
     ),
   sellable: z.boolean().optional(),
+  optionValueIdsByOptionId: z
+    .record(z.string().uuid(), z.string().uuid())
+    .optional(),
 });
 
 export const generateVariantsSchema = z.object({
@@ -716,6 +719,7 @@ export async function updateItemCardVariant(
     if (!variant?.familyId) {
       throw new ItemCardError("Item card variant not found", 404);
     }
+    const now = new Date();
 
     await tx
       .update(items)
@@ -731,9 +735,75 @@ export async function updateItemCardVariant(
         currentStockUnitCost: data.currentStockUnitCost,
         safetyStock: data.safetyStock,
         sellable: data.sellable,
-        updatedAt: new Date(),
+        updatedAt: now,
       })
       .where(eq(items.id, itemId));
+
+    if (data.optionValueIdsByOptionId !== undefined) {
+      const activeOptions = await tx
+        .select({
+          id: variantOptions.id,
+          name: variantOptions.name,
+        })
+        .from(variantOptions)
+        .where(
+          and(
+            eq(variantOptions.familyId, variant.familyId),
+            isNull(variantOptions.disabledAt),
+          ),
+        )
+        .orderBy(asc(variantOptions.sortOrder), asc(variantOptions.name));
+
+      if (activeOptions.length === 0) {
+        throw new ItemCardError("This item card has no active variant options");
+      }
+
+      const activeOptionIds = new Set(activeOptions.map((option) => option.id));
+      const submittedEntries = Object.entries(data.optionValueIdsByOptionId);
+      if (
+        submittedEntries.length !== activeOptions.length ||
+        submittedEntries.some(([optionId]) => !activeOptionIds.has(optionId))
+      ) {
+        throw new ItemCardError("Select one value for every active variant option");
+      }
+
+      const selectedValueIds = submittedEntries.map(([, valueId]) => valueId);
+      const selectedValues = await tx
+        .select({
+          id: variantOptionValues.id,
+          optionId: variantOptionValues.optionId,
+        })
+        .from(variantOptionValues)
+        .innerJoin(variantOptions, eq(variantOptionValues.optionId, variantOptions.id))
+        .where(
+          and(
+            eq(variantOptions.familyId, variant.familyId),
+            isNull(variantOptionValues.disabledAt),
+            inArray(variantOptionValues.id, selectedValueIds),
+          ),
+        );
+      const selectedValueByOption = new Map(
+        selectedValues.map((value) => [value.optionId, value.id]),
+      );
+
+      for (const [optionId, valueId] of submittedEntries) {
+        if (selectedValueByOption.get(optionId) !== valueId) {
+          throw new ItemCardError("Variant option value is not valid for this card");
+        }
+      }
+
+      await tx.delete(itemVariantValues).where(eq(itemVariantValues.itemId, itemId));
+      await tx.insert(itemVariantValues).values(
+        submittedEntries.map(([optionId, optionValueId]) => ({
+          organizationId: orgId,
+          itemId,
+          optionId,
+          optionValueId,
+          updatedAt: now,
+        })),
+      );
+      await recomputeVariantKeysInTx(tx, variant.familyId);
+    }
 
     const result = { id: itemId };
     await finishInventoryOperationInTx(tx, {

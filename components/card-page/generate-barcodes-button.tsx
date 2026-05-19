@@ -14,6 +14,7 @@ export type GenerateBarcodesButtonProps = {
    * save-status indicator picks this run up alongside other card edits. */
   cardItemId: string;
   variants: ItemCardVariantDto[];
+  disabled?: boolean;
 };
 
 /**
@@ -30,6 +31,7 @@ export type GenerateBarcodesButtonProps = {
 export function GenerateBarcodesButton({
   cardItemId,
   variants,
+  disabled,
 }: GenerateBarcodesButtonProps) {
   const queryClient = useQueryClient();
   const candidates = variants.filter(
@@ -71,7 +73,7 @@ export function GenerateBarcodesButton({
         variant="outline"
         size="sm"
         onClick={() => mutation.mutate()}
-        disabled={mutation.isPending || candidates.length === 0}
+        disabled={disabled || mutation.isPending || candidates.length === 0}
         title={
           candidates.length === 0
             ? "All variants already have internal barcodes."

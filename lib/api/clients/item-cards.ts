@@ -134,6 +134,7 @@ export type UpdateItemCardVariantInput = {
   currentStockUnitCost?: string | null;
   safetyStock?: string;
   sellable?: boolean;
+  optionValueIdsByOptionId?: Record<string, string>;
 };
 
 export type VariantConfigInput = {

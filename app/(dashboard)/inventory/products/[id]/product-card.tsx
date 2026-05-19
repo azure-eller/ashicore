@@ -48,7 +48,7 @@ type AvailableComponent = {
 };
 
 export type ProductCardProps = {
-  initialItemId: string;
+  initialItemId: string | null;
   initialCard: ItemCardDto;
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
   initialBomRows: BomPayloadRow[];
@@ -66,11 +66,13 @@ export function ProductCard({
 }: ProductCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const isDraft = initialItemId == null;
 
   const cardQuery = useQuery({
-    queryKey: ["item-card", initialItemId],
-    queryFn: () => getItemCard(initialItemId),
+    queryKey: ["item-card", initialItemId ?? "__draft__"],
+    queryFn: () => getItemCard(initialItemId as string),
     initialData: initialCard,
+    enabled: !isDraft,
     refetchOnWindowFocus: false,
   });
   const card = cardQuery.data ?? initialCard;
@@ -80,8 +82,8 @@ export function ProductCard({
   const [confirmDeleteCard, setConfirmDeleteCard] = useState(false);
 
   const deleteCardMutation = useMutation({
-    mutationKey: ["item-card", initialItemId, "delete-card"],
-    mutationFn: () => deleteItemCard(initialItemId),
+    mutationKey: ["item-card", initialItemId ?? "__draft__", "delete-card"],
+    mutationFn: () => deleteItemCard(initialItemId as string),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["item-cards"] });
       router.push("/inventory/products");
@@ -104,13 +106,14 @@ export function ProductCard({
   return (
     <div className={styles.sheet}>
       <CardPageHeader
-        itemId={initialItemId}
+        itemId={initialItemId ?? ""}
         typeLabel="Product"
         name={card.family.name}
         category={card.family.category}
         variantCount={visibleVariantCount}
         fallbackHref="/inventory/products"
-        onDelete={() => setConfirmDeleteCard(true)}
+        isDraft={isDraft}
+        onDelete={isDraft ? undefined : () => setConfirmDeleteCard(true)}
       />
 
       <CardTabs
@@ -129,32 +132,36 @@ export function ProductCard({
           recipe: (
             <ProductRecipeTab
               card={card}
-              focusItemId={initialItemId}
+              focusItemId={initialItemId ?? ""}
               initialBomRows={initialBomRows}
               availableComponents={availableComponents}
               canViewBom={canViewBom}
             />
           ),
           operations: (
-            <ProductOperationsTab card={card} focusItemId={initialItemId} />
+            <ProductOperationsTab card={card} focusItemId={initialItemId ?? ""} />
           ),
         }}
       />
 
-      <VariantConfigurationDialog
-        open={configOpen}
-        onOpenChange={setConfigOpen}
-        card={card}
-      />
+      {isDraft ? null : (
+        <>
+          <VariantConfigurationDialog
+            open={configOpen}
+            onOpenChange={setConfigOpen}
+            card={card}
+          />
 
-      <AddInitialStockDialog
-        open={stockDialogVariant != null}
-        onOpenChange={(next) => {
-          if (!next) setStockDialogVariant(null);
-        }}
-        variant={stockDialogVariant}
-        unitLabel={card.family.unitName ?? undefined}
-      />
+          <AddInitialStockDialog
+            open={stockDialogVariant != null}
+            onOpenChange={(next) => {
+              if (!next) setStockDialogVariant(null);
+            }}
+            variant={stockDialogVariant}
+            unitLabel={card.family.unitName ?? undefined}
+          />
+        </>
+      )}
 
       <AlertDialog open={confirmDeleteCard} onOpenChange={setConfirmDeleteCard}>
         <AlertDialogContent size="sm">

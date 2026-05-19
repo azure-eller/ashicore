@@ -50,6 +50,7 @@ export type EditableLineDataGridChange<TData> = {
    * that need to know which API field to PATCH.
    */
   field?: string | null;
+  colId?: string | null;
   oldValue?: unknown;
   newValue?: unknown;
 };
@@ -210,8 +211,9 @@ export function EditableLineDataGrid<TData>({
   );
 
   const handleAddRow = useCallback(() => {
+    const latest = stateRef.current;
     const row = createRow();
-    const nextRows = [...rows, row];
+    const nextRows = [...latest.rows, row];
     emitRowsChange(nextRows, { type: "row_added", row });
 
     window.requestAnimationFrame(() => {
@@ -231,15 +233,18 @@ export function EditableLineDataGrid<TData>({
         colKey: firstEditableColumn,
       });
     });
-  }, [createRow, emitRowsChange, rows]);
+  }, [createRow, emitRowsChange]);
 
   const handleDeleteRow = useCallback(
     (row: TData) => {
-      const rowId = getRowId(row);
-      const nextRows = rows.filter((current) => getRowId(current) !== rowId);
+      const latest = stateRef.current;
+      const rowId = latest.getRowId(row);
+      const nextRows = latest.rows.filter(
+        (current) => latest.getRowId(current) !== rowId
+      );
       emitRowsChange(nextRows, { type: "row_deleted", row });
     },
-    [emitRowsChange, getRowId, rows]
+    [emitRowsChange]
   );
 
   const defaultColDef = useMemo<ColDef<TData>>(
@@ -340,6 +345,7 @@ export function EditableLineDataGrid<TData>({
         rows: finalRows,
         row: editedRow,
         field: event.colDef.field ?? null,
+        colId: event.column.getColId(),
         oldValue: event.oldValue,
         newValue: event.newValue,
       });

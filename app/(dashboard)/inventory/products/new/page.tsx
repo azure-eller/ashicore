@@ -1,6 +1,26 @@
 import { requireModuleAccess } from "@/lib/dal/auth";
 import { getUnitDefinitions } from "@/app/(dashboard)/inventory/queries";
-import { NewCardPage } from "@/components/card-page/new-card-page";
+import type { ItemCardDto } from "@/lib/api/clients/item-cards";
+import { ProductCard } from "../[id]/product-card";
+
+function emptyCard(itemType: "product", unitDefinitionId: string): ItemCardDto {
+  return {
+    family: {
+      id: "",
+      itemType,
+      name: "",
+      category: null,
+      description: null,
+      unitDefinitionId,
+      unitName: null,
+      purchaseUnitDefinitionId: null,
+      purchaseToStockFactor: null,
+      deletedAt: null,
+    },
+    options: [],
+    variants: [],
+  };
+}
 
 export default async function NewProductPage() {
   await requireModuleAccess("inventory", "operate");
@@ -8,9 +28,6 @@ export default async function NewProductPage() {
   const defaultUnit =
     units.find((unit) => unit.name.toLowerCase() === "each") ?? units[0];
   if (!defaultUnit) {
-    // No units in the org yet — fall back to the legacy form so the user can
-    // create one before adding products. Rare in practice (Paonia seed sets
-    // up Each on every org).
     const { getCategories, getAvailableComponents } = await import(
       "@/app/(dashboard)/inventory/queries"
     );
@@ -39,15 +56,18 @@ export default async function NewProductPage() {
   }
 
   return (
-    <NewCardPage
-      itemType="product"
-      defaultUnitId={defaultUnit.id}
+    <ProductCard
+      initialItemId={null}
+      initialCard={emptyCard("product", defaultUnit.id)}
       unitOptions={units.map((unit) => ({
         id: unit.id,
         name: unit.name,
         size: unit.size,
         uom: unit.uom,
       }))}
+      initialBomRows={[]}
+      availableComponents={[]}
+      canViewBom={false}
     />
   );
 }

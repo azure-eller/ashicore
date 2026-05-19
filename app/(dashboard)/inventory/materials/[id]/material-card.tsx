@@ -29,7 +29,7 @@ import { MaterialSupplyDetailsTab } from "./tabs/supply-details";
 import styles from "@/components/card-page/card-page.module.css";
 
 export type MaterialCardProps = {
-  initialItemId: string;
+  initialItemId: string | null;
   initialCard: ItemCardDto;
   usedInBoms: Array<{
     id: string;
@@ -47,11 +47,13 @@ export function MaterialCard({
 }: MaterialCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const isDraft = initialItemId == null;
 
   const cardQuery = useQuery({
-    queryKey: ["item-card", initialItemId],
-    queryFn: () => getItemCard(initialItemId),
+    queryKey: ["item-card", initialItemId ?? "__draft__"],
+    queryFn: () => getItemCard(initialItemId as string),
     initialData: initialCard,
+    enabled: !isDraft,
     refetchOnWindowFocus: false,
   });
   const card = cardQuery.data ?? initialCard;
@@ -61,8 +63,8 @@ export function MaterialCard({
   const [confirmDeleteCard, setConfirmDeleteCard] = useState(false);
 
   const deleteCardMutation = useMutation({
-    mutationKey: ["item-card", initialItemId, "delete-card"],
-    mutationFn: () => deleteItemCard(initialItemId),
+    mutationKey: ["item-card", initialItemId ?? "__draft__", "delete-card"],
+    mutationFn: () => deleteItemCard(initialItemId as string),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["item-cards"] });
       router.push("/inventory/materials");
@@ -89,13 +91,14 @@ export function MaterialCard({
   return (
     <div className={styles.sheet}>
       <CardPageHeader
-        itemId={initialItemId}
+        itemId={initialItemId ?? ""}
         typeLabel="Material"
         name={card.family.name}
         category={card.family.category}
         variantCount={visibleVariantCount}
         fallbackHref="/inventory/materials"
-        onDelete={() => setConfirmDeleteCard(true)}
+        isDraft={isDraft}
+        onDelete={isDraft ? undefined : () => setConfirmDeleteCard(true)}
       />
 
       <CardTabs
@@ -113,25 +116,29 @@ export function MaterialCard({
           ),
           "used-in-boms": <MaterialUsedInBomsTab usedInBoms={usedInBoms} />,
           supply: (
-            <MaterialSupplyDetailsTab card={card} focusItemId={initialItemId} />
+            <MaterialSupplyDetailsTab card={card} focusItemId={initialItemId ?? ""} />
           ),
         }}
       />
 
-      <VariantConfigurationDialog
-        open={configOpen}
-        onOpenChange={setConfigOpen}
-        card={card}
-      />
+      {isDraft ? null : (
+        <>
+          <VariantConfigurationDialog
+            open={configOpen}
+            onOpenChange={setConfigOpen}
+            card={card}
+          />
 
-      <AddInitialStockDialog
-        open={stockDialogVariant != null}
-        onOpenChange={(next) => {
-          if (!next) setStockDialogVariant(null);
-        }}
-        variant={stockDialogVariant}
-        unitLabel={card.family.unitName ?? undefined}
-      />
+          <AddInitialStockDialog
+            open={stockDialogVariant != null}
+            onOpenChange={(next) => {
+              if (!next) setStockDialogVariant(null);
+            }}
+            variant={stockDialogVariant}
+            unitLabel={card.family.unitName ?? undefined}
+          />
+        </>
+      )}
 
       <AlertDialog open={confirmDeleteCard} onOpenChange={setConfirmDeleteCard}>
         <AlertDialogContent size="sm">
