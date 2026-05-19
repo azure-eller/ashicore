@@ -1530,7 +1530,18 @@ test.describe("Manufacturing write-path smoke", () => {
       options: { pickBeforeComplete?: boolean } = {}
     ) => {
       const pickBeforeComplete = options.pickBeforeComplete ?? true;
-      await page.getByRole("button", { name: "Start Batch" }).click();
+      const [startBatchResponse] = await Promise.all([
+        page.waitForResponse(
+          (response) =>
+            response.request().method() === "POST" &&
+            response
+              .url()
+              .includes(`/api/manufacturing-orders/${batchOrderId}/batches/`) &&
+            response.url().endsWith("/start")
+        ),
+        page.getByRole("button", { name: "Start Batch" }).click(),
+      ]);
+      expect(startBatchResponse.status()).toBe(200);
 
       const sandCard = page
         .locator('[data-slot="card"]')

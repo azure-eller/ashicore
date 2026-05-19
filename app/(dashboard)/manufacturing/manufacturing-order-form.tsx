@@ -793,7 +793,12 @@ export function ManufacturingOrderForm({
       return;
     }
 
-    const template = productMap.get(selected.itemId);
+    const currentProductId = form.getValues("productId") || initialData?.productId;
+    const isSameProduct = currentProductId === selected.itemId;
+    const shouldResetProductSnapshot = !isEditing || !isSameProduct;
+    const template = shouldResetProductSnapshot
+      ? productMap.get(selected.itemId)
+      : undefined;
 
     form.setValue("salesOrderId", selected.salesOrderId, {
       shouldValidate: true,
@@ -811,18 +816,21 @@ export function ManufacturingOrderForm({
       shouldValidate: true,
       shouldDirty: true,
     });
-    form.setValue("groupRemainderChoices", [], {
-      shouldValidate: true,
-      shouldDirty: true,
-    });
-    form.setValue(
-      "ingredients",
-      (template?.bom ?? []).map((ingredient) => ({
-        itemId: ingredient.itemId,
-        quantityPerUnit: ingredient.quantityPerUnit,
-      })),
-      { shouldValidate: true, shouldDirty: true }
-    );
+
+    if (shouldResetProductSnapshot) {
+      form.setValue("groupRemainderChoices", [], {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+      form.setValue(
+        "ingredients",
+        (template?.bom ?? []).map((ingredient) => ({
+          itemId: ingredient.itemId,
+          quantityPerUnit: ingredient.quantityPerUnit,
+        })),
+        { shouldValidate: true, shouldDirty: true }
+      );
+    }
   };
 
   const ingredientsError = getFieldArrayError(form.formState.errors.ingredients);

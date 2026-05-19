@@ -782,7 +782,9 @@ test.describe("Manufacturing order flow", () => {
     expect(completeResult.body?.id).toBe(repeatOrderId);
 
     await page.goto(`/sales/orders/${repeatSalesOrderId}`);
-    await expect(page.getByRole("button", { name: "Ship", exact: true }).first()).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Plan shipment", exact: true })
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Create MOs", exact: true })
     ).toHaveCount(0);

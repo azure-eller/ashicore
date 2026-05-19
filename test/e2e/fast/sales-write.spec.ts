@@ -3954,7 +3954,7 @@ test.describe("Sales write-path smoke", () => {
     await expect(dialog.getByRole("button", { name: "Create 1 order" })).toBeEnabled();
   });
 
-  test("creates MOs when earlier open demand consumes finished goods stock", async ({
+  test("creates MOs for unallocated finished goods stock", async ({
     page,
     db,
   }) => {
@@ -4023,7 +4023,7 @@ test.describe("Sales write-path smoke", () => {
     expect(preview.lines).toMatchObject([
       {
         itemName: productName,
-        quantity: "2",
+        quantity: "3",
         status: "will_create",
         skipReason: null,
       },

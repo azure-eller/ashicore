@@ -459,7 +459,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       );
     });
 
-    test("bulk Create-MOs-from-SO creates one MO per will_create line and surfaces skip reasons for stock_on_hand and non_product", async ({
+    test("bulk Create-MOs-from-SO creates MOs for unallocated stock-covered lines and skips allocated lines", async ({
       page,
       db,
     }) => {
@@ -479,6 +479,12 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
         [{ componentId: materialM, quantity: "1" }],
         { stock: "100" }
       );
+      const productC = await createProduct(
+        `S02 ProdC ${ts}`,
+        unitId,
+        [{ componentId: materialM, quantity: "1" }],
+        { stock: "100" }
+      );
 
       const customerId = await createCustomerLocal(`S02 Customer ${ts}`);
       const soId = await createSalesOrderLocal({
@@ -486,6 +492,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
         lines: [
           { itemId: productA, quantity: "10", unitPrice: "10.00" },
           { itemId: productB, quantity: "5", unitPrice: "10.00" },
+          { itemId: productC, quantity: "5", unitPrice: "10.00" },
           { itemId: materialM, quantity: "2", unitPrice: "5.00" },
         ],
       });
@@ -496,6 +503,27 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       });
       expect(confirmRes.status, JSON.stringify(confirmRes.body)).toBe(200);
 
+      const orgId = await getOrgId();
+      const orderLines = await readSalesOrderLines(db, soId);
+      const productCOrderLine = orderLines.find((line) => line.itemId === productC);
+      expect(productCOrderLine).toBeDefined();
+      const [productCLot] = await db
+        .select({ id: lots.id })
+        .from(lots)
+        .where(eq(lots.itemId, productC))
+        .limit(1);
+      expect(productCLot).toBeDefined();
+      await db.insert(stockAllocations).values({
+        organizationId: orgId,
+        demandType: "sales_order_line",
+        demandId: productCOrderLine!.id,
+        itemId: productC,
+        sourceType: "inventory_lot",
+        sourceId: productCLot!.id,
+        quantity: "5",
+        status: "active",
+      });
+
       // Verify preview server-side before driving the UI dialog.
       const preview = await getMOPreview(soId);
       const lines = preview.body?.lines as
@@ -503,10 +531,12 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
         | undefined;
       const productALine = lines?.find((l) => l.itemId === productA);
       const productBLine = lines?.find((l) => l.itemId === productB);
+      const productCLine = lines?.find((l) => l.itemId === productC);
       const materialMLine = lines?.find((l) => l.itemId === materialM);
       expect(productALine?.status).toBe("will_create");
-      expect(productBLine?.status).toBe("skipped");
-      expect(productBLine?.reason ?? productBLine?.skipReason).toBe(
+      expect(productBLine?.status).toBe("will_create");
+      expect(productCLine?.status).toBe("skipped");
+      expect(productCLine?.reason ?? productCLine?.skipReason).toBe(
         "stock_on_hand"
       );
       expect(materialMLine?.status).toBe("skipped");
@@ -534,7 +564,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
             .endsWith(`/api/sales-orders/${soId}/manufacturing-orders`) &&
           response.request().method() === "POST"
       );
-      await page.getByRole("button", { name: /create 1 order/i }).click();
+      await page.getByRole("button", { name: /create 2 orders/i }).click();
       const createResponse = await createResponsePromise;
       expect(createResponse.status()).toBe(201);
 
@@ -547,8 +577,10 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
             isNull(manufacturingOrders.deletedAt)
           )
         );
-      expect(created).toHaveLength(1);
-      expect(created[0].productId).toBe(productA);
+      expect(created).toHaveLength(2);
+      expect(created.map((order) => order.productId).sort()).toEqual(
+        [productA, productB].sort()
+      );
 
       const previewAfter = await getMOPreview(soId);
       const afterLines = previewAfter.body?.lines as

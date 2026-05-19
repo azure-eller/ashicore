@@ -193,6 +193,13 @@ function SalesItemsActionCell({ order }: { order: SalesOrderListRow }) {
 
 function getProductionState(order: SalesOrderListRow): OperationalState {
   if (!order.hasManufacturableLines) {
+    if (
+      order.manufacturableDisabledReason ===
+      "Allocated stock covers every manufacturable line."
+    ) {
+      return { label: "Allocated", tone: "success" };
+    }
+
     return { label: "No production", tone: "muted" };
   }
 
