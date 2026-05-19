@@ -163,10 +163,11 @@
   flex: 0 0 var(--space-4);
 }
 
-.statusStatSquare[data-tone="late"]     { background: var(--color-danger); }
-.statusStatSquare[data-tone="short"]    { background: var(--color-warning); }
-.statusStatSquare[data-tone="complete"] { background: var(--color-success); }
-.statusStatSquare[data-tone="variants"] { background: var(--color-danger); }
+.statusStatSquare[data-tone="late"]       { background: var(--color-danger); }
+.statusStatSquare[data-tone="short"]      { background: var(--alloc-demand); }
+.statusStatSquare[data-tone="complete"]   { background: var(--alloc-supply); }
+.statusStatSquare[data-tone="variants"]   { background: var(--color-danger); }
+.statusStatSquare[data-tone="production"] { background: var(--alloc-production); }
 
 .toolbarRefreshed {
   color: var(--color-muted);

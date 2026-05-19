@@ -81,7 +81,7 @@ const UNPLANNED_OPEN_KEY = "ashicore.allocation.unplannedOpen";
 const MANUFACTURING_OPEN_KEY = "ashicore.allocation.manufacturingOpen";
 const POOL_REFRESHED_AT_KEY = "ashicore.allocation.poolRefreshedAt";
 
-type RibbonFilter = "late" | "shortLines" | "variantsShort";
+type RibbonFilter = "late" | "shortLines" | "variantsShort" | "moWait";
 
 type AllocationProduct = AllocatorProduct & {
   stockQty: number;
@@ -711,6 +711,11 @@ function applyRibbonFilter(
   if (filter === "shortLines") {
     return rows.filter((row) =>
       [...row.cells.values()].some((cell) => cell.demand > cell.alloc)
+    );
+  }
+  if (filter === "moWait") {
+    return rows.filter((row) =>
+      [...row.cells.values()].some((cell) => getCellStatus(cell) === "waiting")
     );
   }
   if (filter === "variantsShort") {
@@ -1361,6 +1366,7 @@ function AllocationToolbar({
   shortLines,
   totalLines,
   variantsShort,
+  moWaitLines,
   activeFilter,
   onToggleFilter,
   refreshedAgoMs,
@@ -1378,6 +1384,7 @@ function AllocationToolbar({
   shortLines: number;
   totalLines: number;
   variantsShort: number;
+  moWaitLines: number;
   activeFilter: RibbonFilter | null;
   onToggleFilter: (filter: RibbonFilter) => void;
   refreshedAgoMs: number | null;
@@ -1440,6 +1447,21 @@ function AllocationToolbar({
       >
         <span className={styles.statusStatSquare} data-tone="short" aria-hidden="true" />
         <b>{shortLines}</b> short of <b>{totalLines}</b>
+      </button>
+      <button
+        type="button"
+        className={styles.statusStat}
+        data-active={activeFilter === "moWait" ? "true" : undefined}
+        onClick={() => onToggleFilter("moWait")}
+        disabled={moWaitLines === 0}
+        aria-pressed={activeFilter === "moWait"}
+      >
+        <span
+          className={styles.statusStatSquare}
+          data-tone="production"
+          aria-hidden="true"
+        />
+        <b>{moWaitLines}</b> MO wait
       </button>
       <button
         type="button"
@@ -1856,11 +1878,20 @@ export function SalesAllocationTable({
           if (progress.state === "complete") acc.complete += 1;
           row.cells.forEach((cell) => {
             if (cell.demand > cell.alloc) acc.shortLines += 1;
+            if (getCellStatus(cell) === "waiting") acc.moWaitLines += 1;
             if (cell.demand > 0) acc.lines += 1;
           });
           return acc;
         },
-        { late: 0, complete: 0, shortLines: 0, lines: 0, alloc: 0, demand: 0 }
+        {
+          late: 0,
+          complete: 0,
+          shortLines: 0,
+          moWaitLines: 0,
+          lines: 0,
+          alloc: 0,
+          demand: 0,
+        }
       ),
     [filteredRowsInScope]
   );
@@ -2193,6 +2224,7 @@ export function SalesAllocationTable({
           shortLines={totals.shortLines}
           totalLines={totals.lines}
           variantsShort={variantsShort}
+          moWaitLines={totals.moWaitLines}
           activeFilter={activeFilter}
           onToggleFilter={toggleRibbonFilter}
           refreshedAgoMs={refreshedAgoMs}
