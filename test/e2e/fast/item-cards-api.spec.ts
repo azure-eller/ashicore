@@ -25,7 +25,7 @@ test.describe("item card API", () => {
     });
     expect(cardCreate.status).toBe(201);
     const cardCreateBody = await cardCreate.json();
-    const materialCardItemId = (cardCreateBody.itemId ?? cardCreateBody.id) as string;
+    const materialCardItemId = cardCreateBody.itemId as string;
 
     const patchName = `Card API Material Renamed ${ts}`;
     const patch = await testFetch(`/api/item-cards/${materialCardItemId}`, {
