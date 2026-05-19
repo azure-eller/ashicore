@@ -34,16 +34,11 @@ async function SalesAllocationData() {
       )
     : [];
   const initialPools = await getInitialAllocationPools(
-    [
-      ...orders.flatMap((order) =>
-        order.lines
-          .filter((line) => line.itemType === "product")
-          .map((line) => line.itemId)
-      ),
-      ...manufacturingDemandRows.flatMap((row) =>
-        row.ingredients.map((ingredient) => ingredient.itemId)
-      ),
-    ],
+    orders.flatMap((order) =>
+      order.lines
+        .filter((line) => line.itemType === "product")
+        .map((line) => line.itemId)
+    ),
     canReadManufacturing
   );
   return (
