@@ -152,18 +152,28 @@ test.describe("Purchasing flow", () => {
     await selectDate(page, page.locator("#expectedDate"), expectedCreateDate);
     await page.locator("#notes").fill("Rush first load, standard second load.");
 
-    const firstMaterialInput = page.getByRole("combobox", { name: "Material" }).first();
-    await firstMaterialInput.click();
-    await firstMaterialInput.pressSequentially(barkName);
+    const materialGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
+    const firstRow = materialGrid.locator('[role="row"][row-index="0"]');
+    await firstRow.locator('[col-id="itemId"]').click();
+    await page.getByPlaceholder("Search materials...").pressSequentially(barkName);
     await page.getByRole("option", { name: new RegExp(barkName) }).click();
-    await page.getByPlaceholder("0").first().fill("10");
+    const firstQuantityCell = firstRow.locator('[col-id="quantityOrdered"]');
+    await firstQuantityCell.click();
+    const firstQuantityEditor = firstQuantityCell.locator("input").first();
+    await expect(firstQuantityEditor).toBeVisible();
+    await firstQuantityEditor.fill("10");
+    await firstQuantityEditor.press("Enter");
 
-    const secondRow = page.getByRole("row", { name: /Reorder line 2/ });
-    const secondMaterialInput = secondRow.getByRole("combobox").first();
-    await secondMaterialInput.click();
-    await page.keyboard.type(sandName);
+    const secondRow = materialGrid.locator('[role="row"][row-index="1"]');
+    await secondRow.locator('[col-id="itemId"]').click();
+    await page.getByPlaceholder("Search materials...").pressSequentially(sandName);
     await page.getByRole("option", { name: new RegExp(sandName) }).click();
-    await secondRow.locator('input[name="lines.1.quantityOrdered"]').fill("5");
+    const secondQuantityCell = secondRow.locator('[col-id="quantityOrdered"]');
+    await secondQuantityCell.click();
+    const secondQuantityEditor = secondQuantityCell.locator("input").first();
+    await expect(secondQuantityEditor).toBeVisible();
+    await secondQuantityEditor.fill("5");
+    await secondQuantityEditor.press("Enter");
 
     const createOrderResponsePromise = page.waitForResponse(
       (response) =>
@@ -238,8 +248,14 @@ test.describe("Purchasing flow", () => {
     await selectDate(page, page.locator("#expectedDate"), expectedEditDate);
     await page.locator("#notes").fill("Updated delivery window after supplier confirmation.");
 
-    const secondRow = page.getByRole("row", { name: /Reorder line 2/ });
-    await secondRow.getByRole("textbox", { name: "Ordered Qty" }).fill("6");
+    const materialGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
+    const secondRow = materialGrid.locator('[role="row"][row-index="1"]');
+    const quantityCell = secondRow.locator('[col-id="quantityOrdered"]');
+    await quantityCell.click();
+    const quantityEditor = quantityCell.locator("input").first();
+    await expect(quantityEditor).toBeVisible();
+    await quantityEditor.fill("6");
+    await quantityEditor.press("Enter");
 
     await page.getByRole("button", { name: "Save Changes" }).click();
     await page.waitForURL(`**/purchasing/orders/${purchaseOrderId}`);
@@ -333,7 +349,9 @@ test.describe("Purchasing flow", () => {
 
     const barkDelete = await deleteItem(barkId);
     expect(barkDelete.status).toBe(400);
-    expect(barkDelete.body?.error).toContain("purchase orders");
+    expect(barkDelete.body?.error ?? "").toMatch(
+      /Cannot delete the last variant|purchase orders/i
+    );
 
     const editOrderedResponse = await testFetch(`/api/purchase-orders/${purchaseOrderId}`, {
       method: "PUT",

@@ -12,7 +12,6 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
 import {
   inventoryEvents,
   inventoryExpectedSummary,
@@ -20,6 +19,8 @@ import {
   inventoryLotBalances,
   type InventoryDisposition,
   inventoryReservationsSummary,
+  itemFamilies,
+  itemVariantValues,
   items,
   lots,
   manufacturingOrderBatches,
@@ -36,13 +37,13 @@ import {
   salesShipmentLines,
   salesShipments,
   unitDefinitions,
+  variantOptions,
+  variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import {
-  formatVariantDisplay,
   normalizeNumeric,
   normalizeNumericScale,
-  resolveVariantDisplay,
 } from "@/lib/format";
 import { inferItemVisual } from "@/components/inventory-visuals/infer-item-visual";
 import {
@@ -139,6 +140,35 @@ import type {
   ManufacturingSalesOrderPreview,
   ManufacturingSalesLineOption,
 } from "./types";
+
+async function getManufacturingOptionLabelsByItemIdInTx(tx: Tx, itemIds: string[]) {
+  const uniqueItemIds = [...new Set(itemIds)];
+  if (uniqueItemIds.length === 0) {
+    return new Map<string, string[]>();
+  }
+
+  const rows = await tx
+    .select({
+      itemId: itemVariantValues.itemId,
+      label: variantOptionValues.label,
+    })
+    .from(itemVariantValues)
+    .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
+    .innerJoin(
+      variantOptionValues,
+      eq(itemVariantValues.optionValueId, variantOptionValues.id)
+    )
+    .where(inArray(itemVariantValues.itemId, uniqueItemIds))
+    .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder));
+
+  const byItemId = new Map<string, string[]>();
+  for (const row of rows) {
+    const labels = byItemId.get(row.itemId) ?? [];
+    labels.push(row.label);
+    byItemId.set(row.itemId, labels);
+  }
+  return byItemId;
+}
 
 function shippedSalesOrderLineQuantitySql() {
   return sql<string>`COALESCE((
@@ -1478,6 +1508,39 @@ async function insertManufacturingIngredientLotAllocationInTx(
   }
 ) {
   if (params.quantity <= 0) return;
+
+  const [existing] = await tx
+    .select({
+      id: stockAllocations.id,
+      quantity: stockAllocations.quantity,
+    })
+    .from(stockAllocations)
+    .where(
+      and(
+        eq(stockAllocations.organizationId, params.organizationId),
+        eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
+        eq(stockAllocations.demandId, params.ingredientId),
+        eq(stockAllocations.itemId, params.itemId),
+        eq(stockAllocations.sourceType, "inventory_lot"),
+        eq(stockAllocations.sourceId, params.lotId),
+        eq(stockAllocations.status, "active")
+      )
+    )
+    .for("update");
+
+  const now = new Date();
+  if (existing) {
+    await tx
+      .update(stockAllocations)
+      .set({
+        quantity: normalizeNumeric(parseFloat(existing.quantity) + params.quantity),
+        sourceLabelSnapshot: params.sourceLabelSnapshot ?? null,
+        updatedBy: params.actorUserId ?? null,
+        updatedAt: now,
+      })
+      .where(eq(stockAllocations.id, existing.id));
+    return;
+  }
 
   await tx.insert(stockAllocations).values({
     organizationId: params.organizationId,
@@ -3162,17 +3225,15 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
     "manufacturing.get_orders",
     async () => {
       return withAuthedOrgContext(async (tx, orgId) => {
-        const masterItems = alias(items, "master_items");
         const orders = (await tx
           .select({
             id: manufacturingOrders.id,
             orderNumber: manufacturingOrders.orderNumber,
+            productId: manufacturingOrders.productId,
             productName: manufacturingOrders.productName,
             productSku: manufacturingOrders.productSku,
             productCategory: items.category,
-            variantAttrs: items.variantAttrs,
-            masterName: masterItems.name,
-            masterVariantAxes: masterItems.variantAxes,
+            productFamilyName: itemFamilies.name,
             salesOrderNumber: manufacturingOrders.salesOrderNumber,
             salesCustomerName: manufacturingOrders.salesCustomerName,
             priorityRank: manufacturingOrders.priorityRank,
@@ -3197,7 +3258,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
           })
           .from(manufacturingOrders)
           .leftJoin(items, eq(manufacturingOrders.productId, items.id))
-          .leftJoin(masterItems, eq(items.parentId, masterItems.id))
+          .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
           .where(isNull(manufacturingOrders.deletedAt))
           .orderBy(
             sql`${manufacturingOrders.priorityRank} IS NULL`,
@@ -3218,9 +3279,8 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             | "itemSpriteKind"
             | "itemSpriteColor"
           > & {
-            variantAttrs: Record<string, string> | null;
-            masterName: string | null;
-            masterVariantAxes: string[] | null;
+            productId: string;
+            productFamilyName: string | null;
           }
         >;
 
@@ -3229,6 +3289,10 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
         }
 
         const orderIds = orders.map((order) => order.id);
+        const optionLabelsByItemId = await getManufacturingOptionLabelsByItemIdInTx(
+          tx,
+          orders.map((order) => order.productId)
+        );
         const ingredientRows = await tx
           .select({
             manufacturingOrderId: manufacturingOrderIngredients.manufacturingOrderId,
@@ -3341,7 +3405,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
           }
         }
 
-        return orders.map(({ variantAttrs, masterName, masterVariantAxes, ...order }) => {
+        return orders.map(({ productFamilyName, ...order }) => {
           const batches = batchesByOrder.get(order.id) ?? [];
           const ingredientProgressRows = ingredientsByOrder.get(order.id) ?? [];
           const pickProgressStatus =
@@ -3352,11 +3416,11 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             (batch) => batch.status === "completed"
           ).length;
           const totalBatchCount = order.numberOfBatches ?? batches.length;
-          const display = resolveVariantDisplay(
-            order.productName,
-            masterName == null ? null : { name: masterName, variantAxes: masterVariantAxes },
-            variantAttrs
-          );
+          const optionLabels = optionLabelsByItemId.get(order.productId) ?? [];
+          const display = {
+            masterName: productFamilyName ?? order.productName,
+            attrs: optionLabels,
+          };
           const itemVisual = inferItemVisual({
             itemType: "product",
             category: order.productCategory,
@@ -3511,15 +3575,11 @@ export async function getManufacturingProductTemplates(): Promise<
   >
 > {
   return withAuthedOrgContext(async (tx) => {
-    const masterItems = alias(items, "master_items");
     const products = await tx
       .select({
         id: items.id,
         name: items.name,
-        parentId: items.parentId,
-        variantAttrs: items.variantAttrs,
-        masterName: masterItems.name,
-        masterVariantAxes: masterItems.variantAxes,
+        familyName: itemFamilies.name,
         sku: items.sku,
         unitName: unitDefinitions.name,
         typicalBatchSize: trimScaleNullable(items.typicalBatchSize).as(
@@ -3531,13 +3591,17 @@ export async function getManufacturingProductTemplates(): Promise<
       })
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-      .leftJoin(masterItems, eq(items.parentId, masterItems.id))
-      .where(and(eq(items.itemType, "product"), isNull(items.deletedAt), eq(items.isMaster, false)))
+      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
+      .where(and(eq(items.itemType, "product"), isNull(items.deletedAt), isNotNull(items.familyId)))
       .orderBy(items.name);
 
     if (products.length === 0) return [];
 
     const bomByProduct = await getCurrentBomCoverageInTx(
+      tx,
+      products.map((product) => product.id)
+    );
+    const optionLabelsByItemId = await getManufacturingOptionLabelsByItemIdInTx(
       tx,
       products.map((product) => product.id)
     );
@@ -3549,15 +3613,11 @@ export async function getManufacturingProductTemplates(): Promise<
         const batchBasis = bomRows.find(
           (row) => row.consumptionMode === "per_batch" && row.basisOutputQuantity != null
         )?.basisOutputQuantity;
-        const masterVariantAxes = (product.masterVariantAxes as string[] | null) ?? [];
+        const optionLabels = optionLabelsByItemId.get(product.id) ?? [];
         const displayName =
-          product.parentId != null && product.masterName != null && masterVariantAxes.length > 0
-            ? formatVariantDisplay(
-                product.masterName,
-                (product.variantAttrs as Record<string, string>) ?? {},
-                masterVariantAxes
-              )
-            : product.name;
+          product.familyName != null && optionLabels.length > 0
+            ? `${product.familyName} / ${optionLabels.join(" / ")}`
+            : product.familyName ?? product.name;
 
         return {
           id: product.id,
@@ -7167,11 +7227,7 @@ export async function getManufacturingExecutionDetail(
 
     let batches: ExecutionBatchRow[] = [];
     if (order.manufacturingMode === "batch") {
-      const existingBatches = await getBatchRowsInTx(tx, orderId);
-      batches =
-        existingBatches.length > 0
-          ? existingBatches
-          : await ensureBatchExecutionRowsInTx(tx, order);
+      batches = await getBatchRowsInTx(tx, orderId);
     }
 
     const currentBatch =

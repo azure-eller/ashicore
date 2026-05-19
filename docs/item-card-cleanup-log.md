@@ -13,26 +13,40 @@ model after the item-card UI and mobile clients are migrated.
 
 - UI uses `/api/item-cards/*` for product/material card create, edit, variant
   config, generation, deletion, and BOM copy.
+- Product and material detail routes render item cards by default; the old
+  `?view=card` gate has been removed.
 - UI uses `PATCH /api/items/:variantId` only for variant-owned fields: SKU,
   prices, barcodes, supplier item code, lead time, MOQ, stock/cost, and BOM.
 - All inventory, sales, purchasing, manufacturing, stocktake, planning, ledger,
   accounting, and Android pickers consume concrete item rows from `/api/items`
   and display `displayName`.
-- Paonia loader creates `item_families`, normalized options/values, and concrete
-  operational variants directly. It no longer seeds fake masters.
+- Paonia loader creates package-first `item_families`, normalized options/values,
+  and concrete operational variants for soil bag/tote products directly. It no
+  longer supports fake-master seed fields.
 - Fast and slow inventory suites cover card create/update/delete, variant
   generation/promotion, duplicate-combination warnings, disabled historical
   values, BOM copy, and picker contracts.
 
 ## Deprecated Routes And Forms
 
-Remove only after the stabilization gates are met.
-
-- `/inventory/products/[id]/variants/new`
+- `/inventory/products/[id]/variants/new` removed.
 - Legacy variant form components that write `variantAxes` or `variantAttrs`
-- Product/material edit controls that send family-owned fields through
-  `/api/items/:id`
-- Any route logic branching on `isMaster` for editable product identity
+  removed for the product variant create flow.
+- Product create/edit form no longer exposes the fake-master toggle; direct
+  edits of legacy master rows redirect to the detail page.
+- Legacy `ItemDetail` fallback components removed after detail routes switched
+  to card-first rendering.
+- Legacy `createMasterProduct`, `updateMasterProduct`, `createVariant`, and
+  test helper writes removed.
+- Legacy `/api/items/:id/variants` route and `getVariants()` read helper removed.
+- Legacy master/variant Zod schemas removed from `lib/schemas/items.ts`.
+- Legacy variant display fallbacks removed from inventory, sales,
+  manufacturing, planning, allocation, and ledger read models.
+
+Still live until legacy direct edits and inline operations editing are replaced:
+
+- `/inventory/products/[id]/edit` and `/inventory/materials/[id]/edit`
+- `PUT /api/items/:id` for per-variant stock/cost/operation edits
 
 Grep targets:
 
@@ -71,7 +85,8 @@ Migration sequence:
 
 - Legacy variant display helpers that format from `variantAxes`/`variantAttrs`
 - Legacy master/child query branches in inventory list/detail reads
-- Loader family-builder paths that create `isMaster: true`
+- Paonia soil bag/tote and nute-bag loader paths no longer create legacy fake
+  masters; keep future loader seeds on normalized `item_families`.
 - Tests whose assertions depend on fake master rows being visible or editable
 
 ## Android Contract Cleanup
@@ -86,8 +101,7 @@ Migration sequence:
 
 - Purchasing should read material default supplier, purchase unit, and conversion
   from `item_families`.
-- Sales/manufacturing/planning/stocktake/accounting exports should prefer
-  `displayName` or normalized option metadata where currently showing raw
-  `items.name`.
+- Accounting exports should prefer `displayName` or normalized option metadata
+  where currently showing raw `items.name`.
 - BOM copy remains explicit per concrete product variant; do not introduce live
   family-level BOM inheritance.

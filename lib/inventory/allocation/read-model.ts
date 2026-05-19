@@ -1,6 +1,8 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
+  itemFamilies,
+  itemVariantValues,
   items,
   manufacturingOrderIngredients,
   manufacturingOrders,
@@ -10,10 +12,12 @@ import {
   salesShipments,
   stockAllocations,
   unitDefinitions,
+  variantOptions,
+  variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
-import { normalizeNumeric, resolveVariantDisplay, roundQuantity } from "@/lib/format";
+import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { allocationDemandAdapters, getAllocationDemandAdapter } from "./adapters";
 import { loadAllocationSourcesForItemInTx } from "./sources";
 import type {
@@ -35,31 +39,37 @@ function quantityString(value: number) {
 }
 
 async function loadItemInTx(tx: Tx, itemId: string) {
-  const masterItems = alias(items, "allocation_workspace_master_items");
   const [row] = await tx
     .select({
       id: items.id,
       name: items.name,
-      variantAttrs: items.variantAttrs,
+      familyName: itemFamilies.name,
       unitName: unitDefinitions.name,
-      masterName: masterItems.name,
-      masterVariantAxes: masterItems.variantAxes,
     })
     .from(items)
+    .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
     .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-    .leftJoin(masterItems, eq(items.parentId, masterItems.id))
     .where(eq(items.id, itemId));
   if (!row) return null;
-  const display = resolveVariantDisplay(
-    row.name,
-    row.masterName == null
-      ? null
-      : { name: row.masterName, variantAxes: row.masterVariantAxes },
-    row.variantAttrs
-  );
+
+  const optionRows = await tx
+    .select({
+      label: variantOptionValues.label,
+    })
+    .from(itemVariantValues)
+    .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
+    .innerJoin(
+      variantOptionValues,
+      eq(itemVariantValues.optionValueId, variantOptionValues.id)
+    )
+    .where(eq(itemVariantValues.itemId, itemId))
+    .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder));
   return {
     itemId: row.id,
-    itemName: display.masterName,
+    itemName:
+      row.familyName && optionRows.length > 0
+        ? `${row.familyName} / ${optionRows.map((option) => option.label).join(" / ")}`
+        : row.familyName ?? row.name,
     unitName: row.unitName ?? "units",
   };
 }

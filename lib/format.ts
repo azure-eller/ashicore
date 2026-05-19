@@ -429,52 +429,6 @@ export function getFirstFormErrorMessage(error: unknown): string | null {
 }
 
 /**
- * Build the canonical display name for a variant item.
- * For standalone items: returns the item name as-is.
- * For variants: returns "Master Name / Value1 / Value2" in axis order.
- *
- * @param masterName  The parent product family name (e.g. "Bomb")
- * @param attrs       The variant's attribute map (e.g. {"Package": "2 Cubic Foot Bag"})
- * @param axes        The master's axis order (e.g. ["Package"]) — values are shown in this order
- */
-export function formatVariantDisplay(
-  masterName: string,
-  attrs: Record<string, string>,
-  axes: string[],
-): string {
-  const values = axes.map((axis) => attrs[axis]).filter(Boolean);
-  if (values.length === 0) return masterName;
-  return `${masterName} / ${values.join(" / ")}`;
-}
-
-/**
- * Resolve the structured display pieces for an item line.
- *
- *  - For a variant (parent present + variantAttrs): returns the master name
- *    and the attribute values in axis order, ready to render as a label
- *    with badge/pill secondary fields.
- *  - For a standalone item or master: returns the item's own name with an
- *    empty `attrs` list.
- *
- * This keeps the " / " concatenation convention confined to
- * `formatVariantDisplay` — callers that want structured output should use
- * this helper instead of splitting the concatenated string.
- */
-export function resolveVariantDisplay(
-  itemName: string,
-  master: { name: string | null; variantAxes: string[] | null } | null,
-  variantAttrs: Record<string, string> | null,
-): { masterName: string; attrs: string[] } {
-  if (master?.name && master.variantAxes && variantAttrs) {
-    const attrs = master.variantAxes
-      .map((axis) => variantAttrs[axis])
-      .filter((v): v is string => Boolean(v));
-    return { masterName: master.name, attrs };
-  }
-  return { masterName: itemName, attrs: [] };
-}
-
-/**
  * Build the canonical display name for a variant from the item-card DTO shape.
  * Mirrors what the backend produces in ItemCardVariantDto.displayName — useful
  * for building previews/readouts when only the family + option-values map is

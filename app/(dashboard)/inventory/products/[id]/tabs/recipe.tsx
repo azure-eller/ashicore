@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -14,10 +15,7 @@ import { Button } from "@/components/ui/button";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
 import { BomEditor, type BomPayloadRow } from "@/app/(dashboard)/inventory/bom-editor";
-import {
-  saveBomRevision,
-  type ItemCardDto,
-} from "@/lib/api/clients/item-cards";
+import { saveBomRevision, type ItemCardDto } from "@/lib/api/clients/item-cards";
 import styles from "@/components/card-page/card-page.module.css";
 
 type AvailableComponent = {
@@ -34,6 +32,7 @@ export type ProductRecipeTabProps = {
   initialBomRows: BomPayloadRow[];
   availableComponents: AvailableComponent[];
   canViewBom: boolean;
+  canEditProduct: boolean;
 };
 
 export function ProductRecipeTab({
@@ -42,6 +41,7 @@ export function ProductRecipeTab({
   initialBomRows,
   availableComponents,
   canViewBom,
+  canEditProduct,
 }: ProductRecipeTabProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -81,16 +81,16 @@ export function ProductRecipeTab({
     onSuccess: () => {
       setDirty(false);
       void queryClient.invalidateQueries({ queryKey: ["item-card"] });
-      // Refetch the server-side BOM rows so the editor shows the saved state.
       router.refresh();
     },
   });
 
   if (!canViewBom) {
     return (
-      <section className={styles.section}>
+      <section className={styles.section} aria-label="Locked recipe">
         <p className={styles.helper}>
-          You don&apos;t have access to view this recipe.
+          This recipe is locked. Inventory or manufacturing admin access is required
+          to view or edit recipe details.
         </p>
       </section>
     );
@@ -119,18 +119,17 @@ export function ProductRecipeTab({
   };
 
   const handleRowsChange = (next: BomPayloadRow[]) => {
+    if (!canEditProduct) return;
     setRows(next);
     setDirty(true);
   };
 
-  const errorMessage = saveMutation.error
-    ? (saveMutation.error as Error).message
-    : null;
+  const errorMessage = saveMutation.error ? (saveMutation.error as Error).message : null;
 
   return (
     <section className={styles.section}>
       <h2 className={styles.sectionHeading}>
-        Ingredients
+        Recipe / Bill of Materials
         <span className={styles.hint}>per 1 unit of product</span>
       </h2>
 
@@ -141,55 +140,63 @@ export function ProductRecipeTab({
           onChange={handleVariantChange}
           hideWhenSingle={false}
         />
-        <div className="flex shrink-0 flex-nowrap items-center justify-end gap-(--space-1) overflow-x-auto">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="px-(--space-4)"
-            onClick={() => setCopyToOpen(true)}
-            disabled={visibleVariants.length < 2}
-          >
-            <HugeiconsIcon icon={Upload01Icon} data-icon="inline-start" />
-            Copy to…
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="px-(--space-4)"
-            onClick={() => setCopyFromOpen(true)}
-          >
-            <HugeiconsIcon icon={Download01Icon} data-icon="inline-start" />
-            Copy from…
-          </Button>
-          {dirty ? (
+        {canEditProduct ? (
+          <div className="flex shrink-0 flex-nowrap items-center justify-end gap-(--space-1) overflow-x-auto">
             <Button
               type="button"
               variant="outline"
               size="sm"
               className="px-(--space-4)"
-              onClick={() => {
-                setRows(initialBomRows);
-                setDirty(false);
-              }}
-              disabled={saveMutation.isPending}
+              onClick={() => setCopyToOpen(true)}
+              disabled={visibleVariants.length < 2}
             >
-              <HugeiconsIcon icon={Undo03Icon} data-icon="inline-start" />
-              Discard
+              <HugeiconsIcon icon={Upload01Icon} data-icon="inline-start" />
+              Copy to…
             </Button>
-          ) : null}
-          <Button
-            type="button"
-            size="sm"
-            className="px-(--space-4)"
-            onClick={() => saveMutation.mutate()}
-            disabled={!dirty || saveMutation.isPending}
-          >
-            <HugeiconsIcon icon={CheckmarkCircle02Icon} data-icon="inline-start" />
-            {saveMutation.isPending ? "Saving…" : "Save recipe"}
-          </Button>
-        </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="px-(--space-4)"
+              onClick={() => setCopyFromOpen(true)}
+              disabled={visibleVariants.length < 2}
+            >
+              <HugeiconsIcon icon={Download01Icon} data-icon="inline-start" />
+              Copy from…
+            </Button>
+            {dirty ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="px-(--space-4)"
+                onClick={() => {
+                  setRows(initialBomRows);
+                  setDirty(false);
+                }}
+                disabled={saveMutation.isPending}
+              >
+                <HugeiconsIcon icon={Undo03Icon} data-icon="inline-start" />
+                Discard
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              className="px-(--space-4)"
+              onClick={() => saveMutation.mutate()}
+              disabled={!dirty || saveMutation.isPending}
+            >
+              <HugeiconsIcon icon={CheckmarkCircle02Icon} data-icon="inline-start" />
+              {saveMutation.isPending ? "Saving…" : "Save recipe"}
+            </Button>
+            <Button type="button" variant="outline" size="sm" asChild>
+              <Link href={`/inventory/products/${activeVariant.id}/edit`}>
+                Edit
+              </Link>
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <p
@@ -202,7 +209,7 @@ export function ProductRecipeTab({
       <BomEditor
         initialRows={initialBomRows}
         availableComponents={availableComponents}
-        onRowsChange={(nextRows) => handleRowsChange(nextRows)}
+        onRowsChange={handleRowsChange}
         error={errorMessage}
       />
 

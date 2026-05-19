@@ -1,12 +1,12 @@
 import { redirect } from "next/navigation";
 import {
-  getItem,
+  getItemCommitmentSummary,
   getLots,
   getUnitDefinitions,
   getUsedInParents,
 } from "@/app/(dashboard)/inventory/queries";
 import { getSuppliers } from "@/app/(dashboard)/purchasing/queries";
-import { getItemCard } from "@/lib/inventory/item-cards";
+import { getItemCard, ItemCardError } from "@/lib/inventory/item-cards";
 import { MaterialCard } from "./material-card";
 
 export default async function MaterialDetailPage({
@@ -15,15 +15,21 @@ export default async function MaterialDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const item = await getItem(id);
-  if (!item) redirect("/inventory/materials");
+  const card = await getItemCard(id).catch((error: unknown) => {
+    if (error instanceof ItemCardError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  });
 
-  const card = await getItemCard(id);
-  const [usedInParents, unitOptions, lots, suppliers] = await Promise.all([
+  if (!card) redirect("/inventory/materials");
+
+  const [usedInParents, unitOptions, lots, suppliers, commitmentSummary] = await Promise.all([
     getUsedInParents(id),
     getUnitDefinitions(),
     getLots(id),
     getSuppliers(),
+    getItemCommitmentSummary(id),
   ]);
 
   return (
@@ -43,6 +49,7 @@ export default async function MaterialDetailPage({
         code: supplier.code,
       }))}
       initialLots={lots}
+      commitmentSummary={commitmentSummary}
     />
   );
 }

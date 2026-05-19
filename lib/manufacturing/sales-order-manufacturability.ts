@@ -1,16 +1,19 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
 import {
+  itemFamilies,
+  itemVariantValues,
   items,
   manufacturingOrders,
   salesOrderLines,
   salesShipmentLines,
   salesOrders,
   stockAllocations,
+  variantOptions,
+  variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { getCurrentBomCoverageInTx } from "@/lib/bom/revisions";
-import { normalizeNumeric, resolveVariantDisplay, roundQuantity } from "@/lib/format";
+import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
 
 export const SALES_ORDER_MANUFACTURING_SKIP_REASONS = [
@@ -64,6 +67,35 @@ function getSkipMessage(reason: SalesOrderManufacturingSkipReason) {
     case "existing_active_mo":
       return "A linked manufacturing order already exists.";
   }
+}
+
+async function getManufacturingOptionValuesByItemIdInTx(tx: Tx, itemIds: string[]) {
+  const uniqueItemIds = [...new Set(itemIds)];
+  if (uniqueItemIds.length === 0) {
+    return new Map<string, string[]>();
+  }
+
+  const rows = await tx
+    .select({
+      itemId: itemVariantValues.itemId,
+      label: variantOptionValues.label,
+    })
+    .from(itemVariantValues)
+    .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
+    .innerJoin(
+      variantOptionValues,
+      eq(itemVariantValues.optionValueId, variantOptionValues.id),
+    )
+    .where(inArray(itemVariantValues.itemId, uniqueItemIds))
+    .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder));
+
+  const byItemId = new Map<string, string[]>();
+  for (const row of rows) {
+    const labels = byItemId.get(row.itemId) ?? [];
+    labels.push(row.label);
+    byItemId.set(row.itemId, labels);
+  }
+  return byItemId;
 }
 
 function getDisabledReason(lines: SalesOrderManufacturingLineSummary[]) {
@@ -153,22 +185,24 @@ export async function getSalesOrderManufacturingSummariesInTx(
   const itemIds = [...new Set(lines.map((line) => line.itemId))];
   const salesOrderLineIds = lines.map((line) => line.salesOrderLineId);
 
-  const masterItems = alias(items, "master_items");
   const itemRows = await tx
     .select({
       id: items.id,
       itemType: items.itemType,
       deletedAt: items.deletedAt,
-      variantAttrs: items.variantAttrs,
-      masterName: masterItems.name,
-      masterVariantAxes: masterItems.variantAxes,
+      name: items.name,
+      familyName: itemFamilies.name,
     })
     .from(items)
-    .leftJoin(masterItems, eq(items.parentId, masterItems.id))
+    .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
     .where(inArray(items.id, itemIds));
 
   const itemById = new Map(
     itemRows.map((row) => [row.id, row])
+  );
+  const optionValuesByItemId = await getManufacturingOptionValuesByItemIdInTx(
+    tx,
+    itemIds,
   );
 
   const bomCoverage = await getCurrentBomCoverageInTx(tx, itemIds);
@@ -296,13 +330,8 @@ export async function getSalesOrderManufacturingSummariesInTx(
       return;
     }
 
-    const display = resolveVariantDisplay(
-      line.itemName,
-      item?.masterName == null
-        ? null
-        : { name: item.masterName, variantAxes: item.masterVariantAxes },
-      item?.variantAttrs ?? null
-    );
+    const optionValues = optionValuesByItemId.get(line.itemId) ?? [];
+    const masterName = item?.familyName ?? item?.name ?? line.itemName;
 
     bucket.lines.push({
       salesOrderId: line.salesOrderId,
@@ -310,8 +339,8 @@ export async function getSalesOrderManufacturingSummariesInTx(
       itemId: line.itemId,
       itemType: item?.itemType ?? null,
       itemName: line.itemName,
-      masterName: display.masterName,
-      attrs: display.attrs,
+      masterName,
+      attrs: optionValues,
       itemSku: line.itemSku,
       quantity: manufacturingQuantity,
       unitName: line.unitName,

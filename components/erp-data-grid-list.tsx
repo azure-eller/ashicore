@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Add01Icon, Delete02Icon, MoreVerticalIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { apiJson } from "@/lib/client/api";
@@ -65,6 +71,27 @@ type ERPDataGridListProps<TData extends { id: string }> = {
 };
 
 export function ERPDataGridList<TData extends { id: string }>({
+  ...props
+}: ERPDataGridListProps<TData>) {
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 60 * 1000,
+          },
+        },
+      })
+  );
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ERPDataGridListInner {...props} />
+    </QueryClientProvider>
+  );
+}
+
+function ERPDataGridListInner<TData extends { id: string }>({
   rows,
   columns,
   queryKey,

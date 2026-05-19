@@ -118,7 +118,7 @@ test.describe("global inventory and manufacturing invariants", () => {
 
     // Part 2: if there are no inbound MOs or POs for an item, its
     // projected expectedQty must be 0. A non-zero expectedQty with no
-    // supplier is a sign that recomputeExpectedQty missed a status
+    // supplier is a sign that the expected projection missed a status
     // transition somewhere. MO contribution = non-deleted +
     // non-completed. PO contribution = active ordered/partial lines with
     // remaining stock quantity.
@@ -157,7 +157,7 @@ test.describe("global inventory and manufacturing invariants", () => {
     `);
     expect(
       orphans.rows,
-      `Items have expected_qty > 0 with no MO or PO supplier (recompute drift): ${JSON.stringify(orphans.rows.slice(0, 5))}`
+      `Items have expected_qty > 0 with no MO or PO supplier (projection drift): ${JSON.stringify(orphans.rows.slice(0, 5))}`
     ).toHaveLength(0);
   });
 

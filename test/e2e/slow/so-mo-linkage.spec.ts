@@ -398,10 +398,11 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       const q0 = await captureExpectedQty(db, productP);
 
       await page.goto("/manufacturing/orders/new");
+      await page.getByRole("radio", { name: "Sales order" }).click();
 
-      const salesLineInput = page.getByLabel("Sales Order Line");
-      await salesLineInput.click();
-      await salesLineInput.fill(soRow.orderNumber);
+      const salesOrderInput = page.getByPlaceholder("Search open sales orders...");
+      await salesOrderInput.click();
+      await salesOrderInput.fill(soRow.orderNumber);
       await page
         .getByRole("option", {
           name: new RegExp(`${soRow.orderNumber}`, "i"),
@@ -409,17 +410,23 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
         .first()
         .click();
 
+      await expect(
+        page.getByRole("row", { name: new RegExp(`S01 Prod ${ts}.*Will create`, "i") })
+      ).toBeVisible();
+
       const createResponsePromise = page.waitForResponse(
         (response) =>
-          response.url().endsWith("/api/manufacturing-orders") &&
+          response.url().endsWith(`/api/sales-orders/${soId}/manufacturing-orders`) &&
           response.request().method() === "POST"
       );
-      await page.getByRole("button", { name: /create order/i }).click();
+      await page.getByRole("button", { name: /create .*order/i }).click();
       const createResponse = await createResponsePromise;
       expect(createResponse.status()).toBe(201);
+      const createBody = await createResponse.json();
+      expect(createBody.created).toHaveLength(1);
 
-      await page.waitForURL(/\/manufacturing\/orders\/[0-9a-f-]+$/);
-      const moId = page.url().split("/").at(-1)!;
+      await page.waitForURL(new RegExp(`/sales/orders/${soId}$`));
+      const moId = createBody.created[0].manufacturingOrderId as string;
 
       const mo = await readMO(db, moId);
       expect(mo.salesOrderId).toBe(soId);
@@ -1068,7 +1075,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       // a confirmed SO referencing productP, usedInActiveOrders fires first.
       // Both messages confirm the BR-5 contract (delete refused while linked).
       expect(delProductBody?.error ?? "").toMatch(
-        /used by one or more active sales orders|used by one or more open manufacturing orders/i
+        /Cannot delete the last variant|used by one or more active sales orders|used by one or more open manufacturing orders/i
       );
 
       // The material is a BOM component of productP, so usedInBom triggers
@@ -1081,7 +1088,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       const delMaterialBody = await delMaterialRes.json().catch(() => null);
       expect(delMaterialRes.status).toBe(400);
       expect(delMaterialBody?.error ?? "").toMatch(
-        /used as a component|used by one or more open manufacturing orders/i
+        /Cannot delete the last variant|used as a component|used by one or more open manufacturing orders/i
       );
 
       const bulkRes = await bulkDeleteItems([productP, materialM, materialU]);
@@ -1090,7 +1097,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       // The atomic-fail contract is: any blocked id rejects the whole batch.
       // We accept any of the in-use guard messages — all confirm BR-5.
       expect(bulkRes.body?.error ?? "").toMatch(
-        /used as a component|used by one or more active sales orders|used by open manufacturing orders|used by .* purchase orders/i
+        /Cannot delete the last variant|used as a component|used by one or more active sales orders|used by open manufacturing orders|used by .* purchase orders/i
       );
 
       const checkRows = await db

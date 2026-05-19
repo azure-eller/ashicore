@@ -26,6 +26,7 @@ import {
 import { AddInitialStockDialog } from "@/components/card-page/add-initial-stock-dialog";
 import { LotGridTab, type CardLotRow } from "@/components/card-page/lot-grid-tab";
 import { VariantConfigurationDialog } from "@/components/card-page/variant-configuration-dialog";
+import type { ItemCommitmentSummary } from "@/app/(dashboard)/inventory/commitment-summary";
 import { MaterialGeneralInfoTab } from "./tabs/general-info";
 import { MaterialUsedInBomsTab } from "./tabs/used-in-boms";
 import { MaterialSupplyDetailsTab } from "./tabs/supply-details";
@@ -43,6 +44,7 @@ export type MaterialCardProps = {
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
   supplierOptions: SupplierOption[];
   initialLots: CardLotRow[];
+  commitmentSummary?: ItemCommitmentSummary;
 };
 
 export function MaterialCard({
@@ -52,6 +54,7 @@ export function MaterialCard({
   unitOptions,
   supplierOptions,
   initialLots,
+  commitmentSummary,
 }: MaterialCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -184,7 +187,7 @@ export function MaterialCard({
 
       <CardTabs
         tabs={tabs}
-        defaultTab="general"
+        defaultTab={isDraft ? "general" : "used-in-boms"}
         caption={
           avgIngredientsCost == null
             ? "Ingredients · — avg"
@@ -201,6 +204,7 @@ export function MaterialCard({
               onDraftFamilyChange={updateDraftFamily}
               onDraftCommit={commitDraft}
               draftCreatePending={createMutation.isPending}
+              commitmentSummary={commitmentSummary}
             />
           ),
           lots: (

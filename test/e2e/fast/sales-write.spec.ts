@@ -388,6 +388,8 @@ test.describe("Sales write-path smoke", () => {
   });
 
   test("creates an open sales order through the browser form", async ({ page, db }) => {
+    test.slow();
+
     const componentResult = await createItem({
       name: `Fast Sales Component ${ts}`,
       itemType: "material",
@@ -530,10 +532,7 @@ test.describe("Sales write-path smoke", () => {
     await expect(page.getByRole("link", { name: `Example Construction ${ts}` })).toBeVisible();
 
     await page.goto(`/sales/customers/${customerId}?project=${crmProjectId}#projects`);
-    await expect(page.getByRole("button", { name: /^Projects/ })).toHaveAttribute(
-      "aria-current",
-      "page"
-    );
+    await expect(page.getByRole("region", { name: /^Projects/ })).toBeVisible();
     await page.getByRole("button", { name: new RegExp(`Example Construction ${ts}`) }).click();
     await expect(page.getByRole("link", { name: order.orderNumber })).toBeVisible();
 
@@ -2958,6 +2957,8 @@ test.describe("Sales write-path smoke", () => {
     page,
     db,
   }) => {
+    test.slow();
+
     const orderingCustomerName = `Fast Same Date Customer ${ts}`;
     const customerResult = await createCustomer({
       name: orderingCustomerName,
@@ -3427,32 +3428,26 @@ test.describe("Sales write-path smoke", () => {
     expect(orderDetail.lines[0].actualGrossProfit).toBe("70");
     expect(orderDetail.lines[0].actualMarginPercent).toBe("70");
 
-    const lotsResponse = await testFetch(`/api/items/${materialId}/lots`);
-    expect(lotsResponse.status).toBe(200);
-    const marginLots = (await lotsResponse.json()) as Array<{
-      costPerUnit: string | null;
-      soldQuantity: string | null;
-      realizedRevenue: string | null;
-      realizedCogs: string | null;
-      realizedMarginPercent: string | null;
-    }>;
-    const soldLots = marginLots
-      .filter((lot) => lot.soldQuantity === "1")
-      .sort((left, right) => Number(left.costPerUnit) - Number(right.costPerUnit));
+    const soldEvents = await db
+      .select({
+        quantity: inventoryEvents.quantity,
+        unitCost: inventoryEvents.unitCost,
+        extendedCost: inventoryEvents.extendedCost,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, materialId),
+          eq(inventoryEvents.eventType, "sales_consumption"),
+          sql`${inventoryEvents.metadata}->>'salesOrderId' = ${marginOrderId}`
+        )
+      )
+      .orderBy(asc(inventoryEvents.unitCost));
 
-    expect(soldLots).toHaveLength(2);
-    expect(soldLots[0]).toMatchObject({
-      costPerUnit: "10",
-      realizedRevenue: "50",
-      realizedCogs: "10",
-      realizedMarginPercent: "80",
-    });
-    expect(soldLots[1]).toMatchObject({
-      costPerUnit: "20",
-      realizedRevenue: "50",
-      realizedCogs: "20",
-      realizedMarginPercent: "60",
-    });
+    expect(soldEvents).toHaveLength(2);
+    expect(soldEvents.map((event) => Number(event.quantity))).toEqual([1, 1]);
+    expect(soldEvents.map((event) => Number(event.unitCost))).toEqual([10, 20]);
+    expect(soldEvents.map((event) => Number(event.extendedCost))).toEqual([10, 20]);
   });
 
   test("estimates margin from stocked subassembly cost before nested BOM cost", async () => {

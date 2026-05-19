@@ -214,21 +214,6 @@ export async function deleteItem(id: string) {
 }
 
 /**
- * POST /api/items/:id/variants
- */
-export async function createVariant(
-  id: string,
-  data: Record<string, unknown>
-) {
-  const res = await testFetch(`/api/items/${id}/variants`, {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
-  const body = await res.json().catch(() => null);
-  return { status: res.status, body };
-}
-
-/**
  * POST /api/units
  */
 export async function createUnit(data: {

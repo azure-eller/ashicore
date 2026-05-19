@@ -5,12 +5,11 @@ import {
   assertModuleWriteAccess,
 } from "@/lib/dal/auth";
 import { InsufficientStockError, MissingCostBasisError } from "@/lib/inventory/kernel";
-import { insertMasterItemSchema, updateItemSchema } from "@/lib/schemas/items";
+import { updateItemSchema } from "@/lib/schemas/items";
 import {
   deleteItem,
   getItem,
   updateItem,
-  updateMasterProduct,
 } from "@/app/(dashboard)/inventory/queries";
 import { deleteVariant, ItemCardError } from "@/lib/inventory/item-cards";
 
@@ -41,24 +40,9 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
     );
   }
 
-  if (existingItem.isMaster) {
-    const data = insertMasterItemSchema.parse(body);
-    const item = await updateMasterProduct(id, data, { idempotencyKey });
-    if (!item) {
-      return NextResponse.json({ error: "Item not found" }, { status: 404 });
-    }
-    return NextResponse.json(item);
-  }
-
   const { stock, bom, operationCosts, revisionNote, ...itemData } =
     updateItemSchema.parse(body);
-  const nextItemData =
-    existingItem.parentId != null
-      ? {
-          ...itemData,
-          name: existingItem.parentName ?? existingItem.name,
-        }
-      : itemData;
+  const nextItemData = itemData;
 
   if (existingItem.itemType === "product" && nextItemData.bomLocked && !existingItem.bomLocked) {
     await assertLockedBomManagementAccess(request.headers);
@@ -115,7 +99,7 @@ export const DELETE = apiHandler(async (_req: Request, ctx: unknown) => {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }
 
-  if (existingItem.familyId && !existingItem.isMaster) {
+  if (existingItem.familyId) {
     const idempotencyKey = requireIdempotencyKey(_req, "deleteItemCardVariant");
     try {
       return NextResponse.json(await deleteVariant(id, { idempotencyKey }));
@@ -128,12 +112,6 @@ export const DELETE = apiHandler(async (_req: Request, ctx: unknown) => {
   }
 
   const result = await deleteItem(id);
-  if (result.hasActiveVariants) {
-    return NextResponse.json(
-      { error: "Cannot delete: this product still has active variants. Delete all variants first." },
-      { status: 400 }
-    );
-  }
   if (result.usedInBom) {
     return NextResponse.json(
       { error: "Cannot delete: this item is used as a component in other products." },

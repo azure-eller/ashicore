@@ -1,16 +1,13 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
-import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import {
-  formatVariantDisplay,
   formatQuantity,
   normalizeNumericScale,
   normalizeNumeric,
   normalizeMoney,
   parsePositive,
-  resolveVariantDisplay,
   roundQuantity,
   summarizeItems,
 } from "@/lib/format";
@@ -25,6 +22,8 @@ import {
   customers,
   inventoryEvents,
   integrationExternalRecords,
+  itemFamilies,
+  itemVariantValues,
   items,
   manufacturingOrders,
   pricingScheduleBreaks,
@@ -36,6 +35,8 @@ import {
   salesShipments,
   stockAllocations,
   unitDefinitions,
+  variantOptions,
+  variantOptionValues,
 } from "@/lib/db/schema";
 import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
@@ -151,6 +152,44 @@ const expectedQtySubquery = projectedExpectedQty(
   items.organizationId,
   items.id
 ).as("expectedQty");
+
+async function getSalesOptionLabelsByItemIdInTx(tx: Tx, itemIds: string[]) {
+  const uniqueItemIds = [...new Set(itemIds)];
+  if (uniqueItemIds.length === 0) {
+    return new Map<string, string[]>();
+  }
+
+  const rows = await tx
+    .select({
+      itemId: itemVariantValues.itemId,
+      label: variantOptionValues.label,
+    })
+    .from(itemVariantValues)
+    .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
+    .innerJoin(
+      variantOptionValues,
+      eq(itemVariantValues.optionValueId, variantOptionValues.id)
+    )
+    .where(inArray(itemVariantValues.itemId, uniqueItemIds))
+    .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder));
+
+  const byItemId = new Map<string, string[]>();
+  for (const row of rows) {
+    const labels = byItemId.get(row.itemId) ?? [];
+    labels.push(row.label);
+    byItemId.set(row.itemId, labels);
+  }
+  return byItemId;
+}
+
+function formatSalesItemDisplayName(
+  itemName: string,
+  familyName: string | null,
+  optionLabels: string[]
+) {
+  if (!familyName) return itemName;
+  return optionLabels.length > 0 ? `${familyName} / ${optionLabels.join(" / ")}` : familyName;
+}
 
 type ShipmentCostSelection = {
   amount: number;
@@ -324,10 +363,9 @@ type SalesItemValidationRow = {
   id: string;
   itemType: string;
   name: string;
+  familyName: string | null;
   sku: string | null;
   sellable: boolean | null;
-  parentId: string | null;
-  variantAttrs: Record<string, string> | null;
   unitDefinitionId: string;
   unitName: string;
   defaultSellingPrice: string | null;
@@ -2607,10 +2645,9 @@ async function getValidatedSalesItemsInTx(
       id: items.id,
       itemType: items.itemType,
       name: items.name,
+      familyName: itemFamilies.name,
       sku: items.sku,
       sellable: items.sellable,
-      parentId: items.parentId,
-      variantAttrs: items.variantAttrs,
       unitDefinitionId: items.unitDefinitionId,
       unitName: unitDefinitions.name,
       defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as(
@@ -2626,6 +2663,7 @@ async function getValidatedSalesItemsInTx(
     })
     .from(items)
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+    .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
     .where(
       and(
         inArray(items.id, uniqueIds),
@@ -2634,33 +2672,7 @@ async function getValidatedSalesItemsInTx(
       )
     );
 
-  // For variant items, fetch parent info for displayName computation
-  const variantItemRows = rows.filter((r) => r.parentId != null);
-  const parentIds = [...new Set(variantItemRows.map((r) => r.parentId))];
-
-  const parentsByParentId = new Map<string, { name: string; variantAxes: string[] | null }>();
-  if (parentIds.length > 0) {
-    const parents = await tx
-      .select({
-        id: items.id,
-        name: items.name,
-        variantAxes: items.variantAxes,
-      })
-      .from(items)
-      .where(
-        and(
-          inArray(items.id, parentIds as string[]),
-          isNull(items.deletedAt)
-        )
-      );
-
-    parents.forEach((p) => {
-      parentsByParentId.set(p.id, {
-        name: p.name,
-        variantAxes: (p.variantAxes as string[] | null) ?? null,
-      });
-    });
-  }
+  const optionLabelsByItemId = await getSalesOptionLabelsByItemIdInTx(tx, uniqueIds);
 
   const itemMap = new Map(
     rows.map((row) => {
@@ -2668,17 +2680,11 @@ async function getValidatedSalesItemsInTx(
         throw new SalesError("Only sellable products can be added to sales orders.", 400);
       }
 
-      let displayName = row.name;
-
-      if (row.parentId && row.variantAttrs) {
-        const parent = parentsByParentId.get(row.parentId);
-        if (parent && parent.variantAxes && parent.variantAxes.length > 0) {
-          const attrValues = (parent.variantAxes as string[]).map(
-            (axis) => (row.variantAttrs as Record<string, string>)[axis]
-          ).filter(Boolean).join(" / ");
-          displayName = `${parent.name} / ${attrValues}`;
-        }
-      }
+      const displayName = formatSalesItemDisplayName(
+        row.name,
+        row.familyName,
+        optionLabelsByItemId.get(row.id) ?? []
+      );
 
       return [
         row.id,
@@ -4523,9 +4529,8 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
         id: items.id,
         itemType: items.itemType,
         name: items.name,
+        familyName: itemFamilies.name,
         sellable: items.sellable,
-        parentId: items.parentId,
-        variantAttrs: items.variantAttrs,
         sku: items.sku,
         unitName: unitDefinitions.name,
         defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as(
@@ -4541,54 +4546,29 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
       })
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
       .where(
         and(
           inArray(items.itemType, ["product", "material"]),
           isNull(items.deletedAt),
-          eq(items.isMaster, false),
+          isNotNull(items.familyId),
           sql`(${items.itemType} != 'product' OR ${items.sellable} = true)`,
         )
       )
       .orderBy(asc(items.name));
 
-    const variantRows = rows.filter((row) => row.parentId != null);
-    const parentIds = [
-      ...new Set(variantRows.map((row) => row.parentId).filter((id): id is string => id != null)),
-    ];
-
-    const parentsById = new Map<string, { name: string; variantAxes: string[] | null }>();
-    if (parentIds.length > 0) {
-      const parents = await tx
-        .select({
-          id: items.id,
-          name: items.name,
-          variantAxes: items.variantAxes,
-        })
-        .from(items)
-        .where(and(inArray(items.id, parentIds), isNull(items.deletedAt)));
-
-      parents.forEach((parent) => {
-        parentsById.set(parent.id, {
-          name: parent.name,
-          variantAxes: (parent.variantAxes as string[] | null) ?? null,
-        });
-      });
-    }
+    const optionLabelsByItemId = await getSalesOptionLabelsByItemIdInTx(
+      tx,
+      rows.map((row) => row.id)
+    );
 
     return rows
       .map((row) => {
-        let displayName = row.name;
-
-        if (row.parentId && row.variantAttrs) {
-          const parent = parentsById.get(row.parentId);
-          if (parent) {
-            displayName = formatVariantDisplay(
-              parent.name,
-              (row.variantAttrs as Record<string, string>) ?? {},
-              parent.variantAxes ?? [],
-            );
-          }
-        }
+        const displayName = formatSalesItemDisplayName(
+          row.name,
+          row.familyName,
+          optionLabelsByItemId.get(row.id) ?? []
+        );
 
         return {
           id: row.id,
@@ -5235,7 +5215,6 @@ export async function getSalesOrder(
       return null;
     }
 
-    const masterItems = alias(items, "master_items");
     const lineRows = await tx
       .select({
         id: salesOrderLines.id,
@@ -5259,9 +5238,7 @@ export async function getSalesOrder(
         sortOrder: salesOrderLines.sortOrder,
         createdAt: salesOrderLines.createdAt,
         updatedAt: salesOrderLines.updatedAt,
-        variantAttrs: items.variantAttrs,
-        masterName: masterItems.name,
-        masterVariantAxes: masterItems.variantAxes,
+        familyName: itemFamilies.name,
         onHandQty: trimScaleNullable(
           projectedOnHandQtyExpr(items.organizationId, items.id)
         ).as("onHandQty"),
@@ -5298,7 +5275,7 @@ export async function getSalesOrder(
       })
       .from(salesOrderLines)
       .leftJoin(items, eq(salesOrderLines.itemId, items.id))
-      .leftJoin(masterItems, eq(items.parentId, masterItems.id))
+      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
       .where(eq(salesOrderLines.salesOrderId, id))
       .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.createdAt));
 
@@ -5307,18 +5284,17 @@ export async function getSalesOrder(
       lineRows.map((line) => line.itemId)
     );
     const actualLineCosts = await getActualSalesLineCostsByLineIdInTx(tx, id);
+    const optionLabelsByItemId = await getSalesOptionLabelsByItemIdInTx(
+      tx,
+      lineRows.map((line) => line.itemId)
+    );
 
-    const lines = lineRows.map(({
-      variantAttrs,
-      masterName,
-      masterVariantAxes,
-      ...rest
-    }) => {
-      const display = resolveVariantDisplay(
-        rest.itemName,
-        masterName == null ? null : { name: masterName, variantAxes: masterVariantAxes },
-        variantAttrs
-      );
+    const lines = lineRows.map(({ familyName, ...rest }) => {
+      const optionLabels = optionLabelsByItemId.get(rest.itemId) ?? [];
+      const display = {
+        masterName: familyName ?? rest.itemName,
+        attrs: optionLabels,
+      };
       const estimatedUnitCost = estimatedUnitCosts.get(rest.itemId) ?? null;
       const estimatedMargin = calculateUnitMarginMetrics({
         quantity: rest.quantity,

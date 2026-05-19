@@ -38,7 +38,7 @@ import {
   variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
-import { formatVariantDisplay, normalizeNumeric, normalizeNumericScale } from "@/lib/format";
+import { normalizeNumeric, normalizeNumericScale } from "@/lib/format";
 import { canViewLockedBom, canViewUnlockedBom } from "@/lib/authz";
 import {
   getBomRevisionComponentsInTx,
@@ -88,7 +88,7 @@ import { getCurrentBomOperationCostsInTx } from "@/lib/bom/operation-costs";
 import { calculatePlannedOperationCost } from "@/lib/manufacturing/operation-costs";
 import { calculateMarginMetrics } from "@/lib/margin";
 import { derivePurchaseToStockFactor } from "@/lib/units-of-measure";
-import type { InsertItem, InsertMasterItem, InsertVariant, UpdateItem } from "@/lib/schemas/items";
+import type { InsertItem, UpdateItem } from "@/lib/schemas/items";
 import type { QualityDispositionAction } from "@/lib/schemas/inventory-disposition";
 import type { LotQuantityAdjustment } from "@/lib/schemas/lot-adjustment";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
@@ -730,7 +730,6 @@ export async function getItems(filters?: {
             name: items.name,
             sku: items.sku,
             itemType: items.itemType,
-            parentId: items.parentId,
             optionCombinationKey: items.optionCombinationKey,
             stock: stockSubquery,
             committedQty: committedQtySubquery,
@@ -749,7 +748,6 @@ export async function getItems(filters?: {
             category: items.category,
             familyCategory: itemFamilies.category,
             potential: potentialSubquery,
-            variantAttrs: items.variantAttrs,
             sellable: items.sellable,
             createdAt: items.createdAt,
           })
@@ -759,7 +757,7 @@ export async function getItems(filters?: {
           .where(
             and(
               isNull(items.deletedAt),
-              eq(items.isMaster, false),
+              isNotNull(items.familyId),
               ...(filters?.itemType ? [eq(items.itemType, filters.itemType)] : []),
             ),
           );
@@ -773,50 +771,16 @@ export async function getItems(filters?: {
         ]);
         const optionValuesByItemId = await getVariantOptionValuesByItemIdInTx(tx, leafIds);
         const duplicateWarningsByItemId = buildDuplicateCombinationWarnings(rows);
-        const legacyParentIds = [
-          ...new Set(
-            rows
-              .map((row) => row.parentId)
-              .filter((parentId): parentId is string => parentId != null),
-          ),
-        ];
-        const legacyParents =
-          legacyParentIds.length > 0
-            ? await tx
-                .select({
-                  id: items.id,
-                  name: items.name,
-                  variantAxes: items.variantAxes,
-                })
-                .from(items)
-                .where(inArray(items.id, legacyParentIds))
-            : [];
-        const legacyParentById = new Map(
-          legacyParents.map((parent) => [
-            parent.id,
-            {
-              name: parent.name,
-              variantAxes: (parent.variantAxes as string[] | null) ?? [],
-            },
-          ]),
-        );
 
         const results: ItemRow[] = rows
           .map<ItemRow>((row) => {
             const usedInCount = usedInCounts.get(row.id) ?? 0;
             const estimatedUnitCost = estimatedUnitCostByItemId.get(row.id) ?? null;
             const optionValues = optionValuesByItemId.get(row.id) ?? [];
-            const legacyParent = row.parentId ? legacyParentById.get(row.parentId) : null;
             const displayName =
               optionValues.length > 0
                 ? formatNormalizedVariantDisplay(row.familyName, row.name, optionValues)
-                : legacyParent && legacyParent.variantAxes.length > 0
-                  ? formatVariantDisplay(
-                      legacyParent.name,
-                      (row.variantAttrs as Record<string, string>) ?? {},
-                      legacyParent.variantAxes,
-                    )
-                  : row.familyName ?? row.name;
+                : row.familyName ?? row.name;
 
             return {
               id: row.id,
@@ -850,11 +814,7 @@ export async function getItems(filters?: {
                 estimatedUnitCost,
               ),
               marginTier: null,
-              isMaster: false,
-              parentId: row.parentId,
               variantCount: 0,
-              variantAxes: null,
-              variantAttrs: (row.variantAttrs as Record<string, string> | null) ?? null,
               priceRange: null,
               sellable: row.sellable,
               hasBom: hasBomSet.has(row.id),
@@ -938,11 +898,7 @@ export async function getItem(id: string) {
         standardCostQuantity: trimScaleNullable(items.standardCostQuantity).as(
           "standardCostQuantity"
         ),
-        isMaster: items.isMaster,
-        parentId: items.parentId,
         optionCombinationKey: items.optionCombinationKey,
-        variantAxes: items.variantAxes,
-        variantAttrs: items.variantAttrs,
         registeredBarcode: items.registeredBarcode,
         internalBarcode: items.internalBarcode,
         supplierItemCode: items.supplierItemCode,
@@ -1031,22 +987,6 @@ export async function getItem(id: string) {
     const duplicateWarningsByItemId =
       buildDuplicateCombinationWarnings(familyVariants);
 
-    const parentName = row.parentId
-      ? await tx
-          .select({ name: items.name })
-          .from(items)
-          .where(eq(items.id, row.parentId))
-          .then((rows) => rows[0]?.name ?? null)
-      : null;
-
-    const masterAxes = row.parentId
-      ? await tx
-          .select({ variantAxes: items.variantAxes })
-          .from(items)
-          .where(eq(items.id, row.parentId))
-          .then((rows) => (rows[0]?.variantAxes as string[] | null) ?? [])
-      : null;
-
     const supplierSources = await tx
       .select({
         id: supplierItems.id,
@@ -1074,21 +1014,13 @@ export async function getItem(id: string) {
       accountingPurchaseAccountCode: accountingClassification?.accountCode ?? null,
       xeroPurchaseTaxType: accountingClassification?.taxType ?? null,
       xeroUpdatedAt: externalItemRecord?.externalUpdatedAt ?? null,
-      parentName,
-      variantAxes: (row.variantAxes as string[] | null) ?? null,
-      variantAttrs: (row.variantAttrs as Record<string, string> | null) ?? null,
+      parentName: null,
       optionValues,
       duplicateCombinationWarnings:
         duplicateWarningsByItemId.get(row.id) ?? [],
       displayName: optionValues.length > 0
         ? formatNormalizedVariantDisplay(row.familyName, row.name, optionValues)
-        : row.parentId && parentName && masterAxes && masterAxes.length > 0
-          ? formatVariantDisplay(
-              parentName,
-              (row.variantAttrs as Record<string, string>) ?? {},
-              masterAxes,
-            )
-          : row.name,
+        : row.familyName ?? row.name,
       purchaseUnitName: purchaseUnit?.name ?? null,
       purchaseUnitSize: purchaseUnit?.size ?? null,
       purchaseUnitUom: purchaseUnit?.uom ?? null,
@@ -1168,21 +1100,9 @@ export async function deleteItem(
   usedInActiveManufacturing?: boolean;
   usedInActivePurchasing?: boolean;
   usedInDraftStocktakes?: boolean;
-  hasActiveVariants?: boolean;
 }> {
   return withAuthedOrgContext(async (tx) => {
     await lockItemsInTx(tx, [id]);
-
-    // Check for active variants (masters can't be deleted while variants exist)
-    const [activeVariant] = await tx
-      .select({ id: items.id })
-      .from(items)
-      .where(and(eq(items.parentId, id), isNull(items.deletedAt)))
-      .limit(1);
-
-    if (activeVariant) {
-      return { deleted: false, hasActiveVariants: true };
-    }
 
     // Check BOM usage inside the same transaction to avoid race conditions
     const [bomRef] = await tx
@@ -1295,20 +1215,6 @@ export async function deleteItems(
     const uniqueIds = [...new Set(ids)];
 
     await lockItemsInTx(tx, uniqueIds);
-
-    // Check for active variants
-    const [activeVariantRef] = await tx
-      .select({ id: items.id })
-      .from(items)
-      .where(and(inArray(items.parentId, uniqueIds), isNull(items.deletedAt)))
-      .limit(1);
-
-    if (activeVariantRef) {
-      return {
-        deletedCount: 0,
-        error: "Cannot delete: one or more products still have active variants.",
-      };
-    }
 
     const [bomRef] = await tx
       .select({ componentId: bomRevisionComponents.componentId })
@@ -2891,10 +2797,12 @@ export async function getUsedInParents(itemId: string) {
       .select({
         id: items.id,
         name: items.name,
+        familyName: itemFamilies.name,
       })
       .from(bomRevisionComponents)
       .innerJoin(bomRevisions, eq(bomRevisionComponents.bomRevisionId, bomRevisions.id))
       .innerJoin(items, eq(bomRevisions.productId, items.id))
+      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
       .where(
         and(
           eq(bomRevisionComponents.componentId, itemId),
@@ -2905,35 +2813,18 @@ export async function getUsedInParents(itemId: string) {
       )
       .orderBy(asc(items.name));
 
-    const rowIds = rows.map((row) => row.id);
-    const valueRows =
-      rowIds.length > 0
-        ? await tx
-            .select({
-              itemId: itemVariantValues.itemId,
-              valueLabel: variantOptionValues.label,
-            })
-            .from(itemVariantValues)
-            .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
-            .innerJoin(
-              variantOptionValues,
-              eq(itemVariantValues.optionValueId, variantOptionValues.id),
-            )
-            .where(inArray(itemVariantValues.itemId, rowIds))
-            .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder))
-        : [];
-    const valuesByItemId = new Map<string, string[]>();
-    for (const valueRow of valueRows) {
-      valuesByItemId.set(valueRow.itemId, [
-        ...(valuesByItemId.get(valueRow.itemId) ?? []),
-        valueRow.valueLabel,
-      ]);
-    }
+    const optionValuesByItemId = await getVariantOptionValuesByItemIdInTx(
+      tx,
+      rows.map((row) => row.id),
+    );
 
     return rows.map((row) => {
-      const valueLabels = valuesByItemId.get(row.id) ?? [];
-      const displayName =
-        valueLabels.length > 0 ? `${row.name} / ${valueLabels.join(" / ")}` : row.name;
+      const optionValues = optionValuesByItemId.get(row.id) ?? [];
+      const displayName = formatNormalizedVariantDisplay(
+        row.familyName,
+        row.name,
+        optionValues,
+      );
 
       return {
         id: row.id,
@@ -2946,7 +2837,7 @@ export async function getUsedInParents(itemId: string) {
 
 export async function getAvailableComponents(excludeItemId?: string) {
   return withAuthedOrgContext(async (tx) => {
-    const conditions = [isNull(items.deletedAt), eq(items.isMaster, false)];
+    const conditions = [isNull(items.deletedAt), isNotNull(items.familyId)];
     if (excludeItemId) {
       conditions.push(sql`${items.id} != ${excludeItemId}`);
     }
@@ -2954,300 +2845,33 @@ export async function getAvailableComponents(excludeItemId?: string) {
       .select({
         id: items.id,
         name: items.name,
-        parentId: items.parentId,
-        variantAttrs: items.variantAttrs,
-        displayName: items.name,
+        familyName: itemFamilies.name,
         itemType: items.itemType,
         unit: unitDefinitions.name,
       })
       .from(items)
+      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
       .where(and(...conditions));
-
-    const parentIds = [...new Set(
-      rows
-        .map((row) => row.parentId)
-        .filter((id): id is string => id != null),
-    )];
-    const parents = parentIds.length > 0
-      ? await tx
-          .select({
-            id: items.id,
-            name: items.name,
-            variantAxes: items.variantAxes,
-          })
-          .from(items)
-          .where(and(inArray(items.id, parentIds), isNull(items.deletedAt)))
-      : [];
-    const parentsById = new Map(
-      parents.map((parent) => [
-        parent.id,
-        {
-          name: parent.name,
-          variantAxes: (parent.variantAxes as string[] | null) ?? [],
-        },
-      ]),
-    );
-
-    return rows.map((row) => {
-      const parent = row.parentId ? parentsById.get(row.parentId) : null;
-      return {
-        id: row.id,
-        name: row.name,
-        displayName:
-          parent && parent.variantAxes.length > 0
-            ? formatVariantDisplay(
-                parent.name,
-                (row.variantAttrs as Record<string, string>) ?? {},
-                parent.variantAxes,
-              )
-            : row.name,
-        itemType: row.itemType,
-        unit: row.unit,
-      };
-    });
-  });
-}
-
-export async function createMasterProduct(
-  data: InsertMasterItem,
-  options?: { idempotencyKey?: string },
-): Promise<{ id: string }> {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
-      organizationId: orgId,
-      operationName: "createMasterProduct",
-      idempotencyKey: options?.idempotencyKey ?? null,
-      payload: data,
-    });
-
-    if (replay.replayed) {
-      return replay.result;
-    }
-
-    const [item] = await tx
-      .insert(items)
-      .values({
-        ...data,
-        organizationId: orgId,
-        itemType: "product",
-        sku: null,
-        unitDefinitionId: null,
-        isMaster: true,
-      })
-      .returning({ id: items.id });
-
-    await finishInventoryOperationInTx(tx, {
-      organizationId: orgId,
-      idempotencyKey: options?.idempotencyKey ?? null,
-      result: item,
-    });
-
-    return item;
-  });
-}
-
-export async function updateMasterProduct(
-  id: string,
-  data: InsertMasterItem,
-  options?: { idempotencyKey?: string },
-): Promise<{ id: string } | null> {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
-      organizationId: orgId,
-      operationName: "updateMasterProduct",
-      idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { id, data },
-    });
-
-    if (replay.replayed) {
-      return replay.result;
-    }
-
-    const [item] = await tx
-      .update(items)
-      .set({
-        name: data.name,
-        description: data.description,
-        category: data.category,
-        variantAxes: data.variantAxes,
-        sku: null,
-        unitDefinitionId: null,
-        purchaseUnitDefinitionId: null,
-        purchaseToStockFactor: null,
-        defaultPurchasePrice: null,
-        currentStockUnitCost: null,
-        defaultSellingPrice: null,
-        sellable: null,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(items.id, id),
-          eq(items.isMaster, true),
-          isNull(items.deletedAt)
-        )
-      )
-      .returning({ id: items.id });
-
-    const result = item ?? null;
-    await finishInventoryOperationInTx(tx, {
-      organizationId: orgId,
-      idempotencyKey: options?.idempotencyKey ?? null,
-      result,
-    });
-
-    return result;
-  });
-}
-
-export async function createVariant(
-  parentId: string,
-  data: InsertVariant,
-): Promise<{ id: string }> {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const [master] = await tx
-      .select({
-        id: items.id,
-        isMaster: items.isMaster,
-        parentId: items.parentId,
-        category: items.category,
-        name: items.name,
-        variantAxes: items.variantAxes,
-      })
-      .from(items)
-      .where(and(eq(items.id, parentId), isNull(items.deletedAt)))
-      .for("update");
-
-    if (!master) throw new InventoryError("Master product not found", 404);
-    if (!master.isMaster) throw new InventoryError("Parent is not a master product");
-    if (master.parentId != null) throw new InventoryError("Cannot create variant under a variant");
-
-    // Validate that all master axes have a value in variantAttrs
-    const axes = (master.variantAxes as string[] | null) ?? [];
-    for (const axis of axes) {
-      if (!data.variantAttrs[axis]) {
-        throw new InventoryError(`Missing value for variant axis: ${axis}`);
-      }
-    }
-
-    // Guard against duplicate variants with identical attribute combinations
-    const [duplicate] = await tx
-      .select({ id: items.id })
-      .from(items)
-      .where(
-        and(
-          eq(items.parentId, parentId),
-          isNull(items.deletedAt),
-          sql`variant_attrs = ${JSON.stringify(data.variantAttrs)}::jsonb`,
-        ),
-      )
-      .limit(1);
-
-    if (duplicate) {
-      throw new InventoryError("A variant with these attribute values already exists");
-    }
-
-    const [variant] = await tx
-      .insert(items)
-      .values({
-        organizationId: orgId,
-        name: master.name,           // variant name = master name
-        sku: data.sku ?? null,
-        description: data.description ?? null,
-        itemType: "product",
-        category: master.category,
-        unitDefinitionId: data.unitDefinitionId,
-        manufacturingMode: "discrete",
-        expectedBatchYield: null,
-        typicalBatchSize: data.typicalBatchSize ?? null,
-        typicalGroupSize: data.typicalGroupSize ?? null,
-        standardCostQuantity: data.standardCostQuantity ?? null,
-        defaultSellingPrice: data.defaultSellingPrice ?? null,
-        defaultPurchasePrice: data.defaultPurchasePrice ?? null,
-        safetyStock: data.safetyStock,
-        sellable: data.sellable,
-        isMaster: false,
-        parentId: parentId,
-        variantAttrs: data.variantAttrs,
-      })
-      .returning({ id: items.id });
-
-    // Create initial BOM only if provided by caller (not copied from master)
-    if (
-      (data.bom && data.bom.length > 0) ||
-      (data.operationCosts && data.operationCosts.length > 0)
-    ) {
-      await createBomRevisionInTx(tx, {
-        orgId,
-        userId,
-        productId: variant.id,
-        note: data.revisionNote,
-        bom: data.bom ?? [],
-        operationCosts: data.operationCosts ?? [],
-      });
-    }
-
-    return variant;
-  });
-}
-
-export async function getVariants(parentId: string) {
-  return withAuthedOrgContext(async (tx) => {
-    const [source] = await tx
-      .select({
-        id: items.id,
-        familyId: items.familyId,
-      })
-      .from(items)
-      .where(and(eq(items.id, parentId), isNull(items.deletedAt)));
-
-    const familyId = source?.familyId ?? null;
-    if (!familyId) {
-      return [];
-    }
-
-    const rows = await tx
-      .select({
-        id: items.id,
-        familyId: items.familyId,
-        familyName: itemFamilies.name,
-        name: items.name,
-        sku: items.sku,
-        optionCombinationKey: items.optionCombinationKey,
-        stock: stockSubquery,
-        committedQty: committedQtySubquery,
-        demandQty: demandQtySubquery,
-        shortageQty: shortageQtySubquery,
-        availableQty: availableQtySubquery,
-        expectedQty: expectedQtySubquery,
-        safetyStock: trimScale(items.safetyStock).as("safetyStock"),
-        defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
-        unit: unitDefinitions.name,
-        variantAttrs: items.variantAttrs,
-      })
-      .from(items)
-      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
-      .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-      .where(and(eq(items.familyId, familyId), eq(items.isMaster, false), isNull(items.deletedAt)));
 
     const optionValuesByItemId = await getVariantOptionValuesByItemIdInTx(
       tx,
       rows.map((row) => row.id),
     );
-    const duplicateWarningsByItemId = buildDuplicateCombinationWarnings(rows);
 
-    return rows.map((r) => ({
-      ...r,
-      displayName: formatNormalizedVariantDisplay(
-        r.familyName,
-        r.name,
-        optionValuesByItemId.get(r.id) ?? [],
-      ),
-      unit: r.unit ?? null,
-      optionValues: optionValuesByItemId.get(r.id) ?? [],
-      duplicateCombinationWarnings: duplicateWarningsByItemId.get(r.id) ?? [],
-      variantAttrs: (r.variantAttrs as Record<string, string> | null) ?? null,
-    }));
+    return rows.map((row) => {
+      const optionValues = optionValuesByItemId.get(row.id) ?? [];
+      return {
+        id: row.id,
+        name: row.name,
+        displayName: formatNormalizedVariantDisplay(
+          row.familyName,
+          row.name,
+          optionValues,
+        ),
+        itemType: row.itemType,
+        unit: row.unit,
+      };
+    });
   });
 }

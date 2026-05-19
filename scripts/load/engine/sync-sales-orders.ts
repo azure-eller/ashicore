@@ -542,7 +542,7 @@ export async function evaluateSalesImportInTx(
       }
 
       const existingItem = findExistingItem(seed, existingItemsBySku, existingItemsByName, {
-        nameMatchPredicate: (item) => item.isMaster !== true,
+        nameMatchPredicate: (item) => item.familyId != null,
       });
       if (!existingItem || existingItem.deletedAt) {
         issues.push(`${line.raw} -> Item "${seed.name}" is missing from active catalog.`);
@@ -682,6 +682,10 @@ export async function evaluateSalesImportInTx(
       sourceRows: order.sourceRows,
       existingId: existingOrder?.id ?? null,
       existingOrderNumber: existingOrder?.orderNumber ?? null,
+      unchanged:
+        existingOrder != null &&
+        existingOrder.status === status &&
+        existingOrder.lineSignature === signature,
       status,
       customerKey,
       customerName: resolvedCustomerName,
@@ -731,6 +735,13 @@ export async function applySalesImportOrdersInTx(
 
     if (apply) {
       if (order.existingId) {
+        if (order.unchanged) {
+          report.existingOrders.push(
+            `${order.existingOrderNumber ?? order.existingId} - ${order.label}`
+          );
+          continue;
+        }
+
         // Skip the rewrite entirely if there are no mapped lines to insert —
         // otherwise the unconditional delete would silently strip the order's existing lines.
         if (order.lines.length === 0) {
@@ -766,6 +777,23 @@ export async function applySalesImportOrdersInTx(
               lockedOrder
                 ? `Existing order ${lockedOrder.orderNumber} is ${lockedOrder.status}; import leaves non-open orders untouched.`
                 : "Existing order could not be locked; it may have been deleted.",
+            ],
+          });
+          continue;
+        }
+
+        const existingShipmentRefs = await tx
+          .select({ id: salesShipmentLines.id })
+          .from(salesShipmentLines)
+          .innerJoin(salesShipments, eq(salesShipments.id, salesShipmentLines.salesShipmentId))
+          .where(eq(salesShipments.salesOrderId, order.existingId))
+          .limit(1);
+        if (existingShipmentRefs.length > 0) {
+          report.skippedOrders.push({
+            label: order.label,
+            sourceRows: order.sourceRows,
+            issues: [
+              `Existing order ${lockedOrder.orderNumber} has shipment lines; import leaves it untouched.`,
             ],
           });
           continue;

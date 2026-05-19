@@ -18,6 +18,8 @@ import {
   INVENTORY_EVENT_TYPES,
   type InventoryEventType,
   inventoryEvents,
+  itemFamilies,
+  itemVariantValues,
   items,
   manufacturingOrderBatches,
   lots,
@@ -31,12 +33,11 @@ import {
   stocktakeItems,
   stocktakes,
   user,
+  variantOptions,
+  variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
-import {
-  formatVariantDisplay,
-} from "@/lib/format";
 import {
   ON_HAND_EVENT_TYPES,
   ledgerOnHandDeltaExpr,
@@ -58,7 +59,6 @@ import type {
   InventoryLedgerRow,
 } from "./types";
 
-const masterItems = alias(items, "ledger_master_items");
 const actorUsers = alias(user, "ledger_actor_users");
 
 const directPurchaseOrders = alias(purchaseOrders, "ledger_direct_purchase_orders");
@@ -248,7 +248,7 @@ function buildLedgerWhere(filters: InventoryLedgerFilters, organizationId: strin
     const searchCondition = or(
       ilike(items.name, pattern),
       ilike(items.sku, pattern),
-      ilike(masterItems.name, pattern),
+      ilike(itemFamilies.name, pattern),
       ilike(lots.lotNumber, pattern),
       ilike(directPurchaseOrders.orderNumber, pattern),
       ilike(purchaseOrdersViaLines.orderNumber, pattern),
@@ -280,15 +280,53 @@ function buildLedgerWhere(filters: InventoryLedgerFilters, organizationId: strin
 
 function resolveItemDisplayName(row: {
   itemName: string;
-  masterName: string | null;
-  masterVariantAxes: string[] | null;
-  variantAttrs: Record<string, string> | null;
+  familyName?: string | null;
+  optionValues?: Array<{ valueLabel: string }>;
 }) {
-  if (row.masterName && row.masterVariantAxes && row.variantAttrs) {
-    return formatVariantDisplay(row.masterName, row.variantAttrs, row.masterVariantAxes);
+  const optionValues = row.optionValues ?? [];
+  if (optionValues.length > 0) {
+    return `${row.familyName ?? row.itemName} / ${optionValues
+      .map((value) => value.valueLabel)
+      .join(" / ")}`;
+  }
+
+  if (row.familyName) {
+    return row.familyName;
   }
 
   return row.itemName;
+}
+
+async function getLedgerOptionValuesByItemIdInTx(
+  tx: Parameters<Parameters<typeof withAuthedOrgContext>[0]>[0],
+  itemIds: string[]
+) {
+  const uniqueItemIds = [...new Set(itemIds)];
+  if (uniqueItemIds.length === 0) {
+    return new Map<string, Array<{ valueLabel: string }>>();
+  }
+
+  const rows = await tx
+    .select({
+      itemId: itemVariantValues.itemId,
+      valueLabel: variantOptionValues.label,
+    })
+    .from(itemVariantValues)
+    .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
+    .innerJoin(
+      variantOptionValues,
+      eq(itemVariantValues.optionValueId, variantOptionValues.id)
+    )
+    .where(inArray(itemVariantValues.itemId, uniqueItemIds))
+    .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder));
+
+  const byItemId = new Map<string, Array<{ valueLabel: string }>>();
+  for (const row of rows) {
+    const list = byItemId.get(row.itemId) ?? [];
+    list.push({ valueLabel: row.valueLabel });
+    byItemId.set(row.itemId, list);
+  }
+  return byItemId;
 }
 
 function getSourceDocumentHref(
@@ -438,23 +476,21 @@ async function resolveItemFilterLabel(
       itemId: items.id,
       itemName: items.name,
       itemType: items.itemType,
-      variantAttrs: items.variantAttrs,
-      masterName: masterItems.name,
-      masterVariantAxes: masterItems.variantAxes,
+      familyName: itemFamilies.name,
     })
     .from(items)
-    .leftJoin(masterItems, eq(items.parentId, masterItems.id))
+    .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
     .where(eq(items.id, itemId));
 
   if (!row) {
     return null;
   }
 
+  const optionValuesByItemId = await getLedgerOptionValuesByItemIdInTx(tx, [itemId]);
   return resolveItemDisplayName({
     itemName: row.itemName,
-    masterName: row.masterName,
-    masterVariantAxes: (row.masterVariantAxes as string[] | null) ?? null,
-    variantAttrs: (row.variantAttrs as Record<string, string> | null) ?? null,
+    familyName: row.familyName,
+    optionValues: optionValuesByItemId.get(row.itemId) ?? [],
   });
 }
 
@@ -517,7 +553,7 @@ export async function getInventoryLedger(
           .select(countSelection)
           .from(inventoryEvents)
           .innerJoin(items, eq(inventoryEvents.itemId, items.id))
-          .leftJoin(masterItems, eq(items.parentId, masterItems.id))
+          .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
           .leftJoin(lots, eq(inventoryEvents.lotId, lots.id))
           .leftJoin(actorUsers, eq(inventoryEvents.actorUserId, actorUsers.id))
           .leftJoin(
@@ -683,9 +719,7 @@ export async function getInventoryLedger(
         itemName: items.name,
         itemSku: items.sku,
         itemType: items.itemType,
-        variantAttrs: items.variantAttrs,
-        masterName: masterItems.name,
-        masterVariantAxes: masterItems.variantAxes,
+        familyName: itemFamilies.name,
         lotId: lots.id,
         lotNumber: lots.lotNumber,
         actorUserId: inventoryEvents.actorUserId,
@@ -713,7 +747,7 @@ export async function getInventoryLedger(
       })
       .from(inventoryEvents)
       .innerJoin(items, eq(inventoryEvents.itemId, items.id))
-      .leftJoin(masterItems, eq(items.parentId, masterItems.id))
+      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
       .leftJoin(lots, eq(inventoryEvents.lotId, lots.id))
       .leftJoin(balanceRows, eq(balanceRows.eventId, inventoryEvents.id))
       .leftJoin(actorUsers, eq(inventoryEvents.actorUserId, actorUsers.id))
@@ -812,14 +846,18 @@ export async function getInventoryLedger(
       .limit(filters.pageSize)
       .offset(offset);
 
+    const optionValuesByItemId = await getLedgerOptionValuesByItemIdInTx(
+      tx,
+      rows.map((row) => row.itemId),
+    );
+
     const mappedRows: InventoryLedgerRow[] = rows.map((row) => {
       const eventType = row.eventType as InventoryEventType;
       const itemType = row.itemType as ItemType;
       const displayName = resolveItemDisplayName({
         itemName: row.itemName,
-        masterName: row.masterName,
-        masterVariantAxes: (row.masterVariantAxes as string[] | null) ?? null,
-        variantAttrs: (row.variantAttrs as Record<string, string> | null) ?? null,
+        familyName: row.familyName,
+        optionValues: optionValuesByItemId.get(row.itemId) ?? [],
       });
       const sourceDocument = resolveSourceDocument({
         itemId: row.itemId,
@@ -946,13 +984,11 @@ export async function getInventoryLedgerItemOptions(): Promise<
         itemName: items.name,
         sku: items.sku,
         itemType: items.itemType,
-        masterName: masterItems.name,
-        masterVariantAxes: masterItems.variantAxes,
-        variantAttrs: items.variantAttrs,
+        familyName: itemFamilies.name,
       })
       .from(inventoryEvents)
       .innerJoin(items, eq(inventoryEvents.itemId, items.id))
-      .leftJoin(masterItems, eq(items.parentId, masterItems.id))
+      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
       .where(
         and(
           eq(inventoryEvents.organizationId, orgId),
@@ -962,9 +998,17 @@ export async function getInventoryLedgerItemOptions(): Promise<
       )
       .orderBy(asc(items.name), asc(items.sku), asc(items.id));
 
+    const optionValuesByItemId = await getLedgerOptionValuesByItemIdInTx(
+      tx,
+      rows.map((row) => row.id),
+    );
+
     return rows.map((row) => ({
       id: row.id,
-      displayName: resolveItemDisplayName(row),
+      displayName: resolveItemDisplayName({
+        ...row,
+        optionValues: optionValuesByItemId.get(row.id) ?? [],
+      }),
       sku: row.sku,
       itemType: row.itemType as ItemType,
     }));

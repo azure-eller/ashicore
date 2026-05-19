@@ -135,7 +135,7 @@ test.describe("inventory visibility", () => {
     });
     expect(mixedCard.status).toBe(201);
     const mixedCardBody = await mixedCard.json();
-    const mixedDefaultVariantId = (mixedCardBody.itemId ?? mixedCardBody.id) as string;
+    const mixedDefaultVariantId = mixedCardBody.itemId as string;
 
     const mixedConfig = await testFetch(
       `/api/item-cards/${mixedDefaultVariantId}/variant-config`,

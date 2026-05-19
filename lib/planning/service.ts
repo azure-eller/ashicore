@@ -1,13 +1,14 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import {
   bomRevisionComponentConstraints,
   bomRevisionComponents,
   bomRevisions,
   inventoryLotBalances,
+  itemFamilies,
+  itemVariantValues,
   items,
   manufacturingOrderBatches,
   manufacturingOrderIngredients,
@@ -19,6 +20,8 @@ import {
   salesOrders,
   suppliers,
   unitDefinitions,
+  variantOptions,
+  variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
@@ -29,7 +32,7 @@ import {
   projectedOnHandQty,
 } from "@/lib/inventory/kernel";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
-import { normalizeNumeric, resolveVariantDisplay, roundQuantity } from "@/lib/format";
+import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { calculateConsumptionRequirement } from "@/lib/manufacturing/consumption";
 import type {
   BomRequirementFact,
@@ -53,6 +56,35 @@ import type {
 const MAX_BOM_EXPLOSION_LEVEL = 8;
 const DEFAULT_COVER_HORIZON_DAYS = 90;
 const REPLENISHMENT_SOON_MULTIPLIER = 1.2;
+
+async function getPlanningOptionValuesByItemIdInTx(tx: Tx, itemIds: string[]) {
+  const uniqueItemIds = [...new Set(itemIds)];
+  if (uniqueItemIds.length === 0) {
+    return new Map<string, string[]>();
+  }
+
+  const rows = await tx
+    .select({
+      itemId: itemVariantValues.itemId,
+      label: variantOptionValues.label,
+    })
+    .from(itemVariantValues)
+    .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
+    .innerJoin(
+      variantOptionValues,
+      eq(itemVariantValues.optionValueId, variantOptionValues.id)
+    )
+    .where(inArray(itemVariantValues.itemId, uniqueItemIds))
+    .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder));
+
+  const byItemId = new Map<string, string[]>();
+  for (const row of rows) {
+    const labels = byItemId.get(row.itemId) ?? [];
+    labels.push(row.label);
+    byItemId.set(row.itemId, labels);
+  }
+  return byItemId;
+}
 
 type PlanningItemRecord = {
   id: string;
@@ -985,14 +1017,11 @@ function buildSupplementalProductionPathDemandFacts(args: {
 }
 
 async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
-  const masterItems = alias(items, "planning_master_items");
   const rows = await tx
     .select({
       id: items.id,
       name: items.name,
-      variantAttrs: items.variantAttrs,
-      masterName: masterItems.name,
-      masterVariantAxes: masterItems.variantAxes,
+      familyName: itemFamilies.name,
       sku: items.sku,
       itemType: items.itemType,
       unitName: unitDefinitions.name,
@@ -1022,22 +1051,22 @@ async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
       ),
     })
     .from(items)
-    .leftJoin(masterItems, eq(items.parentId, masterItems.id))
+    .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
     .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-    .where(and(isNull(items.deletedAt), eq(items.isMaster, false)))
+    .where(and(isNull(items.deletedAt), isNotNull(items.familyId)))
     .orderBy(asc(items.name), asc(items.id));
 
-  return rows.map((row) => {
-    const display = resolveVariantDisplay(
-      row.name,
-      { name: row.masterName, variantAxes: row.masterVariantAxes },
-      row.variantAttrs
-    );
+  const optionValuesByItemId = await getPlanningOptionValuesByItemIdInTx(
+    tx,
+    rows.map((row) => row.id),
+  );
 
+  return rows.map((row) => {
+    const optionValues = optionValuesByItemId.get(row.id) ?? [];
     return {
       ...row,
-      displayName: display.masterName,
-      displayAttrs: display.attrs,
+      displayName: row.familyName ?? row.name,
+      displayAttrs: optionValues,
     };
   });
 }

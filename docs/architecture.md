@@ -81,8 +81,9 @@ Page component
 
 Variant products use one identity model:
 
-- master products own the family `name` and ordered `variantAxes`
-- child variants store the same `name` as their master plus per-axis `variantAttrs`
-- user-facing variant titles are derived with `formatVariantDisplay(masterName, variantAttrs, variantAxes)`
+- `inventory.item_families` owns the family/card name, category, description, and unit.
+- `inventory.variant_options` and `inventory.variant_option_values` define the option set.
+- `inventory.item_variant_values` assigns concrete option values to operational `items.id` rows.
+- user-facing variant titles are derived from the family name plus normalized option labels.
 
-Do not expose a freeform variant name in create or edit flows. Variant edits should keep `items.name` aligned to the parent family name, while the UI shows the derived title separately.
+Do not expose a freeform variant name in create or edit flows. Operational references keep using concrete `items.id` values.

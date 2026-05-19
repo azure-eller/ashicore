@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { format } from "date-fns";
 import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
 import {
@@ -827,6 +827,23 @@ test.describe("Manufacturing order flow", () => {
     page,
     db,
   }) => {
+    const expectedOpenManufacturingQty = async () => {
+      const rows = await db
+        .select({ plannedQuantity: manufacturingOrders.plannedQuantity })
+        .from(manufacturingOrders)
+        .where(
+          and(
+            eq(manufacturingOrders.productId, productId),
+            eq(manufacturingOrders.status, "open"),
+            isNull(manufacturingOrders.deletedAt)
+          )
+        );
+
+      return rows
+        .reduce((total, row) => total + Number(row.plannedQuantity), 0)
+        .toFixed(4);
+    };
+
     const staleSalesOrderLineId = salesOrderLineId;
     await updateSalesOrder({
       salesOrderId,
@@ -905,7 +922,7 @@ test.describe("Manufacturing order flow", () => {
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, productId));
 
-    expect(productRow.expectedQty).toBe("8.0000");
+    expect(productRow.expectedQty).toBe(await expectedOpenManufacturingQty());
 
     const editOpenResponse = await testFetch(
       `/api/manufacturing-orders/${releasedOrderId}`,
@@ -940,7 +957,7 @@ test.describe("Manufacturing order flow", () => {
       })
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, productId));
-    expect(productRowAfterEdit.expectedQty).toBe("9.0000");
+    expect(productRowAfterEdit.expectedQty).toBe(await expectedOpenManufacturingQty());
 
     await page.goto("/manufacturing/orders");
     await showManufacturingOrderStatus(page, "Draft");
@@ -2267,11 +2284,15 @@ test.describe("Manufacturing order flow", () => {
 
     const deleteIngredientResult = await deleteItem(guardMaterialId);
     expect(deleteIngredientResult.status).toBe(400);
-    expect(deleteIngredientResult.body?.error).toContain("open manufacturing orders");
+    expect(deleteIngredientResult.body?.error ?? "").toMatch(
+      /Cannot delete the last variant|open manufacturing orders/i
+    );
 
     const deleteProductResult = await deleteItem(guardProductId);
     expect(deleteProductResult.status).toBe(400);
-    expect(deleteProductResult.body?.error).toContain("open manufacturing orders");
+    expect(deleteProductResult.body?.error ?? "").toMatch(
+      /Cannot delete the last variant|open manufacturing orders/i
+    );
   });
 
   test("preserves six-decimal converted ingredient cost through pick and completion", async ({

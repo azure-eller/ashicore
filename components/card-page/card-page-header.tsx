@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,7 +13,6 @@ import {
   MoreVerticalIcon,
   PrinterIcon,
 } from "@hugeicons/core-free-icons";
-import { useRouter } from "next/navigation";
 import { formatDate } from "@/lib/format";
 import { useCardSaveStatus, type CardSaveStatus } from "./use-card-save-status";
 import styles from "./card-page.module.css";
@@ -50,8 +50,8 @@ export function CardPageHeader({
   onDelete,
   deleteDisabledReason,
 }: CardPageHeaderProps) {
-  const status = useCardSaveStatus(itemId);
   const router = useRouter();
+  const status = useCardSaveStatus(itemId);
 
   const placeholderName = isDraft && !name.trim()
     ? `New ${typeLabel.toLowerCase()}`
@@ -106,6 +106,26 @@ export function CardPageHeader({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {itemId ? (
+              <>
+                <DropdownMenuItem
+                  onSelect={() =>
+                    router.push(
+                      typeLabel === "Product"
+                        ? `/inventory/products/${itemId}/edit`
+                        : `/inventory/materials/${itemId}/edit`,
+                    )
+                  }
+                >
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => router.push(`/inventory/ledger?itemId=${itemId}`)}
+                >
+                  View inventory activity
+                </DropdownMenuItem>
+              </>
+            ) : null}
             {onDelete ? (
               <DropdownMenuItem
                 onSelect={() => {

@@ -470,52 +470,6 @@ export const updateItemSchema = rawBaseItemSchema.omit({
 export type UpdateItem = z.infer<typeof updateItemSchema>;
 export type UpdateItemFormValues = z.input<typeof updateItemSchema>;
 
-// --- Master product schema (no stock, price, SKU, or purchase unit) ---
-
-export const insertMasterItemSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  description: nullableStringOptional,
-  category: nullableStringOptional,
-  variantAxes: z.array(z.string().min(1)).min(1, "At least one variant axis is required"),
-});
-
-export type InsertMasterItem = z.infer<typeof insertMasterItemSchema>;
-export type InsertMasterItemFormValues = z.input<typeof insertMasterItemSchema>;
-
-// --- Variant schema (created under a master, minimal fields) ---
-
-export const insertVariantSchema = z.object({
-  unitDefinitionId: z.string().min(1, "Unit is required"),
-  variantAttrs: z.record(z.string(), z.string().min(1, "Value is required")),
-  sellable: z.boolean().default(false),
-  sku: nullableStringOptional,
-  description: nullableStringOptional,
-  defaultSellingPrice: nullableStringOptional,
-  defaultPurchasePrice: nullableStringOptional,
-  safetyStock: z.string().default("0").refine(
-    (v) => { const n = Number(v); return !isNaN(n) && n >= 0; },
-    "Must be a non-negative number"
-  ),
-  manufacturingMode: z.enum(["discrete", "batch"]).default("discrete"),
-  expectedBatchYield: nullableStringOptional,
-  typicalBatchSize: nullableStringOptional,
-  typicalGroupSize: nullableStringOptional,
-  standardCostQuantity: nullableStringOptional,
-  bom: cleanedBomRowsSchema.optional(),
-  operationCosts: cleanedOperationCostRowsSchema.optional(),
-  revisionNote: nullableStringOptional,
-}).superRefine((data, ctx) => {
-  bomRefine(data, ctx);
-  operationCostsRefine(data, ctx);
-  positiveOptionalRefine(data.expectedBatchYield, "Expected batch yield", "expectedBatchYield", ctx);
-  positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
-  positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);
-  positiveOptionalRefine(data.standardCostQuantity, "Standard costing quantity", "standardCostQuantity", ctx);
-});
-
-export type InsertVariant = z.infer<typeof insertVariantSchema>;
-export type InsertVariantFormValues = z.input<typeof insertVariantSchema>;
-
 export const overrideCurrentStockUnitCostSchema = z.object({
   currentStockUnitCost: z
     .string()

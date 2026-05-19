@@ -1,15 +1,18 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
 import {
+  itemFamilies,
+  itemVariantValues,
   items,
   salesOrderLines,
   salesOrders,
   salesShipmentLines,
   salesShipments,
   stockAllocations,
+  variantOptions,
+  variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
-import { normalizeNumeric, resolveVariantDisplay, roundQuantity } from "@/lib/format";
+import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { setSalesLineStockReservationInTx } from "@/lib/inventory/kernel";
 import type { Tx } from "@/lib/db/with-org-context";
 import type {
@@ -83,28 +86,21 @@ function mapSalesDemandRow(
     shipDate: string | null;
     itemId: string;
     itemName: string;
+    familyName: string | null;
+    optionLabels: string[];
     unitName: string;
     orderedQty: string;
     cancelledQty: string;
     sortOrder: number;
     createdAt: Date;
-    variantAttrs: unknown;
-    masterName: string | null;
-    masterVariantAxes: unknown;
   },
   shippedQty: number,
   plannedQty: number
 ): AllocationDemandAdapterRow {
-  const display = resolveVariantDisplay(
-    row.itemName,
-    row.masterName == null
-      ? null
-      : {
-          name: row.masterName,
-          variantAxes: row.masterVariantAxes as string[] | null,
-        },
-    row.variantAttrs as Record<string, string> | null
-  );
+  const displayName =
+    row.familyName && row.optionLabels.length > 0
+      ? `${row.familyName} / ${row.optionLabels.join(" / ")}`
+      : row.familyName ?? row.itemName;
   const orderedQty = toQuantity(row.orderedQty);
   const cancelledQty = toQuantity(row.cancelledQty);
   const openQty = roundQuantity(orderedQty - shippedQty - cancelledQty - plannedQty);
@@ -115,7 +111,7 @@ function mapSalesDemandRow(
     parentDemandId: row.salesOrderId,
     salesOrderId: row.salesOrderId,
     itemId: row.itemId,
-    itemName: display.masterName,
+    itemName: displayName,
     unitName: row.unitName,
     label: row.orderNumber,
     contextLabel: row.customerName,
@@ -126,6 +122,35 @@ function mapSalesDemandRow(
   };
 }
 
+async function getSalesAllocationOptionLabelsByItemIdInTx(tx: Tx, itemIds: string[]) {
+  const uniqueItemIds = [...new Set(itemIds)];
+  if (uniqueItemIds.length === 0) {
+    return new Map<string, string[]>();
+  }
+
+  const rows = await tx
+    .select({
+      itemId: itemVariantValues.itemId,
+      label: variantOptionValues.label,
+    })
+    .from(itemVariantValues)
+    .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
+    .innerJoin(
+      variantOptionValues,
+      eq(itemVariantValues.optionValueId, variantOptionValues.id)
+    )
+    .where(inArray(itemVariantValues.itemId, uniqueItemIds))
+    .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder));
+
+  const byItemId = new Map<string, string[]>();
+  for (const row of rows) {
+    const labels = byItemId.get(row.itemId) ?? [];
+    labels.push(row.label);
+    byItemId.set(row.itemId, labels);
+  }
+  return byItemId;
+}
+
 async function loadSalesRowsInTx(
   tx: Tx,
   whereClause: ReturnType<typeof and>,
@@ -133,7 +158,6 @@ async function loadSalesRowsInTx(
     subtractPlannedShipments?: boolean;
   }
 ) {
-  const masterItems = alias(items, "allocation_sales_master_items");
   const rows = await tx
     .select({
       salesOrderLineId: salesOrderLines.id,
@@ -143,19 +167,17 @@ async function loadSalesRowsInTx(
       shipDate: salesOrders.shipDate,
       itemId: salesOrderLines.itemId,
       itemName: salesOrderLines.itemName,
+      familyName: itemFamilies.name,
       unitName: salesOrderLines.unitName,
       orderedQty: trimScale(salesOrderLines.quantity).as("orderedQty"),
       cancelledQty: trimScale(salesOrderLines.cancelledQuantity).as("cancelledQty"),
       sortOrder: salesOrderLines.sortOrder,
       createdAt: salesOrderLines.createdAt,
-      variantAttrs: items.variantAttrs,
-      masterName: masterItems.name,
-      masterVariantAxes: masterItems.variantAxes,
     })
     .from(salesOrderLines)
     .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
     .leftJoin(items, eq(salesOrderLines.itemId, items.id))
-    .leftJoin(masterItems, eq(items.parentId, masterItems.id))
+    .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
     .where(whereClause)
     .orderBy(asc(salesOrders.shipDate), asc(salesOrders.orderNumber), asc(salesOrderLines.sortOrder));
 
@@ -169,11 +191,18 @@ async function loadSalesRowsInTx(
         rows.map((row) => row.salesOrderLineId)
       )
     : new Map<string, number>();
+  const optionLabelsByItemId = await getSalesAllocationOptionLabelsByItemIdInTx(
+    tx,
+    rows.map((row) => row.itemId)
+  );
 
   return rows
     .map((row) =>
       mapSalesDemandRow(
-        row,
+        {
+          ...row,
+          optionLabels: optionLabelsByItemId.get(row.itemId) ?? [],
+        },
         shippedByLine.get(row.salesOrderLineId) ?? 0,
         plannedByLine.get(row.salesOrderLineId) ?? 0
       )

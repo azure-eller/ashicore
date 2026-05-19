@@ -250,7 +250,7 @@ export async function getStocktakePreviewItems(): Promise<StocktakePreviewItem[]
       .where(
         and(
           isNull(items.deletedAt),
-          eq(items.isMaster, false),
+          isNotNull(items.familyId),
           inArray(items.itemType, ["material", "product"])
         )
       )

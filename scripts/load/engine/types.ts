@@ -52,10 +52,15 @@ export type ItemSeed = {
   unresolvedFormulaNote?: string;
   legacySkus?: string[];
   legacyNames?: string[];
-  isMaster?: boolean;
-  parentKey?: string;
-  variantAxes?: string[];
-  variantAttrs?: Record<string, string>;
+  familyKey?: string;
+  familyName?: string;
+  familyCategory?: string;
+  familyDescription?: string | null;
+  familyUnitKey?: string;
+  variantOptionName?: string;
+  variantOptionCode?: string;
+  variantOptionValue?: string;
+  variantOptionValueCode?: string;
   sellable?: boolean;
 };
 
@@ -72,7 +77,6 @@ export type ExistingItem = {
   sku: string | null;
   name: string;
   itemType: string;
-  familyId: string | null;
   unitDefinitionId: string | null;
   purchaseUnitDefinitionId: string | null;
   purchaseToStockFactor: string | null;
@@ -87,11 +91,9 @@ export type ExistingItem = {
   typicalGroupSize: string | null;
   bomLocked: boolean;
   safetyStock: string;
-  isMaster: boolean;
-  parentId: string | null;
-  variantAxes: string[] | null;
-  variantAttrs: Record<string, string> | null;
   sellable: boolean | null;
+  familyId: string | null;
+  optionCombinationKey: string;
   deletedAt: Date | null;
 };
 
@@ -191,6 +193,7 @@ export type ReadySalesImportOrder = {
   sourceRows: number[];
   existingId: string | null;
   existingOrderNumber: string | null;
+  unchanged?: boolean;
   status: "open";
   customerKey: string;
   customerName: string;

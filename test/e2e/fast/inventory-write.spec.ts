@@ -55,7 +55,7 @@ test.describe("Inventory write-path smoke (card UI)", () => {
     ]);
     expect(createResponse.status()).toBe(201);
     const createBody = await createResponse.json();
-    materialId = createBody.itemId ?? createBody.id;
+    materialId = createBody.itemId;
 
     await page.waitForURL(`**/inventory/materials/${materialId}*`);
     await expect(page.getByRole("heading", { name: materialName })).toBeVisible();
@@ -65,6 +65,7 @@ test.describe("Inventory write-path smoke (card UI)", () => {
     expect(material.name).toBe(materialName);
 
     // Inline-edit the description on the saved card — autosaves on blur.
+    await page.getByRole("button", { name: "General info" }).click();
     const descTextarea = page.getByLabel("Additional info");
     await descTextarea.click();
     await descTextarea.clear();
@@ -164,12 +165,13 @@ test.describe("Inventory write-path smoke (card UI)", () => {
     ]);
     expect(createResponse.status()).toBe(201);
     const createBody = await createResponse.json();
-    productId = createBody.itemId ?? createBody.id;
+    productId = createBody.itemId;
 
     await page.waitForURL(`**/inventory/products/${productId}*`);
     await expect(page.getByRole("heading", { name: productName })).toBeVisible();
 
-    await page.getByRole("link", { name: /Recipe/ }).click();
+    await page.getByRole("link", { name: "Recipe" }).click();
+    await page.waitForURL(`**/inventory/products/${productId}/recipe`);
     await page.getByRole("button", { name: "Add ingredient" }).click();
     const componentInput = page.getByPlaceholder("Search items...").first();
     await expect(componentInput).toBeVisible();
@@ -209,8 +211,7 @@ test.describe("Inventory write-path smoke (card UI)", () => {
   });
 
   test("editing BOM quantity creates a new BOM revision", async ({ page, db }) => {
-    await page.goto(`/inventory/products/${productId}`);
-    await page.getByRole("link", { name: /Recipe/ }).click();
+    await page.goto(`/inventory/products/${productId}/recipe`);
     await fillBomQuantity(page, materialName, "1.5");
 
     const [saveResponse] = await Promise.all([

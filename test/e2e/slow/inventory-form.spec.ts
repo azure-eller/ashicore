@@ -32,7 +32,20 @@ async function createCardItem(
   ]);
   expect(createResponse.status()).toBe(201);
   const body = await createResponse.json();
-  return (body.itemId ?? body.id) as string;
+  return body.itemId as string;
+}
+
+async function openGeneralInfo(page: Page) {
+  const generalButton = page.getByRole("button", { name: "General info" });
+  if (await generalButton.isVisible().catch(() => false)) {
+    await generalButton.click();
+    return;
+  }
+
+  const generalLink = page.getByRole("link", { name: "General info" });
+  if (await generalLink.isVisible().catch(() => false)) {
+    await generalLink.click();
+  }
 }
 
 async function patchCardField(
@@ -42,6 +55,12 @@ async function patchCardField(
   value: string,
 ) {
   const field = page.getByLabel(label);
+  if (!(await field.isVisible().catch(() => false))) {
+    await openGeneralInfo(page);
+    if (await page.getByRole("link", { name: "General info" }).isVisible().catch(() => false)) {
+      await page.waitForURL(/\/inventory\/(materials|products)\/[^/]+$/);
+    }
+  }
   // `fill` against a controlled React textarea sometimes leaves prior content
   // intact and prepends — clear first to force a clean replacement.
   await field.click();
@@ -136,6 +155,7 @@ test.describe("Inventory card flow", () => {
 
     await page.reload();
     await expect(page.getByRole("heading", { name: fullMaterialName })).toBeVisible();
+    await openGeneralInfo(page);
     await expect(page.getByLabel("Additional info")).toHaveValue("Fine grain river sand");
     await expect(page.getByLabel("Category")).toHaveValue(`Aggregates ${ts}`);
 
@@ -162,11 +182,13 @@ test.describe("Inventory card flow", () => {
   }) => {
     await page.goto(`/inventory/materials/${fullMaterialId}`);
     await expect(page.getByRole("heading", { name: fullMaterialName })).toBeVisible();
+    await openGeneralInfo(page);
     await expect(page.getByLabel("Additional info")).toHaveValue("Fine grain river sand");
 
     await patchCardField(page, fullMaterialId, "Additional info", "Coarse river sand — updated");
 
     await page.reload();
+    await openGeneralInfo(page);
     await expect(page.getByLabel("Additional info")).toHaveValue("Coarse river sand — updated");
 
     const [updated] = await db.select().from(items).where(eq(items.id, fullMaterialId));
@@ -310,7 +332,8 @@ test.describe("Inventory card flow", () => {
     );
     await patchCardField(page, sellableProductId, "Category", `Blends ${ts}`);
 
-    await page.getByRole("link", { name: /Recipe/ }).click();
+    await page.getByRole("link", { name: "Recipe" }).click();
+    await page.waitForURL(`**/inventory/products/${sellableProductId}/recipe`);
 
     await addBomIngredient(page, fullMaterialName, "4.5");
     await addBomIngredient(page, minimalMaterialName, "3");
@@ -361,7 +384,7 @@ test.describe("Inventory card flow", () => {
     page,
     db,
   }) => {
-    await page.goto(`/inventory/products/${sellableProductId}`);
+    await page.goto(`/inventory/products/${sellableProductId}/recipe`);
     await expect(page.getByRole("heading", { name: sellableProductName })).toBeVisible();
 
     await patchCardField(
@@ -374,8 +397,8 @@ test.describe("Inventory card flow", () => {
     await page.reload();
     await expect(page.getByLabel("Description")).toHaveValue("Premium blend — updated recipe");
 
-    // Verify BOM rows are pre-populated on Recipe tab
-    await page.getByRole("link", { name: /Recipe/ }).click();
+    // Verify BOM rows are pre-populated on the Recipe route tab.
+    await page.goto(`/inventory/products/${sellableProductId}/recipe`);
     const bomGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
     await expect(
       bomGrid

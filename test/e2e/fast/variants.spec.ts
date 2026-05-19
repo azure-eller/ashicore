@@ -21,7 +21,7 @@ test.describe("variant product cards", () => {
     });
     expect(create.status).toBe(201);
     const created = await create.json();
-    const variantId = (created.itemId ?? created.id) as string;
+    const variantId = created.itemId as string;
 
     const config = await testFetch(`/api/item-cards/${variantId}/variant-config`, {
       method: "PUT",
@@ -45,10 +45,7 @@ test.describe("variant product cards", () => {
     expect(cardBody.variants[0].displayName).toBe(`${productName} / ${packageValue}`);
 
     const [row] = await db.select().from(items).where(eq(items.id, variantId));
-    expect(row.isMaster).toBe(false);
-    expect(row.parentId).toBeNull();
     expect(row.familyId).toBeTruthy();
-    expect(row.variantAttrs).toBeNull();
 
     const assignments = await db
       .select()
@@ -58,26 +55,5 @@ test.describe("variant product cards", () => {
 
     const [updated] = await db.select().from(items).where(eq(items.id, variantId));
     expect(updated.description).toBeNull();
-  });
-
-  test("legacy master and variant creation endpoints are disabled", async () => {
-    const legacyMaster = await testFetch("/api/items", {
-      method: "POST",
-      body: JSON.stringify({
-        isMaster: true,
-        name: `Legacy Master ${ts}`,
-        variantAxes: ["Package"],
-      }),
-    });
-    expect(legacyMaster.status).toBe(410);
-
-    const legacyVariant = await testFetch(
-      "/api/items/00000000-0000-0000-0000-000000000000/variants",
-      {
-        method: "POST",
-        body: JSON.stringify({ variantAttrs: { Package: packageValue } }),
-      },
-    );
-    expect(legacyVariant.status).toBe(410);
   });
 });
