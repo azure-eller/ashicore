@@ -2,12 +2,12 @@ import { redirect } from "next/navigation";
 import { PurchaseOrderForm } from "@/app/(dashboard)/purchasing/purchase-order-form";
 import {
   getEditablePurchaseOrder,
-  getPurchaseOrder,
   getPurchaseOrderMaterialOptions,
   getSuppliers,
 } from "@/app/(dashboard)/purchasing/queries";
 import { getAddressEntries } from "@/lib/dal/addresses";
-import { requireModuleWriteAccess } from "@/lib/dal/auth";
+import { requireModuleReadAccess } from "@/lib/dal/auth";
+import { hasModuleAccess } from "@/lib/authz";
 import { captureAppError } from "@/lib/observability/sentry";
 
 export default async function PurchaseOrderDetailPage({
@@ -15,18 +15,21 @@ export default async function PurchaseOrderDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireModuleWriteAccess("purchasing");
+  const context = await requireModuleReadAccess("purchasing");
+  const canWrite = hasModuleAccess(
+    context.assignedRoles,
+    "purchasing",
+    "operate",
+  );
   const { id } = await params;
   let order;
-  let detail;
   let suppliers;
   let materials;
   let addresses;
 
   try {
-    [order, detail, suppliers, materials, addresses] = await Promise.all([
+    [order, suppliers, materials, addresses] = await Promise.all([
       getEditablePurchaseOrder(id),
-      getPurchaseOrder(id, { includeDeleted: true }),
       getSuppliers(),
       getPurchaseOrderMaterialOptions(),
       getAddressEntries(),
@@ -60,7 +63,8 @@ export default async function PurchaseOrderDetailPage({
       }))}
       materials={materials}
       addresses={addresses}
-      orderTitle={detail?.orderNumber}
+      orderTitle={order.orderNumber}
+      canWrite={canWrite}
     />
   );
 }

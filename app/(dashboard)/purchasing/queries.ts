@@ -29,9 +29,7 @@ import {
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
-import {
-  lockItemsInTx,
-} from "@/lib/inventory/kernel/locking";
+import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import {
   calculatePurchaseOrderLandedCosts,
   normalizeLandedMoney,
@@ -47,10 +45,7 @@ import {
   receivePurchaseStockInTx,
   releaseExpectedFromPurchaseInTx,
 } from "@/lib/inventory/kernel";
-import {
-  DomainError,
-  type DomainFieldErrors,
-} from "@/lib/errors/domain-error";
+import { DomainError, type DomainFieldErrors } from "@/lib/errors/domain-error";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type {
   InsertPurchaseOrder,
@@ -232,14 +227,16 @@ export class PurchasingError extends DomainError<{
           overage: string;
         }>;
       };
-    }
+    },
   ) {
     const errors: DomainFieldErrors | undefined = options?.errors;
 
     super(message, status, {
       name: "PurchasingError",
       errors,
-      extra: options?.overReceipt ? { overReceipt: options.overReceipt } : undefined,
+      extra: options?.overReceipt
+        ? { overReceipt: options.overReceipt }
+        : undefined,
     });
 
     this.errors = options?.errors;
@@ -262,7 +259,7 @@ async function getLockedPurchaseOrderInTx(tx: Tx, id: string) {
 
 async function generateOrderNumber(tx: Tx) {
   const result = await tx.execute(
-    sql`SELECT nextval('purchasing.order_number_seq') AS val`
+    sql`SELECT nextval('purchasing.order_number_seq') AS val`,
   );
   const raw = (result.rows[0] as { val: string | number }).val;
   const sequenceValue = Number(raw);
@@ -331,7 +328,7 @@ function mapPurchaseOrderAttachment(row: {
 
 async function getPurchaseOrderAttachmentsInTx(
   tx: Tx,
-  id: string
+  id: string,
 ): Promise<PurchaseOrderAttachment[]> {
   const rows = await tx
     .select({
@@ -350,15 +347,15 @@ async function getPurchaseOrderAttachmentsInTx(
       accountingAttachmentSyncs,
       and(
         eq(accountingAttachmentSyncs.attachmentId, attachmentFiles.id),
-        eq(accountingAttachmentSyncs.provider, ACCOUNTING_PROVIDER_XERO)
-      )
+        eq(accountingAttachmentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+      ),
     )
     .where(
       and(
         eq(attachmentFiles.ownerType, ATTACHMENT_OWNER_PURCHASE_ORDER),
         eq(attachmentFiles.ownerId, id),
-        isNull(attachmentFiles.deletedAt)
-      )
+        isNull(attachmentFiles.deletedAt),
+      ),
     )
     .orderBy(desc(attachmentFiles.createdAt), desc(attachmentFiles.id));
 
@@ -383,10 +380,10 @@ async function getValidatedMaterialsInTx(tx: Tx, itemIds: string[]) {
         sql`COALESCE(${itemFamilies.purchaseToStockFactor}, ${items.purchaseToStockFactor})`,
       ).as("purchaseToStockFactor"),
       defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
-        "defaultPurchasePrice"
+        "defaultPurchasePrice",
       ),
       currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
-        "currentStockUnitCost"
+        "currentStockUnitCost",
       ),
       accountingPurchaseAccountCode: sql<string | null>`(
         SELECT ${accountingClassifications.accountCode}
@@ -404,11 +401,13 @@ async function getValidatedMaterialsInTx(tx: Tx, itemIds: string[]) {
       and(
         inArray(items.id, uniqueIds),
         eq(items.itemType, "material"),
-        isNull(items.deletedAt)
-      )
+        isNull(items.deletedAt),
+      ),
     );
 
-  const itemMap = new Map(rows.map((row) => [row.id, row as MaterialValidationRow]));
+  const itemMap = new Map(
+    rows.map((row) => [row.id, row as MaterialValidationRow]),
+  );
 
   if (itemMap.size !== uniqueIds.length) {
     throw new PurchasingError("Material not found", 404);
@@ -426,20 +425,27 @@ async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string) {
       itemSku: purchaseOrderLines.itemSku,
       purchaseUnitName: purchaseOrderLines.purchaseUnitName,
       stockingUnitName: purchaseOrderLines.stockingUnitName,
-      purchaseToStockFactor: trimScale(purchaseOrderLines.purchaseToStockFactor).as(
-        "purchaseToStockFactor"
+      purchaseToStockFactor: trimScale(
+        purchaseOrderLines.purchaseToStockFactor,
+      ).as("purchaseToStockFactor"),
+      quantityOrdered: trimScale(purchaseOrderLines.quantityOrdered).as(
+        "quantityOrdered",
       ),
-      quantityOrdered: trimScale(purchaseOrderLines.quantityOrdered).as("quantityOrdered"),
-      quantityReceived: trimScale(purchaseOrderLines.quantityReceived).as("quantityReceived"),
-      stockQuantityOrdered: trimScale(purchaseOrderLines.stockQuantityOrdered).as(
-        "stockQuantityOrdered"
+      quantityReceived: trimScale(purchaseOrderLines.quantityReceived).as(
+        "quantityReceived",
       ),
-      stockQuantityReceived: trimScale(purchaseOrderLines.stockQuantityReceived).as(
-        "stockQuantityReceived"
-      ),
+      stockQuantityOrdered: trimScale(
+        purchaseOrderLines.stockQuantityOrdered,
+      ).as("stockQuantityOrdered"),
+      stockQuantityReceived: trimScale(
+        purchaseOrderLines.stockQuantityReceived,
+      ).as("stockQuantityReceived"),
       unitCost: trimScale(purchaseOrderLines.unitCost).as("unitCost"),
-      stockUnitCost: trimScale(purchaseOrderLines.stockUnitCost).as("stockUnitCost"),
-      accountingPurchaseAccountCode: purchaseOrderLines.accountingPurchaseAccountCode,
+      stockUnitCost: trimScale(purchaseOrderLines.stockUnitCost).as(
+        "stockUnitCost",
+      ),
+      accountingPurchaseAccountCode:
+        purchaseOrderLines.accountingPurchaseAccountCode,
       shipAddressEntryId: purchaseOrderLines.shipAddressEntryId,
       shipContactName: purchaseOrderLines.shipContactName,
       shipContactPhone: purchaseOrderLines.shipContactPhone,
@@ -457,17 +463,24 @@ async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string) {
     })
     .from(purchaseOrderLines)
     .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
-    .orderBy(asc(purchaseOrderLines.sortOrder), asc(purchaseOrderLines.createdAt));
+    .orderBy(
+      asc(purchaseOrderLines.sortOrder),
+      asc(purchaseOrderLines.createdAt),
+    );
 }
 
-async function getPurchaseOrderAdditionalCostsInTx(tx: Tx, purchaseOrderId: string) {
+async function getPurchaseOrderAdditionalCostsInTx(
+  tx: Tx,
+  purchaseOrderId: string,
+) {
   return tx
     .select({
       id: purchaseOrderAdditionalCosts.id,
       costType: purchaseOrderAdditionalCosts.costType,
       reference: purchaseOrderAdditionalCosts.reference,
       distributionMethod: purchaseOrderAdditionalCosts.distributionMethod,
-      accountingPurchaseAccountCode: purchaseOrderAdditionalCosts.accountingPurchaseAccountCode,
+      accountingPurchaseAccountCode:
+        purchaseOrderAdditionalCosts.accountingPurchaseAccountCode,
       amount: trimScale(purchaseOrderAdditionalCosts.amount).as("amount"),
       sortOrder: purchaseOrderAdditionalCosts.sortOrder,
       createdAt: purchaseOrderAdditionalCosts.createdAt,
@@ -477,14 +490,20 @@ async function getPurchaseOrderAdditionalCostsInTx(tx: Tx, purchaseOrderId: stri
     .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, purchaseOrderId))
     .orderBy(
       asc(purchaseOrderAdditionalCosts.sortOrder),
-      asc(purchaseOrderAdditionalCosts.createdAt)
+      asc(purchaseOrderAdditionalCosts.createdAt),
     );
 }
 
-function normalizeAdditionalCostInputs(payload: PurchaseOrderPayload | UpdatePurchaseOrder) {
+function normalizeAdditionalCostInputs(
+  payload: PurchaseOrderPayload | UpdatePurchaseOrder,
+) {
   const rows = [...(payload.additionalCosts ?? [])];
   const legacyShippingCost = Number(payload.shippingCost ?? "0");
-  if (rows.length === 0 && Number.isFinite(legacyShippingCost) && legacyShippingCost > 0) {
+  if (
+    rows.length === 0 &&
+    Number.isFinite(legacyShippingCost) &&
+    legacyShippingCost > 0
+  ) {
     rows.push({
       costType: "shipping",
       reference: null,
@@ -499,7 +518,7 @@ function normalizeAdditionalCostInputs(payload: PurchaseOrderPayload | UpdatePur
 async function preparePurchaseOrderPayload(
   tx: Tx,
   orgId: string,
-  payload: PurchaseOrderPayload | UpdatePurchaseOrder
+  payload: PurchaseOrderPayload | UpdatePurchaseOrder,
 ): Promise<{
   supplierId: string;
   supplierName: string;
@@ -521,15 +540,17 @@ async function preparePurchaseOrderPayload(
   const supplier = await getValidatedSupplierInTx(tx, payload.supplierId);
   const materials = await getValidatedMaterialsInTx(
     tx,
-    payload.lines.map((line) => line.itemId)
+    payload.lines.map((line) => line.itemId),
   );
   const purchaseUnitIds = [
     ...new Set(
       payload.lines
         .map((line) =>
-          "purchaseUnitDefinitionId" in line ? line.purchaseUnitDefinitionId : null
+          "purchaseUnitDefinitionId" in line
+            ? line.purchaseUnitDefinitionId
+            : null,
         )
-        .filter((id): id is string => Boolean(id))
+        .filter((id): id is string => Boolean(id)),
     ),
   ];
   const purchaseUnitRows =
@@ -540,7 +561,7 @@ async function preparePurchaseOrderPayload(
           .from(unitDefinitions)
           .where(inArray(unitDefinitions.id, purchaseUnitIds));
   const purchaseUnitNameById = new Map(
-    purchaseUnitRows.map((unit) => [unit.id, unit.name])
+    purchaseUnitRows.map((unit) => [unit.id, unit.name]),
   );
 
   const additionalCostInputs = normalizeAdditionalCostInputs(payload);
@@ -549,7 +570,8 @@ async function preparePurchaseOrderPayload(
     costType: cost.costType,
     reference: cost.reference?.trim() || null,
     distributionMethod: cost.distributionMethod,
-    accountingPurchaseAccountCode: cost.accountingPurchaseAccountCode?.trim() || null,
+    accountingPurchaseAccountCode:
+      cost.accountingPurchaseAccountCode?.trim() || null,
     amount: normalizeNumeric(Number(cost.amount)),
     sortOrder: index,
   }));
@@ -587,11 +609,11 @@ async function preparePurchaseOrderPayload(
     const overrideUnitId =
       "purchaseUnitDefinitionId" in line ? line.purchaseUnitDefinitionId : null;
     const purchaseToStockFactor = Number(
-      overrideFactor ?? material.purchaseToStockFactor ?? "1"
+      overrideFactor ?? material.purchaseToStockFactor ?? "1",
     );
     const stockQuantityOrdered = lineCosts.stockQuantityOrdered;
     const stockUnitCost = normalizeLandedStockUnitCost(
-      lineCosts.landedStockUnitCost
+      lineCosts.landedStockUnitCost,
     );
     const lineAddress = normalizeAddressFields({
       line1: line.shipLine1,
@@ -654,7 +676,8 @@ async function preparePurchaseOrderPayload(
     supplierName: supplier.name,
     expectedDate: payload.expectedDate,
     notes: payload.notes,
-    accountingPurchaseAccountCode: payload.accountingPurchaseAccountCode?.trim() || null,
+    accountingPurchaseAccountCode:
+      payload.accountingPurchaseAccountCode?.trim() || null,
     shipLine1: address.line1,
     shipLine2: address.line2,
     shipCity: address.city,
@@ -679,15 +702,15 @@ async function ensureSuppliersDeletableInTx(tx: Tx, supplierIds: string[]) {
       and(
         inArray(purchaseOrders.supplierId, uniqueSupplierIds),
         isNull(purchaseOrders.deletedAt),
-        inArray(purchaseOrders.status, ["draft", "ordered", "partial"])
-      )
+        inArray(purchaseOrders.status, ["draft", "ordered", "partial"]),
+      ),
     )
     .limit(1);
 
   if (blockingOrder) {
     throw new PurchasingError(
       "Cannot delete supplier with active draft, ordered, or partially received purchase orders.",
-      400
+      400,
     );
   }
 
@@ -749,7 +772,7 @@ export async function getSuppliers(): Promise<SupplierRow[]> {
 
 export async function getSupplier(
   id: string,
-  options?: { includeDeleted?: boolean }
+  options?: { includeDeleted?: boolean },
 ): Promise<SupplierRow | null> {
   return withAuthedOrgContext(async (tx) => {
     const conditions = [eq(suppliers.id, id)];
@@ -831,10 +854,10 @@ export async function getPurchaseOrderMaterialOptions(): Promise<
           sql`COALESCE(${itemFamilies.purchaseToStockFactor}, ${items.purchaseToStockFactor})`,
         ).as("purchaseToStockFactor"),
         defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
-          "defaultPurchasePrice"
+          "defaultPurchasePrice",
         ),
         currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
-          "currentStockUnitCost"
+          "currentStockUnitCost",
         ),
         accountingPurchaseAccountCode: sql<string | null>`(
           SELECT ${accountingClassifications.accountCode}
@@ -847,7 +870,10 @@ export async function getPurchaseOrderMaterialOptions(): Promise<
       })
       .from(items)
       .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
-      .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+      .innerJoin(
+        unitDefinitions,
+        eq(items.unitDefinitionId, unitDefinitions.id),
+      )
       .where(and(eq(items.itemType, "material"), isNull(items.deletedAt)))
       .orderBy(asc(items.name));
   });
@@ -865,8 +891,12 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
             supplierName: purchaseOrders.supplierName,
             status: purchaseOrders.status,
             expectedDate: purchaseOrders.expectedDate,
-            shippingCost: trimScale(purchaseOrders.shippingCost).as("shippingCost"),
-            totalAmount: trimScale(purchaseOrders.totalAmount).as("totalAmount"),
+            shippingCost: trimScale(purchaseOrders.shippingCost).as(
+              "shippingCost",
+            ),
+            totalAmount: trimScale(purchaseOrders.totalAmount).as(
+              "totalAmount",
+            ),
             deletedAt: purchaseOrders.deletedAt,
             createdAt: purchaseOrders.createdAt,
             updatedAt: purchaseOrders.updatedAt,
@@ -877,7 +907,7 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
           .orderBy(
             desc(purchaseOrders.createdAt),
             asc(purchaseOrders.orderNumber),
-            asc(purchaseOrders.id)
+            asc(purchaseOrders.id),
           );
 
         if (orderRows.length === 0) {
@@ -889,12 +919,17 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
           .select({
             purchaseOrderId: purchaseOrderLines.purchaseOrderId,
             itemName: purchaseOrderLines.itemName,
-            quantity: trimScale(purchaseOrderLines.quantityOrdered).as("quantity"),
+            quantity: trimScale(purchaseOrderLines.quantityOrdered).as(
+              "quantity",
+            ),
             sortOrder: purchaseOrderLines.sortOrder,
           })
           .from(purchaseOrderLines)
           .where(inArray(purchaseOrderLines.purchaseOrderId, orderIds))
-          .orderBy(asc(purchaseOrderLines.sortOrder), asc(purchaseOrderLines.createdAt));
+          .orderBy(
+            asc(purchaseOrderLines.sortOrder),
+            asc(purchaseOrderLines.createdAt),
+          );
 
         const linesByOrderId = new Map<
           string,
@@ -917,13 +952,13 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
       successData: (orders) => ({
         rowCount: orders.length,
       }),
-    }
+    },
   );
 }
 
 export async function getPurchaseOrder(
   id: string,
-  options?: { includeDeleted?: boolean }
+  options?: { includeDeleted?: boolean },
 ): Promise<PurchaseOrderDetail | null> {
   return withAuthedOrgContext(async (tx) => {
     const conditions = [eq(purchaseOrders.id, id)];
@@ -935,14 +970,15 @@ export async function getPurchaseOrder(
     const [order] = await tx
       .select({
         id: purchaseOrders.id,
+        orderNumber: purchaseOrders.orderNumber,
         supplierId: purchaseOrders.supplierId,
         supplierName: purchaseOrders.supplierName,
         supplierEmail: suppliers.email,
-        orderNumber: purchaseOrders.orderNumber,
         status: purchaseOrders.status,
         expectedDate: purchaseOrders.expectedDate,
         notes: purchaseOrders.notes,
-        accountingPurchaseAccountCode: purchaseOrders.accountingPurchaseAccountCode,
+        accountingPurchaseAccountCode:
+          purchaseOrders.accountingPurchaseAccountCode,
         shipLine1: purchaseOrders.shipLine1,
         shipLine2: purchaseOrders.shipLine2,
         shipCity: purchaseOrders.shipCity,
@@ -976,8 +1012,8 @@ export async function getPurchaseOrder(
         and(
           eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
           eq(accountingDocumentSyncs.documentType, "purchase_order"),
-          eq(accountingDocumentSyncs.documentId, purchaseOrders.id)
-        )
+          eq(accountingDocumentSyncs.documentId, purchaseOrders.id),
+        ),
       )
       .where(and(...conditions));
 
@@ -1016,21 +1052,23 @@ export async function getPurchaseOrder(
             normalizeLandedStockUnitCost(lineCosts.landedStockUnitCost) ??
             line.stockUnitCost,
           allocatedAdditionalCost: normalizeLandedMoney(
-            lineCosts.allocatedAdditionalCost
+            lineCosts.allocatedAdditionalCost,
           ),
           landedCost: normalizeLandedMoney(lineCosts.landedLineTotal),
           quantityRemaining: normalizeNumeric(
-            parseFloat(line.quantityOrdered) - parseFloat(line.quantityReceived)
+            parseFloat(line.quantityOrdered) -
+              parseFloat(line.quantityReceived),
           ),
           stockQuantityRemaining: normalizeNumeric(
             parseFloat(line.stockQuantityOrdered) -
-              parseFloat(line.stockQuantityReceived)
+              parseFloat(line.stockQuantityReceived),
           ),
         };
       }) as PurchaseOrderDetailLine[],
       additionalCosts: additionalCosts.map((cost) => ({
         ...cost,
-        costType: cost.costType as PurchaseOrderDetail["additionalCosts"][number]["costType"],
+        costType:
+          cost.costType as PurchaseOrderDetail["additionalCosts"][number]["costType"],
         distributionMethod:
           cost.distributionMethod as PurchaseOrderDetail["additionalCosts"][number]["distributionMethod"],
       })),
@@ -1040,17 +1078,19 @@ export async function getPurchaseOrder(
 }
 
 export async function getEditablePurchaseOrder(
-  id: string
+  id: string,
 ): Promise<PurchaseOrderEditData | null> {
   return withAuthedOrgContext(async (tx) => {
     const [order] = await tx
       .select({
         id: purchaseOrders.id,
+        orderNumber: purchaseOrders.orderNumber,
         supplierId: purchaseOrders.supplierId,
         status: purchaseOrders.status,
         expectedDate: purchaseOrders.expectedDate,
         notes: purchaseOrders.notes,
-        accountingPurchaseAccountCode: purchaseOrders.accountingPurchaseAccountCode,
+        accountingPurchaseAccountCode:
+          purchaseOrders.accountingPurchaseAccountCode,
         shipLine1: purchaseOrders.shipLine1,
         shipLine2: purchaseOrders.shipLine2,
         shipCity: purchaseOrders.shipCity,
@@ -1064,8 +1104,14 @@ export async function getEditablePurchaseOrder(
         and(
           eq(purchaseOrders.id, id),
           isNull(purchaseOrders.deletedAt),
-          inArray(purchaseOrders.status, ["draft", "ordered", "partial", "received"])
-        )
+          inArray(purchaseOrders.status, [
+            "draft",
+            "ordered",
+            "partial",
+            "received",
+            "cancelled",
+          ]),
+        ),
       );
 
     if (!order) {
@@ -1098,7 +1144,8 @@ export async function getEditablePurchaseOrder(
         shipDeliveryInstructions: line.shipDeliveryInstructions,
       })),
       additionalCosts: additionalCosts.map((cost) => ({
-        costType: cost.costType as PurchaseOrderEditData["additionalCosts"][number]["costType"],
+        costType:
+          cost.costType as PurchaseOrderEditData["additionalCosts"][number]["costType"],
         reference: cost.reference,
         distributionMethod:
           cost.distributionMethod as PurchaseOrderEditData["additionalCosts"][number]["distributionMethod"],
@@ -1161,7 +1208,7 @@ export async function createPurchaseOrderAttachment(params: {
 
 export async function getPurchaseOrderAttachmentForDownload(
   purchaseOrderId: string,
-  fileId: string
+  fileId: string,
 ) {
   return withAuthedOrgContext(async (tx) => {
     const [file] = await tx
@@ -1178,8 +1225,8 @@ export async function getPurchaseOrderAttachmentForDownload(
           eq(attachmentFiles.id, fileId),
           eq(attachmentFiles.ownerType, ATTACHMENT_OWNER_PURCHASE_ORDER),
           eq(attachmentFiles.ownerId, purchaseOrderId),
-          isNull(attachmentFiles.deletedAt)
-        )
+          isNull(attachmentFiles.deletedAt),
+        ),
       );
 
     return file ?? null;
@@ -1188,7 +1235,7 @@ export async function getPurchaseOrderAttachmentForDownload(
 
 export async function deletePurchaseOrderAttachment(
   purchaseOrderId: string,
-  fileId: string
+  fileId: string,
 ) {
   return withAuthedOrgContext(async (tx) => {
     const [file] = await tx
@@ -1202,8 +1249,8 @@ export async function deletePurchaseOrderAttachment(
           eq(attachmentFiles.id, fileId),
           eq(attachmentFiles.ownerType, ATTACHMENT_OWNER_PURCHASE_ORDER),
           eq(attachmentFiles.ownerId, purchaseOrderId),
-          isNull(attachmentFiles.deletedAt)
-        )
+          isNull(attachmentFiles.deletedAt),
+        ),
       )
       .returning({
         id: attachmentFiles.id,
@@ -1218,7 +1265,7 @@ export async function createPurchaseOrderInTx(
   tx: Tx,
   orgId: string,
   data: PurchaseOrderPayload,
-  options: CreatePurchaseOrderDraftOptions = {}
+  options: CreatePurchaseOrderDraftOptions = {},
 ) {
   const prepared = await preparePurchaseOrderPayload(tx, orgId, data);
   const orderNumber = options.orderNumber ?? (await generateOrderNumber(tx));
@@ -1245,7 +1292,10 @@ export async function createPurchaseOrderInTx(
     })
     .returning({ id: purchaseOrders.id });
 
-  if (options.accountingPushStatus === "pushed" && options.externalPurchaseOrderId) {
+  if (
+    options.accountingPushStatus === "pushed" &&
+    options.externalPurchaseOrderId
+  ) {
     await persistAccountingDocumentPushSuccess(tx, {
       organizationId: orgId,
       provider: options.accountingProvider ?? ACCOUNTING_PROVIDER_XERO,
@@ -1262,7 +1312,7 @@ export async function createPurchaseOrderInTx(
     prepared.preparedLines.map((line) => ({
       purchaseOrderId: order.id,
       ...line,
-    }))
+    })),
   );
 
   if (prepared.preparedAdditionalCosts.length > 0) {
@@ -1270,7 +1320,7 @@ export async function createPurchaseOrderInTx(
       prepared.preparedAdditionalCosts.map((cost) => ({
         purchaseOrderId: order.id,
         ...cost,
-      }))
+      })),
     );
   }
 
@@ -1281,7 +1331,7 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
   tx: Tx,
   orgId: string,
   data: ImportedAccountingPurchaseOrder,
-  options: { actorUserId?: string | null } = {}
+  options: { actorUserId?: string | null } = {},
 ) {
   const prepared = await preparePurchaseOrderPayload(tx, orgId, data);
   const [existingByExternal] = await tx
@@ -1292,16 +1342,22 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
     .from(accountingDocumentSyncs)
     .innerJoin(
       purchaseOrders,
-      eq(accountingDocumentSyncs.documentId, purchaseOrders.id)
+      eq(accountingDocumentSyncs.documentId, purchaseOrders.id),
     )
     .where(
       and(
         eq(accountingDocumentSyncs.organizationId, orgId),
         eq(accountingDocumentSyncs.provider, data.accountingProvider),
-        eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_ORDER),
-        eq(accountingDocumentSyncs.externalDocumentId, data.externalPurchaseOrderId),
-        isNull(purchaseOrders.deletedAt)
-      )
+        eq(
+          accountingDocumentSyncs.documentType,
+          ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+        ),
+        eq(
+          accountingDocumentSyncs.externalDocumentId,
+          data.externalPurchaseOrderId,
+        ),
+        isNull(purchaseOrders.deletedAt),
+      ),
     )
     .limit(1);
   const [existingByNumber] = existingByExternal
@@ -1316,8 +1372,8 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
           and(
             eq(purchaseOrders.organizationId, orgId),
             eq(purchaseOrders.orderNumber, data.orderNumber),
-            isNull(purchaseOrders.deletedAt)
-          )
+            isNull(purchaseOrders.deletedAt),
+          ),
         )
         .limit(1);
   const existing = existingByExternal ?? existingByNumber;
@@ -1361,13 +1417,14 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
     .from(purchaseOrders)
     .where(eq(purchaseOrders.id, existing.id))
     .for("update");
-  if (!locked) return { action: "skipped" as const, id: existing.id, protected: true };
+  if (!locked)
+    return { action: "skipped" as const, id: existing.id, protected: true };
 
   const existingLines = await getPurchaseOrderLinesInTx(tx, existing.id);
   const hasReceivedLines = existingLines.some(
     (line) =>
       parseFloat(line.quantityReceived) > 0 ||
-      parseFloat(line.stockQuantityReceived) > 0
+      parseFloat(line.stockQuantityReceived) > 0,
   );
 
   await lockItemsInTx(tx, [
@@ -1410,14 +1467,14 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
         prepared.preparedLines.map((line) => ({
           purchaseOrderId: existing.id,
           ...line,
-        }))
+        })),
       )
       .returning({
         id: purchaseOrderLines.id,
         itemId: purchaseOrderLines.itemId,
-        stockQuantityOrdered: trimScale(purchaseOrderLines.stockQuantityOrdered).as(
-          "stockQuantityOrdered"
-        ),
+        stockQuantityOrdered: trimScale(
+          purchaseOrderLines.stockQuantityOrdered,
+        ).as("stockQuantityOrdered"),
       });
 
     const nextLines = insertedLines.map((line) => ({
@@ -1453,7 +1510,7 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
         prepared.preparedAdditionalCosts.map((cost) => ({
           purchaseOrderId: existing.id,
           ...cost,
-        }))
+        })),
       );
     }
   }
@@ -1477,7 +1534,7 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
 
 export async function createPurchaseOrder(data: InsertPurchaseOrder) {
   return withAuthedOrgContext((tx, orgId) =>
-    createPurchaseOrderInTx(tx, orgId, data)
+    createPurchaseOrderInTx(tx, orgId, data),
   );
 }
 
@@ -1526,7 +1583,10 @@ export async function duplicatePurchaseOrder(id: string) {
   });
 }
 
-export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder) {
+export async function updatePurchaseOrder(
+  id: string,
+  data: UpdatePurchaseOrder,
+) {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const order = await getLockedPurchaseOrderInTx(tx, id);
 
@@ -1537,7 +1597,7 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
     const prepared = await preparePurchaseOrderPayload(tx, orgId, data);
     const existingLines = await getPurchaseOrderLinesInTx(tx, id);
     const existingLineByItemId = new Map(
-      existingLines.map((line) => [line.itemId, line])
+      existingLines.map((line) => [line.itemId, line]),
     );
     await lockItemsInTx(tx, [
       ...new Set([
@@ -1547,7 +1607,9 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
     ]);
 
     if (order.status !== "draft") {
-      const nextItemIds = new Set(prepared.preparedLines.map((line) => line.itemId));
+      const nextItemIds = new Set(
+        prepared.preparedLines.map((line) => line.itemId),
+      );
       const nextExpectedLines: Array<{
         purchaseOrderLineId: string;
         itemId: string;
@@ -1558,14 +1620,16 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
         const existingLine = existingLineByItemId.get(line.itemId);
         if (existingLine) {
           const quantityReceived = parseFloat(existingLine.quantityReceived);
-          const stockQuantityReceived = parseFloat(existingLine.stockQuantityReceived);
+          const stockQuantityReceived = parseFloat(
+            existingLine.stockQuantityReceived,
+          );
           if (
             parseFloat(line.quantityOrdered) < quantityReceived ||
             parseFloat(line.stockQuantityOrdered) < stockQuantityReceived
           ) {
             throw new PurchasingError(
               "Ordered quantity cannot be less than quantity already received.",
-              400
+              400,
             );
           }
 
@@ -1604,7 +1668,7 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
             quantity: Math.max(
               parseFloat(line.stockQuantityOrdered) -
                 parseFloat(existingLine.stockQuantityReceived),
-              0
+              0,
             ),
           });
           continue;
@@ -1626,17 +1690,17 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
       }
 
       const removedLines = existingLines.filter(
-        (line) => !nextItemIds.has(line.itemId)
+        (line) => !nextItemIds.has(line.itemId),
       );
       const receivedRemovedLine = removedLines.find(
         (line) =>
           parseFloat(line.quantityReceived) > 0 ||
-          parseFloat(line.stockQuantityReceived) > 0
+          parseFloat(line.stockQuantityReceived) > 0,
       );
       if (receivedRemovedLine) {
         throw new PurchasingError(
           "Received purchase order lines cannot be removed.",
-          400
+          400,
         );
       }
 
@@ -1665,7 +1729,7 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
         prepared.preparedLines.map((line) => ({
           purchaseOrderId: id,
           ...line,
-        }))
+        })),
       );
     }
 
@@ -1677,7 +1741,7 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
         prepared.preparedAdditionalCosts.map((cost) => ({
           purchaseOrderId: id,
           ...cost,
-        }))
+        })),
       );
     }
 
@@ -1739,9 +1803,12 @@ export async function updatePurchaseOrder(id: string, data: UpdatePurchaseOrder)
         .where(
           and(
             eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
-            eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_ORDER),
-            eq(accountingDocumentSyncs.documentId, id)
-          )
+            eq(
+              accountingDocumentSyncs.documentType,
+              ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+            ),
+            eq(accountingDocumentSyncs.documentId, id),
+          ),
         );
     }
 
@@ -1755,19 +1822,22 @@ export async function submitPurchaseOrder(
     idempotencyKey?: string;
     syncAccounting?: boolean;
     sendEmail?: boolean;
-  }
+  },
 ) {
   const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
-      organizationId: orgId,
-      operationName: "submitPurchaseOrder",
-      idempotencyKey: options?.idempotencyKey ?? null,
-      payload: {
-        id,
-        syncAccounting: options?.syncAccounting ?? true,
-        sendEmail: options?.sendEmail ?? false,
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(
+      tx,
+      {
+        organizationId: orgId,
+        operationName: "submitPurchaseOrder",
+        idempotencyKey: options?.idempotencyKey ?? null,
+        payload: {
+          id,
+          syncAccounting: options?.syncAccounting ?? true,
+          sendEmail: options?.sendEmail ?? false,
+        },
       },
-    });
+    );
 
     if (replay.replayed) {
       return {
@@ -1793,7 +1863,10 @@ export async function submitPurchaseOrder(
     }
 
     if (order.status !== "draft") {
-      throw new PurchasingError("Only draft purchase orders can be submitted.", 400);
+      throw new PurchasingError(
+        "Only draft purchase orders can be submitted.",
+        400,
+      );
     }
 
     const lines = await getPurchaseOrderLinesInTx(tx, id);
@@ -1813,7 +1886,7 @@ export async function submitPurchaseOrder(
       actorUserId: userId,
       idempotencyKey: deriveInventoryIdempotencyKey(
         options?.idempotencyKey,
-        "submit-order"
+        "submit-order",
       ),
       lines: lines.map((line) => ({
         purchaseOrderLineId: line.id,
@@ -1894,7 +1967,10 @@ export async function retryXeroPushForPurchaseOrder(id: string) {
       const result = await pushPurchaseOrderToXero(orgId, id);
       return { ok: true as const, result };
     } catch (error) {
-      if (error instanceof XeroError && (error.status === 404 || error.status === 409)) {
+      if (
+        error instanceof XeroError &&
+        (error.status === 404 || error.status === 409)
+      ) {
         throw error;
       }
 
@@ -1906,9 +1982,8 @@ export async function retryXeroPushForPurchaseOrder(id: string) {
 
 export async function retryXeroEmailForPurchaseOrder(id: string) {
   return withAuthedOrgContext(async (_tx, orgId) => {
-    const { emailPurchaseOrderForOrder } = await import(
-      "@/lib/xero/push-purchase-order"
-    );
+    const { emailPurchaseOrderForOrder } =
+      await import("@/lib/xero/push-purchase-order");
     const result = await emailPurchaseOrderForOrder(orgId, id);
     return { ok: true as const, result };
   });
@@ -1917,15 +1992,18 @@ export async function retryXeroEmailForPurchaseOrder(id: string) {
 export async function receivePurchaseOrder(
   id: string,
   data: ReceivePurchaseOrder,
-  options?: { idempotencyKey?: string }
+  options?: { idempotencyKey?: string },
 ) {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
-      organizationId: orgId,
-      operationName: "receivePurchaseOrder",
-      idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { id, data },
-    });
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(
+      tx,
+      {
+        organizationId: orgId,
+        operationName: "receivePurchaseOrder",
+        idempotencyKey: options?.idempotencyKey ?? null,
+        payload: { id, data },
+      },
+    );
 
     if (replay.replayed) {
       return replay.result;
@@ -1955,7 +2033,7 @@ export async function receivePurchaseOrder(
     if (!["ordered", "partial"].includes(order.status)) {
       throw new PurchasingError(
         "Only ordered or partially received purchase orders can be received.",
-        400
+        400,
       );
     }
 
@@ -1964,15 +2042,15 @@ export async function receivePurchaseOrder(
       getPurchaseOrderAdditionalCostsInTx(tx, id),
     ]);
     const lineMap = new Map(existingLines.map((line) => [line.id, line]));
-	    const seenLineIds = new Set<string>();
-	    const overReceiptWarnings: Array<{
-	      lineId: string;
-	      itemName: string;
-	      remaining: string;
-	      requested: string;
-	      overage: string;
-	    }> = [];
-	    const receiveEntries = data.lines.map((line, index) => {
+    const seenLineIds = new Set<string>();
+    const overReceiptWarnings: Array<{
+      lineId: string;
+      itemName: string;
+      remaining: string;
+      requested: string;
+      overage: string;
+    }> = [];
+    const receiveEntries = data.lines.map((line, index) => {
       if (seenLineIds.has(line.lineId)) {
         throw new PurchasingError("Duplicate receipt line", 400, {
           errors: {
@@ -1989,7 +2067,9 @@ export async function receivePurchaseOrder(
       if (!existingLine) {
         throw new PurchasingError("Purchase order line not found", 404, {
           errors: {
-            [`lines.${index}.quantityReceived`]: ["Select a valid purchase order line"],
+            [`lines.${index}.quantityReceived`]: [
+              "Select a valid purchase order line",
+            ],
           },
         });
       }
@@ -1999,55 +2079,68 @@ export async function receivePurchaseOrder(
         parseFloat(existingLine.quantityOrdered) -
         parseFloat(existingLine.quantityReceived);
 
-	      if (quantityReceived > remaining && !data.confirmOverReceipt) {
-	        overReceiptWarnings.push({
-	          lineId: line.lineId,
-	          itemName: existingLine.itemName,
-	          remaining: normalizeNumeric(remaining),
-	          requested: normalizeNumeric(quantityReceived),
-	          overage: normalizeNumeric(quantityReceived - remaining),
-	        });
-	      } else if (quantityReceived > remaining && remaining < 0) {
-	        throw new PurchasingError("Cannot receive more than remaining quantity.", 400, {
-	          errors: {
-	            [`lines.${index}.quantityReceived`]: [
-	              `Must be ${normalizeNumeric(remaining)} or less`,
-	            ],
-	          },
-	        });
-	      }
+      if (quantityReceived > remaining && !data.confirmOverReceipt) {
+        overReceiptWarnings.push({
+          lineId: line.lineId,
+          itemName: existingLine.itemName,
+          remaining: normalizeNumeric(remaining),
+          requested: normalizeNumeric(quantityReceived),
+          overage: normalizeNumeric(quantityReceived - remaining),
+        });
+      } else if (quantityReceived > remaining && remaining < 0) {
+        throw new PurchasingError(
+          "Cannot receive more than remaining quantity.",
+          400,
+          {
+            errors: {
+              [`lines.${index}.quantityReceived`]: [
+                `Must be ${normalizeNumeric(remaining)} or less`,
+              ],
+            },
+          },
+        );
+      }
 
       const stockQuantityReceived = parseFloat(
-        normalizeNumeric(quantityReceived * parseFloat(existingLine.purchaseToStockFactor))
+        normalizeNumeric(
+          quantityReceived * parseFloat(existingLine.purchaseToStockFactor),
+        ),
       );
 
-	      return {
-	        line: existingLine,
-	        quantityReceived,
-	        stockQuantityReceived,
-	        disposition: line.disposition,
-	        overReceiptQuantity: Math.max(0, quantityReceived - Math.max(remaining, 0)),
-	      };
-	    });
+      return {
+        line: existingLine,
+        quantityReceived,
+        stockQuantityReceived,
+        disposition: line.disposition,
+        overReceiptQuantity: Math.max(
+          0,
+          quantityReceived - Math.max(remaining, 0),
+        ),
+      };
+    });
 
-	    if (overReceiptWarnings.length > 0) {
-	      throw new PurchasingError("This receipt is above the ordered quantity.", 409, {
-	        overReceipt: { lines: overReceiptWarnings },
-	      });
-	    }
+    if (overReceiptWarnings.length > 0) {
+      throw new PurchasingError(
+        "This receipt is above the ordered quantity.",
+        409,
+        {
+          overReceipt: { lines: overReceiptWarnings },
+        },
+      );
+    }
 
     await getValidatedMaterialsInTx(
       tx,
-      receiveEntries.map((entry) => entry.line.itemId)
+      receiveEntries.map((entry) => entry.line.itemId),
     );
 
     await lockItemsInTx(
       tx,
-      existingLines.map((line) => line.itemId)
+      existingLines.map((line) => line.itemId),
     );
 
     const updatedLines = new Map(
-      existingLines.map((line) => [line.id, { ...line }])
+      existingLines.map((line) => [line.id, { ...line }]),
     );
 
     for (const entry of receiveEntries) {
@@ -2057,78 +2150,82 @@ export async function receivePurchaseOrder(
         continue;
       }
 
-	      const newQuantityReceived =
-	        parseFloat(currentLine.quantityReceived) + entry.quantityReceived;
-	      const newStockQuantityReceived =
-	        parseFloat(currentLine.stockQuantityReceived) + entry.stockQuantityReceived;
-	      const newQuantityOrdered = Math.max(
-	        parseFloat(currentLine.quantityOrdered),
-	        newQuantityReceived
-	      );
-	      const newStockQuantityOrdered = Math.max(
-	        parseFloat(currentLine.stockQuantityOrdered),
-	        newStockQuantityReceived
-	      );
+      const newQuantityReceived =
+        parseFloat(currentLine.quantityReceived) + entry.quantityReceived;
+      const newStockQuantityReceived =
+        parseFloat(currentLine.stockQuantityReceived) +
+        entry.stockQuantityReceived;
+      const newQuantityOrdered = Math.max(
+        parseFloat(currentLine.quantityOrdered),
+        newQuantityReceived,
+      );
+      const newStockQuantityOrdered = Math.max(
+        parseFloat(currentLine.stockQuantityOrdered),
+        newStockQuantityReceived,
+      );
 
-	      const normalizedReceived = normalizeNumeric(newQuantityReceived);
-	      const normalizedStockReceived = normalizeNumeric(newStockQuantityReceived);
-	      const normalizedOrdered = normalizeNumeric(newQuantityOrdered);
-	      const normalizedStockOrdered = normalizeNumeric(newStockQuantityOrdered);
-	      const normalizedLineTotal = normalizeLandedMoney(
-	        newQuantityOrdered * parseFloat(currentLine.unitCost)
-	      );
+      const normalizedReceived = normalizeNumeric(newQuantityReceived);
+      const normalizedStockReceived = normalizeNumeric(
+        newStockQuantityReceived,
+      );
+      const normalizedOrdered = normalizeNumeric(newQuantityOrdered);
+      const normalizedStockOrdered = normalizeNumeric(newStockQuantityOrdered);
+      const normalizedLineTotal = normalizeLandedMoney(
+        newQuantityOrdered * parseFloat(currentLine.unitCost),
+      );
 
-	      await tx
-	        .update(purchaseOrderLines)
-	        .set({
-	          quantityOrdered: normalizedOrdered,
-	          stockQuantityOrdered: normalizedStockOrdered,
-	          quantityReceived: normalizedReceived,
-	          stockQuantityReceived: normalizedStockReceived,
-	          lineTotal: normalizedLineTotal,
-	          updatedAt: new Date(),
-	        })
-	        .where(eq(purchaseOrderLines.id, currentLine.id));
+      await tx
+        .update(purchaseOrderLines)
+        .set({
+          quantityOrdered: normalizedOrdered,
+          stockQuantityOrdered: normalizedStockOrdered,
+          quantityReceived: normalizedReceived,
+          stockQuantityReceived: normalizedStockReceived,
+          lineTotal: normalizedLineTotal,
+          updatedAt: new Date(),
+        })
+        .where(eq(purchaseOrderLines.id, currentLine.id));
 
-	      updatedLines.set(currentLine.id, {
-	        ...currentLine,
-	        quantityReceived: normalizedReceived,
-	        stockQuantityReceived: normalizedStockReceived,
-	        quantityOrdered: normalizedOrdered,
-	        stockQuantityOrdered: normalizedStockOrdered,
-	        lineTotal: normalizedLineTotal,
-	        updatedAt: new Date(),
-	      });
-	    }
+      updatedLines.set(currentLine.id, {
+        ...currentLine,
+        quantityReceived: normalizedReceived,
+        stockQuantityReceived: normalizedStockReceived,
+        quantityOrdered: normalizedOrdered,
+        stockQuantityOrdered: normalizedStockOrdered,
+        lineTotal: normalizedLineTotal,
+        updatedAt: new Date(),
+      });
+    }
 
-	    const overReceiptExpectedLines = existingLines.map((line) => {
-	      const currentLine = updatedLines.get(line.id);
-	      return {
-	        purchaseOrderLineId: line.id,
-	        itemId: line.itemId,
-	        quantity: Math.max(
-	          parseFloat(currentLine?.stockQuantityOrdered ?? line.stockQuantityOrdered) -
-	            parseFloat(line.stockQuantityReceived),
-	          0
-	        ),
-	      };
-	    });
+    const overReceiptExpectedLines = existingLines.map((line) => {
+      const currentLine = updatedLines.get(line.id);
+      return {
+        purchaseOrderLineId: line.id,
+        itemId: line.itemId,
+        quantity: Math.max(
+          parseFloat(
+            currentLine?.stockQuantityOrdered ?? line.stockQuantityOrdered,
+          ) - parseFloat(line.stockQuantityReceived),
+          0,
+        ),
+      };
+    });
 
-	    if (receiveEntries.some((entry) => entry.overReceiptQuantity > 0)) {
-	      await editExpectedFromPurchaseInTx(tx, {
-	        organizationId: orgId,
-	        purchaseOrderId: id,
-	        actorUserId: userId,
-	        idempotencyKey: deriveInventoryIdempotencyKey(
-	          options?.idempotencyKey,
-	          "over-receipt-expected"
-	        ),
-	        nextLines: overReceiptExpectedLines,
-	      });
-	    }
+    if (receiveEntries.some((entry) => entry.overReceiptQuantity > 0)) {
+      await editExpectedFromPurchaseInTx(tx, {
+        organizationId: orgId,
+        purchaseOrderId: id,
+        actorUserId: userId,
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          "over-receipt-expected",
+        ),
+        nextLines: overReceiptExpectedLines,
+      });
+    }
 
     const finalLines = existingLines.map(
-      (line) => updatedLines.get(line.id) ?? line
+      (line) => updatedLines.get(line.id) ?? line,
     );
     const finalLandedCosts = calculatePurchaseOrderLandedCosts({
       lines: finalLines.map((line) => ({
@@ -2143,9 +2240,9 @@ export async function receivePurchaseOrder(
       finalLines.map((line, index) => [
         line.id,
         normalizeLandedStockUnitCost(
-          finalLandedCosts.lines[index]?.landedStockUnitCost ?? null
+          finalLandedCosts.lines[index]?.landedStockUnitCost ?? null,
         ),
-      ])
+      ]),
     );
 
     if (receiveEntries.some((entry) => entry.overReceiptQuantity > 0)) {
@@ -2158,8 +2255,8 @@ export async function receivePurchaseOrder(
                 landedStockUnitCostByLineId.get(line.id) ?? line.stockUnitCost,
               updatedAt: new Date(),
             })
-            .where(eq(purchaseOrderLines.id, line.id))
-        )
+            .where(eq(purchaseOrderLines.id, line.id)),
+        ),
       );
     }
 
@@ -2169,7 +2266,7 @@ export async function receivePurchaseOrder(
       actorUserId: userId,
       idempotencyKey: deriveInventoryIdempotencyKey(
         options?.idempotencyKey,
-        "receive-stock"
+        "receive-stock",
       ),
       lines: receiveEntries.map((entry) => ({
         purchaseOrderLineId: entry.line.id,
@@ -2183,7 +2280,8 @@ export async function receivePurchaseOrder(
     });
 
     const allReceived = [...updatedLines.values()].every(
-      (line) => parseFloat(line.quantityReceived) >= parseFloat(line.quantityOrdered)
+      (line) =>
+        parseFloat(line.quantityReceived) >= parseFloat(line.quantityOrdered),
     );
 
     await tx
@@ -2209,7 +2307,7 @@ export async function receivePurchaseOrder(
 }
 
 export async function deletePurchaseOrder(
-  id: string
+  id: string,
 ): Promise<{ deleted: boolean; error?: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const order = await getLockedPurchaseOrderInTx(tx, id);
@@ -2248,8 +2346,75 @@ export async function deletePurchaseOrder(
   });
 }
 
+export async function cancelPurchaseOrder(
+  id: string,
+  options?: { idempotencyKey?: string },
+): Promise<{ id: string } | null> {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ id: string } | null>(
+      tx,
+      {
+        organizationId: orgId,
+        operationName: "cancelPurchaseOrder",
+        idempotencyKey: options?.idempotencyKey ?? null,
+        payload: { id },
+      },
+    );
+
+    if (replay.replayed) return replay.result;
+
+    const order = await getLockedPurchaseOrderInTx(tx, id);
+
+    if (!order) {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
+      return null;
+    }
+
+    if (["partial", "received"].includes(order.status)) {
+      throw new PurchasingError(
+        "Cannot cancel this purchase order because inventory has already been received.",
+        400,
+      );
+    }
+
+    if (order.status === "ordered") {
+      await releaseExpectedFromPurchaseInTx(tx, {
+        organizationId: orgId,
+        purchaseOrderId: id,
+        actorUserId: userId,
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          "cancel-order",
+        ),
+        reason: "cancelled",
+      });
+    }
+
+    await tx
+      .update(purchaseOrders)
+      .set({
+        status: "cancelled",
+        cancelledAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(purchaseOrders.id, id));
+
+    const result = { id };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+    return result;
+  });
+}
+
 export async function deletePurchaseOrders(
-  ids: string[]
+  ids: string[],
 ): Promise<{ deletedCount: number; error?: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const uniqueIds = [...new Set(ids)];
@@ -2261,13 +2426,13 @@ export async function deletePurchaseOrders(
       .where(
         and(
           inArray(purchaseOrders.id, uniqueIds),
-          isNull(purchaseOrders.deletedAt)
-        )
+          isNull(purchaseOrders.deletedAt),
+        ),
       )
       .for("update");
 
     const receivedOrder = orders.find((o) =>
-      ["partial", "received"].includes(o.status)
+      ["partial", "received"].includes(o.status),
     );
 
     if (receivedOrder) {

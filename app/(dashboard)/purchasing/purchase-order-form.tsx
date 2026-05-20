@@ -18,6 +18,7 @@ import type { CustomCellEditorProps } from "ag-grid-react";
 import { useGridCellEditor } from "ag-grid-react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  Attachment01Icon,
   Delete02Icon,
   Download01Icon,
   Cancel01Icon,
@@ -27,11 +28,13 @@ import {
 } from "@hugeicons/core-free-icons";
 import {
   type InsertPurchaseOrder,
+  type PurchaseOrderStatus,
   type PurchaseOrderAdditionalCostDistributionMethod,
   type PurchaseOrderAdditionalCostType,
   insertPurchaseOrderSchema,
   purchaseOrderDefaultValues,
 } from "@/lib/schemas/purchase-orders";
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import {
   formatPrice,
   formatAddressLines,
@@ -764,6 +767,7 @@ export function PurchaseOrderForm({
   initialData,
   defaultValues,
   orderTitle,
+  canWrite = true,
 }: {
   suppliers: SupplierOption[];
   materials: PurchaseOrderMaterialOption[];
@@ -771,6 +775,7 @@ export function PurchaseOrderForm({
   initialData?: PurchaseOrderEditData;
   defaultValues?: InsertPurchaseOrder;
   orderTitle?: string | null;
+  canWrite?: boolean;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -781,6 +786,7 @@ export function PurchaseOrderForm({
     : "/purchasing/orders";
   const [formError, setFormError] = useState<string | null>(null);
   const [fileActionError, setFileActionError] = useState<string | null>(null);
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const savedOrderIdRef = useRef<string | null>(initialData?.id ?? null);
   const [savedOrderId, setSavedOrderId] = useState<string | null>(
     initialData?.id ?? null,
@@ -815,6 +821,9 @@ export function PurchaseOrderForm({
     () => new Map(materials.map((material) => [material.id, material])),
     [materials],
   );
+  const displayStatus = initialData?.status ?? "draft";
+  const readOnly =
+    !canWrite || displayStatus === "received" || displayStatus === "cancelled";
   const supplierOptionsSorted = [...suppliers].sort((a, b) =>
     a.name.localeCompare(b.name),
   );
@@ -1004,7 +1013,7 @@ export function PurchaseOrderForm({
         headerTooltip: PURCHASE_MATERIAL_TOOLTIP,
         minWidth: 220,
         flex: 1.55,
-        editable: true,
+        editable: !readOnly,
         cellEditor: PurchaseMaterialCellEditor,
         cellEditorParams: {
           options: materialOptions,
@@ -1034,7 +1043,7 @@ export function PurchaseOrderForm({
         headerTooltip: PO_ORDERED_QTY_TOOLTIP,
         minWidth: 116,
         flex: 0.5,
-        editable: true,
+        editable: !readOnly,
         cellEditor: "agTextCellEditor",
         valueSetter: (
           params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
@@ -1085,7 +1094,7 @@ export function PurchaseOrderForm({
         headerTooltip: PURCHASE_UNIT_COST_TOOLTIP,
         minWidth: 128,
         flex: 0.55,
-        editable: true,
+        editable: !readOnly,
         cellEditor: "agTextCellEditor",
         valueSetter: (
           params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
@@ -1144,7 +1153,7 @@ export function PurchaseOrderForm({
         headerTooltip: PURCHASE_ACCOUNT_TOOLTIP,
         minWidth: 132,
         flex: 0.55,
-        editable: true,
+        editable: !readOnly,
         cellEditor: "agSelectCellEditor",
         cellEditorParams: {
           values: ["", ...xeroAccounts.map((account) => account.code)],
@@ -1185,6 +1194,7 @@ export function PurchaseOrderForm({
     lineGridRows,
     materialMap,
     materialOptions,
+    readOnly,
     xeroAccounts,
     xeroAccountsByCode,
   ]);
@@ -1252,7 +1262,7 @@ export function PurchaseOrderForm({
         headerTooltip: PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP,
         minWidth: 128,
         flex: 0.75,
-        editable: true,
+        editable: !readOnly,
         cellEditor: "agSelectCellEditor",
         cellEditorParams: {
           values: Object.keys(ADDITIONAL_COST_TYPE_LABELS),
@@ -1280,7 +1290,7 @@ export function PurchaseOrderForm({
         headerTooltip: PURCHASE_COST_REFERENCE_TOOLTIP,
         minWidth: 172,
         flex: 1.25,
-        editable: true,
+        editable: !readOnly,
         cellEditor: "agTextCellEditor",
         valueSetter: (
           params: ValueSetterParams<
@@ -1299,7 +1309,7 @@ export function PurchaseOrderForm({
         headerTooltip: PURCHASE_COST_DISTRIBUTION_TOOLTIP,
         minWidth: 148,
         flex: 0.8,
-        editable: true,
+        editable: !readOnly,
         cellEditor: "agSelectCellEditor",
         cellEditorParams: {
           values: Object.keys(ADDITIONAL_COST_DISTRIBUTION_LABELS),
@@ -1327,7 +1337,7 @@ export function PurchaseOrderForm({
         headerTooltip: PURCHASE_ACCOUNT_TOOLTIP,
         minWidth: 164,
         flex: 0.95,
-        editable: true,
+        editable: !readOnly,
         cellEditor: "agSelectCellEditor",
         cellEditorParams: {
           values: ["", ...xeroAccounts.map((account) => account.code)],
@@ -1356,7 +1366,7 @@ export function PurchaseOrderForm({
         headerTooltip: PURCHASE_COST_AMOUNT_TOOLTIP,
         minWidth: 128,
         flex: 0.65,
-        editable: true,
+        editable: !readOnly,
         cellEditor: "agTextCellEditor",
         valueSetter: (
           params: ValueSetterParams<
@@ -1402,6 +1412,7 @@ export function PurchaseOrderForm({
   }, [
     additionalCostGridRows,
     form.formState.errors.additionalCosts,
+    readOnly,
     xeroAccounts,
     xeroAccountsByCode,
   ]);
@@ -1563,9 +1574,12 @@ export function PurchaseOrderForm({
   const duplicateMutation = useMutation({
     mutationFn: async () => {
       if (!savedOrderId) throw new Error("Save the purchase order first.");
-      const response = await fetch(`/api/purchase-orders/${savedOrderId}/duplicate`, {
-        method: "POST",
-      });
+      const response = await fetch(
+        `/api/purchase-orders/${savedOrderId}/duplicate`,
+        {
+          method: "POST",
+        },
+      );
       const body = await response.json().catch(() => null);
 
       if (!response.ok) {
@@ -1577,6 +1591,35 @@ export function PurchaseOrderForm({
     onSuccess: async (order) => {
       await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
       router.push(`/purchasing/orders/${order.id}`);
+    },
+    onError: (error: Error) => setFormError(error.message),
+  });
+  const statusMutation = useMutation({
+    mutationFn: async (status: PurchaseOrderStatus) => {
+      if (!savedOrderId) throw new Error("Save the purchase order first.");
+      const response = await fetch(
+        `/api/purchase-orders/${savedOrderId}/status`,
+        {
+          method: "PATCH",
+          headers: createIdempotencyHeaders("purchase-order-status", {
+            "Content-Type": "application/json",
+          }),
+          body: JSON.stringify({ status }),
+        },
+      );
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          body?.error ?? "Failed to update purchase order status.",
+        );
+      }
+
+      return body as { id: string };
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      router.refresh();
     },
     onError: (error: Error) => setFormError(error.message),
   });
@@ -1762,12 +1805,9 @@ export function PurchaseOrderForm({
   const autosaveState = canAutosaveDraft ? autosave.state : "blocked";
   const autosaveMessage = canAutosaveDraft
     ? autosave.state === "saved" || autosave.state === "idle"
-      ? savedOrderId
-        ? "Draft saved"
-        : "Draft will auto-save"
+      ? "All changes saved"
       : autosave.message
-    : "Add supplier and line to auto-save";
-  const displayStatus = initialData?.status ?? "draft";
+    : "All changes saved";
   const displayTitle =
     orderTitle ??
     selectedSupplier?.name ??
@@ -1788,6 +1828,10 @@ export function PurchaseOrderForm({
       return { ...column, headerName: "Landed cost" };
     return column;
   });
+  const totalUnits = lineGridRows.reduce((sum, line) => {
+    const quantity = parsePositive(line.quantityOrdered);
+    return sum + (quantity ?? 0);
+  }, 0);
 
   return (
     <div className={styles.stage}>
@@ -1797,7 +1841,6 @@ export function PurchaseOrderForm({
             <div className={styles.eyebrow}>{statusEyebrow}</div>
             <div className={styles.titleRow}>
               <h1 className={styles.title}>{displayTitle}</h1>
-              <PurchaseOrderStatusBadge status={displayStatus} />
             </div>
             <div className={styles.meta}>
               <span>Supplier {selectedSupplier?.code ?? "not selected"}</span>
@@ -1813,20 +1856,23 @@ export function PurchaseOrderForm({
           </div>
           <div className={styles.headerRight}>
             <AutosaveStatus state={autosaveState} message={autosaveMessage} />
+            <PurchaseOrderStatusBadge
+              status={displayStatus}
+              className="w-[230px]"
+              disabled={!canWrite || !savedOrderId || statusMutation.isPending}
+              onStatusChange={(status) => statusMutation.mutate(status)}
+            />
             <Button
               type="submit"
               form="purchase-order-form"
               disabled={
                 mutation.isPending ||
+                readOnly ||
                 autosave.state === "saving" ||
                 autosave.state === "dirty"
               }
             >
-              {mutation.isPending
-                ? "Saving..."
-                : displayStatus === "draft"
-                  ? "Send to supplier"
-                  : "Save changes"}
+              {mutation.isPending ? "Saving..." : "Save changes"}
             </Button>
             <button
               type="button"
@@ -1892,59 +1938,65 @@ export function PurchaseOrderForm({
                   {
                     id: "supplier",
                     label: "Supplier",
-                    editable: true,
-                    renderEditor: () => (
-                      <Controller
-                        control={form.control}
-                        name="supplierId"
-                        render={({ field, fieldState }) => (
-                          <SupplierSelect
-                            suppliers={supplierOptionsSorted}
-                            value={field.value}
-                            onValueChange={(nextValue) =>
-                              field.onChange(nextValue ?? "")
-                            }
-                            errorMessage={fieldState.error?.message}
+                    editable: !readOnly,
+                    renderValue: () => selectedSupplier?.name ?? "-",
+                    renderEditor: readOnly
+                      ? undefined
+                      : () => (
+                          <Controller
+                            control={form.control}
+                            name="supplierId"
+                            render={({ field, fieldState }) => (
+                              <SupplierSelect
+                                suppliers={supplierOptionsSorted}
+                                value={field.value}
+                                onValueChange={(nextValue) =>
+                                  field.onChange(nextValue ?? "")
+                                }
+                                errorMessage={fieldState.error?.message}
+                              />
+                            )}
                           />
-                        )}
-                      />
-                    ),
+                        ),
                   },
                   {
                     id: "expected-arrival",
                     label: "Expected arrival",
-                    editable: true,
-                    renderEditor: () => (
-                      <Controller
-                        control={form.control}
-                        name="expectedDate"
-                        render={({ field, fieldState }) => (
-                          <Field data-invalid={fieldState.invalid}>
-                            <FieldLabel
-                              className={styles.compactLabel}
-                              htmlFor={field.name}
-                            >
-                              <TooltipHeader
-                                label="Expected arrival"
-                                tooltip={EXPECTED_DELIVERY_DATE_TOOLTIP}
-                              />
-                            </FieldLabel>
-                            <DatePicker
-                              id={field.name}
-                              value={field.value ?? ""}
-                              onChange={(value) =>
-                                field.onChange(value || null)
-                              }
-                              onBlur={field.onBlur}
-                              aria-invalid={fieldState.invalid}
-                            />
-                            {fieldState.invalid && (
-                              <FieldError errors={[fieldState.error]} />
+                    editable: !readOnly,
+                    renderValue: () => form.getValues("expectedDate") ?? "-",
+                    renderEditor: readOnly
+                      ? undefined
+                      : () => (
+                          <Controller
+                            control={form.control}
+                            name="expectedDate"
+                            render={({ field, fieldState }) => (
+                              <Field data-invalid={fieldState.invalid}>
+                                <FieldLabel
+                                  className={styles.compactLabel}
+                                  htmlFor={field.name}
+                                >
+                                  <TooltipHeader
+                                    label="Expected arrival"
+                                    tooltip={EXPECTED_DELIVERY_DATE_TOOLTIP}
+                                  />
+                                </FieldLabel>
+                                <DatePicker
+                                  id={field.name}
+                                  value={field.value ?? ""}
+                                  onChange={(value) =>
+                                    field.onChange(value || null)
+                                  }
+                                  onBlur={field.onBlur}
+                                  aria-invalid={fieldState.invalid}
+                                />
+                                {fieldState.invalid && (
+                                  <FieldError errors={[fieldState.error]} />
+                                )}
+                              </Field>
                             )}
-                          </Field>
-                        )}
-                      />
-                    ),
+                          />
+                        ),
                   },
                   {
                     id: "order-total",
@@ -1955,17 +2007,28 @@ export function PurchaseOrderForm({
                   {
                     id: "ship-to",
                     label: "Ship-to",
-                    editable: true,
-                    renderEditor: () => (
-                      <DeliveryAddressInput
-                        id="purchase-order-delivery-address"
-                        value={currentDeliveryAddress}
-                        options={deliveryAddressOptions}
-                        onChange={applyDeliveryAddress}
-                        onAddNew={openAddressDialog}
-                        onEdit={openEditAddressDialog}
-                      />
-                    ),
+                    editable: !readOnly,
+                    renderValue: () =>
+                      formatAddressLines({
+                        line1: currentDeliveryAddress.shipLine1,
+                        line2: currentDeliveryAddress.shipLine2,
+                        city: currentDeliveryAddress.shipCity,
+                        region: currentDeliveryAddress.shipRegion,
+                        postcode: currentDeliveryAddress.shipPostcode,
+                        country: currentDeliveryAddress.shipCountry,
+                      }).join(", ") || "-",
+                    renderEditor: readOnly
+                      ? undefined
+                      : () => (
+                          <DeliveryAddressInput
+                            id="purchase-order-delivery-address"
+                            value={currentDeliveryAddress}
+                            options={deliveryAddressOptions}
+                            onChange={applyDeliveryAddress}
+                            onAddNew={openAddressDialog}
+                            onEdit={openEditAddressDialog}
+                          />
+                        ),
                   },
                   {
                     id: "ordered",
@@ -2002,6 +2065,8 @@ export function PurchaseOrderForm({
                 onRowsChange={handleLineRowsChange}
                 addLabel="Add material"
                 rowHeight={42}
+                enableAddRow={!readOnly}
+                enableDelete={!readOnly}
                 emptyMessage="No materials yet."
                 isBlankRow={isBlankPurchaseOrderLine}
                 error={linesError}
@@ -2021,6 +2086,8 @@ export function PurchaseOrderForm({
                 onRowsChange={handleAdditionalCostRowsChange}
                 addLabel="Add cost"
                 rowHeight={42}
+                enableAddRow={!readOnly}
+                enableDelete={!readOnly}
                 emptyMessage="No additional costs yet."
                 isBlankRow={isBlankPurchaseOrderAdditionalCost}
                 error={additionalCostsError}
@@ -2030,7 +2097,18 @@ export function PurchaseOrderForm({
             <section className={styles.section}>
               <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
                 <div className="space-y-3">
-                  <h2 className={styles.sectionHeading}>Notes</h2>
+                  <div className="flex items-center justify-between gap-3">
+                    <h2 className={styles.sectionHeading}>Notes</h2>
+                    <button
+                      type="button"
+                      className={styles.iconBtn}
+                      aria-label="Attachments"
+                      title="Attachments"
+                      onClick={() => setAttachmentsOpen(true)}
+                    >
+                      <HugeiconsIcon icon={Attachment01Icon} size={14} />
+                    </button>
+                  </div>
                   <Controller
                     control={form.control}
                     name="notes"
@@ -2049,6 +2127,7 @@ export function PurchaseOrderForm({
                           onChange={(event) =>
                             field.onChange(event.target.value || null)
                           }
+                          disabled={readOnly}
                           aria-invalid={fieldState.invalid}
                           rows={6}
                         />
@@ -2064,7 +2143,11 @@ export function PurchaseOrderForm({
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between gap-4">
                       <span className="text-muted-foreground">Total units</span>
-                      <span className={styles.mono}>{lineCount}</span>
+                      <span className={styles.mono}>
+                        {Number.isInteger(totalUnits)
+                          ? totalUnits.toString()
+                          : totalUnits.toFixed(4)}
+                      </span>
                     </div>
                     <div className="flex justify-between gap-4">
                       <span className="text-muted-foreground">Subtotal</span>
@@ -2095,103 +2178,99 @@ export function PurchaseOrderForm({
                 </div>
               </div>
             </section>
-
-            <section className={styles.section}>
-              <div className="flex items-center justify-between gap-3">
-                <h2 className={styles.sectionHeading}>Attachments</h2>
-                <Button
+          </form>
+        </div>
+      </div>
+      <Dialog open={attachmentsOpen} onOpenChange={setAttachmentsOpen}>
+        <DialogContent size="2xl">
+          <DialogHeader>
+            <DialogTitle>Attachments</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                void handleFileInput(event.target.files);
+                event.currentTarget.value = "";
+              }}
+            />
+            {!readOnly ? (
+              <div
+                className="flex items-center justify-center gap-2 border border-dashed bg-muted/30 px-3 py-5 text-sm text-muted-foreground"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  void handleFileInput(event.dataTransfer.files);
+                }}
+              >
+                <HugeiconsIcon icon={Upload01Icon} size={16} aria-hidden />
+                <button
                   type="button"
-                  variant="outline"
-                  size="sm"
+                  className="font-medium text-foreground"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={
                     uploadFileMutation.isPending || autosave.state === "saving"
                   }
                 >
-                  <HugeiconsIcon icon={Upload01Icon} data-icon="inline-start" />
-                  Upload
-                </Button>
+                  Upload or drop files
+                </button>
               </div>
-              <div className="space-y-3">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={(event) => {
-                    void handleFileInput(event.target.files);
-                    event.currentTarget.value = "";
-                  }}
-                />
-                <div
-                  className="flex items-center justify-center gap-2 rounded-md border border-dashed bg-muted/30 px-3 py-5 text-sm text-muted-foreground"
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    void handleFileInput(event.dataTransfer.files);
-                  }}
-                >
-                  <HugeiconsIcon icon={Upload01Icon} size={16} aria-hidden />
-                  <button
-                    type="button"
-                    className="font-medium text-foreground underline-offset-4 hover:underline"
-                    onClick={() => fileInputRef.current?.click()}
+            ) : null}
+            {fileActionError ? (
+              <p className="text-sm text-destructive">{fileActionError}</p>
+            ) : null}
+            <div className="divide-y border">
+              {attachments.length > 0 ? (
+                attachments.map((file) => (
+                  <div
+                    key={file.id}
+                    className="flex items-center gap-2 px-3 py-2.5"
                   >
-                    Upload or drop files
-                  </button>
-                </div>
-                {fileActionError ? (
-                  <p className="text-sm text-destructive">{fileActionError}</p>
-                ) : null}
-                <div className="divide-y rounded-md border">
-                  {attachments.length > 0 ? (
-                    attachments.map((file) => (
-                      <div
-                        key={file.id}
-                        className="flex items-center gap-2 px-3 py-2.5"
-                      >
-                        <FileTypeBadge file={file} />
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">
-                            {file.filename}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {formatBytes(file.sizeBytes)}
-                          </p>
-                        </div>
-                        {savedOrderId ? (
-                          <Button variant="ghost" size="icon-sm" asChild>
-                            <a
-                              href={`/api/purchase-orders/${savedOrderId}/files/${file.id}`}
-                              aria-label={`Download ${file.filename}`}
-                            >
-                              <HugeiconsIcon icon={Download01Icon} />
-                            </a>
-                          </Button>
-                        ) : null}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Delete ${file.filename}`}
-                          onClick={() => deleteFileMutation.mutate(file.id)}
-                          disabled={deleteFileMutation.isPending}
-                        >
-                          <HugeiconsIcon icon={Delete02Icon} />
-                        </Button>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="px-3 py-5 text-center text-sm text-muted-foreground">
-                      No attachments.
+                    <FileTypeBadge file={file} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {file.filename}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatBytes(file.sizeBytes)}
+                      </p>
                     </div>
-                  )}
+                    {savedOrderId ? (
+                      <Button variant="ghost" size="icon-sm" asChild>
+                        <a
+                          href={`/api/purchase-orders/${savedOrderId}/files/${file.id}`}
+                          aria-label={`Download ${file.filename}`}
+                        >
+                          <HugeiconsIcon icon={Download01Icon} />
+                        </a>
+                      </Button>
+                    ) : null}
+                    {!readOnly ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Delete ${file.filename}`}
+                        onClick={() => deleteFileMutation.mutate(file.id)}
+                        disabled={deleteFileMutation.isPending}
+                      >
+                        <HugeiconsIcon icon={Delete02Icon} />
+                      </Button>
+                    ) : null}
+                  </div>
+                ))
+              ) : (
+                <div className="px-3 py-5 text-center text-sm text-muted-foreground">
+                  No attachments.
                 </div>
-              </div>
-            </section>
-          </form>
-        </div>
-      </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={addressDialogState != null}
         onOpenChange={(open) => {

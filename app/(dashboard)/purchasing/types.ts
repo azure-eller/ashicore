@@ -159,6 +159,7 @@ export type PurchaseOrderDetail = {
 
 export type PurchaseOrderEditData = {
   id: string;
+  orderNumber: string;
   supplierId: string;
   status: PurchaseOrderStatus;
   expectedDate: string | null;
