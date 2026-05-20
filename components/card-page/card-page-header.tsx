@@ -107,24 +107,11 @@ export function CardPageHeader({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {itemId ? (
-              <>
-                <DropdownMenuItem
-                  onSelect={() =>
-                    router.push(
-                      typeLabel === "Product"
-                        ? `/inventory/products/${itemId}/edit`
-                        : `/inventory/materials/${itemId}/edit`,
-                    )
-                  }
-                >
-                  Edit
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => router.push(`/inventory/ledger?itemId=${itemId}`)}
-                >
-                  View inventory activity
-                </DropdownMenuItem>
-              </>
+              <DropdownMenuItem
+                onSelect={() => router.push(`/inventory/ledger?itemId=${itemId}`)}
+              >
+                View inventory activity
+              </DropdownMenuItem>
             ) : null}
             {onDelete ? (
               <DropdownMenuItem

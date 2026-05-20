@@ -53,6 +53,33 @@ test.describe("item card API", () => {
     });
     expect(config.status).toBe(200);
 
+    const copyTarget = await testFetch("/api/item-cards", {
+      method: "POST",
+      body: JSON.stringify({
+        itemType: "material",
+        name: `Card API Copy Target ${ts}`,
+        category: `Card API ${ts}`,
+        unitDefinitionId,
+      }),
+    });
+    expect(copyTarget.status).toBe(201);
+    const copyTargetBody = await copyTarget.json();
+    const copyConfig = await testFetch(
+      `/api/item-cards/${copyTargetBody.itemId}/variant-config/copy-from`,
+      {
+        method: "POST",
+        body: JSON.stringify({ sourceItemId: materialCardItemId }),
+      },
+    );
+    expect(copyConfig.status).toBe(200);
+    const copiedConfigBody = await copyConfig.json();
+    expect(copiedConfigBody.options).toHaveLength(1);
+    expect(copiedConfigBody.options[0].name).toBe("Grade");
+    expect(copiedConfigBody.options[0].values.map((value: { label: string }) => value.label)).toEqual([
+      "A",
+      "B",
+    ]);
+
     const preview = await testFetch(
       `/api/item-cards/${materialCardItemId}/variants/generate-preview`,
       { method: "POST", body: JSON.stringify({}) },
@@ -188,5 +215,11 @@ test.describe("item card API", () => {
       .from(itemVariantValues)
       .where(eq(itemVariantValues.itemId, product.body.id));
     expect(assignments).toHaveLength(1);
+
+    const legacyUpdate = await testFetch(`/api/items/${product.body.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ name: "Legacy update should not work" }),
+    });
+    expect(legacyUpdate.status).toBe(405);
   });
 });

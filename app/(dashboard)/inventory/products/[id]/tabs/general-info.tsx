@@ -22,7 +22,6 @@ import {
   updateItemCard,
   updateItemCardSellable,
   type ItemCardDto,
-  type ItemCardVariantDto,
   type UpdateItemCardInput,
 } from "@/lib/api/clients/item-cards";
 
@@ -36,7 +35,6 @@ export type ProductGeneralInfoTabProps = {
   focusItemId: string | null;
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
   onOpenConfig: () => void;
-  onAddInitialStock: (variant: ItemCardVariantDto) => void;
   onDraftFamilyChange: (patch: DraftFamilyPatch) => void;
   onDraftCommit: (patch?: DraftFamilyPatch) => void;
   draftCreatePending?: boolean;
@@ -47,7 +45,6 @@ export function ProductGeneralInfoTab({
   focusItemId,
   unitOptions,
   onOpenConfig,
-  onAddInitialStock,
   onDraftFamilyChange,
   onDraftCommit,
   draftCreatePending,
@@ -180,12 +177,7 @@ export function ProductGeneralInfoTab({
           This product has multiple variants
         </label>
 
-        <VariantTable
-          card={card}
-          viewMode="product"
-          onAddInitialStock={onAddInitialStock}
-          addInitialStockEndpointReady
-        />
+        <VariantTable card={card} viewMode="product" />
       </section>
     </>
   );

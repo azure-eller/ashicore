@@ -21,9 +21,7 @@ import {
   getItemCard,
   type CreateItemCardInput,
   type ItemCardDto,
-  type ItemCardVariantDto,
 } from "@/lib/api/clients/item-cards";
-import { AddInitialStockDialog } from "@/components/card-page/add-initial-stock-dialog";
 import { LotGridTab, type CardLotRow } from "@/components/card-page/lot-grid-tab";
 import { VariantConfigurationDialog } from "@/components/card-page/variant-configuration-dialog";
 import type { ItemCommitmentSummary } from "@/app/(dashboard)/inventory/commitment-summary";
@@ -71,7 +69,6 @@ export function MaterialCard({
   });
   const card = isDraft ? draftCard : cardQuery.data ?? draftCard;
 
-  const [stockDialogVariant, setStockDialogVariant] = useState<ItemCardVariantDto | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
   const [confirmDeleteCard, setConfirmDeleteCard] = useState(false);
 
@@ -200,7 +197,6 @@ export function MaterialCard({
               focusItemId={currentItemId}
               unitOptions={unitOptions}
               onOpenConfig={() => setConfigOpen(true)}
-              onAddInitialStock={(variant) => setStockDialogVariant(variant)}
               onDraftFamilyChange={updateDraftFamily}
               onDraftCommit={commitDraft}
               draftCreatePending={createMutation.isPending}
@@ -233,15 +229,6 @@ export function MaterialCard({
             open={configOpen}
             onOpenChange={setConfigOpen}
             card={card}
-          />
-
-          <AddInitialStockDialog
-            open={stockDialogVariant != null}
-            onOpenChange={(next) => {
-              if (!next) setStockDialogVariant(null);
-            }}
-            variant={stockDialogVariant}
-            unitLabel={card.family.unitName ?? undefined}
           />
         </>
       )}

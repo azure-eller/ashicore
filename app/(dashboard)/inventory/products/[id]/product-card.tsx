@@ -21,9 +21,7 @@ import {
   getItemCard,
   type CreateItemCardInput,
   type ItemCardDto,
-  type ItemCardVariantDto,
 } from "@/lib/api/clients/item-cards";
-import { AddInitialStockDialog } from "@/components/card-page/add-initial-stock-dialog";
 import { VariantConfigurationDialog } from "@/components/card-page/variant-configuration-dialog";
 import { ProductGeneralInfoTab } from "./tabs/general-info";
 import styles from "@/components/card-page/card-page.module.css";
@@ -85,7 +83,6 @@ export function ProductCard({
     }
   }, [currentItemId, router, searchParams]);
 
-  const [stockDialogVariant, setStockDialogVariant] = useState<ItemCardVariantDto | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
   const [confirmDeleteCard, setConfirmDeleteCard] = useState(false);
 
@@ -222,7 +219,6 @@ export function ProductCard({
             focusItemId={currentItemId}
             unitOptions={unitOptions}
             onOpenConfig={() => setConfigOpen(true)}
-            onAddInitialStock={(variant) => setStockDialogVariant(variant)}
             onDraftFamilyChange={updateDraftFamily}
             onDraftCommit={commitDraft}
             draftCreatePending={createMutation.isPending}
@@ -238,15 +234,6 @@ export function ProductCard({
             open={configOpen}
             onOpenChange={setConfigOpen}
             card={card}
-          />
-
-          <AddInitialStockDialog
-            open={stockDialogVariant != null}
-            onOpenChange={(next) => {
-              if (!next) setStockDialogVariant(null);
-            }}
-            variant={stockDialogVariant}
-            unitLabel={card.family.unitName ?? undefined}
           />
         </>
       )}

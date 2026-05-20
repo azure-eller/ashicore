@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -11,6 +11,13 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
@@ -19,6 +26,7 @@ import {
   Delete02Icon,
 } from "@hugeicons/core-free-icons";
 import {
+  copyVariantConfigFrom,
   EndpointNotReadyError,
   generateVariants,
   ItemCardApiError,
@@ -31,6 +39,14 @@ import {
 import styles from "./card-page.module.css";
 
 const MAX_OPTIONS = 3;
+
+type VariantConfigSourceRow = {
+  id: string;
+  familyId: string | null;
+  familyName: string | null;
+  displayName: string;
+  itemType: string;
+};
 
 type LocalOption = {
   id?: string;
@@ -74,16 +90,8 @@ function DialogBody({
   const [options, setOptions] = useState<LocalOption[]>(() =>
     seedOptionsFromCard(card),
   );
-
-  // Lock only when an existing variant actually has option-value assignments.
-  // A freshly created card has one default variant with no assignments — those
-  // are safe to replace with a new option/value config (Codex's updateVariant-
-  // Config check is `itemVariantValues exists`, not `items exists`). After
-  // generation, any variant with assignments will trip the lock and the user
-  // must delete it to change config.
-  const configLocked = card.variants.some(
-    (variant) => variant.deletedAt == null && variant.optionValues.length > 0,
-  );
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [sourceItemId, setSourceItemId] = useState("");
   const dirty = !configEqualsCard(options, card);
   const canPreview = options.length > 0 && options.every((option) => option.values.length > 0);
 
@@ -98,6 +106,29 @@ function DialogBody({
   });
 
   const focusItemId = card.variants[0]?.id;
+
+  const sourcesQuery = useQuery({
+    queryKey: ["item-card", card.family.itemType, "variant-config-sources"],
+    queryFn: async () => {
+      const response = await fetch(`/api/items?itemType=${card.family.itemType}`);
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to load item cards.");
+      }
+      return body as VariantConfigSourceRow[];
+    },
+    enabled: copyOpen,
+  });
+
+  const sourceCards = useMemo(() => {
+    const byFamily = new Map<string, VariantConfigSourceRow>();
+    for (const item of sourcesQuery.data ?? []) {
+      const familyId = item.familyId;
+      if (!familyId || familyId === card.family.id || byFamily.has(familyId)) continue;
+      byFamily.set(familyId, item);
+    }
+    return Array.from(byFamily.values());
+  }, [card.family.id, sourcesQuery.data]);
 
   const saveAndGenerateMutation = useMutation({
     mutationKey: ["item-card", focusItemId ?? card.family.id, "variant-config-save-generate"],
@@ -141,6 +172,22 @@ function DialogBody({
     },
   });
 
+  const copyMutation = useMutation({
+    mutationKey: ["item-card", focusItemId ?? card.family.id, "variant-config-copy"],
+    mutationFn: async () => {
+      if (!focusItemId || !sourceItemId) {
+        throw new Error("Choose a card to copy from.");
+      }
+      return copyVariantConfigFrom(focusItemId, { sourceItemId });
+    },
+    onSuccess: (nextCard) => {
+      setOptions(seedOptionsFromCard(nextCard));
+      setCopyOpen(false);
+      setSourceItemId("");
+      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+    },
+  });
+
   const errorMessage = saveAndGenerateMutation.error
     ? saveAndGenerateMutation.error instanceof EndpointNotReadyError
       ? "The card backend hasn’t shipped this endpoint yet."
@@ -159,8 +206,8 @@ function DialogBody({
           type="button"
           variant="ghost"
           size="sm"
-          disabled
-          title="Copying variant configuration from another item is not wired yet."
+          disabled={!focusItemId}
+          onClick={() => setCopyOpen((current) => !current)}
         >
           <HugeiconsIcon icon={Copy01Icon} size={14} className="mr-(--space-1)" />
           Copy variant config from
@@ -168,9 +215,44 @@ function DialogBody({
       </DialogHeader>
 
       <div className="space-y-(--space-5) px-(--space-6) py-(--space-5)">
-        {configLocked ? (
-          <div className="border border-border bg-muted/40 p-(--space-3) text-[length:var(--text-sm)] text-muted-foreground">
-            Configuration is locked once variants exist. Delete variants to change options or values.
+        {copyOpen ? (
+          <div className="grid gap-(--space-3) border border-border p-(--space-3)">
+            <div className="grid gap-(--space-2) md:grid-cols-[1fr_auto]">
+              <Select value={sourceItemId} onValueChange={setSourceItemId}>
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      sourcesQuery.isLoading
+                        ? "Loading cards..."
+                        : sourceCards.length === 0
+                          ? "No other configured cards"
+                          : "Select card"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {sourceCards.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>
+                      {item.familyName ?? item.displayName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                onClick={() => copyMutation.mutate()}
+                disabled={!sourceItemId || copyMutation.isPending}
+              >
+                {copyMutation.isPending ? "Copying..." : "Copy"}
+              </Button>
+            </div>
+            {copyMutation.error || sourcesQuery.error ? (
+              <p className="text-[length:var(--text-sm)] text-destructive">
+                {(
+                  (copyMutation.error ?? sourcesQuery.error) as Error
+                ).message}
+              </p>
+            ) : null}
           </div>
         ) : null}
 
@@ -179,7 +261,6 @@ function DialogBody({
             <OptionEditor
               key={`option-${optionIndex}`}
               option={option}
-              locked={configLocked}
               onChangeName={(name) =>
                 setOptions((prev) =>
                   prev.map((opt, i) => (i === optionIndex ? { ...opt, name } : opt)),
@@ -212,7 +293,7 @@ function DialogBody({
             />
           ))}
 
-          {!configLocked && options.length < MAX_OPTIONS ? (
+          {options.length < MAX_OPTIONS ? (
             <Button
               type="button"
               variant="outline"
@@ -273,7 +354,6 @@ function DialogBody({
 
 type OptionEditorProps = {
   option: LocalOption;
-  locked: boolean;
   onChangeName: (name: string) => void;
   onAddValue: (label: string) => void;
   onRemoveValue: (valueIndex: number) => void;
@@ -282,7 +362,6 @@ type OptionEditorProps = {
 
 function OptionEditor({
   option,
-  locked,
   onChangeName,
   onAddValue,
   onRemoveValue,
@@ -309,7 +388,6 @@ function OptionEditor({
           value={option.name}
           onChange={(event) => onChangeName(event.target.value)}
           placeholder="e.g. size"
-          disabled={locked}
         />
       </div>
 
@@ -324,47 +402,41 @@ function OptionEditor({
               className={styles.chip}
             >
               {value.label}
-              {!locked ? (
-                <button
-                  type="button"
-                  onClick={() => onRemoveValue(valueIndex)}
-                  aria-label={`Remove value ${value.label}`}
-                  className={styles.x}
-                >
-                  <HugeiconsIcon icon={Cancel01Icon} size={10} />
-                </button>
-              ) : null}
+              <button
+                type="button"
+                onClick={() => onRemoveValue(valueIndex)}
+                aria-label={`Remove value ${value.label}`}
+                className={styles.x}
+              >
+                <HugeiconsIcon icon={Cancel01Icon} size={10} />
+              </button>
             </span>
           ))}
-          {!locked ? (
-            <input
-              value={valueDraft}
-              onChange={(event) => setValueDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === ",") {
-                  event.preventDefault();
-                  commitValue();
-                }
-              }}
-              onBlur={commitValue}
-              placeholder="Add value..."
-            />
-          ) : null}
+          <input
+            value={valueDraft}
+            onChange={(event) => setValueDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === ",") {
+                event.preventDefault();
+                commitValue();
+              }
+            }}
+            onBlur={commitValue}
+            placeholder="Add value..."
+          />
         </div>
       </div>
 
       <div className={styles.variantOptionAction}>
-        {!locked ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            onClick={onRemoveOption}
-            aria-label="Remove option"
-          >
-            <HugeiconsIcon icon={Delete02Icon} size={15} />
-          </Button>
-        ) : null}
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={onRemoveOption}
+          aria-label="Remove option"
+        >
+          <HugeiconsIcon icon={Delete02Icon} size={15} />
+        </Button>
       </div>
     </div>
   );

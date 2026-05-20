@@ -1,12 +1,13 @@
 import "server-only";
 
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import {
   accountingClassifications,
   integrationConnections,
   integrationExternalRecords,
   integrationImportRunRows,
   integrationImportRuns,
+  itemFamilies,
   items,
   organization,
   suppliers,
@@ -108,8 +109,13 @@ async function loadLocalMatchesInTx(tx: Tx, provider: AccountingProvider) {
       .from(suppliers)
       .where(isNull(suppliers.deletedAt)),
     tx
-      .select({ id: items.id, name: items.name, sku: items.sku })
+      .select({
+        id: items.id,
+        name: sql<string>`COALESCE(${itemFamilies.name}, ${items.name})`,
+        sku: items.sku,
+      })
       .from(items)
+      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
       .where(and(eq(items.itemType, "material"), isNull(items.deletedAt))),
     tx
       .select({

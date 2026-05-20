@@ -162,6 +162,10 @@ export type VariantConfigInput = {
   }>;
 };
 
+export type CopyVariantConfigInput = {
+  sourceItemId: string;
+};
+
 export type GenerateVariantsInput = {
   combinations?: Array<Record<string, string>>;
 };
@@ -292,6 +296,22 @@ export async function updateVariantConfig(
   const response = await fetch(path, {
     method: "PUT",
     headers: createIdempotencyHeaders("updateItemCardVariantConfig", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as ItemCardDto;
+}
+
+export async function copyVariantConfigFrom(
+  itemId: string,
+  input: CopyVariantConfigInput,
+): Promise<ItemCardDto> {
+  const path = `/api/item-cards/${itemId}/variant-config/copy-from`;
+  const response = await fetch(path, {
+    method: "POST",
+    headers: createIdempotencyHeaders("copyItemCardVariantConfig", {
       "Content-Type": "application/json",
     }),
     body: JSON.stringify(input),

@@ -1040,15 +1040,15 @@ async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
       defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
         "defaultPurchasePrice"
       ),
-      purchaseUnitDefinitionId: items.purchaseUnitDefinitionId,
+      purchaseUnitDefinitionId: sql<string | null>`COALESCE(${itemFamilies.purchaseUnitDefinitionId}, ${items.purchaseUnitDefinitionId})`,
       purchaseUnitName: sql<string | null>`(
         SELECT ${unitDefinitions.name}
         FROM ${unitDefinitions}
-        WHERE ${unitDefinitions.id} = ${items.purchaseUnitDefinitionId}
+        WHERE ${unitDefinitions.id} = COALESCE(${itemFamilies.purchaseUnitDefinitionId}, ${items.purchaseUnitDefinitionId})
       )`,
-      purchaseToStockFactor: trimScaleNullable(items.purchaseToStockFactor).as(
-        "purchaseToStockFactor"
-      ),
+      purchaseToStockFactor: trimScaleNullable(
+        sql`COALESCE(${itemFamilies.purchaseToStockFactor}, ${items.purchaseToStockFactor})`,
+      ).as("purchaseToStockFactor"),
     })
     .from(items)
     .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))

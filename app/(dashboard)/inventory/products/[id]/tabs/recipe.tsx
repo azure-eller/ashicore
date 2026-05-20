@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -189,11 +188,6 @@ export function ProductRecipeTab({
             >
               <HugeiconsIcon icon={CheckmarkCircle02Icon} data-icon="inline-start" />
               {saveMutation.isPending ? "Saving…" : "Save recipe"}
-            </Button>
-            <Button type="button" variant="outline" size="sm" asChild>
-              <Link href={`/inventory/products/${activeVariant.id}/edit`}>
-                Edit
-              </Link>
             </Button>
           </div>
         ) : null}

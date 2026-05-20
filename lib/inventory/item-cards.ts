@@ -111,6 +111,10 @@ export const variantConfigSchema = z.object({
     .max(10, "At most 10 variant options are supported"),
 });
 
+export const copyVariantConfigSchema = z.object({
+  sourceItemId: z.string().uuid(),
+});
+
 export const itemCardCreateSchema = z.object({
   itemType: z.enum(["product", "material"]),
   name: z.string().trim().min(1, "Name is required"),
@@ -1354,6 +1358,45 @@ export async function updateVariantConfig(
     });
     return result;
   });
+}
+
+export async function copyVariantConfigFromItem(
+  targetItemId: string,
+  data: z.infer<typeof copyVariantConfigSchema>,
+  options?: { idempotencyKey?: string | null },
+) {
+  const [targetCard, sourceCard] = await Promise.all([
+    getItemCard(targetItemId),
+    getItemCard(data.sourceItemId),
+  ]);
+
+  if (targetCard.family.itemType !== sourceCard.family.itemType) {
+    throw new ItemCardError("Variant configuration can only be copied from the same item type.");
+  }
+  if (targetCard.family.id === sourceCard.family.id) {
+    throw new ItemCardError("Choose a different card to copy from.");
+  }
+
+  return updateVariantConfig(
+    targetItemId,
+    {
+      options: sourceCard.options
+        .filter((option) => option.disabledAt == null)
+        .map((option, optionIndex) => ({
+          name: option.name,
+          code: option.code,
+          sortOrder: optionIndex,
+          values: option.values
+            .filter((value) => value.disabledAt == null)
+            .map((value, valueIndex) => ({
+              label: value.label,
+              code: value.code,
+              sortOrder: valueIndex,
+            })),
+        })),
+    },
+    options,
+  );
 }
 
 async function generationPreviewInTx(tx: Tx, itemId: string): Promise<GenerationPreviewDto> {

@@ -216,24 +216,10 @@ test.describe("inventory visibility", () => {
   });
 
   test("toggling sellable marks a product internal but keeps it in Products", async ({ page, db }) => {
-    // The card UI does not yet expose a sellable checkbox. Toggle via the
-    // legacy PUT /api/items endpoint, then verify the product list reflects
-    // the new state.
-    const toggleResponse = await testFetch(`/api/items/${sellableOnlyId}`, {
-      method: "PUT",
+    const toggleResponse = await testFetch(`/api/item-cards/${sellableOnlyId}/sellable`, {
+      method: "POST",
       body: JSON.stringify({
-        name: sellableOnlyName,
-        sku: null,
-        category: `Visibility ${ts}`,
-        description: null,
-        defaultPurchasePrice: null,
-        defaultSellingPrice: "22.00",
         sellable: false,
-        manufacturingMode: "discrete",
-        expectedBatchYield: null,
-        safetyStock: "0",
-        stock: "0",
-        bom: [],
       }),
     });
     expect(toggleResponse.status).toBe(200);

@@ -1,94 +1,11 @@
 import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
-import {
-  assertLockedBomManagementAccess,
-  assertModuleWriteAccess,
-} from "@/lib/dal/auth";
-import { InsufficientStockError, MissingCostBasisError } from "@/lib/inventory/kernel";
-import { updateItemSchema } from "@/lib/schemas/items";
+import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   deleteItem,
   getItem,
-  updateItem,
 } from "@/app/(dashboard)/inventory/queries";
 import { deleteVariant, ItemCardError } from "@/lib/inventory/item-cards";
-
-
-export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
-  await assertModuleWriteAccess("inventory", request.headers);
-  const idempotencyKey = requireIdempotencyKey(request, "updateItem");
-  const { id } = await (ctx as RouteContext).params;
-  const existingItem = await getItem(id);
-
-  if (!existingItem) {
-    return NextResponse.json({ error: "Item not found" }, { status: 404 });
-  }
-
-  if (existingItem.itemType === "product" && existingItem.bomLocked) {
-    await assertLockedBomManagementAccess(request.headers);
-  }
-
-  const body = await request.json();
-  if (
-    existingItem.familyId &&
-    Object.prototype.hasOwnProperty.call(body, "unitDefinitionId") &&
-    body.unitDefinitionId !== existingItem.unitDefinitionId
-  ) {
-    return NextResponse.json(
-      { error: "Unit changes for family-backed items must use the item card API." },
-      { status: 400 }
-    );
-  }
-
-  const { stock, bom, operationCosts, revisionNote, ...itemData } =
-    updateItemSchema.parse(body);
-  const nextItemData = itemData;
-
-  if (existingItem.itemType === "product" && nextItemData.bomLocked && !existingItem.bomLocked) {
-    await assertLockedBomManagementAccess(request.headers);
-  }
-
-  if (bom?.some((row) => row.componentId === id)) {
-    return NextResponse.json(
-      { errors: { bom: ["An item cannot reference itself as a component"] } },
-      { status: 400 }
-    );
-  }
-
-  try {
-    const item = await updateItem(
-      id,
-      nextItemData,
-      stock != null ? parseFloat(stock) : undefined,
-      bom,
-      operationCosts,
-      revisionNote,
-      { idempotencyKey }
-    );
-    if (!item) {
-      return NextResponse.json({ error: "Item not found" }, { status: 404 });
-    }
-    return NextResponse.json(item);
-  } catch (error) {
-    if (error instanceof InsufficientStockError) {
-      return NextResponse.json(
-        { errors: { stock: [error.message] } },
-        { status: 400 }
-      );
-    }
-    if (error instanceof MissingCostBasisError) {
-      const field =
-        error.reason === "material_default_price" ? "defaultPurchasePrice" : "stock";
-      return NextResponse.json(
-        { errors: { [field]: [error.message] } },
-        { status: 400 }
-      );
-    }
-    throw error;
-  }
-});
-
-export const PATCH = PUT;
 
 export const DELETE = apiHandler(async (_req: Request, ctx: unknown) => {
   await assertModuleWriteAccess("inventory", _req.headers);

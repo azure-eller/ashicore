@@ -53,8 +53,6 @@ import styles from "./card-page.module.css";
 export type VariantTableProps = {
   card: ItemCardDto;
   viewMode: "product" | "material";
-  onAddInitialStock?: (variant: ItemCardVariantDto) => void;
-  addInitialStockEndpointReady?: boolean;
 };
 
 /**

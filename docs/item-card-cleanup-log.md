@@ -43,10 +43,10 @@ model after the item-card UI and mobile clients are migrated.
 - Legacy variant display fallbacks removed from inventory, sales,
   manufacturing, planning, allocation, and ledger read models.
 
-Still live until legacy direct edits and inline operations editing are replaced:
+Legacy direct item update/edit surfaces removed:
 
 - `/inventory/products/[id]/edit` and `/inventory/materials/[id]/edit`
-- `PUT /api/items/:id` for per-variant stock/cost/operation edits
+- `PUT /api/items/:id` / `PATCH /api/items/:id`
 
 Grep targets:
 
@@ -99,9 +99,9 @@ Migration sequence:
 
 ## Deferred Domain Migrations
 
-- Purchasing should read material default supplier, purchase unit, and conversion
-  from `item_families`.
-- Accounting exports should prefer `displayName` or normalized option metadata
-  where currently showing raw `items.name`.
+- Purchasing reads material default supplier, purchase unit, and conversion from
+  `item_families` where card defaults apply.
+- Accounting purchase-order import matching prefers normalized family names over
+  raw variant `items.name`.
 - BOM copy remains explicit per concrete product variant; do not introduce live
   family-level BOM inheritance.

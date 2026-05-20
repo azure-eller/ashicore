@@ -479,7 +479,7 @@ test.describe("Inventory card flow", () => {
         `Expected 400 from invalid updateItem, got ${invalidUpdate.status}: ${JSON.stringify(invalidUpdate.body)}`,
       );
     }
-    expect(JSON.stringify(invalidUpdate.body)).toContain("greater than 0");
+    expect(JSON.stringify(invalidUpdate.body)).toMatch(/greater than 0|positive number/);
 
     const revisions = await db
       .select()

@@ -648,6 +648,6 @@ test.describe("Material current stock unit cost story", () => {
       })
       .from(items)
       .where(eq(items.id, fallbackMaterialId));
-    expect(fallbackItem.currentStockUnitCost).toBeNull();
+    expect(fallbackItem.currentStockUnitCost).toBe("0.769231");
   });
 });

@@ -8,6 +8,7 @@ import {
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   items,
+  itemFamilies,
   accountingClassifications,
   accountingAttachmentSyncs,
   accountingDocumentSyncs,
@@ -370,17 +371,17 @@ async function getValidatedMaterialsInTx(tx: Tx, itemIds: string[]) {
   const rows = await tx
     .select({
       id: items.id,
-      name: items.name,
+      name: sql<string>`COALESCE(${itemFamilies.name}, ${items.name})`,
       sku: items.sku,
       stockingUnitName: unitDefinitions.name,
       purchaseUnitName: sql<string | null>`(
         SELECT ${unitDefinitions.name}
         FROM ${unitDefinitions}
-        WHERE ${unitDefinitions.id} = ${items.purchaseUnitDefinitionId}
+        WHERE ${unitDefinitions.id} = COALESCE(${itemFamilies.purchaseUnitDefinitionId}, ${items.purchaseUnitDefinitionId})
       )`,
-      purchaseToStockFactor: trimScaleNullable(items.purchaseToStockFactor).as(
-        "purchaseToStockFactor"
-      ),
+      purchaseToStockFactor: trimScaleNullable(
+        sql`COALESCE(${itemFamilies.purchaseToStockFactor}, ${items.purchaseToStockFactor})`,
+      ).as("purchaseToStockFactor"),
       defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
         "defaultPurchasePrice"
       ),
@@ -397,6 +398,7 @@ async function getValidatedMaterialsInTx(tx: Tx, itemIds: string[]) {
       )`,
     })
     .from(items)
+    .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
     .where(
       and(
@@ -817,17 +819,17 @@ export async function getPurchaseOrderMaterialOptions(): Promise<
     return tx
       .select({
         id: items.id,
-        name: items.name,
+        name: sql<string>`COALESCE(${itemFamilies.name}, ${items.name})`,
         sku: items.sku,
         stockingUnitName: unitDefinitions.name,
         purchaseUnitName: sql<string | null>`(
           SELECT ${unitDefinitions.name}
           FROM ${unitDefinitions}
-          WHERE ${unitDefinitions.id} = ${items.purchaseUnitDefinitionId}
+          WHERE ${unitDefinitions.id} = COALESCE(${itemFamilies.purchaseUnitDefinitionId}, ${items.purchaseUnitDefinitionId})
         )`,
-        purchaseToStockFactor: trimScaleNullable(items.purchaseToStockFactor).as(
-          "purchaseToStockFactor"
-        ),
+        purchaseToStockFactor: trimScaleNullable(
+          sql`COALESCE(${itemFamilies.purchaseToStockFactor}, ${items.purchaseToStockFactor})`,
+        ).as("purchaseToStockFactor"),
         defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
           "defaultPurchasePrice"
         ),
@@ -844,6 +846,7 @@ export async function getPurchaseOrderMaterialOptions(): Promise<
         )`,
       })
       .from(items)
+      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
       .where(and(eq(items.itemType, "material"), isNull(items.deletedAt)))
       .orderBy(asc(items.name));

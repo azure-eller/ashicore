@@ -192,16 +192,83 @@ export async function createItem(data: Record<string, unknown>) {
   return { status: res.status, body };
 }
 
-/**
- * PUT /api/items/:id
- */
 export async function updateItem(id: string, data: Record<string, unknown>) {
-  const res = await testFetch(`/api/items/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(data),
-  });
-  const body = await res.json().catch(() => null);
-  return { status: res.status, body };
+  let latest: { status: number; body: unknown } = { status: 200, body: { id } };
+  const snapshotAtStart = await getItemSnapshot(id);
+
+  const familyPayload = pickDefined(data, [
+    "name",
+    "category",
+    "description",
+    "unitDefinitionId",
+    "defaultSupplierId",
+    "purchaseUnitDefinitionId",
+    "purchaseToStockFactor",
+  ]);
+  if (snapshotAtStart?.itemType === "product") {
+    delete familyPayload.defaultSupplierId;
+    delete familyPayload.purchaseUnitDefinitionId;
+    delete familyPayload.purchaseToStockFactor;
+  }
+  if (Object.keys(familyPayload).length > 0) {
+    latest = await jsonMutation(`/api/item-cards/${id}`, "PATCH", familyPayload);
+    if (latest.status >= 400) return latest;
+  }
+
+  const variantPayload = pickDefined(data, [
+    "sku",
+    "registeredBarcode",
+    "internalBarcode",
+    "supplierItemCode",
+    "defaultLeadTimeDays",
+    "minimumOrderQuantity",
+    "defaultSellingPrice",
+    "defaultPurchasePrice",
+    "currentStockUnitCost",
+    "safetyStock",
+    "sellable",
+  ]);
+  if (Object.keys(variantPayload).length > 0) {
+    latest = await jsonMutation(`/api/item-cards/${id}/variant`, "PATCH", variantPayload);
+    if (latest.status >= 400) return latest;
+  }
+
+  if (Array.isArray(data.bom) || Array.isArray(data.operationCosts)) {
+    const snapshot = await getItemSnapshot(id);
+    if (!snapshot) return { status: 404, body: { error: "Item not found" } };
+
+    const bom = normalizeBomRows(data.bom);
+    const operationCosts = Array.isArray(data.operationCosts)
+      ? data.operationCosts
+      : [];
+
+    if (
+      snapshot.itemType !== "product" &&
+      (bom.length > 0 || operationCosts.length > 0)
+    ) {
+      return {
+        status: 400,
+        body: { error: "BOM revisions are only valid on products." },
+      };
+    }
+
+    if (snapshot.itemType === "product") {
+      latest = await jsonMutation(`/api/items/${id}/bom-revisions`, "POST", {
+        bom,
+        operationCosts,
+        note: data.revisionNote ?? null,
+      });
+      if (latest.status >= 400) return latest;
+      latest = { ...latest, status: 200 };
+    }
+  }
+
+  if (data.stock != null) {
+    latest = await setStockTarget(id, String(data.stock), data);
+    if (latest.status >= 400) return latest;
+  }
+
+  return latest;
 }
 
 /**
@@ -211,6 +278,153 @@ export async function deleteItem(id: string) {
   const res = await testFetch(`/api/items/${id}`, { method: "DELETE" });
   const body = await res.json().catch(() => null);
   return { status: res.status, body };
+}
+
+async function jsonMutation(path: string, method: "PATCH" | "POST" | "PUT", body: unknown) {
+  const res = await testFetch(path, {
+    method,
+    body: JSON.stringify(body),
+  });
+  const responseBody = await res.json().catch(() => null);
+  return { status: res.status, body: responseBody };
+}
+
+function pickDefined(source: Record<string, unknown>, keys: string[]) {
+  const picked: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      picked[key] = source[key];
+    }
+  }
+  return picked;
+}
+
+function normalizeBomRows(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.map((row) => {
+    const input = row as Record<string, unknown>;
+    return {
+      ...input,
+      componentId: input.componentId ?? input.itemId,
+      quantity: input.quantity ?? input.quantityPerUnit,
+    };
+  });
+}
+
+async function getItemSnapshot(id: string) {
+  const itemRows = await getItemRows();
+  return itemRows.find((item) => item.id === id) ?? null;
+}
+
+async function getItemRows() {
+  const itemRes = await testFetch("/api/items");
+  return (await itemRes.json().catch(() => [])) as Array<{
+    id: string;
+    itemType: string;
+    stock: string;
+    currentStockUnitCost?: string | null;
+    estimatedUnitCost?: string | null;
+  }>;
+}
+
+async function setStockTarget(
+  id: string,
+  targetQuantity: string,
+  data: Record<string, unknown>,
+) {
+  const target = Number(targetQuantity);
+  if (!Number.isFinite(target) || target < 0) {
+    return { status: 400, body: { errors: { stock: ["Must be a non-negative number"] } } };
+  }
+
+  const itemRows = await getItemRows();
+  const item = itemRows.find((row) => row.id === id) ?? null;
+  const current = Number(item?.stock ?? "0");
+  const delta = Math.round((target - current) * 10000) / 10000;
+  if (delta === 0) return { status: 200, body: { id } };
+
+  if (delta > 0) {
+    return jsonMutation(`/api/items/${id}/stock-adjustments`, "POST", {
+      quantity: String(delta),
+      costPerUnit: resolveStockAdjustmentUnitCost(data, itemRows),
+      occurredAt: new Date().toISOString(),
+      note: null,
+    });
+  }
+
+  const lotsRes = await testFetch(`/api/items/${id}/lots`);
+  const lots = (await lotsRes.json().catch(() => [])) as Array<{ id: string; quantity: string }>;
+  if (!lotsRes.ok) return { status: lotsRes.status, body: lots };
+
+  let remaining = Math.abs(delta);
+  let latest: { status: number; body: unknown } = { status: 200, body: { id } };
+  for (const lot of lots) {
+    if (remaining <= 0) break;
+    const currentLotQty = Number(lot.quantity);
+    if (!Number.isFinite(currentLotQty) || currentLotQty <= 0) continue;
+    const deduction = Math.min(currentLotQty, remaining);
+    const nextQuantity = Math.round((currentLotQty - deduction) * 10000) / 10000;
+    latest = await jsonMutation(`/api/items/${id}/lots/${lot.id}/quantity`, "PUT", {
+      quantity: String(nextQuantity),
+      note: null,
+    });
+    if (latest.status >= 400) return latest;
+    remaining = Math.round((remaining - deduction) * 10000) / 10000;
+  }
+
+  if (remaining > 0) {
+    return { status: 400, body: { errors: { stock: ["Not enough lot stock to reduce."] } } };
+  }
+  return latest;
+}
+
+function resolveStockAdjustmentUnitCost(
+  data: Record<string, unknown>,
+  itemRows: Array<{
+    id: string;
+    currentStockUnitCost?: string | null;
+    estimatedUnitCost?: string | null;
+  }>,
+) {
+  if (typeof data.currentStockUnitCost === "string" && data.currentStockUnitCost.trim()) {
+    return normalizeTestNumber(Number(data.currentStockUnitCost));
+  }
+
+  if (
+    typeof data.defaultPurchasePrice === "string" &&
+    typeof data.purchaseToStockFactor === "string"
+  ) {
+    const price = Number(data.defaultPurchasePrice);
+    const factor = Number(data.purchaseToStockFactor);
+    if (Number.isFinite(price) && Number.isFinite(factor) && factor > 0) {
+      return normalizeTestNumber(price / factor);
+    }
+  }
+
+  const bom = normalizeBomRows(data.bom);
+  if (bom.length > 0) {
+    let total = 0;
+    for (const row of bom) {
+      const componentId = row.componentId;
+      const quantity = Number(row.quantity);
+      const component = itemRows.find((item) => item.id === componentId);
+      const unitCost = Number(component?.currentStockUnitCost ?? component?.estimatedUnitCost);
+      if (!component || !Number.isFinite(quantity) || !Number.isFinite(unitCost)) {
+        return null;
+      }
+      total += quantity * unitCost;
+    }
+
+    if (Number.isFinite(total) && total >= 0) {
+      return normalizeTestNumber(total);
+    }
+  }
+
+  return null;
+}
+
+function normalizeTestNumber(value: number) {
+  return value.toFixed(6).replace(/\.?0+$/, "");
 }
 
 /**

@@ -8,7 +8,7 @@ export default async function ProductDetailPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
-  const { tab, view } = await searchParams;
+  const { tab } = await searchParams;
 
   const selectedTab = Array.isArray(tab) ? tab[0] : tab;
   if (selectedTab === "recipe") redirect(`/inventory/products/${id}/recipe`);
@@ -17,7 +17,6 @@ export default async function ProductDetailPage({
   }
   if (selectedTab === "lots") redirect(`/inventory/products/${id}/lots`);
   if (selectedTab === "general") redirect(`/inventory/products/${id}`);
-  if (view === "legacy") redirect(`/inventory/products/${id}`);
 
   return null;
 }
