@@ -3,11 +3,7 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
-import {
-  Controller,
-  useForm,
-  useWatch,
-} from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -24,6 +20,9 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Delete02Icon,
   Download01Icon,
+  Cancel01Icon,
+  MoreVerticalIcon,
+  PrinterIcon,
   Upload01Icon,
 } from "@hugeicons/core-free-icons";
 import {
@@ -49,14 +48,6 @@ import {
 } from "@/lib/purchasing/landed-cost";
 import { Button } from "@/components/ui/button";
 import {
-  CreatePageGrid,
-  CreatePageHeader,
-  CreatePageShell,
-  CreateSection,
-  CreateSidebarCard,
-  SummaryRows,
-} from "@/components/create-page";
-import {
   Field,
   FieldError,
   FieldGroup,
@@ -67,6 +58,7 @@ import {
   EditableLineDataGrid,
   type ColDef,
 } from "@/components/editable-line-data-grid";
+import { EditableInfoGrid } from "@/components/editable-info-grid";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import {
@@ -85,6 +77,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { AutosaveStatus } from "@/components/autosave-status";
 import { TooltipHeader } from "@/components/tooltip-header";
@@ -99,7 +97,6 @@ import {
   PURCHASE_COST_AMOUNT_TOOLTIP,
   PURCHASE_COST_DISTRIBUTION_TOOLTIP,
   PURCHASE_COST_REFERENCE_TOOLTIP,
-  PURCHASE_DELIVERY_ADDRESS_TOOLTIP,
   PURCHASE_LANDED_UNIT_TOOLTIP,
   PURCHASE_MATERIAL_TOOLTIP,
   PO_ORDERED_QTY_TOOLTIP,
@@ -112,6 +109,8 @@ import type {
   SupplierOption,
 } from "./types";
 import { SupplierSelect } from "./supplier-select";
+import { PurchaseOrderStatusBadge } from "./status-badge";
+import styles from "@/components/card-page/card-page.module.css";
 
 type PurchaseOrderFormValues = z.input<typeof insertPurchaseOrderSchema>;
 
@@ -153,7 +152,10 @@ const EMPTY_DELIVERY_ADDRESS = {
   shipDeliveryInstructions: null,
 };
 
-const ADDITIONAL_COST_TYPE_LABELS: Record<PurchaseOrderAdditionalCostType, string> = {
+const ADDITIONAL_COST_TYPE_LABELS: Record<
+  PurchaseOrderAdditionalCostType,
+  string
+> = {
   shipping: "Shipping",
   customs: "Customs",
   other: "Other",
@@ -183,12 +185,15 @@ const blankPurchaseOrderAdditionalCost = {
   amount: null,
 };
 
-type PurchaseOrderAdditionalCostPayloadRow =
-  NonNullable<PurchaseOrderFormValues["additionalCosts"]>[number];
-type PurchaseOrderAdditionalCostGridRow = PurchaseOrderAdditionalCostPayloadRow & {
-  clientRowId: string;
-};
-type PurchaseOrderAdditionalCostColumnKey = keyof PurchaseOrderAdditionalCostPayloadRow;
+type PurchaseOrderAdditionalCostPayloadRow = NonNullable<
+  PurchaseOrderFormValues["additionalCosts"]
+>[number];
+type PurchaseOrderAdditionalCostGridRow =
+  PurchaseOrderAdditionalCostPayloadRow & {
+    clientRowId: string;
+  };
+type PurchaseOrderAdditionalCostColumnKey =
+  keyof PurchaseOrderAdditionalCostPayloadRow;
 type PurchaseOrderLinePayloadRow = PurchaseOrderFormValues["lines"][number];
 type PurchaseOrderLineGridRow = PurchaseOrderLinePayloadRow & {
   clientRowId: string;
@@ -200,12 +205,13 @@ type PurchaseOrderLineColumnKey =
   | "accountingPurchaseAccountCode";
 
 function isBlankPurchaseOrderLine(
-  line: PurchaseOrderFormValues["lines"][number] | undefined
+  line: PurchaseOrderFormValues["lines"][number] | undefined,
 ) {
   const itemId = line?.itemId?.trim() ?? "";
   const quantityOrdered = line?.quantityOrdered?.trim() ?? "";
   const unitCost = line?.unitCost?.trim() ?? "";
-  const accountingPurchaseAccountCode = line?.accountingPurchaseAccountCode?.trim() ?? "";
+  const accountingPurchaseAccountCode =
+    line?.accountingPurchaseAccountCode?.trim() ?? "";
   return (
     itemId === "" &&
     quantityOrdered === "" &&
@@ -215,7 +221,7 @@ function isBlankPurchaseOrderLine(
 }
 
 function createPurchaseOrderLineRow(
-  values?: Partial<PurchaseOrderLinePayloadRow>
+  values?: Partial<PurchaseOrderLinePayloadRow>,
 ): PurchaseOrderLineGridRow {
   return {
     ...blankPurchaseOrderLine,
@@ -225,13 +231,15 @@ function createPurchaseOrderLineRow(
   };
 }
 
-function toPurchaseOrderLineGridRows(rows: PurchaseOrderFormValues["lines"] | undefined) {
+function toPurchaseOrderLineGridRows(
+  rows: PurchaseOrderFormValues["lines"] | undefined,
+) {
   const gridRows = (rows ?? []).map((row) => createPurchaseOrderLineRow(row));
   return gridRows.length > 0 ? gridRows : [createPurchaseOrderLineRow()];
 }
 
 function toPurchaseOrderLinePayloadRows(
-  rows: PurchaseOrderLineGridRow[]
+  rows: PurchaseOrderLineGridRow[],
 ): PurchaseOrderLinePayloadRow[] {
   return rows
     .filter((row) => !isBlankPurchaseOrderLine(row))
@@ -260,14 +268,16 @@ function comparablePurchaseOrderLines(rows: PurchaseOrderLineGridRow[]) {
 function isBlankPurchaseOrderAdditionalCost(
   cost:
     | NonNullable<PurchaseOrderFormValues["additionalCosts"]>[number]
-    | undefined
+    | undefined,
 ) {
   const reference = cost?.reference?.trim() ?? "";
-  const accountingPurchaseAccountCode = cost?.accountingPurchaseAccountCode?.trim() ?? "";
+  const accountingPurchaseAccountCode =
+    cost?.accountingPurchaseAccountCode?.trim() ?? "";
   const amount = cost?.amount?.trim() ?? "";
   return (
     (cost?.costType == null || cost.costType === "shipping") &&
-    (cost?.distributionMethod == null || cost.distributionMethod === "by_value") &&
+    (cost?.distributionMethod == null ||
+      cost.distributionMethod === "by_value") &&
     reference === "" &&
     accountingPurchaseAccountCode === "" &&
     amount === ""
@@ -275,14 +285,15 @@ function isBlankPurchaseOrderAdditionalCost(
 }
 
 function createPurchaseOrderAdditionalCostRow(
-  values?: Partial<PurchaseOrderAdditionalCostPayloadRow>
+  values?: Partial<PurchaseOrderAdditionalCostPayloadRow>,
 ): PurchaseOrderAdditionalCostGridRow {
   return {
     clientRowId: crypto.randomUUID(),
     costType: values?.costType ?? blankPurchaseOrderAdditionalCost.costType,
     reference: values?.reference ?? blankPurchaseOrderAdditionalCost.reference,
     distributionMethod:
-      values?.distributionMethod ?? blankPurchaseOrderAdditionalCost.distributionMethod,
+      values?.distributionMethod ??
+      blankPurchaseOrderAdditionalCost.distributionMethod,
     accountingPurchaseAccountCode:
       values?.accountingPurchaseAccountCode ??
       blankPurchaseOrderAdditionalCost.accountingPurchaseAccountCode,
@@ -291,13 +302,13 @@ function createPurchaseOrderAdditionalCostRow(
 }
 
 function toPurchaseOrderAdditionalCostGridRows(
-  rows: PurchaseOrderFormValues["additionalCosts"] | undefined
+  rows: PurchaseOrderFormValues["additionalCosts"] | undefined,
 ) {
   return (rows ?? []).map((row) => createPurchaseOrderAdditionalCostRow(row));
 }
 
 function toPurchaseOrderAdditionalCostPayloadRows(
-  rows: PurchaseOrderAdditionalCostGridRow[]
+  rows: PurchaseOrderAdditionalCostGridRow[],
 ): PurchaseOrderAdditionalCostPayloadRow[] {
   return rows
     .filter((row) => !isBlankPurchaseOrderAdditionalCost(row))
@@ -314,12 +325,12 @@ function toPurchaseOrderAdditionalCostPayloadRows(
         distributionMethod,
         accountingPurchaseAccountCode,
         amount,
-      })
+      }),
     );
 }
 
 function comparablePurchaseOrderAdditionalCosts(
-  rows: PurchaseOrderAdditionalCostGridRow[]
+  rows: PurchaseOrderAdditionalCostGridRow[],
 ) {
   return JSON.stringify(toPurchaseOrderAdditionalCostPayloadRows(rows));
 }
@@ -344,7 +355,7 @@ function validateNonNegativeMoneyCell(value: unknown, message: string) {
 function getPurchaseOrderAdditionalCostCellError(
   error: unknown,
   rowIndex: number,
-  key: PurchaseOrderAdditionalCostColumnKey
+  key: PurchaseOrderAdditionalCostColumnKey,
 ) {
   if (!error || typeof error !== "object") return null;
   const rowError = (error as Record<string, unknown>)[rowIndex];
@@ -359,7 +370,7 @@ function getPurchaseOrderAdditionalCostCellError(
 function getPurchaseOrderLineCellError(
   error: unknown,
   rowIndex: number,
-  key: PurchaseOrderLineColumnKey
+  key: PurchaseOrderLineColumnKey,
 ) {
   if (!error || typeof error !== "object") return null;
   const rowError = (error as Record<string, unknown>)[rowIndex];
@@ -379,7 +390,7 @@ function parseNonNegative(value: string | null | undefined) {
 
 function lineTotalLabel(
   quantityOrdered: string | null | undefined,
-  unitCost: string | null | undefined
+  unitCost: string | null | undefined,
 ) {
   const quantity = parsePositive(quantityOrdered);
   const cost = parseNonNegative(unitCost);
@@ -476,7 +487,7 @@ const EMPTY_ADDRESS_DIALOG_VALUES: AddressDialogValues = {
 };
 
 function normalizeDeliveryAddress(
-  address: DeliveryAddressFields | undefined
+  address: DeliveryAddressFields | undefined,
 ): Required<DeliveryAddressFields> {
   const normalized = normalizeAddressFields({
     line1: address?.shipLine1,
@@ -503,7 +514,8 @@ function normalizeDeliveryAddress(
 
 function deliveryAddressKey(address: DeliveryAddressFields | undefined) {
   const normalized = normalizeDeliveryAddress(address);
-  if (normalized.shipAddressEntryId) return `address:${normalized.shipAddressEntryId}`;
+  if (normalized.shipAddressEntryId)
+    return `address:${normalized.shipAddressEntryId}`;
   return [
     normalized.shipLine1,
     normalized.shipLine2,
@@ -532,7 +544,7 @@ function deliveryAddressLabel(address: DeliveryAddressFields) {
 function makeDeliveryAddressOption(
   address: DeliveryAddressFields | undefined,
   label?: string | null,
-  notes?: string | null
+  notes?: string | null,
 ): DeliveryAddressOption | null {
   const normalized = normalizeDeliveryAddress(address);
   const id = deliveryAddressKey(normalized);
@@ -547,7 +559,9 @@ function makeDeliveryAddressOption(
   };
 }
 
-function addressEntryToOption(entry: AddressEntry): DeliveryAddressOption | null {
+function addressEntryToOption(
+  entry: AddressEntry,
+): DeliveryAddressOption | null {
   return makeDeliveryAddressOption(
     {
       shipAddressEntryId: entry.id,
@@ -562,16 +576,13 @@ function addressEntryToOption(entry: AddressEntry): DeliveryAddressOption | null
       shipDeliveryInstructions: entry.deliveryInstructions,
     },
     entry.label,
-    entry.notes
+    entry.notes,
   );
 }
 
 function collectDeliveryAddressOptions(values: PurchaseOrderFormValues) {
   const options = new Map<string, DeliveryAddressOption>();
-  const candidates: DeliveryAddressFields[] = [
-    values,
-    ...(values.lines ?? []),
-  ];
+  const candidates: DeliveryAddressFields[] = [values, ...(values.lines ?? [])];
 
   for (const candidate of candidates) {
     const option = makeDeliveryAddressOption(candidate);
@@ -583,7 +594,7 @@ function collectDeliveryAddressOptions(values: PurchaseOrderFormValues) {
 
 function landedStockUnitCostLabel(
   value: number | null | undefined,
-  stockingUnitName: string | null | undefined
+  stockingUnitName: string | null | undefined,
 ) {
   if (value == null) return "\u2014";
   return `${formatPrice(normalizeLandedDisplayNumber(value)) ?? "\u2014"} / ${
@@ -593,9 +604,13 @@ function landedStockUnitCostLabel(
 
 function purchaseUnitDisplay(
   purchaseUnitName: string | null | undefined,
-  stockingUnitName: string | null | undefined
+  stockingUnitName: string | null | undefined,
 ) {
-  if (purchaseUnitName && stockingUnitName && purchaseUnitName !== stockingUnitName) {
+  if (
+    purchaseUnitName &&
+    stockingUnitName &&
+    purchaseUnitName !== stockingUnitName
+  ) {
     return {
       label: `${purchaseUnitName} -> ${stockingUnitName}`,
       tooltip: "Purchase unit converts to stocking unit.",
@@ -634,7 +649,7 @@ function PurchaseUnitCell({
   const material = data?.itemId ? materialMap.get(data.itemId) : undefined;
   const unitDisplay = purchaseUnitDisplay(
     material?.purchaseUnitName,
-    material?.stockingUnitName
+    material?.stockingUnitName,
   );
 
   return <span className="text-muted-foreground">{unitDisplay.label}</span>;
@@ -653,14 +668,18 @@ function PurchaseLandedUnitCell({
   return (
     <span className="font-medium">
       {landedStockUnitCostLabel(
-        node.rowIndex == null ? null : landedCosts[node.rowIndex]?.landedStockUnitCost,
-        material?.stockingUnitName
+        node.rowIndex == null
+          ? null
+          : landedCosts[node.rowIndex]?.landedStockUnitCost,
+        material?.stockingUnitName,
       )}
     </span>
   );
 }
 
-function PurchaseLineTotalCell({ data }: ICellRendererParams<PurchaseOrderLineGridRow>) {
+function PurchaseLineTotalCell({
+  data,
+}: ICellRendererParams<PurchaseOrderLineGridRow>) {
   return (
     <span className="font-medium">
       {lineTotalLabel(data?.quantityOrdered, data?.unitCost)}
@@ -677,7 +696,7 @@ function PurchaseMaterialCellEditor(
         unitName: string;
       }
     >;
-  }
+  },
 ) {
   const editorRef = useRef<HTMLDivElement>(null);
   const valueRef = useRef<string | null>(props.value ?? null);
@@ -744,12 +763,14 @@ export function PurchaseOrderForm({
   addresses,
   initialData,
   defaultValues,
+  orderTitle,
 }: {
   suppliers: SupplierOption[];
   materials: PurchaseOrderMaterialOption[];
   addresses: AddressEntry[];
   initialData?: PurchaseOrderEditData;
   defaultValues?: InsertPurchaseOrder;
+  orderTitle?: string | null;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -762,10 +783,10 @@ export function PurchaseOrderForm({
   const [fileActionError, setFileActionError] = useState<string | null>(null);
   const savedOrderIdRef = useRef<string | null>(initialData?.id ?? null);
   const [savedOrderId, setSavedOrderId] = useState<string | null>(
-    initialData?.id ?? null
+    initialData?.id ?? null,
   );
   const [attachments, setAttachments] = useState<PurchaseOrderFormAttachment[]>(
-    initialData?.attachments ?? []
+    initialData?.attachments ?? [],
   );
   const xeroAccountsQuery = useQuery({
     queryKey: ["xero-accounts"],
@@ -777,7 +798,7 @@ export function PurchaseOrderForm({
   });
   const xeroAccounts = useMemo(
     () => xeroAccountsQuery.data?.accounts ?? [],
-    [xeroAccountsQuery.data?.accounts]
+    [xeroAccountsQuery.data?.accounts],
   );
 
   const materialOptions = useMemo(
@@ -788,37 +809,37 @@ export function PurchaseOrderForm({
         itemType: "material" as const,
         unitName: material.stockingUnitName,
       })),
-    [materials]
+    [materials],
   );
   const materialMap = useMemo(
     () => new Map(materials.map((material) => [material.id, material])),
-    [materials]
+    [materials],
   );
   const supplierOptionsSorted = [...suppliers].sort((a, b) =>
-    a.name.localeCompare(b.name)
+    a.name.localeCompare(b.name),
   );
   const initialFormValues: PurchaseOrderFormValues = initialData
     ? {
-          supplierId: initialData.supplierId,
-          expectedDate: initialData.expectedDate,
-          shippingCost: initialData.shippingCost,
-          notes: initialData.notes,
-          accountingPurchaseAccountCode: null,
-          shipLine1: initialData.shipLine1,
-          shipLine2: initialData.shipLine2,
-          shipCity: initialData.shipCity,
-          shipRegion: initialData.shipRegion,
-          shipPostcode: initialData.shipPostcode,
-          shipCountry: initialData.shipCountry,
-          lines: initialData.lines.map((line) => ({
-            itemId: line.itemId,
-            quantityOrdered: line.quantityOrdered,
-            unitCost: line.unitCost,
-            accountingPurchaseAccountCode: line.accountingPurchaseAccountCode,
-            ...EMPTY_DELIVERY_ADDRESS,
-          })),
-          additionalCosts: initialData.additionalCosts,
-        }
+        supplierId: initialData.supplierId,
+        expectedDate: initialData.expectedDate,
+        shippingCost: initialData.shippingCost,
+        notes: initialData.notes,
+        accountingPurchaseAccountCode: null,
+        shipLine1: initialData.shipLine1,
+        shipLine2: initialData.shipLine2,
+        shipCity: initialData.shipCity,
+        shipRegion: initialData.shipRegion,
+        shipPostcode: initialData.shipPostcode,
+        shipCountry: initialData.shipCountry,
+        lines: initialData.lines.map((line) => ({
+          itemId: line.itemId,
+          quantityOrdered: line.quantityOrdered,
+          unitCost: line.unitCost,
+          accountingPurchaseAccountCode: line.accountingPurchaseAccountCode,
+          ...EMPTY_DELIVERY_ADDRESS,
+        })),
+        additionalCosts: initialData.additionalCosts,
+      }
     : {
         ...(defaultValues ?? purchaseOrderDefaultValues),
         accountingPurchaseAccountCode: null,
@@ -828,10 +849,12 @@ export function PurchaseOrderForm({
         shipRegion: defaultValues?.shipRegion ?? null,
         shipPostcode: defaultValues?.shipPostcode ?? null,
         shipCountry: defaultValues?.shipCountry ?? null,
-        lines: (defaultValues ?? purchaseOrderDefaultValues).lines.map((line) => ({
-          ...line,
-          ...EMPTY_DELIVERY_ADDRESS,
-        })),
+        lines: (defaultValues ?? purchaseOrderDefaultValues).lines.map(
+          (line) => ({
+            ...line,
+            ...EMPTY_DELIVERY_ADDRESS,
+          }),
+        ),
       };
 
   const form = useForm<PurchaseOrderFormValues>({
@@ -858,20 +881,22 @@ export function PurchaseOrderForm({
     option: DeliveryAddressOption | null;
   } | null>(null);
   const [initialLineRows] = useState(() =>
-    toPurchaseOrderLineGridRows(initialFormValues.lines)
+    toPurchaseOrderLineGridRows(initialFormValues.lines),
   );
   const [initialLineComparable] = useState(() =>
-    comparablePurchaseOrderLines(toPurchaseOrderLineGridRows(initialFormValues.lines))
+    comparablePurchaseOrderLines(
+      toPurchaseOrderLineGridRows(initialFormValues.lines),
+    ),
   );
   const [lineGridRows, setLineGridRows] =
     useState<PurchaseOrderLineGridRow[]>(initialLineRows);
   const [initialAdditionalCostRows] = useState(() =>
-    toPurchaseOrderAdditionalCostGridRows(initialFormValues.additionalCosts)
+    toPurchaseOrderAdditionalCostGridRows(initialFormValues.additionalCosts),
   );
   const [initialAdditionalCostComparable] = useState(() =>
     comparablePurchaseOrderAdditionalCosts(
-      toPurchaseOrderAdditionalCostGridRows(initialFormValues.additionalCosts)
-    )
+      toPurchaseOrderAdditionalCostGridRows(initialFormValues.additionalCosts),
+    ),
   );
   const [additionalCostGridRows, setAdditionalCostGridRows] = useState<
     PurchaseOrderAdditionalCostGridRow[]
@@ -909,13 +934,14 @@ export function PurchaseOrderForm({
           quantityOrdered: line?.quantityOrdered,
           unitCost: line?.unitCost,
           purchaseToStockFactor:
-            (line?.itemId ? materialMap.get(line.itemId)?.purchaseToStockFactor : null) ??
-            "1",
+            (line?.itemId
+              ? materialMap.get(line.itemId)?.purchaseToStockFactor
+              : null) ?? "1",
         })),
         additionalCosts: watchedAdditionalCosts ?? [],
         legacyShippingCost: watchedShippingCost,
       }),
-    [lineGridRows, materialMap, watchedAdditionalCosts, watchedShippingCost]
+    [lineGridRows, materialMap, watchedAdditionalCosts, watchedShippingCost],
   );
   const materialsTotal = landedCostPreview.materialSubtotal;
   const distributedAdditionalCostTotal =
@@ -924,436 +950,486 @@ export function PurchaseOrderForm({
     landedCostPreview.nonDistributedAdditionalCostTotal;
   const orderTotal = landedCostPreview.orderTotal;
   const lineCount = lineGridRows.filter(
-    (line) => !isBlankPurchaseOrderLine(line)
+    (line) => !isBlankPurchaseOrderLine(line),
   ).length;
   const additionalCostCount = additionalCostRows.filter(
-    (cost) => !isBlankPurchaseOrderAdditionalCost(cost)
+    (cost) => !isBlankPurchaseOrderAdditionalCost(cost),
   ).length;
   const canAutosaveDraft = hasAutosaveMinimum(form.getValues());
   const xeroAccountsByCode = useMemo(
     () => new Map(xeroAccounts.map((account) => [account.code, account])),
-    [xeroAccounts]
+    [xeroAccounts],
   );
-  const lineColumns = useMemo<ColDef<PurchaseOrderLineGridRow>[]>(
-    () => {
-      const nonBlankRows = lineGridRows.filter(
-        (row) => !isBlankPurchaseOrderLine(row)
+  const lineColumns = useMemo<ColDef<PurchaseOrderLineGridRow>[]>(() => {
+    const nonBlankRows = lineGridRows.filter(
+      (row) => !isBlankPurchaseOrderLine(row),
+    );
+    const rowErrorIndex = (row: PurchaseOrderLineGridRow) =>
+      nonBlankRows.findIndex(
+        (current) => current.clientRowId === row.clientRowId,
       );
-      const rowErrorIndex = (row: PurchaseOrderLineGridRow) =>
-        nonBlankRows.findIndex((current) => current.clientRowId === row.clientRowId);
-      const hasCellError =
-        (key: PurchaseOrderLineColumnKey) =>
-        (params: CellClassParams<PurchaseOrderLineGridRow>) => {
-          if (!params.data) return false;
-          const index = rowErrorIndex(params.data);
-          return index >= 0
-            ? Boolean(getPurchaseOrderLineCellError(form.formState.errors.lines, index, key))
-            : false;
-        };
-      const cellTooltip =
-        (key: PurchaseOrderLineColumnKey) =>
-        ({ data }: { data?: PurchaseOrderLineGridRow }) => {
-          if (!data) return null;
-          const index = rowErrorIndex(data);
-          return index >= 0
-            ? getPurchaseOrderLineCellError(form.formState.errors.lines, index, key)
-            : null;
-        };
+    const hasCellError =
+      (key: PurchaseOrderLineColumnKey) =>
+      (params: CellClassParams<PurchaseOrderLineGridRow>) => {
+        if (!params.data) return false;
+        const index = rowErrorIndex(params.data);
+        return index >= 0
+          ? Boolean(
+              getPurchaseOrderLineCellError(
+                form.formState.errors.lines,
+                index,
+                key,
+              ),
+            )
+          : false;
+      };
+    const cellTooltip =
+      (key: PurchaseOrderLineColumnKey) =>
+      ({ data }: { data?: PurchaseOrderLineGridRow }) => {
+        if (!data) return null;
+        const index = rowErrorIndex(data);
+        return index >= 0
+          ? getPurchaseOrderLineCellError(
+              form.formState.errors.lines,
+              index,
+              key,
+            )
+          : null;
+      };
 
-      return [
-        {
-          field: "itemId",
-          headerName: "Material",
-          headerTooltip: PURCHASE_MATERIAL_TOOLTIP,
-          minWidth: 220,
-          flex: 1.55,
-          editable: true,
-          cellEditor: PurchaseMaterialCellEditor,
-          cellEditorParams: {
-            options: materialOptions,
+    return [
+      {
+        field: "itemId",
+        headerName: "Material",
+        headerTooltip: PURCHASE_MATERIAL_TOOLTIP,
+        minWidth: 220,
+        flex: 1.55,
+        editable: true,
+        cellEditor: PurchaseMaterialCellEditor,
+        cellEditorParams: {
+          options: materialOptions,
+        },
+        valueSetter: (
+          params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
+        ) => {
+          const materialId = normalizeGridText(params.newValue);
+          const material = materialMap.get(materialId);
+          params.data.itemId = materialId;
+          params.data.unitCost = material?.defaultPurchasePrice ?? "0";
+          params.data.accountingPurchaseAccountCode =
+            material?.accountingPurchaseAccountCode ?? null;
+          return true;
+        },
+        cellRenderer: (
+          params: ICellRendererParams<PurchaseOrderLineGridRow>,
+        ) => <PurchaseMaterialCell {...params} materialMap={materialMap} />,
+        cellClassRules: {
+          "erp-editable-grid-cell-error": hasCellError("itemId"),
+        },
+        tooltipValueGetter: cellTooltip("itemId"),
+      },
+      {
+        field: "quantityOrdered",
+        headerName: "Ordered Qty",
+        headerTooltip: PO_ORDERED_QTY_TOOLTIP,
+        minWidth: 116,
+        flex: 0.5,
+        editable: true,
+        cellEditor: "agTextCellEditor",
+        valueSetter: (
+          params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
+        ) => {
+          params.data.quantityOrdered = normalizeNullableGridText(
+            params.newValue,
+          );
+          return true;
+        },
+        cellEditorParams: {
+          getValidationErrors: ({
+            value,
+            cellEditorParams,
+          }: {
+            value: string | null | undefined;
+            cellEditorParams: ICellEditorParams<PurchaseOrderLineGridRow>;
+          }) => {
+            const row = {
+              ...cellEditorParams.data,
+              quantityOrdered: normalizeNullableGridText(value),
+            };
+            if (isBlankPurchaseOrderLine(row)) return null;
+            const parsed = Number(row.quantityOrdered);
+            return Number.isFinite(parsed) && parsed > 0
+              ? null
+              : ["Quantity must be greater than 0"];
           },
-          valueSetter: (params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>) => {
-            const materialId = normalizeGridText(params.newValue);
-            const material = materialMap.get(materialId);
-            params.data.itemId = materialId;
-            params.data.unitCost = material?.defaultPurchasePrice ?? "0";
-            params.data.accountingPurchaseAccountCode =
-              material?.accountingPurchaseAccountCode ?? null;
-            return true;
+        },
+        cellClass: "num",
+        cellClassRules: {
+          "erp-editable-grid-cell-error": hasCellError("quantityOrdered"),
+        },
+        tooltipValueGetter: cellTooltip("quantityOrdered"),
+      },
+      {
+        colId: "purchaseUnit",
+        headerName: "UoM",
+        headerTooltip: PURCHASE_UNIT_TOOLTIP,
+        minWidth: 118,
+        flex: 0.55,
+        cellRenderer: (
+          params: ICellRendererParams<PurchaseOrderLineGridRow>,
+        ) => <PurchaseUnitCell {...params} materialMap={materialMap} />,
+      },
+      {
+        field: "unitCost",
+        headerName: "Unit Cost",
+        headerTooltip: PURCHASE_UNIT_COST_TOOLTIP,
+        minWidth: 128,
+        flex: 0.55,
+        editable: true,
+        cellEditor: "agTextCellEditor",
+        valueSetter: (
+          params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
+        ) => {
+          params.data.unitCost = normalizeNullableGridText(params.newValue);
+          return true;
+        },
+        cellEditorParams: {
+          getValidationErrors: ({
+            value,
+            cellEditorParams,
+          }: {
+            value: string | null | undefined;
+            cellEditorParams: ICellEditorParams<PurchaseOrderLineGridRow>;
+          }) => {
+            const row = {
+              ...cellEditorParams.data,
+              unitCost: normalizeNullableGridText(value),
+            };
+            if (isBlankPurchaseOrderLine(row)) return null;
+            const text = row.unitCost?.trim() ?? "";
+            if (!text) return ["Unit cost is required"];
+            const parsed = Number(text);
+            return Number.isFinite(parsed) && parsed >= 0
+              ? null
+              : ["Unit cost must be 0 or greater"];
           },
-          cellRenderer: (params: ICellRendererParams<PurchaseOrderLineGridRow>) => (
-            <PurchaseMaterialCell {...params} materialMap={materialMap} />
+        },
+        valueFormatter: ({ value }) =>
+          value == null || value === "" ? "" : (formatPrice(value) ?? value),
+        cellClass: "num",
+        cellClassRules: {
+          "erp-editable-grid-cell-error": hasCellError("unitCost"),
+        },
+        tooltipValueGetter: cellTooltip("unitCost"),
+      },
+      {
+        colId: "landedUnit",
+        headerName: "Landed/Unit",
+        headerTooltip: PURCHASE_LANDED_UNIT_TOOLTIP,
+        minWidth: 136,
+        flex: 0.7,
+        cellRenderer: (
+          params: ICellRendererParams<PurchaseOrderLineGridRow>,
+        ) => (
+          <PurchaseLandedUnitCell
+            {...params}
+            materialMap={materialMap}
+            landedCosts={landedCostPreview.lines}
+          />
+        ),
+      },
+      {
+        field: "accountingPurchaseAccountCode",
+        headerName: "Account",
+        headerTooltip: PURCHASE_ACCOUNT_TOOLTIP,
+        minWidth: 132,
+        flex: 0.55,
+        editable: true,
+        cellEditor: "agSelectCellEditor",
+        cellEditorParams: {
+          values: ["", ...xeroAccounts.map((account) => account.code)],
+          openEditorOnStart: true,
+        },
+        valueFormatter: ({ value }) => {
+          if (!value) return "";
+          const account = xeroAccountsByCode.get(value);
+          return account ? `${account.code} - ${account.name}` : value;
+        },
+        valueSetter: (
+          params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
+        ) => {
+          params.data.accountingPurchaseAccountCode = normalizeNullableGridText(
+            params.newValue,
+          );
+          return true;
+        },
+        cellClassRules: {
+          "erp-editable-grid-cell-error": hasCellError(
+            "accountingPurchaseAccountCode",
           ),
-          cellClassRules: {
-            "erp-editable-grid-cell-error": hasCellError("itemId"),
-          },
-          tooltipValueGetter: cellTooltip("itemId"),
         },
-        {
-          field: "quantityOrdered",
-          headerName: "Ordered Qty",
-          headerTooltip: PO_ORDERED_QTY_TOOLTIP,
-          minWidth: 116,
-          flex: 0.5,
-          editable: true,
-          cellEditor: "agTextCellEditor",
-          valueSetter: (params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>) => {
-            params.data.quantityOrdered = normalizeNullableGridText(params.newValue);
-            return true;
-          },
-          cellEditorParams: {
-            getValidationErrors: ({
-              value,
-              cellEditorParams,
-            }: {
-              value: string | null | undefined;
-              cellEditorParams: ICellEditorParams<PurchaseOrderLineGridRow>;
-            }) => {
-              const row = {
-                ...cellEditorParams.data,
-                quantityOrdered: normalizeNullableGridText(value),
-              };
-              if (isBlankPurchaseOrderLine(row)) return null;
-              const parsed = Number(row.quantityOrdered);
-              return Number.isFinite(parsed) && parsed > 0
-                ? null
-                : ["Quantity must be greater than 0"];
-            },
-          },
-          cellClass: "num",
-          cellClassRules: {
-            "erp-editable-grid-cell-error": hasCellError("quantityOrdered"),
-          },
-          tooltipValueGetter: cellTooltip("quantityOrdered"),
-        },
-        {
-          colId: "purchaseUnit",
-          headerName: "UoM",
-          headerTooltip: PURCHASE_UNIT_TOOLTIP,
-          minWidth: 118,
-          flex: 0.55,
-          cellRenderer: (params: ICellRendererParams<PurchaseOrderLineGridRow>) => (
-            <PurchaseUnitCell {...params} materialMap={materialMap} />
-          ),
-        },
-        {
-          field: "unitCost",
-          headerName: "Unit Cost",
-          headerTooltip: PURCHASE_UNIT_COST_TOOLTIP,
-          minWidth: 128,
-          flex: 0.55,
-          editable: true,
-          cellEditor: "agTextCellEditor",
-          valueSetter: (params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>) => {
-            params.data.unitCost = normalizeNullableGridText(params.newValue);
-            return true;
-          },
-          cellEditorParams: {
-            getValidationErrors: ({
-              value,
-              cellEditorParams,
-            }: {
-              value: string | null | undefined;
-              cellEditorParams: ICellEditorParams<PurchaseOrderLineGridRow>;
-            }) => {
-              const row = {
-                ...cellEditorParams.data,
-                unitCost: normalizeNullableGridText(value),
-              };
-              if (isBlankPurchaseOrderLine(row)) return null;
-              const text = row.unitCost?.trim() ?? "";
-              if (!text) return ["Unit cost is required"];
-              const parsed = Number(text);
-              return Number.isFinite(parsed) && parsed >= 0
-                ? null
-                : ["Unit cost must be 0 or greater"];
-            },
-          },
-          valueFormatter: ({ value }) =>
-            value == null || value === "" ? "" : (formatPrice(value) ?? value),
-          cellClass: "num",
-          cellClassRules: {
-            "erp-editable-grid-cell-error": hasCellError("unitCost"),
-          },
-          tooltipValueGetter: cellTooltip("unitCost"),
-        },
-        {
-          colId: "landedUnit",
-          headerName: "Landed/Unit",
-          headerTooltip: PURCHASE_LANDED_UNIT_TOOLTIP,
-          minWidth: 136,
-          flex: 0.7,
-          cellRenderer: (params: ICellRendererParams<PurchaseOrderLineGridRow>) => (
-            <PurchaseLandedUnitCell
-              {...params}
-              materialMap={materialMap}
-              landedCosts={landedCostPreview.lines}
-            />
-          ),
-        },
-        {
-          field: "accountingPurchaseAccountCode",
-          headerName: "Account",
-          headerTooltip: PURCHASE_ACCOUNT_TOOLTIP,
-          minWidth: 132,
-          flex: 0.55,
-          editable: true,
-          cellEditor: "agSelectCellEditor",
-          cellEditorParams: {
-            values: ["", ...xeroAccounts.map((account) => account.code)],
-            openEditorOnStart: true,
-          },
-          valueFormatter: ({ value }) => {
-            if (!value) return "";
-            const account = xeroAccountsByCode.get(value);
-            return account ? `${account.code} - ${account.name}` : value;
-          },
-          valueSetter: (params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>) => {
-            params.data.accountingPurchaseAccountCode =
-              normalizeNullableGridText(params.newValue);
-            return true;
-          },
-          cellClassRules: {
-            "erp-editable-grid-cell-error": hasCellError("accountingPurchaseAccountCode"),
-          },
-          tooltipValueGetter: cellTooltip("accountingPurchaseAccountCode"),
-        },
-        {
-          colId: "lineTotal",
-          headerName: "Line Total",
-          headerTooltip: PO_LINE_TOTAL_TOOLTIP,
-          minWidth: 128,
-          flex: 0.55,
-          cellRenderer: PurchaseLineTotalCell,
-        },
-      ];
-    },
-    [
-      form.formState.errors.lines,
-      landedCostPreview.lines,
-      lineGridRows,
-      materialMap,
-      materialOptions,
-      xeroAccounts,
-      xeroAccountsByCode,
-    ]
-  );
+        tooltipValueGetter: cellTooltip("accountingPurchaseAccountCode"),
+      },
+      {
+        colId: "lineTotal",
+        headerName: "Line Total",
+        headerTooltip: PO_LINE_TOTAL_TOOLTIP,
+        minWidth: 128,
+        flex: 0.55,
+        cellRenderer: PurchaseLineTotalCell,
+      },
+    ];
+  }, [
+    form.formState.errors.lines,
+    landedCostPreview.lines,
+    lineGridRows,
+    materialMap,
+    materialOptions,
+    xeroAccounts,
+    xeroAccountsByCode,
+  ]);
   const handleLineRowsChange = useCallback(
     (rows: PurchaseOrderLineGridRow[]) => {
       setLineGridRows(rows);
-      const dirty = comparablePurchaseOrderLines(rows) !== initialLineComparable;
+      const dirty =
+        comparablePurchaseOrderLines(rows) !== initialLineComparable;
       form.setValue("lines", toPurchaseOrderLinePayloadRows(rows), {
         shouldDirty: dirty,
         shouldTouch: false,
         shouldValidate: false,
       });
     },
-    [form, initialLineComparable]
+    [form, initialLineComparable],
   );
   const createLineRow = useCallback(() => createPurchaseOrderLineRow(), []);
   const getLineRowId = useCallback(
     (row: PurchaseOrderLineGridRow) => row.clientRowId,
-    []
+    [],
   );
-  const additionalCostColumns = useMemo<ColDef<PurchaseOrderAdditionalCostGridRow>[]>(
-    () => {
-      const nonBlankRows = additionalCostGridRows.filter(
-        (row) => !isBlankPurchaseOrderAdditionalCost(row)
+  const additionalCostColumns = useMemo<
+    ColDef<PurchaseOrderAdditionalCostGridRow>[]
+  >(() => {
+    const nonBlankRows = additionalCostGridRows.filter(
+      (row) => !isBlankPurchaseOrderAdditionalCost(row),
+    );
+    const rowErrorIndex = (row: PurchaseOrderAdditionalCostGridRow) =>
+      nonBlankRows.findIndex(
+        (current) => current.clientRowId === row.clientRowId,
       );
-      const rowErrorIndex = (row: PurchaseOrderAdditionalCostGridRow) =>
-        nonBlankRows.findIndex((current) => current.clientRowId === row.clientRowId);
-      const hasCellError =
-        (key: PurchaseOrderAdditionalCostColumnKey) =>
-        (params: CellClassParams<PurchaseOrderAdditionalCostGridRow>) => {
-          if (!params.data) return false;
-          const index = rowErrorIndex(params.data);
-          return index >= 0
-            ? Boolean(
-                getPurchaseOrderAdditionalCostCellError(
-                  form.formState.errors.additionalCosts,
-                  index,
-                  key
-                )
-              )
-            : false;
-        };
-      const cellTooltip =
-        (key: PurchaseOrderAdditionalCostColumnKey) =>
-        ({ data }: { data?: PurchaseOrderAdditionalCostGridRow }) => {
-          if (!data) return null;
-          const index = rowErrorIndex(data);
-          return index >= 0
-            ? getPurchaseOrderAdditionalCostCellError(
+    const hasCellError =
+      (key: PurchaseOrderAdditionalCostColumnKey) =>
+      (params: CellClassParams<PurchaseOrderAdditionalCostGridRow>) => {
+        if (!params.data) return false;
+        const index = rowErrorIndex(params.data);
+        return index >= 0
+          ? Boolean(
+              getPurchaseOrderAdditionalCostCellError(
                 form.formState.errors.additionalCosts,
                 index,
-                key
-              )
-            : null;
-        };
+                key,
+              ),
+            )
+          : false;
+      };
+    const cellTooltip =
+      (key: PurchaseOrderAdditionalCostColumnKey) =>
+      ({ data }: { data?: PurchaseOrderAdditionalCostGridRow }) => {
+        if (!data) return null;
+        const index = rowErrorIndex(data);
+        return index >= 0
+          ? getPurchaseOrderAdditionalCostCellError(
+              form.formState.errors.additionalCosts,
+              index,
+              key,
+            )
+          : null;
+      };
 
-      return [
-        {
-          field: "costType",
-          headerName: "Cost",
-          headerTooltip: PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP,
-          minWidth: 128,
-          flex: 0.75,
-          editable: true,
-          cellEditor: "agSelectCellEditor",
-          cellEditorParams: {
-            values: Object.keys(ADDITIONAL_COST_TYPE_LABELS),
-            openEditorOnStart: true,
-          },
-          valueFormatter: ({
-            value,
-          }: ValueFormatterParams<
+    return [
+      {
+        field: "costType",
+        headerName: "Cost",
+        headerTooltip: PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP,
+        minWidth: 128,
+        flex: 0.75,
+        editable: true,
+        cellEditor: "agSelectCellEditor",
+        cellEditorParams: {
+          values: Object.keys(ADDITIONAL_COST_TYPE_LABELS),
+          openEditorOnStart: true,
+        },
+        valueFormatter: ({
+          value,
+        }: ValueFormatterParams<
+          PurchaseOrderAdditionalCostGridRow,
+          PurchaseOrderAdditionalCostType
+        >) => ADDITIONAL_COST_TYPE_LABELS[value ?? "shipping"],
+        valueSetter: (
+          params: ValueSetterParams<
             PurchaseOrderAdditionalCostGridRow,
             PurchaseOrderAdditionalCostType
-          >) => ADDITIONAL_COST_TYPE_LABELS[value ?? "shipping"],
-          valueSetter: (
-            params: ValueSetterParams<
-              PurchaseOrderAdditionalCostGridRow,
-              PurchaseOrderAdditionalCostType
-            >
-          ) => {
-            params.data.costType = params.newValue ?? "shipping";
-            return true;
-          },
+          >,
+        ) => {
+          params.data.costType = params.newValue ?? "shipping";
+          return true;
         },
-        {
-          field: "reference",
-          headerName: "Reference",
-          headerTooltip: PURCHASE_COST_REFERENCE_TOOLTIP,
-          minWidth: 172,
-          flex: 1.25,
-          editable: true,
-          cellEditor: "agTextCellEditor",
-          valueSetter: (params: ValueSetterParams<PurchaseOrderAdditionalCostGridRow, string | null>) => {
-            params.data.reference = normalizeNullableGridText(params.newValue);
-            return true;
-          },
-          valueFormatter: ({ value }) => value ?? "",
+      },
+      {
+        field: "reference",
+        headerName: "Reference",
+        headerTooltip: PURCHASE_COST_REFERENCE_TOOLTIP,
+        minWidth: 172,
+        flex: 1.25,
+        editable: true,
+        cellEditor: "agTextCellEditor",
+        valueSetter: (
+          params: ValueSetterParams<
+            PurchaseOrderAdditionalCostGridRow,
+            string | null
+          >,
+        ) => {
+          params.data.reference = normalizeNullableGridText(params.newValue);
+          return true;
         },
-        {
-          field: "distributionMethod",
-          headerName: "Distribution",
-          headerTooltip: PURCHASE_COST_DISTRIBUTION_TOOLTIP,
-          minWidth: 148,
-          flex: 0.8,
-          editable: true,
-          cellEditor: "agSelectCellEditor",
-          cellEditorParams: {
-            values: Object.keys(ADDITIONAL_COST_DISTRIBUTION_LABELS),
-            openEditorOnStart: true,
-          },
-          valueFormatter: ({
-            value,
-          }: ValueFormatterParams<
+        valueFormatter: ({ value }) => value ?? "",
+      },
+      {
+        field: "distributionMethod",
+        headerName: "Distribution",
+        headerTooltip: PURCHASE_COST_DISTRIBUTION_TOOLTIP,
+        minWidth: 148,
+        flex: 0.8,
+        editable: true,
+        cellEditor: "agSelectCellEditor",
+        cellEditorParams: {
+          values: Object.keys(ADDITIONAL_COST_DISTRIBUTION_LABELS),
+          openEditorOnStart: true,
+        },
+        valueFormatter: ({
+          value,
+        }: ValueFormatterParams<
+          PurchaseOrderAdditionalCostGridRow,
+          PurchaseOrderAdditionalCostDistributionMethod
+        >) => ADDITIONAL_COST_DISTRIBUTION_LABELS[value ?? "by_value"],
+        valueSetter: (
+          params: ValueSetterParams<
             PurchaseOrderAdditionalCostGridRow,
             PurchaseOrderAdditionalCostDistributionMethod
-          >) => ADDITIONAL_COST_DISTRIBUTION_LABELS[value ?? "by_value"],
-          valueSetter: (
-            params: ValueSetterParams<
-              PurchaseOrderAdditionalCostGridRow,
-              PurchaseOrderAdditionalCostDistributionMethod
-            >
-          ) => {
-            params.data.distributionMethod = params.newValue ?? "by_value";
-            return true;
-          },
+          >,
+        ) => {
+          params.data.distributionMethod = params.newValue ?? "by_value";
+          return true;
         },
-        {
-          field: "accountingPurchaseAccountCode",
-          headerName: "Accounting Account",
-          headerTooltip: PURCHASE_ACCOUNT_TOOLTIP,
-          minWidth: 164,
-          flex: 0.95,
-          editable: true,
-          cellEditor: "agSelectCellEditor",
-          cellEditorParams: {
-            values: ["", ...xeroAccounts.map((account) => account.code)],
-            openEditorOnStart: true,
-          },
-          valueFormatter: ({ value }) => {
-            if (!value) return "";
-            const account = xeroAccountsByCode.get(value);
-            return account ? `${account.code} - ${account.name}` : value;
-          },
-          valueSetter: (params: ValueSetterParams<PurchaseOrderAdditionalCostGridRow, string | null>) => {
-            params.data.accountingPurchaseAccountCode =
-              normalizeNullableGridText(params.newValue);
-            return true;
-          },
+      },
+      {
+        field: "accountingPurchaseAccountCode",
+        headerName: "Accounting Account",
+        headerTooltip: PURCHASE_ACCOUNT_TOOLTIP,
+        minWidth: 164,
+        flex: 0.95,
+        editable: true,
+        cellEditor: "agSelectCellEditor",
+        cellEditorParams: {
+          values: ["", ...xeroAccounts.map((account) => account.code)],
+          openEditorOnStart: true,
         },
-        {
-          field: "amount",
-          headerName: "Amount",
-          headerTooltip: PURCHASE_COST_AMOUNT_TOOLTIP,
-          minWidth: 128,
-          flex: 0.65,
-          editable: true,
-          cellEditor: "agTextCellEditor",
-          valueSetter: (params: ValueSetterParams<PurchaseOrderAdditionalCostGridRow, string | null>) => {
-            const parsed = parseNonNegative(normalizeGridText(params.newValue));
-            params.data.amount = parsed == null ? normalizeNullableGridText(params.newValue) : normalizeMoney(parsed);
-            return true;
-          },
-          cellEditorParams: {
-            getValidationErrors: ({
+        valueFormatter: ({ value }) => {
+          if (!value) return "";
+          const account = xeroAccountsByCode.get(value);
+          return account ? `${account.code} - ${account.name}` : value;
+        },
+        valueSetter: (
+          params: ValueSetterParams<
+            PurchaseOrderAdditionalCostGridRow,
+            string | null
+          >,
+        ) => {
+          params.data.accountingPurchaseAccountCode = normalizeNullableGridText(
+            params.newValue,
+          );
+          return true;
+        },
+      },
+      {
+        field: "amount",
+        headerName: "Amount",
+        headerTooltip: PURCHASE_COST_AMOUNT_TOOLTIP,
+        minWidth: 128,
+        flex: 0.65,
+        editable: true,
+        cellEditor: "agTextCellEditor",
+        valueSetter: (
+          params: ValueSetterParams<
+            PurchaseOrderAdditionalCostGridRow,
+            string | null
+          >,
+        ) => {
+          const parsed = parseNonNegative(normalizeGridText(params.newValue));
+          params.data.amount =
+            parsed == null
+              ? normalizeNullableGridText(params.newValue)
+              : normalizeMoney(parsed);
+          return true;
+        },
+        cellEditorParams: {
+          getValidationErrors: ({
+            value,
+            cellEditorParams,
+          }: {
+            value: string | null | undefined;
+            cellEditorParams: ICellEditorParams<PurchaseOrderAdditionalCostGridRow>;
+          }) => {
+            const row = {
+              ...cellEditorParams.data,
+              amount: normalizeNullableGridText(value),
+            };
+            if (isBlankPurchaseOrderAdditionalCost(row)) return null;
+            return validateNonNegativeMoneyCell(
               value,
-              cellEditorParams,
-            }: {
-              value: string | null | undefined;
-              cellEditorParams: ICellEditorParams<PurchaseOrderAdditionalCostGridRow>;
-            }) => {
-              const row = {
-                ...cellEditorParams.data,
-                amount: normalizeNullableGridText(value),
-              };
-              if (isBlankPurchaseOrderAdditionalCost(row)) return null;
-              return validateNonNegativeMoneyCell(
-                value,
-                row.amount ? "Amount must be 0 or greater" : "Amount is required"
-              );
-            },
+              row.amount ? "Amount must be 0 or greater" : "Amount is required",
+            );
           },
-          valueFormatter: ({ value }) =>
-            value == null || value === "" ? "" : (formatPrice(value) ?? value),
-          cellClass: "num",
-          cellClassRules: {
-            "erp-editable-grid-cell-error": hasCellError("amount"),
-          },
-          tooltipValueGetter: cellTooltip("amount"),
         },
-      ];
-    },
-    [
-      additionalCostGridRows,
-      form.formState.errors.additionalCosts,
-      xeroAccounts,
-      xeroAccountsByCode,
-    ]
-  );
+        valueFormatter: ({ value }) =>
+          value == null || value === "" ? "" : (formatPrice(value) ?? value),
+        cellClass: "num",
+        cellClassRules: {
+          "erp-editable-grid-cell-error": hasCellError("amount"),
+        },
+        tooltipValueGetter: cellTooltip("amount"),
+      },
+    ];
+  }, [
+    additionalCostGridRows,
+    form.formState.errors.additionalCosts,
+    xeroAccounts,
+    xeroAccountsByCode,
+  ]);
   const handleAdditionalCostRowsChange = useCallback(
     (rows: PurchaseOrderAdditionalCostGridRow[]) => {
       setAdditionalCostGridRows(rows);
       const dirty =
-        comparablePurchaseOrderAdditionalCosts(rows) !== initialAdditionalCostComparable;
-      form.setValue("additionalCosts", toPurchaseOrderAdditionalCostPayloadRows(rows), {
-        shouldDirty: dirty,
-        shouldTouch: false,
-        shouldValidate: false,
-      });
+        comparablePurchaseOrderAdditionalCosts(rows) !==
+        initialAdditionalCostComparable;
+      form.setValue(
+        "additionalCosts",
+        toPurchaseOrderAdditionalCostPayloadRows(rows),
+        {
+          shouldDirty: dirty,
+          shouldTouch: false,
+          shouldValidate: false,
+        },
+      );
     },
-    [form, initialAdditionalCostComparable]
+    [form, initialAdditionalCostComparable],
   );
   const createAdditionalCostRow = useCallback(
     () => createPurchaseOrderAdditionalCostRow(),
-    []
+    [],
   );
   const getAdditionalCostRowId = useCallback(
     (row: PurchaseOrderAdditionalCostGridRow) => row.clientRowId,
-    []
+    [],
   );
 
   const savePurchaseOrder = useCallback(
@@ -1365,7 +1441,7 @@ export function PurchaseOrderForm({
           method: orderId ? "PUT" : "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(values),
-        }
+        },
       );
 
       const body = await response.json().catch(() => null);
@@ -1383,7 +1459,7 @@ export function PurchaseOrderForm({
       await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
       return result;
     },
-    [queryClient]
+    [queryClient],
   );
 
   const mutation = useMutation({
@@ -1439,13 +1515,7 @@ export function PurchaseOrderForm({
   });
 
   const uploadFileMutation = useMutation({
-    mutationFn: async ({
-      orderId,
-      file,
-    }: {
-      orderId: string;
-      file: File;
-    }) => {
+    mutationFn: async ({ orderId, file }: { orderId: string; file: File }) => {
       const formData = new FormData();
       formData.set("file", file);
       const response = await fetch(`/api/purchase-orders/${orderId}/files`, {
@@ -1473,7 +1543,7 @@ export function PurchaseOrderForm({
       if (!savedOrderId) throw new Error("Save the purchase order first.");
       const response = await fetch(
         `/api/purchase-orders/${savedOrderId}/files/${fileId}`,
-        { method: "DELETE" }
+        { method: "DELETE" },
       );
       const body = await response.json().catch(() => null);
 
@@ -1489,6 +1559,26 @@ export function PurchaseOrderForm({
       void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
     },
     onError: (error: Error) => setFileActionError(error.message),
+  });
+  const duplicateMutation = useMutation({
+    mutationFn: async () => {
+      if (!savedOrderId) throw new Error("Save the purchase order first.");
+      const response = await fetch(`/api/purchase-orders/${savedOrderId}/duplicate`, {
+        method: "POST",
+      });
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to duplicate purchase order.");
+      }
+
+      return body as { id: string };
+    },
+    onSuccess: async (order) => {
+      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      router.push(`/purchasing/orders/${order.id}`);
+    },
+    onError: (error: Error) => setFormError(error.message),
   });
 
   const ensureSavedOrder = async () => {
@@ -1517,7 +1607,7 @@ export function PurchaseOrderForm({
       setFileActionError(
         error instanceof Error
           ? error.message
-          : "Save the purchase order before uploading files."
+          : "Save the purchase order before uploading files.",
       );
     }
   };
@@ -1530,11 +1620,14 @@ export function PurchaseOrderForm({
       id: string | null;
       values: AddressDialogValues;
     }) => {
-      const response = await fetch(id ? `/api/addresses/${id}` : "/api/addresses", {
-        method: id ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      });
+      const response = await fetch(
+        id ? `/api/addresses/${id}` : "/api/addresses",
+        {
+          method: id ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(values),
+        },
+      );
       const body = await response.json().catch(() => null);
 
       if (!response.ok) {
@@ -1552,7 +1645,9 @@ export function PurchaseOrderForm({
 
       setDeliveryAddressOptions((current) => {
         const existing = current.filter((row) => row.id !== option.id);
-        return [...existing, option].sort((a, b) => a.label.localeCompare(b.label));
+        return [...existing, option].sort((a, b) =>
+          a.label.localeCompare(b.label),
+        );
       });
       applyDeliveryAddress(option);
       setAddressDialogState(null);
@@ -1563,12 +1658,14 @@ export function PurchaseOrderForm({
   const handleCancel = useSmartBack(fallbackPath);
   const handleInvalidSubmit = (errors: typeof form.formState.errors) => {
     setFormError(
-      getFirstFormErrorMessage(errors) ?? "Fix the highlighted fields."
+      getFirstFormErrorMessage(errors) ?? "Fix the highlighted fields.",
     );
   };
 
   const applyDeliveryAddress = (address: DeliveryAddressFields | null) => {
-    const nextAddress = address ? normalizeDeliveryAddress(address) : EMPTY_DELIVERY_ADDRESS;
+    const nextAddress = address
+      ? normalizeDeliveryAddress(address)
+      : EMPTY_DELIVERY_ADDRESS;
     form.setValue("shipLine1", nextAddress.shipLine1, {
       shouldDirty: true,
       shouldValidate: true,
@@ -1632,7 +1729,9 @@ export function PurchaseOrderForm({
       "Address";
     let label = baseLabel;
     if (!values.label.trim()) {
-      const labels = new Set(deliveryAddressOptions.map((option) => option.label));
+      const labels = new Set(
+        deliveryAddressOptions.map((option) => option.label),
+      );
       let suffix = 2;
       while (labels.has(label)) {
         label = `${baseLabel} (${suffix})`;
@@ -1647,31 +1746,11 @@ export function PurchaseOrderForm({
 
   const linesError = getFieldArrayError(form.formState.errors.lines);
   const additionalCostsError = getFieldArrayError(
-    form.formState.errors.additionalCosts
+    form.formState.errors.additionalCosts,
   );
   const selectedSupplier = supplierOptionsSorted.find(
-    (supplier) => supplier.id === watchedSupplierId
+    (supplier) => supplier.id === watchedSupplierId,
   );
-  const deliveryAddressSummaries = useMemo(() => {
-    const option = makeDeliveryAddressOption(form.getValues());
-    if (!option) return [];
-    return [
-      {
-        key: option.id,
-        contactName: option.shipContactName,
-        contactPhone: option.shipContactPhone,
-        addressLines: formatAddressLines({
-          line1: option.shipLine1,
-          line2: option.shipLine2,
-          city: option.shipCity,
-          region: option.shipRegion,
-          postcode: option.shipPostcode,
-          country: option.shipCountry,
-        }),
-        deliveryInstructions: option.shipDeliveryInstructions,
-      },
-    ];
-  }, [form]);
   const currentDeliveryAddress: DeliveryAddressFields = {
     shipLine1: watchedDeliveryAddress?.[0] ?? null,
     shipLine2: watchedDeliveryAddress?.[1] ?? null,
@@ -1688,18 +1767,52 @@ export function PurchaseOrderForm({
         : "Draft will auto-save"
       : autosave.message
     : "Add supplier and line to auto-save";
+  const displayStatus = initialData?.status ?? "draft";
+  const displayTitle =
+    orderTitle ??
+    selectedSupplier?.name ??
+    (isEditing
+      ? `Purchase Order ${savedOrderId?.slice(0, 8) ?? ""}`
+      : "New purchase order");
+  const statusEyebrow =
+    displayStatus === "draft" ? "New purchase order" : "Purchase order";
+  const materialColumns = lineColumns.map((column) => {
+    if (column.field === "itemId") return { ...column, headerName: "Item" };
+    if (column.field === "quantityOrdered")
+      return { ...column, headerName: "Quantity" };
+    if (column.field === "unitCost")
+      return { ...column, headerName: "Price per unit" };
+    if (column.colId === "lineTotal")
+      return { ...column, headerName: "Total price" };
+    if (column.colId === "landedUnit")
+      return { ...column, headerName: "Landed cost" };
+    return column;
+  });
 
   return (
-    <CreatePageShell>
-      <CreatePageHeader
-        eyebrow="Purchasing · Orders"
-        title={isEditing ? "Edit Purchase Order" : "Add Purchase Order"}
-        actions={
-          <>
+    <div className={styles.stage}>
+      <div className={styles.sheet}>
+        <header className={styles.header}>
+          <div className={styles.headerIdentity}>
+            <div className={styles.eyebrow}>{statusEyebrow}</div>
+            <div className={styles.titleRow}>
+              <h1 className={styles.title}>{displayTitle}</h1>
+              <PurchaseOrderStatusBadge status={displayStatus} />
+            </div>
+            <div className={styles.meta}>
+              <span>Supplier {selectedSupplier?.code ?? "not selected"}</span>
+              <span className={styles.metaDot} />
+              <span>
+                Expected {form.getValues("expectedDate") ?? "not set"}
+              </span>
+              <span className={styles.metaDot} />
+              <span className={styles.mono}>
+                Total {formatPrice(orderTotal.toFixed(4)) ?? "$0.00"}
+              </span>
+            </div>
+          </div>
+          <div className={styles.headerRight}>
             <AutosaveStatus state={autosaveState} message={autosaveMessage} />
-            <Button type="button" variant="outline" onClick={handleCancel}>
-              Cancel
-            </Button>
             <Button
               type="submit"
               form="purchase-order-form"
@@ -1710,254 +1823,295 @@ export function PurchaseOrderForm({
               }
             >
               {mutation.isPending
-                ? isEditing
-                  ? "Saving..."
-                  : "Creating..."
-                : isEditing
-                  ? "Save Changes"
-                  : "Create Order"}
+                ? "Saving..."
+                : displayStatus === "draft"
+                  ? "Send to supplier"
+                  : "Save changes"}
             </Button>
-          </>
-        }
-      />
-
-      {formError && <FieldError>{formError}</FieldError>}
-
-      <CreatePageGrid
-        sidebar={
-          <>
-            <CreateSidebarCard
-              title="Order summary"
-              footer={
-                <div className="flex w-full items-end justify-between gap-4">
-                  <div>
-                    <div className="text-xs uppercase text-muted-foreground">
-                      Order total
-                    </div>
-                    <div className="text-xs text-muted-foreground">USD</div>
-                  </div>
-                  <div className="font-mono text-xl font-semibold tabular-nums">
-                    {formatPrice(orderTotal.toFixed(4)) ?? "$0.00"}
-                  </div>
-                </div>
-              }
+            <button
+              type="button"
+              className={styles.iconBtn}
+              aria-label="Print"
+              title="Print"
+              onClick={() => window.print()}
             >
-              <SummaryRows
-                rows={[
+              <HugeiconsIcon icon={PrinterIcon} size={14} />
+            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className={styles.iconBtn}
+                  aria-label="More actions"
+                  title="More actions"
+                >
+                  <HugeiconsIcon icon={MoreVerticalIcon} size={14} />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                className="bg-popover text-popover-foreground"
+              >
+                <DropdownMenuItem
+                  disabled={!savedOrderId || duplicateMutation.isPending}
+                  onSelect={() => duplicateMutation.mutate()}
+                >
+                  Duplicate
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <button
+              type="button"
+              className={styles.iconBtn}
+              aria-label="Close"
+              onClick={handleCancel}
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={14} />
+            </button>
+          </div>
+        </header>
+
+        <div className={styles.body}>
+          {formError && (
+            <div className={styles.section}>
+              <FieldError>{formError}</FieldError>
+            </div>
+          )}
+
+          <form
+            id="purchase-order-form"
+            onSubmit={form.handleSubmit(
+              (values) => mutation.mutate(values),
+              handleInvalidSubmit,
+            )}
+          >
+            <section className={styles.section}>
+              <h2 className={styles.sectionHeading}>Order details</h2>
+              <EditableInfoGrid
+                fields={[
                   {
-                    label: `Materials subtotal (${lineCount} item${
-                      lineCount === 1 ? "" : "s"
-                    })`,
-                    value: formatPrice(materialsTotal.toFixed(4)) ?? "$0.00",
+                    id: "supplier",
+                    label: "Supplier",
+                    editable: true,
+                    renderEditor: () => (
+                      <Controller
+                        control={form.control}
+                        name="supplierId"
+                        render={({ field, fieldState }) => (
+                          <SupplierSelect
+                            suppliers={supplierOptionsSorted}
+                            value={field.value}
+                            onValueChange={(nextValue) =>
+                              field.onChange(nextValue ?? "")
+                            }
+                            errorMessage={fieldState.error?.message}
+                          />
+                        )}
+                      />
+                    ),
                   },
                   {
-                    label: "Landed cost adjustments",
-                    value:
-                      formatPrice(distributedAdditionalCostTotal.toFixed(4)) ??
-                      "$0.00",
+                    id: "expected-arrival",
+                    label: "Expected arrival",
+                    editable: true,
+                    renderEditor: () => (
+                      <Controller
+                        control={form.control}
+                        name="expectedDate"
+                        render={({ field, fieldState }) => (
+                          <Field data-invalid={fieldState.invalid}>
+                            <FieldLabel
+                              className={styles.compactLabel}
+                              htmlFor={field.name}
+                            >
+                              <TooltipHeader
+                                label="Expected arrival"
+                                tooltip={EXPECTED_DELIVERY_DATE_TOOLTIP}
+                              />
+                            </FieldLabel>
+                            <DatePicker
+                              id={field.name}
+                              value={field.value ?? ""}
+                              onChange={(value) =>
+                                field.onChange(value || null)
+                              }
+                              onBlur={field.onBlur}
+                              aria-invalid={fieldState.invalid}
+                            />
+                            {fieldState.invalid && (
+                              <FieldError errors={[fieldState.error]} />
+                            )}
+                          </Field>
+                        )}
+                      />
+                    ),
                   },
                   {
-                    label: "PO-only costs",
-                    value:
-                      formatPrice(nonDistributedAdditionalCostTotal.toFixed(4)) ??
-                      "$0.00",
+                    id: "order-total",
+                    label: "Order total",
+                    renderValue: () =>
+                      formatPrice(orderTotal.toFixed(4)) ?? "$0.00",
+                  },
+                  {
+                    id: "ship-to",
+                    label: "Ship-to",
+                    editable: true,
+                    renderEditor: () => (
+                      <DeliveryAddressInput
+                        id="purchase-order-delivery-address"
+                        value={currentDeliveryAddress}
+                        options={deliveryAddressOptions}
+                        onChange={applyDeliveryAddress}
+                        onAddNew={openAddressDialog}
+                        onEdit={openEditAddressDialog}
+                      />
+                    ),
+                  },
+                  {
+                    id: "ordered",
+                    label: "Ordered",
+                    renderValue: () =>
+                      displayStatus === "draft" ? "-" : "Recorded",
+                  },
+                  {
+                    id: "received",
+                    label: "Received",
+                    renderValue: () =>
+                      displayStatus === "received"
+                        ? "Complete"
+                        : displayStatus === "partial"
+                          ? "Partial"
+                          : "-",
                   },
                 ]}
+                columns={3}
               />
-            </CreateSidebarCard>
-            {selectedSupplier ? (
-              <CreateSidebarCard title="Selected supplier">
-                <div className="space-y-1">
-                  <div className="font-medium">{selectedSupplier.name}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {selectedSupplier.code ?? "No supplier code"}
-                  </div>
-                </div>
-              </CreateSidebarCard>
-            ) : null}
-            <CreateSidebarCard title="Delivery address">
-              {deliveryAddressSummaries.length > 0 ? (
-                <div className="space-y-3">
-                  {deliveryAddressSummaries.map((address) => (
-                    <div key={address.key} className="space-y-2 rounded-md border p-3">
-                      <div className="space-y-1 text-xs text-muted-foreground">
-                        {address.contactName ? (
-                          <div className="truncate">{address.contactName}</div>
-                        ) : null}
-                        {address.contactPhone ? (
-                          <div className="truncate">{address.contactPhone}</div>
-                        ) : null}
-                        {address.addressLines.map((line) => (
-                          <div key={line} className="truncate">
-                            {line}
-                          </div>
-                        ))}
-                        {address.deliveryInstructions ? (
-                          <div className="border-t pt-2 text-foreground">
-                            {address.deliveryInstructions}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  No delivery address selected.
-                </div>
-              )}
-            </CreateSidebarCard>
-          </>
-        }
-      >
-      <form
-        id="purchase-order-form"
-        onSubmit={form.handleSubmit(
-          (values) => mutation.mutate(values),
-          handleInvalidSubmit
-        )}
-      >
-        <FieldGroup className="gap-6">
-          <CreateSection
-            title="Order"
-          >
-            <FieldGroup>
-              <Controller
-                control={form.control}
-                name="supplierId"
-                render={({ field, fieldState }) => (
-                  <SupplierSelect
-                    suppliers={supplierOptionsSorted}
-                    value={field.value}
-                    onValueChange={(nextValue) => field.onChange(nextValue ?? "")}
-                    errorMessage={fieldState.error?.message}
-                  />
-                )}
-              />
-
-              <Controller
-                control={form.control}
-                name="expectedDate"
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor={field.name}>
-                      <TooltipHeader label="Expected Date" tooltip={EXPECTED_DELIVERY_DATE_TOOLTIP} />
-                    </FieldLabel>
-                    <DatePicker
-                      id={field.name}
-                      value={field.value ?? ""}
-                      onChange={(value) => field.onChange(value || null)}
-                      onBlur={field.onBlur}
-                      aria-invalid={fieldState.invalid}
-                    />
-                    {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                  </Field>
-                )}
-              />
-
-              <DeliveryAddressInput
-                id="purchase-order-delivery-address"
-                label={
-                  <TooltipHeader
-                    label="Delivery Address"
-                    tooltip={PURCHASE_DELIVERY_ADDRESS_TOOLTIP}
-                  />
-                }
-                value={currentDeliveryAddress}
-                options={deliveryAddressOptions}
-                onChange={applyDeliveryAddress}
-                onAddNew={openAddressDialog}
-                onEdit={openEditAddressDialog}
-              />
-
               <input type="hidden" {...form.register("shippingCost")} />
-            </FieldGroup>
-          </CreateSection>
+            </section>
 
-          <section className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-4 px-1">
-              <h2 className="text-base font-semibold">Materials</h2>
-              <span className="text-xs text-muted-foreground">
-                {lineCount} item{lineCount === 1 ? "" : "s"}
-              </span>
-            </div>
+            <section className={styles.section}>
+              <h2 className={styles.sectionHeading}>
+                Materials
+                <span className={styles.count}>· {lineCount}</span>
+              </h2>
               <EditableLineDataGrid
                 rows={lineGridRows}
-                columns={lineColumns}
+                columns={materialColumns}
                 getRowId={getLineRowId}
                 createRow={createLineRow}
                 onRowsChange={handleLineRowsChange}
                 addLabel="Add material"
+                rowHeight={42}
                 emptyMessage="No materials yet."
                 isBlankRow={isBlankPurchaseOrderLine}
                 error={linesError}
               />
-          </section>
+            </section>
 
-          <section className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-4 px-1">
-              <h2 className="text-base font-semibold">Additional Costs</h2>
-              <span className="text-xs text-muted-foreground">
-                {additionalCostCount} cost
-                {additionalCostCount === 1 ? "" : "s"}
-              </span>
-            </div>
-            <EditableLineDataGrid
-              rows={additionalCostGridRows}
-              columns={additionalCostColumns}
-              getRowId={getAdditionalCostRowId}
-              createRow={createAdditionalCostRow}
-              onRowsChange={handleAdditionalCostRowsChange}
-              addLabel="Add cost"
-              emptyMessage="No additional costs yet."
-              isBlankRow={isBlankPurchaseOrderAdditionalCost}
-              error={additionalCostsError}
-            />
-          </section>
+            <section className={styles.section}>
+              <h2 className={styles.sectionHeading}>
+                Additional costs
+                <span className={styles.count}>· {additionalCostCount}</span>
+              </h2>
+              <EditableLineDataGrid
+                rows={additionalCostGridRows}
+                columns={additionalCostColumns}
+                getRowId={getAdditionalCostRowId}
+                createRow={createAdditionalCostRow}
+                onRowsChange={handleAdditionalCostRowsChange}
+                addLabel="Add cost"
+                rowHeight={42}
+                emptyMessage="No additional costs yet."
+                isBlankRow={isBlankPurchaseOrderAdditionalCost}
+                error={additionalCostsError}
+              />
+            </section>
 
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.85fr)]">
-            <CreateSection title="Notes">
-              <FieldGroup>
-                <Controller
-                  control={form.control}
-                  name="notes"
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>Notes</FieldLabel>
-                      <Textarea
-                        {...field}
-                        id={field.name}
-                        value={field.value ?? ""}
-                        onChange={(event) => field.onChange(event.target.value || null)}
-                        aria-invalid={fieldState.invalid}
-                        rows={6}
-                      />
-                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                    </Field>
-                  )}
-                />
-              </FieldGroup>
-            </CreateSection>
-
-            <CreateSection
-              title={
-                <div className="flex items-center justify-between gap-3">
-                  <span>Attachments</span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={
-                      uploadFileMutation.isPending || autosave.state === "saving"
-                    }
-                  >
-                    <HugeiconsIcon icon={Upload01Icon} data-icon="inline-start" />
-                    Upload
-                  </Button>
+            <section className={styles.section}>
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+                <div className="space-y-3">
+                  <h2 className={styles.sectionHeading}>Notes</h2>
+                  <Controller
+                    control={form.control}
+                    name="notes"
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel
+                          className={styles.compactLabel}
+                          htmlFor={field.name}
+                        >
+                          Notes
+                        </FieldLabel>
+                        <Textarea
+                          {...field}
+                          id={field.name}
+                          value={field.value ?? ""}
+                          onChange={(event) =>
+                            field.onChange(event.target.value || null)
+                          }
+                          aria-invalid={fieldState.invalid}
+                          rows={6}
+                        />
+                        {fieldState.invalid && (
+                          <FieldError errors={[fieldState.error]} />
+                        )}
+                      </Field>
+                    )}
+                  />
                 </div>
-              }
-            >
+                <div className="border-l border-border pl-6">
+                  <h2 className={styles.sectionHeading}>Totals</h2>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Total units</span>
+                      <span className={styles.mono}>{lineCount}</span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">Subtotal</span>
+                      <span className={styles.mono}>
+                        {formatPrice(materialsTotal.toFixed(4)) ?? "$0.00"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span className="text-muted-foreground">
+                        Additional costs
+                      </span>
+                      <span className={styles.mono}>
+                        {formatPrice(
+                          (
+                            distributedAdditionalCostTotal +
+                            nonDistributedAdditionalCostTotal
+                          ).toFixed(4),
+                        ) ?? "$0.00"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-4 border-t border-border pt-2 font-semibold">
+                      <span>Total</span>
+                      <span className={styles.mono}>
+                        {formatPrice(orderTotal.toFixed(4)) ?? "$0.00"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className={styles.section}>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className={styles.sectionHeading}>Attachments</h2>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={
+                    uploadFileMutation.isPending || autosave.state === "saving"
+                  }
+                >
+                  <HugeiconsIcon icon={Upload01Icon} data-icon="inline-start" />
+                  Upload
+                </Button>
+              </div>
               <div className="space-y-3">
                 <input
                   ref={fileInputRef}
@@ -2034,11 +2188,10 @@ export function PurchaseOrderForm({
                   )}
                 </div>
               </div>
-            </CreateSection>
-          </div>
-        </FieldGroup>
-      </form>
-      </CreatePageGrid>
+            </section>
+          </form>
+        </div>
+      </div>
       <Dialog
         open={addressDialogState != null}
         onOpenChange={(open) => {
@@ -2057,7 +2210,8 @@ export function PurchaseOrderForm({
           >
             {addressMutation.error ? (
               <FieldError>
-                {(addressMutation.error as ApiError).error ?? "Failed to save address."}
+                {(addressMutation.error as ApiError).error ??
+                  "Failed to save address."}
               </FieldError>
             ) : null}
             <FieldGroup className="gap-4">
@@ -2075,7 +2229,9 @@ export function PurchaseOrderForm({
                       aria-invalid={fieldState.invalid}
                       autoComplete="organization"
                     />
-                    {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                    {fieldState.invalid && (
+                      <FieldError errors={[fieldState.error]} />
+                    )}
                   </Field>
                 )}
               />
@@ -2092,11 +2248,15 @@ export function PurchaseOrderForm({
                         {...field}
                         id="address-contact-name"
                         value={field.value ?? ""}
-                        onChange={(event) => field.onChange(event.target.value || null)}
+                        onChange={(event) =>
+                          field.onChange(event.target.value || null)
+                        }
                         aria-invalid={fieldState.invalid}
                         autoComplete="name"
                       />
-                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                      {fieldState.invalid && (
+                        <FieldError errors={[fieldState.error]} />
+                      )}
                     </Field>
                   )}
                 />
@@ -2112,11 +2272,15 @@ export function PurchaseOrderForm({
                         {...field}
                         id="address-contact-phone"
                         value={field.value ?? ""}
-                        onChange={(event) => field.onChange(event.target.value || null)}
+                        onChange={(event) =>
+                          field.onChange(event.target.value || null)
+                        }
                         aria-invalid={fieldState.invalid}
                         autoComplete="tel"
                       />
-                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                      {fieldState.invalid && (
+                        <FieldError errors={[fieldState.error]} />
+                      )}
                     </Field>
                   )}
                 />
@@ -2140,11 +2304,15 @@ export function PurchaseOrderForm({
                       {...field}
                       id="address-delivery-instructions"
                       value={field.value ?? ""}
-                      onChange={(event) => field.onChange(event.target.value || null)}
+                      onChange={(event) =>
+                        field.onChange(event.target.value || null)
+                      }
                       aria-invalid={fieldState.invalid}
                       rows={3}
                     />
-                    {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                    {fieldState.invalid && (
+                      <FieldError errors={[fieldState.error]} />
+                    )}
                   </Field>
                 )}
               />
@@ -2172,7 +2340,7 @@ export function PurchaseOrderForm({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </CreatePageShell>
+    </div>
   );
 }
 
@@ -2228,7 +2396,8 @@ function DeliveryAddressInput({
         }}
         itemToStringLabel={(itemId) => {
           if (itemId === ADD_DELIVERY_ADDRESS_VALUE) return "Add new address";
-          if (itemId === EDIT_DELIVERY_ADDRESS_VALUE) return "Edit selected address";
+          if (itemId === EDIT_DELIVERY_ADDRESS_VALUE)
+            return "Edit selected address";
           return optionMap.get(itemId)?.label ?? "";
         }}
       >
@@ -2260,7 +2429,9 @@ function DeliveryAddressInput({
               return (
                 <ComboboxItem key={itemId} value={itemId}>
                   <span className="flex min-w-0 flex-col">
-                    <span className="truncate">{optionMap.get(itemId)?.label}</span>
+                    <span className="truncate">
+                      {optionMap.get(itemId)?.label}
+                    </span>
                     {optionMap.get(itemId)?.shipContactName ? (
                       <span className="truncate text-xs text-muted-foreground">
                         {optionMap.get(itemId)?.shipContactName}
