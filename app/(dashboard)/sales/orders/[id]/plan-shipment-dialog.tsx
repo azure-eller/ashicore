@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -83,19 +83,49 @@ function makeFormState(
 }
 
 export function PlanShipmentDialog({ order, target, onClose }: PlanShipmentDialogProps) {
+  const dialogOpen = target != null;
+  // Remount the form when target identity changes so initial state stays in
+  // sync without an effect that calls setState.
+  const formKey =
+    target == null
+      ? "closed"
+      : target === "new"
+        ? "new"
+        : `edit-${target.id}`;
+
+  return (
+    <Dialog
+      open={dialogOpen}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent size="3xl" className="max-h-[calc(100vh-2rem)] overflow-y-auto">
+        {target ? (
+          <PlanShipmentDialogForm
+            key={formKey}
+            order={order}
+            target={target}
+            onClose={onClose}
+          />
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PlanShipmentDialogForm({
+  order,
+  target,
+  onClose,
+}: {
+  order: SalesOrderDetail;
+  target: "new" | SalesShipmentRow;
+  onClose: () => void;
+}) {
   const queryClient = useQueryClient();
-  const [form, setForm] = useState<FormState | null>(null);
-
-  useEffect(() => {
-    if (!target) {
-      setForm(null);
-      return;
-    }
-    setForm(makeFormState(target, order));
-  }, [target, order]);
-
-  const editingShipmentId =
-    target && target !== "new" ? target.id : null;
+  const [form, setForm] = useState<FormState>(() => makeFormState(target, order));
+  const editingShipmentId = target === "new" ? null : target.id;
 
   const mutation = useMutation({
     mutationKey: [
@@ -146,10 +176,8 @@ export function PlanShipmentDialog({ order, target, onClose }: PlanShipmentDialo
     },
   });
 
-  const dialogOpen = target != null;
   const isEdit = editingShipmentId != null;
   const hasPositiveQuantity = useMemo(() => {
-    if (!form) return false;
     return Object.values(form.quantities).some((value) => {
       const parsed = Number.parseFloat(value);
       return Number.isFinite(parsed) && parsed > 0;
@@ -157,28 +185,21 @@ export function PlanShipmentDialog({ order, target, onClose }: PlanShipmentDialo
   }, [form]);
 
   return (
-    <Dialog
-      open={dialogOpen}
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <DialogContent size="3xl" className="max-h-[calc(100vh-2rem)] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit shipment" : "Plan shipment"}</DialogTitle>
-          <DialogDescription>
-            The bill of lading is generated automatically when the shipment
-            ships.
-          </DialogDescription>
-        </DialogHeader>
-        {form ? (
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              mutation.mutate(form);
-            }}
-          >
+    <>
+      <DialogHeader>
+        <DialogTitle>{isEdit ? "Edit shipment" : "Plan shipment"}</DialogTitle>
+        <DialogDescription>
+          The bill of lading is generated automatically when the shipment
+          ships.
+        </DialogDescription>
+      </DialogHeader>
+      <form
+        className="space-y-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          mutation.mutate(form);
+        }}
+      >
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
                 <label className="text-sm font-medium">Fulfillment</label>
@@ -328,9 +349,7 @@ export function PlanShipmentDialog({ order, target, onClose }: PlanShipmentDialo
                     : "Plan shipment"}
               </Button>
             </DialogFooter>
-          </form>
-        ) : null}
-      </DialogContent>
-    </Dialog>
+      </form>
+    </>
   );
 }
