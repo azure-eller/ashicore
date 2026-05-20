@@ -84,6 +84,7 @@ export type ERPDataGridProps<TData extends { id: string }> = {
   resetRowDataOnUpdate?: boolean;
   columnHoverHighlight?: boolean;
   rowClassRules?: RowClassRules<TData>;
+  suppressColumnVirtualisation?: boolean;
   isFullWidthRow?: (row: TData) => boolean;
   fullWidthCellRenderer?: (row: TData) => ReactNode;
   getRowHeight?: (row: TData) => number | undefined | null;
@@ -198,6 +199,7 @@ export function ERPDataGrid<TData extends { id: string }>({
   resetRowDataOnUpdate = false,
   columnHoverHighlight = false,
   rowClassRules,
+  suppressColumnVirtualisation = false,
   isFullWidthRow,
   fullWidthCellRenderer,
   getRowHeight,
@@ -408,6 +410,7 @@ export function ERPDataGrid<TData extends { id: string }>({
           tooltipHideDelay={10000}
           tooltipShowMode="standard"
           columnHoverHighlight={columnHoverHighlight}
+          suppressColumnVirtualisation={suppressColumnVirtualisation}
           quickFilterText={enableQuickFilter ? searchValue : undefined}
           rowClassRules={rowClassRules}
           isFullWidthRow={

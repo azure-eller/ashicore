@@ -12,6 +12,7 @@ import {
   FilterHeaderButton,
   ServerFilterableHeader,
 } from "@/components/filterable-header";
+import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Field, FieldLabel } from "@/components/ui/field";
@@ -33,14 +34,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   Tooltip,
   TooltipContent,
@@ -689,6 +682,269 @@ export function LedgerTable({
     }, 300);
   };
 
+  const columns: ColDef<InventoryLedgerRow>[] = [
+    {
+      colId: "occurredAt",
+      minWidth: 170,
+      flex: 1,
+      headerComponent: () => (
+        <OccurredFilterHeader
+          dateFrom={initialFilters.dateFrom}
+          dateTo={initialFilters.dateTo}
+          onDateFromChange={(value) =>
+            updateColumnFilter({ dateFrom: value })
+          }
+          onDateToChange={(value) => updateColumnFilter({ dateTo: value })}
+          onClear={() =>
+            updateColumnFilter({
+              dateFrom: undefined,
+              dateTo: undefined,
+              timeZone: undefined,
+            })
+          }
+        />
+      ),
+      valueGetter: ({ data }) =>
+        data ? formatDateTime(data.occurredAt, displayTimeZone) : "",
+    },
+    {
+      colId: "item",
+      minWidth: 220,
+      flex: 1.3,
+      headerComponent: () => (
+        <SearchableFilterHeader
+          label="Item"
+          options={itemFilterOptions}
+          value={initialFilters.itemId}
+          inputLabel="Search item options"
+          placeholder="Search items..."
+          emptyMessage="No items found"
+          onValueChange={(value) =>
+            updateColumnFilter({
+              itemId: value,
+              itemType: undefined,
+            })
+          }
+        />
+      ),
+      valueGetter: ({ data }) => data?.item.displayName ?? "",
+      cellRenderer: ({ data }: { data?: InventoryLedgerRow }) =>
+        data ? (
+          <Link href={data.item.href} className="font-medium hover:underline">
+            {data.item.displayName}
+          </Link>
+        ) : null,
+    },
+    {
+      colId: "event",
+      minWidth: 180,
+      flex: 1,
+      headerComponent: () => (
+        <SearchableFilterHeader
+          label="Event"
+          tooltip={LEDGER_EVENT_TYPE_TOOLTIP}
+          options={EVENT_TYPE_FILTER_OPTIONS}
+          value={initialFilters.eventType}
+          inputLabel="Search event options"
+          placeholder="Search events..."
+          emptyMessage="No events found"
+          onValueChange={(value) =>
+            updateColumnFilter({
+              eventType: value as InventoryLedgerFilters["eventType"],
+              eventClasses: undefined,
+            })
+          }
+        />
+      ),
+      valueGetter: ({ data }) => data?.eventLabel ?? "",
+      cellClass: "font-medium",
+    },
+    {
+      colId: "movement",
+      minWidth: 150,
+      flex: 0.9,
+      headerComponent: () => (
+        <MultiSelectFilterHeader
+          label="Movement"
+          tooltip={LEDGER_MOVEMENT_TOOLTIP}
+          options={MOVEMENT_FILTER_OPTIONS}
+          values={initialFilters.eventClasses}
+          defaultValues={["stock"]}
+          onValuesChange={(values) =>
+            updateColumnFilter({
+              eventClasses: values as InventoryLedgerFilters["eventClasses"],
+              eventType: undefined,
+            })
+          }
+        />
+      ),
+      valueGetter: ({ data }) =>
+        data ? formatInventoryLedgerMovementCategory(data.eventClass) : "",
+    },
+    {
+      colId: "source",
+      minWidth: 210,
+      flex: 1.2,
+      headerComponent: () => (
+        <ServerFilterableHeader
+          label="Source"
+          tooltip={LEDGER_SOURCE_TOOLTIP}
+          options={DOCUMENT_TYPE_FILTER_OPTIONS}
+          value={initialFilters.documentType}
+          onValueChange={(value) =>
+            updateColumnFilter({
+              documentType: value as InventoryLedgerFilters["documentType"],
+              documentId: undefined,
+            })
+          }
+        />
+      ),
+      valueGetter: ({ data }) => data?.sourceDocument?.label ?? "",
+      cellRenderer: ({ data }: { data?: InventoryLedgerRow }) => {
+        const sourceDocument = data?.sourceDocument;
+        if (!sourceDocument) {
+          return <span className="text-muted-foreground">—</span>;
+        }
+
+        return sourceDocument.href ? (
+          <Link href={sourceDocument.href} className="hover:underline">
+            {sourceDocument.label}
+          </Link>
+        ) : (
+          sourceDocument.label
+        );
+      },
+    },
+    {
+      colId: "lot",
+      minWidth: 130,
+      flex: 0.8,
+      headerComponent: () => (
+        <TextFilterHeader
+          label="Lot"
+          tooltip={LEDGER_LOT_TOOLTIP}
+          value={initialFilters.lot}
+          inputLabel="Lot filter value"
+          placeholder="Lot number"
+          debounceRef={lotDebounceRef}
+          onInputChange={(value) =>
+            setLotState({
+              urlValue: initialLotValue,
+              value,
+            })
+          }
+          onValueChange={(value) => updateColumnFilter({ lot: value })}
+        />
+      ),
+      valueGetter: ({ data }) => data?.lot?.number ?? "",
+      cellClass: "font-mono",
+      cellRenderer: ({ data }: { data?: InventoryLedgerRow }) =>
+        data?.lot?.number ?? <span className="text-muted-foreground">—</span>,
+    },
+    {
+      colId: "change",
+      minWidth: 125,
+      flex: 0.75,
+      headerComponent: () => (
+        <TooltipHeader label="Change" tooltip={LEDGER_CHANGE_TOOLTIP} />
+      ),
+      cellClass: ({ data }) =>
+        cn(
+          "text-right font-mono",
+          data && parseFloat(data.signedQuantity) < 0 && "text-destructive"
+        ),
+      valueGetter: ({ data }) => {
+        if (!data || data.balanceDimension === "none") {
+          return "—";
+        }
+
+        const signedQuantity = parseFloat(data.signedQuantity);
+        return `${signedQuantity > 0 ? "+" : ""}${formatQuantity(
+          data.signedQuantity
+        )}`;
+      },
+    },
+    {
+      colId: "onHandBefore",
+      minWidth: 150,
+      flex: 0.85,
+      headerComponent: () => (
+        <TooltipHeader
+          label="On hand before"
+          tooltip={LEDGER_ON_HAND_BEFORE_TOOLTIP}
+        />
+      ),
+      cellClass: ({ data }) => {
+        const onHandBefore =
+          data?.onHandBefore == null ? null : parseFloat(data.onHandBefore);
+        return cn(
+          "text-right font-mono",
+          data?.onHandBefore == null && "text-muted-foreground",
+          onHandBefore != null && onHandBefore < 0 && "text-destructive"
+        );
+      },
+      valueGetter: ({ data }) => (data ? formatOnHandBefore(data) : "—"),
+    },
+    {
+      colId: "onHandAfter",
+      minWidth: 145,
+      flex: 0.85,
+      headerComponent: () => (
+        <TooltipHeader
+          label="On hand after"
+          tooltip={LEDGER_ON_HAND_AFTER_TOOLTIP}
+        />
+      ),
+      cellClass: ({ data }) => {
+        const onHandAfter =
+          data?.onHandAfter == null ? null : parseFloat(data.onHandAfter);
+        return cn(
+          "text-right font-mono",
+          data?.onHandAfter == null && "text-muted-foreground",
+          onHandAfter != null && onHandAfter < 0 && "text-destructive"
+        );
+      },
+      valueGetter: ({ data }) => (data ? formatOnHandAfter(data) : "—"),
+    },
+    {
+      colId: "valueChange",
+      minWidth: 140,
+      flex: 0.85,
+      headerComponent: () => (
+        <TooltipHeader
+          label="Value change"
+          tooltip={LEDGER_VALUE_CHANGE_TOOLTIP}
+        />
+      ),
+      cellClass: ({ data }) => {
+        const valueChange = data ? formatValueChange(data) : null;
+        return cn(
+          "text-right font-mono",
+          valueChange == null && "text-muted-foreground",
+          valueChange?.startsWith("-") && "text-destructive"
+        );
+      },
+      valueGetter: ({ data }) => (data ? formatValueChange(data) ?? "—" : "—"),
+    },
+    {
+      colId: "actor",
+      minWidth: 180,
+      flex: 1,
+      headerComponent: () => (
+        <ServerFilterableHeader
+          label="Actor"
+          tooltip={LEDGER_ACTOR_TOOLTIP}
+          options={actorFilterOptions}
+          value={initialFilters.actorUserId}
+          onValueChange={(value) => updateColumnFilter({ actorUserId: value })}
+        />
+      ),
+      valueGetter: ({ data }) => data?.actor?.name ?? "",
+      cellRenderer: ({ data }: { data?: InventoryLedgerRow }) =>
+        data?.actor?.name ?? <span className="text-muted-foreground">—</span>,
+    },
+  ];
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -723,236 +979,16 @@ export function LedgerTable({
           </Field>
         </div>
 
-        <div className="overflow-hidden rounded-md border">
-          {initialData.rows.length === 0 ? (
-            <div className="px-4 py-10 text-sm text-muted-foreground">
-              No inventory events matched the current filters.
-            </div>
-          ) : (
-            <Table className="min-w-[1420px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <OccurredFilterHeader
-                      dateFrom={initialFilters.dateFrom}
-                      dateTo={initialFilters.dateTo}
-                      onDateFromChange={(value) =>
-                        updateColumnFilter({ dateFrom: value })
-                      }
-                      onDateToChange={(value) =>
-                        updateColumnFilter({ dateTo: value })
-                      }
-                      onClear={() =>
-                        updateColumnFilter({
-                          dateFrom: undefined,
-                          dateTo: undefined,
-                          timeZone: undefined,
-                        })
-                      }
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SearchableFilterHeader
-                      label="Item"
-                      options={itemFilterOptions}
-                      value={initialFilters.itemId}
-                      inputLabel="Search item options"
-                      placeholder="Search items..."
-                      emptyMessage="No items found"
-                      onValueChange={(value) =>
-                        updateColumnFilter({
-                          itemId: value,
-                          itemType: undefined,
-                        })
-                      }
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <SearchableFilterHeader
-                      label="Event"
-                      tooltip={LEDGER_EVENT_TYPE_TOOLTIP}
-                      options={EVENT_TYPE_FILTER_OPTIONS}
-                      value={initialFilters.eventType}
-                      inputLabel="Search event options"
-                      placeholder="Search events..."
-                      emptyMessage="No events found"
-                      onValueChange={(value) =>
-                        updateColumnFilter({
-                          eventType: value as InventoryLedgerFilters["eventType"],
-                          eventClasses: undefined,
-                        })
-                      }
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <MultiSelectFilterHeader
-                      label="Movement"
-                      tooltip={LEDGER_MOVEMENT_TOOLTIP}
-                      options={MOVEMENT_FILTER_OPTIONS}
-                      values={initialFilters.eventClasses}
-                      defaultValues={["stock"]}
-                      onValuesChange={(values) =>
-                        updateColumnFilter({
-                          eventClasses:
-                            values as InventoryLedgerFilters["eventClasses"],
-                          eventType: undefined,
-                        })
-                      }
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <ServerFilterableHeader
-                      label="Source"
-                      tooltip={LEDGER_SOURCE_TOOLTIP}
-                      options={DOCUMENT_TYPE_FILTER_OPTIONS}
-                      value={initialFilters.documentType}
-                      onValueChange={(value) =>
-                        updateColumnFilter({
-                          documentType: value as InventoryLedgerFilters["documentType"],
-                          documentId: undefined,
-                        })
-                      }
-                    />
-                  </TableHead>
-                  <TableHead>
-                    <TextFilterHeader
-                      label="Lot"
-                      tooltip={LEDGER_LOT_TOOLTIP}
-                      value={initialFilters.lot}
-                      inputLabel="Lot filter value"
-                      placeholder="Lot number"
-                      debounceRef={lotDebounceRef}
-                      onInputChange={(value) =>
-                        setLotState({
-                          urlValue: initialLotValue,
-                          value,
-                        })
-                      }
-                      onValueChange={(value) =>
-                        updateColumnFilter({ lot: value })
-                      }
-                    />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Change" tooltip={LEDGER_CHANGE_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="On hand before" tooltip={LEDGER_ON_HAND_BEFORE_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="On hand after" tooltip={LEDGER_ON_HAND_AFTER_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Value change" tooltip={LEDGER_VALUE_CHANGE_TOOLTIP} />
-                  </TableHead>
-                  <TableHead>
-                    <ServerFilterableHeader
-                      label="Actor"
-                      tooltip={LEDGER_ACTOR_TOOLTIP}
-                      options={actorFilterOptions}
-                      value={initialFilters.actorUserId}
-                      onValueChange={(value) =>
-                        updateColumnFilter({ actorUserId: value })
-                      }
-                    />
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {initialData.rows.map((row) => {
-                  const signedQuantity = parseFloat(row.signedQuantity);
-                  const onHandBefore =
-                    row.onHandBefore == null ? null : parseFloat(row.onHandBefore);
-                  const onHandAfter =
-                    row.onHandAfter == null ? null : parseFloat(row.onHandAfter);
-                  const valueChange = formatValueChange(row);
-                  const valueChangeIsNegative = valueChange?.startsWith("-") ?? false;
-                  const quantityChange =
-                    row.balanceDimension === "none"
-                      ? "—"
-                      : `${signedQuantity > 0 ? "+" : ""}${formatQuantity(
-                          row.signedQuantity
-                        )}`;
-
-                  return (
-                    <TableRow key={row.id}>
-                      <TableCell>{formatDateTime(row.occurredAt, displayTimeZone)}</TableCell>
-                      <TableCell>
-                        <Link
-                          href={row.item.href}
-                          className="font-medium hover:underline"
-                        >
-                          {row.item.displayName}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="font-medium">{row.eventLabel}</TableCell>
-                      <TableCell>{formatInventoryLedgerMovementCategory(row.eventClass)}</TableCell>
-                      <TableCell>
-                        {row.sourceDocument ? (
-                          row.sourceDocument.href ? (
-                            <Link
-                              href={row.sourceDocument.href}
-                              className="hover:underline"
-                            >
-                              {row.sourceDocument.label}
-                            </Link>
-                          ) : (
-                            row.sourceDocument.label
-                          )
-                        ) : (
-                          "—"
-                        )}
-                      </TableCell>
-                      <TableCell className="font-mono">
-                        {row.lot?.number ?? "—"}
-                      </TableCell>
-                      <TableCell
-                        className={cn(
-                          "text-right font-mono",
-                          signedQuantity < 0 && "text-destructive"
-                        )}
-                      >
-                        {quantityChange}
-                      </TableCell>
-                      <TableCell
-                        className={cn(
-                          "text-right font-mono",
-                          row.onHandBefore == null && "text-muted-foreground",
-                          onHandBefore != null &&
-                            onHandBefore < 0 &&
-                            "text-destructive"
-                        )}
-                      >
-                        {formatOnHandBefore(row)}
-                      </TableCell>
-                      <TableCell
-                        className={cn(
-                          "text-right font-mono",
-                          row.onHandAfter == null && "text-muted-foreground",
-                          onHandAfter != null &&
-                            onHandAfter < 0 &&
-                            "text-destructive"
-                        )}
-                      >
-                        {formatOnHandAfter(row)}
-                      </TableCell>
-                      <TableCell
-                        className={cn(
-                          "text-right font-mono",
-                          valueChange == null && "text-muted-foreground",
-                          valueChangeIsNegative && "text-destructive"
-                        )}
-                      >
-                        {valueChange ?? "—"}
-                      </TableCell>
-                      <TableCell>{row.actor ? row.actor.name : "—"}</TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </div>
+        <ERPDataGrid
+          rows={initialData.rows}
+          columns={columns}
+          emptyMessage="No inventory events matched the current filters."
+          enableQuickFilter={false}
+          defaultColDef={{ sortable: false }}
+          suppressColumnVirtualisation
+          height="calc(100dvh - 22rem)"
+          className="space-y-0"
+        />
 
         <div className="flex items-center justify-between py-4">
           <div className="text-sm text-muted-foreground">
