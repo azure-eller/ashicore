@@ -33,6 +33,7 @@ import { LineItemsTable } from "./line-items-table";
 import { ShipmentsTable } from "./shipments-table";
 import { TotalsStrip } from "./totals-strip";
 import { PlanShipmentDialog } from "./plan-shipment-dialog";
+import { MarkShippedDialog } from "./mark-shipped-dialog";
 import {
   draftToInsertPayload,
   makeDraftOrder,
@@ -58,6 +59,7 @@ export function OrderCard({
   initialOrder,
   customerOptions,
   itemOptions,
+  xeroInvoiceSetupStatus,
 }: OrderCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -76,6 +78,7 @@ export function OrderCard({
   const [shipmentDialogTarget, setShipmentDialogTarget] = useState<
     "new" | SalesShipmentRow | null
   >(null);
+  const [shipTarget, setShipTarget] = useState<SalesShipmentRow | null>(null);
 
   const orderQuery = useQuery({
     queryKey: ["sales-order", currentOrderId ?? "__draft__"],
@@ -290,11 +293,7 @@ export function OrderCard({
             onEditShipment={
               isEditable ? (shipment) => setShipmentDialogTarget(shipment) : undefined
             }
-            onMarkShipped={
-              isEditable
-                ? () => router.push(`/sales/orders/${currentOrderId}/edit`)
-                : undefined
-            }
+            onMarkShipped={isEditable ? (shipment) => setShipTarget(shipment) : undefined}
             onEditCosts={
               isEditable
                 ? () => router.push(`/sales/orders/${currentOrderId}/edit`)
@@ -321,11 +320,19 @@ export function OrderCard({
       </div>
 
       {isDraft ? null : (
-        <PlanShipmentDialog
-          order={order}
-          target={shipmentDialogTarget}
-          onClose={() => setShipmentDialogTarget(null)}
-        />
+        <>
+          <PlanShipmentDialog
+            order={order}
+            target={shipmentDialogTarget}
+            onClose={() => setShipmentDialogTarget(null)}
+          />
+          <MarkShippedDialog
+            order={order}
+            shipment={shipTarget}
+            xeroReady={xeroInvoiceSetupStatus === "ready"}
+            onClose={() => setShipTarget(null)}
+          />
+        </>
       )}
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
