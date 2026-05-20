@@ -15,7 +15,7 @@
       "get": {
         "operationId": "getProductionPlanningContext",
         "summary": "Get production planning context",
-        "description": "Returns a compact Markdown production-planning brief by default. Use format=json only for debugging/full-context clients; ChatGPT Actions should use the default Markdown response to avoid oversized tool output. This endpoint is read-only and does not create manufacturing orders, purchase orders, allocations, or inventory events.",
+        "description": "Returns a compact Markdown production-planning brief by default. Use format=json only for debugging or full-context clients. Read-only: does not create manufacturing orders, purchase orders, allocations, or inventory events.",
         "x-openai-isConsequential": false,
         "security": [
           {
@@ -172,7 +172,7 @@
           },
           "decisionSupport": {
             "type": "object",
-            "description": "Agent-facing decision indexes. decisionQueue is the single sorted starting point for production-planning advice. allocationNeeds lists open unallocated sales/MO demand in planning priority order with per-item remaining availability, and supplyRecommendations lists make/buy/review recommendations without price data or draft action payloads.",
+            "description": "Agent-facing decision indexes: a sorted decision queue, allocation needs, and make/buy/review recommendations without price data or draft action payloads.",
             "required": [
               "decisionQueue",
               "allocationNeeds",
