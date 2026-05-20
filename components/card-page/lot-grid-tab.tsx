@@ -81,18 +81,16 @@ function normalizeEditedQuantity(value: unknown) {
   return quantityValue(parsed);
 }
 
-function DispositionCell({ data }: ICellRendererParams<CardLotRow>) {
-  if (!data || data.dispositionBalances.length === 0) {
-    return <span className={styles.placeholder}>—</span>;
-  }
-
+function LotNumberCell({ data }: ICellRendererParams<CardLotRow>) {
+  if (!data) return null;
+  const balances = data.dispositionBalances.filter(
+    (balance) => toQuantity(balance.quantity) > 0,
+  );
   return (
-    <div className="flex h-full items-center gap-(--space-2)">
-      {data.dispositionBalances.map((balance) => (
-        <span
-          key={`${data.id}-${balance.disposition}`}
-          className="inline-flex items-center gap-(--space-1)"
-        >
+    <div className="flex h-full min-w-0 items-center gap-(--space-2)">
+      <span className={`${styles.mono} truncate`}>{data.lotNumber}</span>
+      {balances.map((balance) => (
+        <span key={`${data.id}-${balance.disposition}`} className="shrink-0">
           <Badge
             variant={
               balance.disposition === "available"
@@ -104,7 +102,6 @@ function DispositionCell({ data }: ICellRendererParams<CardLotRow>) {
           >
             {formatInventoryDisposition(balance.disposition)}
           </Badge>
-          <span className={styles.mono}>{formatQuantity(balance.quantity)}</span>
         </span>
       ))}
     </div>
@@ -140,7 +137,6 @@ export function LotGridTab({
   card,
   focusItemId,
   lots,
-  unitLabel,
 }: LotGridTabProps) {
   const router = useRouter();
   const visibleVariants = useMemo(
@@ -173,9 +169,9 @@ export function LotGridTab({
       {
         field: "lotNumber",
         headerName: "Lot number",
-        flex: 1,
-        minWidth: 150,
-        cellClass: styles.mono,
+        flex: 1.35,
+        minWidth: 230,
+        cellRenderer: LotNumberCell,
         editable: false,
       },
       {
@@ -187,8 +183,7 @@ export function LotGridTab({
         editable: true,
         cellEditor: "agTextCellEditor",
         cellClass: styles.mono,
-        valueFormatter: ({ value }) =>
-          `${formatQuantity(String(value ?? "0"))} ${unitLabel ?? "units"}`,
+        valueFormatter: ({ value }) => formatQuantity(String(value ?? "0")),
         valueSetter: (params: ValueSetterParams<CardLotRow>) => {
           const next = normalizeEditedQuantity(params.newValue);
           if (next == null || next === params.data.quantity) return false;
@@ -224,39 +219,6 @@ export function LotGridTab({
         cellRenderer: AllocationsCell,
       },
       {
-        colId: "disposition",
-        headerName: "Disposition",
-        flex: 1,
-        minWidth: 190,
-        cellRenderer: DispositionCell,
-      },
-      {
-        colId: "dispositionActions",
-        headerName: "",
-        flex: 1,
-        minWidth: 260,
-        cellRenderer: ({ data }: ICellRendererParams<CardLotRow>) => {
-          if (!data || !activeVariant) return null;
-          const balances = data.dispositionBalances.filter(
-            (balance) => toQuantity(balance.quantity) > 0,
-          );
-          if (balances.length === 0) return null;
-          return (
-            <div className="flex flex-col gap-(--space-2) py-(--space-1)">
-              {balances.map((balance) => (
-                <LotDispositionActions
-                  key={`${data.id}-${balance.disposition}`}
-                  itemId={activeVariant.id}
-                  lotId={data.id}
-                  fromDisposition={balance.disposition as InventoryDisposition}
-                  maxQuantity={balance.quantity}
-                />
-              ))}
-            </div>
-          );
-        },
-      },
-      {
         field: "costPerUnit",
         headerName: "Cost / unit",
         type: "rightAligned",
@@ -274,8 +236,36 @@ export function LotGridTab({
         cellRenderer: ({ value }: ICellRendererParams<CardLotRow>) =>
           value ? <DateTimeText value={value as Date | string} /> : "—",
       },
+      {
+        colId: "lotActions",
+        headerName: "",
+        width: 48,
+        minWidth: 48,
+        maxWidth: 48,
+        sortable: false,
+        resizable: false,
+        cellRenderer: ({ data }: ICellRendererParams<CardLotRow>) => {
+          if (!data || !activeVariant) return null;
+          const balances = data.dispositionBalances
+            .filter((balance) => toQuantity(balance.quantity) > 0)
+            .map((balance) => ({
+              disposition: balance.disposition as InventoryDisposition,
+              quantity: balance.quantity,
+            }));
+          if (balances.length === 0) return null;
+          return (
+            <div className="flex h-full items-center justify-center">
+              <LotDispositionActions
+                itemId={activeVariant.id}
+                lotId={data.id}
+                balances={balances}
+              />
+            </div>
+          );
+        },
+      },
     ],
-    [activeVariant, unitLabel],
+    [activeVariant],
   );
 
   const handleVariantChange = (nextVariantId: string) => {
