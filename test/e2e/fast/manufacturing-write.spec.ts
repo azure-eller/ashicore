@@ -185,30 +185,32 @@ test.describe("Manufacturing write-path smoke", () => {
       quantity: 5,
     });
 
+    // The /edit route now redirects into the inline-editable detail sheet.
     await page.goto(`/manufacturing/orders/${orderId}/edit`);
-    await page.waitForURL(`**/manufacturing/orders/${orderId}/edit`);
-    await expect(
-      page.getByRole("heading", { name: "Edit Manufacturing Order" })
-    ).toBeVisible();
+    await page.waitForURL(`**/manufacturing/orders/${orderId}`);
     const notesField = page.getByLabel("Notes");
     await expect(notesField).toHaveValue("Fast manufacturing smoke test");
     await notesField.click();
     await notesField.press("Control+A");
-    await notesField.type("Fast manufacturing updated");
+    await notesField.fill("Fast manufacturing updated");
     const updateResponsePromise = page.waitForResponse(
       (response) =>
-        response.request().method() === "PUT" &&
+        response.request().method() === "PATCH" &&
         response.url().endsWith(`/api/manufacturing-orders/${orderId}`)
     );
-    await page.getByRole("button", { name: "Save Changes" }).click();
+    // Blur triggers the inline autosave PATCH.
+    await page.getByRole("heading", { name: "Order details" }).click();
     expect((await updateResponsePromise).status()).toBe(200);
-    await page.waitForURL(`**/manufacturing/orders/${orderId}`);
 
-    const [updatedOrder] = await db
-      .select()
-      .from(manufacturingOrders)
-      .where(eq(manufacturingOrders.id, orderId));
-    expect(updatedOrder.notes).toBe("Fast manufacturing updated");
+    await expect
+      .poll(async () => {
+        const [row] = await db
+          .select()
+          .from(manufacturingOrders)
+          .where(eq(manufacturingOrders.id, orderId));
+        return row.notes;
+      })
+      .toBe("Fast manufacturing updated");
   });
 
   test("plans shared group remainder choices once per basis", async ({ db }) => {
@@ -1530,9 +1532,12 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(openOrder.plannedQuantity).toBe("6.0000");
     expect(openOrder.numberOfBatches).toBe(3);
 
-    await expect(page.getByRole("link", { name: "Execute" })).toBeVisible({
-      timeout: 15_000,
-    });
+    // Execution moved into the redesigned sheet's overflow menu.
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(
+      page.getByRole("menuitem", { name: "Open execution" })
+    ).toBeVisible({ timeout: 15_000 });
+    await page.keyboard.press("Escape");
 
     const createdBatches = await db
       .select()
@@ -1586,7 +1591,8 @@ test.describe("Manufacturing write-path smoke", () => {
     );
     expect(blockedCompleteResponse.status).toBe(400);
 
-    await page.getByRole("link", { name: "Execute" }).click();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Open execution" }).click();
     await page.waitForURL(`**/manufacturing/orders/${batchOrderId}/execute`);
 
     const runBatch = async (
@@ -1902,11 +1908,13 @@ test.describe("Manufacturing write-path smoke", () => {
       createdIngredients.every((ingredient) => ingredient.manufacturingOrderBatchId != null)
     ).toBe(true);
 
+    // /edit redirects into the inline-editable detail sheet; ingredients
+    // render in the Ingredients table rather than a legacy edit form.
     await page.goto(`/manufacturing/orders/${legacyOrderId}/edit`);
-    await expect(page.getByRole("heading", { name: "Edit Manufacturing Order" })).toBeVisible();
-    await expect(page.locator("form")).toContainText(`Legacy Batch Sand ${legacyTs}`);
-    await expect(page.locator("form")).toContainText(`Legacy Batch Compost ${legacyTs}`);
-    await expect(page.locator("form")).not.toContainText("No ingredients found");
+    await page.waitForURL(`**/manufacturing/orders/${legacyOrderId}`);
+    await expect(page.getByRole("heading", { name: "Order details" })).toBeVisible();
+    await expect(page.getByText(`Legacy Batch Sand ${legacyTs}`)).toBeVisible();
+    await expect(page.getByText(`Legacy Batch Compost ${legacyTs}`)).toBeVisible();
 
     const customerResponse = await testFetch("/api/customers", {
       method: "POST",

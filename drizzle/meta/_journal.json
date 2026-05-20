@@ -778,6 +778,13 @@
       "when": 1779214440010,
       "tag": "0110_simplify_customer_account_states",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1779300000000,
+      "tag": "0109_mo_blocked_and_lot_strategy",
+      "breakpoints": true
     }
   ]
 }

@@ -18,6 +18,11 @@ export const MANUFACTURING_PICK_STATUSES = [
 export type ManufacturingPickStatus =
   (typeof MANUFACTURING_PICK_STATUSES)[number];
 
+export const MANUFACTURING_LOT_STRATEGIES = ["fifo", "lifo", "custom"] as const;
+
+export type ManufacturingLotStrategy =
+  (typeof MANUFACTURING_LOT_STRATEGIES)[number];
+
 export const MANUFACTURING_BATCH_STATUSES = [
   "pending",
   "in_progress",
@@ -235,6 +240,68 @@ export const updateManufacturingOrderSchema = baseManufacturingOrderSchema.omit(
 });
 export type UpdateManufacturingOrder = z.infer<
   typeof updateManufacturingOrderSchema
+>;
+
+/**
+ * Optional nullable string that PRESERVES `undefined` for absent fields.
+ * The shared `nullableString` collapses undefined → null in its transform,
+ * which would let a partial PATCH clobber unrelated columns. Here we keep
+ * undefined distinct from an explicit null so a partial diff only writes the
+ * keys that were actually sent.
+ */
+const patchNullableString = z
+  .string()
+  .nullable()
+  .optional()
+  .transform((value) =>
+    value === undefined ? undefined : value === null ? null : value.trim() || null,
+  );
+
+/**
+ * Partial patch for the inline-edit MO sheet. Each field is optional —
+ * only the changed key arrives on the wire, and absent keys stay `undefined`.
+ */
+export const patchManufacturingOrderSchema = z
+  .object({
+    plannedQuantity: positiveDecimalString("Planned quantity").optional(),
+    plannedDate: patchNullableString.refine(
+      (value) => value == null || isValidIsoDate(value),
+      "Planned date must be a real date in YYYY-MM-DD format",
+    ),
+    salesOrderId: patchNullableString,
+    salesOrderLineId: patchNullableString,
+    notes: patchNullableString,
+    status: z.enum(MANUFACTURING_ORDER_STATUSES).optional(),
+    isBlocked: z.boolean().optional(),
+  })
+  .refine(
+    (value) => Object.values(value).some((entry) => entry !== undefined),
+    "Patch must include at least one field",
+  );
+export type PatchManufacturingOrder = z.infer<typeof patchManufacturingOrderSchema>;
+
+/**
+ * Per-ingredient PATCH — supports inline edits to lot strategy + (in v2)
+ * planned quantity and explicit lot allocations. v1 keeps the schema minimal.
+ */
+export const patchManufacturingOrderIngredientSchema = z
+  .object({
+    lotStrategy: z.enum(MANUFACTURING_LOT_STRATEGIES).optional(),
+    allocations: z
+      .array(
+        z.object({
+          sourceId: z.string().uuid(),
+          quantity: positiveDecimalString("Allocated quantity"),
+        }),
+      )
+      .optional(),
+  })
+  .refine(
+    (value) => Object.values(value).some((entry) => entry !== undefined),
+    "Patch must include at least one field",
+  );
+export type PatchManufacturingOrderIngredient = z.infer<
+  typeof patchManufacturingOrderIngredientSchema
 >;
 
 const ingredientActualSchema = z.object({
