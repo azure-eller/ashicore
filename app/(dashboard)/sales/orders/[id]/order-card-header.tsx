@@ -20,6 +20,7 @@ import { StatusLabel, type StatusTone } from "@/components/ui/status-label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { formatDate } from "@/lib/format";
+import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import type { SalesOrderDetail } from "@/app/(dashboard)/sales/types";
 import {
   deriveOrderDisplayStatus,
@@ -55,6 +56,7 @@ export type OrderCardHeaderProps = {
   onCreateMoDisabled?: boolean;
   onCreateMoDisabledReason?: string;
   onDelete?: () => void;
+  canViewLedger?: boolean;
 };
 
 const toneMap: Record<OrderDisplayStatusTone, StatusTone> = {
@@ -86,6 +88,7 @@ export function OrderCardHeader({
   onCreateMoDisabled,
   onCreateMoDisabledReason,
   onDelete,
+  canViewLedger,
 }: OrderCardHeaderProps) {
   const handleClose = useSmartBack("/sales/orders");
   const liveSaveStatus = useSalesOrderSaveStatus(order?.id ?? "");
@@ -235,13 +238,16 @@ export function OrderCardHeader({
                 Email PO
               </DropdownMenuItem>
             ) : null}
-            {order ? (
+            {order && canViewLedger ? (
               <DropdownMenuItem asChild>
                 <Link
-                  href={`/inventory/ledger?salesOrderId=${order.id}`}
+                  href={buildInventoryLedgerHref({
+                    documentType: "sales_order",
+                    documentId: order.id,
+                  })}
                   prefetch={false}
                 >
-                  View inventory ledger
+                  View inventory activity
                 </Link>
               </DropdownMenuItem>
             ) : null}
@@ -321,4 +327,3 @@ function SaveStatusPill({
     </span>
   );
 }
-
