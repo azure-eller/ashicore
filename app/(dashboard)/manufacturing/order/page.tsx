@@ -1,41 +1,31 @@
 import { requireModuleAccess } from "@/lib/dal/auth";
-import { getAvailableComponents } from "@/app/(dashboard)/inventory/queries";
-import { ManufacturingOrderForm } from "@/app/(dashboard)/manufacturing/manufacturing-order-form";
-import {
-  getManufacturingProductTemplates,
-  getManufacturingSalesLineOptions,
-  getManufacturingSalesOrderOptions,
-  getManufacturingSalesOrderPreview,
-} from "@/app/(dashboard)/manufacturing/queries";
+import { getManufacturingProductTemplates } from "@/app/(dashboard)/manufacturing/queries";
+import { ManufacturingOrderCard } from "../orders/[id]/manufacturing-order-card";
 
 /**
- * Draft MO entry point — mirrors `/inventory/product` (singular). On first
- * successful save the form routes to `/manufacturing/orders/{id}` which
- * renders the redesigned sheet for further inline editing.
+ * Draft MO entry point — mirrors `/inventory/product` (singular). The sheet
+ * itself is the create surface: pick a product (planned qty defaults to 1)
+ * and the order is created inline, then the URL swaps to
+ * `/manufacturing/orders/{id}` for continued inline autosave editing.
  */
-export default async function ManufacturingOrderDraftPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ salesOrderId?: string }>;
-}) {
+export default async function ManufacturingOrderDraftPage() {
   await requireModuleAccess("manufacturing", "operate");
-  const { salesOrderId } = await searchParams;
-  const [products, ingredientItems, salesLines, salesOrders, initialPreview] = await Promise.all([
-    getManufacturingProductTemplates(),
-    getAvailableComponents(),
-    getManufacturingSalesLineOptions(),
-    getManufacturingSalesOrderOptions(),
-    salesOrderId ? getManufacturingSalesOrderPreview(salesOrderId) : Promise.resolve(null),
-  ]);
+  const templates = await getManufacturingProductTemplates();
 
   return (
-    <ManufacturingOrderForm
-      productTemplates={products}
-      ingredientItemOptions={ingredientItems}
-      salesLineOptions={salesLines}
-      salesOrderOptions={salesOrders}
-      initialSalesOrderId={salesOrderId ?? null}
-      initialSalesOrderPreview={initialPreview}
+    <ManufacturingOrderCard
+      initialOrderId={null}
+      initialOrder={null}
+      productOptions={templates.map((template) => ({
+        id: template.id,
+        name: template.name,
+        sku: template.sku,
+        unitName: template.unitName,
+        bom: template.bom.map((row) => ({
+          itemId: row.itemId,
+          quantityPerUnit: row.quantityPerUnit,
+        })),
+      }))}
     />
   );
 }

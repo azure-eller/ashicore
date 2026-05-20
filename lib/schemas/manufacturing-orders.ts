@@ -243,19 +243,15 @@ export type UpdateManufacturingOrder = z.infer<
 >;
 
 /**
- * Optional nullable string that PRESERVES `undefined` for absent fields.
- * The shared `nullableString` collapses undefined → null in its transform,
- * which would let a partial PATCH clobber unrelated columns. Here we keep
- * undefined distinct from an explicit null so a partial diff only writes the
- * keys that were actually sent.
+ * Nullable string normalizer for PATCH fields. Trims, maps "" → null, keeps
+ * explicit null. Wrap with `.optional()` at the field so absent keys stay
+ * `undefined` — the shared `nullableString` collapses undefined → null, which
+ * would let a partial PATCH clobber unrelated columns.
  */
 const patchNullableString = z
   .string()
   .nullable()
-  .optional()
-  .transform((value) =>
-    value === undefined ? undefined : value === null ? null : value.trim() || null,
-  );
+  .transform((value) => (value === null ? null : value.trim() || null));
 
 /**
  * Partial patch for the inline-edit MO sheet. Each field is optional —
@@ -264,13 +260,15 @@ const patchNullableString = z
 export const patchManufacturingOrderSchema = z
   .object({
     plannedQuantity: positiveDecimalString("Planned quantity").optional(),
-    plannedDate: patchNullableString.refine(
-      (value) => value == null || isValidIsoDate(value),
-      "Planned date must be a real date in YYYY-MM-DD format",
-    ),
-    salesOrderId: patchNullableString,
-    salesOrderLineId: patchNullableString,
-    notes: patchNullableString,
+    plannedDate: patchNullableString
+      .refine(
+        (value) => value == null || isValidIsoDate(value),
+        "Planned date must be a real date in YYYY-MM-DD format",
+      )
+      .optional(),
+    salesOrderId: patchNullableString.optional(),
+    salesOrderLineId: patchNullableString.optional(),
+    notes: patchNullableString.optional(),
     status: z.enum(MANUFACTURING_ORDER_STATUSES).optional(),
     isBlocked: z.boolean().optional(),
   })

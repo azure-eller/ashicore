@@ -3,6 +3,7 @@ import type {
   PatchManufacturingOrder,
   PatchManufacturingOrderIngredient,
 } from "@/lib/schemas/manufacturing-orders";
+import type { ManufacturingOrderDetail } from "@/app/(dashboard)/manufacturing/types";
 
 export class ManufacturingOrderApiError extends Error {
   constructor(
@@ -47,6 +48,48 @@ export async function patchManufacturingOrder(
       "Content-Type": "application/json",
     }),
     body: JSON.stringify(input),
+  });
+  if (!response.ok) return parseError(response);
+  return (await response.json()) as { id: string };
+}
+
+export async function fetchManufacturingOrder(
+  orderId: string,
+): Promise<ManufacturingOrderDetail> {
+  const response = await fetch(`/api/manufacturing-orders/${orderId}`);
+  if (!response.ok) return parseError(response);
+  return (await response.json()) as ManufacturingOrderDetail;
+}
+
+export type CreateManufacturingOrderInput = {
+  productId: string;
+  plannedQuantity: string;
+  plannedDate: string | null;
+  ingredients: Array<{ itemId: string; quantityPerUnit: string }>;
+};
+
+/**
+ * Creates an MO from the draft sheet — mirrors the item-card draft commit.
+ * Auto-allocates lots (FIFO) on save and confirms shortages so the create
+ * is a single inline action, just like typing a product name + quantity.
+ */
+export async function createManufacturingOrder(
+  input: CreateManufacturingOrderInput,
+): Promise<{ id: string }> {
+  const response = await fetch("/api/manufacturing-orders", {
+    method: "POST",
+    headers: createIdempotencyHeaders("createManufacturingOrder", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify({
+      productId: input.productId,
+      plannedQuantity: input.plannedQuantity,
+      plannedDate: input.plannedDate,
+      ingredients: input.ingredients,
+      groupRemainderChoices: [],
+      autoAllocateIngredientLots: true,
+      confirmShortage: true,
+    }),
   });
   if (!response.ok) return parseError(response);
   return (await response.json()) as { id: string };

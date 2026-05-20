@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Cancel01Icon,
@@ -34,11 +34,23 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/ui/date-picker";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
 import { useRouter } from "next/navigation";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { formatDate, formatPrice, formatQuantity } from "@/lib/format";
-import { patchManufacturingOrder } from "@/lib/api/clients/manufacturing-orders";
+import {
+  createManufacturingOrder,
+  fetchManufacturingOrder,
+  patchManufacturingOrder,
+} from "@/lib/api/clients/manufacturing-orders";
 import { StatusPicker } from "@/components/manufacturing/status-picker";
 import {
   LotStrategyChip,
@@ -58,26 +70,87 @@ import type { ManufacturingLotStrategy } from "@/lib/schemas/manufacturing-order
 import { cn } from "@/lib/utils";
 import styles from "@/components/card-page/card-page.module.css";
 
+export type ManufacturingProductOption = {
+  id: string;
+  name: string;
+  sku: string | null;
+  unitName: string;
+  bom: Array<{ itemId: string; quantityPerUnit: string }>;
+};
+
 export function ManufacturingOrderCard({
   initialOrderId,
   initialOrder,
+  productOptions = [],
 }: {
-  initialOrderId: string;
-  initialOrder: ManufacturingOrderDetail;
+  initialOrderId: string | null;
+  initialOrder: ManufacturingOrderDetail | null;
+  productOptions?: ManufacturingProductOption[];
 }) {
   const queryClient = useQueryClient();
   const router = useRouter();
-  const [order, setOrder] = useState(initialOrder);
+  const [currentOrderId, setCurrentOrderId] = useState<string | null>(initialOrderId);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [lotPickerIngredient, setLotPickerIngredient] =
     useState<ManufacturingOrderIngredientDetail | null>(null);
+  // Draft fields (mirrors the item card's draftCard). Planned quantity
+  // defaults to "1" so selecting a product alone creates the order — the
+  // single inline action, exactly like typing a product name.
+  const [draftProductId, setDraftProductId] = useState<string | null>(null);
+  const [draftPlannedQuantity, setDraftPlannedQuantity] = useState("1");
+  const [draftPlannedDate, setDraftPlannedDate] = useState<string>("");
   const goBack = useSmartBack("/manufacturing/orders");
 
+  const isDraft = currentOrderId == null;
+
+  const orderQuery = useQuery({
+    queryKey: ["manufacturing-order", currentOrderId ?? "__draft__"],
+    queryFn: () => fetchManufacturingOrder(currentOrderId as string),
+    initialData: initialOrder ?? undefined,
+    enabled: !isDraft,
+    refetchOnWindowFocus: false,
+  });
+  const order = isDraft ? null : orderQuery.data ?? initialOrder;
+
+  const createMutation = useMutation({
+    mutationKey: ["mo", "__draft__", "create"],
+    mutationFn: createManufacturingOrder,
+    onSuccess: (result) => {
+      setCurrentOrderId(result.id);
+      window.history.replaceState(null, "", `/manufacturing/orders/${result.id}`);
+      void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
+      void queryClient.invalidateQueries({ queryKey: ["manufacturing-order", result.id] });
+    },
+  });
+
+  const commitDraft = (next?: { productId?: string; plannedQuantity?: string }) => {
+    if (currentOrderId != null || createMutation.isPending || createMutation.isSuccess) {
+      return;
+    }
+    const productId = next?.productId ?? draftProductId;
+    const plannedQuantity = (next?.plannedQuantity ?? draftPlannedQuantity).trim();
+    if (!productId || !plannedQuantity) return;
+    const qty = Number(plannedQuantity);
+    if (!Number.isFinite(qty) || qty <= 0) return;
+    const product = productOptions.find((option) => option.id === productId);
+    if (!product) return;
+
+    createMutation.mutate({
+      productId,
+      plannedQuantity,
+      plannedDate: draftPlannedDate || null,
+      ingredients: product.bom.map((row) => ({
+        itemId: row.itemId,
+        quantityPerUnit: row.quantityPerUnit,
+      })),
+    });
+  };
+
   const duplicateMutation = useMutation({
-    mutationKey: ["mo", initialOrderId, "duplicate"],
+    mutationKey: ["mo", currentOrderId ?? "__draft__", "duplicate"],
     mutationFn: async () => {
       const response = await fetch(
-        `/api/manufacturing-orders/${initialOrderId}/duplicate`,
+        `/api/manufacturing-orders/${currentOrderId}/duplicate`,
         { method: "POST", headers: createIdempotencyHeaders("manufacturing-order-duplicate") },
       );
       const body = await response.json().catch(() => null);
@@ -90,21 +163,15 @@ export function ManufacturingOrderCard({
     },
   });
 
-  const productionStatus: ProductionStatus = deriveProductionStatus({
-    status: order.status,
-    isBlocked: order.isBlocked,
-    pickProgressStatus: order.pickProgressStatus,
-    completedBatchCount: order.batches.filter((batch) => batch.status === "completed").length,
-  });
-
   const refreshOrder = () => {
-    void queryClient.invalidateQueries({ queryKey: ["manufacturing-order", initialOrderId] });
+    if (currentOrderId == null) return;
+    void queryClient.invalidateQueries({ queryKey: ["manufacturing-order", currentOrderId] });
   };
 
   const deleteMutation = useMutation({
-    mutationKey: ["mo", initialOrderId, "delete"],
+    mutationKey: ["mo", currentOrderId ?? "__draft__", "delete"],
     mutationFn: async () => {
-      const response = await fetch(`/api/manufacturing-orders/${initialOrderId}`, {
+      const response = await fetch(`/api/manufacturing-orders/${currentOrderId}`, {
         method: "DELETE",
       });
       if (!response.ok) {
@@ -118,6 +185,127 @@ export function ManufacturingOrderCard({
     },
   });
 
+  const draftSaveStatus: MoSaveStatus | "draft" = createMutation.isPending
+    ? "saving"
+    : createMutation.isError
+      ? "error"
+      : "draft";
+
+  // ---- Draft sheet (no order yet) ----
+  if (isDraft || !order) {
+    const selectedProduct = productOptions.find((option) => option.id === draftProductId);
+    return (
+      <div className={styles.sheet}>
+        <header className={styles.header}>
+          <div className={styles.headerIdentity}>
+            <div className={styles.eyebrow}>Manufacturing order</div>
+            <h1 className={styles.title}>
+              {selectedProduct ? selectedProduct.name : "New manufacturing order"}
+            </h1>
+            <div className={styles.meta}>
+              <span>Pick a product to start</span>
+            </div>
+          </div>
+          <div className={styles.headerRight}>
+            <SaveStatusPill status={draftSaveStatus} />
+            <button
+              type="button"
+              className={styles.iconBtn}
+              aria-label="Close"
+              onClick={goBack}
+            >
+              <HugeiconsIcon icon={Cancel01Icon} size={14} />
+            </button>
+          </div>
+        </header>
+
+        <div className={styles.body}>
+          <section className={styles.section}>
+            <h2 className={styles.sectionHeading}>Order details</h2>
+            <div className="grid grid-cols-3 border border-[var(--color-line)]">
+              <div className="col-span-2 min-h-[56px] border-r border-b border-[var(--color-line-2)] px-3.5 py-2.5">
+                <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
+                  Product <span className="text-[var(--color-danger)]">*</span>
+                </div>
+                <Combobox
+                  items={productOptions.map((option) => option.id)}
+                  value={draftProductId ?? ""}
+                  onValueChange={(value) => {
+                    const productId = value || null;
+                    setDraftProductId(productId);
+                    if (productId) commitDraft({ productId });
+                  }}
+                  itemToStringLabel={(value) => {
+                    const option = productOptions.find((entry) => entry.id === value);
+                    return option ? option.name : "";
+                  }}
+                >
+                  <ComboboxInput placeholder="Search products…" showClear />
+                  <ComboboxContent className="bg-popover text-popover-foreground">
+                    <ComboboxEmpty>No manufacturable products found</ComboboxEmpty>
+                    <ComboboxList>
+                      {(id: string) => {
+                        const option = productOptions.find((entry) => entry.id === id);
+                        return (
+                          <ComboboxItem key={id} value={id}>
+                            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                              <span className="truncate">{option?.name}</span>
+                              {option?.sku ? (
+                                <span className="font-mono text-xs text-muted-foreground">
+                                  {option.sku}
+                                </span>
+                              ) : null}
+                            </div>
+                          </ComboboxItem>
+                        );
+                      }}
+                    </ComboboxList>
+                  </ComboboxContent>
+                </Combobox>
+              </div>
+              <div className="min-h-[56px] border-b border-[var(--color-line-2)] px-3.5 py-2.5">
+                <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
+                  Planned quantity
+                </div>
+                <Input
+                  value={draftPlannedQuantity}
+                  onChange={(event) => setDraftPlannedQuantity(event.target.value)}
+                  onBlur={() => commitDraft()}
+                  inputMode="decimal"
+                  className="h-7 border-0 bg-transparent p-0 font-mono text-[15px] font-semibold tabular-nums focus-visible:ring-0"
+                  aria-label="Planned quantity"
+                />
+              </div>
+              <div className="col-span-3 min-h-[56px] px-3.5 py-2.5">
+                <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
+                  Planned date
+                </div>
+                <DatePicker
+                  aria-label="Planned date"
+                  value={draftPlannedDate}
+                  onChange={(next) => setDraftPlannedDate(next)}
+                />
+              </div>
+            </div>
+            {createMutation.isError ? (
+              <p className="mt-2 text-[12px] text-[var(--color-danger)]">
+                {(createMutation.error as Error).message}
+              </p>
+            ) : null}
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  // ---- Saved sheet ----
+  const productionStatus: ProductionStatus = deriveProductionStatus({
+    status: order.status,
+    isBlocked: order.isBlocked,
+    pickProgressStatus: order.pickProgressStatus,
+    completedBatchCount: order.batches.filter((batch) => batch.status === "completed").length,
+  });
+
   const canEdit = order.status === "open";
 
   return (
@@ -125,7 +313,7 @@ export function ManufacturingOrderCard({
       <MoSheetHeader
         order={order}
         productionStatus={productionStatus}
-        moId={initialOrderId}
+        moId={order.id}
         onChangedStatus={refreshOrder}
         onClose={goBack}
         onDelete={() => setDeleteOpen(true)}
@@ -133,18 +321,14 @@ export function ManufacturingOrderCard({
       />
 
       <div className={styles.body}>
-        <OrderDetailsSection order={order} canEdit={canEdit} onPatched={(updated) => setOrder({ ...order, ...updated })} />
+        <OrderDetailsSection order={order} canEdit={canEdit} onPatched={refreshOrder} />
         <IngredientsSection
           order={order}
           canEdit={canEdit}
           onOpenLotPicker={(ingredient) => setLotPickerIngredient(ingredient)}
         />
         <OperationsSection order={order} />
-        <NotesSection
-          order={order}
-          canEdit={canEdit}
-          onPatched={(notes) => setOrder({ ...order, notes })}
-        />
+        <NotesSection order={order} canEdit={canEdit} onPatched={refreshOrder} />
       </div>
 
       {lotPickerIngredient ? (
@@ -322,7 +506,14 @@ function MoSheetHeader({
   );
 }
 
-function SaveStatusPill({ status }: { status: MoSaveStatus }) {
+function SaveStatusPill({ status }: { status: MoSaveStatus | "draft" }) {
+  if (status === "draft") {
+    return (
+      <span className={styles.failedPill}>
+        <span className={styles.pillSquare} /> Not saved
+      </span>
+    );
+  }
   if (status === "saving") {
     return (
       <span className={styles.savingPill}>
@@ -464,7 +655,7 @@ function OrderDetailsSection({
         </DetailCell>
         <DetailCell label="Created">
           <span className="font-mono text-[13px] tabular-nums">
-            {formatDate(order.createdAt.toISOString().slice(0, 10))}
+            {formatDate(new Date(order.createdAt).toISOString().slice(0, 10))}
           </span>
         </DetailCell>
         <DetailCell label="Sales order">

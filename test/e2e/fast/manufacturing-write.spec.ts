@@ -97,31 +97,48 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(productCreate.status).toBe(201);
     productId = productCreate.body.id;
 
+    // /new redirects into the draft sheet. The sheet IS the create surface:
+    // set planned quantity, then selecting a product creates the order inline.
     await page.goto("/manufacturing/orders/new");
-    await expect(page.getByText("Add Manufacturing Order")).toBeVisible();
+    await page.waitForURL("**/manufacturing/order");
+    await expect(page.getByRole("heading", { name: "New manufacturing order" })).toBeVisible();
 
-    const productInput = page.getByPlaceholder("Search products...");
+    await page.getByLabel("Planned quantity").fill("5");
+
+    const productInput = page.getByPlaceholder("Search products…");
     await productInput.click();
     await productInput.fill(productName);
-    await page.getByRole("option", { name: new RegExp(productName) }).click();
-    await expect(productInput).toHaveValue(productName);
-
-    await page.getByLabel("Planned Quantity").fill("5");
-    await selectDate(page, page.getByLabel("Planned Date"), "2026-04-25");
-    await page.getByLabel("Notes").fill("Fast manufacturing smoke test");
     const [createResponse] = await Promise.all([
       page.waitForResponse(
         (response) =>
           response.request().method() === "POST" &&
           response.url().endsWith("/api/manufacturing-orders")
       ),
-      page.getByRole("button", { name: "Create Order" }).click(),
+      page.getByRole("option", { name: new RegExp(productName) }).click(),
     ]);
     expect(createResponse.status()).toBe(201);
 
     await page.waitForURL(/\/manufacturing\/orders\/[0-9a-f-]+$/);
     orderId = getIdFromUrl(page.url());
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/MO-\d{4}-\d{4}/);
+
+    // Continue editing inline on the saved sheet (autosave).
+    await expect(page.getByLabel("Notes")).toBeVisible();
+    await selectDate(page, page.getByLabel("Planned date"), "2026-04-25");
+    const notesField = page.getByLabel("Notes");
+    await notesField.click();
+    await notesField.fill("Fast manufacturing smoke test");
+    await page.getByRole("heading", { name: "Order details" }).click();
+
+    await expect
+      .poll(async () => {
+        const [row] = await db
+          .select()
+          .from(manufacturingOrders)
+          .where(eq(manufacturingOrders.id, orderId));
+        return `${row?.plannedDate ?? ""}|${row?.notes ?? ""}`;
+      })
+      .toBe("2026-04-25|Fast manufacturing smoke test");
 
     const [order] = await db
       .select()
@@ -188,11 +205,11 @@ test.describe("Manufacturing write-path smoke", () => {
     // The /edit route now redirects into the inline-editable detail sheet.
     await page.goto(`/manufacturing/orders/${orderId}/edit`);
     await page.waitForURL(`**/manufacturing/orders/${orderId}`);
-    const notesField = page.getByLabel("Notes");
-    await expect(notesField).toHaveValue("Fast manufacturing smoke test");
-    await notesField.click();
-    await notesField.press("Control+A");
-    await notesField.fill("Fast manufacturing updated");
+    const editNotesField = page.getByLabel("Notes");
+    await expect(editNotesField).toHaveValue("Fast manufacturing smoke test");
+    await editNotesField.click();
+    await editNotesField.press("Control+A");
+    await editNotesField.fill("Fast manufacturing updated");
     const updateResponsePromise = page.waitForResponse(
       (response) =>
         response.request().method() === "PATCH" &&
@@ -1506,19 +1523,13 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(batchProductCreate.status).toBe(201);
     const batchProductId = batchProductCreate.body.id as string;
 
-    await page.goto("/manufacturing/orders/new");
-    const productInput = page.getByPlaceholder("Search products...");
+    // Draft sheet uses output quantity; a yield-2 product at qty 6 → 3 batches.
+    await page.goto("/manufacturing/order");
+    await page.getByLabel("Planned quantity").fill("6");
+    const productInput = page.getByPlaceholder("Search products…");
     await productInput.click();
     await productInput.fill(batchProductName);
     await page.getByRole("option", { name: new RegExp(batchProductName) }).click();
-
-    await page.getByLabel("Batches").fill("3");
-    await expect(page.getByText("3 batches")).toBeVisible();
-    await expect(page.getByText(/of up to 2 test-unit-/)).toBeVisible();
-    await expect(page.getByRole("row", { name: new RegExp(batchSandName) })).toContainText("9");
-    await expect(page.getByRole("row", { name: new RegExp(batchCompostName) })).toContainText("3");
-    await page.getByLabel("Notes").fill("Fast batch execution smoke");
-    await page.getByRole("button", { name: "Create Order" }).click();
 
     await page.waitForURL(/\/manufacturing\/orders\/[0-9a-f-]+$/);
     const batchOrderId = getIdFromUrl(page.url());
