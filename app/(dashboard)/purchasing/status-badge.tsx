@@ -43,6 +43,18 @@ function canTransitionStatus(
   return false;
 }
 
+function confirmStatusTransition(next: PurchaseOrderStatus) {
+  if (next === "received") {
+    return window.confirm(
+      "Mark this PO as Received? Lines will be committed to inventory at the listed receiving locations.",
+    );
+  }
+  if (next === "cancelled") {
+    return window.confirm("Cancel this PO? You can't reactivate it.");
+  }
+  return true;
+}
+
 function statusLabel(status: PurchaseOrderStatus) {
   if (status === "ordered") {
     return <StatusLabel tone="info">Ordered</StatusLabel>;
@@ -78,8 +90,12 @@ export function PurchaseOrderStatusBadge({
         value={status}
         disabled={disabled}
         onValueChange={(nextStatus) => {
-          if (canTransitionStatus(status, nextStatus as PurchaseOrderStatus)) {
-            onStatusChange(nextStatus as PurchaseOrderStatus);
+          const nextPurchaseOrderStatus = nextStatus as PurchaseOrderStatus;
+          if (
+            canTransitionStatus(status, nextPurchaseOrderStatus) &&
+            confirmStatusTransition(nextPurchaseOrderStatus)
+          ) {
+            onStatusChange(nextPurchaseOrderStatus);
           }
         }}
       >
