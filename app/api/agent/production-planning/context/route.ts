@@ -7,6 +7,7 @@ import {
 } from "@/lib/agent/external-access/tokens";
 import {
   buildAgentProductionPlanningMarkdown,
+  buildAgentProductionPlanningRawJson,
   getAgentProductionPlanningContext,
   getAgentProductionPlanningContextForOrg,
 } from "@/lib/agent/production-planning-context/service";
@@ -18,7 +19,7 @@ const booleanQuerySchema = z
   .transform((value) => (value == null ? undefined : value === "true"));
 
 const querySchema = z.object({
-  format: z.enum(["markdown", "json"]).optional().default("markdown"),
+  format: z.enum(["markdown", "json"]).optional().default("json"),
   includePlanningFacts: booleanQuerySchema,
   includeLots: booleanQuerySchema,
 });
@@ -42,7 +43,7 @@ function responseForContext(
   format: "markdown" | "json"
 ) {
   if (format === "json") {
-    return NextResponse.json(context);
+    return NextResponse.json(buildAgentProductionPlanningRawJson(context));
   }
 
   return new NextResponse(buildAgentProductionPlanningMarkdown(context), {

@@ -1,13 +1,13 @@
 ---
 name: production-planning
-description: Retrieve Ashicore ERP production-planning context for manufacturing, allocation, inventory, purchasing, and sales-order reasoning.
+description: Retrieve Ashicore ERP raw production data for manufacturing, inventory, and sales-order reasoning.
 ---
 
 # Ashicore Production Planning
 
-Use the Ashicore production-planning API when the user asks what to make, what
-to allocate, what is short, what open supply exists, or what is blocking
-production.
+Use the Ashicore production-planning API when the user asks what products to
+make, what bag/tote/pallet demand exists, what open manufacturing supply exists,
+or what product inventory is on hand.
 
 ## API
 
@@ -22,36 +22,18 @@ Optional query parameters:
 - `includePlanningFacts=true|false`
 - `includeLots=true|false`
 
-Default to `format=markdown`. Use `format=json` only when the user explicitly
-needs the full machine-readable context or when debugging the API.
+Default to JSON. Use `format=markdown` only for manual inspection.
 
 ## Reasoning Rules
 
-- Treat the ERP response as the source of truth.
-- Prefer the default Markdown brief for normal production-planning advice. It is
-  intentionally compact and already grouped for allocation, make/buy/setup, and
-  blocker decisions.
-- Use `summary` and `attentionQueue` only as navigation aids into the full
-  returned context.
-- Start with `decisionSupport.decisionQueue` when answering what to do next.
-  It combines allocation, make/buy, item setup, and blocker decisions.
-- Use `decisionSupport.allocationNeeds` as the allocation queue. It is ordered
-  for planning and includes per-item remaining availability so one lot of stock
-  is not counted against multiple demands.
-- Use `decisionSupport.supplyRecommendations` for make/buy/review planning
-  advice.
-- Do not infer usable stock from raw on-hand quantities.
-- `inventory.availableQty` means current usable on-hand after reservations.
-- `inventory.projectedQty` means planning-derived future net quantity after
-  demand and open supply.
-- `inventory.inventoryLotAllocatedQty` means physical inventory already
-  allocated from lots.
-- `inventory.manufacturingOutputAllocatedQty` means future manufacturing output
-  already allocated.
-- Always mention important `planning.assumptions`, `horizonStart`, `horizonEnd`,
-  and `inputHash` when giving production recommendations.
+- Treat the ERP response as raw production data, not as a precomputed decision.
+- Use `openSalesOrders` for sales order dates, ship dates, line items,
+  quantities, allocation state, and per-line production requirements.
+- Use `openManufacturingOrders` for existing production supply.
+- Use `inventoryCounts` for current product inventory, allocation totals, open
+  sales demand, and open manufacturing supply.
+- Use `productRequirements` for BOM constraints such as minimum lot age.
 - Do not ask for or rely on sales prices, unit costs, draft action payloads, or
-  per-parent recipe ratios. They are intentionally not part of this agent
-  context.
+  material-purchasing recommendations.
 - Do not claim to create, edit, reserve, allocate, purchase, or manufacture
   anything. The API is read-only.

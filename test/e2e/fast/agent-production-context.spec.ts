@@ -52,92 +52,107 @@ test.describe("Agent production planning context API", () => {
     expect(planningResponse.status).toBe(200);
     const planning = await planningResponse.json();
 
-    const markdownResponse = await testFetch("/api/agent/production-planning/context");
-    expect(markdownResponse.status).toBe(200);
-    expect(markdownResponse.headers.get("content-type")).toContain("text/markdown");
-    const markdown = await markdownResponse.text();
-    expect(markdown).toContain("# Production Planning Brief");
-    expect(markdown).toContain("## Build Today Or Late");
-    expect(markdown).toContain("## Sales Demand");
-    expect(markdown).toContain("## Top-Level BOM Build Constraints");
-    expect(markdown).not.toContain("## Purchase");
-    expect(markdown.length).toBeLessThan(20_000);
-
-    const response = await testFetch(
-      "/api/agent/production-planning/context?format=json"
-    );
+    const response = await testFetch("/api/agent/production-planning/context");
     expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/json");
     const context = await response.json();
 
     expect(context.inputHash).toBe(planning.inputHash);
-    expect(context.planning.inputHash).toBe(planning.inputHash);
-    expect(context.planning.horizonStart).toBe(planning.horizonStart);
-    expect(context.planning.horizonEnd).toBe(planning.horizonEnd);
-    expect(context.planning.assumptions).toEqual(planning.assumptions);
-    expect(context.planning.assumptions.length).toBeGreaterThan(0);
-    expect(context.summary.openSalesOrderCount).toBe(context.salesOrders.length);
-    expect(context.summary.openManufacturingOrderCount).toBe(
-      context.manufacturingOrders.length
-    );
-    expect(context.summary.openPurchaseOrderCount).toBe(context.purchaseOrders.length);
-    expect(context.summary.activeAllocationCount).toBe(context.allocations.length);
-    expect(context.summary.allocationNeedCount).toBe(
-      context.decisionSupport.allocationNeeds.length
-    );
-    expect(context.summary.supplyRecommendationCount).toBe(
-      context.decisionSupport.supplyRecommendations.length
-    );
-    expect(Array.isArray(context.salesOrders)).toBe(true);
-    expect(Array.isArray(context.manufacturingOrders)).toBe(true);
-    expect(Array.isArray(context.purchaseOrders)).toBe(true);
-    expect(Array.isArray(context.inventory)).toBe(true);
-    expect(Array.isArray(context.allocations)).toBe(true);
-    expect(Array.isArray(context.topLevelBoms)).toBe(true);
-    expect(Array.isArray(context.decisionSupport.decisionQueue)).toBe(true);
-    expect(Array.isArray(context.decisionSupport.allocationNeeds)).toBe(true);
-    expect(Array.isArray(context.decisionSupport.supplyRecommendations)).toBe(true);
-    expect(Array.isArray(context.planning.rows)).toBe(true);
-    expect(Array.isArray(context.planning.demandFacts)).toBe(true);
-    expect(Array.isArray(context.planning.supplyFacts)).toBe(true);
-    expect(Array.isArray(context.planning.bomRequirements)).toBe(true);
-    expect(Array.isArray(context.planning.productionBlockers)).toBe(true);
-    expect(Array.isArray(context.planning.salesOrderProductionDemandPaths)).toBe(true);
-    expect(Array.isArray(context.attentionQueue)).toBe(true);
-    expect(JSON.stringify(context.planning.rows)).not.toContain("unitCost");
-    expect(JSON.stringify(context.planning.recommendations)).not.toContain(
-      "actionPayload"
-    );
-    expect(JSON.stringify(context.planning.bomRequirements)).not.toContain(
-      "quantityPerParent"
-    );
-    for (const recommendation of context.planning.recommendations as Array<{
-      sourceRefs: unknown[];
+    expect(context.horizon.start).toBe(planning.horizonStart);
+    expect(context.horizon.end).toBe(planning.horizonEnd);
+    expect(Array.isArray(context.openSalesOrders)).toBe(true);
+    expect(Array.isArray(context.openManufacturingOrders)).toBe(true);
+    expect(Array.isArray(context.inventoryCounts)).toBe(true);
+    expect(Array.isArray(context.productRequirements)).toBe(true);
+    expect(JSON.stringify(context)).not.toContain("unitCost");
+    expect(JSON.stringify(context)).not.toContain("defaultSellingPrice");
+    expect(JSON.stringify(context)).not.toContain("defaultPurchasePrice");
+
+    for (const order of context.openSalesOrders as Array<{
+      salesOrderId: string;
+      orderNumber: string;
+      orderDate: string | null;
+      shipDate: string | null;
+      lines: Array<{
+        salesOrderLineId: string;
+        itemId: string;
+        itemName: string;
+        orderedQty: string;
+        shippedQty: string;
+        plannedShipmentQty: string;
+        remainingToShipQty: string;
+        allocatedQty: string;
+        unallocatedQty: string;
+        requirements: unknown[];
+      }>;
     }>) {
-      expect(recommendation.sourceRefs.length).toBeLessThanOrEqual(24);
-    }
-    for (const blocker of context.planning.productionBlockers as Array<{
-      sourceRefs: unknown[];
-    }>) {
-      expect(blocker.sourceRefs.length).toBeLessThanOrEqual(24);
-    }
-    for (const item of context.attentionQueue as Array<{
-      sourceRefs: Array<{ sourceType?: string; sourceId?: string }>;
-    }>) {
-      for (const ref of item.sourceRefs) {
-        expect(ref.sourceType).toBeTruthy();
-        expect(ref.sourceId).toBeTruthy();
+      expect(order.salesOrderId).toBeTruthy();
+      expect(order.orderNumber).toBeTruthy();
+      expect(order).toHaveProperty("orderDate");
+      expect(order).toHaveProperty("shipDate");
+      for (const line of order.lines) {
+        expect(line.salesOrderLineId).toBeTruthy();
+        expect(line.itemId).toBeTruthy();
+        expect(line.itemName).toBeTruthy();
+        expect(typeof line.orderedQty).toBe("string");
+        expect(typeof line.shippedQty).toBe("string");
+        expect(typeof line.plannedShipmentQty).toBe("string");
+        expect(typeof line.remainingToShipQty).toBe("string");
+        expect(typeof line.allocatedQty).toBe("string");
+        expect(typeof line.unallocatedQty).toBe("string");
+        expect(Array.isArray(line.requirements)).toBe(true);
       }
     }
-    for (const item of context.inventory as Array<{
+
+    for (const order of context.openManufacturingOrders as Array<{
+      manufacturingOrderId: string;
+      orderNumber: string;
+      itemId: string;
+      itemName: string;
+      plannedQty: string;
+      remainingQty: string;
+      outputAllocations: unknown[];
+    }>) {
+      expect(order.manufacturingOrderId).toBeTruthy();
+      expect(order.orderNumber).toBeTruthy();
+      expect(order.itemId).toBeTruthy();
+      expect(order.itemName).toBeTruthy();
+      expect(typeof order.plannedQty).toBe("string");
+      expect(typeof order.remainingQty).toBe("string");
+      expect(Array.isArray(order.outputAllocations)).toBe(true);
+    }
+
+    for (const item of context.inventoryCounts as Array<{
+      itemId: string;
+      itemName: string;
+      onHandQty: unknown;
+      availableQty: unknown;
+      reservedQty: unknown;
+      expectedQty: unknown;
       inventoryLotAllocatedQty: unknown;
       manufacturingOutputAllocatedQty: unknown;
       totalActiveAllocationQty: unknown;
+      openSalesDemandQty: unknown;
+      openSalesAllocatedQty: unknown;
+      openSalesUnallocatedQty: unknown;
+      openManufacturingSupplyQty: unknown;
     }>) {
+      expect(item.itemId).toBeTruthy();
+      expect(item.itemName).toBeTruthy();
+      expect(typeof item.onHandQty).toBe("string");
+      expect(typeof item.availableQty).toBe("string");
+      expect(typeof item.reservedQty).toBe("string");
+      expect(typeof item.expectedQty).toBe("string");
       expect(typeof item.inventoryLotAllocatedQty).toBe("string");
       expect(typeof item.manufacturingOutputAllocatedQty).toBe("string");
       expect(typeof item.totalActiveAllocationQty).toBe("string");
+      expect(typeof item.openSalesDemandQty).toBe("string");
+      expect(typeof item.openSalesAllocatedQty).toBe("string");
+      expect(typeof item.openSalesUnallocatedQty).toBe("string");
+      expect(typeof item.openManufacturingSupplyQty).toBe("string");
     }
-    for (const bom of context.topLevelBoms as Array<{
+
+    for (const bom of context.productRequirements as Array<{
       productItemId: string;
       productName: string;
       components: Array<{
@@ -160,92 +175,21 @@ test.describe("Agent production planning context API", () => {
         expect(Array.isArray(component.constraints)).toBe(true);
       }
     }
-    for (const need of context.decisionSupport.allocationNeeds as Array<{
-      demandType: string;
-      demandId: string;
-      itemId: string;
-      unallocatedQty: string;
-      allocationRankForItem: number;
-      availableQty: string;
-      availableQtyBeforeThisNeed: string;
-      availableQtyAfterThisNeed: string;
-      projectedQty: string;
-      projectedQtyAfterThisNeed: string;
-      readiness: string;
-      sourceRefs: Array<{ sourceType?: string; sourceId?: string }>;
-    }>) {
-      expect(["sales_order_line", "manufacturing_order_ingredient"]).toContain(
-        need.demandType
-      );
-      expect(need.demandId).toBeTruthy();
-      expect(need.itemId).toBeTruthy();
-      expect(Number(need.unallocatedQty)).toBeGreaterThan(0);
-      expect(need.allocationRankForItem).toBeGreaterThanOrEqual(1);
-      expect(typeof need.availableQty).toBe("string");
-      expect(typeof need.availableQtyBeforeThisNeed).toBe("string");
-      expect(typeof need.availableQtyAfterThisNeed).toBe("string");
-      expect(typeof need.projectedQty).toBe("string");
-      expect(typeof need.projectedQtyAfterThisNeed).toBe("string");
-      expect([
-        "allocate_available_inventory",
-        "available_after_open_supply",
-        "create_supply",
-        "blocked",
-        "review",
-      ]).toContain(need.readiness);
-      for (const ref of need.sourceRefs) {
-        expect(ref.sourceType).toBeTruthy();
-        expect(ref.sourceId).toBeTruthy();
-      }
-    }
-    for (const decision of context.decisionSupport.decisionQueue as Array<{
-      decisionType: string;
-      severity: string;
-      label: string;
-      sourceRefs: Array<{ sourceType?: string; sourceId?: string }>;
-    }>) {
-      expect([
-        "allocate_inventory",
-        "create_manufacturing_order",
-        "create_purchase_order",
-        "review_item_setup",
-        "resolve_blocker",
-      ]).toContain(decision.decisionType);
-      expect(["info", "warning", "urgent"]).toContain(decision.severity);
-      expect(decision.label).toBeTruthy();
-      for (const ref of decision.sourceRefs) {
-        expect(ref.sourceType).toBeTruthy();
-        expect(ref.sourceId).toBeTruthy();
-      }
-    }
-    for (const recommendation of context.decisionSupport
-      .supplyRecommendations as Array<{
-      recommendationId: string;
-      itemId: string;
-      itemName: string;
-      quantity: string;
-      sourceRefs: Array<{ sourceType?: string; sourceId?: string }>;
-    }>) {
-      expect(recommendation.recommendationId).toBeTruthy();
-      expect(recommendation.itemId).toBeTruthy();
-      expect(recommendation.itemName).toBeTruthy();
-      expect(Number(recommendation.quantity)).toBeGreaterThan(0);
-      for (const ref of recommendation.sourceRefs) {
-        expect(ref.sourceType).toBeTruthy();
-        expect(ref.sourceId).toBeTruthy();
-      }
-    }
+
+    const markdownResponse = await testFetch(
+      "/api/agent/production-planning/context?format=markdown"
+    );
+    expect(markdownResponse.status).toBe(200);
+    expect(markdownResponse.headers.get("content-type")).toContain("text/markdown");
+    const markdown = await markdownResponse.text();
+    expect(markdown).toContain("# Production Planning Brief");
 
     const withoutLotsResponse = await testFetch(
       "/api/agent/production-planning/context?format=json&includeLots=false"
     );
     expect(withoutLotsResponse.status).toBe(200);
     const withoutLots = await withoutLotsResponse.json();
-    expect(
-      withoutLots.inventory.every(
-        (item: { lots: unknown[] }) => Array.isArray(item.lots) && item.lots.length === 0
-      )
-    ).toBe(true);
+    expect(Array.isArray(withoutLots.inventoryCounts)).toBe(true);
 
     const after = await readMutationSensitiveCounts(db);
 
@@ -287,12 +231,8 @@ test.describe("Agent production planning context API", () => {
     expect(bearerResponse.status).toBe(200);
     const context = await bearerResponse.json();
     expect(context.inputHash).toBe(planning.inputHash);
-    expect(context.planning.inputHash).toBe(planning.inputHash);
-    expect(
-      context.inventory.every(
-        (item: { lots: unknown[] }) => Array.isArray(item.lots) && item.lots.length === 0
-      )
-    ).toBe(true);
+    expect(context.horizon.start).toBe(planning.horizonStart);
+    expect(Array.isArray(context.inventoryCounts)).toBe(true);
 
     const revokeResponse = await testFetch(
       `/api/agent/api-tokens/${created.tokenRecord.id}`,

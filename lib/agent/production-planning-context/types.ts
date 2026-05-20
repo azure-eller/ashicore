@@ -342,3 +342,84 @@ export type AgentProductionPlanningContext = {
   };
   allowedNextActions: AgentAllowedAction[];
 };
+
+export type AgentProductionRawContext = {
+  orgId: string;
+  generatedAt: string;
+  inputHash: string;
+  horizon: {
+    start: string | null;
+    end: string | null;
+  };
+  openSalesOrders: Array<{
+    salesOrderId: string;
+    orderNumber: string;
+    customerName: string | null;
+    status: string;
+    orderDate: string | null;
+    shipDate: string | null;
+    priorityRank: number | null;
+    lines: Array<{
+      salesOrderLineId: string;
+      itemId: string;
+      itemName: string;
+      unitName: string | null;
+      orderedQty: string;
+      shippedQty: string;
+      plannedShipmentQty: string;
+      cancelledQty: string;
+      remainingToShipQty: string;
+      allocatedQty: string;
+      unallocatedQty: string;
+      productionStatus: AgentOpenSalesOrderContext["lines"][number]["productionStatus"];
+      requirements: Array<{
+        componentItemId: string;
+        componentName: string;
+        componentItemType: string;
+        quantity: string;
+        unitName: string | null;
+        consumptionMode: string;
+        basisOutputQuantity: string | null;
+        batchScalingMode: string | null;
+        groupRemainderPolicy: string | null;
+        minimumLotAgeDays: number | null;
+        constraints: string[];
+      }>;
+    }>;
+  }>;
+  openManufacturingOrders: Array<{
+    manufacturingOrderId: string;
+    orderNumber: string;
+    status: string;
+    itemId: string;
+    itemName: string;
+    unitName: string | null;
+    plannedQty: string;
+    completedQty: string;
+    remainingQty: string;
+    plannedDate: string | null;
+    expectedOutputDate: string | null;
+    priorityRank: number | null;
+    linkedSalesOrderId: string | null;
+    linkedSalesOrderLineId: string | null;
+    outputAllocations: AgentOpenManufacturingOrderContext["outputAllocations"];
+  }>;
+  inventoryCounts: Array<{
+    itemId: string;
+    itemName: string;
+    unitName: string | null;
+    onHandQty: string;
+    availableQty: string;
+    reservedQty: string;
+    expectedQty: string;
+    inventoryLotAllocatedQty: string;
+    manufacturingOutputAllocatedQty: string;
+    totalActiveAllocationQty: string;
+    openSalesDemandQty: string;
+    openSalesAllocatedQty: string;
+    openSalesUnallocatedQty: string;
+    openManufacturingSupplyQty: string;
+  }>;
+  productRequirements: AgentTopLevelBomContext[];
+  allowedNextActions: AgentAllowedAction[];
+};

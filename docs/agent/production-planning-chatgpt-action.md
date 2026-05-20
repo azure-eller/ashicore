@@ -9,12 +9,9 @@ context with a read-only bearer token.
 GET https://ashicore.app/api/agent/production-planning/context
 ```
 
-The default response is a compact Markdown production-planning brief for
-ChatGPT Actions. Full JSON is still available for debugging with:
-
-```txt
-GET https://ashicore.app/api/agent/production-planning/context?format=json
-```
+The default response is raw JSON production data for ChatGPT Actions: open sales
+orders, open manufacturing orders, inventory counts, and product requirements.
+Markdown is available for manual inspection with `?format=markdown`.
 
 OpenAPI schema:
 
@@ -60,42 +57,20 @@ Use the `getProductionPlanningContext` action whenever the user asks what to
 make, what is short, what can be allocated, what open supply exists, or what is
 blocking production.
 
-Treat the ERP response as the source of truth. The default Markdown brief is the
-preferred ChatGPT response. It includes:
+Treat the ERP response as raw production data, not as a precomputed
+recommendation. Use:
 
-- counts for open demand, open supply, recommendations, and blockers
-- specific rows for inventory that can be allocated now
-- top sales-order demand that needs supply
-- grouped make recommendations
-- grouped buy/setup-review recommendations
-- grouped material blockers
-
-If using `format=json`, do not infer available stock from raw on-hand
-quantities. Use:
-
-- `planning.assumptions`, `horizonStart`, and `horizonEnd` to explain the
-  planning basis.
-- `summary` and `attentionQueue` as indexes into the full data, not as filters.
-- `decisionSupport.decisionQueue` as the first read for what to do next. It
-  combines allocation, make/buy, item-setup, and blocker-resolution decisions.
-- `decisionSupport.allocationNeeds` for the current allocate-first queue. These
-  rows include `allocationRankForItem`, `availableQtyBeforeThisNeed`, and
-  `availableQtyAfterThisNeed` so the same stock is not counted twice.
-- `decisionSupport.supplyRecommendations` for make/buy/review recommendations
-  with item names, quantities, dates, warnings, and source refs.
-- `salesOrders`, `manufacturingOrders`, `purchaseOrders`, `inventory`, and
-  `allocations` as the complete current board state.
-- `inventory.availableQty` as current usable on-hand after reservations.
-- `inventory.projectedQty` as planning-derived future net quantity.
-- `inventory.inventoryLotAllocatedQty` for physical lot allocations.
-- `inventory.manufacturingOutputAllocatedQty` for allocations of future MO
-  output.
-- `inputHash` when explaining that recommendations are based on the returned
-  snapshot.
+- `openSalesOrders` for sales order dates, ship dates, line items, quantities,
+  allocation state, and per-line production requirements.
+- `openManufacturingOrders` for existing production supply.
+- `inventoryCounts` for current product inventory, allocation totals, open sales
+  demand, and open manufacturing supply.
+- `productRequirements` for BOM constraints such as minimum lot age.
+- `inputHash` when explaining that advice is based on this snapshot.
 
 The agent-facing response intentionally omits sales prices, unit costs, draft
-action payloads, and per-parent recipe ratios. Use total required quantities,
-blockers, and source refs for planning advice.
+action payloads, and material-purchasing recommendations. This is production
+data only.
 
 Do not tell the user that manufacturing orders, purchase orders, or allocations
 were created. This integration is read-only.

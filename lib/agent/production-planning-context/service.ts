@@ -46,6 +46,7 @@ import type {
   AgentProductionBlockerFact,
   AgentProductionPlanningContext,
   AgentProductionPlanningContextOptions,
+  AgentProductionRawContext,
   AgentSupplyRecommendationContext,
   AgentBomRequirementContext,
   AgentTopLevelBomContext,
@@ -489,9 +490,7 @@ async function loadOpenSalesOrdersInTx(
     const shippedQty = shippedByLine.get(row.lineId) ?? 0;
     const plannedShipmentQty = plannedByLine.get(row.lineId) ?? 0;
     const cancelledQty = toQuantity(row.cancelledQty);
-    const openQty = roundQuantity(
-      orderedQty - shippedQty - plannedShipmentQty - cancelledQty
-    );
+    const openQty = roundQuantity(orderedQty - shippedQty - cancelledQty);
     if (openQty <= 0) continue;
 
     const directAllocatedQty =
@@ -908,6 +907,16 @@ function collectRelevantItemIds(args: {
   }
   for (const allocation of args.allocations) addDefined(itemIds, allocation.itemId);
   return [...itemIds].sort();
+}
+
+async function loadActiveProductItemIdsInTx(tx: Tx) {
+  const rows = await tx
+    .select({ itemId: items.id })
+    .from(items)
+    .where(and(eq(items.itemType, "product"), isNull(items.deletedAt)))
+    .orderBy(asc(items.name), asc(items.id));
+
+  return rows.map((row) => row.itemId);
 }
 
 async function loadRelevantInventoryContextInTx(
@@ -1592,6 +1601,12 @@ function isProductionDecisionBomComponent(
   return /\b(bag|pallet|tote|wrap|topper|label)\b/i.test(component.componentName);
 }
 
+function isProductionRequirementComponent(
+  component: AgentTopLevelBomContext["components"][number]
+) {
+  return component.minimumLotAgeDays != null || component.constraints.length > 0;
+}
+
 function buildMarkdownTargets(context: AgentProductionPlanningContext) {
   const bomsByProductId = topLevelBomByProductId(context);
   const targets: MarkdownBuildTarget[] = [];
@@ -1687,6 +1702,137 @@ function groupMarkdownTargets(targets: MarkdownBuildTarget[]) {
     if (dateDelta !== 0) return dateDelta;
     return left.itemName.localeCompare(right.itemName);
   });
+}
+
+function buildRawProductionContext(
+  context: AgentProductionPlanningContext
+): AgentProductionRawContext {
+  const requirementsByProductId = topLevelBomByProductId(context);
+  const salesDemandByItemId = new Map<
+    string,
+    { demandQty: number; allocatedQty: number; unallocatedQty: number }
+  >();
+  const openManufacturingSupplyByItemId = openMoSupplyByItemId(context);
+
+  for (const order of context.salesOrders) {
+    for (const line of order.lines) {
+      const current = salesDemandByItemId.get(line.itemId) ?? {
+        demandQty: 0,
+        allocatedQty: 0,
+        unallocatedQty: 0,
+      };
+      current.demandQty = roundQuantity(current.demandQty + toQuantity(line.openQty));
+      current.allocatedQty = roundQuantity(
+        current.allocatedQty + toQuantity(line.allocatedQty)
+      );
+      current.unallocatedQty = roundQuantity(
+        current.unallocatedQty + toQuantity(line.shortQty)
+      );
+      salesDemandByItemId.set(line.itemId, current);
+    }
+  }
+
+  return {
+    orgId: context.orgId,
+    generatedAt: context.generatedAt,
+    inputHash: context.inputHash,
+    horizon: {
+      start: context.planning.horizonStart,
+      end: context.planning.horizonEnd,
+    },
+    openSalesOrders: context.salesOrders.map((order) => ({
+      salesOrderId: order.salesOrderId,
+      orderNumber: order.orderNumber,
+      customerName: order.customerName,
+      status: order.status,
+      orderDate: order.orderDate,
+      shipDate: order.requiredDate,
+      priorityRank: order.priorityRank,
+      lines: order.lines.map((line) => {
+        const requirements = (
+          requirementsByProductId.get(line.itemId)?.components ?? []
+        ).filter(isProductionRequirementComponent);
+        return {
+          salesOrderLineId: line.salesOrderLineId,
+          itemId: line.itemId,
+          itemName: line.itemName,
+          unitName: line.unitName,
+          orderedQty: line.orderedQty,
+          shippedQty: line.shippedQty,
+          plannedShipmentQty: line.plannedShipmentQty,
+          cancelledQty: line.cancelledQty,
+          remainingToShipQty: line.openQty,
+          allocatedQty: line.allocatedQty,
+          unallocatedQty: line.shortQty,
+          productionStatus: line.productionStatus,
+          requirements: requirements.map((component) => ({
+            componentItemId: component.componentItemId,
+            componentName: component.componentName,
+            componentItemType: component.componentItemType,
+            quantity: component.quantity,
+            unitName: component.unitName,
+            consumptionMode: component.consumptionMode,
+            basisOutputQuantity: component.basisOutputQuantity,
+            batchScalingMode: component.batchScalingMode,
+            groupRemainderPolicy: component.groupRemainderPolicy,
+            minimumLotAgeDays: component.minimumLotAgeDays,
+            constraints: component.constraints,
+          })),
+        };
+      }),
+    })),
+    openManufacturingOrders: context.manufacturingOrders.map((order) => ({
+      manufacturingOrderId: order.manufacturingOrderId,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      itemId: order.itemId,
+      itemName: order.itemName,
+      unitName: order.unitName,
+      plannedQty: order.plannedQty,
+      completedQty: order.completedQty,
+      remainingQty: order.remainingQty,
+      plannedDate: order.plannedDate,
+      expectedOutputDate: order.expectedOutputDate,
+      priorityRank: order.priorityRank,
+      linkedSalesOrderId: order.salesOrderId,
+      linkedSalesOrderLineId: order.salesOrderLineId,
+      outputAllocations: order.outputAllocations,
+    })),
+    inventoryCounts: context.inventory.map((item) => {
+      const salesDemand = salesDemandByItemId.get(item.itemId);
+      return {
+        itemId: item.itemId,
+        itemName: item.itemName,
+        unitName: item.unitName,
+        onHandQty: item.onHandQty,
+        availableQty: item.availableQty,
+        reservedQty: item.reservedQty,
+        expectedQty: item.expectedQty,
+        inventoryLotAllocatedQty: item.inventoryLotAllocatedQty,
+        manufacturingOutputAllocatedQty: item.manufacturingOutputAllocatedQty,
+        totalActiveAllocationQty: item.totalActiveAllocationQty,
+        openSalesDemandQty: quantityString(salesDemand?.demandQty ?? 0),
+        openSalesAllocatedQty: quantityString(salesDemand?.allocatedQty ?? 0),
+        openSalesUnallocatedQty: quantityString(salesDemand?.unallocatedQty ?? 0),
+        openManufacturingSupplyQty: quantityString(
+          openManufacturingSupplyByItemId.get(item.itemId) ?? 0
+        ),
+      };
+    }),
+    productRequirements: context.topLevelBoms
+      .map((bom) => ({
+        ...bom,
+        components: bom.components.filter(isProductionRequirementComponent),
+      }))
+      .filter((bom) => bom.components.length > 0),
+    allowedNextActions: context.allowedNextActions,
+  };
+}
+
+export function buildAgentProductionPlanningRawJson(
+  context: AgentProductionPlanningContext
+) {
+  return buildRawProductionContext(context);
 }
 
 export function buildAgentProductionPlanningMarkdown(
@@ -1880,6 +2026,7 @@ async function buildAgentProductionPlanningContextInTx(
   const manufacturingOrders = await loadOpenManufacturingOrdersInTx(tx, allocations);
   const purchaseOrders = await loadOpenPurchaseOrdersInTx(tx);
   const topLevelBoms = await loadTopLevelBomContextInTx(tx, salesOrders);
+  const activeProductItemIds = await loadActiveProductItemIdsInTx(tx);
   const relevantItemIds = collectRelevantItemIds({
     snapshot,
     salesOrders,
@@ -1888,7 +2035,7 @@ async function buildAgentProductionPlanningContextInTx(
     allocations,
   });
   const inventory = await loadRelevantInventoryContextInTx(tx, {
-    itemIds: relevantItemIds,
+    itemIds: [...new Set([...activeProductItemIds, ...relevantItemIds])].sort(),
     snapshot,
     allocations,
     includeLots: options.includeLots,
@@ -1929,7 +2076,7 @@ async function buildAgentProductionPlanningContextInTx(
       ),
       openManufacturingOrderCount: manufacturingOrders.length,
       openPurchaseOrderCount: purchaseOrders.length,
-      relevantItemCount: relevantItemIds.length,
+      relevantItemCount: inventory.length,
       activeAllocationCount: allocations.length,
       allocationNeedCount: decisionSupport.allocationNeeds.length,
       allocatableNowCount: decisionSupport.allocationNeeds.filter(

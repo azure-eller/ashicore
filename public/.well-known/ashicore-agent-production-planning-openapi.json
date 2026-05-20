@@ -3,7 +3,7 @@
   "info": {
     "title": "Ashicore Agent Production Planning API",
     "version": "1.0.0",
-    "description": "Read-only production-planning context for external AI assistants. The ERP remains authoritative for planning calculations; this API returns the current board state and planning facts for reasoning."
+    "description": "Read-only raw production data for external AI assistants."
   },
   "servers": [
     {
@@ -15,7 +15,7 @@
       "get": {
         "operationId": "getProductionPlanningContext",
         "summary": "Get production planning context",
-        "description": "Returns a compact Markdown production-planning brief by default. Use format=json only for debugging or full-context clients. Read-only: does not create manufacturing orders, purchase orders, allocations, or inventory events.",
+        "description": "Returns raw production data: open sales orders, open MOs, inventory counts, and product requirements.",
         "x-openai-isConsequential": false,
         "security": [
           {
@@ -27,21 +27,21 @@
             "name": "format",
             "in": "query",
             "required": false,
-            "description": "Response format. Defaults to markdown, which is the recommended compact format for ChatGPT and Claude.",
+            "description": "Response format. Defaults to json.",
             "schema": {
               "type": "string",
               "enum": [
                 "markdown",
                 "json"
               ],
-              "default": "markdown"
+              "default": "json"
             }
           },
           {
             "name": "includePlanningFacts",
             "in": "query",
             "required": false,
-            "description": "JSON-only. When false, omits large planning fact arrays. Ignored for markdown, which is always compact.",
+            "description": "Reserved for compatibility.",
             "schema": {
               "type": "boolean",
               "default": false
@@ -51,7 +51,7 @@
             "name": "includeLots",
             "in": "query",
             "required": false,
-            "description": "JSON-only. When false, returns inventory items without lot detail. Ignored for markdown, which is always compact.",
+            "description": "Reserved for compatibility.",
             "schema": {
               "type": "boolean",
               "default": false
@@ -60,17 +60,17 @@
         ],
         "responses": {
           "200": {
-            "description": "Current production-planning context. Markdown is the default compact agent brief; JSON is available with format=json.",
+            "description": "Current raw production data.",
             "content": {
               "text/markdown": {
                 "schema": {
                   "type": "string",
-                  "description": "Compact production-planning brief with counts, allocate-now queue, make/buy recommendations, setup reviews, blockers, and read-only rules."
+                  "description": "Human-readable production data view."
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AgentProductionPlanningContext"
+                  "$ref": "#/components/schemas/AgentProductionRawContext"
                 }
               }
             }
@@ -94,22 +94,17 @@
       }
     },
     "schemas": {
-      "AgentProductionPlanningContext": {
+      "AgentProductionRawContext": {
         "type": "object",
         "required": [
           "orgId",
           "generatedAt",
           "inputHash",
-          "summary",
-          "attentionQueue",
-          "salesOrders",
-          "manufacturingOrders",
-          "purchaseOrders",
-          "inventory",
-          "allocations",
-          "topLevelBoms",
-          "decisionSupport",
-          "planning",
+          "horizon",
+          "openSalesOrders",
+          "openManufacturingOrders",
+          "inventoryCounts",
+          "productRequirements",
           "allowedNextActions"
         ],
         "properties": {
@@ -124,98 +119,41 @@
             "type": "string",
             "description": "Stable hash for the planning inputs. Future write workflows should compare against this before acting."
           },
-          "summary": {
+          "horizon": {
             "type": "object",
             "additionalProperties": true
           },
-          "attentionQueue": {
+          "openSalesOrders": {
             "type": "array",
+            "description": "Open sales orders with dates, line quantities, allocation state, and line-level product requirements.",
             "items": {
               "type": "object",
               "additionalProperties": true
             }
           },
-          "salesOrders": {
+          "openManufacturingOrders": {
             "type": "array",
+            "description": "Open manufacturing orders that represent existing production supply.",
             "items": {
               "type": "object",
               "additionalProperties": true
             }
           },
-          "manufacturingOrders": {
+          "inventoryCounts": {
             "type": "array",
+            "description": "Current product inventory counts plus open sales demand and open MO supply by product.",
             "items": {
               "type": "object",
               "additionalProperties": true
             }
           },
-          "purchaseOrders": {
+          "productRequirements": {
             "type": "array",
+            "description": "Top-level requirements for products on open sales orders, including constraints such as minimum lot age.",
             "items": {
               "type": "object",
               "additionalProperties": true
             }
-          },
-          "inventory": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "description": "Inventory context. availableQty is current usable on-hand after reservations; projectedQty is planning-derived future net quantity. Inventory-lot allocations and manufacturing-output allocations are split into separate fields.",
-              "additionalProperties": true
-            }
-          },
-          "allocations": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          },
-          "topLevelBoms": {
-            "type": "array",
-            "description": "Current top-level BOMs for products on open sales orders, including component age constraints.",
-            "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          },
-          "decisionSupport": {
-            "type": "object",
-            "description": "Agent-facing decision indexes: a sorted decision queue, allocation needs, and make/buy/review recommendations without price data or draft action payloads.",
-            "required": [
-              "decisionQueue",
-              "allocationNeeds",
-              "supplyRecommendations"
-            ],
-            "properties": {
-              "decisionQueue": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": true
-                }
-              },
-              "allocationNeeds": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": true
-                }
-              },
-              "supplyRecommendations": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": true
-                }
-              }
-            },
-            "additionalProperties": false
-          },
-          "planning": {
-            "type": "object",
-            "description": "ERP planning snapshot, including horizon, assumptions, rows, facts, recommendations, blockers, paths, warnings, and inputHash. Agent output omits cost fields, draft action payloads, and per-parent recipe ratios.",
-            "additionalProperties": true
           },
           "allowedNextActions": {
             "type": "array",
