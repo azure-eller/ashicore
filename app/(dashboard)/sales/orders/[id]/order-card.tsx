@@ -35,6 +35,7 @@ import { TotalsStrip } from "./totals-strip";
 import { PlanShipmentDialog } from "./plan-shipment-dialog";
 import { MarkShippedDialog } from "./mark-shipped-dialog";
 import { ShipmentCostsDialog } from "./shipment-costs-dialog";
+import { CreateManufacturingOrdersDialog } from "../../create-manufacturing-orders-dialog";
 import {
   draftToInsertPayload,
   makeDraftLine,
@@ -83,6 +84,7 @@ export function OrderCard({
   >(null);
   const [shipTarget, setShipTarget] = useState<SalesShipmentRow | null>(null);
   const [costsTarget, setCostsTarget] = useState<SalesShipmentRow | null>(null);
+  const [makeToOrderOpen, setMakeToOrderOpen] = useState(false);
   const [deleteShipmentTarget, setDeleteShipmentTarget] =
     useState<SalesShipmentRow | null>(null);
 
@@ -164,7 +166,7 @@ export function OrderCard({
       setCurrentOrderId(detail.id);
       queryClient.setQueryData(["sales-order", detail.id], detail);
       void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
-      window.history.replaceState(null, "", `/sales/orders/${detail.id}`);
+      router.replace(`/sales/orders/${detail.id}`);
     },
     onError: (error) => setActionError((error as Error).message),
   });
@@ -365,6 +367,13 @@ export function OrderCard({
           !isDraft && isEditable ? () => setShipmentDialogTarget("new") : undefined
         }
         onDuplicate={!isDraft ? () => duplicateMutation.mutate() : undefined}
+        onCreateMo={
+          !isDraft && order.hasManufacturableLines
+            ? () => setMakeToOrderOpen(true)
+            : undefined
+        }
+        onCreateMoDisabled={!order.hasManufacturableLines}
+        onCreateMoDisabledReason={order.manufacturableDisabledReason ?? undefined}
         onDelete={!isDraft ? () => setConfirmDelete(true) : undefined}
       />
 
@@ -439,6 +448,25 @@ export function OrderCard({
             order={order}
             shipment={costsTarget}
             onClose={() => setCostsTarget(null)}
+          />
+          <CreateManufacturingOrdersDialog
+            salesOrderId={order.id}
+            open={makeToOrderOpen}
+            onOpenChange={setMakeToOrderOpen}
+            showTrigger={false}
+            salesOrderLabel={`${order.orderNumber} - ${order.customerName}`}
+            initialPlannedDate={order.shipDate ?? order.requestedDate ?? undefined}
+            openManufacturingOrders={order.linkedManufacturingOrders
+              .filter((linkedOrder) => linkedOrder.status === "open")
+              .map((linkedOrder) => ({
+                id: linkedOrder.id,
+                orderNumber: linkedOrder.orderNumber,
+                itemName: linkedOrder.productName,
+                quantity: `${linkedOrder.plannedQuantity} ${linkedOrder.unitName}`,
+                plannedDate: linkedOrder.plannedDate,
+                priorityRank: linkedOrder.priorityRank,
+                status: linkedOrder.status,
+              }))}
           />
           <AlertDialog
             open={deleteShipmentTarget != null}

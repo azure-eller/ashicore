@@ -50,7 +50,9 @@ export function MarkShippedDialog({
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...createIdempotencyHeaders("shipSalesShipment"),
+            ...Object.fromEntries(
+              createIdempotencyHeaders("shipSalesShipment").entries(),
+            ),
           },
           body: JSON.stringify({
             confirmNegativeStock,
