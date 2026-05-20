@@ -58,7 +58,6 @@ export function OrderDetailsGrid({
           />
           <ProjectCell order={order} editable={editable} projects={customerProjects} />
           <DateCell
-            order={order}
             editable={editable}
             field="orderDate"
             label="Order date"
@@ -66,14 +65,12 @@ export function OrderDetailsGrid({
           />
           <AddressCell order={order} editable={editable} />
           <DateCell
-            order={order}
             editable={editable}
             field="shipDate"
             label="Shipping date"
             value={order.shipDate}
           />
           <DateCell
-            order={order}
             editable={editable}
             field="requestedDate"
             label="Requested date"
@@ -201,13 +198,11 @@ function ProjectCell({
 }
 
 function DateCell({
-  order,
   editable,
   field,
   label,
   value,
 }: {
-  order: SalesOrderDetail;
   editable: boolean;
   field: "orderDate" | "shipDate" | "requestedDate";
   label: string;

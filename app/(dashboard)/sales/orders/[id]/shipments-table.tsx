@@ -93,8 +93,6 @@ export function ShipmentsTable({
   });
 
   // Only planned shipments are inline-editable; shipped ones are locked.
-  const rowEditable = (row: SalesShipmentRow) => editable && row.status === "planned";
-
   const columns = useMemo<ColDef<SalesShipmentRow>[]>(
     () => [
       {
@@ -121,7 +119,7 @@ export function ShipmentsTable({
         field: "fulfillmentType",
         headerName: "Fulfillment",
         width: 130,
-        editable: (params) => (params.data ? rowEditable(params.data) : false),
+        editable: (params) => (params.data ? editable && params.data.status === "planned" : false),
         cellEditor: "agSelectCellEditor",
         cellEditorParams: { values: ["delivery", "pickup"] },
         valueFormatter: ({ value }) => (value === "pickup" ? "Pickup" : "Delivery"),
@@ -136,7 +134,7 @@ export function ShipmentsTable({
         field: "scheduledDate",
         headerName: "Ship date",
         width: 130,
-        editable: (params) => (params.data ? rowEditable(params.data) : false),
+        editable: (params) => (params.data ? editable && params.data.status === "planned" : false),
         cellEditor: "agTextCellEditor",
         cellClass: "font-mono tabular-nums",
         valueFormatter: ({ value }) => (value ? (formatDate(String(value)) ?? "—") : "—"),
@@ -146,7 +144,7 @@ export function ShipmentsTable({
         field: "deliveryDate",
         headerName: "Deliver date",
         width: 130,
-        editable: (params) => (params.data ? rowEditable(params.data) : false),
+        editable: (params) => (params.data ? editable && params.data.status === "planned" : false),
         cellEditor: "agTextCellEditor",
         cellClass: "font-mono tabular-nums",
         valueFormatter: ({ value }) => (value ? (formatDate(String(value)) ?? "—") : "—"),
@@ -204,7 +202,7 @@ export function ShipmentsTable({
         },
       },
     ],
-    [editable, order.id],
+    [editable],
   );
 
   const actionsColumn = useMemo<ColDef<SalesShipmentRow>[]>(
