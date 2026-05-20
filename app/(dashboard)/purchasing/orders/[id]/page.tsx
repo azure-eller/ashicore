@@ -21,6 +21,11 @@ export default async function PurchaseOrderDetailPage({
     "purchasing",
     "operate",
   );
+  const canViewLedger = hasModuleAccess(
+    context.assignedRoles,
+    "inventory",
+    "read",
+  );
   const { id } = await params;
   let order;
   let suppliers;
@@ -65,6 +70,7 @@ export default async function PurchaseOrderDetailPage({
       addresses={addresses}
       orderTitle={order.orderNumber}
       canWrite={canWrite}
+      canViewLedger={canViewLedger}
     />
   );
 }

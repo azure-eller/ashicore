@@ -92,6 +92,7 @@ import { TooltipHeader } from "@/components/tooltip-header";
 import { Textarea } from "@/components/ui/textarea";
 import { AddressFields } from "@/components/address-fields";
 import { useAutosaveForm } from "@/lib/hooks/use-autosave-form";
+import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import {
   EXPECTED_DELIVERY_DATE_TOOLTIP,
   PO_LINE_TOTAL_TOOLTIP,
@@ -768,6 +769,7 @@ export function PurchaseOrderForm({
   defaultValues,
   orderTitle,
   canWrite = true,
+  canViewLedger = false,
 }: {
   suppliers: SupplierOption[];
   materials: PurchaseOrderMaterialOption[];
@@ -776,6 +778,7 @@ export function PurchaseOrderForm({
   defaultValues?: InsertPurchaseOrder;
   orderTitle?: string | null;
   canWrite?: boolean;
+  canViewLedger?: boolean;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -1898,6 +1901,20 @@ export function PurchaseOrderForm({
                 align="end"
                 className="bg-popover text-popover-foreground"
               >
+                {savedOrderId && canViewLedger ? (
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      router.push(
+                        buildInventoryLedgerHref({
+                          documentType: "purchase_order",
+                          documentId: savedOrderId,
+                        }),
+                      )
+                    }
+                  >
+                    View inventory activity
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuItem
                   disabled={!savedOrderId || duplicateMutation.isPending}
                   onSelect={() => duplicateMutation.mutate()}
