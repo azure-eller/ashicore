@@ -9,7 +9,10 @@ import {
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
-import type { BomComponentConstraint } from "./constraints";
+import {
+  LOT_AGE_MIN_DAYS_CONSTRAINT,
+  type BomComponentConstraint,
+} from "./constraints";
 
 export async function getCurrentActiveBomIngredientsInTx(tx: Tx, productId: string) {
   const [revision] = await tx
@@ -72,7 +75,7 @@ export async function getCurrentActiveBomIngredientsInTx(tx: Tx, productId: stri
       .from(bomRevisionComponentConstraints)
       .where(
         and(
-          eq(bomRevisionComponentConstraints.constraintType, "lot_age_min_days"),
+          eq(bomRevisionComponentConstraints.constraintType, LOT_AGE_MIN_DAYS_CONSTRAINT),
           inArray(
             bomRevisionComponentConstraints.bomRevisionComponentId,
             bomRevisionComponentIds

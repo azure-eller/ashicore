@@ -3,7 +3,10 @@ import type {
   ManufacturingOrderStatus,
   ManufacturingPickStatus,
 } from "@/lib/schemas/manufacturing-orders";
-import type { BomComponentConstraint } from "@/lib/bom/constraints";
+import type {
+  BomComponentConstraint,
+  RequirementViolationPayload,
+} from "@/lib/bom/constraints";
 
 export type ManufacturingProductOption = {
   id: string;
@@ -101,6 +104,7 @@ export type ManufacturingReleaseWarningIngredient = {
   shortage: number;
   warningType?: "stock_shortage" | "requirement_violation";
   requirement?: string | null;
+  requirementViolations?: RequirementViolationPayload[];
   nextEligibleDate?: string | null;
 };
 

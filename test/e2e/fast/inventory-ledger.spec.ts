@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Page } from "@playwright/test";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { filterList, test, expect } from "../fixtures";
 import { db as appDb } from "../../../lib/db";
@@ -55,6 +56,20 @@ function createOwnerDb() {
 }
 
 const ownerDb = createOwnerDb();
+
+function ledgerGrid(page: Page) {
+  return page.locator('[data-slot="erp-data-grid"]');
+}
+
+function ledgerDataRows(page: Page) {
+  return ledgerGrid(page).locator('[role="row"]:has([role="gridcell"])');
+}
+
+function ledgerRow(page: Page, ...texts: string[]) {
+  return texts
+    .reduce((rows, text) => rows.filter({ hasText: text }), ledgerDataRows(page))
+    .first();
+}
 
 test.describe("Inventory ledger explorer", () => {
   test.describe.configure({ mode: "serial" });
@@ -717,7 +732,6 @@ test.describe("Inventory ledger explorer", () => {
   test("shows on-hand before and after as dedicated ledger table columns", async ({ page }) => {
     await page.goto(`/inventory/ledger?itemId=${balanceItemId}`);
 
-    const tableBody = page.locator("tbody");
     await expect(
       page.getByRole("columnheader", { name: "Change", exact: true })
     ).toBeVisible();
@@ -728,33 +742,33 @@ test.describe("Inventory ledger explorer", () => {
       page.getByRole("columnheader", { name: "On hand after" })
     ).toBeVisible();
 
-    const decreaseRow = tableBody
-      .locator("tr")
-      .filter({ hasText: "Manual stock decrease" })
-      .filter({ hasText: balanceLotANumber })
-      .first();
-    await expect(decreaseRow.getByRole("cell").nth(6)).toHaveText("-3");
-    await expect(decreaseRow.getByRole("cell").nth(7)).toHaveText("25");
-    await expect(decreaseRow.getByRole("cell").nth(8)).toHaveText("22");
+    const decreaseRow = ledgerRow(
+      page,
+      "Manual stock decrease",
+      balanceLotANumber
+    );
+    await expect(decreaseRow.getByRole("gridcell").nth(6)).toHaveText("-3");
+    await expect(decreaseRow.getByRole("gridcell").nth(7)).toHaveText("25");
+    await expect(decreaseRow.getByRole("gridcell").nth(8)).toHaveText("22");
 
-    const openingRow = tableBody
-      .locator("tr")
-      .filter({ hasText: "Manual stock increase" })
-      .filter({ hasText: balanceLotANumber })
-      .filter({ hasText: "+20" })
-      .first();
-    await expect(openingRow.getByRole("cell").nth(7)).toHaveText("0");
-    await expect(openingRow.getByRole("cell").nth(8)).toHaveText("20");
+    const openingRow = ledgerRow(
+      page,
+      "Manual stock increase",
+      balanceLotANumber,
+      "+20"
+    );
+    await expect(openingRow.getByRole("gridcell").nth(7)).toHaveText("0");
+    await expect(openingRow.getByRole("gridcell").nth(8)).toHaveText("20");
 
-    const lotBRow = tableBody
-      .locator("tr")
-      .filter({ hasText: "Manual stock increase" })
-      .filter({ hasText: balanceLotBNumber })
-      .first();
-    await expect(lotBRow.getByRole("cell").nth(6)).toHaveText("+5");
-    await expect(lotBRow.getByRole("cell").nth(7)).toHaveText("20");
-    await expect(lotBRow.getByRole("cell").nth(8)).toHaveText("25");
-    await expect(lotBRow.getByRole("cell").nth(8)).not.toHaveText("5");
+    const lotBRow = ledgerRow(
+      page,
+      "Manual stock increase",
+      balanceLotBNumber
+    );
+    await expect(lotBRow.getByRole("gridcell").nth(6)).toHaveText("+5");
+    await expect(lotBRow.getByRole("gridcell").nth(7)).toHaveText("20");
+    await expect(lotBRow.getByRole("gridcell").nth(8)).toHaveText("25");
+    await expect(lotBRow.getByRole("gridcell").nth(8)).not.toHaveText("5");
   });
 
   test("uses event id as a same-timestamp tie-breaker and dashes unknown balances", async ({
@@ -785,17 +799,17 @@ test.describe("Inventory ledger explorer", () => {
 
     await page.goto(`/inventory/ledger?itemId=${balanceItemId}&scope=all`);
 
-    const firstDataRow = page.locator("tbody > tr").first();
+    const firstDataRow = ledgerDataRows(page).first();
     await expect(firstDataRow).toContainText("Stocktake verification");
-    await expect(firstDataRow.getByRole("cell").nth(6)).toHaveText("—");
-    await expect(firstDataRow.getByRole("cell").nth(7)).toHaveText("—");
-    await expect(firstDataRow.getByRole("cell").nth(8)).toHaveText("—");
+    await expect(firstDataRow.getByRole("gridcell").nth(6)).toHaveText("—");
+    await expect(firstDataRow.getByRole("gridcell").nth(7)).toHaveText("—");
+    await expect(firstDataRow.getByRole("gridcell").nth(8)).toHaveText("—");
 
-    const secondDataRow = page.locator("tbody > tr").nth(1);
+    const secondDataRow = ledgerDataRows(page).nth(1);
     await expect(secondDataRow).toContainText("Manual stock decrease");
-    await expect(secondDataRow.getByRole("cell").nth(6)).toHaveText("-3");
-    await expect(secondDataRow.getByRole("cell").nth(7)).toHaveText("25");
-    await expect(secondDataRow.getByRole("cell").nth(8)).toHaveText("22");
+    await expect(secondDataRow.getByRole("gridcell").nth(6)).toHaveText("-3");
+    await expect(secondDataRow.getByRole("gridcell").nth(7)).toHaveText("25");
+    await expect(secondDataRow.getByRole("gridcell").nth(8)).toHaveText("22");
   });
 
   test("does not return another organization's ledger rows", async () => {
@@ -876,9 +890,11 @@ test.describe("Inventory ledger explorer", () => {
     await expect(page.getByRole("button", { name: /Filter by Actor/ })).toBeVisible();
     await expect(page.getByLabel("Rows per page")).toBeVisible();
     await expect(page.getByLabel("Lot filter value")).toBeHidden();
-    await expect(page.locator("tbody").getByText("On-hand")).toHaveCount(0);
-    await expect(page.locator("tbody").getByText("test-agent@erp-test.local")).toHaveCount(0);
-    await expect(page.locator("tbody").getByText(`LEDGER-PO-MAT-${ts}`)).toHaveCount(0);
+    await expect(ledgerGrid(page).getByText("On-hand")).toHaveCount(0);
+    await expect(
+      ledgerGrid(page).getByText("test-agent@erp-test.local")
+    ).toHaveCount(0);
+    await expect(ledgerGrid(page).getByText(`LEDGER-PO-MAT-${ts}`)).toHaveCount(0);
 
     await page.getByRole("button", { name: /Filter by Occurred/ }).click();
     await expect(page.getByLabel("Filter from date")).toBeVisible();
@@ -905,8 +921,8 @@ test.describe("Inventory ledger explorer", () => {
         q: purchaseMaterialName,
       });
 
-    const globalTableBody = page.locator("tbody");
-    await expect(globalTableBody.getByText("Manual stock increase")).toBeVisible();
+    const globalTableBody = ledgerGrid(page);
+    await expect(globalTableBody.getByText("Manual stock increase").first()).toBeVisible();
     await expect(globalTableBody.getByText("Expected supply increase")).toHaveCount(0);
 
     await page.getByRole("button", { name: /Filter by Movement/ }).click();
@@ -927,13 +943,12 @@ test.describe("Inventory ledger explorer", () => {
       });
 
     await expect(globalTableBody.getByText("Expected supply increase").first()).toBeVisible();
-    await expect(globalTableBody.getByText("Manual stock increase")).toBeVisible();
+    await expect(globalTableBody.getByText("Manual stock increase").first()).toBeVisible();
   });
 
   test("shows ledger as a lean table without expanded rows", async ({ page }) => {
     await page.goto(`/inventory/ledger?itemId=${purchaseMaterialId}`);
 
-    const tableBody = page.locator("tbody");
     await expect(
       page.getByRole("columnheader", { name: "On hand before" })
     ).toBeVisible();
@@ -946,12 +961,12 @@ test.describe("Inventory ledger explorer", () => {
     await expect(page.getByRole("columnheader", { name: "Unit cost" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Expand row" })).toHaveCount(0);
 
-    const manualRow = tableBody
-      .locator("tr")
-      .filter({ hasText: "Manual stock increase" })
-      .filter({ hasText: purchaseMaterialName })
-      .first();
-    await expect(manualRow.getByRole("cell").nth(9)).toContainText("$");
+    const manualRow = ledgerRow(
+      page,
+      "Manual stock increase",
+      purchaseMaterialName
+    );
+    await expect(manualRow.getByRole("gridcell").nth(9)).toContainText("$");
     await expect(page.getByText("Advanced")).toHaveCount(0);
     await expect(
       page.getByText("manual_adjustment_increase", { exact: true })
@@ -1053,15 +1068,16 @@ test.describe("Inventory ledger explorer", () => {
           purchaseMaterialName
         )}`
       );
-      await expect(page.locator("tbody").getByText("Manufacturing material used")).toBeVisible();
-      const materialUseRow = page
-        .locator("tbody")
-        .locator("tr")
-        .filter({ hasText: "Manufacturing material used" })
-        .filter({ hasText: purchaseMaterialName })
-        .first();
-      await expect(materialUseRow.getByRole("cell").nth(6)).toHaveText("-1");
-      await expect(materialUseRow.getByRole("cell").nth(9)).toHaveText("-$2.25");
+      await expect(
+        ledgerGrid(page).getByText("Manufacturing material used").first()
+      ).toBeVisible();
+      const materialUseRow = ledgerRow(
+        page,
+        "Manufacturing material used",
+        purchaseMaterialName
+      );
+      await expect(materialUseRow.getByRole("gridcell").nth(6)).toHaveText("-1");
+      await expect(materialUseRow.getByRole("gridcell").nth(9)).toHaveText("-$2.25");
       await expect(
         materialUseRow.getByRole("link", { name: manufacturingOrder.orderNumber })
       ).toBeVisible();
@@ -1071,14 +1087,13 @@ test.describe("Inventory ledger explorer", () => {
           salesProductName
         )}`
       );
-      await expect(page.locator("tbody").getByText("Manufacturing output")).toBeVisible();
-      const outputRow = page
-        .locator("tbody")
-        .locator("tr")
-        .filter({ hasText: "Manufacturing output" })
-        .filter({ hasText: salesProductName })
-        .first();
-      await expect(outputRow.getByRole("cell").nth(9)).toHaveText("$2.25");
+      await expect(ledgerGrid(page).getByText("Manufacturing output").first()).toBeVisible();
+      const outputRow = ledgerRow(
+        page,
+        "Manufacturing output",
+        salesProductName
+      );
+      await expect(outputRow.getByRole("gridcell").nth(9)).toHaveText("$2.25");
     } finally {
       const labelEventIds = labelEvents.map((event) => event.id);
       if (labelEventIds.length > 0) {
@@ -1106,8 +1121,8 @@ test.describe("Inventory ledger explorer", () => {
     await page.goto(`/inventory/ledger?itemId=${purchaseMaterialId}`);
     await expect(page).toHaveURL(new RegExp(`/inventory/ledger\\?itemId=${purchaseMaterialId}`));
 
-    const itemTableBody = page.locator("tbody");
-    await expect(itemTableBody.getByText("Manual stock increase")).toBeVisible();
+    const itemTableBody = ledgerGrid(page);
+    await expect(itemTableBody.getByText("Manual stock increase").first()).toBeVisible();
     await expect(
       itemTableBody.getByText("Expected supply increase")
     ).toHaveCount(0);
@@ -1134,12 +1149,12 @@ test.describe("Inventory ledger explorer", () => {
       purchaseLedgerItem.click(),
     ]);
 
-    const purchaseTableBody = page.locator("tbody");
-    await expect(purchaseTableBody.getByText("Expected supply increase")).toBeVisible({
+    const purchaseTableBody = ledgerGrid(page);
+    await expect(purchaseTableBody.getByText("Expected supply increase").first()).toBeVisible({
       timeout: 15_000,
     });
     await expect(purchaseTableBody.getByText("Manual stock increase")).toHaveCount(0);
-    await expect(purchaseTableBody.getByText(purchaseOrderNumber)).toBeVisible();
+    await expect(purchaseTableBody.getByText(purchaseOrderNumber).first()).toBeVisible();
 
     await page.goto(`/sales/orders/${salesOrderId}`);
     await page.getByRole("button", { name: "More actions" }).click();
@@ -1158,12 +1173,12 @@ test.describe("Inventory ledger explorer", () => {
       salesLedgerItem.click(),
     ]);
 
-    const salesTableBody = page.locator("tbody");
-    await expect(salesTableBody.getByText("Customer demand increase")).toBeVisible({
+    const salesTableBody = ledgerGrid(page);
+    await expect(salesTableBody.getByText("Customer demand increase").first()).toBeVisible({
       timeout: 15_000,
     });
     await expect(salesTableBody.getByText("Manual stock increase")).toHaveCount(0);
-    await expect(salesTableBody.getByText(salesOrderNumber)).toBeVisible();
+    await expect(salesTableBody.getByText(salesOrderNumber).first()).toBeVisible();
   });
 
   test("returns stocktake rows from the ledger API using stocktake-line resolution", async () => {
@@ -1305,12 +1320,12 @@ test.describe("Inventory ledger explorer", () => {
       stocktakeLedgerItem.click(),
     ]);
 
-    const stocktakeTableBody = page.locator("tbody");
+    const stocktakeTableBody = ledgerGrid(page);
     await expect(
-      stocktakeTableBody.getByText("Stocktake adjustment", { exact: true })
+      stocktakeTableBody.getByText("Stocktake adjustment", { exact: true }).first()
     ).toBeVisible();
     await expect(
-      stocktakeTableBody.getByText("Stocktake verification", { exact: true })
+      stocktakeTableBody.getByText("Stocktake verification", { exact: true }).first()
     ).toBeVisible();
     await expect(
       stocktakeTableBody.getByRole("link", { name: stocktakeName, exact: true })

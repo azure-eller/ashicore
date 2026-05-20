@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { MoreVerticalIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useMutation } from "@tanstack/react-query";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import type { InventoryDisposition } from "@/lib/db/schema";
@@ -14,6 +16,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Field,
   FieldError,
   FieldGroup,
@@ -21,6 +29,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { formatInventoryDisposition } from "@/lib/format";
 
 type DispositionAction = "release" | "block" | "reject" | "scrap";
 
@@ -38,21 +47,39 @@ const ACTIONS: Array<{
 export function LotDispositionActions({
   itemId,
   lotId,
-  fromDisposition,
-  maxQuantity,
+  balances,
 }: {
   itemId: string;
   lotId: string;
-  fromDisposition: InventoryDisposition;
-  maxQuantity: string;
+  balances: Array<{
+    disposition: InventoryDisposition;
+    quantity: string;
+  }>;
 }) {
   const router = useRouter();
-  const [selectedAction, setSelectedAction] =
-    useState<(typeof ACTIONS)[number] | null>(null);
+  const [selectedAction, setSelectedAction] = useState<{
+    action: (typeof ACTIONS)[number];
+    fromDisposition: InventoryDisposition;
+    maxQuantity: string;
+  } | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
-  const [quantity, setQuantity] = useState(maxQuantity);
+  const [quantity, setQuantity] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  const menuActions = balances
+    .filter((balance) => Number(balance.quantity) > 0)
+    .flatMap((balance) =>
+      ACTIONS.filter(
+        (action) =>
+          action.toDisposition == null ||
+          action.toDisposition !== balance.disposition,
+      ).map((action) => ({
+        action,
+        fromDisposition: balance.disposition,
+        maxQuantity: balance.quantity,
+      })),
+    );
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -68,8 +95,8 @@ export function LotDispositionActions({
             "Idempotency-Key": idempotencyKey,
           }),
           body: JSON.stringify({
-            action: selectedAction.action,
-            fromDisposition,
+            action: selectedAction.action.action,
+            fromDisposition: selectedAction.fromDisposition,
             quantity,
             notes: notes || null,
           }),
@@ -94,10 +121,10 @@ export function LotDispositionActions({
     },
   });
 
-  const openAction = (action: (typeof ACTIONS)[number]) => {
-    setSelectedAction(action);
+  const openAction = (selection: NonNullable<typeof selectedAction>) => {
+    setSelectedAction(selection);
     setIdempotencyKey(`lot-disposition:${crypto.randomUUID()}`);
-    setQuantity(maxQuantity);
+    setQuantity(selection.maxQuantity);
     setNotes("");
     setError(null);
   };
@@ -109,22 +136,35 @@ export function LotDispositionActions({
 
   return (
     <>
-      <div className="flex flex-wrap justify-end gap-2">
-        {ACTIONS.filter(
-          (action) =>
-            action.toDisposition == null || action.toDisposition !== fromDisposition
-        ).map((action) => (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
           <Button
-            key={action.action}
             type="button"
-            size="sm"
-            variant={action.action === "scrap" ? "destructive" : "outline"}
-            onClick={() => openAction(action)}
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Lot actions"
+            disabled={menuActions.length === 0}
           >
-            {action.label}
+            <HugeiconsIcon icon={MoreVerticalIcon} className="h-4 w-4" aria-hidden />
           </Button>
-        ))}
-      </div>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="bg-popover text-popover-foreground">
+          {menuActions.map((selection) => (
+            <DropdownMenuItem
+              key={`${selection.fromDisposition}-${selection.action.action}`}
+              variant={selection.action.action === "scrap" ? "destructive" : "default"}
+              onSelect={() => openAction(selection)}
+            >
+              {selection.action.label}
+              {balances.length > 1 ? (
+                <span className="ml-auto text-[length:var(--text-xs)] text-muted-foreground">
+                  {formatInventoryDisposition(selection.fromDisposition)}
+                </span>
+              ) : null}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <Dialog
         open={selectedAction != null}
@@ -135,7 +175,9 @@ export function LotDispositionActions({
       >
         <DialogContent className="bg-background text-foreground">
           <DialogHeader>
-            <DialogTitle>{selectedAction?.label ?? "Update Disposition"}</DialogTitle>
+            <DialogTitle>
+              {selectedAction?.action.label ?? "Update Disposition"}
+            </DialogTitle>
           </DialogHeader>
 
           <FieldGroup>
@@ -172,7 +214,9 @@ export function LotDispositionActions({
               type="button"
               onClick={() => mutation.mutate()}
               disabled={mutation.isPending || selectedAction == null}
-              variant={selectedAction?.action === "scrap" ? "destructive" : "default"}
+              variant={
+                selectedAction?.action.action === "scrap" ? "destructive" : "default"
+              }
             >
               {mutation.isPending ? "Saving..." : "Confirm"}
             </Button>

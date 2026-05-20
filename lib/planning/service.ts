@@ -34,6 +34,11 @@ import {
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { calculateConsumptionRequirement } from "@/lib/manufacturing/consumption";
+import {
+  LOT_AGE_MIN_DAYS_CONSTRAINT,
+  toPlanningComponentRequirement,
+  type BomComponentConstraint,
+} from "@/lib/bom/constraints";
 import type {
   BomRequirementFact,
   BomComponentRequirement,
@@ -523,7 +528,7 @@ function compareSupplySlices(left: SupplySlice, right: SupplySlice) {
 
 function supplyCanCoverDemand(supply: SupplySlice, demand: DemandSlice) {
   const lotAgeRequirement = demand.requirements.find(
-    (requirement) => requirement.requirementType === "lot_age_min_days"
+    (requirement) => requirement.requirementType === LOT_AGE_MIN_DAYS_CONSTRAINT
   );
 
   if (lotAgeRequirement) {
@@ -1480,15 +1485,15 @@ async function getCurrentBomsInTx(
           );
   const requirementsByComponentId = new Map<string, BomComponentRequirement[]>();
   for (const constraint of constraints) {
-    if (constraint.constraintType !== "lot_age_min_days") continue;
-    const days = Number(constraint.config.days);
-    if (!Number.isInteger(days) || days <= 0) continue;
+    const componentConstraint: BomComponentConstraint = {
+      constraintType: constraint.constraintType as BomComponentConstraint["constraintType"],
+      config: constraint.config,
+      sortOrder: constraint.sortOrder,
+    };
+    const planningRequirement = toPlanningComponentRequirement(componentConstraint);
+    if (!planningRequirement) continue;
     const bucket = requirementsByComponentId.get(constraint.bomRevisionComponentId) ?? [];
-    bucket.push({
-      requirementType: "lot_age_min_days",
-      days,
-      basis: "received_at",
-    });
+    bucket.push(planningRequirement);
     requirementsByComponentId.set(constraint.bomRevisionComponentId, bucket);
   }
 
@@ -2347,7 +2352,7 @@ function buildProductionBlockerFacts(args: {
 
       const requiredQuantity = toQuantity(fact.requiredQuantity);
       const lotAgeRequirement = fact.requirements.find(
-        (requirement) => requirement.requirementType === "lot_age_min_days"
+        (requirement) => requirement.requirementType === LOT_AGE_MIN_DAYS_CONSTRAINT
       );
       let availableForRequirement = Math.max(0, remainingAvailable);
       let blockerType: ProductionBlockerFact["blockerType"] = "material_shortage";

@@ -1,44 +1,68 @@
-import type { BomComponentConstraintConfig } from "@/lib/db/schema";
+import {
+  LOT_AGE_MIN_DAYS_REQUIREMENT,
+  createLotAgeMinDaysRequirement,
+  evaluateLotAgeMinDaysRequirement,
+  formatComponentRequirement as formatRequirement,
+  formatMinimumLotAgeRequirementLabel,
+  getMinimumLotAgeDays as getMinimumLotAgeRequirementDays,
+  normalizeMinimumLotAgeDays,
+  summarizeComponentRequirements as summarizeRequirements,
+  toPlanningComponentRequirement as requirementToPlanningComponentRequirement,
+  type BomComponentRequirement,
+  type LotAgeMinDaysRequirement,
+  type LotAgeMinDaysRequirementConfig,
+  type RequirementEvaluationResult,
+  type RequirementViolationPayload,
+} from "./requirements";
 
-export const LOT_AGE_MIN_DAYS_CONSTRAINT = "lot_age_min_days" as const;
+export const LOT_AGE_MIN_DAYS_CONSTRAINT = LOT_AGE_MIN_DAYS_REQUIREMENT;
 
-export type LotAgeMinDaysConstraint = {
+export type LotAgeMinDaysConstraint = Omit<
+  LotAgeMinDaysRequirement,
+  "requirementType"
+> & {
   constraintType: typeof LOT_AGE_MIN_DAYS_CONSTRAINT;
-  config: BomComponentConstraintConfig;
-  sortOrder: number;
 };
 
 export type BomComponentConstraint = LotAgeMinDaysConstraint;
+export type BomComponentConstraintType = BomComponentConstraint["constraintType"];
+export type BomComponentConstraintConfig = LotAgeMinDaysRequirementConfig;
+export type { RequirementEvaluationResult, RequirementViolationPayload };
 
-export function normalizeMinimumLotAgeDays(
-  value: string | number | null | undefined
-) {
-  if (value == null) return null;
-  const raw = typeof value === "number" ? String(value) : value.trim();
-  if (raw === "" || raw === "0") return null;
-  if (!/^[1-9][0-9]*$/.test(raw)) return Number.NaN;
-  return Number(raw);
+function toRequirement(
+  constraint: BomComponentConstraint
+): BomComponentRequirement {
+  return {
+    id: constraint.id,
+    requirementType: constraint.constraintType,
+    config: constraint.config,
+    sortOrder: constraint.sortOrder,
+  };
 }
 
 export function createLotAgeMinDaysConstraint(
   days: number | null | undefined
 ): LotAgeMinDaysConstraint | null {
-  if (days == null || days <= 0) return null;
+  const requirement = createLotAgeMinDaysRequirement(days);
+  if (!requirement) return null;
 
   return {
-    constraintType: LOT_AGE_MIN_DAYS_CONSTRAINT,
-    config: { days, basis: "received_at" },
-    sortOrder: 0,
+    constraintType: requirement.requirementType,
+    config: requirement.config,
+    sortOrder: requirement.sortOrder,
   };
 }
 
 export function getMinimumLotAgeDays(
   constraints: readonly BomComponentConstraint[] | null | undefined
 ) {
-  const constraint = constraints?.find(
-    (entry) => entry.constraintType === LOT_AGE_MIN_DAYS_CONSTRAINT
-  );
-  return constraint?.config.days ?? null;
+  return getMinimumLotAgeRequirementDays(constraints?.map(toRequirement));
+}
+
+export function formatComponentRequirement(
+  constraint: BomComponentConstraint
+) {
+  return formatRequirement(toRequirement(constraint));
 }
 
 export function formatMinimumLotAgeRequirement(days: number) {
@@ -49,12 +73,20 @@ export function formatMinimumLotAgeRequirementViolation(days: number) {
   return `Ingredient does not match the ${formatMinimumLotAgeRequirement(days)}.`;
 }
 
-export function formatComponentRequirement(
+export function summarizeComponentRequirements(
+  constraints: readonly BomComponentConstraint[] | null | undefined
+) {
+  return summarizeRequirements(constraints?.map(toRequirement));
+}
+
+export function toPlanningComponentRequirement(
   constraint: BomComponentConstraint
 ) {
-  if (constraint.constraintType === LOT_AGE_MIN_DAYS_CONSTRAINT) {
-    return formatMinimumLotAgeRequirement(constraint.config.days);
-  }
-
-  return "Component requirement.";
+  return requirementToPlanningComponentRequirement(toRequirement(constraint));
 }
+
+export {
+  evaluateLotAgeMinDaysRequirement,
+  formatMinimumLotAgeRequirementLabel,
+  normalizeMinimumLotAgeDays,
+};
