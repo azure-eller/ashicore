@@ -117,8 +117,11 @@ import type {
   CreateManufacturingOrdersFromSalesOrder,
   InsertManufacturingOrder,
   ManufacturingBatchStatus,
+  ManufacturingLotStrategy,
   ManufacturingOrderStatus,
   ManufacturingPickStatus,
+  PatchManufacturingOrder,
+  PatchManufacturingOrderIngredient,
   RecordManufacturingOutput,
   ReorderManufacturingOrderPriorityRanks,
   ReorderManufacturingIngredients,
@@ -278,6 +281,7 @@ type ExecutionIngredientRow = {
   calculatedBatchCount: string | null;
   calculatedGroupCount: string | null;
   plannedQuantity: string;
+  lotStrategy: ManufacturingLotStrategy;
   pickedQuantity: string;
   pickStatus: ManufacturingPickStatus;
   actualQuantity: string | null;
@@ -2034,6 +2038,7 @@ async function getEditableManufacturingIngredientSnapshotInTx(
       plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
         "plannedQuantity"
       ),
+      lotStrategy: manufacturingOrderIngredients.lotStrategy,
       pickedQuantity: trimScale(manufacturingOrderIngredients.pickedQuantity).as(
         "pickedQuantity"
       ),
@@ -2059,6 +2064,7 @@ async function getEditableManufacturingIngredientSnapshotInTx(
     return templateRows.map((row) => ({
       ...row,
       pickStatus: row.pickStatus as ManufacturingPickStatus,
+    lotStrategy: row.lotStrategy as ManufacturingLotStrategy,
     }));
   }
 
@@ -2090,6 +2096,7 @@ async function getEditableManufacturingIngredientSnapshotInTx(
       plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
         "plannedQuantity"
       ),
+      lotStrategy: manufacturingOrderIngredients.lotStrategy,
       pickedQuantity: trimScale(manufacturingOrderIngredients.pickedQuantity).as(
         "pickedQuantity"
       ),
@@ -2181,6 +2188,7 @@ async function getTemplateIngredientsInTx(tx: Tx, orderId: string) {
       plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
         "plannedQuantity"
       ),
+      lotStrategy: manufacturingOrderIngredients.lotStrategy,
       pickedQuantity: trimScale(manufacturingOrderIngredients.pickedQuantity).as(
         "pickedQuantity"
       ),
@@ -2210,6 +2218,7 @@ async function getTemplateIngredientsInTx(tx: Tx, orderId: string) {
   return rows.map((row) => ({
     ...row,
     pickStatus: row.pickStatus as ManufacturingPickStatus,
+    lotStrategy: row.lotStrategy as ManufacturingLotStrategy,
     constraints: constraintsById.get(row.id) ?? [],
   }));
 }
@@ -2244,6 +2253,7 @@ async function getBatchIngredientsInTx(tx: Tx, batchId: string) {
       plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
         "plannedQuantity"
       ),
+      lotStrategy: manufacturingOrderIngredients.lotStrategy,
       pickedQuantity: trimScale(manufacturingOrderIngredients.pickedQuantity).as(
         "pickedQuantity"
       ),
@@ -2268,6 +2278,7 @@ async function getBatchIngredientsInTx(tx: Tx, batchId: string) {
   return rows.map((row) => ({
     ...row,
     pickStatus: row.pickStatus as ManufacturingPickStatus,
+    lotStrategy: row.lotStrategy as ManufacturingLotStrategy,
     constraints: constraintsById.get(row.id) ?? [],
   }));
 }
@@ -3103,6 +3114,7 @@ function aggregateBatchIngredients(
         calculatedBatchCount: row.calculatedBatchCount,
         calculatedGroupCount: row.calculatedGroupCount,
         plannedQuantity: row.plannedQuantity,
+        lotStrategy: row.lotStrategy,
         pickedQuantity: row.pickedQuantity,
         remainingQuantity: getRemainingQuantityString(
           row.plannedQuantity,
@@ -3253,6 +3265,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             unitName: manufacturingOrders.unitName,
             plannedDate: manufacturingOrders.plannedDate,
             status: manufacturingOrders.status,
+            isBlocked: manufacturingOrders.isBlocked,
             manufacturingMode: manufacturingOrders.manufacturingMode,
             numberOfBatches: manufacturingOrders.numberOfBatches,
             deletedAt: manufacturingOrders.deletedAt,
@@ -3807,6 +3820,7 @@ export async function getManufacturingOrder(
         salesOrderNumber: manufacturingOrders.salesOrderNumber,
         salesCustomerName: manufacturingOrders.salesCustomerName,
         status: manufacturingOrders.status,
+        isBlocked: manufacturingOrders.isBlocked,
         manufacturingMode: manufacturingOrders.manufacturingMode,
         numberOfBatches: manufacturingOrders.numberOfBatches,
         expectedBatchYield: trimScaleNullable(manufacturingOrders.expectedBatchYield).as(
@@ -4668,6 +4682,160 @@ export async function updateManufacturingOrder(
     await rerankOpenManufacturingOrdersInTx(tx, orgId);
 
     return order;
+  });
+}
+
+/**
+ * Inline-edit PATCH for the redesigned MO sheet. This is intentionally limited
+ * to metadata that does not affect inventory truth. Quantity and ingredient
+ * changes must continue through updateManufacturingOrder so expected supply,
+ * ingredient demand, batches, and active allocations stay in sync.
+ */
+export async function patchManufacturingOrder(
+  id: string,
+  payload: PatchManufacturingOrder
+): Promise<{ id: string } | null> {
+  return withAuthedOrgContext(async (tx) => {
+    const existing = await getLockedManufacturingOrderInTx(tx, id);
+    if (!existing) return null;
+
+    if (existing.status !== "open") {
+      throw new ManufacturingError("Only open orders can be edited.", 400);
+    }
+
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+
+    if (payload.plannedDate !== undefined) {
+      updates.plannedDate = payload.plannedDate ?? null;
+    }
+    if (payload.notes !== undefined) {
+      updates.notes = payload.notes ?? null;
+    }
+    if (payload.salesOrderId !== undefined || payload.salesOrderLineId !== undefined) {
+      const salesLink = await validateSalesLineLinkInTx(
+        tx,
+        {
+          salesOrderId: payload.salesOrderId ?? existing.salesOrderId,
+          salesOrderLineId: payload.salesOrderLineId ?? existing.salesOrderLineId,
+          productId: existing.productId,
+        },
+        existing.salesOrderId && existing.salesOrderLineId
+          ? {
+              salesOrderId: existing.salesOrderId,
+              salesOrderLineId: existing.salesOrderLineId,
+              salesOrderNumber: existing.salesOrderNumber ?? "",
+              customerName: existing.salesCustomerName ?? "",
+            }
+          : null,
+        id,
+      );
+      updates.salesOrderId = salesLink?.salesOrderId ?? null;
+      updates.salesOrderLineId = salesLink?.salesOrderLineId ?? null;
+      updates.salesOrderNumber = salesLink?.salesOrderNumber ?? null;
+      updates.salesCustomerName = salesLink?.customerName ?? null;
+    }
+    if (payload.isBlocked !== undefined) {
+      updates.isBlocked = payload.isBlocked;
+    }
+
+    const [order] = await tx
+      .update(manufacturingOrders)
+      .set(updates)
+      .where(eq(manufacturingOrders.id, id))
+      .returning({ id: manufacturingOrders.id });
+
+    return order ?? null;
+  });
+}
+
+export async function patchManufacturingOrderIngredient(
+  orderId: string,
+  ingredientId: string,
+  payload: PatchManufacturingOrderIngredient
+): Promise<{ id: string } | null> {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const order = await getLockedManufacturingOrderInTx(tx, orderId);
+    if (!order) return null;
+
+    const [existing] = await tx
+      .select({
+        id: manufacturingOrderIngredients.id,
+        itemId: manufacturingOrderIngredients.itemId,
+        manufacturingOrderId: manufacturingOrderIngredients.manufacturingOrderId,
+        plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
+          "plannedQuantity"
+        ),
+        pickedQuantity: trimScale(manufacturingOrderIngredients.pickedQuantity).as(
+          "pickedQuantity"
+        ),
+        pickStatus: manufacturingOrderIngredients.pickStatus,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(
+        and(
+          eq(manufacturingOrderIngredients.id, ingredientId),
+          eq(manufacturingOrderIngredients.manufacturingOrderId, orderId)
+        )
+      )
+      .for("update");
+    if (!existing) return null;
+
+    if (order.status !== "open") {
+      throw new ManufacturingError(
+        "Only open orders can change ingredient lot allocations.",
+        400
+      );
+    }
+
+    if (
+      existing.pickStatus !== "not_picked" ||
+      Number(existing.pickedQuantity) > 0
+    ) {
+      throw new ManufacturingError(
+        "Ingredient lot allocations cannot be changed after picking starts.",
+        400
+      );
+    }
+
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+
+    if (payload.lotStrategy !== undefined) {
+      updates.lotStrategy = payload.lotStrategy;
+    }
+
+    await tx
+      .update(manufacturingOrderIngredients)
+      .set(updates)
+      .where(eq(manufacturingOrderIngredients.id, ingredientId));
+
+    if (payload.allocations !== undefined) {
+      await cancelActiveStockAllocationsInTx(tx, {
+        organizationId: orgId,
+        actorUserId: userId,
+        demandType: "manufacturing_order_ingredient",
+        demandIds: [ingredientId],
+      });
+
+      await saveManufacturingIngredientLotAllocationsInTx(tx, {
+        organizationId: orgId,
+        actorUserId: userId,
+        ingredients: [
+          {
+            ingredientId: existing.id,
+            itemId: existing.itemId,
+            plannedQuantity: existing.plannedQuantity,
+          },
+        ],
+        lotAllocations: [
+          {
+            itemId: existing.itemId,
+            allocations: payload.allocations,
+          },
+        ],
+      });
+    }
+
+    return { id: existing.id };
   });
 }
 

@@ -54,6 +54,7 @@ export const manufacturingOrders = manufacturingSchema
       requestedQuantity: numeric("requested_quantity", { precision: 12, scale: 4 })
         .notNull(),
       status: varchar("status", { length: 20 }).notNull().default("open"),
+      isBlocked: boolean("is_blocked").notNull().default(false),
       priorityRank: integer("priority_rank"),
       plannedQuantity: numeric("planned_quantity", { precision: 12, scale: 4 })
         .notNull(),
@@ -155,6 +156,9 @@ export const manufacturingOrderIngredients = manufacturingSchema
       }),
       plannedQuantity: numeric("planned_quantity", { precision: 12, scale: 4 })
         .notNull(),
+      lotStrategy: varchar("lot_strategy", { length: 16 })
+        .notNull()
+        .default("fifo"),
       pickedQuantity: numeric("picked_quantity", { precision: 12, scale: 4 })
         .notNull()
         .default("0"),
@@ -198,6 +202,10 @@ export const manufacturingOrderIngredients = manufacturingSchema
       check(
         "manufacturing_order_ingredients_group_handling_check",
         sql`chosen_group_remainder_handling IS NULL OR chosen_group_remainder_handling IN ('leave_loose', 'create_partial_group')`
+      ),
+      check(
+        "manufacturing_order_ingredients_lot_strategy_check",
+        sql`lot_strategy IN ('fifo', 'custom')`
       ),
       check(
         "manufacturing_order_ingredients_basis_output_quantity_check",
