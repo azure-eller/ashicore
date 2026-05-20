@@ -970,19 +970,13 @@ test.describe("Team management and invite flow", () => {
     // Read-only member cannot mutate the product via the API.
     const blockedReadOnlyMutation = await apiCall<{ error?: string }>(
       memberPage,
-      `/api/items/${productId}`,
+      `/api/item-cards/${productId}`,
       {
-        method: "PUT",
+        method: "PATCH",
         body: {
           name: `Recipe Product ${run}`,
-          sku: null,
           category: null,
           description: "blocked read-only edit",
-          defaultPurchasePrice: null,
-          defaultSellingPrice: null,
-          safetyStock: "0",
-          stock: "0",
-          bom: [],
         },
       }
     );
@@ -1114,19 +1108,11 @@ test.describe("Team management and invite flow", () => {
 
     const blockedLockedProductMutation = await apiCall<{ error?: string }>(
       memberPage,
-      `/api/items/${lockedProductId}`,
+      `/api/items/${lockedProductId}/bom-revisions`,
       {
-        method: "PUT",
+        method: "POST",
         body: {
-          purchaseUnitDefinitionId: null,
-          purchaseToStockFactor: null,
-          sku: null,
-          category: null,
-          description: "blocked locked edit",
-          defaultPurchasePrice: null,
-          defaultSellingPrice: null,
-          safetyStock: "0",
-          stock: "0",
+          note: "blocked locked edit",
           bom: [
             {
               componentId: lockMaterial.body?.id,
@@ -1158,7 +1144,25 @@ test.describe("Team management and invite flow", () => {
     await adminPage.goto(`/inventory/products/${lockedProductId}/recipe`);
     await expect(adminPage).toHaveURL(new RegExp(`/inventory/products/${lockedProductId}/recipe$`));
     await expect(adminPage.getByText(`Locked Material ${run}`)).toBeVisible();
-    await expect(adminPage.getByRole("link", { name: "Edit" })).toBeVisible();
+
+    const allowedLockedProductMutation = await apiCall<{ revisionId?: string }>(
+      adminPage,
+      `/api/items/${lockedProductId}/bom-revisions`,
+      {
+        method: "POST",
+        body: {
+          note: "admin locked edit",
+          bom: [
+            {
+              componentId: lockMaterial.body?.id,
+              quantity: "4",
+            },
+          ],
+        },
+      }
+    );
+    expect(allowedLockedProductMutation.status).toBe(201);
+    expect(allowedLockedProductMutation.body?.revisionId).toBeTruthy();
 
     await adminContext.close();
   });

@@ -49,9 +49,11 @@ function isDevelopmentRoute(pathname: string) {
 function isPublicRoute(pathname: string) {
   return (
     pathname.startsWith("/_next") ||
+    pathname.startsWith("/.well-known/") ||
     pathname === "/favicon.ico" ||
     pathname.startsWith("/monitoring") ||
     pathname.startsWith("/api/auth") ||
+    pathname === "/api/agent/production-planning/context" ||
     pathname === "/api/xero/sign-up" ||
     pathname === "/api/xero/callback" ||
     pathname === "/api/reports/sparkline.png" ||

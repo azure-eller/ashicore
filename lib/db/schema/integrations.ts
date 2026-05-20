@@ -294,3 +294,47 @@ export const integrationAuditEvents = integrationsSchema
     ]
   )
   .enableRLS();
+
+export type AgentApiTokenScope = "production_planning:read";
+
+export const agentApiTokens = integrationsSchema
+  .table(
+    "agent_api_tokens",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      createdByUserId: text("created_by_user_id").notNull(),
+      name: varchar("name", { length: 120 }).notNull(),
+      tokenHash: text("token_hash").notNull(),
+      tokenPrefix: varchar("token_prefix", { length: 80 }).notNull(),
+      scopes: jsonb("scopes")
+        .$type<AgentApiTokenScope[]>()
+        .notNull()
+        .default(sql`'["production_planning:read"]'::jsonb`),
+      lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+      expiresAt: timestamp("expires_at", { withTimezone: true }),
+      revokedAt: timestamp("revoked_at", { withTimezone: true }),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true })
+        .notNull()
+        .defaultNow()
+        .$onUpdate(() => new Date()),
+    },
+    (table) => [
+      uniqueIndex("agent_api_tokens_hash_uidx").on(table.tokenHash),
+      index("agent_api_tokens_org_created_idx").on(
+        table.organizationId,
+        table.createdAt
+      ),
+      index("agent_api_tokens_org_active_idx")
+        .on(table.organizationId, table.revokedAt)
+        .where(sql`revoked_at IS NULL`),
+      pgPolicy("agent_api_tokens_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();

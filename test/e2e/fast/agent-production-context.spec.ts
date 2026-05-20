@@ -31,7 +31,7 @@ async function readMutationSensitiveCounts(db: TestDb) {
 }
 
 test.describe("Agent production planning context API", () => {
-  test("requires authentication", async () => {
+  test("requires session or bearer authentication", async () => {
     const response = await fetch(
       `${getBaseUrl()}/api/agent/production-planning/context`,
       {
@@ -40,8 +40,9 @@ test.describe("Agent production planning context API", () => {
       }
     );
 
-    expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toContain("/sign-in");
+    expect(response.status).toBe(401);
+    const body = await response.json();
+    expect(body.error).toBe("Authentication required.");
   });
 
   test("returns full read-only context with the planning input hash", async ({ db }) => {
@@ -111,5 +112,65 @@ test.describe("Agent production planning context API", () => {
     const after = await readMutationSensitiveCounts(db);
 
     expect(after).toEqual(before);
+  });
+
+  test("allows external bearer token access and token revocation", async () => {
+    const planningResponse = await testFetch("/api/planning");
+    expect(planningResponse.status).toBe(200);
+    const planning = await planningResponse.json();
+
+    const createResponse = await testFetch("/api/agent/api-tokens", {
+      method: "POST",
+      body: JSON.stringify({ name: "Playwright external agent token" }),
+    });
+    expect(createResponse.status).toBe(201);
+    const created = await createResponse.json();
+    expect(created.token).toMatch(/^ash_agent\./);
+    expect(created.tokenRecord.name).toBe("Playwright external agent token");
+    expect(created.tokenRecord.scopes).toContain("production_planning:read");
+
+    const listResponse = await testFetch("/api/agent/api-tokens");
+    expect(listResponse.status).toBe(200);
+    const listed = await listResponse.json();
+    expect(
+      listed.tokens.some((token: { id: string }) => token.id === created.tokenRecord.id)
+    ).toBe(true);
+    expect(JSON.stringify(listed)).not.toContain(created.token);
+
+    const bearerResponse = await fetch(
+      `${getBaseUrl()}/api/agent/production-planning/context?includeLots=false`,
+      {
+        headers: {
+          Authorization: `Bearer ${created.token}`,
+          Origin: getBaseUrl(),
+        },
+      }
+    );
+    expect(bearerResponse.status).toBe(200);
+    const context = await bearerResponse.json();
+    expect(context.inputHash).toBe(planning.inputHash);
+    expect(context.planning.inputHash).toBe(planning.inputHash);
+    expect(
+      context.inventory.every(
+        (item: { lots: unknown[] }) => Array.isArray(item.lots) && item.lots.length === 0
+      )
+    ).toBe(true);
+
+    const revokeResponse = await testFetch(
+      `/api/agent/api-tokens/${created.tokenRecord.id}`,
+      { method: "DELETE" }
+    );
+    expect(revokeResponse.status).toBe(200);
+
+    const revokedResponse = await fetch(
+      `${getBaseUrl()}/api/agent/production-planning/context`,
+      {
+        headers: {
+          Authorization: `Bearer ${created.token}`,
+          Origin: getBaseUrl(),
+        },
+      }
+    );
+    expect(revokedResponse.status).toBe(401);
   });
 });

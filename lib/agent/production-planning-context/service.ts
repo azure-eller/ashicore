@@ -21,7 +21,7 @@ import {
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
-import type { Tx } from "@/lib/db/with-org-context";
+import { type Tx, withOrgContext } from "@/lib/db/with-org-context";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { buildPlanningSnapshotInTx } from "@/lib/planning/service";
@@ -969,6 +969,20 @@ export async function getAgentProductionPlanningContext(
   };
 
   return withAuthedOrgContext((tx, orgId) =>
+    buildAgentProductionPlanningContextInTx(tx, orgId, resolvedOptions)
+  );
+}
+
+export async function getAgentProductionPlanningContextForOrg(
+  orgId: string,
+  options: AgentProductionPlanningContextOptions = {}
+) {
+  const resolvedOptions = {
+    includePlanningFacts: options.includePlanningFacts ?? true,
+    includeLots: options.includeLots ?? true,
+  };
+
+  return withOrgContext(orgId, (tx) =>
     buildAgentProductionPlanningContextInTx(tx, orgId, resolvedOptions)
   );
 }

@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
-import { getAgentProductionPlanningContext } from "@/lib/agent/production-planning-context/service";
+import {
+  authenticateAgentBearerToken,
+  readBearerToken,
+} from "@/lib/agent/external-access/tokens";
+import {
+  getAgentProductionPlanningContext,
+  getAgentProductionPlanningContextForOrg,
+} from "@/lib/agent/production-planning-context/service";
 import { assertPlanningReadAccess } from "@/lib/planning/auth";
 
 const booleanQuerySchema = z
@@ -15,10 +22,24 @@ const querySchema = z.object({
 });
 
 export const GET = apiHandler(async (request) => {
-  await assertPlanningReadAccess(request.headers);
-
   const url = new URL(request.url);
   const query = querySchema.parse(Object.fromEntries(url.searchParams.entries()));
+  const bearerToken = readBearerToken(request.headers);
+
+  if (bearerToken) {
+    const agentAuth = await authenticateAgentBearerToken(
+      bearerToken,
+      "production_planning:read"
+    );
+    const context = await getAgentProductionPlanningContextForOrg(
+      agentAuth.orgId,
+      query
+    );
+
+    return NextResponse.json(context);
+  }
+
+  await assertPlanningReadAccess(request.headers);
   const context = await getAgentProductionPlanningContext(query);
 
   return NextResponse.json(context);

@@ -1,0 +1,169 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Ashicore Agent Production Planning API",
+    "version": "1.0.0",
+    "description": "Read-only production-planning context for external AI assistants. The ERP remains authoritative for planning calculations; this API returns the current board state and planning facts for reasoning."
+  },
+  "servers": [
+    {
+      "url": "https://ashicore.app"
+    }
+  ],
+  "paths": {
+    "/api/agent/production-planning/context": {
+      "get": {
+        "operationId": "getProductionPlanningContext",
+        "summary": "Get production planning context",
+        "description": "Returns all open sales orders, manufacturing orders, purchase orders, relevant inventory, active allocations, and the ERP planning snapshot. This endpoint is read-only and does not create manufacturing orders, purchase orders, allocations, or inventory events.",
+        "x-openai-isConsequential": false,
+        "security": [
+          {
+            "agentBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "includePlanningFacts",
+            "in": "query",
+            "required": false,
+            "description": "When false, omits large planning fact arrays. Defaults to true for full-context reasoning.",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          },
+          {
+            "name": "includeLots",
+            "in": "query",
+            "required": false,
+            "description": "When false, returns inventory items without lot detail. Defaults to true.",
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current production-planning context.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentProductionPlanningContext"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, invalid, revoked, or expired agent API token."
+          },
+          "403": {
+            "description": "The token does not have production-planning read scope."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "agentBearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Use an Ashicore agent API token generated from the ERP. In ChatGPT Actions, configure authentication as API Key or Bearer token so requests send Authorization: Bearer <token>."
+      }
+    },
+    "schemas": {
+      "AgentProductionPlanningContext": {
+        "type": "object",
+        "required": [
+          "orgId",
+          "generatedAt",
+          "inputHash",
+          "summary",
+          "attentionQueue",
+          "salesOrders",
+          "manufacturingOrders",
+          "purchaseOrders",
+          "inventory",
+          "allocations",
+          "planning",
+          "allowedNextActions"
+        ],
+        "properties": {
+          "orgId": {
+            "type": "string"
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "inputHash": {
+            "type": "string",
+            "description": "Stable hash for the planning inputs. Future write workflows should compare against this before acting."
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "attentionQueue": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "salesOrders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "manufacturingOrders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "purchaseOrders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "inventory": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Inventory context. availableQty is current usable on-hand after reservations; projectedQty is planning-derived future net quantity. Inventory-lot allocations and manufacturing-output allocations are split into separate fields.",
+              "additionalProperties": true
+            }
+          },
+          "allocations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "planning": {
+            "type": "object",
+            "description": "ERP planning snapshot, including horizon, assumptions, rows, facts, recommendations, blockers, paths, warnings, and inputHash.",
+            "additionalProperties": true
+          },
+          "allowedNextActions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}
