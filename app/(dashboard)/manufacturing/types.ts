@@ -1,5 +1,6 @@
 import type {
   ManufacturingBatchStatus,
+  ManufacturingLotStrategy,
   ManufacturingOrderStatus,
   ManufacturingPickStatus,
 } from "@/lib/schemas/manufacturing-orders";
@@ -143,6 +144,7 @@ export type ManufacturingOrderListRow = {
   unitName: string;
   plannedDate: string | null;
   status: ManufacturingOrderStatus;
+  isBlocked: boolean;
   manufacturingMode: string;
   numberOfBatches: number | null;
   pickProgressStatus: ManufacturingPickProgressStatus;
@@ -194,6 +196,7 @@ export type ManufacturingOrderIngredientDetail = {
   calculatedBatchCount: string | null;
   calculatedGroupCount: string | null;
   plannedQuantity: string;
+  lotStrategy: ManufacturingLotStrategy;
   pickedQuantity: string;
   remainingQuantity: string;
   pickStatus: ManufacturingPickStatus;
@@ -266,6 +269,7 @@ export type ManufacturingOrderDetail = {
   salesOrderNumber: string | null;
   salesCustomerName: string | null;
   status: ManufacturingOrderStatus;
+  isBlocked: boolean;
   manufacturingMode: string;
   numberOfBatches: number | null;
   expectedBatchYield: string | null;
