@@ -843,16 +843,32 @@ test.describe("Manufacturing write-path smoke", () => {
       markDoneButton.click(),
     ]);
     expect(pickResponse.status()).toBe(409);
+    const pickBody = await pickResponse.json();
+    const warningIngredient = pickBody.shortage?.ingredients?.[0];
+    expect(warningIngredient?.warningType).toBe("requirement_violation");
+    expect(warningIngredient?.requirement).toBe(
+      "Ingredient does not match the >= 7 days age requirement."
+    );
+    expect(warningIngredient?.requirementViolations).toHaveLength(1);
+    expect(warningIngredient?.requirementViolations?.[0]).toMatchObject({
+      requirementType: "lot_age_min_days",
+      status: "block",
+      label: "Age ≥ 7d",
+      message: "Lots must be at least 7 days old based on received date.",
+      config: { days: 7, basis: "received_at" },
+      overrideAllowed: true,
+      overrideReasonRequired: false,
+    });
 
     const warningDialog = page.getByRole("alertdialog", {
       name: "Mark done with requirement override?",
     });
     await expect(warningDialog).toBeVisible({ timeout: 15_000 });
+    await expect(warningDialog).toContainText("Age ≥ 7d");
     await expect(warningDialog).toContainText(
-      "Ingredient does not match the >= 7 days age requirement."
+      "Lots must be at least 7 days old based on received date."
     );
     await expect(warningDialog).not.toContainText("under-age");
-    await expect(warningDialog).not.toContainText("Lot must be at least");
   });
 
   test("direct order completion records manufacturing output detail", async ({

@@ -2,6 +2,8 @@ import { eq } from "drizzle-orm";
 import type { Page } from "@playwright/test";
 import { test, expect } from "../fixtures";
 import {
+  bomRevisionComponentAlternates,
+  bomRevisionComponentConstraints,
   bomRevisionComponents,
   bomRevisions,
   inventoryEvents,
@@ -19,6 +21,8 @@ test.describe("Inventory write-path smoke (card UI)", () => {
   let materialId = "";
   let materialLotId = "";
   let materialName = "";
+  let alternateMaterialId = "";
+  let alternateMaterialName = "";
   let productId = "";
   let productName = "";
 
@@ -35,6 +39,43 @@ test.describe("Inventory write-path smoke (card UI)", () => {
     await expect(editor).toBeVisible();
     await editor.fill(quantity);
     await editor.press("Enter");
+  }
+
+  async function setBomMinimumLotAge(
+    page: Page,
+    componentName: string,
+    days: string
+  ) {
+    const materialsGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
+    const row = materialsGrid
+      .locator(".ag-center-cols-container .ag-row", { hasText: componentName })
+      .first();
+    await expect(row).toBeVisible();
+
+    await row.locator('[col-id="minimumLotAgeDays"]').getByRole("button").click();
+    await page.getByLabel("Require aged lots").click();
+    await page.getByLabel("Minimum age").fill(days);
+    await page.getByRole("button", { name: "Apply" }).click();
+    await expect(row.locator('[col-id="minimumLotAgeDays"]')).toContainText(
+      `Age ≥ ${days}d`
+    );
+  }
+
+  async function addBomAlternate(
+    page: Page,
+    componentName: string,
+    alternateName: string
+  ) {
+    const materialsGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
+    const row = materialsGrid
+      .locator(".ag-center-cols-container .ag-row", { hasText: componentName })
+      .first();
+    await expect(row).toBeVisible();
+
+    await row.locator('[col-id="alternates"]').getByRole("button").click();
+    await page.getByPlaceholder("Add alternate...").fill(alternateName);
+    await page.getByRole("option", { name: alternateName }).click();
+    await expect(row.locator('[col-id="alternates"]')).toContainText("1 alt");
   }
 
   test("creates and edits a material through the card UI", async ({ page, db }) => {
@@ -82,6 +123,23 @@ test.describe("Inventory write-path smoke (card UI)", () => {
 
     const [updated] = await db.select().from(items).where(eq(items.id, materialId));
     expect(updated.description).toBe("Fast smoke material");
+
+    alternateMaterialName = `Fast Inventory Sand Alt ${ts}`;
+    const alternate = await createItem({
+      itemType: "material",
+      name: alternateMaterialName,
+      unitDefinitionId: unitId,
+      sku: null,
+      category: null,
+      description: "Alternate material for BOM authoring",
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(alternate.status).toBe(201);
+    alternateMaterialId = alternate.body.id as string;
   });
 
   test("adjusts an existing lot quantity through the API", async ({ db }) => {
@@ -179,6 +237,8 @@ test.describe("Inventory write-path smoke (card UI)", () => {
     await componentInput.fill(materialName);
     await page.getByRole("option", { name: materialName }).click();
     await fillBomQuantity(page, materialName, "1.25");
+    await setBomMinimumLotAge(page, materialName, "14");
+    await addBomAlternate(page, materialName, alternateMaterialName);
 
     const [saveResponse] = await Promise.all([
       page.waitForResponse(
@@ -208,6 +268,26 @@ test.describe("Inventory write-path smoke (card UI)", () => {
     expect(productBom).toHaveLength(1);
     expect(productBom[0].componentId).toBe(materialId);
     expect(productBom[0].quantity).toBe("1.2500");
+
+    const requirementRows = await db
+      .select()
+      .from(bomRevisionComponentConstraints)
+      .where(eq(bomRevisionComponentConstraints.bomRevisionComponentId, productBom[0].id));
+    expect(requirementRows).toHaveLength(1);
+    expect(requirementRows[0]).toMatchObject({
+      constraintType: "lot_age_min_days",
+      config: { days: 14, basis: "received_at" },
+    });
+
+    const alternateRows = await db
+      .select()
+      .from(bomRevisionComponentAlternates)
+      .where(eq(bomRevisionComponentAlternates.bomRevisionComponentId, productBom[0].id));
+    expect(alternateRows).toHaveLength(1);
+    expect(alternateRows[0]).toMatchObject({
+      alternateItemId: alternateMaterialId,
+      alternateItemName: alternateMaterialName,
+    });
   });
 
   test("editing BOM quantity creates a new BOM revision", async ({ page, db }) => {

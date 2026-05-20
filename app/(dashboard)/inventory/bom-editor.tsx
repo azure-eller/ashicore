@@ -10,6 +10,8 @@ import type {
 } from "ag-grid-community";
 import type { CustomCellEditorProps } from "ag-grid-react";
 import { useGridCellEditor } from "ag-grid-react";
+import { Cancel01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 
 import {
   EditableLineDataGrid,
@@ -17,6 +19,23 @@ import {
   type EditableLineDataGridChange,
 } from "@/components/editable-line-data-grid";
 import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  createLotAgeMinDaysConstraint,
+  formatMinimumLotAgeRequirementLabel,
+  summarizeComponentRequirements,
+} from "@/lib/bom/constraints";
 import { cn } from "@/lib/utils";
 
 type AvailableComponent = {
@@ -48,7 +67,8 @@ type BomColumnKey =
   | "consumptionMode"
   | "basisOutputQuantity"
   | "scalingPolicy"
-  | "minimumLotAgeDays";
+  | "minimumLotAgeDays"
+  | "alternates";
 
 type BomErrorState = {
   gridError: string | null;
@@ -228,6 +248,7 @@ function buildErrorState(error: unknown, rows: BomGridRow[]): BomErrorState {
       "basisOutputQuantity",
       "scalingPolicy",
       "minimumLotAgeDays",
+      "alternates",
     ];
 
     keys.forEach((key) => {
@@ -327,6 +348,261 @@ function ScalingPolicyCell({ data }: ICellRendererParams<BomGridRow>) {
 
   return (
     <span>{GROUP_REMAINDER_LABELS[data.groupRemainderPolicy ?? "ask"]}</span>
+  );
+}
+
+function getRequirementSummary(row: BomGridRow | undefined) {
+  const days = normalizeMinimumLotAge(row?.minimumLotAgeDays);
+  const parsedDays = days == null ? null : Number(days);
+  const lotAgeConstraint =
+    parsedDays != null && Number.isInteger(parsedDays) && parsedDays > 0
+      ? createLotAgeMinDaysConstraint(parsedDays)
+      : null;
+
+  return summarizeComponentRequirements(lotAgeConstraint ? [lotAgeConstraint] : []);
+}
+
+function RequirementsCell(params: ICellRendererParams<BomGridRow>) {
+  const { data, node } = params;
+  const currentDays = normalizeMinimumLotAge(data?.minimumLotAgeDays);
+  const [open, setOpen] = useState(false);
+  const [enabled, setEnabled] = useState(Boolean(currentDays));
+  const [draftDays, setDraftDays] = useState(currentDays ?? "");
+  const dayCount = Number(draftDays);
+  const hasDayError =
+    enabled &&
+    (!/^[1-9][0-9]*$/.test(draftDays.trim()) ||
+      !Number.isInteger(dayCount) ||
+      dayCount <= 0);
+  const summary = getRequirementSummary(data);
+
+  if (!data) {
+    return null;
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) {
+          const nextDays = normalizeMinimumLotAge(data.minimumLotAgeDays);
+          setEnabled(Boolean(nextDays));
+          setDraftDays(nextDays ?? "");
+        }
+        setOpen(nextOpen);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "h-full w-full justify-start px-(--space-3)",
+            summary === "None" && "text-muted-foreground"
+          )}
+        >
+          {summary}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80">
+        <PopoverHeader>
+          <PopoverTitle>Component requirements</PopoverTitle>
+          <PopoverDescription>
+            Minimum lot age
+          </PopoverDescription>
+        </PopoverHeader>
+        <div className="flex items-start gap-(--space-4)">
+          <Checkbox
+            id={`require-aged-lots-${data.clientRowId}`}
+            checked={enabled}
+            onCheckedChange={(checked) => {
+              const nextEnabled = checked === true;
+              setEnabled(nextEnabled);
+              if (nextEnabled && draftDays.trim() === "") {
+                setDraftDays("14");
+              }
+            }}
+          />
+          <div className="min-w-0 flex-1 space-y-(--space-4)">
+            <Label htmlFor={`require-aged-lots-${data.clientRowId}`}>
+              Require aged lots
+            </Label>
+            <Label
+              htmlFor={`minimum-lot-age-days-${data.clientRowId}`}
+              className="text-[length:var(--text-xs)] text-muted-foreground"
+            >
+              Minimum age
+            </Label>
+            <div className="grid grid-cols-[1fr_auto] items-center gap-(--space-3)">
+              <Input
+                id={`minimum-lot-age-days-${data.clientRowId}`}
+                inputMode="numeric"
+                value={draftDays}
+                disabled={!enabled}
+                aria-invalid={hasDayError}
+                onChange={(event) => setDraftDays(event.target.value)}
+              />
+              <span className="text-[length:var(--text-sm)] text-muted-foreground">
+                days
+              </span>
+            </div>
+            <p className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground">
+              Lots are eligible when their received date is at least this many days old.
+            </p>
+            {enabled && !hasDayError && draftDays.trim() !== "" ? (
+              <p className="text-[length:var(--text-xs)] text-muted-foreground">
+                {formatMinimumLotAgeRequirementLabel(Number(draftDays))}
+              </p>
+            ) : null}
+            {hasDayError ? (
+              <p className="text-[length:var(--text-xs)] text-destructive">
+                Minimum age must be a positive whole number.
+              </p>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex justify-end gap-(--space-3)">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={hasDayError}
+            onClick={() => {
+              node.setDataValue(
+                "minimumLotAgeDays",
+                enabled ? normalizeMinimumLotAge(draftDays) : null
+              );
+              setOpen(false);
+            }}
+          >
+            Apply
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function summarizeAlternates(row: BomGridRow | undefined) {
+  const count = row?.alternates?.length ?? 0;
+  if (count === 0) return "None";
+  return `${count} alt${count === 1 ? "" : "s"}`;
+}
+
+function AlternatesCell({
+  data,
+  node,
+  componentMap,
+  options,
+}: ICellRendererParams<BomGridRow> & {
+  componentMap: Map<string, AvailableComponent>;
+  options: Array<AvailableComponent & { unitName: string }>;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!data) {
+    return null;
+  }
+
+  const alternates = data.alternates ?? [];
+  const alternateIds = new Set(alternates.map((alternate) => alternate.itemId));
+  const availableAlternates = options.filter(
+    (option) => option.id !== data.componentId && !alternateIds.has(option.id)
+  );
+
+  const updateAlternates = (nextAlternates: Array<{ itemId: string }>) => {
+    node.setDataValue("alternates", nextAlternates);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "h-full w-full justify-start px-(--space-3)",
+            alternates.length === 0 && "text-muted-foreground"
+          )}
+        >
+          {summarizeAlternates(data)}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80">
+        <PopoverHeader>
+          <PopoverTitle>Alternates</PopoverTitle>
+          <PopoverDescription>
+            Approved substitute components for this line.
+          </PopoverDescription>
+        </PopoverHeader>
+        <div className="space-y-(--space-3)">
+          {alternates.length > 0 ? (
+            <div className="space-y-(--space-2)">
+              {alternates.map((alternate) => {
+                const item = componentMap.get(alternate.itemId);
+                return (
+                  <div
+                    key={alternate.itemId}
+                    className="flex min-w-0 items-center justify-between gap-(--space-3) border border-border px-(--space-4) py-(--space-2)"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-[length:var(--text-sm)] font-medium">
+                        {item?.displayName ?? item?.name ?? alternate.itemId}
+                      </p>
+                      <p className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                        {item?.unit ?? "Unit unavailable"}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Remove ${item?.name ?? "alternate"}`}
+                      onClick={() =>
+                        updateAlternates(
+                          alternates.filter(
+                            (entry) => entry.itemId !== alternate.itemId
+                          )
+                        )
+                      }
+                    >
+                      <HugeiconsIcon icon={Cancel01Icon} aria-hidden />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-[length:var(--text-sm)] text-muted-foreground">
+              No alternates.
+            </p>
+          )}
+          <InventoryItemCombobox
+            options={availableAlternates}
+            value={null}
+            onValueChange={(itemId) => {
+              if (!itemId) return;
+              updateAlternates([...alternates, { itemId }]);
+            }}
+            placeholder="Add alternate..."
+            emptyMessage="No compatible options"
+            inputAriaInvalid={false}
+            inputClassName="h-(--height-input-sm)"
+            contentClassName="w-[min(28rem,calc(100vw-2rem))]"
+            showTypeBadge
+            getSecondaryText={(component) => component.unit}
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -631,32 +907,33 @@ export function BomEditor({
       },
       {
         field: "minimumLotAgeDays",
-        headerName: "Min Age",
-        minWidth: 104,
-        flex: 0.5,
-        editable: true,
-        cellEditor: "agTextCellEditor",
-        valueSetter: (params: ValueSetterParams<BomGridRow, string | null>) => {
-          params.data.minimumLotAgeDays = normalizeMinimumLotAge(params.newValue);
-          return true;
-        },
-        cellEditorParams: {
-          getValidationErrors: ({ value }: { value: string | null | undefined }) => {
-            const normalized = normalizeMinimumLotAge(value);
-            if (normalized == null) {
-              return null;
-            }
-
-            return /^\d+$/.test(String(normalized)) && Number(normalized) >= 0
-              ? null
-              : ["Minimum lot age must be a whole number"];
-          },
-        },
-        cellClass: "num",
+        headerName: "Requirements",
+        minWidth: 136,
+        flex: 0.65,
+        editable: false,
+        cellRenderer: RequirementsCell,
         cellClassRules: {
           "erp-editable-grid-cell-error": hasError("minimumLotAgeDays"),
         },
         tooltipValueGetter: errorTooltip("minimumLotAgeDays"),
+      },
+      {
+        field: "alternates",
+        headerName: "Alternates",
+        minWidth: 116,
+        flex: 0.55,
+        editable: false,
+        cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
+          <AlternatesCell
+            {...params}
+            componentMap={componentMap}
+            options={componentOptions}
+          />
+        ),
+        cellClassRules: {
+          "erp-editable-grid-cell-error": hasError("alternates"),
+        },
+        tooltipValueGetter: errorTooltip("alternates"),
       },
       {
         colId: "unit",

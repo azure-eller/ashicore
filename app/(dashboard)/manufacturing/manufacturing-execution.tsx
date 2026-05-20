@@ -60,8 +60,8 @@ import { formatDate, formatDateTime, formatQuantity } from "@/lib/format";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { OUTPUT_DISPOSITION_TOOLTIP } from "@/lib/tooltip-copy";
 import {
-  formatMinimumLotAgeRequirement,
   getMinimumLotAgeDays,
+  summarizeComponentRequirements,
 } from "@/lib/bom/constraints";
 import { ManufacturingOrderStatusBadge } from "./status-badge";
 import { ManufacturingPickProgressBadge } from "./pick-progress-badge";
@@ -353,6 +353,7 @@ function ExecutionIngredientCard({
     useSortableReorderItem(ingredient.id);
   const isPicked = ingredient.remainingQuantity === "0";
   const minimumLotAgeDays = getMinimumLotAgeDays(ingredient.constraints);
+  const requirementSummary = summarizeComponentRequirements(ingredient.constraints);
   const discreteRequirementMath = getDiscreteRequirementMath(
     execution,
     ingredient
@@ -426,7 +427,7 @@ function ExecutionIngredientCard({
               </p>
               {minimumLotAgeDays ? (
                 <p className="text-sm text-muted-foreground">
-                  {formatMinimumLotAgeRequirement(minimumLotAgeDays)}
+                  Requirement: {requirementSummary}
                 </p>
               ) : null}
             </div>
@@ -1093,9 +1094,19 @@ export function ManufacturingExecution({
               {pickWarning?.warning.ingredients.map((ingredient) => (
                 <div key={ingredient.itemId} className="rounded-md border p-3">
                   <p className="font-medium">{ingredient.itemName}</p>
-                  <p className="text-muted-foreground">
-                    {ingredient.requirement ?? "Ingredient requirement is not met."}
-                  </p>
+                  {(ingredient.requirementViolations ?? []).length > 0 ? (
+                    <div className="space-y-1 text-muted-foreground">
+                      {ingredient.requirementViolations?.map((violation) => (
+                        <p key={`${violation.requirementType}:${violation.requirementId ?? violation.label}`}>
+                          {violation.label}: {violation.message}
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-muted-foreground">
+                      {ingredient.requirement ?? "Ingredient requirement is not met."}
+                    </p>
+                  )}
                   <p className="text-muted-foreground">
                     Eligible {ingredient.available} {ingredient.unitName}; needed{" "}
                     {ingredient.needed} {ingredient.unitName}.

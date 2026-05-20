@@ -83,8 +83,10 @@ import {
 } from "@/lib/inventory/kernel";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
 import {
+  evaluateLotAgeMinDaysRequirement,
   formatMinimumLotAgeRequirementViolation,
   getMinimumLotAgeDays,
+  LOT_AGE_MIN_DAYS_CONSTRAINT,
   type BomComponentConstraint,
 } from "@/lib/bom/constraints";
 import {
@@ -1891,6 +1893,7 @@ async function getIngredientConstraintsByIdInTx(
 
   const rows = await tx
     .select({
+      id: manufacturingOrderIngredientConstraints.id,
       manufacturingOrderIngredientId:
         manufacturingOrderIngredientConstraints.manufacturingOrderIngredientId,
       constraintType: manufacturingOrderIngredientConstraints.constraintType,
@@ -1913,6 +1916,7 @@ async function getIngredientConstraintsByIdInTx(
   for (const row of rows) {
     const bucket = result.get(row.manufacturingOrderIngredientId) ?? [];
     bucket.push({
+      id: row.id,
       constraintType: row.constraintType as BomComponentConstraint["constraintType"],
       config: row.config,
       sortOrder: row.sortOrder,
@@ -6969,9 +6973,11 @@ export async function pickManufacturingIngredient(
     const constraintsByIngredientId = await getIngredientConstraintsByIdInTx(tx, [
       ingredient.id,
     ]);
-    const minimumLotAgeDays = getMinimumLotAgeDays(
-      constraintsByIngredientId.get(ingredient.id)
+    const ingredientConstraints = constraintsByIngredientId.get(ingredient.id) ?? [];
+    const lotAgeConstraint = ingredientConstraints.find(
+      (constraint) => constraint.constraintType === LOT_AGE_MIN_DAYS_CONSTRAINT
     );
+    const minimumLotAgeDays = getMinimumLotAgeDays(ingredientConstraints);
     const pickDate = isoDate(new Date());
     const minimumReceivedDate =
       minimumLotAgeDays == null ? null : subtractDays(pickDate, minimumLotAgeDays);
@@ -7008,6 +7014,21 @@ export async function pickManufacturingIngredient(
         ageAvailability.eligible < remainingQuantity &&
         !confirmRequirementOverride
       ) {
+        const requirementViolation = lotAgeConstraint
+          ? evaluateLotAgeMinDaysRequirement({
+              requirementId: lotAgeConstraint.id,
+              requirement: {
+                id: lotAgeConstraint.id,
+                requirementType: lotAgeConstraint.constraintType,
+                config: lotAgeConstraint.config,
+                sortOrder: lotAgeConstraint.sortOrder,
+              },
+              requiredQuantity: remainingQuantity,
+              eligibleQuantity: ageAvailability.eligible,
+              nextEligibleDate: ageAvailability.nextEligibleDate,
+            })
+          : null;
+
         throw new ManufacturingError(
           `Not enough eligible ${ingredient.itemName}.`,
           409,
@@ -7025,6 +7046,9 @@ export async function pickManufacturingIngredient(
                   ),
                   warningType: "requirement_violation",
                   requirement: lotAgeRequirementText(minimumLotAgeDays),
+                  requirementViolations: requirementViolation
+                    ? [requirementViolation]
+                    : [],
                   nextEligibleDate: ageAvailability.nextEligibleDate,
                 },
               ],
