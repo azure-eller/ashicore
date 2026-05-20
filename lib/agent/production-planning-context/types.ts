@@ -16,6 +16,37 @@ import type {
   AllocationSourceType,
 } from "@/lib/inventory/allocation/types";
 
+export type AgentPlanningItemRow = Omit<
+  PlanningItemRow,
+  "unitCost" | "unitCostSource"
+>;
+
+export type AgentPlanningWarning = Omit<PlanningWarning, "sourceRefs"> & {
+  sourceRefs: PlanningSourceRef[];
+};
+
+export type AgentPlanningRecommendation = Omit<
+  PlanningRecommendation,
+  "actionPayload" | "sourceRefs" | "warnings"
+> & {
+  sourceRefs: PlanningSourceRef[];
+  warnings: AgentPlanningWarning[];
+};
+
+export type AgentProductionBlockerFact = Omit<
+  ProductionBlockerFact,
+  "sourceRefs"
+> & {
+  sourceRefs: PlanningSourceRef[];
+};
+
+export type AgentBomRequirementContext = Omit<
+  BomRequirementFact,
+  "quantityPerParent" | "sourceRefs"
+> & {
+  sourceRefs: PlanningSourceRef[];
+};
+
 export type AgentProductionPlanningContextOptions = {
   includePlanningFacts?: boolean;
   includeLots?: boolean;
@@ -28,6 +59,12 @@ export type AgentProductionSummary = {
   openPurchaseOrderCount: number;
   relevantItemCount: number;
   activeAllocationCount: number;
+  allocationNeedCount: number;
+  allocatableNowCount: number;
+  supplyRecommendationCount: number;
+  makeRecommendationCount: number;
+  buyRecommendationCount: number;
+  reviewItemSetupCount: number;
   recommendationCount: number;
   productionBlockerCount: number;
 };
@@ -39,6 +76,7 @@ export type AgentAttentionQueueItem = {
     | "material_shortage"
     | "mo_unallocated"
     | "allocation_conflict"
+    | "allocation_needed"
     | "missing_bom"
     | "purchase_needed"
     | "planning_warning";
@@ -170,6 +208,80 @@ export type AgentAllocationContext = {
   status: "active";
 };
 
+export type AgentAllocationNeedContext = {
+  demandType: "sales_order_line" | "manufacturing_order_ingredient";
+  demandId: string;
+  demandLabel: string;
+  itemId: string;
+  itemName: string;
+  unitName: string | null;
+  priorityRank: number | null;
+  requiredDate: string | null;
+  requiredQty: string;
+  allocatedQty: string;
+  unallocatedQty: string;
+  allocationRankForItem: number;
+  availableQty: string;
+  availableQtyBeforeThisNeed: string;
+  availableQtyAfterThisNeed: string;
+  projectedQty: string;
+  projectedQtyAfterThisNeed: string;
+  readiness:
+    | "allocate_available_inventory"
+    | "available_after_open_supply"
+    | "create_supply"
+    | "blocked"
+    | "review";
+  sourceRefs: PlanningSourceRef[];
+};
+
+export type AgentSupplyRecommendationContext = {
+  recommendationId: string;
+  recommendationType: AgentPlanningRecommendation["recommendationType"];
+  itemId: string;
+  itemName: string;
+  unitName: string | null;
+  quantity: string;
+  requiredDate: string | null;
+  latestStartDate: string | null;
+  suggestedSupplierId: string | null;
+  suggestedSupplierName: string | null;
+  suggestedBomRevisionId: string | null;
+  reasonCodes: AgentPlanningRecommendation["reasonCodes"];
+  warnings: AgentPlanningWarning[];
+  explanation: string;
+  sourceRefs: PlanningSourceRef[];
+};
+
+export type AgentDecisionQueueItem = {
+  decisionType:
+    | "allocate_inventory"
+    | "create_manufacturing_order"
+    | "create_purchase_order"
+    | "review_item_setup"
+    | "resolve_blocker";
+  severity: "info" | "warning" | "urgent";
+  label: string;
+  itemId: string | null;
+  itemName: string | null;
+  unitName: string | null;
+  quantity: string | null;
+  requiredDate: string | null;
+  demandType?: AgentAllocationNeedContext["demandType"];
+  demandId?: string;
+  recommendationId?: string;
+  blockerId?: string;
+  readiness?: AgentAllocationNeedContext["readiness"];
+  reasonCodes?: AgentSupplyRecommendationContext["reasonCodes"];
+  sourceRefs: PlanningSourceRef[];
+};
+
+export type AgentDecisionSupportContext = {
+  decisionQueue: AgentDecisionQueueItem[];
+  allocationNeeds: AgentAllocationNeedContext[];
+  supplyRecommendations: AgentSupplyRecommendationContext[];
+};
+
 export type AgentAllowedAction = {
   action: "read_production_planning_context";
   status: "allowed";
@@ -187,20 +299,21 @@ export type AgentProductionPlanningContext = {
   purchaseOrders: AgentOpenPurchaseOrderContext[];
   inventory: AgentInventoryContext[];
   allocations: AgentAllocationContext[];
+  decisionSupport: AgentDecisionSupportContext;
   planning: {
     horizonStart: string | null;
     horizonEnd: string | null;
     assumptions: PlanningAssumption[];
     inputHash: string;
-    rows: PlanningItemRow[];
-    recommendations: PlanningRecommendation[];
-    productionBlockers: ProductionBlockerFact[];
+    rows: AgentPlanningItemRow[];
+    recommendations: AgentPlanningRecommendation[];
+    productionBlockers: AgentProductionBlockerFact[];
     demandFacts: DemandFact[];
     supplyFacts: SupplyFact[];
     inventoryFacts: InventoryFact[];
-    bomRequirements: BomRequirementFact[];
+    bomRequirements: AgentBomRequirementContext[];
     salesOrderProductionDemandPaths: ProductionDemandPath[];
-    warnings: PlanningWarning[];
+    warnings: AgentPlanningWarning[];
   };
   allowedNextActions: AgentAllowedAction[];
 };

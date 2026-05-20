@@ -28,17 +28,27 @@ import { buildPlanningSnapshotInTx } from "@/lib/planning/service";
 import type { PlanningSnapshot } from "@/lib/planning/types";
 import type {
   AgentAllocationContext,
+  AgentAllocationNeedContext,
   AgentAttentionQueueItem,
+  AgentDecisionSupportContext,
+  AgentDecisionQueueItem,
   AgentInventoryContext,
+  AgentPlanningWarning,
   AgentOpenManufacturingOrderContext,
   AgentOpenPurchaseOrderContext,
   AgentOpenSalesOrderContext,
+  AgentPlanningItemRow,
+  AgentPlanningRecommendation,
+  AgentProductionBlockerFact,
   AgentProductionPlanningContext,
   AgentProductionPlanningContextOptions,
+  AgentSupplyRecommendationContext,
+  AgentBomRequirementContext,
 } from "./types";
 
 const OPEN_SALES_ORDER_STATUSES = ["open"] as const;
 const OPEN_PURCHASE_ORDER_STATUSES = ["ordered", "partial"] as const;
+const MAX_AGENT_SOURCE_REFS = 24;
 
 function toQuantity(value: string | number | null | undefined) {
   const parsed = Number(value ?? 0);
@@ -51,6 +61,50 @@ function quantityString(value: number) {
 
 function addDefined(set: Set<string>, value: string | null | undefined) {
   if (value) set.add(value);
+}
+
+function sourceRef(args: {
+  sourceType: AgentAllocationNeedContext["demandType"];
+  sourceId: string;
+  label: string;
+  itemId: string;
+  quantity: string;
+  date: string | null;
+  parentSourceId?: string | null;
+}) {
+  return {
+    sourceType: args.sourceType,
+    sourceId: args.sourceId,
+    label: args.label,
+    itemId: args.itemId,
+    quantity: args.quantity,
+    date: args.date,
+    parentSourceId: args.parentSourceId ?? null,
+  };
+}
+
+function sanitizeSourceRefs(sourceRefs: PlanningSnapshot["warnings"][number]["sourceRefs"]) {
+  const seen = new Set<string>();
+  const sanitized = [];
+
+  for (const ref of sourceRefs) {
+    if (ref.sourceType === "bom_revision") continue;
+
+    const key = [
+      ref.sourceType,
+      ref.sourceId,
+      ref.itemId ?? "",
+      ref.quantity ?? "",
+      ref.date ?? "",
+    ].join(":");
+    if (seen.has(key)) continue;
+
+    sanitized.push(ref);
+    seen.add(key);
+    if (sanitized.length >= MAX_AGENT_SOURCE_REFS) break;
+  }
+
+  return sanitized;
 }
 
 async function getShippedSalesQuantityByLineInTx(tx: Tx, salesOrderLineIds: string[]) {
@@ -834,9 +888,421 @@ async function loadRelevantInventoryContextInTx(
   });
 }
 
-function buildAttentionQueue(snapshot: PlanningSnapshot): AgentAttentionQueueItem[] {
-  const blockerItems: AgentAttentionQueueItem[] = snapshot.productionBlockerFacts.map(
+function sanitizePlanningRow(row: PlanningSnapshot["rows"][number]): AgentPlanningItemRow {
+  const safeRow = { ...row };
+  delete (safeRow as Partial<PlanningSnapshot["rows"][number]>).unitCost;
+  delete (safeRow as Partial<PlanningSnapshot["rows"][number]>).unitCostSource;
+  return safeRow;
+}
+
+function sanitizeRecommendation(
+  recommendation: PlanningSnapshot["recommendations"][number]
+): AgentPlanningRecommendation {
+  const safeRecommendation = {
+    ...recommendation,
+    sourceRefs: sanitizeSourceRefs(recommendation.sourceRefs),
+    warnings: recommendation.warnings.map(sanitizeWarning),
+  };
+  delete (safeRecommendation as Partial<PlanningSnapshot["recommendations"][number]>)
+    .actionPayload;
+  return safeRecommendation;
+}
+
+function sanitizeWarning(warning: PlanningSnapshot["warnings"][number]): AgentPlanningWarning {
+  return {
+    ...warning,
+    sourceRefs: sanitizeSourceRefs(warning.sourceRefs),
+  };
+}
+
+function sanitizeProductionBlocker(
+  blocker: PlanningSnapshot["productionBlockerFacts"][number]
+): AgentProductionBlockerFact {
+  return {
+    ...blocker,
+    sourceRefs: sanitizeSourceRefs(blocker.sourceRefs),
+  };
+}
+
+function sanitizeBomRequirement(
+  requirement: PlanningSnapshot["bomRequirementFacts"][number]
+): AgentBomRequirementContext {
+  const safeRequirement = {
+    ...requirement,
+    sourceRefs: sanitizeSourceRefs(requirement.sourceRefs),
+  };
+  delete (safeRequirement as Partial<PlanningSnapshot["bomRequirementFacts"][number]>)
+    .quantityPerParent;
+  return safeRequirement;
+}
+
+function allocationReadiness(args: {
+  unallocatedQty: number;
+  availableQty: number;
+  projectedQty: number;
+  planningRow: PlanningSnapshot["rows"][number] | undefined;
+}) {
+  if (args.availableQty >= args.unallocatedQty) return "allocate_available_inventory";
+  if (args.projectedQty >= args.unallocatedQty) return "available_after_open_supply";
+  if (args.planningRow?.suggestedAction === "buy" || args.planningRow?.suggestedAction === "make") {
+    return "create_supply";
+  }
+  if (
+    args.planningRow?.reasonCodes.includes("missing_bom") ||
+    args.planningRow?.reasonCodes.includes("missing_supplier")
+  ) {
+    return "blocked";
+  }
+  return "review";
+}
+
+function buildAllocationNeeds(args: {
+  salesOrders: AgentOpenSalesOrderContext[];
+  manufacturingOrders: AgentOpenManufacturingOrderContext[];
+  inventory: AgentInventoryContext[];
+  snapshot: PlanningSnapshot;
+}): AgentAllocationNeedContext[] {
+  const inventoryByItemId = new Map(args.inventory.map((item) => [item.itemId, item]));
+  const planningRowsByItemId = new Map(
+    args.snapshot.rows.map((row) => [row.item.id, row])
+  );
+  const needs: AgentAllocationNeedContext[] = [];
+
+  for (const order of args.salesOrders) {
+    for (const line of order.lines) {
+      const unallocatedQty = toQuantity(line.shortQty);
+      if (unallocatedQty <= 0) continue;
+
+      const inventory = inventoryByItemId.get(line.itemId);
+      const planningRow = planningRowsByItemId.get(line.itemId);
+      const label = `${order.orderNumber} / ${line.itemName}`;
+      const availableQty = toQuantity(inventory?.availableQty);
+      const projectedQty = toQuantity(inventory?.projectedQty);
+      needs.push({
+        demandType: "sales_order_line",
+        demandId: line.salesOrderLineId,
+        demandLabel: label,
+        itemId: line.itemId,
+        itemName: line.itemName,
+        unitName: line.unitName,
+        priorityRank: order.priorityRank,
+        requiredDate: order.requiredDate,
+        requiredQty: line.openQty,
+        allocatedQty: line.allocatedQty,
+        unallocatedQty: line.shortQty,
+        allocationRankForItem: 0,
+        availableQty: inventory?.availableQty ?? "0",
+        availableQtyBeforeThisNeed: inventory?.availableQty ?? "0",
+        availableQtyAfterThisNeed: inventory?.availableQty ?? "0",
+        projectedQty: inventory?.projectedQty ?? planningRow?.projectedQuantity ?? "0",
+        projectedQtyAfterThisNeed:
+          inventory?.projectedQty ?? planningRow?.projectedQuantity ?? "0",
+        readiness: allocationReadiness({
+          unallocatedQty,
+          availableQty,
+          projectedQty,
+          planningRow,
+        }),
+        sourceRefs: [
+          {
+            sourceType: "sales_order",
+            sourceId: order.salesOrderId,
+            label: `${order.orderNumber}${order.customerName ? ` · ${order.customerName}` : ""}`,
+            date: order.requiredDate,
+          },
+          sourceRef({
+            sourceType: "sales_order_line",
+            sourceId: line.salesOrderLineId,
+            label,
+            itemId: line.itemId,
+            quantity: line.shortQty,
+            date: order.requiredDate,
+            parentSourceId: order.salesOrderId,
+          }),
+        ],
+      });
+    }
+  }
+
+  for (const order of args.manufacturingOrders) {
+    for (const ingredient of order.ingredients) {
+      const unallocatedQty = toQuantity(ingredient.shortQty);
+      if (unallocatedQty <= 0) continue;
+
+      const inventory = inventoryByItemId.get(ingredient.itemId);
+      const planningRow = planningRowsByItemId.get(ingredient.itemId);
+      const label = `${order.orderNumber} ingredient / ${ingredient.itemName}`;
+      const availableQty = toQuantity(inventory?.availableQty);
+      const projectedQty = toQuantity(inventory?.projectedQty);
+      needs.push({
+        demandType: "manufacturing_order_ingredient",
+        demandId: ingredient.manufacturingOrderIngredientId,
+        demandLabel: label,
+        itemId: ingredient.itemId,
+        itemName: ingredient.itemName,
+        unitName: ingredient.unitName,
+        priorityRank: order.priorityRank,
+        requiredDate: order.plannedDate,
+        requiredQty: quantityString(
+          toQuantity(ingredient.requiredQty) - toQuantity(ingredient.pickedQty)
+        ),
+        allocatedQty: ingredient.allocatedQty,
+        unallocatedQty: ingredient.shortQty,
+        allocationRankForItem: 0,
+        availableQty: inventory?.availableQty ?? "0",
+        availableQtyBeforeThisNeed: inventory?.availableQty ?? "0",
+        availableQtyAfterThisNeed: inventory?.availableQty ?? "0",
+        projectedQty: inventory?.projectedQty ?? planningRow?.projectedQuantity ?? "0",
+        projectedQtyAfterThisNeed:
+          inventory?.projectedQty ?? planningRow?.projectedQuantity ?? "0",
+        readiness: allocationReadiness({
+          unallocatedQty,
+          availableQty,
+          projectedQty,
+          planningRow,
+        }),
+        sourceRefs: [
+          {
+            sourceType: "manufacturing_order",
+            sourceId: order.manufacturingOrderId,
+            label: order.orderNumber,
+            itemId: order.itemId,
+            quantity: order.remainingQty,
+            date: order.plannedDate,
+          },
+          sourceRef({
+            sourceType: "manufacturing_order_ingredient",
+            sourceId: ingredient.manufacturingOrderIngredientId,
+            label,
+            itemId: ingredient.itemId,
+            quantity: ingredient.shortQty,
+            date: order.plannedDate,
+            parentSourceId: order.manufacturingOrderId,
+          }),
+        ],
+      });
+    }
+  }
+
+  const sortedNeeds = needs.sort((left, right) => {
+    const leftPriority = left.priorityRank ?? Number.MAX_SAFE_INTEGER;
+    const rightPriority = right.priorityRank ?? Number.MAX_SAFE_INTEGER;
+    if (leftPriority !== rightPriority) return leftPriority - rightPriority;
+    return (left.requiredDate ?? "9999-12-31").localeCompare(
+      right.requiredDate ?? "9999-12-31"
+    );
+  });
+
+  const availableRemainingByItemId = new Map<string, number>();
+  const projectedRemainingByItemId = new Map<string, number>();
+  const rankByItemId = new Map<string, number>();
+
+  return sortedNeeds.map((need) => {
+    const inventory = inventoryByItemId.get(need.itemId);
+    const planningRow = planningRowsByItemId.get(need.itemId);
+    const availableBefore = availableRemainingByItemId.has(need.itemId)
+      ? (availableRemainingByItemId.get(need.itemId) ?? 0)
+      : toQuantity(inventory?.availableQty);
+    const projectedBefore = projectedRemainingByItemId.has(need.itemId)
+      ? (projectedRemainingByItemId.get(need.itemId) ?? 0)
+      : toQuantity(inventory?.projectedQty ?? planningRow?.projectedQuantity);
+    const unallocatedQty = toQuantity(need.unallocatedQty);
+    const availableAfter = roundQuantity(availableBefore - unallocatedQty);
+    const projectedAfter = roundQuantity(projectedBefore - unallocatedQty);
+    const allocationRankForItem = (rankByItemId.get(need.itemId) ?? 0) + 1;
+
+    availableRemainingByItemId.set(need.itemId, Math.max(0, availableAfter));
+    projectedRemainingByItemId.set(need.itemId, projectedAfter);
+    rankByItemId.set(need.itemId, allocationRankForItem);
+
+    return {
+      ...need,
+      allocationRankForItem,
+      availableQtyBeforeThisNeed: quantityString(availableBefore),
+      availableQtyAfterThisNeed: quantityString(availableAfter),
+      projectedQtyAfterThisNeed: normalizeNumeric(roundQuantity(projectedAfter)),
+      readiness: allocationReadiness({
+        unallocatedQty,
+        availableQty: availableBefore,
+        projectedQty: projectedBefore,
+        planningRow,
+      }),
+    };
+  });
+}
+
+function buildSupplyRecommendations(
+  snapshot: PlanningSnapshot
+): AgentSupplyRecommendationContext[] {
+  const rowsByItemId = new Map(snapshot.rows.map((row) => [row.item.id, row]));
+
+  return snapshot.recommendations
+    .filter((recommendation) => recommendation.recommendationType !== "none")
+    .map((recommendation) => {
+      const row = rowsByItemId.get(recommendation.itemId);
+      return {
+        recommendationId: recommendation.id,
+        recommendationType: recommendation.recommendationType,
+        itemId: recommendation.itemId,
+        itemName:
+          row?.item.displayName ??
+          recommendation.sourceRefs.find((ref) => ref.itemId === recommendation.itemId)
+            ?.label ??
+          recommendation.itemId,
+        unitName: row?.item.unitName ?? null,
+        quantity: recommendation.quantity,
+        requiredDate: recommendation.requiredDate,
+        latestStartDate: row?.latestStartDate ?? null,
+        suggestedSupplierId: recommendation.suggestedSupplierId,
+        suggestedSupplierName: recommendation.suggestedSupplierName,
+        suggestedBomRevisionId: recommendation.suggestedBomRevisionId,
+        reasonCodes: recommendation.reasonCodes,
+        warnings: recommendation.warnings.map(sanitizeWarning),
+        explanation: recommendation.explanation,
+        sourceRefs: sanitizeSourceRefs(recommendation.sourceRefs),
+      };
+    });
+}
+
+function buildDecisionSupport(args: {
+  salesOrders: AgentOpenSalesOrderContext[];
+  manufacturingOrders: AgentOpenManufacturingOrderContext[];
+  inventory: AgentInventoryContext[];
+  snapshot: PlanningSnapshot;
+}): AgentDecisionSupportContext {
+  const allocationNeeds = buildAllocationNeeds(args);
+  const supplyRecommendations = buildSupplyRecommendations(args.snapshot);
+  const decisionQueue = buildDecisionQueue({
+    allocationNeeds,
+    supplyRecommendations,
+    productionBlockers: args.snapshot.productionBlockerFacts.map(
+      sanitizeProductionBlocker
+    ),
+  });
+
+  return {
+    decisionQueue,
+    allocationNeeds,
+    supplyRecommendations,
+  };
+}
+
+function decisionQueueRank(item: AgentDecisionQueueItem) {
+  switch (item.decisionType) {
+    case "allocate_inventory":
+      return item.readiness === "allocate_available_inventory" ? 0 : 5;
+    case "review_item_setup":
+      return 1;
+    case "resolve_blocker":
+      return 2;
+    case "create_manufacturing_order":
+      return 3;
+    case "create_purchase_order":
+      return 4;
+  }
+}
+
+function buildDecisionQueue(args: {
+  allocationNeeds: AgentAllocationNeedContext[];
+  supplyRecommendations: AgentSupplyRecommendationContext[];
+  productionBlockers: AgentProductionBlockerFact[];
+}): AgentDecisionQueueItem[] {
+  const allocationItems: AgentDecisionQueueItem[] = args.allocationNeeds.map(
+    (need) => ({
+      decisionType: "allocate_inventory",
+      severity:
+        need.readiness === "allocate_available_inventory" ? "warning" : "urgent",
+      label:
+        need.readiness === "allocate_available_inventory"
+          ? `Allocate ${need.unallocatedQty} ${need.unitName ?? ""} ${need.itemName} to ${need.demandLabel}`.trim()
+          : `${need.demandLabel} needs supply before allocation`,
+      itemId: need.itemId,
+      itemName: need.itemName,
+      unitName: need.unitName,
+      quantity: need.unallocatedQty,
+      requiredDate: need.requiredDate,
+      demandType: need.demandType,
+      demandId: need.demandId,
+      readiness: need.readiness,
+      sourceRefs: need.sourceRefs,
+    })
+  );
+
+  const recommendationItems: AgentDecisionQueueItem[] =
+    args.supplyRecommendations.map((recommendation) => ({
+      decisionType:
+        recommendation.recommendationType === "create_manufacturing_order"
+          ? "create_manufacturing_order"
+          : recommendation.recommendationType === "create_purchase_order"
+            ? "create_purchase_order"
+            : "review_item_setup",
+      severity:
+        recommendation.recommendationType === "review_item_setup"
+          ? "warning"
+          : "info",
+      label: recommendation.explanation,
+      itemId: recommendation.itemId,
+      itemName: recommendation.itemName,
+      unitName: recommendation.unitName,
+      quantity: recommendation.quantity,
+      requiredDate: recommendation.requiredDate,
+      recommendationId: recommendation.recommendationId,
+      reasonCodes: recommendation.reasonCodes,
+      sourceRefs: recommendation.sourceRefs,
+    }));
+
+  const blockerItems: AgentDecisionQueueItem[] = args.productionBlockers.map(
     (blocker) => ({
+      decisionType: "resolve_blocker",
+      severity:
+        blocker.blockerType === "material_shortage" ||
+        blocker.blockerType === "missing_bom"
+          ? "urgent"
+          : "warning",
+      label:
+        blocker.componentItemName && blocker.shortageQuantity
+          ? `${blocker.parentItemName} is blocked by ${blocker.shortageQuantity} ${blocker.componentUnitName ?? ""} ${blocker.componentItemName}`.trim()
+          : `${blocker.parentItemName} has a production blocker: ${blocker.blockerType}`,
+      itemId: blocker.componentItemId ?? blocker.parentItemId,
+      itemName: blocker.componentItemName ?? blocker.parentItemName,
+      unitName: blocker.componentUnitName,
+      quantity: blocker.shortageQuantity,
+      requiredDate: blocker.earliestRequiredDate,
+      blockerId: blocker.id,
+      sourceRefs: blocker.sourceRefs,
+    })
+  );
+
+  return [...allocationItems, ...recommendationItems, ...blockerItems].sort(
+    (left, right) => {
+      const rankDelta = decisionQueueRank(left) - decisionQueueRank(right);
+      if (rankDelta !== 0) return rankDelta;
+      const dateDelta = (left.requiredDate ?? "9999-12-31").localeCompare(
+        right.requiredDate ?? "9999-12-31"
+      );
+      if (dateDelta !== 0) return dateDelta;
+      return left.label.localeCompare(right.label);
+    }
+  );
+}
+
+function buildAttentionQueue(
+  snapshot: PlanningSnapshot,
+  decisionSupport: AgentDecisionSupportContext
+): AgentAttentionQueueItem[] {
+  const allocationItems: AgentAttentionQueueItem[] =
+    decisionSupport.allocationNeeds.map((need) => ({
+      type: "allocation_needed",
+      severity:
+        need.readiness === "allocate_available_inventory" ? "warning" : "urgent",
+      label: `${need.demandLabel} needs ${need.unallocatedQty} ${need.unitName ?? ""} allocated`.trim(),
+      sourceRefs: need.sourceRefs,
+    }));
+
+  const blockerItems: AgentAttentionQueueItem[] = snapshot.productionBlockerFacts.map(
+    (rawBlocker) => {
+      const blocker = sanitizeProductionBlocker(rawBlocker);
+      return {
       type:
         blocker.blockerType === "missing_bom"
           ? "missing_bom"
@@ -853,7 +1319,8 @@ function buildAttentionQueue(snapshot: PlanningSnapshot): AgentAttentionQueueIte
           ? `${blocker.parentItemName} is blocked by ${blocker.shortageQuantity} ${blocker.componentUnitName ?? ""} ${blocker.componentItemName}`.trim()
           : `${blocker.parentItemName} has a production blocker: ${blocker.blockerType}`,
       sourceRefs: blocker.sourceRefs,
-    })
+      };
+    }
   );
 
   const recommendationItems: AgentAttentionQueueItem[] = snapshot.recommendations
@@ -870,17 +1337,20 @@ function buildAttentionQueue(snapshot: PlanningSnapshot): AgentAttentionQueueIte
           ? "warning"
           : "info",
       label: recommendation.explanation,
-      sourceRefs: recommendation.sourceRefs,
+      sourceRefs: sanitizeSourceRefs(recommendation.sourceRefs),
     }));
 
-  const warningItems: AgentAttentionQueueItem[] = snapshot.warnings.map((warning) => ({
-    type: "planning_warning",
-    severity: warning.severity === "error" ? "urgent" : warning.severity,
-    label: warning.message,
-    sourceRefs: warning.sourceRefs,
-  }));
+  const warningItems: AgentAttentionQueueItem[] = snapshot.warnings.map((rawWarning) => {
+    const warning = sanitizeWarning(rawWarning);
+    return {
+      type: "planning_warning",
+      severity: warning.severity === "error" ? "urgent" : warning.severity,
+      label: warning.message,
+      sourceRefs: warning.sourceRefs,
+    };
+  });
 
-  return [...blockerItems, ...recommendationItems, ...warningItems];
+  return [...allocationItems, ...blockerItems, ...recommendationItems, ...warningItems];
 }
 
 async function buildAgentProductionPlanningContextInTx(
@@ -906,6 +1376,29 @@ async function buildAgentProductionPlanningContextInTx(
     allocations,
     includeLots: options.includeLots,
   });
+  const decisionSupport = buildDecisionSupport({
+    salesOrders,
+    manufacturingOrders,
+    inventory,
+    snapshot,
+  });
+  const supplyRecommendationCounts = decisionSupport.supplyRecommendations.reduce(
+    (counts, recommendation) => {
+      if (recommendation.recommendationType === "create_manufacturing_order") {
+        counts.makeRecommendationCount += 1;
+      } else if (recommendation.recommendationType === "create_purchase_order") {
+        counts.buyRecommendationCount += 1;
+      } else if (recommendation.recommendationType === "review_item_setup") {
+        counts.reviewItemSetupCount += 1;
+      }
+      return counts;
+    },
+    {
+      makeRecommendationCount: 0,
+      buyRecommendationCount: 0,
+      reviewItemSetupCount: 0,
+    }
+  );
 
   return {
     orgId: snapshot.orgId,
@@ -921,33 +1414,42 @@ async function buildAgentProductionPlanningContextInTx(
       openPurchaseOrderCount: purchaseOrders.length,
       relevantItemCount: relevantItemIds.length,
       activeAllocationCount: allocations.length,
+      allocationNeedCount: decisionSupport.allocationNeeds.length,
+      allocatableNowCount: decisionSupport.allocationNeeds.filter(
+        (need) => need.readiness === "allocate_available_inventory"
+      ).length,
+      supplyRecommendationCount: decisionSupport.supplyRecommendations.length,
+      ...supplyRecommendationCounts,
       recommendationCount: snapshot.recommendations.filter(
         (recommendation) => recommendation.recommendationType !== "none"
       ).length,
       productionBlockerCount: snapshot.productionBlockerFacts.length,
     },
-    attentionQueue: buildAttentionQueue(snapshot),
+    attentionQueue: buildAttentionQueue(snapshot, decisionSupport),
     salesOrders,
     manufacturingOrders,
     purchaseOrders,
     inventory,
     allocations,
+    decisionSupport,
     planning: {
       horizonStart: snapshot.horizonStart,
       horizonEnd: snapshot.horizonEnd,
       assumptions: snapshot.assumptions,
       inputHash: snapshot.inputHash,
-      rows: snapshot.rows,
-      recommendations: snapshot.recommendations,
-      productionBlockers: snapshot.productionBlockerFacts,
+      rows: snapshot.rows.map(sanitizePlanningRow),
+      recommendations: snapshot.recommendations.map(sanitizeRecommendation),
+      productionBlockers: snapshot.productionBlockerFacts.map(
+        sanitizeProductionBlocker
+      ),
       demandFacts: options.includePlanningFacts ? snapshot.demandFacts : [],
       supplyFacts: options.includePlanningFacts ? snapshot.supplyFacts : [],
       inventoryFacts: options.includePlanningFacts ? snapshot.inventoryFacts : [],
       bomRequirements: options.includePlanningFacts
-        ? snapshot.bomRequirementFacts
+        ? snapshot.bomRequirementFacts.map(sanitizeBomRequirement)
         : [],
       salesOrderProductionDemandPaths: snapshot.salesOrderProductionDemandPaths,
-      warnings: snapshot.warnings,
+      warnings: snapshot.warnings.map(sanitizeWarning),
     },
     allowedNextActions: [
       {

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { canManageTeam, hasModuleAccess } from "@/lib/authz";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { getQuickBooksConnection } from "@/lib/dal/accounting";
@@ -9,22 +10,44 @@ import {
 } from "@/lib/dal/xero";
 import { getAccountPageData, getTeamPageData } from "./queries";
 import { getDailyManufacturingReportSchedule } from "@/lib/dal/reports";
+import { listAgentApiTokens } from "@/lib/agent/external-access/tokens";
+import { getCanonicalAppUrl } from "@/lib/app-url";
 import { getSettingsSections } from "./sections";
 import { SettingsNav } from "./settings-nav";
 import { AccountSection } from "./account-section";
 import { TeamSection } from "./team-section";
 import { IntegrationsSection } from "./integrations-section";
 import { ReportsSection } from "./reports-section";
+import { AgentAccessSection } from "./agent-access-section";
 
 export const metadata: Metadata = {
   title: "Settings",
 };
+
+function getRequestOrigin(requestHeaders: Headers) {
+  const host =
+    requestHeaders.get("x-forwarded-host")?.split(",")[0]?.trim() ??
+    requestHeaders.get("host");
+
+  if (!host) {
+    return getCanonicalAppUrl();
+  }
+
+  const protocol =
+    requestHeaders.get("x-forwarded-proto")?.split(",")[0]?.trim() ??
+    (host.startsWith("localhost") || host.startsWith("127.0.0.1")
+      ? "http"
+      : "https");
+
+  return `${protocol}://${host}`;
+}
 
 export default async function SettingsPage({
   searchParams,
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
+  const requestHeaders = await headers();
   const context = await getAuthedMemberContext();
   const showTeam = canManageTeam(context.assignedRoles);
   const canManageXero = hasModuleAccess(
@@ -50,12 +73,23 @@ export default async function SettingsPage({
   const showIntegrations = canManageXero || canImportSuppliers;
 
   const showReports = showTeam;
-  const sections = getSettingsSections({ showTeam, showIntegrations, showReports });
+  const showAgentAccess = showTeam;
+  const agentOpenApiUrl = new URL(
+    "/.well-known/ashicore-agent-production-planning-openapi.json",
+    getRequestOrigin(requestHeaders)
+  ).toString();
+  const sections = getSettingsSections({
+    showTeam,
+    showAgentAccess,
+    showIntegrations,
+    showReports,
+  });
 
   const [
     accountData,
     teamData,
     reportScheduleData,
+    agentAccessData,
     xeroConnection,
     quickBooksConnection,
     xeroImportRuns,
@@ -65,6 +99,12 @@ export default async function SettingsPage({
     getAccountPageData(),
     showTeam ? getTeamPageData() : null,
     showReports ? getDailyManufacturingReportSchedule() : null,
+    showAgentAccess
+      ? listAgentApiTokens().then((tokens) => ({
+          tokens,
+          openApiUrl: agentOpenApiUrl,
+        }))
+      : null,
     showIntegrations ? getXeroConnection() : null,
     showIntegrations ? getQuickBooksConnection() : null,
     showIntegrations ? getRecentXeroImportRuns() : [],
@@ -85,6 +125,9 @@ export default async function SettingsPage({
           {teamData ? <TeamSection initialData={teamData} /> : null}
           {reportScheduleData ? (
             <ReportsSection initialData={reportScheduleData} />
+          ) : null}
+          {agentAccessData ? (
+            <AgentAccessSection initialData={agentAccessData} />
           ) : null}
           {showIntegrations ? (
             <IntegrationsSection

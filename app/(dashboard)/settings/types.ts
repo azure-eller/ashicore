@@ -36,6 +36,23 @@ export type AccountPageData = {
   role: AppRole;
 };
 
+export type AgentApiTokenRow = {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  scopes: string[];
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AgentAccessPageData = {
+  tokens: AgentApiTokenRow[];
+  openApiUrl: string;
+};
+
 export type PublicInvitationDetails = {
   id: string;
   email: string;

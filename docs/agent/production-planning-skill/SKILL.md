@@ -28,6 +28,13 @@ Default both to `true` unless the response is too large.
 - Treat the ERP response as the source of truth.
 - Use `summary` and `attentionQueue` only as navigation aids into the full
   returned context.
+- Start with `decisionSupport.decisionQueue` when answering what to do next.
+  It combines allocation, make/buy, item setup, and blocker decisions.
+- Use `decisionSupport.allocationNeeds` as the allocation queue. It is ordered
+  for planning and includes per-item remaining availability so one lot of stock
+  is not counted against multiple demands.
+- Use `decisionSupport.supplyRecommendations` for make/buy/review planning
+  advice.
 - Do not infer usable stock from raw on-hand quantities.
 - `inventory.availableQty` means current usable on-hand after reservations.
 - `inventory.projectedQty` means planning-derived future net quantity after
@@ -38,5 +45,8 @@ Default both to `true` unless the response is too large.
   already allocated.
 - Always mention important `planning.assumptions`, `horizonStart`, `horizonEnd`,
   and `inputHash` when giving production recommendations.
+- Do not ask for or rely on sales prices, unit costs, draft action payloads, or
+  per-parent recipe ratios. They are intentionally not part of this agent
+  context.
 - Do not claim to create, edit, reserve, allocate, purchase, or manufacture
   anything. The API is read-only.

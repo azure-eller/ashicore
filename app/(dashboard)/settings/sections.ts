@@ -5,10 +5,12 @@ export type SettingsSection = {
 
 export function getSettingsSections({
   showTeam,
+  showAgentAccess,
   showIntegrations,
   showReports,
 }: {
   showTeam: boolean;
+  showAgentAccess: boolean;
   showIntegrations: boolean;
   showReports: boolean;
 }): SettingsSection[] {
@@ -20,6 +22,10 @@ export function getSettingsSections({
 
   if (showReports) {
     sections.push({ id: "reports", title: "Reports" });
+  }
+
+  if (showAgentAccess) {
+    sections.push({ id: "agent-access", title: "Agent API" });
   }
 
   if (showIntegrations) {

@@ -59,6 +59,13 @@ raw on-hand quantities. Use:
 - `planning.assumptions`, `horizonStart`, and `horizonEnd` to explain the
   planning basis.
 - `summary` and `attentionQueue` as indexes into the full data, not as filters.
+- `decisionSupport.decisionQueue` as the first read for what to do next. It
+  combines allocation, make/buy, item-setup, and blocker-resolution decisions.
+- `decisionSupport.allocationNeeds` for the current allocate-first queue. These
+  rows include `allocationRankForItem`, `availableQtyBeforeThisNeed`, and
+  `availableQtyAfterThisNeed` so the same stock is not counted twice.
+- `decisionSupport.supplyRecommendations` for make/buy/review recommendations
+  with item names, quantities, dates, warnings, and source refs.
 - `salesOrders`, `manufacturingOrders`, `purchaseOrders`, `inventory`, and
   `allocations` as the complete current board state.
 - `inventory.availableQty` as current usable on-hand after reservations.
@@ -68,6 +75,10 @@ raw on-hand quantities. Use:
   output.
 - `inputHash` when explaining that recommendations are based on the returned
   snapshot.
+
+The agent-facing response intentionally omits sales prices, unit costs, draft
+action payloads, and per-parent recipe ratios. Use total required quantities,
+blockers, and source refs for planning advice.
 
 Do not tell the user that manufacturing orders, purchase orders, or allocations
 were created. This integration is read-only.
