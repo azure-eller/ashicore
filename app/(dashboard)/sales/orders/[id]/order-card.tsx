@@ -19,6 +19,7 @@ import type {
   CustomerOption,
   SalesOrderDetail,
   SalesOrderDetailLine,
+  SalesShipmentRow,
 } from "@/app/(dashboard)/sales/types";
 import { buildSalesOrderLineRemovalPayload } from "@/app/(dashboard)/sales/order-line-removal";
 import { OrderCardHeader } from "./order-card-header";
@@ -26,6 +27,7 @@ import { OrderDetailsGrid } from "./order-details-grid";
 import { LineItemsTable } from "./line-items-table";
 import { ShipmentsTable } from "./shipments-table";
 import { TotalsStrip } from "./totals-strip";
+import { PlanShipmentDialog } from "./plan-shipment-dialog";
 import cardStyles from "@/components/card-page/card-page.module.css";
 
 export type XeroInvoiceSetupStatus =
@@ -45,6 +47,9 @@ export function OrderCard({ initialOrder, customerOptions }: OrderCardProps) {
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [shipmentDialogTarget, setShipmentDialogTarget] = useState<
+    "new" | SalesShipmentRow | null
+  >(null);
 
   const orderQuery = useQuery({
     queryKey: ["sales-order", initialOrder.id],
@@ -132,7 +137,7 @@ export function OrderCard({ initialOrder, customerOptions }: OrderCardProps) {
       <OrderCardHeader
         order={order}
         mode="edit"
-        onPlanShipment={isEditable ? goToLegacyEdit : undefined}
+        onPlanShipment={isEditable ? () => setShipmentDialogTarget("new") : undefined}
         onPlanShipmentDisabled={false}
         onDuplicate={() => duplicateMutation.mutate()}
         onDelete={() => setConfirmDelete(true)}
@@ -172,8 +177,12 @@ export function OrderCard({ initialOrder, customerOptions }: OrderCardProps) {
         <ShipmentsTable
           order={order}
           editable={isEditable}
-          onNewShipment={isEditable ? goToLegacyEdit : undefined}
-          onEditShipment={isEditable ? goToLegacyEdit : undefined}
+          onNewShipment={isEditable ? () => setShipmentDialogTarget("new") : undefined}
+          onEditShipment={
+            isEditable
+              ? (shipment) => setShipmentDialogTarget(shipment)
+              : undefined
+          }
           onMarkShipped={isEditable ? goToLegacyEdit : undefined}
           onEditCosts={isEditable ? goToLegacyEdit : undefined}
           onPushXero={isEditable ? goToLegacyEdit : undefined}
@@ -182,6 +191,12 @@ export function OrderCard({ initialOrder, customerOptions }: OrderCardProps) {
 
         <TotalsStrip order={order} notesEditable={isEditable} />
       </div>
+
+      <PlanShipmentDialog
+        order={order}
+        target={shipmentDialogTarget}
+        onClose={() => setShipmentDialogTarget(null)}
+      />
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent size="sm">
