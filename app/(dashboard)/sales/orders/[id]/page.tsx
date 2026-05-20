@@ -4,6 +4,7 @@ import { OrderCard } from "./order-card";
 import {
   getSalesOrder,
   getSalesOrderCustomerOptions,
+  getSalesOrderItemOptions,
 } from "@/app/(dashboard)/sales/queries";
 import { hasModuleAccess } from "@/lib/authz";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
@@ -21,10 +22,11 @@ export default async function OrderDetailPage({
   const search = (await searchParams) ?? {};
   const useLegacyView = search.view === "legacy";
 
-  const [order, xeroConnection, customerOptions] = await Promise.all([
+  const [order, xeroConnection, customerOptions, itemOptions] = await Promise.all([
     getSalesOrder(id, { includeDeleted: true }),
     getXeroConnection(),
     getSalesOrderCustomerOptions(),
+    getSalesOrderItemOptions(),
   ]);
 
   if (!order) {
@@ -51,6 +53,7 @@ export default async function OrderDetailPage({
     <OrderCard
       initialOrder={order}
       customerOptions={customerOptions}
+      itemOptions={itemOptions}
       canViewLedger={hasModuleAccess(context.assignedRoles, "inventory", "read")}
       xeroInvoiceSetupStatus={xeroInvoiceSetupStatus}
     />

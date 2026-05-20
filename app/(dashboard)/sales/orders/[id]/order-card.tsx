@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -14,11 +14,16 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
-import { fetchSalesOrderDetail } from "@/lib/api/clients/sales-orders";
+import {
+  createSalesOrder,
+  fetchSalesOrderDetail,
+} from "@/lib/api/clients/sales-orders";
+import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import type {
   CustomerOption,
   SalesOrderDetail,
   SalesOrderDetailLine,
+  SalesOrderItemOption,
   SalesShipmentRow,
 } from "@/app/(dashboard)/sales/types";
 import { buildSalesOrderLineRemovalPayload } from "@/app/(dashboard)/sales/order-line-removal";
@@ -28,6 +33,11 @@ import { LineItemsTable } from "./line-items-table";
 import { ShipmentsTable } from "./shipments-table";
 import { TotalsStrip } from "./totals-strip";
 import { PlanShipmentDialog } from "./plan-shipment-dialog";
+import {
+  draftToInsertPayload,
+  makeDraftOrder,
+  type OrderDraftController,
+} from "./order-draft";
 import cardStyles from "@/components/card-page/card-page.module.css";
 
 export type XeroInvoiceSetupStatus =
@@ -36,15 +46,31 @@ export type XeroInvoiceSetupStatus =
   | "ready";
 
 export type OrderCardProps = {
-  initialOrder: SalesOrderDetail;
+  /** null on the /sales/order draft route. */
+  initialOrder: SalesOrderDetail | null;
   customerOptions: CustomerOption[];
+  itemOptions: SalesOrderItemOption[];
   canViewLedger?: boolean;
   xeroInvoiceSetupStatus?: XeroInvoiceSetupStatus;
 };
 
-export function OrderCard({ initialOrder, customerOptions }: OrderCardProps) {
+export function OrderCard({
+  initialOrder,
+  customerOptions,
+  itemOptions,
+}: OrderCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const timeZone = useOrganizationTimeZone();
+
+  const [currentOrderId, setCurrentOrderId] = useState<string | null>(
+    initialOrder?.id ?? null,
+  );
+  const [draftOrder, setDraftOrder] = useState<SalesOrderDetail>(
+    () => initialOrder ?? makeDraftOrder(timeZone),
+  );
+  const isDraft = currentOrderId == null;
+
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [shipmentDialogTarget, setShipmentDialogTarget] = useState<
@@ -52,27 +78,98 @@ export function OrderCard({ initialOrder, customerOptions }: OrderCardProps) {
   >(null);
 
   const orderQuery = useQuery({
-    queryKey: ["sales-order", initialOrder.id],
-    queryFn: () => fetchSalesOrderDetail(initialOrder.id),
-    initialData: initialOrder,
+    queryKey: ["sales-order", currentOrderId ?? "__draft__"],
+    queryFn: () => fetchSalesOrderDetail(currentOrderId as string),
+    initialData: initialOrder ?? undefined,
+    enabled: !isDraft,
     refetchOnWindowFocus: false,
   });
-  const order = orderQuery.data ?? initialOrder;
+  const order = isDraft ? draftOrder : orderQuery.data ?? draftOrder;
 
   const isEditable =
-    order.status !== "done" && order.shippingReadiness.state !== "shipped";
+    isDraft ||
+    (order.status !== "done" && order.shippingReadiness.state !== "shipped");
 
-  const deleteMutation = useMutation({
-    mutationKey: ["sales-order", order.id, "delete"],
+  // ---- Draft controller (local writes before the order exists) ----------
+  const recomputeTotals = useCallback((next: SalesOrderDetail): SalesOrderDetail => {
+    const revenue = next.lines.reduce(
+      (sum, line) => sum + Number(line.lineTotal || 0),
+      0,
+    );
+    return {
+      ...next,
+      totalAmount: revenue.toFixed(2),
+      marginSummary: {
+        ...next.marginSummary,
+        productRevenue: revenue.toFixed(2),
+      },
+    };
+  }, []);
+
+  const draftController = useMemo<OrderDraftController>(
+    () => ({
+      patchHeader: (patch) =>
+        setDraftOrder((prev) => ({ ...prev, ...patch }) as SalesOrderDetail),
+      addLine: (line) =>
+        setDraftOrder((prev) => recomputeTotals({ ...prev, lines: [...prev.lines, line] })),
+      updateLine: (lineId, patch) =>
+        setDraftOrder((prev) =>
+          recomputeTotals({
+            ...prev,
+            lines: prev.lines.map((line) => {
+              if (line.id !== lineId) return line;
+              const quantity = patch.quantity ?? line.quantity;
+              const unitPrice = patch.unitPrice ?? line.unitPrice;
+              const lineTotal = (Number(quantity) * Number(unitPrice)).toFixed(2);
+              return { ...line, quantity, unitPrice, lineTotal };
+            }),
+          }),
+        ),
+      removeLine: (lineId) =>
+        setDraftOrder((prev) =>
+          recomputeTotals({
+            ...prev,
+            lines: prev.lines.filter((line) => line.id !== lineId),
+          }),
+        ),
+    }),
+    [recomputeTotals],
+  );
+
+  const createMutation = useMutation({
+    mutationKey: ["sales-order", "__draft__", "create"],
     mutationFn: async () => {
-      const response = await fetch(`/api/sales-orders/${order.id}`, {
+      const created = await createSalesOrder(draftToInsertPayload(draftOrder));
+      const detail = await fetchSalesOrderDetail(created.id);
+      return detail;
+    },
+    onMutate: () => setActionError(null),
+    onSuccess: (detail) => {
+      setCurrentOrderId(detail.id);
+      queryClient.setQueryData(["sales-order", detail.id], detail);
+      void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+      window.history.replaceState(null, "", `/sales/orders/${detail.id}`);
+    },
+    onError: (error) => setActionError((error as Error).message),
+  });
+
+  const canCreate =
+    draftOrder.customerId.trim().length > 0 &&
+    draftOrder.lines.length > 0 &&
+    draftOrder.lines.every(
+      (line) => Number(line.quantity) > 0 && Number(line.unitPrice) >= 0,
+    );
+
+  // ---- Live mutations ----------------------------------------------------
+  const deleteMutation = useMutation({
+    mutationKey: ["sales-order", currentOrderId ?? "draft", "delete"],
+    mutationFn: async () => {
+      const response = await fetch(`/api/sales-orders/${currentOrderId}`, {
         method: "DELETE",
         headers: createIdempotencyHeaders("sales-order-delete"),
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to delete order.");
-      }
+      if (!response.ok) throw new Error(body?.error ?? "Failed to delete order.");
     },
     onMutate: () => setActionError(null),
     onSuccess: async () => {
@@ -83,16 +180,14 @@ export function OrderCard({ initialOrder, customerOptions }: OrderCardProps) {
   });
 
   const duplicateMutation = useMutation({
-    mutationKey: ["sales-order", order.id, "duplicate"],
+    mutationKey: ["sales-order", currentOrderId ?? "draft", "duplicate"],
     mutationFn: async () => {
-      const response = await fetch(`/api/sales-orders/${order.id}/duplicate`, {
+      const response = await fetch(`/api/sales-orders/${currentOrderId}/duplicate`, {
         method: "POST",
         headers: createIdempotencyHeaders("sales-order-duplicate"),
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to duplicate order.");
-      }
+      if (!response.ok) throw new Error(body?.error ?? "Failed to duplicate order.");
       return body as { id: string };
     },
     onMutate: () => setActionError(null),
@@ -104,9 +199,9 @@ export function OrderCard({ initialOrder, customerOptions }: OrderCardProps) {
   });
 
   const deleteLineMutation = useMutation({
-    mutationKey: ["sales-order", order.id, "delete-line"],
+    mutationKey: ["sales-order", currentOrderId ?? "draft", "delete-line"],
     mutationFn: async (line: SalesOrderDetailLine) => {
-      const response = await fetch(`/api/sales-orders/${order.id}`, {
+      const response = await fetch(`/api/sales-orders/${currentOrderId}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -115,32 +210,44 @@ export function OrderCard({ initialOrder, customerOptions }: OrderCardProps) {
         body: JSON.stringify(buildSalesOrderLineRemovalPayload(order, line.id)),
       });
       const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to delete line.");
-      }
+      if (!response.ok) throw new Error(body?.error ?? "Failed to delete line.");
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: ["sales-order", order.id],
+        queryKey: ["sales-order", currentOrderId],
       });
       await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
     },
     onError: (error) => setActionError((error as Error).message),
   });
 
-  // Line item + shipment editing still bounce to the legacy form until those
-  // dialogs land. Header/notes are now fully inline-edited via PATCH.
-  const goToLegacyEdit = () => router.push(`/sales/orders/${order.id}/edit`);
+  const handleDeleteLine = useCallback(
+    async (line: SalesOrderDetailLine) => {
+      if (isDraft) {
+        draftController.removeLine(line.id);
+        return;
+      }
+      await deleteLineMutation.mutateAsync(line);
+    },
+    [isDraft, draftController, deleteLineMutation],
+  );
 
   return (
     <div className={cardStyles.sheet}>
       <OrderCardHeader
-        order={order}
-        mode="edit"
-        onPlanShipment={isEditable ? () => setShipmentDialogTarget("new") : undefined}
-        onPlanShipmentDisabled={false}
-        onDuplicate={() => duplicateMutation.mutate()}
-        onDelete={() => setConfirmDelete(true)}
+        order={isDraft ? null : order}
+        mode={isDraft ? "draft" : "edit"}
+        draftCustomerName={draftOrder.customerName || null}
+        draftIsDirty={isDraft && (draftOrder.customerId !== "" || draftOrder.lines.length > 0)}
+        draftSaving={createMutation.isPending}
+        draftHasError={createMutation.isError}
+        onCreate={isDraft ? () => createMutation.mutate() : undefined}
+        onCreateDisabled={!canCreate || createMutation.isPending}
+        onPlanShipment={
+          !isDraft && isEditable ? () => setShipmentDialogTarget("new") : undefined
+        }
+        onDuplicate={!isDraft ? () => duplicateMutation.mutate() : undefined}
+        onDelete={!isDraft ? () => setConfirmDelete(true) : undefined}
       />
 
       {actionError ? (
@@ -154,19 +261,20 @@ export function OrderCard({ initialOrder, customerOptions }: OrderCardProps) {
           order={order}
           editable={isEditable}
           customerOptions={customerOptions}
+          draft={isDraft ? draftController : undefined}
         />
 
         <LineItemsTable
           order={order}
           editable={isEditable}
-          onAddLine={isEditable ? goToLegacyEdit : undefined}
-          onDeleteLine={
-            isEditable
-              ? async (line) => {
-                  await deleteLineMutation.mutateAsync(line);
-                }
+          itemOptions={itemOptions}
+          draft={isDraft ? draftController : undefined}
+          onAddLine={
+            !isDraft && isEditable
+              ? () => router.push(`/sales/orders/${currentOrderId}/edit`)
               : undefined
           }
+          onDeleteLine={isEditable ? handleDeleteLine : undefined}
           deletingLineId={
             deleteLineMutation.isPending
               ? deleteLineMutation.variables?.id ?? null
@@ -174,29 +282,51 @@ export function OrderCard({ initialOrder, customerOptions }: OrderCardProps) {
           }
         />
 
-        <ShipmentsTable
-          order={order}
-          editable={isEditable}
-          onNewShipment={isEditable ? () => setShipmentDialogTarget("new") : undefined}
-          onEditShipment={
-            isEditable
-              ? (shipment) => setShipmentDialogTarget(shipment)
-              : undefined
-          }
-          onMarkShipped={isEditable ? goToLegacyEdit : undefined}
-          onEditCosts={isEditable ? goToLegacyEdit : undefined}
-          onPushXero={isEditable ? goToLegacyEdit : undefined}
-          onDeleteShipment={isEditable ? goToLegacyEdit : undefined}
-        />
+        {isDraft ? null : (
+          <ShipmentsTable
+            order={order}
+            editable={isEditable}
+            onNewShipment={isEditable ? () => setShipmentDialogTarget("new") : undefined}
+            onEditShipment={
+              isEditable ? (shipment) => setShipmentDialogTarget(shipment) : undefined
+            }
+            onMarkShipped={
+              isEditable
+                ? () => router.push(`/sales/orders/${currentOrderId}/edit`)
+                : undefined
+            }
+            onEditCosts={
+              isEditable
+                ? () => router.push(`/sales/orders/${currentOrderId}/edit`)
+                : undefined
+            }
+            onPushXero={
+              isEditable
+                ? () => router.push(`/sales/orders/${currentOrderId}/edit`)
+                : undefined
+            }
+            onDeleteShipment={
+              isEditable
+                ? () => router.push(`/sales/orders/${currentOrderId}/edit`)
+                : undefined
+            }
+          />
+        )}
 
-        <TotalsStrip order={order} notesEditable={isEditable} />
+        <TotalsStrip
+          order={order}
+          notesEditable={isEditable}
+          draft={isDraft ? draftController : undefined}
+        />
       </div>
 
-      <PlanShipmentDialog
-        order={order}
-        target={shipmentDialogTarget}
-        onClose={() => setShipmentDialogTarget(null)}
-      />
+      {isDraft ? null : (
+        <PlanShipmentDialog
+          order={order}
+          target={shipmentDialogTarget}
+          onClose={() => setShipmentDialogTarget(null)}
+        />
+      )}
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent size="sm">

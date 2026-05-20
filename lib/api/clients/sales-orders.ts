@@ -1,5 +1,6 @@
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import type {
+  InsertSalesOrder,
   PatchSalesOrderHeader,
   PatchSalesOrderLine,
 } from "@/lib/schemas/sales-orders";
@@ -27,6 +28,22 @@ async function parseError(response: Response, path: string): Promise<never> {
       ? ((body as { errors?: Record<string, string[]> }).errors)
       : undefined;
   throw new SalesOrderApiError(message, response.status, fieldErrors);
+}
+
+/** Create a sales order from the draft card. Returns the new order id. */
+export async function createSalesOrder(
+  input: InsertSalesOrder,
+): Promise<{ id: string }> {
+  const path = `/api/sales-orders`;
+  const response = await fetch(path, {
+    method: "POST",
+    headers: createIdempotencyHeaders("createSalesOrder", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) await parseError(response, path);
+  return (await response.json()) as { id: string };
 }
 
 export async function fetchSalesOrderDetail(

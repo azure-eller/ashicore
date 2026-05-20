@@ -9,20 +9,22 @@ import { HelpCircleIcon } from "@hugeicons/core-free-icons";
 import { formatPrice } from "@/lib/format";
 import { patchSalesOrderHeader } from "@/lib/api/clients/sales-orders";
 import type { SalesOrderDetail } from "@/app/(dashboard)/sales/types";
+import type { OrderDraftController } from "./order-draft";
 import styles from "./order-card.module.css";
 
 export type TotalsStripProps = {
   order: SalesOrderDetail;
   notesEditable: boolean;
+  draft?: OrderDraftController;
 };
 
-export function TotalsStrip({ order, notesEditable }: TotalsStripProps) {
+export function TotalsStrip({ order, notesEditable, draft }: TotalsStripProps) {
   const notesValue = order.notes ?? "";
   const { marginSummary } = order;
   const revenue = parseAmount(marginSummary.productRevenue);
   const cogs = parseAmount(marginSummary.productCogs);
   const shipmentCosts = parseAmount(marginSummary.shipmentCosts);
-  const total = revenue - (cogs ?? 0) - (shipmentCosts ?? 0);
+  const total = (revenue ?? 0) - (cogs ?? 0) - (shipmentCosts ?? 0);
   const marginPct = marginSummary.marginPercent
     ? Number.parseFloat(marginSummary.marginPercent)
     : null;
@@ -38,7 +40,7 @@ export function TotalsStrip({ order, notesEditable }: TotalsStripProps) {
           <span className={styles.totalsLeftLabelMeta}>· visible on packing slip</span>
         </div>
         {notesEditable ? (
-          <NotesEditor orderId={order.id} initial={notesValue} />
+          <NotesEditor orderId={order.id} initial={notesValue} draft={draft} />
         ) : notesValue ? (
           <div className="whitespace-pre-wrap text-[13px] text-[var(--color-ink)]">
             {notesValue}
@@ -124,13 +126,20 @@ function CostsEstimateMark() {
   );
 }
 
-function NotesEditor({ orderId, initial }: { orderId: string; initial: string }) {
-  const [draft, setDraft] = useState(initial);
+function NotesEditor({
+  orderId,
+  initial,
+  draft,
+}: {
+  orderId: string;
+  initial: string;
+  draft?: OrderDraftController;
+}) {
+  const [value, setValue] = useState(initial);
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationKey: ["sales-order", orderId, "patch", "notes"],
-    mutationFn: (notes: string | null) =>
-      patchSalesOrderHeader(orderId, { notes }),
+    mutationFn: (notes: string | null) => patchSalesOrderHeader(orderId, { notes }),
     onSuccess: (next) => {
       queryClient.setQueryData(["sales-order", orderId], next);
     },
@@ -141,12 +150,16 @@ function NotesEditor({ orderId, initial }: { orderId: string; initial: string })
 
   return (
     <Textarea
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
       onBlur={() => {
-        const trimmed = draft.trim();
+        const trimmed = value.trim();
         const next = trimmed === "" ? null : trimmed;
         if (next === (initial.trim() === "" ? null : initial)) return;
+        if (draft) {
+          draft.patchHeader({ notes: next });
+          return;
+        }
         mutation.mutate(next);
       }}
       rows={3}
@@ -165,5 +178,5 @@ function parseAmount(value: string | null | undefined): number | null {
 
 function formatMoney(value: number | string | null | undefined): string {
   if (value == null) return "—";
-  return formatPrice(value) ?? "—";
+  return formatPrice(String(value)) ?? "—";
 }

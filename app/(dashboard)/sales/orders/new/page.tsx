@@ -1,33 +1,14 @@
-import { requireModuleWriteAccess } from "@/lib/dal/auth";
-import { getAddressEntries } from "@/lib/dal/addresses";
-import { OrderForm } from "@/app/(dashboard)/sales/order-form";
-import {
-  getSalesOrderCustomerOptions,
-  getSalesOrderItemOptions,
-} from "@/app/(dashboard)/sales/queries";
+import { redirect } from "next/navigation";
 
-export default async function NewOrderPage({
+export default async function NewOrderRedirect({
   searchParams,
 }: {
   searchParams: Promise<{ customerId?: string; projectId?: string }>;
 }) {
-  await requireModuleWriteAccess("sales");
-  const [{ customerId, projectId }, customerRows, items, addresses] = await Promise.all([
-    searchParams,
-    getSalesOrderCustomerOptions(),
-    getSalesOrderItemOptions(),
-    getAddressEntries(),
-  ]);
-
-  return (
-    <div className="mx-auto w-full max-w-[1480px] py-8">
-      <OrderForm
-        customers={customerRows}
-        items={items}
-        addresses={addresses}
-        initialCustomerId={customerId}
-        initialCustomerProjectId={projectId}
-      />
-    </div>
-  );
+  const params = await searchParams;
+  const query = new URLSearchParams();
+  if (params.customerId) query.set("customerId", params.customerId);
+  if (params.projectId) query.set("projectId", params.projectId);
+  const suffix = query.toString();
+  redirect(`/sales/order${suffix ? `?${suffix}` : ""}`);
 }

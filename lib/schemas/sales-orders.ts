@@ -448,8 +448,8 @@ export type PatchSalesOrderHeader = z.infer<typeof patchSalesOrderHeaderSchema>;
  */
 export const patchSalesOrderLineSchema = z
   .object({
-    quantity: positiveMoneyString.optional(),
-    unitPrice: positiveMoneyString.optional(),
+    quantity: positiveMoneyString().optional(),
+    unitPrice: positiveMoneyString().optional(),
   })
   .refine(
     (value) => Object.keys(value).length > 0,

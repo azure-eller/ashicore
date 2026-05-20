@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
 import {
   Table,
   TableBody,
@@ -44,13 +45,20 @@ import {
   UNIT_COST_TOOLTIP,
   UNIT_MARGIN_TOOLTIP,
 } from "@/lib/tooltip-copy";
-import type { SalesOrderDetail, SalesOrderDetailLine } from "@/app/(dashboard)/sales/types";
+import type {
+  SalesOrderDetail,
+  SalesOrderDetailLine,
+  SalesOrderItemOption,
+} from "@/app/(dashboard)/sales/types";
+import { makeDraftLine, type OrderDraftController } from "./order-draft";
 import cardStyles from "@/components/card-page/card-page.module.css";
 import styles from "./order-card.module.css";
 
 export type LineItemsTableProps = {
   order: SalesOrderDetail;
   editable: boolean;
+  itemOptions?: SalesOrderItemOption[];
+  draft?: OrderDraftController;
   onAddLine?: () => void;
   onDeleteLine?: (line: SalesOrderDetailLine) => Promise<void> | void;
   deletingLineId?: string | null;
@@ -59,14 +67,19 @@ export type LineItemsTableProps = {
 export function LineItemsTable({
   order,
   editable,
+  itemOptions,
+  draft,
   onAddLine,
   onDeleteLine,
   deletingLineId,
 }: LineItemsTableProps) {
   const [confirmDelete, setConfirmDelete] = useState<SalesOrderDetailLine | null>(null);
+  const [addingItem, setAddingItem] = useState(false);
   const totalQuantity = sumNumeric(order.lines.map((line) => line.quantity));
   const totalLineAmount = sumNumeric(order.lines.map((line) => line.lineTotal));
-  const canRemove = editable && order.lines.length > 1;
+  // Draft lines can be removed freely; a saved order keeps at least one line.
+  const canRemove = editable && (draft != null || order.lines.length > 1);
+  const existingItemIds = new Set(order.lines.map((line) => line.itemId));
 
   const handleDeleteRequest = (line: SalesOrderDetailLine) => {
     if (!canRemove) return;
@@ -90,12 +103,12 @@ export function LineItemsTable({
             {formatQuantity(String(totalQuantity))} units
           </span>
         </h2>
-        {editable && onAddLine ? (
+        {editable && (draft || onAddLine) ? (
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={onAddLine}
+            onClick={() => (draft ? setAddingItem(true) : onAddLine?.())}
             className="ml-auto"
           >
             <HugeiconsIcon icon={Add01Icon} size={14} className="mr-1" />
@@ -164,6 +177,7 @@ export function LineItemsTable({
                           lineId={line.id}
                           field="quantity"
                           initial={line.quantity}
+                          draft={draft}
                           format={(value) => formatQuantity(value) ?? ""}
                         />
                       ) : (
@@ -180,6 +194,7 @@ export function LineItemsTable({
                           lineId={line.id}
                           field="unitPrice"
                           initial={line.unitPrice}
+                          draft={draft}
                           format={(value) => formatPrice(value) ?? ""}
                         />
                       ) : (
@@ -225,6 +240,37 @@ export function LineItemsTable({
                 );
               })
             )}
+            {draft && addingItem && itemOptions ? (
+              <TableRow>
+                <TableCell colSpan={editable ? 8 : 7}>
+                  <InventoryItemCombobox
+                    options={itemOptions.filter(
+                      (option) => !existingItemIds.has(option.id),
+                    )}
+                    value=""
+                    onValueChange={(itemId) => {
+                      if (!itemId) return;
+                      const picked = itemOptions.find((o) => o.id === itemId);
+                      if (!picked) return;
+                      draft.addLine(
+                        makeDraftLine({
+                          itemId: picked.id,
+                          itemName: picked.displayName || picked.name,
+                          itemSku: picked.sku,
+                          unitName: picked.unitName,
+                          quantity: "1",
+                          unitPrice: picked.defaultSellingPrice ?? "0",
+                          estimatedUnitCost: picked.estimatedUnitCost,
+                        }),
+                      );
+                      setAddingItem(false);
+                    }}
+                    placeholder="Search items…"
+                    emptyMessage="No items found"
+                  />
+                </TableCell>
+              </TableRow>
+            ) : null}
           </TableBody>
           {order.lines.length > 0 ? (
             <TableFooter>
@@ -293,20 +339,22 @@ function LineNumericCell({
   lineId,
   field,
   initial,
+  draft,
   format,
 }: {
   orderId: string;
   lineId: string;
   field: "quantity" | "unitPrice";
   initial: string;
+  draft?: OrderDraftController;
   format: (value: string) => string;
 }) {
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState(initial);
+  const [value, setValue] = useState(initial);
   const mutation = useMutation({
     mutationKey: ["sales-order", orderId, "patch", "line", lineId, field],
-    mutationFn: (value: string) =>
-      patchSalesOrderLine(orderId, lineId, { [field]: value }),
+    mutationFn: (next: string) =>
+      patchSalesOrderLine(orderId, lineId, { [field]: next }),
     onSuccess: (next) => {
       queryClient.setQueryData(["sales-order", orderId], next);
     },
@@ -315,25 +363,32 @@ function LineNumericCell({
     },
   });
 
+  const commit = () => {
+    const trimmed = value.trim();
+    const parsed = Number.parseFloat(trimmed);
+    const minValid = field === "quantity" ? parsed > 0 : parsed >= 0;
+    if (!Number.isFinite(parsed) || !minValid) {
+      setValue(initial);
+      return;
+    }
+    const normalized = parsed.toString();
+    if (normalized === Number.parseFloat(initial).toString()) return;
+    if (draft) {
+      draft.updateLine(lineId, { [field]: normalized });
+      return;
+    }
+    mutation.mutate(normalized);
+  };
+
   return (
     <Input
       type="number"
       inputMode="decimal"
       step="0.0001"
       min="0"
-      value={draft}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => {
-        const trimmed = draft.trim();
-        const parsed = Number.parseFloat(trimmed);
-        if (!Number.isFinite(parsed) || parsed <= 0) {
-          setDraft(initial);
-          return;
-        }
-        const normalized = parsed.toString();
-        if (normalized === Number.parseFloat(initial).toString()) return;
-        mutation.mutate(normalized);
-      }}
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={commit}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
           event.preventDefault();
@@ -341,7 +396,7 @@ function LineNumericCell({
         }
         if (event.key === "Escape") {
           event.preventDefault();
-          setDraft(initial);
+          setValue(initial);
           event.currentTarget.blur();
         }
       }}
