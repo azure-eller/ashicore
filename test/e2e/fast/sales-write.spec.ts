@@ -1680,6 +1680,13 @@ test.describe("Sales write-path smoke", () => {
     ).toBeVisible();
     await expect(page.getByText("20/7")).toBeVisible();
 
+    await page.reload();
+    await page.getByLabel("Search sales allocations").fill(suffix);
+    await expect(
+      page.getByText("Pool vs. demand · 1 orders, 1 short of 1 lines")
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: /Expand Unplanned demand/ })).toBeVisible();
+
     const hiddenMenu = page.getByRole("button", { name: /hidden/ });
     await expect(hiddenMenu).toBeVisible();
     await hiddenMenu.click();
