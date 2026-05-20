@@ -34,6 +34,7 @@ import { ShipmentsTable } from "./shipments-table";
 import { TotalsStrip } from "./totals-strip";
 import { PlanShipmentDialog } from "./plan-shipment-dialog";
 import { MarkShippedDialog } from "./mark-shipped-dialog";
+import { ShipmentCostsDialog } from "./shipment-costs-dialog";
 import {
   draftToInsertPayload,
   makeDraftLine,
@@ -81,6 +82,9 @@ export function OrderCard({
     "new" | SalesShipmentRow | null
   >(null);
   const [shipTarget, setShipTarget] = useState<SalesShipmentRow | null>(null);
+  const [costsTarget, setCostsTarget] = useState<SalesShipmentRow | null>(null);
+  const [deleteShipmentTarget, setDeleteShipmentTarget] =
+    useState<SalesShipmentRow | null>(null);
 
   const orderQuery = useQuery({
     queryKey: ["sales-order", currentOrderId ?? "__draft__"],
@@ -267,6 +271,48 @@ export function OrderCard({
     [addLineMutation],
   );
 
+  const deleteShipmentMutation = useMutation({
+    mutationKey: ["sales-order", currentOrderId ?? "draft", "delete-shipment"],
+    mutationFn: async (shipment: SalesShipmentRow) => {
+      const response = await fetch(
+        `/api/sales-orders/${currentOrderId}/shipments/${shipment.id}`,
+        {
+          method: "DELETE",
+          headers: createIdempotencyHeaders("deleteSalesShipment"),
+        },
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error ?? "Failed to delete shipment.");
+    },
+    onMutate: () => setActionError(null),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sales-order", currentOrderId] });
+      await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+      setDeleteShipmentTarget(null);
+    },
+    onError: (error) => setActionError((error as Error).message),
+  });
+
+  const shipmentXeroPushMutation = useMutation({
+    mutationKey: ["sales-order", currentOrderId ?? "draft", "shipment-xero-push"],
+    mutationFn: async (shipment: SalesShipmentRow) => {
+      const response = await fetch(
+        `/api/sales-orders/${currentOrderId}/shipments/${shipment.id}/xero-push`,
+        {
+          method: "POST",
+          headers: createIdempotencyHeaders("retryXeroPushForSalesShipment"),
+        },
+      );
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error ?? "Failed to push to Xero.");
+    },
+    onMutate: () => setActionError(null),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sales-order", currentOrderId] });
+    },
+    onError: (error) => setActionError((error as Error).message),
+  });
+
   return (
     <div className={cardStyles.sheet}>
       <OrderCardHeader
@@ -323,20 +369,10 @@ export function OrderCard({
               isEditable ? (shipment) => setShipmentDialogTarget(shipment) : undefined
             }
             onMarkShipped={isEditable ? (shipment) => setShipTarget(shipment) : undefined}
-            onEditCosts={
-              isEditable
-                ? () => router.push(`/sales/orders/${currentOrderId}/edit`)
-                : undefined
-            }
-            onPushXero={
-              isEditable
-                ? () => router.push(`/sales/orders/${currentOrderId}/edit`)
-                : undefined
-            }
+            onEditCosts={(shipment) => setCostsTarget(shipment)}
+            onPushXero={(shipment) => shipmentXeroPushMutation.mutate(shipment)}
             onDeleteShipment={
-              isEditable
-                ? () => router.push(`/sales/orders/${currentOrderId}/edit`)
-                : undefined
+              isEditable ? (shipment) => setDeleteShipmentTarget(shipment) : undefined
             }
           />
         )}
@@ -361,6 +397,42 @@ export function OrderCard({
             xeroReady={xeroInvoiceSetupStatus === "ready"}
             onClose={() => setShipTarget(null)}
           />
+          <ShipmentCostsDialog
+            order={order}
+            shipment={costsTarget}
+            onClose={() => setCostsTarget(null)}
+          />
+          <AlertDialog
+            open={deleteShipmentTarget != null}
+            onOpenChange={(next) => {
+              if (!next) setDeleteShipmentTarget(null);
+            }}
+          >
+            <AlertDialogContent size="sm">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete shipment?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {deleteShipmentTarget
+                    ? `${deleteShipmentTarget.shipmentNumber} will be removed and its planned allocations released. This cannot be undone.`
+                    : ""}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(event) => {
+                    event.preventDefault();
+                    if (deleteShipmentTarget) {
+                      deleteShipmentMutation.mutate(deleteShipmentTarget);
+                    }
+                  }}
+                  disabled={deleteShipmentMutation.isPending}
+                >
+                  {deleteShipmentMutation.isPending ? "Deleting…" : "Delete shipment"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </>
       )}
 
