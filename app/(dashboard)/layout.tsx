@@ -1,6 +1,5 @@
 import { after } from "next/server";
 import { DashboardTopNav } from "@/components/dashboard-top-nav";
-import { FeedbackWidget } from "@/components/feedback-widget";
 import { TimeZoneProvider } from "@/components/time-zone-provider";
 import { DashboardNavigationContent } from "@/components/navigation-pending";
 import {
@@ -49,7 +48,6 @@ export default async function DashboardLayout({
         <main className="flex min-h-0 flex-1 flex-col">
           <DashboardNavigationContent>{children}</DashboardNavigationContent>
         </main>
-        <FeedbackWidget />
       </div>
     </TimeZoneProvider>
   );
