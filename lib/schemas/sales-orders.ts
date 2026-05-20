@@ -371,6 +371,92 @@ export type InsertSalesOrder = z.infer<typeof insertSalesOrderSchema>;
 export const updateSalesOrderSchema = baseSalesOrderSchema;
 export type UpdateSalesOrder = z.infer<typeof updateSalesOrderSchema>;
 
+/**
+ * Partial header-only patch for the inline-edit flow on the new Calm Matrix
+ * Sales Order page. Mirrors the Item Detail PATCH pattern: every field is
+ * optional, lines and shipments are NOT touched, no idempotency-replay of the
+ * full order. Use this for per-field saves; use `updateSalesOrderSchema` for
+ * the legacy full-document PUT.
+ */
+export const patchSalesOrderHeaderSchema = z
+  .object({
+    customerId: z.string().min(1, "Customer is required").optional(),
+    customerProjectId: nullableString
+      .refine(
+        (value) => value == null || z.string().uuid().safeParse(value).success,
+        "Invalid project"
+      )
+      .optional(),
+    orderDate: z
+      .string()
+      .refine(
+        (value) => isValidIsoDate(value),
+        "Order date must be a real date in YYYY-MM-DD format"
+      )
+      .optional(),
+    shipDate: nullableString
+      .refine(
+        (value) => value == null || isValidIsoDate(value),
+        "Shipping date must be a real date in YYYY-MM-DD format"
+      )
+      .optional(),
+    requestedDate: nullableString
+      .refine(
+        (value) => value == null || isValidIsoDate(value),
+        "Delivery date must be a real date in YYYY-MM-DD format"
+      )
+      .optional(),
+    notes: nullableString.optional(),
+    shipLine1: nullableString.optional(),
+    shipLine2: nullableString.optional(),
+    shipCity: nullableString.optional(),
+    shipRegion: nullableString.optional(),
+    shipPostcode: nullableString.optional(),
+    shipCountry: nullableString.optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (
+      values.shipDate != null &&
+      values.orderDate != null &&
+      values.shipDate < values.orderDate
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Ship date cannot be before order date",
+        path: ["shipDate"],
+      });
+    }
+    if (
+      values.requestedDate != null &&
+      values.shipDate != null &&
+      values.requestedDate < values.shipDate
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Delivery date cannot be before shipping date",
+        path: ["requestedDate"],
+      });
+    }
+  });
+export type PatchSalesOrderHeader = z.infer<typeof patchSalesOrderHeaderSchema>;
+
+/**
+ * Per-line patch for inline-edit cells in the line items table (§2). Touches
+ * only `sales_order_lines`; does not recreate shipments or release
+ * reservations. Use {@link updateSalesOrderSchema} via PUT for line add/remove
+ * or item changes, which still need the full-order recreation flow.
+ */
+export const patchSalesOrderLineSchema = z
+  .object({
+    quantity: positiveMoneyString().optional(),
+    unitPrice: positiveMoneyString().optional(),
+  })
+  .refine(
+    (value) => Object.keys(value).length > 0,
+    "Patch must include at least one field",
+  );
+export type PatchSalesOrderLine = z.infer<typeof patchSalesOrderLineSchema>;
+
 export const confirmSalesOrderSchema = z.object({
   confirmOversell: z.boolean().optional(),
 });

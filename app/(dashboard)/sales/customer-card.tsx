@@ -192,7 +192,7 @@ export function CustomerCard({
       await queryClient.invalidateQueries({ queryKey: ["customers"] });
       const next = await getCustomerCard(result.id);
       queryClient.setQueryData(["customer-card", result.id], next);
-      window.history.replaceState(null, "", `/sales/customers/${result.id}`);
+      router.replace(`/sales/customers/${result.id}`);
     },
   });
 

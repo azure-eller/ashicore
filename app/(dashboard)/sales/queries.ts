@@ -59,7 +59,9 @@ import {
   projectedOnHandQtyExpr,
   projectedPotentialQty,
   projectedShortageQty,
+  recordSalesDemandAndReservationsInTx,
   reserveForSalesInTx,
+  releaseReservationForSalesQuantitiesInTx,
 } from "@/lib/inventory/kernel";
 import {
   DomainError,
@@ -97,6 +99,8 @@ import type {
   BulkConfirmSalesOrders,
   SalesFulfillmentPlanInput,
   InsertSalesOrder,
+  PatchSalesOrderHeader,
+  PatchSalesOrderLine,
   ReorderSalesOrderPriorityRanks,
   SalesShipmentCostsInput,
   SalesShipmentInput,
@@ -1230,7 +1234,9 @@ async function getLockedSalesOrderInTx(tx: Tx, id: string) {
       orderNumber: salesOrders.orderNumber,
       status: salesOrders.status,
       customerId: salesOrders.customerId,
+      customerProjectId: salesOrders.customerProjectId,
       customerName: salesOrders.customerName,
+      orderDate: salesOrders.orderDate,
       shipDate: salesOrders.shipDate,
       requestedDate: salesOrders.requestedDate,
       shipLine1: salesOrders.shipLine1,
@@ -7700,6 +7706,326 @@ export async function bulkConfirmSalesOrders(
     });
 
     return result;
+  });
+}
+
+/**
+ * Per-field header patch for the inline-edit flow on the Calm Matrix Sales
+ * Order page. Touches only the salesOrders row — never lines, never shipments,
+ * never inventory kernel state. For full-document edits (line edits, shipment
+ * recreation, idempotency replay), use {@link updateSalesOrder}.
+ */
+export async function patchSalesOrderHeader(
+  id: string,
+  patch: PatchSalesOrderHeader,
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const replay = await beginInventoryOperationInTx<{ ok: true } | null>(tx, {
+      organizationId: orgId,
+      operationName: "patchSalesOrderHeader",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { id, patch },
+    });
+    if (replay.replayed) {
+      return replay.result === null ? null : await getSalesOrder(id);
+    }
+
+    const existingOrder = await getLockedSalesOrderInTx(tx, id);
+    if (!existingOrder) {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
+      return null;
+    }
+    if (existingOrder.status === "done") {
+      throw new SalesError("Done orders cannot be changed.", 400);
+    }
+
+    const nextCustomerId = patch.customerId ?? existingOrder.customerId;
+    const customer = await getValidatedCustomerInTx(tx, nextCustomerId);
+    const nextCustomerProjectId =
+      patch.customerProjectId !== undefined
+        ? patch.customerProjectId
+        : patch.customerId && patch.customerId !== existingOrder.customerId
+          ? null
+          : existingOrder.customerProjectId;
+    await getValidatedCustomerProjectInTx(tx, customer.id, nextCustomerProjectId);
+
+    const nextOrderDate = patch.orderDate ?? existingOrder.orderDate;
+    const nextShipDate =
+      patch.shipDate !== undefined ? patch.shipDate : existingOrder.shipDate;
+    const nextRequestedDate =
+      patch.requestedDate !== undefined
+        ? patch.requestedDate
+        : existingOrder.requestedDate;
+    if (nextShipDate != null && nextShipDate < nextOrderDate) {
+      throw new SalesError("Ship date cannot be before order date", 400, {
+        errors: { shipDate: ["Ship date cannot be before order date"] },
+      });
+    }
+    if (
+      nextRequestedDate != null &&
+      nextShipDate != null &&
+      nextRequestedDate < nextShipDate
+    ) {
+      throw new SalesError("Delivery date cannot be before shipping date", 400, {
+        errors: {
+          requestedDate: ["Delivery date cannot be before shipping date"],
+        },
+      });
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (patch.customerId != null) {
+      updates.customerId = customer.id;
+      updates.customerName = customer.name;
+    }
+    if (patch.customerProjectId !== undefined || patch.customerId != null) {
+      updates.customerProjectId = nextCustomerProjectId;
+    }
+    if (patch.orderDate != null) updates.orderDate = patch.orderDate;
+    if (patch.shipDate !== undefined) updates.shipDate = patch.shipDate;
+    if (patch.requestedDate !== undefined) {
+      updates.requestedDate = patch.requestedDate;
+    }
+    if (patch.notes !== undefined) updates.notes = patch.notes;
+    if (patch.shipLine1 !== undefined) updates.shipLine1 = patch.shipLine1;
+    if (patch.shipLine2 !== undefined) updates.shipLine2 = patch.shipLine2;
+    if (patch.shipCity !== undefined) updates.shipCity = patch.shipCity;
+    if (patch.shipRegion !== undefined) updates.shipRegion = patch.shipRegion;
+    if (patch.shipPostcode !== undefined) updates.shipPostcode = patch.shipPostcode;
+    if (patch.shipCountry !== undefined) updates.shipCountry = patch.shipCountry;
+
+    if (Object.keys(updates).length > 0) {
+      updates.updatedAt = new Date();
+      await tx
+        .update(salesOrders)
+        .set(updates)
+        .where(eq(salesOrders.id, id));
+    }
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result: { ok: true },
+    });
+
+    return await getSalesOrder(id);
+  });
+}
+
+/**
+ * Per-line patch for inline-edit cells. This keeps the existing line id stable
+ * for shipment/history references while still going through pricing validation
+ * and inventory-kernel demand/reservation deltas for quantity changes. Use
+ * {@link updateSalesOrder} via PUT for structural changes (item swap,
+ * line add/remove/reorder).
+ */
+export async function patchSalesOrderLine(
+  orderId: string,
+  lineId: string,
+  patch: PatchSalesOrderLine,
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{ ok: true } | null>(tx, {
+      organizationId: orgId,
+      operationName: "patchSalesOrderLine",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { orderId, lineId, patch },
+    });
+    if (replay.replayed) {
+      return replay.result === null ? null : await getSalesOrder(orderId);
+    }
+
+    const existingOrder = await getLockedSalesOrderInTx(tx, orderId);
+    if (!existingOrder) {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
+      return null;
+    }
+    if (existingOrder.status === "done") {
+      throw new SalesError("Done orders cannot be changed.", 400);
+    }
+
+    const [existingLine] = await tx
+      .select({
+        id: salesOrderLines.id,
+        itemId: salesOrderLines.itemId,
+        quantity: salesOrderLines.quantity,
+        unitPrice: salesOrderLines.unitPrice,
+        cancelledQuantity: salesOrderLines.cancelledQuantity,
+      })
+      .from(salesOrderLines)
+      .where(
+        and(
+          eq(salesOrderLines.id, lineId),
+          eq(salesOrderLines.salesOrderId, orderId)
+        )
+      )
+      .for("update");
+    if (!existingLine) {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
+      return null;
+    }
+
+    const nextQuantity = patch.quantity ?? existingLine.quantity;
+    const nextUnitPrice = patch.unitPrice ?? existingLine.unitPrice;
+    const nextQuantityNumber = parseFloat(nextQuantity);
+    const currentQuantityNumber = parseFloat(existingLine.quantity);
+
+    if (
+      patch.quantity != null &&
+      nextQuantityNumber < Number(existingLine.cancelledQuantity)
+    ) {
+      throw new SalesError(
+        "Quantity cannot be less than cancelled quantity.",
+        400
+      );
+    }
+
+    if (patch.quantity != null) {
+      const lineState = (await getShipmentLineStatesInTx(tx, orderId)).get(lineId);
+      if (!lineState) {
+        await finishInventoryOperationInTx(tx, {
+          organizationId: orgId,
+          idempotencyKey: options?.idempotencyKey ?? null,
+          result: null,
+        });
+        return null;
+      }
+      const minimumQuantity = normalizeShipmentQuantity(
+        lineState.shippedQuantity +
+          lineState.plannedQuantity +
+          lineState.cancelledQuantity
+      );
+      if (nextQuantityNumber < minimumQuantity) {
+        throw new SalesError(
+          "Quantity cannot be less than planned, shipped, or cancelled quantity.",
+          400,
+          {
+            errors: {
+              quantity: [`Must be ${normalizeNumeric(minimumQuantity)} or greater`],
+            },
+          }
+        );
+      }
+    }
+
+    await lockItemsInTx(tx, [existingLine.itemId]);
+    const customer = await getValidatedCustomerInTx(tx, existingOrder.customerId);
+    const item = (await getValidatedSalesItemsInTx(tx, [existingLine.itemId])).get(
+      existingLine.itemId
+    );
+    if (!item) {
+      throw new SalesError("Item not found", 404);
+    }
+    const pricing = await resolvePricingForProductInTx(tx, {
+      customerCategoryId: customer.customerCategoryId,
+      customerCategoryName: customer.customerCategoryName,
+      product: item,
+      quantity: nextQuantity,
+    });
+    const normalizedUnitPrice = normalizeMoney(Number(nextUnitPrice));
+    const nextLineTotal = normalizeMoney(nextQuantityNumber * Number(nextUnitPrice));
+
+    const updates: Record<string, unknown> = {
+      lineTotal: nextLineTotal,
+      suggestedUnitPrice: pricing.suggestedUnitPrice,
+      pricingSourceType: pricing.pricingSourceType,
+      pricingScheduleName: pricing.pricingScheduleName,
+      pricingBreakLabel: pricing.pricingBreakLabel,
+      isPriceOverridden:
+        pricing.suggestedUnitPrice != null &&
+        normalizedUnitPrice !== pricing.suggestedUnitPrice,
+      updatedAt: new Date(),
+    };
+    if (patch.quantity != null) updates.quantity = patch.quantity;
+    if (patch.unitPrice != null) updates.unitPrice = normalizedUnitPrice;
+
+    await tx
+      .update(salesOrderLines)
+      .set(updates)
+      .where(eq(salesOrderLines.id, lineId));
+
+    if (patch.quantity != null) {
+      const quantityDelta = roundQuantity(nextQuantityNumber - currentQuantityNumber);
+      if (quantityDelta > 0) {
+        await recordSalesDemandAndReservationsInTx(tx, {
+          organizationId: orgId,
+          salesOrderId: orderId,
+          actorUserId: userId,
+          idempotencyKey: deriveInventoryIdempotencyKey(
+            options?.idempotencyKey,
+            "patch-line-quantity-increase"
+          ),
+          demandLines: [
+            {
+              salesOrderLineId: lineId,
+              itemId: existingLine.itemId,
+              quantity: quantityDelta,
+            },
+          ],
+          reservationLines: [
+            {
+              salesOrderLineId: lineId,
+              itemId: existingLine.itemId,
+              quantity: quantityDelta,
+            },
+          ],
+        });
+      } else if (quantityDelta < 0) {
+        await releaseReservationForSalesQuantitiesInTx(tx, {
+          organizationId: orgId,
+          salesOrderId: orderId,
+          actorUserId: userId,
+          idempotencyKey: deriveInventoryIdempotencyKey(
+            options?.idempotencyKey,
+            "patch-line-quantity-decrease"
+          ),
+          reason: "edited",
+          lines: [
+            {
+              salesOrderLineId: lineId,
+              itemId: existingLine.itemId,
+              quantity: Math.abs(quantityDelta),
+            },
+          ],
+        });
+      }
+    }
+
+    // Refresh totalAmount on the order
+    const allLines = await tx
+      .select({ lineTotal: salesOrderLines.lineTotal })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, orderId));
+    const total = allLines.reduce(
+      (sum, line) => sum + Number(line.lineTotal),
+      0
+    );
+    await tx
+      .update(salesOrders)
+      .set({ totalAmount: total.toFixed(2), updatedAt: new Date() })
+      .where(eq(salesOrders.id, orderId));
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result: { ok: true },
+    });
+
+    return await getSalesOrder(orderId);
   });
 }
 

@@ -55,6 +55,11 @@ import {
 } from "@/lib/tooltip-copy";
 import { formatDate, formatPrice } from "@/lib/format";
 import {
+  getAllocationFilterValue,
+  getSalesItemsState,
+  type AllocationFilterValue,
+} from "@/lib/sales/order-display-status";
+import {
   DeliveryActionCell,
   ProductionActionCell,
 } from "./sales-order-table-action-cells";
@@ -63,7 +68,6 @@ import type { SalesOrderListRow } from "./types";
 const OPEN_SALES_STATUSES = ["open"] as const;
 const DONE_SALES_STATUSES = ["done"] as const;
 type SalesWorkflowFilterValue = "open" | "done";
-type AllocationFilterValue = "all" | "allocated" | "partial" | "not_allocated";
 
 const allocationToneByLabel: Record<string, StatusTone> = {
   Complete: "success",
@@ -103,38 +107,6 @@ function NotesCell({ notes }: { notes: string | null }) {
 function parseQuantity(value: string | null | undefined) {
   const parsed = Number.parseFloat(value ?? "0");
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function getSalesItemsState(order: SalesOrderListRow): OperationalState {
-  if (order.status === "done") {
-    return { label: "Complete", tone: "success" };
-  }
-
-  const remainingQty = parseQuantity(order.fulfillmentSummary.remainingQty);
-  const allocatedQty = parseQuantity(order.fulfillmentSummary.allocatedQty);
-  const shortQty = parseQuantity(order.fulfillmentSummary.shortQty);
-
-  if (remainingQty <= 0) {
-    return { label: "Complete", tone: "success" };
-  }
-
-  if (shortQty <= 0) {
-    return { label: "Allocated", tone: "success" };
-  }
-
-  if (allocatedQty > 0) {
-    return { label: "Partial", tone: "warning" };
-  }
-
-  return { label: "Not allocated", tone: "destructive" };
-}
-
-function getAllocationFilterValue(order: SalesOrderListRow): AllocationFilterValue {
-  const label = getSalesItemsState(order).label;
-
-  if (label === "Complete" || label === "Allocated") return "allocated";
-  if (label === "Partial") return "partial";
-  return "not_allocated";
 }
 
 function isThisWeek(dateString: string | null) {
