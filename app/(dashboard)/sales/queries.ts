@@ -94,6 +94,7 @@ import type {
   SalesFulfillmentPlanInput,
   InsertSalesOrder,
   PatchSalesOrderHeader,
+  PatchSalesOrderLine,
   ReorderSalesOrderPriorityRanks,
   SalesShipmentCostsInput,
   SalesShipmentInput,
@@ -7733,6 +7734,122 @@ export async function patchSalesOrderHeader(
     });
 
     return await getSalesOrder(id);
+  });
+}
+
+/**
+ * Per-line patch for the inline-edit cells in the line items table. Touches
+ * one sales_order_lines row + the order's totalAmount; does not recreate
+ * shipments or release reservations. Use {@link updateSalesOrder} via PUT for
+ * structural changes (item swap, line add/remove).
+ */
+export async function patchSalesOrderLine(
+  orderId: string,
+  lineId: string,
+  patch: PatchSalesOrderLine,
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const replay = await beginInventoryOperationInTx<{ ok: true } | null>(tx, {
+      organizationId: orgId,
+      operationName: "patchSalesOrderLine",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { orderId, lineId, patch },
+    });
+    if (replay.replayed) {
+      return replay.result === null ? null : await getSalesOrder(orderId);
+    }
+
+    const existingOrder = await getLockedSalesOrderInTx(tx, orderId);
+    if (!existingOrder) {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
+      return null;
+    }
+    if (existingOrder.status === "done") {
+      throw new SalesError("Done orders cannot be changed.", 400);
+    }
+
+    const [existingLine] = await tx
+      .select({
+        id: salesOrderLines.id,
+        quantity: salesOrderLines.quantity,
+        unitPrice: salesOrderLines.unitPrice,
+        cancelledQuantity: salesOrderLines.cancelledQuantity,
+      })
+      .from(salesOrderLines)
+      .where(
+        and(
+          eq(salesOrderLines.id, lineId),
+          eq(salesOrderLines.salesOrderId, orderId)
+        )
+      )
+      .for("update");
+    if (!existingLine) {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
+      return null;
+    }
+
+    const nextQuantity = patch.quantity ?? existingLine.quantity;
+    const nextUnitPrice = patch.unitPrice ?? existingLine.unitPrice;
+
+    if (
+      patch.quantity != null &&
+      Number(patch.quantity) < Number(existingLine.cancelledQuantity)
+    ) {
+      throw new SalesError(
+        "Quantity cannot be less than cancelled quantity.",
+        400
+      );
+    }
+
+    const nextLineTotal = (
+      Number(nextQuantity) * Number(nextUnitPrice)
+    ).toFixed(2);
+
+    const updates: Record<string, unknown> = {
+      lineTotal: nextLineTotal,
+      updatedAt: new Date(),
+    };
+    if (patch.quantity != null) updates.quantity = patch.quantity;
+    if (patch.unitPrice != null) {
+      updates.unitPrice = patch.unitPrice;
+      updates.isPriceOverridden = true;
+    }
+
+    await tx
+      .update(salesOrderLines)
+      .set(updates)
+      .where(eq(salesOrderLines.id, lineId));
+
+    // Refresh totalAmount on the order
+    const allLines = await tx
+      .select({ lineTotal: salesOrderLines.lineTotal })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, orderId));
+    const total = allLines.reduce(
+      (sum, line) => sum + Number(line.lineTotal),
+      0
+    );
+    await tx
+      .update(salesOrders)
+      .set({ totalAmount: total.toFixed(2), updatedAt: new Date() })
+      .where(eq(salesOrders.id, orderId));
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result: { ok: true },
+    });
+
+    return await getSalesOrder(orderId);
   });
 }
 

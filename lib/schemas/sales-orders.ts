@@ -440,6 +440,23 @@ export const patchSalesOrderHeaderSchema = z
   });
 export type PatchSalesOrderHeader = z.infer<typeof patchSalesOrderHeaderSchema>;
 
+/**
+ * Per-line patch for inline-edit cells in the line items table (§2). Touches
+ * only `sales_order_lines`; does not recreate shipments or release
+ * reservations. Use {@link updateSalesOrderSchema} via PUT for line add/remove
+ * or item changes, which still need the full-order recreation flow.
+ */
+export const patchSalesOrderLineSchema = z
+  .object({
+    quantity: positiveMoneyString.optional(),
+    unitPrice: positiveMoneyString.optional(),
+  })
+  .refine(
+    (value) => Object.keys(value).length > 0,
+    "Patch must include at least one field",
+  );
+export type PatchSalesOrderLine = z.infer<typeof patchSalesOrderLineSchema>;
+
 export const confirmSalesOrderSchema = z.object({
   confirmOversell: z.boolean().optional(),
 });

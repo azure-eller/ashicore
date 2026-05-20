@@ -1,5 +1,8 @@
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
-import type { PatchSalesOrderHeader } from "@/lib/schemas/sales-orders";
+import type {
+  PatchSalesOrderHeader,
+  PatchSalesOrderLine,
+} from "@/lib/schemas/sales-orders";
 import type { SalesOrderDetail } from "@/app/(dashboard)/sales/types";
 
 export class SalesOrderApiError extends Error {
@@ -47,6 +50,24 @@ export async function patchSalesOrderHeader(
   const response = await fetch(path, {
     method: "PATCH",
     headers: createIdempotencyHeaders("patchSalesOrderHeader", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(patch),
+  });
+  if (!response.ok) await parseError(response, path);
+  return (await response.json()) as SalesOrderDetail;
+}
+
+/** Per-line patch — quantity and/or unit price. */
+export async function patchSalesOrderLine(
+  orderId: string,
+  lineId: string,
+  patch: PatchSalesOrderLine,
+): Promise<SalesOrderDetail> {
+  const path = `/api/sales-orders/${orderId}/lines/${lineId}`;
+  const response = await fetch(path, {
+    method: "PATCH",
+    headers: createIdempotencyHeaders("patchSalesOrderLine", {
       "Content-Type": "application/json",
     }),
     body: JSON.stringify(patch),

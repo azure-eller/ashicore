@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, Delete02Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,6 +16,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -30,6 +32,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { TooltipHeader } from "@/components/tooltip-header";
+import { patchSalesOrderLine } from "@/lib/api/clients/sales-orders";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { cn } from "@/lib/utils";
 import { formatPrice, formatQuantity, normalizeMoney } from "@/lib/format";
@@ -49,7 +52,6 @@ export type LineItemsTableProps = {
   order: SalesOrderDetail;
   editable: boolean;
   onAddLine?: () => void;
-  onEditLine?: (line: SalesOrderDetailLine) => void;
   onDeleteLine?: (line: SalesOrderDetailLine) => Promise<void> | void;
   deletingLineId?: string | null;
 };
@@ -58,7 +60,6 @@ export function LineItemsTable({
   order,
   editable,
   onAddLine,
-  onEditLine,
   onDeleteLine,
   deletingLineId,
 }: LineItemsTableProps) {
@@ -157,13 +158,33 @@ export function LineItemsTable({
                       {line.itemSku ?? "—"}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
-                      {formatQuantity(line.quantity)}
+                      {editable ? (
+                        <LineNumericCell
+                          orderId={order.id}
+                          lineId={line.id}
+                          field="quantity"
+                          initial={line.quantity}
+                          format={(value) => formatQuantity(value) ?? ""}
+                        />
+                      ) : (
+                        formatQuantity(line.quantity)
+                      )}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
                       {money(margin.unitCost)}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
-                      {money(line.unitPrice)}
+                      {editable ? (
+                        <LineNumericCell
+                          orderId={order.id}
+                          lineId={line.id}
+                          field="unitPrice"
+                          initial={line.unitPrice}
+                          format={(value) => formatPrice(value) ?? ""}
+                        />
+                      ) : (
+                        money(line.unitPrice)
+                      )}
                     </TableCell>
                     <TableCell className="text-right font-mono tabular-nums">
                       <div className={cn("font-semibold", marginToneClass(margin.marginPercent))}>
@@ -179,23 +200,6 @@ export function LineItemsTable({
                     {editable ? (
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1 opacity-0 transition-opacity group-hover/line:opacity-100 focus-within:opacity-100">
-                          {onEditLine ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="size-7"
-                                  onClick={() => onEditLine(line)}
-                                  aria-label={`Edit ${line.itemName}`}
-                                >
-                                  <HugeiconsIcon icon={PencilEdit02Icon} size={14} />
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent side="top">Edit line</TooltipContent>
-                            </Tooltip>
-                          ) : null}
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
@@ -281,6 +285,71 @@ export function LineItemsTable({
 
       {styles ? null : null}
     </section>
+  );
+}
+
+function LineNumericCell({
+  orderId,
+  lineId,
+  field,
+  initial,
+  format,
+}: {
+  orderId: string;
+  lineId: string;
+  field: "quantity" | "unitPrice";
+  initial: string;
+  format: (value: string) => string;
+}) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState(initial);
+  const mutation = useMutation({
+    mutationKey: ["sales-order", orderId, "patch", "line", lineId, field],
+    mutationFn: (value: string) =>
+      patchSalesOrderLine(orderId, lineId, { [field]: value }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["sales-order", orderId], next);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["sales-order", orderId] });
+    },
+  });
+
+  return (
+    <Input
+      type="number"
+      inputMode="decimal"
+      step="0.0001"
+      min="0"
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        const trimmed = draft.trim();
+        const parsed = Number.parseFloat(trimmed);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          setDraft(initial);
+          return;
+        }
+        const normalized = parsed.toString();
+        if (normalized === Number.parseFloat(initial).toString()) return;
+        mutation.mutate(normalized);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setDraft(initial);
+          event.currentTarget.blur();
+        }
+      }}
+      onFocus={(event) => event.currentTarget.select()}
+      className="h-(--height-input-sm) text-right text-[length:var(--text-sm)] font-mono tabular-nums"
+      aria-invalid={mutation.isError || undefined}
+      title={mutation.isError ? "Save failed" : format(initial)}
+    />
   );
 }
 

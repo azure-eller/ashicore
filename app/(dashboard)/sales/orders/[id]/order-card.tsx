@@ -155,7 +155,6 @@ export function OrderCard({ initialOrder, customerOptions }: OrderCardProps) {
           order={order}
           editable={isEditable}
           onAddLine={isEditable ? goToLegacyEdit : undefined}
-          onEditLine={isEditable ? goToLegacyEdit : undefined}
           onDeleteLine={
             isEditable
               ? async (line) => {
