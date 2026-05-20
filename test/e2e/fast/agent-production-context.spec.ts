@@ -59,7 +59,8 @@ test.describe("Agent production planning context API", () => {
     expect(markdown).toContain("# Production Planning Brief");
     expect(markdown).toContain("## Build Today Or Late");
     expect(markdown).toContain("## Sales Demand");
-    expect(markdown).toContain("## Top-Level BOM Constraints");
+    expect(markdown).toContain("## Top-Level BOM Build Constraints");
+    expect(markdown).not.toContain("## Purchase");
     expect(markdown.length).toBeLessThan(20_000);
 
     const response = await testFetch(

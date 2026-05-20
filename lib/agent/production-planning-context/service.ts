@@ -27,6 +27,7 @@ import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { type Tx, withOrgContext } from "@/lib/db/with-org-context";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import { calculateConsumptionRequirement } from "@/lib/manufacturing/consumption";
 import { buildPlanningSnapshotInTx } from "@/lib/planning/service";
 import type { PlanningSnapshot } from "@/lib/planning/types";
 import type {
@@ -53,11 +54,11 @@ import type {
 const OPEN_SALES_ORDER_STATUSES = ["open"] as const;
 const OPEN_PURCHASE_ORDER_STATUSES = ["ordered", "partial"] as const;
 const MAX_AGENT_SOURCE_REFS = 24;
-const MAX_MARKDOWN_SALES_DEMAND = 18;
-const MAX_MARKDOWN_BUILD_TODAY = 14;
-const MAX_MARKDOWN_UPCOMING_BUILDS = 14;
-const MAX_MARKDOWN_OPEN_MOS = 12;
-const MAX_MARKDOWN_TOP_LEVEL_BOMS = 10;
+const MAX_MARKDOWN_SALES_DEMAND = 30;
+const MAX_MARKDOWN_BUILD_TODAY = 30;
+const MAX_MARKDOWN_UPCOMING_BUILDS = 30;
+const MAX_MARKDOWN_OPEN_MOS = 20;
+const MAX_MARKDOWN_TOP_LEVEL_BOMS = 90;
 
 function toQuantity(value: string | number | null | undefined) {
   const parsed = Number(value ?? 0);
@@ -1584,44 +1585,61 @@ function openMoSupplyByItemId(context: AgentProductionPlanningContext) {
   return supplyByItem;
 }
 
+function isProductionDecisionBomComponent(
+  component: AgentTopLevelBomContext["components"][number]
+) {
+  if (component.minimumLotAgeDays != null) return true;
+  return /\b(bag|pallet|tote|wrap|topper|label)\b/i.test(component.componentName);
+}
+
 function buildMarkdownTargets(context: AgentProductionPlanningContext) {
   const bomsByProductId = topLevelBomByProductId(context);
   const targets: MarkdownBuildTarget[] = [];
 
   for (const order of context.salesOrders) {
     for (const salesLine of order.lines) {
-      const shortQty = toQuantity(salesLine.shortQty);
-      if (shortQty <= 0) continue;
+      const buildDemandQty = roundQuantity(
+        Math.max(0, toQuantity(salesLine.openQty) - toQuantity(salesLine.allocatedQty))
+      );
+      if (buildDemandQty <= 0) continue;
 
-      if (
-        salesLine.productionStatus !== "available" &&
-        salesLine.productionStatus !== "allocated"
-      ) {
-        targets.push({
-          itemId: salesLine.itemId,
-          itemName: salesLine.itemName,
-          unitName: salesLine.unitName,
-          quantity: shortQty,
-          shipDate: order.requiredDate,
-          buildByDate: order.requiredDate,
-          reason: "sales order short",
-          source: `${order.orderNumber} / ${salesLine.itemName}`,
-          salesOrder: order.orderNumber,
-        });
-      }
+      targets.push({
+        itemId: salesLine.itemId,
+        itemName: salesLine.itemName,
+        unitName: salesLine.unitName,
+        quantity: buildDemandQty,
+        shipDate: order.requiredDate,
+        buildByDate: order.requiredDate,
+        reason:
+          salesLine.productionStatus === "available"
+            ? "open sales demand; ERP says supply is available"
+            : "open sales demand needs output",
+        source: `${order.orderNumber} / ${salesLine.itemName}`,
+        salesOrder: order.orderNumber,
+      });
 
       const bom = bomsByProductId.get(salesLine.itemId);
       if (!bom) continue;
 
       for (const component of bom.components) {
         if (!component.minimumLotAgeDays) continue;
-        if (component.consumptionMode !== "per_output_unit") continue;
+        const componentQuantity = toQuantity(
+          calculateConsumptionRequirement({
+            quantity: component.quantity,
+            outputQuantity: buildDemandQty,
+            consumptionMode: component.consumptionMode as never,
+            basisOutputQuantity: component.basisOutputQuantity,
+            batchScalingMode: component.batchScalingMode as never,
+            groupRemainderPolicy: component.groupRemainderPolicy as never,
+          }).plannedQuantity
+        );
+        if (componentQuantity <= 0) continue;
 
         targets.push({
           itemId: component.componentItemId,
           itemName: component.componentName,
           unitName: component.unitName,
-          quantity: roundQuantity(shortQty * toQuantity(component.quantity)),
+          quantity: componentQuantity,
           shipDate: order.requiredDate,
           buildByDate: subtractDays(order.requiredDate, component.minimumLotAgeDays),
           reason: `${component.minimumLotAgeDays} day age constraint for ${salesLine.itemName}`,
@@ -1739,16 +1757,19 @@ export function buildAgentProductionPlanningMarkdown(
         .join("; ") || "-",
     ]);
 
-  const bomRows = context.topLevelBoms
-    .flatMap((bom) =>
-      bom.components.map((component) => [
-        bom.productName,
-        component.componentName,
-        compactQty(component.quantity, component.unitName),
-        component.consumptionMode,
-        component.constraints.join(", ") || "-",
-      ])
-    )
+  const productionDecisionBomComponents = context.topLevelBoms.flatMap((bom) =>
+    bom.components
+      .filter(isProductionDecisionBomComponent)
+      .map((component) => ({ bom, component }))
+  );
+  const bomRows = productionDecisionBomComponents
+    .map(({ bom, component }) => [
+      bom.productName,
+      component.componentName,
+      compactQty(component.quantity, component.unitName),
+      component.consumptionMode,
+      component.constraints.join(", ") || "-",
+    ])
     .slice(0, MAX_MARKDOWN_TOP_LEVEL_BOMS);
 
   return [
@@ -1831,11 +1852,11 @@ export function buildAgentProductionPlanningMarkdown(
         )
     ),
     line(),
-    line("## Top-Level BOM Constraints"),
+    line("## Top-Level BOM Build Constraints"),
     line(
       markdownTable(["Product", "Component", "Qty", "Mode", "Constraint"], bomRows) +
         omittedLine(
-          context.topLevelBoms.reduce((sum, bom) => sum + bom.components.length, 0),
+          productionDecisionBomComponents.length,
           bomRows.length,
           "top-level BOM components"
         )
