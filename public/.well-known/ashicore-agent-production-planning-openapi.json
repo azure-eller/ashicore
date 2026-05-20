@@ -15,7 +15,7 @@
       "get": {
         "operationId": "getProductionPlanningContext",
         "summary": "Get production planning context",
-        "description": "Returns all open sales orders, manufacturing orders, purchase orders, relevant inventory, active allocations, and the ERP planning snapshot. This endpoint is read-only and does not create manufacturing orders, purchase orders, allocations, or inventory events.",
+        "description": "Returns a compact Markdown production-planning brief by default. Use format=json only for debugging/full-context clients; ChatGPT Actions should use the default Markdown response to avoid oversized tool output. This endpoint is read-only and does not create manufacturing orders, purchase orders, allocations, or inventory events.",
         "x-openai-isConsequential": false,
         "security": [
           {
@@ -24,30 +24,50 @@
         ],
         "parameters": [
           {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "description": "Response format. Defaults to markdown, which is the recommended compact format for ChatGPT and Claude.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "markdown",
+                "json"
+              ],
+              "default": "markdown"
+            }
+          },
+          {
             "name": "includePlanningFacts",
             "in": "query",
             "required": false,
-            "description": "When false, omits large planning fact arrays. Defaults to true for full-context reasoning.",
+            "description": "JSON-only. When false, omits large planning fact arrays. Ignored for markdown, which is always compact.",
             "schema": {
               "type": "boolean",
-              "default": true
+              "default": false
             }
           },
           {
             "name": "includeLots",
             "in": "query",
             "required": false,
-            "description": "When false, returns inventory items without lot detail. Defaults to true.",
+            "description": "JSON-only. When false, returns inventory items without lot detail. Ignored for markdown, which is always compact.",
             "schema": {
               "type": "boolean",
-              "default": true
+              "default": false
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Current production-planning context.",
+            "description": "Current production-planning context. Markdown is the default compact agent brief; JSON is available with format=json.",
             "content": {
+              "text/markdown": {
+                "schema": {
+                  "type": "string",
+                  "description": "Compact production-planning brief with counts, allocate-now queue, make/buy recommendations, setup reviews, blockers, and read-only rules."
+                }
+              },
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AgentProductionPlanningContext"

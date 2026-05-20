@@ -49,6 +49,12 @@ import type {
 const OPEN_SALES_ORDER_STATUSES = ["open"] as const;
 const OPEN_PURCHASE_ORDER_STATUSES = ["ordered", "partial"] as const;
 const MAX_AGENT_SOURCE_REFS = 24;
+const MAX_MARKDOWN_ALLOCATE_NOW = 10;
+const MAX_MARKDOWN_SUPPLY_NEEDS = 12;
+const MAX_MARKDOWN_MAKE_NEXT = 12;
+const MAX_MARKDOWN_BUY_NEXT = 8;
+const MAX_MARKDOWN_REVIEW_SETUP = 10;
+const MAX_MARKDOWN_BLOCKERS = 12;
 
 function toQuantity(value: string | number | null | undefined) {
   const parsed = Number(value ?? 0);
@@ -57,6 +63,33 @@ function toQuantity(value: string | number | null | undefined) {
 
 function quantityString(value: number) {
   return normalizeNumeric(roundQuantity(Math.max(0, value)));
+}
+
+function line(text = "") {
+  return text;
+}
+
+function mdCell(value: string | number | null | undefined) {
+  return String(value ?? "-").replaceAll("|", "\\|").replace(/\s+/g, " ").trim();
+}
+
+function compactQty(quantity: string | null | undefined, unitName: string | null) {
+  const qty = quantity && quantity !== "0" ? quantity : null;
+  if (!qty) return "-";
+  return `${qty}${unitName ? ` ${unitName}` : ""}`;
+}
+
+function compactDate(value: string | null | undefined) {
+  return value ? value.slice(0, 10) : "-";
+}
+
+function earliestDate(
+  left: string | null | undefined,
+  right: string | null | undefined
+) {
+  if (!left) return right ?? null;
+  if (!right) return left;
+  return left <= right ? left : right;
 }
 
 function addDefined(set: Set<string>, value: string | null | undefined) {
@@ -1351,6 +1384,265 @@ function buildAttentionQueue(
   });
 
   return [...allocationItems, ...blockerItems, ...recommendationItems, ...warningItems];
+}
+
+function markdownTable(headers: string[], rows: string[][]) {
+  if (rows.length === 0) return "_None._";
+
+  return [
+    `| ${headers.map(mdCell).join(" |")} |`,
+    `| ${headers.map(() => "---").join(" |")} |`,
+    ...rows.map((row) => `| ${row.map(mdCell).join(" |")} |`),
+  ].join("\n");
+}
+
+function omittedLine(total: number, shown: number, label: string) {
+  const omitted = total - shown;
+  return omitted > 0 ? `\n\n_${omitted} more ${label} omitted._` : "";
+}
+
+function compactReason(reasonCodes: readonly string[] | undefined) {
+  if (!reasonCodes || reasonCodes.length === 0) return "-";
+  if (reasonCodes.includes("missing_supplier")) return "missing supplier";
+  if (reasonCodes.includes("missing_bom")) return "missing BOM";
+  if (reasonCodes.includes("projected_shortage")) return "shortage";
+  if (reasonCodes.includes("safety_stock_demand")) return "safety stock";
+  return reasonCodes[0]?.replaceAll("_", " ") ?? "-";
+}
+
+type MarkdownSupplyGroup = {
+  itemName: string;
+  unitName: string | null;
+  quantity: number;
+  requiredDate: string | null;
+  latestStartDate: string | null;
+  supplierName: string | null;
+  reasons: Set<string>;
+};
+
+function groupSupplyRecommendations(
+  recommendations: AgentSupplyRecommendationContext[]
+) {
+  const groups = new Map<string, MarkdownSupplyGroup>();
+
+  for (const recommendation of recommendations) {
+    const key = `${recommendation.itemId}:${recommendation.unitName ?? ""}`;
+    const group = groups.get(key) ?? {
+      itemName: recommendation.itemName,
+      unitName: recommendation.unitName,
+      quantity: 0,
+      requiredDate: null,
+      latestStartDate: null,
+      supplierName: recommendation.suggestedSupplierName,
+      reasons: new Set<string>(),
+    };
+
+    group.quantity += toQuantity(recommendation.quantity);
+    group.requiredDate = earliestDate(group.requiredDate, recommendation.requiredDate);
+    group.latestStartDate = earliestDate(
+      group.latestStartDate,
+      recommendation.latestStartDate
+    );
+    group.supplierName ??= recommendation.suggestedSupplierName;
+    group.reasons.add(compactReason(recommendation.reasonCodes));
+    groups.set(key, group);
+  }
+
+  return [...groups.values()].sort((left, right) => {
+    const dateDelta = (left.requiredDate ?? "9999-12-31").localeCompare(
+      right.requiredDate ?? "9999-12-31"
+    );
+    if (dateDelta !== 0) return dateDelta;
+    return left.itemName.localeCompare(right.itemName);
+  });
+}
+
+type MarkdownBlockerGroup = {
+  blockingItemName: string;
+  unitName: string | null;
+  shortageQuantity: number;
+  requiredDate: string | null;
+  blockerType: string;
+  affectedParents: Set<string>;
+};
+
+function groupProductionBlockers(blockers: AgentProductionBlockerFact[]) {
+  const groups = new Map<string, MarkdownBlockerGroup>();
+
+  for (const blocker of blockers) {
+    if (blocker.blockerType === "component_requirement") continue;
+
+    const blockingItemName = blocker.componentItemName ?? blocker.parentItemName;
+    const unitName = blocker.componentUnitName;
+    const key = `${blocker.blockerType}:${blockingItemName}:${unitName ?? ""}`;
+    const group = groups.get(key) ?? {
+      blockingItemName,
+      unitName,
+      shortageQuantity: 0,
+      requiredDate: null,
+      blockerType: blocker.blockerType,
+      affectedParents: new Set<string>(),
+    };
+
+    group.shortageQuantity += toQuantity(blocker.shortageQuantity);
+    group.requiredDate = earliestDate(group.requiredDate, blocker.earliestRequiredDate);
+    group.affectedParents.add(blocker.parentItemName);
+    groups.set(key, group);
+  }
+
+  return [...groups.values()].sort((left, right) => {
+    const dateDelta = (left.requiredDate ?? "9999-12-31").localeCompare(
+      right.requiredDate ?? "9999-12-31"
+    );
+    if (dateDelta !== 0) return dateDelta;
+    return left.blockingItemName.localeCompare(right.blockingItemName);
+  });
+}
+
+export function buildAgentProductionPlanningMarkdown(
+  context: AgentProductionPlanningContext
+) {
+  const allocateNow = context.decisionSupport.allocationNeeds.filter(
+    (need) => need.readiness === "allocate_available_inventory"
+  );
+  const needsSupply = context.decisionSupport.allocationNeeds.filter(
+    (need) => need.readiness !== "allocate_available_inventory"
+  );
+  const makeNext = context.decisionSupport.supplyRecommendations.filter(
+    (recommendation) =>
+      recommendation.recommendationType === "create_manufacturing_order"
+  );
+  const buyNext = context.decisionSupport.supplyRecommendations.filter(
+    (recommendation) =>
+      recommendation.recommendationType === "create_purchase_order"
+  );
+  const reviewSetup = context.decisionSupport.supplyRecommendations.filter(
+    (recommendation) => recommendation.recommendationType === "review_item_setup"
+  );
+  const makeGroups = groupSupplyRecommendations(makeNext);
+  const buyGroups = groupSupplyRecommendations(buyNext);
+  const reviewGroups = groupSupplyRecommendations(reviewSetup);
+  const blockerGroups = groupProductionBlockers(context.planning.productionBlockers);
+
+  const allocateRows = allocateNow
+    .slice(0, MAX_MARKDOWN_ALLOCATE_NOW)
+    .map((need) => [
+      need.demandLabel,
+      need.itemName,
+      compactQty(need.unallocatedQty, need.unitName),
+      compactDate(need.requiredDate),
+      `${need.availableQtyBeforeThisNeed} -> ${need.availableQtyAfterThisNeed}`,
+      String(need.allocationRankForItem),
+    ]);
+  const needsSupplyRows = needsSupply
+    .slice(0, MAX_MARKDOWN_SUPPLY_NEEDS)
+    .map((need) => [
+      need.demandLabel,
+      need.itemName,
+      compactQty(need.unallocatedQty, need.unitName),
+      compactDate(need.requiredDate),
+      need.readiness,
+    ]);
+
+  const makeRows = makeGroups.slice(0, MAX_MARKDOWN_MAKE_NEXT).map((group) => [
+    group.itemName,
+    compactQty(quantityString(group.quantity), group.unitName),
+    compactDate(group.requiredDate),
+    compactDate(group.latestStartDate),
+    [...group.reasons].join(", "),
+  ]);
+
+  const buyRows = buyGroups.slice(0, MAX_MARKDOWN_BUY_NEXT).map((group) => [
+    group.itemName,
+    compactQty(quantityString(group.quantity), group.unitName),
+    compactDate(group.requiredDate),
+    group.supplierName ?? "-",
+    [...group.reasons].join(", "),
+  ]);
+
+  const reviewRows = reviewGroups.slice(0, MAX_MARKDOWN_REVIEW_SETUP).map((group) => [
+    group.itemName,
+    compactQty(quantityString(group.quantity), group.unitName),
+    compactDate(group.requiredDate),
+    [...group.reasons].join(", "),
+  ]);
+
+  const blockerRows = blockerGroups.slice(0, MAX_MARKDOWN_BLOCKERS).map((group) => [
+    group.blockingItemName,
+    compactQty(quantityString(group.shortageQuantity), group.unitName),
+    compactDate(group.requiredDate),
+    group.blockerType,
+    [...group.affectedParents].slice(0, 4).join(", "),
+  ]);
+
+  return [
+    line("# Production Planning Brief"),
+    line(),
+    line(`Generated: ${context.generatedAt}`),
+    line(`Input hash: ${context.inputHash}`),
+    line(
+      `Horizon: ${compactDate(context.planning.horizonStart)} to ${compactDate(
+        context.planning.horizonEnd
+      )}`
+    ),
+    line(),
+    line("## Counts"),
+    line(
+      `Open sales orders: ${context.summary.openSalesOrderCount}; open sales lines: ${context.summary.openSalesOrderLineCount}; open MOs: ${context.summary.openManufacturingOrderCount}; open POs: ${context.summary.openPurchaseOrderCount}.`
+    ),
+    line(
+      `Allocation needs: ${context.summary.allocationNeedCount}; allocatable now: ${context.summary.allocatableNowCount}; make recommendations: ${context.summary.makeRecommendationCount}; buy recommendations: ${context.summary.buyRecommendationCount}; setup reviews: ${context.summary.reviewItemSetupCount}; blockers: ${context.summary.productionBlockerCount}.`
+    ),
+    line(),
+    line("## Allocate Now"),
+    line(
+      markdownTable(
+        ["Demand", "Item", "Qty", "Need date", "Available before -> after", "Rank"],
+        allocateRows
+      ) + omittedLine(allocateNow.length, allocateRows.length, "allocatable needs")
+    ),
+    line(),
+    line("## Demand Needing Supply"),
+    line(
+      markdownTable(
+        ["Demand", "Item", "Short qty", "Need date", "Status"],
+        needsSupplyRows
+      ) + omittedLine(needsSupply.length, needsSupplyRows.length, "short demands")
+    ),
+    line(),
+    line("## Make Next"),
+    line(
+      markdownTable(
+        ["Item", "Qty", "Need date", "Latest start", "Reason"],
+        makeRows
+      ) + omittedLine(makeGroups.length, makeRows.length, "make items")
+    ),
+    line(),
+    line("## Buy Next"),
+    line(
+      markdownTable(["Item", "Qty", "Need date", "Supplier", "Reason"], buyRows) +
+        omittedLine(buyGroups.length, buyRows.length, "buy items")
+    ),
+    line(),
+    line("## Review Setup"),
+    line(
+      markdownTable(["Item", "Qty", "Need date", "Reason"], reviewRows) +
+        omittedLine(reviewGroups.length, reviewRows.length, "setup items")
+    ),
+    line(),
+    line("## Blockers"),
+    line(
+      markdownTable(
+        ["Blocking item", "Short qty", "Need date", "Type", "Affects"],
+        blockerRows
+      ) + omittedLine(blockerGroups.length, blockerRows.length, "blocker groups")
+    ),
+    line(),
+    line("## Rules"),
+    line("- This is read-only. Do not claim allocations, MOs, or POs were created."),
+    line("- Use ERP quantities above as authoritative."),
+    line("- Recommend actions in this order: allocate now, make next, buy/review setup, then blockers."),
+  ].join("\n");
 }
 
 async function buildAgentProductionPlanningContextInTx(

@@ -9,6 +9,13 @@ context with a read-only bearer token.
 GET https://ashicore.app/api/agent/production-planning/context
 ```
 
+The default response is a compact Markdown production-planning brief for
+ChatGPT Actions. Full JSON is still available for debugging with:
+
+```txt
+GET https://ashicore.app/api/agent/production-planning/context?format=json
+```
+
 OpenAPI schema:
 
 ```txt
@@ -53,8 +60,18 @@ Use the `getProductionPlanningContext` action whenever the user asks what to
 make, what is short, what can be allocated, what open supply exists, or what is
 blocking production.
 
-Treat the ERP response as the source of truth. Do not infer available stock from
-raw on-hand quantities. Use:
+Treat the ERP response as the source of truth. The default Markdown brief is the
+preferred ChatGPT response. It includes:
+
+- counts for open demand, open supply, recommendations, and blockers
+- specific rows for inventory that can be allocated now
+- top sales-order demand that needs supply
+- grouped make recommendations
+- grouped buy/setup-review recommendations
+- grouped material blockers
+
+If using `format=json`, do not infer available stock from raw on-hand
+quantities. Use:
 
 - `planning.assumptions`, `horizonStart`, and `horizonEnd` to explain the
   planning basis.

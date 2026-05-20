@@ -18,14 +18,19 @@ Authorization: Bearer <ASHICORE_AGENT_API_TOKEN>
 
 Optional query parameters:
 
+- `format=markdown|json`
 - `includePlanningFacts=true|false`
 - `includeLots=true|false`
 
-Default both to `true` unless the response is too large.
+Default to `format=markdown`. Use `format=json` only when the user explicitly
+needs the full machine-readable context or when debugging the API.
 
 ## Reasoning Rules
 
 - Treat the ERP response as the source of truth.
+- Prefer the default Markdown brief for normal production-planning advice. It is
+  intentionally compact and already grouped for allocation, make/buy/setup, and
+  blocker decisions.
 - Use `summary` and `attentionQueue` only as navigation aids into the full
   returned context.
 - Start with `decisionSupport.decisionQueue` when answering what to do next.

@@ -52,6 +52,8 @@ export type AgentProductionPlanningContextOptions = {
   includeLots?: boolean;
 };
 
+export type AgentProductionPlanningResponseFormat = "markdown" | "json";
+
 export type AgentProductionSummary = {
   openSalesOrderCount: number;
   openSalesOrderLineCount: number;

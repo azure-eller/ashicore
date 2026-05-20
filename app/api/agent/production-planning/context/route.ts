@@ -6,6 +6,7 @@ import {
   readBearerToken,
 } from "@/lib/agent/external-access/tokens";
 import {
+  buildAgentProductionPlanningMarkdown,
   getAgentProductionPlanningContext,
   getAgentProductionPlanningContextForOrg,
 } from "@/lib/agent/production-planning-context/service";
@@ -17,9 +18,39 @@ const booleanQuerySchema = z
   .transform((value) => (value == null ? undefined : value === "true"));
 
 const querySchema = z.object({
+  format: z.enum(["markdown", "json"]).optional().default("markdown"),
   includePlanningFacts: booleanQuerySchema,
   includeLots: booleanQuerySchema,
 });
+
+function contextOptions(query: z.infer<typeof querySchema>) {
+  if (query.format === "markdown") {
+    return {
+      includePlanningFacts: false,
+      includeLots: false,
+    };
+  }
+
+  return {
+    includePlanningFacts: query.includePlanningFacts,
+    includeLots: query.includeLots,
+  };
+}
+
+function responseForContext(
+  context: Awaited<ReturnType<typeof getAgentProductionPlanningContext>>,
+  format: "markdown" | "json"
+) {
+  if (format === "json") {
+    return NextResponse.json(context);
+  }
+
+  return new NextResponse(buildAgentProductionPlanningMarkdown(context), {
+    headers: {
+      "Content-Type": "text/markdown; charset=utf-8",
+    },
+  });
+}
 
 export const GET = apiHandler(async (request) => {
   const url = new URL(request.url);
@@ -33,14 +64,14 @@ export const GET = apiHandler(async (request) => {
     );
     const context = await getAgentProductionPlanningContextForOrg(
       agentAuth.orgId,
-      query
+      contextOptions(query)
     );
 
-    return NextResponse.json(context);
+    return responseForContext(context, query.format);
   }
 
   await assertPlanningReadAccess(request.headers);
-  const context = await getAgentProductionPlanningContext(query);
+  const context = await getAgentProductionPlanningContext(contextOptions(query));
 
-  return NextResponse.json(context);
+  return responseForContext(context, query.format);
 });

@@ -52,7 +52,18 @@ test.describe("Agent production planning context API", () => {
     expect(planningResponse.status).toBe(200);
     const planning = await planningResponse.json();
 
-    const response = await testFetch("/api/agent/production-planning/context");
+    const markdownResponse = await testFetch("/api/agent/production-planning/context");
+    expect(markdownResponse.status).toBe(200);
+    expect(markdownResponse.headers.get("content-type")).toContain("text/markdown");
+    const markdown = await markdownResponse.text();
+    expect(markdown).toContain("# Production Planning Brief");
+    expect(markdown).toContain("## Allocate Now");
+    expect(markdown).toContain("## Make Next");
+    expect(markdown.length).toBeLessThan(20_000);
+
+    const response = await testFetch(
+      "/api/agent/production-planning/context?format=json"
+    );
     expect(response.status).toBe(200);
     const context = await response.json();
 
@@ -200,7 +211,7 @@ test.describe("Agent production planning context API", () => {
     }
 
     const withoutLotsResponse = await testFetch(
-      "/api/agent/production-planning/context?includeLots=false"
+      "/api/agent/production-planning/context?format=json&includeLots=false"
     );
     expect(withoutLotsResponse.status).toBe(200);
     const withoutLots = await withoutLotsResponse.json();
@@ -239,7 +250,7 @@ test.describe("Agent production planning context API", () => {
     expect(JSON.stringify(listed)).not.toContain(created.token);
 
     const bearerResponse = await fetch(
-      `${getBaseUrl()}/api/agent/production-planning/context?includeLots=false`,
+      `${getBaseUrl()}/api/agent/production-planning/context?format=json&includeLots=false`,
       {
         headers: {
           Authorization: `Bearer ${created.token}`,
