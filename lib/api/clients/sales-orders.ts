@@ -96,6 +96,34 @@ export async function updateSalesOrderFull(
   return (await response.json()) as { id: string };
 }
 
+/**
+ * Update a planned shipment's header fields (fulfillment type / dates / notes).
+ * The PATCH schema requires the full shipment incl. lines, so callers serialize
+ * the current shipment and override the changed field.
+ */
+export async function patchSalesShipment(
+  orderId: string,
+  shipmentId: string,
+  payload: {
+    fulfillmentType: "delivery" | "pickup";
+    scheduledDate: string | null;
+    deliveryDate: string | null;
+    notes: string | null;
+    lines: { salesOrderLineId: string; quantity: string }[];
+  },
+): Promise<unknown> {
+  const path = `/api/sales-orders/${orderId}/shipments/${shipmentId}`;
+  const response = await fetch(path, {
+    method: "PATCH",
+    headers: createIdempotencyHeaders("updateSalesShipment", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) await parseError(response, path);
+  return response.json();
+}
+
 /** Per-line patch — quantity and/or unit price. */
 export async function patchSalesOrderLine(
   orderId: string,
