@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 import { OrderDetail } from "@/app/(dashboard)/sales/order-detail";
 import { OrderCard } from "./order-card";
-import { getSalesOrder } from "@/app/(dashboard)/sales/queries";
+import {
+  getSalesOrder,
+  getSalesOrderCustomerOptions,
+} from "@/app/(dashboard)/sales/queries";
 import { hasModuleAccess } from "@/lib/authz";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { getXeroConnection } from "@/lib/dal/xero";
@@ -18,9 +21,10 @@ export default async function OrderDetailPage({
   const search = (await searchParams) ?? {};
   const useLegacyView = search.view === "legacy";
 
-  const [order, xeroConnection] = await Promise.all([
+  const [order, xeroConnection, customerOptions] = await Promise.all([
     getSalesOrder(id, { includeDeleted: true }),
     getXeroConnection(),
+    getSalesOrderCustomerOptions(),
   ]);
 
   if (!order) {
@@ -45,7 +49,8 @@ export default async function OrderDetailPage({
 
   return (
     <OrderCard
-      order={order}
+      initialOrder={order}
+      customerOptions={customerOptions}
       canViewLedger={hasModuleAccess(context.assignedRoles, "inventory", "read")}
       xeroInvoiceSetupStatus={xeroInvoiceSetupStatus}
     />

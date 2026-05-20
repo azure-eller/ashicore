@@ -1,26 +1,23 @@
 "use client";
 
+import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { HelpCircleIcon } from "@hugeicons/core-free-icons";
 import { formatPrice } from "@/lib/format";
+import { patchSalesOrderHeader } from "@/lib/api/clients/sales-orders";
 import type { SalesOrderDetail } from "@/app/(dashboard)/sales/types";
 import styles from "./order-card.module.css";
 
 export type TotalsStripProps = {
   order: SalesOrderDetail;
   notesEditable: boolean;
-  notesValue: string;
-  onNotesChange: (value: string) => void;
 };
 
-export function TotalsStrip({
-  order,
-  notesEditable,
-  notesValue,
-  onNotesChange,
-}: TotalsStripProps) {
+export function TotalsStrip({ order, notesEditable }: TotalsStripProps) {
+  const notesValue = order.notes ?? "";
   const { marginSummary } = order;
   const revenue = parseAmount(marginSummary.productRevenue);
   const cogs = parseAmount(marginSummary.productCogs);
@@ -41,13 +38,7 @@ export function TotalsStrip({
           <span className={styles.totalsLeftLabelMeta}>· visible on packing slip</span>
         </div>
         {notesEditable ? (
-          <Textarea
-            value={notesValue}
-            onChange={(event) => onNotesChange(event.target.value)}
-            rows={3}
-            className="resize-y min-h-[48px]"
-            placeholder="Add notes for the warehouse or customer."
-          />
+          <NotesEditor orderId={order.id} initial={notesValue} />
         ) : notesValue ? (
           <div className="whitespace-pre-wrap text-[13px] text-[var(--color-ink)]">
             {notesValue}
@@ -130,6 +121,39 @@ function CostsEstimateMark() {
         COGS finalizes when each shipment ships and consumes inventory.
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+function NotesEditor({ orderId, initial }: { orderId: string; initial: string }) {
+  const [draft, setDraft] = useState(initial);
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationKey: ["sales-order", orderId, "patch", "notes"],
+    mutationFn: (notes: string | null) =>
+      patchSalesOrderHeader(orderId, { notes }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["sales-order", orderId], next);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["sales-order", orderId] });
+    },
+  });
+
+  return (
+    <Textarea
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        const trimmed = draft.trim();
+        const next = trimmed === "" ? null : trimmed;
+        if (next === (initial.trim() === "" ? null : initial)) return;
+        mutation.mutate(next);
+      }}
+      rows={3}
+      className="resize-y min-h-[48px]"
+      placeholder="Add notes for the warehouse or customer."
+      aria-invalid={mutation.isError || undefined}
+    />
   );
 }
 

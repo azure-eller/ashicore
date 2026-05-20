@@ -93,6 +93,7 @@ import type {
   BulkConfirmSalesOrders,
   SalesFulfillmentPlanInput,
   InsertSalesOrder,
+  PatchSalesOrderHeader,
   ReorderSalesOrderPriorityRanks,
   SalesShipmentCostsInput,
   SalesShipmentInput,
@@ -7644,6 +7645,94 @@ export async function bulkConfirmSalesOrders(
     });
 
     return result;
+  });
+}
+
+/**
+ * Per-field header patch for the inline-edit flow on the Calm Matrix Sales
+ * Order page. Touches only the salesOrders row — never lines, never shipments,
+ * never inventory kernel state. For full-document edits (line edits, shipment
+ * recreation, idempotency replay), use {@link updateSalesOrder}.
+ */
+export async function patchSalesOrderHeader(
+  id: string,
+  patch: PatchSalesOrderHeader,
+  options?: { idempotencyKey?: string }
+) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const replay = await beginInventoryOperationInTx<{ ok: true } | null>(tx, {
+      organizationId: orgId,
+      operationName: "patchSalesOrderHeader",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { id, patch },
+    });
+    if (replay.replayed) {
+      return replay.result === null ? null : await getSalesOrder(id);
+    }
+
+    const existingOrder = await getLockedSalesOrderInTx(tx, id);
+    if (!existingOrder) {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
+      return null;
+    }
+    if (existingOrder.status === "done") {
+      throw new SalesError("Done orders cannot be changed.", 400);
+    }
+
+    let nextCustomerName = existingOrder.customerName;
+    if (patch.customerId && patch.customerId !== existingOrder.customerId) {
+      const [customer] = await tx
+        .select({ id: customers.id, name: customers.name })
+        .from(customers)
+        .where(
+          and(eq(customers.id, patch.customerId), isNull(customers.deletedAt))
+        );
+      if (!customer) {
+        throw new SalesError("Customer not found", 400);
+      }
+      nextCustomerName = customer.name;
+    }
+
+    const updates: Record<string, unknown> = {};
+    if (patch.customerId != null) {
+      updates.customerId = patch.customerId;
+      updates.customerName = nextCustomerName;
+    }
+    if (patch.customerProjectId !== undefined) {
+      updates.customerProjectId = patch.customerProjectId;
+    }
+    if (patch.orderDate != null) updates.orderDate = patch.orderDate;
+    if (patch.shipDate !== undefined) updates.shipDate = patch.shipDate;
+    if (patch.requestedDate !== undefined) {
+      updates.requestedDate = patch.requestedDate;
+    }
+    if (patch.notes !== undefined) updates.notes = patch.notes;
+    if (patch.shipLine1 !== undefined) updates.shipLine1 = patch.shipLine1;
+    if (patch.shipLine2 !== undefined) updates.shipLine2 = patch.shipLine2;
+    if (patch.shipCity !== undefined) updates.shipCity = patch.shipCity;
+    if (patch.shipRegion !== undefined) updates.shipRegion = patch.shipRegion;
+    if (patch.shipPostcode !== undefined) updates.shipPostcode = patch.shipPostcode;
+    if (patch.shipCountry !== undefined) updates.shipCountry = patch.shipCountry;
+
+    if (Object.keys(updates).length > 0) {
+      updates.updatedAt = new Date();
+      await tx
+        .update(salesOrders)
+        .set(updates)
+        .where(eq(salesOrders.id, id));
+    }
+
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result: { ok: true },
+    });
+
+    return await getSalesOrder(id);
   });
 }
 

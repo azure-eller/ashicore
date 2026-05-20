@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,16 +14,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { fetchSalesOrderDetail } from "@/lib/api/clients/sales-orders";
 import type {
+  CustomerOption,
   SalesOrderDetail,
   SalesOrderDetailLine,
 } from "@/app/(dashboard)/sales/types";
 import { buildSalesOrderLineRemovalPayload } from "@/app/(dashboard)/sales/order-line-removal";
-
-export type XeroInvoiceSetupStatus =
-  | "not_connected"
-  | "missing_sales_account"
-  | "ready";
 import { OrderCardHeader } from "./order-card-header";
 import { OrderDetailsGrid } from "./order-details-grid";
 import { LineItemsTable } from "./line-items-table";
@@ -31,19 +28,34 @@ import { ShipmentsTable } from "./shipments-table";
 import { TotalsStrip } from "./totals-strip";
 import cardStyles from "@/components/card-page/card-page.module.css";
 
+export type XeroInvoiceSetupStatus =
+  | "not_connected"
+  | "missing_sales_account"
+  | "ready";
+
 export type OrderCardProps = {
-  order: SalesOrderDetail;
+  initialOrder: SalesOrderDetail;
+  customerOptions: CustomerOption[];
   canViewLedger?: boolean;
   xeroInvoiceSetupStatus?: XeroInvoiceSetupStatus;
 };
 
-export function OrderCard({ order }: OrderCardProps) {
+export function OrderCard({ initialOrder, customerOptions }: OrderCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const isEditable = order.status !== "done" && order.shippingReadiness.state !== "shipped";
+  const orderQuery = useQuery({
+    queryKey: ["sales-order", initialOrder.id],
+    queryFn: () => fetchSalesOrderDetail(initialOrder.id),
+    initialData: initialOrder,
+    refetchOnWindowFocus: false,
+  });
+  const order = orderQuery.data ?? initialOrder;
+
+  const isEditable =
+    order.status !== "done" && order.shippingReadiness.state !== "shipped";
 
   const deleteMutation = useMutation({
     mutationKey: ["sales-order", order.id, "delete"],
@@ -103,14 +115,16 @@ export function OrderCard({ order }: OrderCardProps) {
       }
     },
     onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["sales-order", order.id],
+      });
       await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
-      router.refresh();
     },
     onError: (error) => setActionError((error as Error).message),
   });
 
-  // Edit affordances temporarily route to the legacy edit page until inline-edit
-  // popovers and the new plan-shipment dialog land in a follow-up commit.
+  // Line item + shipment editing still bounce to the legacy form until those
+  // dialogs land. Header/notes are now fully inline-edited via PATCH.
   const goToLegacyEdit = () => router.push(`/sales/orders/${order.id}/edit`);
 
   return (
@@ -134,12 +148,7 @@ export function OrderCard({ order }: OrderCardProps) {
         <OrderDetailsGrid
           order={order}
           editable={isEditable}
-          onEditCustomer={isEditable ? goToLegacyEdit : undefined}
-          onEditProject={isEditable ? goToLegacyEdit : undefined}
-          onEditShipTo={isEditable ? goToLegacyEdit : undefined}
-          onEditOrderDate={isEditable ? goToLegacyEdit : undefined}
-          onEditShipDate={isEditable ? goToLegacyEdit : undefined}
-          onEditRequestedDate={isEditable ? goToLegacyEdit : undefined}
+          customerOptions={customerOptions}
         />
 
         <LineItemsTable
@@ -155,7 +164,9 @@ export function OrderCard({ order }: OrderCardProps) {
               : undefined
           }
           deletingLineId={
-            deleteLineMutation.isPending ? deleteLineMutation.variables?.id ?? null : null
+            deleteLineMutation.isPending
+              ? deleteLineMutation.variables?.id ?? null
+              : null
           }
         />
 
@@ -170,14 +181,7 @@ export function OrderCard({ order }: OrderCardProps) {
           onDeleteShipment={isEditable ? goToLegacyEdit : undefined}
         />
 
-        <TotalsStrip
-          order={order}
-          notesEditable={false}
-          notesValue={order.notes ?? ""}
-          onNotesChange={() => {
-            /* notes editing wires into autosave in a follow-up commit */
-          }}
-        />
+        <TotalsStrip order={order} notesEditable={isEditable} />
       </div>
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
