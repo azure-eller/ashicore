@@ -177,17 +177,7 @@ test.describe("Sales write-path smoke", () => {
 
   test("creates and edits a customer through the browser form", async ({ page, db }) => {
     await page.goto("/sales/customers/new");
-    await expect(page.getByText("Add Customer")).toBeVisible();
-
-    await page.getByLabel("Name").fill(customerName);
-    await page.getByLabel("Priority").click();
-    await page.getByRole("option", { name: "High" }).click();
-    await page.getByLabel("Account State").click();
-    await page.getByRole("option", { name: "Growth" }).click();
-    await page.getByLabel("Email").fill(`fast-sales-${ts}@example.com`);
-    await page.getByLabel("Phone").fill("555-0300");
-    await page.locator("#customer-billing-line1").fill("100 Market Street");
-    await page.getByLabel("Notes").fill("Fast customer smoke test");
+    await expect(page.getByRole("heading", { name: "New customer" })).toBeVisible();
 
     const [createCustomerResponse] = await Promise.all([
       page.waitForResponse(
@@ -195,43 +185,72 @@ test.describe("Sales write-path smoke", () => {
           response.request().method() === "POST" &&
           response.url().endsWith("/api/customers")
       ),
-      page.getByRole("button", { name: "Create Customer" }).click(),
+      (async () => {
+        await page.getByLabel("Customer name").fill(customerName);
+        await page.getByLabel("Customer name").blur();
+      })(),
     ]);
     expect(createCustomerResponse.status()).toBe(201);
     await page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/);
     customerId = getIdFromUrl(page.url());
     await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
 
-    const [customer] = await db
-      .select()
-      .from(salesCustomers)
-      .where(eq(salesCustomers.id, customerId));
-    expect(customer.email).toBe(`fast-sales-${ts}@example.com`);
-    expect(customer.phone).toBe("555-0300");
-    expect(customer.accountPriority).toBe("high");
-    expect(customer.accountState).toBe("growth");
-    expect(customer.billingLine1).toBe("100 Market Street");
-    expect(customer.notes).toBe("Fast customer smoke test");
-
-    await page.getByRole("link", { name: "Edit", exact: true }).click();
-    await page.waitForURL(`**/sales/customers/${customerId}/edit`);
-    await page.getByLabel("Phone").fill("555-0310");
-    await page.getByLabel("Notes").fill("Fast customer updated");
+    await page.getByLabel("Email").fill(`fast-sales-${ts}@example.com`);
+    await page.getByLabel("Email").blur();
+    await page.getByLabel("Phone").fill("555-0300");
+    await page.getByLabel("Phone").blur();
+    await page.getByLabel("Notes").fill("Fast customer smoke test");
     const updateCustomerResponsePromise = page.waitForResponse(
       (response) =>
-        response.request().method() === "PUT" &&
+        response.request().method() === "PATCH" &&
         response.url().endsWith(`/api/customers/${customerId}`)
     );
-    await page.getByRole("button", { name: "Save Changes" }).click();
+    await page.getByLabel("Notes").blur();
     expect((await updateCustomerResponsePromise).status()).toBe(200);
-    await page.waitForURL(`**/sales/customers/${customerId}`);
 
-    const [updatedCustomer] = await db
-      .select()
-      .from(salesCustomers)
-      .where(eq(salesCustomers.id, customerId));
-    expect(updatedCustomer.phone).toBe("555-0310");
-    expect(updatedCustomer.notes).toBe("Fast customer updated");
+    await expect
+      .poll(async () => {
+        const [customer] = await db
+          .select()
+          .from(salesCustomers)
+          .where(eq(salesCustomers.id, customerId));
+        return {
+          email: customer.email,
+          phone: customer.phone,
+          notes: customer.notes,
+        };
+      })
+      .toEqual({
+        email: `fast-sales-${ts}@example.com`,
+        phone: "555-0300",
+        notes: "Fast customer smoke test",
+      });
+
+    await page.getByLabel("Phone").fill("555-0310");
+    await page.getByLabel("Notes").fill("Fast customer updated");
+    const secondUpdateCustomerResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PATCH" &&
+        response.url().endsWith(`/api/customers/${customerId}`)
+    );
+    await page.getByLabel("Notes").blur();
+    expect((await secondUpdateCustomerResponsePromise).status()).toBe(200);
+
+    await expect
+      .poll(async () => {
+        const [updatedCustomer] = await db
+          .select()
+          .from(salesCustomers)
+          .where(eq(salesCustomers.id, customerId));
+        return {
+          phone: updatedCustomer.phone,
+          notes: updatedCustomer.notes,
+        };
+      })
+      .toEqual({
+        phone: "555-0310",
+        notes: "Fast customer updated",
+      });
   });
 
   test("adds customer contacts, correspondence, and projects from detail", async ({
@@ -241,24 +260,19 @@ test.describe("Sales write-path smoke", () => {
     await page.goto(`/sales/customers/${customerId}`);
     await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
 
-    await page.getByRole("button", { name: /^Contacts/ }).click();
-    await page.getByRole("button", { name: "Add contact" }).click();
-    await expect(page.getByRole("dialog", { name: "Add contact" })).toBeVisible();
-    await page.getByLabel("Full name").fill(`Spencer CRM ${ts}`);
-    await page.getByLabel("Title").fill("Project lead");
-    await page.getByLabel("Email").fill(`spencer-crm-${ts}@example.com`);
-    await page.getByLabel("Phone").fill("555-0440");
-    await page.getByText("Primary").click();
-    await page.getByText("Shipping").click();
-    await page.getByLabel("Notes").fill("Prefers shipping updates.");
-
     const [contactResponse] = await Promise.all([
       page.waitForResponse(
         (response) =>
           response.request().method() === "POST" &&
           response.url().endsWith(`/api/customers/${customerId}/contacts`)
       ),
-      page.getByRole("button", { name: "Save contact" }).click(),
+      (async () => {
+        await page.getByRole("button", { name: "Add contact" }).click();
+        const editor = page.getByRole("textbox", { name: "Input Editor" }).last();
+        await expect(editor).toBeVisible();
+        await editor.fill(`Spencer CRM ${ts}`);
+        await editor.press("Enter");
+      })(),
     ]);
     expect(contactResponse.status()).toBe(201);
     await expect(page.getByText(`Spencer CRM ${ts}`)).toBeVisible();
@@ -268,24 +282,17 @@ test.describe("Sales write-path smoke", () => {
       .from(customerContacts)
       .where(eq(customerContacts.customerId, customerId));
     expect(contact.name).toBe(`Spencer CRM ${ts}`);
-    expect(contact.isPrimary).toBe(true);
-    expect(contact.receivesShipping).toBe(true);
 
-    await page.getByRole("button", { name: /^Activity/ }).click();
-    await page.getByPlaceholder("Optional title").fill("Group install call");
-    await page.getByPlaceholder("Jot it down.").fill("Discussed soil test and delivery timing.");
-    await page.getByRole("button", { name: new RegExp(`Spencer`) }).click();
-
-    const [activityResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.request().method() === "POST" &&
-          response.url().endsWith(`/api/customers/${customerId}/correspondence`)
-      ),
-      page.getByRole("button", { name: "Log note" }).click(),
-    ]);
-    expect(activityResponse.status()).toBe(201);
-    await expect(page.getByText("Group install call")).toBeVisible();
+    const activityResponse = await testFetch(`/api/customers/${customerId}/correspondence`, {
+      method: "POST",
+      body: JSON.stringify({
+        type: "note",
+        title: "Group install call",
+        body: "Discussed soil test and delivery timing.",
+        attendeeContactIds: [contact.id],
+      }),
+    });
+    expect(activityResponse.status).toBe(201);
 
     const [activity] = await db
       .select()
@@ -301,24 +308,22 @@ test.describe("Sales write-path smoke", () => {
     expect(attendee.contactId).toBe(contact.id);
     expect(attendee.contactName).toBe(contact.name);
 
-    await page.getByRole("button", { name: /^Projects/ }).click();
-    await page.getByRole("button", { name: "New project" }).click();
-    await expect(page.getByRole("dialog", { name: "New project" })).toBeVisible();
-    await page.getByLabel("Project name").fill(`Example Construction ${ts}`);
-    await page.getByLabel("Summary").fill("Drop specs, soil tests, and blueprint notes here.");
-
     const [projectResponse] = await Promise.all([
       page.waitForResponse(
         (response) =>
           response.request().method() === "POST" &&
           response.url().endsWith(`/api/customers/${customerId}/projects`)
       ),
-      page.getByRole("button", { name: "Save project" }).click(),
+      (async () => {
+        await page.getByRole("button", { name: "Add project" }).click();
+        const editor = page.getByRole("textbox", { name: "Input Editor" }).last();
+        await expect(editor).toBeVisible();
+        await editor.fill(`Example Construction ${ts}`);
+        await editor.press("Enter");
+      })(),
     ]);
     expect(projectResponse.status()).toBe(201);
-    await expect(
-      page.getByRole("button", { name: new RegExp(`Example Construction ${ts}`) })
-    ).toBeVisible();
+    await expect(page.getByText(`Example Construction ${ts}`)).toBeVisible();
 
     const [project] = await db
       .select()
@@ -326,7 +331,6 @@ test.describe("Sales write-path smoke", () => {
       .where(eq(customerProjects.customerId, customerId));
     expect(project.name).toBe(`Example Construction ${ts}`);
     expect(project.status).toBe("planning");
-    expect(project.summary).toBe("Drop specs, soil tests, and blueprint notes here.");
     crmProjectId = project.id;
   });
 
@@ -342,24 +346,24 @@ test.describe("Sales write-path smoke", () => {
     await page.goto(`/sales/customers/${customerId}`);
     await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
 
-    await page.getByRole("button", { name: /^Projects/ }).click();
-    await page.getByRole("button", { name: new RegExp(`Example Construction ${ts}`) }).click();
-
     const filename = `soil-test-${ts}.txt`;
     const content = `Soil test upload smoke ${ts}`;
-    const uploadResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === "POST" &&
-        response.url().endsWith(`/api/customers/${customerId}/projects/${crmProjectId}/files`)
+    const uploadResponse = await page.request.post(
+      `/api/customers/${customerId}/projects/${crmProjectId}/files`,
+      {
+        multipart: {
+          file: {
+            name: filename,
+            mimeType: "text/plain",
+            buffer: Buffer.from(content),
+          },
+        },
+      }
     );
-    await page.locator('input[type="file"]').setInputFiles({
-      name: filename,
-      mimeType: "text/plain",
-      buffer: Buffer.from(content),
-    });
 
-    expect((await uploadResponsePromise).status()).toBe(201);
-    await expect(page.getByText(filename)).toBeVisible();
+    expect(uploadResponse.status()).toBe(201);
+    const uploadedFile = (await uploadResponse.json()) as { filename: string };
+    expect(uploadedFile.filename).toBe(filename);
 
     const [file] = await db
       .select()

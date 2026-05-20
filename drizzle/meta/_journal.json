@@ -764,6 +764,20 @@
       "when": 1779214440008,
       "tag": "0108_item_card_live_wiring",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1779214440009,
+      "tag": "0109_customer_contact_address_entry",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1779214440010,
+      "tag": "0110_simplify_customer_account_states",
+      "breakpoints": true
     }
   ]
 }

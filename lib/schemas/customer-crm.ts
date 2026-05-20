@@ -37,6 +37,10 @@ export const customerContactSchema = z.object({
     "Email must be valid"
   ),
   phone: nullableString,
+  addressEntryId: nullableString.refine(
+    (value) => value == null || z.string().uuid().safeParse(value).success,
+    "Invalid address"
+  ),
   roles: z.array(customerContactRoleSchema).default([]),
   notes: nullableString,
 });

@@ -73,7 +73,11 @@ import { measureObservedOperation } from "@/lib/observability/request-log";
 import { deleteManufacturingOrdersInTx } from "@/app/(dashboard)/manufacturing/queries";
 import { getSalesAllocationReadModelForItemInTx } from "./allocation-service";
 import { syncSalesLineAllocationReservationInTx } from "@/lib/inventory/allocation/adapters/sales-order-line";
-import type { InsertCustomer, UpdateCustomer } from "@/lib/schemas/customers";
+import type {
+  InsertCustomer,
+  PatchCustomer,
+  UpdateCustomer,
+} from "@/lib/schemas/customers";
 import type {
   CustomerContactInput,
   CustomerCorrespondenceInput,
@@ -130,6 +134,7 @@ import type {
 } from "./types";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
 import { getEstimatedUnitCostsByItemIdInTx } from "@/lib/inventory/estimated-cost";
+import { getAddressEntryInTx } from "@/lib/dal/addresses";
 
 const stockSubquery = projectedOnHandQty(items.organizationId, items.id).as("stock");
 const committedQtySubquery = projectedCommittedQty(
@@ -3581,6 +3586,7 @@ const customerContactSelect = {
   title: customerContacts.title,
   email: customerContacts.email,
   phone: customerContacts.phone,
+  addressEntryId: customerContacts.addressEntryId,
   isPrimary: customerContacts.isPrimary,
   receivesShipping: customerContacts.receivesShipping,
   receivesInvoices: customerContacts.receivesInvoices,
@@ -3598,6 +3604,7 @@ function mapCustomerContactRow(
     title: string | null;
     email: string | null;
     phone: string | null;
+    addressEntryId: string | null;
     isPrimary: boolean;
     receivesShipping: boolean;
     receivesInvoices: boolean;
@@ -3614,6 +3621,7 @@ function mapCustomerContactRow(
     title: row.title,
     email: row.email,
     phone: row.phone,
+    addressEntryId: row.addressEntryId,
     roles: buildCustomerContactRoles(row),
     notes: row.notes,
     createdAt: row.createdAt,
@@ -3628,6 +3636,18 @@ async function ensureActiveCustomerInTx(tx: Tx, customerId: string) {
     .where(and(eq(customers.id, customerId), isNull(customers.deletedAt)));
 
   return customer ?? null;
+}
+
+async function ensureAddressEntryForContactInTx(
+  tx: Tx,
+  organizationId: string,
+  addressEntryId: string | null | undefined
+) {
+  if (!addressEntryId) return;
+  const address = await getAddressEntryInTx(tx, organizationId, addressEntryId);
+  if (!address) {
+    throw new SalesError("Address not found.", 404);
+  }
 }
 
 async function getCustomerContactsInTx(
@@ -3782,6 +3802,8 @@ async function getCustomerProjectsInTx(
     status: row.status as CustomerProjectRow["status"],
     files: filesByProject.get(row.id) ?? [],
     salesOrders: [],
+    orderCount: 0,
+    orderValue: "0",
   }));
 }
 
@@ -3816,6 +3838,13 @@ export async function getCustomerDetail(
       projects: projects.map((project) => ({
         ...project,
         salesOrders: salesOrdersByProjectId.get(project.id) ?? [],
+        orderCount: salesOrdersByProjectId.get(project.id)?.length ?? 0,
+        orderValue: normalizeMoney(
+          (salesOrdersByProjectId.get(project.id) ?? []).reduce(
+            (sum, order) => sum + parseMoneyValue(order.totalAmount),
+            0
+          )
+        ),
       })),
       salesOrders: salesOrderRows,
     };
@@ -3829,6 +3858,7 @@ export async function createCustomerContact(
   return withAuthedOrgContext(async (tx, orgId) => {
     const customer = await ensureActiveCustomerInTx(tx, customerId);
     if (!customer) return null;
+    await ensureAddressEntryForContactInTx(tx, orgId, data.addressEntryId);
 
     const [contact] = await tx
       .insert(customerContacts)
@@ -3839,6 +3869,7 @@ export async function createCustomerContact(
         title: data.title,
         email: data.email,
         phone: data.phone,
+        addressEntryId: data.addressEntryId,
         ...buildCustomerContactRoleColumns(data.roles),
         notes: data.notes,
       })
@@ -3853,9 +3884,10 @@ export async function updateCustomerContact(
   contactId: string,
   data: CustomerContactInput
 ): Promise<CustomerContactRow | null> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
     const customer = await ensureActiveCustomerInTx(tx, customerId);
     if (!customer) return null;
+    await ensureAddressEntryForContactInTx(tx, orgId, data.addressEntryId);
 
     const [contact] = await tx
       .update(customerContacts)
@@ -3864,6 +3896,7 @@ export async function updateCustomerContact(
         title: data.title,
         email: data.email,
         phone: data.phone,
+        addressEntryId: data.addressEntryId,
         ...buildCustomerContactRoleColumns(data.roles),
         notes: data.notes,
         updatedAt: new Date(),
@@ -4021,6 +4054,8 @@ export async function createCustomerProject(
           status: project.status as CustomerProjectRow["status"],
           files: [],
           salesOrders: [],
+          orderCount: 0,
+          orderValue: "0",
         }
       : null;
   });
@@ -4072,6 +4107,8 @@ export async function updateCustomerProject(
       status: project.status as CustomerProjectRow["status"],
       files: [],
       salesOrders: [],
+      orderCount: 0,
+      orderValue: "0",
     };
   });
 }
@@ -4348,6 +4385,25 @@ export async function createCustomer(data: InsertCustomer) {
 export async function updateCustomer(id: string, data: UpdateCustomer) {
   return withAuthedOrgContext(async (tx) => {
     await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
+
+    const [customer] = await tx
+      .update(customers)
+      .set({
+        ...data,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(customers.id, id), isNull(customers.deletedAt)))
+      .returning({ id: customers.id });
+
+    return customer ?? null;
+  });
+}
+
+export async function patchCustomer(id: string, data: PatchCustomer) {
+  return withAuthedOrgContext(async (tx) => {
+    if (data.customerCategoryId !== undefined) {
+      await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
+    }
 
     const [customer] = await tx
       .update(customers)
