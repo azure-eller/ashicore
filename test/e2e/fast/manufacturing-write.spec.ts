@@ -97,15 +97,15 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(productCreate.status).toBe(201);
     productId = productCreate.body.id;
 
-    // /new redirects into the draft sheet. The sheet IS the create surface:
+    // /new redirects into the unified sheet. The sheet IS the create surface:
     // set planned quantity, then selecting a product creates the order inline.
     await page.goto("/manufacturing/orders/new");
     await page.waitForURL("**/manufacturing/order");
-    await expect(page.getByRole("heading", { name: "New manufacturing order" })).toBeVisible();
+    const productInput = page.getByPlaceholder("Search or create product…");
+    await expect(productInput).toBeVisible();
 
     await page.getByLabel("Planned quantity").fill("5");
 
-    const productInput = page.getByPlaceholder("Search products…");
     await productInput.click();
     await productInput.fill(productName);
     const [createResponse] = await Promise.all([
@@ -1523,10 +1523,10 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(batchProductCreate.status).toBe(201);
     const batchProductId = batchProductCreate.body.id as string;
 
-    // Draft sheet uses output quantity; a yield-2 product at qty 6 → 3 batches.
+    // Unified sheet uses output quantity; a yield-2 product at qty 6 → 3 batches.
     await page.goto("/manufacturing/order");
     await page.getByLabel("Planned quantity").fill("6");
-    const productInput = page.getByPlaceholder("Search products…");
+    const productInput = page.getByPlaceholder("Search or create product…");
     await productInput.click();
     await productInput.fill(batchProductName);
     await page.getByRole("option", { name: new RegExp(batchProductName) }).click();

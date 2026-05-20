@@ -95,6 +95,73 @@ export async function createManufacturingOrder(
   return (await response.json()) as { id: string };
 }
 
+export type ManufacturingSalesOrderOptionDto = {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+};
+
+export async function fetchSalesOrderOptions(): Promise<
+  ManufacturingSalesOrderOptionDto[]
+> {
+  const response = await fetch("/api/manufacturing-orders/sales-order-options");
+  if (!response.ok) return parseError(response);
+  return (await response.json()) as ManufacturingSalesOrderOptionDto[];
+}
+
+/**
+ * Replace the MO's ingredient list (add / delete / reorder) through the
+ * existing kernel-safe full-update path. The sheet supplies the current
+ * header values so the PUT only changes the ingredient set.
+ */
+export async function saveManufacturingOrderIngredients(
+  orderId: string,
+  header: {
+    plannedQuantity: string;
+    plannedDate: string | null;
+    notes: string | null;
+    salesOrderId: string | null;
+    salesOrderLineId: string | null;
+  },
+  ingredients: Array<{ itemId: string; quantityPerUnit: string }>,
+): Promise<{ id: string }> {
+  const response = await fetch(`/api/manufacturing-orders/${orderId}`, {
+    method: "PUT",
+    headers: createIdempotencyHeaders("saveManufacturingOrderIngredients", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify({
+      plannedQuantity: header.plannedQuantity,
+      plannedDate: header.plannedDate,
+      notes: header.notes,
+      salesOrderId: header.salesOrderId,
+      salesOrderLineId: header.salesOrderLineId,
+      ingredients,
+      groupRemainderChoices: [],
+      autoAllocateIngredientLots: true,
+    }),
+  });
+  if (!response.ok) return parseError(response);
+  return (await response.json()) as { id: string };
+}
+
+export async function reorderManufacturingOrderIngredients(
+  orderId: string,
+  ingredientIds: string[],
+): Promise<void> {
+  const response = await fetch(
+    `/api/manufacturing-orders/${orderId}/ingredients/reorder`,
+    {
+      method: "PATCH",
+      headers: createIdempotencyHeaders("reorderManufacturingOrderIngredients", {
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify({ ingredientIds }),
+    },
+  );
+  if (!response.ok) return parseError(response);
+}
+
 export async function patchManufacturingOrderIngredient(
   orderId: string,
   ingredientId: string,
