@@ -31,6 +31,7 @@ export type OrderDraftController = {
     patch: { quantity?: string; unitPrice?: string },
   ) => void;
   removeLine: (lineId: string) => void;
+  reorderLines: (orderedIds: string[]) => void;
 };
 
 /**

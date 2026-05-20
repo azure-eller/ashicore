@@ -141,6 +141,13 @@ export function OrderCard({
             lines: prev.lines.filter((line) => line.id !== lineId),
           }),
         ),
+      reorderLines: (orderedIds) =>
+        setDraftOrder((prev) => ({
+          ...prev,
+          lines: orderedIds
+            .map((id) => prev.lines.find((line) => line.id === id))
+            .filter((line): line is SalesOrderDetailLine => line != null),
+        })),
     }),
     [recomputeTotals],
   );
@@ -271,6 +278,36 @@ export function OrderCard({
     [addLineMutation],
   );
 
+  const reorderLinesMutation = useMutation({
+    mutationKey: ["sales-order", currentOrderId ?? "draft", "reorder-lines"],
+    mutationFn: (orderedIds: string[]) =>
+      updateSalesOrderFull(
+        currentOrderId as string,
+        orderToUpdatePayload(order, (lines) =>
+          orderedIds
+            .map((id) => lines.find((line) => line.id === id))
+            .filter((line): line is SalesOrderDetailLine => line != null),
+        ),
+      ),
+    onMutate: () => setActionError(null),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sales-order", currentOrderId] });
+      await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+    },
+    onError: (error) => setActionError((error as Error).message),
+  });
+
+  const handleReorderLines = useCallback(
+    (orderedIds: string[]) => {
+      if (isDraft) {
+        draftController.reorderLines(orderedIds);
+        return;
+      }
+      reorderLinesMutation.mutate(orderedIds);
+    },
+    [isDraft, draftController, reorderLinesMutation],
+  );
+
   const deleteShipmentMutation = useMutation({
     mutationKey: ["sales-order", currentOrderId ?? "draft", "delete-shipment"],
     mutationFn: async (shipment: SalesShipmentRow) => {
@@ -350,13 +387,14 @@ export function OrderCard({
           editable={isEditable}
           itemOptions={itemOptions}
           draft={isDraft ? draftController : undefined}
-          onAddLineItem={!isDraft && isEditable ? handleAddLineItem : undefined}
+          onAddLineItem={handleAddLineItem}
           addingLine={addLineMutation.isPending}
           onDeleteLine={isEditable ? handleDeleteLine : undefined}
-          deletingLineId={
-            deleteLineMutation.isPending
-              ? deleteLineMutation.variables?.id ?? null
-              : null
+          onReorderLines={isEditable ? handleReorderLines : undefined}
+          onPatchLine={
+            isDraft
+              ? (lineId, patch) => draftController.updateLine(lineId, patch)
+              : undefined
           }
         />
 
