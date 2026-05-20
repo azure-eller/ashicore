@@ -202,6 +202,14 @@ export type ManufacturingOrderIngredientDetail = {
   pickStatus: ManufacturingPickStatus;
   actualQuantity: string | null;
   actualCostTotal: string | null;
+  lotAllocations?: Array<{
+    lotId: string | null;
+    lotNumber: string | null;
+    quantity: string;
+    sourceType: string | null;
+    sourceId: string | null;
+    sourceLabel: string | null;
+  }>;
   sortOrder: number;
   constraints: BomComponentConstraint[];
   defaultItemId: string | null;

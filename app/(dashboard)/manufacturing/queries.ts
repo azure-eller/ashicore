@@ -290,6 +290,10 @@ type ExecutionIngredientRow = {
   constraints: BomComponentConstraint[];
 };
 
+type ExecutionIngredientLotAllocation = NonNullable<
+  ManufacturingOrderIngredientDetail["lotAllocations"]
+>[number];
+
 type EditableManufacturingIngredientSnapshotRow = {
   id: string;
   itemId: string;
@@ -3088,6 +3092,143 @@ function toIngredientDetail(ingredient: ExecutionIngredientRow): ManufacturingOr
     defaultQuantityPerUnit: null,
     alternates: [],
   };
+}
+
+async function getExecutionLotAllocationsByIngredientInTx(
+  tx: Tx,
+  ingredientIds: string[]
+) {
+  const uniqueIds = [...new Set(ingredientIds)];
+  const allocations = new Map<string, ExecutionIngredientLotAllocation[]>();
+  if (uniqueIds.length === 0) {
+    return allocations;
+  }
+
+  const consumedRows = await tx
+    .select({
+      ingredientId: manufacturingOrderOutputConsumptions.manufacturingOrderIngredientId,
+      lotId: manufacturingOrderOutputConsumptions.lotId,
+      lotNumber: lots.lotNumber,
+      quantity: trimScale(
+        sql`COALESCE(SUM(${manufacturingOrderOutputConsumptions.quantityUsed}), 0)`
+      ).as("quantity"),
+    })
+    .from(manufacturingOrderOutputConsumptions)
+    .innerJoin(lots, eq(manufacturingOrderOutputConsumptions.lotId, lots.id))
+    .where(
+      inArray(manufacturingOrderOutputConsumptions.manufacturingOrderIngredientId, uniqueIds)
+    )
+    .groupBy(
+      manufacturingOrderOutputConsumptions.manufacturingOrderIngredientId,
+      manufacturingOrderOutputConsumptions.lotId,
+      lots.lotNumber
+    )
+    .orderBy(asc(lots.lotNumber));
+
+  for (const row of consumedRows) {
+    const rows = allocations.get(row.ingredientId) ?? [];
+    rows.push({
+      lotId: row.lotId,
+      lotNumber: row.lotNumber,
+      quantity: row.quantity,
+      sourceType: "consumed",
+      sourceId: row.lotId,
+      sourceLabel: row.lotNumber,
+    });
+    allocations.set(row.ingredientId, rows);
+  }
+
+  const unconsumedIngredientIds = uniqueIds.filter((id) => !allocations.has(id));
+  if (unconsumedIngredientIds.length === 0) {
+    return allocations;
+  }
+
+  const pickedRows = await tx
+    .select({
+      ingredientId: manufacturingPickAllocations.manufacturingOrderIngredientId,
+      lotId: manufacturingPickAllocations.lotId,
+      lotNumber: lots.lotNumber,
+      quantity: trimScale(
+        sql`COALESCE(SUM(${manufacturingPickAllocations.quantityUsed}), 0)`
+      ).as("quantity"),
+    })
+    .from(manufacturingPickAllocations)
+    .innerJoin(lots, eq(manufacturingPickAllocations.lotId, lots.id))
+    .where(
+      inArray(
+        manufacturingPickAllocations.manufacturingOrderIngredientId,
+        unconsumedIngredientIds
+      )
+    )
+    .groupBy(
+      manufacturingPickAllocations.manufacturingOrderIngredientId,
+      manufacturingPickAllocations.lotId,
+      lots.lotNumber
+    )
+    .orderBy(asc(lots.lotNumber));
+
+  for (const row of pickedRows) {
+    const rows = allocations.get(row.ingredientId) ?? [];
+    rows.push({
+      lotId: row.lotId,
+      lotNumber: row.lotNumber,
+      quantity: row.quantity,
+      sourceType: "picked",
+      sourceId: row.lotId,
+      sourceLabel: row.lotNumber,
+    });
+    allocations.set(row.ingredientId, rows);
+  }
+
+  const unpickedIngredientIds = unconsumedIngredientIds.filter(
+    (id) => !allocations.has(id)
+  );
+  if (unpickedIngredientIds.length === 0) {
+    return allocations;
+  }
+
+  const heldRows = await tx
+    .select({
+      ingredientId: stockAllocations.demandId,
+      lotId: stockAllocations.sourceId,
+      lotNumber: lots.lotNumber,
+      sourceLabel: stockAllocations.sourceLabelSnapshot,
+      quantity: trimScale(sql`COALESCE(SUM(${stockAllocations.quantity}), 0)`).as(
+        "quantity"
+      ),
+    })
+    .from(stockAllocations)
+    .innerJoin(lots, eq(stockAllocations.sourceId, lots.id))
+    .where(
+      and(
+        eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
+        inArray(stockAllocations.demandId, unpickedIngredientIds),
+        eq(stockAllocations.sourceType, "inventory_lot"),
+        eq(stockAllocations.status, "active")
+      )
+    )
+    .groupBy(
+      stockAllocations.demandId,
+      stockAllocations.sourceId,
+      lots.lotNumber,
+      stockAllocations.sourceLabelSnapshot
+    )
+    .orderBy(asc(lots.lotNumber));
+
+  for (const row of heldRows) {
+    const rows = allocations.get(row.ingredientId) ?? [];
+    rows.push({
+      lotId: row.lotId,
+      lotNumber: row.lotNumber,
+      quantity: row.quantity,
+      sourceType: "inventory_lot",
+      sourceId: row.lotId,
+      sourceLabel: row.sourceLabel ?? row.lotNumber,
+    });
+    allocations.set(row.ingredientId, rows);
+  }
+
+  return allocations;
 }
 
 function aggregateBatchIngredients(
@@ -7429,6 +7570,15 @@ export async function getManufacturingExecutionDetail(
       order.manufacturingMode === "batch" && currentBatch != null
         ? (await getBatchIngredientsInTx(tx, currentBatch.id)).map(toIngredientDetail)
         : (await getTemplateIngredientsInTx(tx, orderId)).map(toIngredientDetail);
+    const lotAllocationsByIngredientId =
+      await getExecutionLotAllocationsByIngredientInTx(
+        tx,
+        ingredients.map((ingredient) => ingredient.id)
+      );
+    const ingredientsWithLotAllocations = ingredients.map((ingredient) => ({
+      ...ingredient,
+      lotAllocations: lotAllocationsByIngredientId.get(ingredient.id) ?? [],
+    }));
     const recordedOutputQuantity = await getOutputQuantityInTx(tx, {
       manufacturingOrderId: orderId,
       manufacturingOrderBatchId: currentBatch?.id ?? null,
@@ -7441,7 +7591,7 @@ export async function getManufacturingExecutionDetail(
         order.manufacturingMode === "batch"
           ? getBatchPickProgressStatus(batches)
           : getPickProgressStatus(
-              ingredients.map((ingredient) => ({
+              ingredientsWithLotAllocations.map((ingredient) => ({
                 plannedQuantity: ingredient.plannedQuantity,
                 pickedQuantity: ingredient.pickedQuantity,
               }))
@@ -7452,14 +7602,14 @@ export async function getManufacturingExecutionDetail(
           ? true
           : order.manufacturingMode === "batch"
             ? currentBatch != null &&
-              ingredients.every(
+              ingredientsWithLotAllocations.every(
                 (ingredient) =>
                   getRemainingQuantityNumber(
                     ingredient.plannedQuantity,
                     ingredient.pickedQuantity
                   ) <= 0
               )
-            : ingredients.every(
+            : ingredientsWithLotAllocations.every(
                 (ingredient) =>
                   getRemainingQuantityNumber(
                     ingredient.plannedQuantity,
@@ -7469,7 +7619,7 @@ export async function getManufacturingExecutionDetail(
       currentBatchId: currentBatch?.id ?? null,
       currentBatch: currentBatch,
       batches,
-      ingredients,
+      ingredients: ingredientsWithLotAllocations,
       recordedOutputQuantity: normalizeNumeric(recordedOutputQuantity),
     };
   });
