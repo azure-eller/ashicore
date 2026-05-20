@@ -48,6 +48,7 @@ import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { formatQuantity } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { CardLotRow } from "./lot-grid-tab";
+import { cardSaveMutationKey } from "./card-save-status";
 import styles from "./card-page.module.css";
 
 export type VariantTableProps = {
@@ -209,7 +210,7 @@ function StockQuantityAdjustmentBody({
   const draftLots = draftLotsState.rows;
 
   const increaseMutation = useMutation({
-    mutationKey: ["item-card", adjustment.variant.id, "stock-increase"],
+    mutationKey: ["item-card-action", adjustment.variant.id, "stock-increase"],
     mutationFn: (input: AddInitialStockInput) => addInitialStock(adjustment.variant.id, input),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["item-card"] });
@@ -218,7 +219,7 @@ function StockQuantityAdjustmentBody({
   });
 
   const decreaseMutation = useMutation({
-    mutationKey: ["item-card", adjustment.variant.id, "stock-decrease"],
+    mutationKey: ["item-card-action", adjustment.variant.id, "stock-decrease"],
     mutationFn: async () => {
       for (const row of draftLots) {
         if (row.nextQuantity === row.lot.quantity) continue;
@@ -533,9 +534,7 @@ export function VariantTable({
   } | null>(null);
 
   const cellMutation = useMutation({
-    // mutationKey prefix matches the card's useQuery so the save-status pill
-    // picks up edits across every variant in the family.
-    mutationKey: ["item-card", mutationItemId, "variant-cell"],
+    mutationKey: cardSaveMutationKey("item-card", mutationItemId, "variant-cell"),
     mutationFn: ({
       variantId,
       payload,
@@ -549,7 +548,7 @@ export function VariantTable({
   });
 
   const deleteMutation = useMutation({
-    mutationKey: ["item-card", mutationItemId, "variant-delete"],
+    mutationKey: cardSaveMutationKey("item-card", mutationItemId, "variant-delete"),
     mutationFn: (variantId: string) => deleteVariant(variantId),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["item-card"] });
@@ -557,7 +556,7 @@ export function VariantTable({
   });
 
   const reorderMutation = useMutation({
-    mutationKey: ["item-card", mutationItemId, "variant-reorder"],
+    mutationKey: cardSaveMutationKey("item-card", mutationItemId, "variant-reorder"),
     mutationFn: (orderedVariantIds: string[]) =>
       reorderItemCardVariants(mutationItemId, orderedVariantIds),
     onSettled: () => {
@@ -572,7 +571,7 @@ export function VariantTable({
   });
 
   const addVariantMutation = useMutation({
-    mutationKey: ["item-card", mutationItemId, "variant-add-row"],
+    mutationKey: cardSaveMutationKey("item-card", mutationItemId, "variant-add-row"),
     mutationFn: async () => {
       const focusItemId = visibleVariants[0]?.id;
       if (!focusItemId) return null;

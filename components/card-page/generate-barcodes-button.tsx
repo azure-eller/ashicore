@@ -8,10 +8,10 @@ import {
   updateItemCardVariant,
   type ItemCardVariantDto,
 } from "@/lib/api/clients/item-cards";
+import { cardSaveMutationKey } from "./card-save-status";
 
 export type GenerateBarcodesButtonProps = {
-  /** itemId the page is keyed by — used for the mutation key so the header
-   * save-status indicator picks this run up alongside other card edits. */
+  /** itemId the page is keyed by for card-save status. */
   cardItemId: string;
   variants: ItemCardVariantDto[];
   disabled?: boolean;
@@ -33,7 +33,7 @@ export function GenerateBarcodesButton({
   const hasVariants = visibleVariants.length > 0;
 
   const mutation = useMutation({
-    mutationKey: ["item-card", cardItemId, "generate-internal-barcodes"],
+    mutationKey: cardSaveMutationKey("item-card", cardItemId, "generate-internal-barcodes"),
     mutationFn: async () => {
       if (candidates.length === 0) return { assigned: 0 };
       // Sequential awaits (not Promise.all) — keeps the assignments

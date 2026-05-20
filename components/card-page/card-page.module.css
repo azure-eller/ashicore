@@ -28,6 +28,13 @@
   color: var(--color-ink);
 }
 
+.pageFrame {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--space-12);
+}
+
 /* ---------- Header ---------- */
 
 .header {
@@ -295,6 +302,13 @@
   border-bottom: 0;
 }
 
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: 0 0 12px;
+}
+
 .sectionHeading {
   margin: 0 0 12px;
   font-size: 11.5px;
@@ -307,6 +321,11 @@
   gap: 8px;
 }
 
+.sectionHeader .sectionHeading {
+  margin: 0;
+}
+
+.count,
 .sectionHeading .count {
   color: var(--color-muted);
   font-weight: 500;
@@ -315,6 +334,7 @@
   text-transform: none;
 }
 
+.hint,
 .sectionHeading .hint {
   margin-left: auto;
   color: var(--color-muted);
@@ -322,6 +342,247 @@
   font-size: 11px;
   text-transform: none;
   letter-spacing: 0;
+}
+
+.sectionActions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.detailsGrid {
+  --card-details-columns: 3;
+  display: grid;
+  grid-template-columns: repeat(var(--card-details-columns), minmax(0, 1fr));
+  border-left: 1px solid var(--color-line);
+  border-top: 1px solid var(--color-line);
+}
+
+.detailsCell {
+  min-width: 0;
+  min-height: 52px;
+  padding: var(--space-4) var(--space-5);
+  border-right: 1px solid var(--color-line-2);
+  border-bottom: 1px solid var(--color-line-2);
+  background: var(--color-surface);
+}
+
+.detailsCellEditable:hover,
+.detailsCellEditable:focus-within {
+  background: var(--color-accent-soft);
+}
+
+.detailsCellLabel {
+  margin-bottom: var(--space-2);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-xs);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+
+@media (max-width: 900px) {
+  .detailsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Detail form rows ---------- */
+
+.formRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px 22px;
+  align-items: start;
+}
+
+.formRow + .formRow {
+  margin-top: 18px;
+}
+
+.formRowPo {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr);
+}
+
+.formRowFour {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.formField {
+  min-width: 0;
+}
+
+.formLabel {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-muted);
+}
+
+.requiredMark {
+  color: var(--color-danger);
+}
+
+.underlineInput {
+  height: 34px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--color-line);
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+  font-size: 13.5px;
+  line-height: 20px;
+  color: var(--color-ink);
+}
+
+.underlineInput:hover {
+  border-bottom-color: var(--color-ink-2, var(--color-ink));
+}
+
+.underlineInput:focus,
+.underlineInput:focus-visible {
+  border-bottom-color: var(--color-accent);
+  box-shadow: 0 1px 0 0 var(--color-accent);
+  outline: none;
+}
+
+.underlineInput[readonly],
+.underlineInput:disabled {
+  border-bottom-style: dotted;
+  border-bottom-color: var(--color-line-2);
+  color: var(--color-ink);
+  cursor: default;
+  opacity: 1;
+}
+
+.underlineInput[readonly]:hover,
+.underlineInput:disabled:hover {
+  border-bottom-color: var(--color-line-2);
+}
+
+.underlineControl,
+.underlineControl[data-slot="input-group"] {
+  height: 34px;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-line);
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+  font-size: 13.5px;
+  line-height: 20px;
+}
+
+.underlineControl:hover,
+.underlineControl[data-slot="input-group"]:hover {
+  border-bottom-color: var(--color-ink-2, var(--color-ink));
+}
+
+.underlineControl:focus-visible,
+.underlineControl[data-slot="input-group"]:focus-within {
+  border-bottom-color: var(--color-accent);
+  box-shadow: 0 1px 0 0 var(--color-accent);
+}
+
+.underlineControl:disabled,
+.underlineControl[data-disabled="true"],
+.underlineControl[data-slot="input-group"]:has(input:disabled) {
+  border-bottom-style: dotted;
+  border-bottom-color: var(--color-line-2);
+  background: transparent;
+  cursor: default;
+  opacity: 1;
+}
+
+.fieldMeta,
+.fieldHint {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--color-muted);
+}
+
+.fieldMeta {
+  font-family: var(--font-mono, "Geist Mono", "SF Mono", ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+.suffixField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.suffixField:focus-within {
+  border-bottom-color: var(--color-accent);
+  box-shadow: 0 1px 0 0 var(--color-accent);
+}
+
+.suffixFieldReadOnly {
+  border-bottom-style: dotted;
+  border-bottom-color: var(--color-line-2);
+}
+
+.suffixField .underlineInput {
+  height: 33px;
+  border-bottom: 0;
+  box-shadow: none;
+}
+
+.fieldSuffix {
+  flex: 0 0 auto;
+  font-family: var(--font-mono, "Geist Mono", "SF Mono", ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--color-muted);
+}
+
+.readOnlyFieldValue {
+  min-height: 34px;
+  border-bottom: 1px dotted var(--color-line-2);
+  padding: 7px 0 6px;
+  font-size: 13.5px;
+  line-height: 20px;
+  color: var(--color-ink);
+}
+
+.readOnlyAddress {
+  min-height: 34px;
+  border-bottom: 1px dotted var(--color-line-2);
+  padding: 4px 0 5px;
+  font-size: 13px;
+  line-height: 17px;
+  color: var(--color-ink);
+}
+
+.fieldLink {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.fieldLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 900px) {
+  .formRow,
+  .formRowPo,
+  .formRowFour {
+    grid-template-columns: 1fr;
+  }
 }
 
 .addressCombobox {

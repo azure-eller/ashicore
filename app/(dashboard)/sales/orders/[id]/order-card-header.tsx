@@ -1,30 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import Link from "next/link";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Cancel01Icon,
-  Mail01Icon,
-  MoreVerticalIcon,
-  PrinterIcon,
-} from "@hugeicons/core-free-icons";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { StatusLabel, type StatusTone } from "@/components/ui/status-label";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { formatDate } from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
@@ -33,7 +10,12 @@ import {
   deriveOrderDisplayStatus,
   type OrderDisplayStatusTone,
 } from "@/lib/sales/order-display-status";
-import { useSalesOrderSaveStatus } from "./use-sales-order-save-status";
+import { CardPageHeader } from "@/components/card-page/card-page-header";
+import {
+  saveStateFromEntityStatus,
+  useEntitySaveStatus,
+  type CardSaveState,
+} from "@/components/card-page/card-save-status";
 import cardStyles from "@/components/card-page/card-page.module.css";
 
 export type OrderCardHeaderMode = "draft" | "edit";
@@ -98,7 +80,7 @@ export function OrderCardHeader({
   canViewLedger,
 }: OrderCardHeaderProps) {
   const handleClose = useSmartBack("/sales/orders");
-  const liveSaveStatus = useSalesOrderSaveStatus(order?.id ?? "");
+  const liveSaveStatus = useEntitySaveStatus("sales-order", order?.id ?? "__draft__");
 
   const status = useMemo(
     () => (order ? deriveOrderDisplayStatus(order) : null),
@@ -106,209 +88,118 @@ export function OrderCardHeader({
   );
 
   const customerName = order?.customerName ?? draftCustomerName ?? null;
-  const eyebrow =
-    customerName && customerName.trim().length > 0
-      ? `Sales order · ${customerName}`
-      : "Sales order · New";
-
   const title = order
     ? order.orderNumber
     : "New sales order";
 
   const description = order ? buildDescriptionLine(order) : null;
-  const deliveryStatusValue = (() => {
-    if (!status) return "not_shipped";
-    if (status.label === "SHIPPED" || status.label === "CLOSED") return "shipped";
-    if (status.label === "PARTIALLY SHIPPED") return "partially_shipped";
-    return "not_shipped";
+
+  const saveState: CardSaveState | null = (() => {
+    if (mode === "draft") {
+      if (draftSaving) return "saving";
+      if (draftHasError) return "failed";
+      if (draftIsDirty) return "not_saved";
+      return "not_saved";
+    }
+    return saveStateFromEntityStatus(liveSaveStatus.status);
   })();
 
-  // Save-indicator state. Edit mode reads from the live mutation aggregator.
-  // Draft mode is driven by the parent (Create order POST).
-  const saveLabel = (() => {
+  const primaryAction = (() => {
     if (mode === "draft") {
-      if (draftSaving) return { kind: "saving" as const, label: "Saving…" };
-      if (draftHasError) return { kind: "error" as const, label: "Save failed" };
-      if (draftIsDirty) return { kind: "draft" as const, label: "Not saved" };
-      return null;
+      return {
+        label: "Create order",
+        onClick: onCreate,
+        disabled: onCreateDisabled,
+      };
     }
-    if (liveSaveStatus.status === "saving") {
-      return { kind: "saving" as const, label: "Saving…" };
+    if (
+      mode === "edit" &&
+      status &&
+      (status.label === "OPEN" ||
+        status.label === "ALLOCATED" ||
+        status.label === "PARTIALLY SHIPPED")
+    ) {
+      return {
+        label: "Mark shipped",
+        onClick: onShipOrder,
+        disabled: onShipOrderDisabled,
+      };
     }
-    if (liveSaveStatus.status === "error") {
-      return { kind: "error" as const, label: "Save failed" };
+    if (mode === "edit" && status && (status.label === "SHIPPED" || status.label === "CLOSED")) {
+      return {
+        label: "Return",
+        onClick: onReturn,
+        disabled: true,
+        tooltip: "Returns coming soon.",
+      };
     }
-    return { kind: "saved" as const, label: "All changes saved" };
+    return undefined;
   })();
 
   return (
-    <header className={cardStyles.header}>
-      <div className={cardStyles.headerIdentity}>
-        <div className={cardStyles.eyebrow}>{eyebrow}</div>
-        <div className="flex flex-wrap items-baseline gap-[10px]">
-          <h1 className={`${cardStyles.title} ${cardStyles.mono}`}>{title}</h1>
+    <CardPageHeader
+      title={
+        <span className={cardStyles.mono}>
+          {title}
           {customerName && customerName.trim().length > 0 ? (
-            <span className="text-[14px] font-semibold text-[var(--color-ink)]">
+            <span className="ml-[10px] font-sans text-[14px] font-semibold text-[var(--color-ink)]">
               {customerName}
             </span>
           ) : null}
-          {status ? (
-            <StatusLabel tone={toneMap[status.tone]}>{status.label}</StatusLabel>
-          ) : null}
-        </div>
-        {description ? (
-          <div className={cardStyles.meta} style={{ maxWidth: 780 }}>
-            {description}
-          </div>
-        ) : null}
-      </div>
-
-      <div className={cardStyles.headerRight}>
-        {saveLabel ? <SaveStatusPill kind={saveLabel.kind} label={saveLabel.label} /> : null}
-
-        {status?.label === "DRAFT" || mode === "draft" ? (
-          <button
-            type="button"
-            onClick={onCreate}
-            disabled={onCreateDisabled}
-            className="h-[28px] px-[12px] bg-[var(--color-accent)] text-white text-[12px] font-semibold uppercase tracking-[0.04em] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[var(--color-accent-hover)]"
-          >
-            Create order
-          </button>
-        ) : null}
-
-        {mode === "edit" && status ? (
-          <Select
-            value={deliveryStatusValue}
-            onValueChange={(value) => {
-              if (value === "shipped") onShipOrder?.();
-            }}
-            disabled={!onShipOrder && status.label !== "SHIPPED" && status.label !== "CLOSED"}
-          >
-            <SelectTrigger className="h-[28px] w-[150px] text-[12px] font-semibold uppercase tracking-[0.04em]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent align="end">
-              <SelectItem value="not_shipped">Not shipped</SelectItem>
-              {deliveryStatusValue === "partially_shipped" ? (
-                <SelectItem value="partially_shipped">Partially shipped</SelectItem>
-              ) : null}
-              <SelectItem value="shipped" disabled={status.label === "SHIPPED" || status.label === "CLOSED" || onShipOrderDisabled}>
-                Shipped
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        ) : null}
-
-        {mode === "edit" && status && (status.label === "SHIPPED" || status.label === "CLOSED") ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={onReturn}
-                disabled
-                className="h-[28px] px-[12px] border border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-muted)] text-[12px] font-semibold uppercase tracking-[0.04em] cursor-not-allowed"
-              >
-                Return
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>Returns coming soon.</TooltipContent>
-          </Tooltip>
-        ) : null}
-
-        <button
-          type="button"
-          className={cardStyles.iconBtn}
-          aria-label="Print"
-          title="Print"
-          onClick={() => window.print()}
-        >
-          <HugeiconsIcon icon={PrinterIcon} size={14} />
-        </button>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className={cardStyles.iconBtn}
-              aria-label="More actions"
-            >
-              <HugeiconsIcon icon={MoreVerticalIcon} size={14} />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {onDuplicate ? (
-              <DropdownMenuItem onSelect={onDuplicate}>Duplicate</DropdownMenuItem>
-            ) : null}
-            {onPushXero ? (
-              <DropdownMenuItem
-                onSelect={() => {
-                  if (onPushXeroDisabled) return;
-                  onPushXero();
-                }}
-                disabled={onPushXeroDisabled}
-              >
-                {onPushXeroLabel ?? "Push to Xero"}
-              </DropdownMenuItem>
-            ) : null}
-            {onEmailPo ? (
-              <DropdownMenuItem
-                onSelect={() => {
-                  if (onEmailPoDisabled) return;
-                  onEmailPo();
-                }}
-                disabled={onEmailPoDisabled}
-              >
-                <HugeiconsIcon icon={Mail01Icon} size={14} className="mr-2" />
-                Email PO
-              </DropdownMenuItem>
-            ) : null}
-            {order && canViewLedger ? (
-              <DropdownMenuItem asChild>
-                <Link
-                  href={buildInventoryLedgerHref({
-                    documentType: "sales_order",
-                    documentId: order.id,
-                  })}
-                  prefetch={false}
-                >
-                  View inventory activity
-                </Link>
-              </DropdownMenuItem>
-            ) : null}
-            {onCreateMo ? (
-              <DropdownMenuItem
-                onSelect={() => {
-                  if (onCreateMoDisabled) return;
-                  onCreateMo();
-                }}
-                disabled={onCreateMoDisabled}
-                title={onCreateMoDisabledReason}
-              >
-                Create manufacturing order(s)
-              </DropdownMenuItem>
-            ) : null}
-            {onDelete ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={onDelete} variant="destructive">
-                  Delete order
-                </DropdownMenuItem>
-              </>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <button
-          type="button"
-          className={cardStyles.iconBtn}
-          aria-label="Close"
-          onClick={handleClose}
-        >
-          <HugeiconsIcon icon={Cancel01Icon} size={14} />
-        </button>
-      </div>
-    </header>
+        </span>
+      }
+      status={status ? <StatusLabel tone={toneMap[status.tone]}>{status.label}</StatusLabel> : null}
+      meta={description}
+      saveState={saveState}
+      primaryAction={primaryAction}
+      menuActions={[
+        ...(onDuplicate ? [{ label: "Duplicate", onClick: onDuplicate }] : []),
+        ...(onPushXero
+          ? [
+              {
+                label: onPushXeroLabel ?? "Push to Xero",
+                onClick: onPushXero,
+                disabled: onPushXeroDisabled,
+              },
+            ]
+          : []),
+        ...(onEmailPo
+          ? [
+              {
+                label: "Email PO",
+                onClick: onEmailPo,
+                disabled: onEmailPoDisabled,
+              },
+            ]
+          : []),
+        ...(order && canViewLedger
+          ? [
+              {
+                label: "View inventory activity",
+                href: buildInventoryLedgerHref({
+                  documentType: "sales_order",
+                  documentId: order.id,
+                }),
+              },
+            ]
+          : []),
+        ...(onCreateMo
+          ? [
+              {
+                label: "Create manufacturing order(s)",
+                onClick: onCreateMo,
+                disabled: onCreateMoDisabled,
+                tooltip: onCreateMoDisabledReason,
+              },
+            ]
+          : []),
+        ...(onDelete
+          ? [{ label: "Delete order", onClick: onDelete, destructive: true }]
+          : []),
+      ]}
+      onClose={handleClose}
+      fallbackHref="/sales/orders"
+    />
   );
 }
 
@@ -324,31 +215,4 @@ function buildDescriptionLine(order: SalesOrderDetail): string | null {
     parts.push(`next ${type.toLowerCase()}${date}`);
   }
   return parts.length > 0 ? parts.join(" · ") : null;
-}
-
-function SaveStatusPill({
-  kind,
-  label,
-}: {
-  kind: "saving" | "error" | "draft" | "saved";
-  label: string;
-}) {
-  const className = (() => {
-    switch (kind) {
-      case "saving":
-        return cardStyles.savingPill;
-      case "error":
-      case "draft":
-        return cardStyles.failedPill;
-      case "saved":
-      default:
-        return cardStyles.savedPill;
-    }
-  })();
-  return (
-    <span className={className}>
-      <span className={cardStyles.pillSquare} />
-      {label}
-    </span>
-  );
 }

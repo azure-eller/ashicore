@@ -51,7 +51,7 @@ export function LotStrategyChip({
 }) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationKey: ["mo", orderId, "ingredient", ingredientId, "strategy"],
+    mutationKey: ["mo-action", orderId, "ingredient", ingredientId, "strategy"],
     mutationFn: (next: ManufacturingLotStrategy) =>
       patchManufacturingOrderIngredient(orderId, ingredientId, {
         lotStrategy: next,

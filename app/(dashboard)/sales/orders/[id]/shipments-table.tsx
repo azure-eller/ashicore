@@ -18,6 +18,7 @@ import {
   EditableLineDataGrid,
   type EditableLineDataGridChange,
 } from "@/components/editable-line-data-grid";
+import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { AgGridDateCellEditor } from "@/components/ag-grid-date-cell-editor";
 import { patchSalesShipment } from "@/lib/api/clients/sales-orders";
 import { formatDate, formatPrice, formatQuantity } from "@/lib/format";
@@ -80,7 +81,7 @@ export function ShipmentsTable({
   const planned = total - shipped;
 
   const patchMutation = useMutation({
-    mutationKey: ["sales-order", order.id, "patch-shipment"],
+    mutationKey: cardSaveMutationKey("sales-order", order.id, "shipment-cell"),
     mutationFn: ({
       shipment,
       override,

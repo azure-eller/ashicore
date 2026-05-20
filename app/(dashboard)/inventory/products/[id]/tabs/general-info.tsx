@@ -17,6 +17,7 @@ import {
 import { CardPageTwoColumn } from "@/components/card-page/card-page-two-column";
 import { VariantTable } from "@/components/card-page/variant-table";
 import { GenerateBarcodesButton } from "@/components/card-page/generate-barcodes-button";
+import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import styles from "@/components/card-page/card-page.module.css";
 import {
   updateItemCard,
@@ -62,7 +63,7 @@ export function ProductGeneralInfoTab({
     visibleVariants.some((variant) => !variant.sellable);
   const queryClient = useQueryClient();
   const sellableMutation = useMutation({
-    mutationKey: ["item-card", focusItemId, "sellable"],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "sellable"),
     mutationFn: (sellable: boolean) =>
       updateItemCardSellable(focusItemId as string, { sellable }),
     onSuccess: (nextCard) => {
@@ -210,7 +211,7 @@ function EditableFieldText({
   const queryClient = useQueryClient();
   const inputId = `card-field-${String(field)}`;
   const mutation = useMutation({
-    mutationKey: ["item-card", focusItemId, "patch", field],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "patch", field),
     mutationFn: (next: string | null) =>
       updateItemCard(focusItemId as string, { [field]: next } as UpdateItemCardInput),
     onSettled: () => {
@@ -282,7 +283,7 @@ function EditableFieldTextarea({
   const queryClient = useQueryClient();
   const inputId = `card-field-${String(field)}`;
   const mutation = useMutation({
-    mutationKey: ["item-card", focusItemId, "patch", field],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "patch", field),
     mutationFn: (next: string | null) =>
       updateItemCard(focusItemId as string, { [field]: next } as UpdateItemCardInput),
     onSettled: () => {
@@ -343,7 +344,7 @@ function UnitSelectField({
 }: UnitSelectFieldProps) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationKey: ["item-card", focusItemId, "patch", "unitDefinitionId"],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "patch", "unitDefinitionId"),
     mutationFn: (next: string) =>
       updateItemCard(focusItemId as string, { unitDefinitionId: next }),
     onSettled: () => {

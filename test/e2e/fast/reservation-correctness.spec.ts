@@ -496,16 +496,35 @@ test.describe("Reservation correctness", () => {
     const customerId = await createCustomerFixture(customerName);
     const itemId = await createMaterial(materialName, "2");
 
-    const orderId = await createOpenSalesOrder({
-      customerId,
-      itemId,
-      quantity: "5",
-    });
+    await page.goto("/sales/orders/new");
+    await expect(page.getByRole("heading", { name: "New sales order" })).toBeVisible();
 
+    const customerInput = page.getByPlaceholder("Search customers…");
+    await customerInput.click();
+    await customerInput.pressSequentially(customerName);
+    const [createOrderResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/api/sales-orders")
+      ),
+      page.getByRole("option", { name: new RegExp(customerName) }).click(),
+    ]);
+    expect(createOrderResponse.status()).toBe(201);
+    const created = await createOrderResponse.json();
+    const orderId = created.id as string;
+    await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
+
+    const updateResponse = await updateSalesOrder(orderId, {
+      customerId,
+      orderDate: "2026-04-01",
+      lines: [{ itemId, quantity: "5", unitPrice: "9.00" }],
+    });
+    expect(updateResponse.status).toBe(200);
     await page.goto(`/sales/orders/${orderId}`);
-    await expect(
-      page.getByRole("heading", { level: 1, name: /^SO-/ })
-    ).toBeVisible({ timeout: 15000 });
+
+    await expect(page.getByText(materialName).first()).toBeVisible({ timeout: 15000 });
+
     const balance = await getItemBalance(db, itemId);
     expect(balance.committedQty).toBe("2.0000");
     expect(balance.demandQty).toBe("5.0000");

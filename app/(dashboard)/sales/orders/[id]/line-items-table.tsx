@@ -25,6 +25,7 @@ import {
   EditableLineDataGrid,
   type EditableLineDataGridChange,
 } from "@/components/editable-line-data-grid";
+import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { patchSalesOrderLine } from "@/lib/api/clients/sales-orders";
 import { cn } from "@/lib/utils";
 import { formatPrice, formatQuantity, normalizeMoney } from "@/lib/format";
@@ -77,7 +78,7 @@ export function LineItemsTable({
 
   // Live per-cell PATCH (draft mode short-circuits to onPatchLine).
   const patchMutation = useMutation({
-    mutationKey: ["sales-order", order.id, "patch", "line-cell"],
+    mutationKey: cardSaveMutationKey("sales-order", order.id, "line-cell"),
     mutationFn: ({
       lineId,
       patch,

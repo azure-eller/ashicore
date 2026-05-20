@@ -224,6 +224,41 @@ test.describe("Purchasing write-path smoke", () => {
     expect(additionalCosts[0].amount).toBe("12.5000");
   });
 
+  test("creates a supplier-only purchase order draft", async ({ db }) => {
+    const createResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId,
+        expectedDate: null,
+        shippingCost: "0",
+        notes: null,
+        lines: [],
+        additionalCosts: [],
+      }),
+    });
+    const body = await createResponse.json();
+    expect(createResponse.status).toBe(201);
+
+    const [order] = await db
+      .select()
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, body.id));
+    expect(order.supplierId).toBe(supplierId);
+    expect(order.status).toBe("draft");
+
+    const lines = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, body.id));
+    expect(lines).toHaveLength(0);
+
+    const submitResponse = await testFetch(
+      `/api/purchase-orders/${body.id}/submit`,
+      { method: "POST" },
+    );
+    expect(submitResponse.status).toBe(400);
+  });
+
   test("uses latest landed unit cost at receipt time without repricing old receipts", async ({
     db,
   }) => {

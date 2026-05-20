@@ -76,15 +76,6 @@ const cleanedLinesSchema = z
   .array(rawLineSchema)
   .transform((lines) => lines.filter((line) => !isBlankLine(line)))
   .superRefine((lines, ctx) => {
-    if (lines.length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "At least one line is required",
-        path: [],
-      });
-      return;
-    }
-
     const seen = new Set<string>();
 
     lines.forEach((line, index) => {
@@ -175,7 +166,7 @@ const basePurchaseOrderSchema = createInsertSchema(purchaseOrders, {
   supplierId: z.string().min(1, "Supplier is required"),
   expectedDate: nullableString.refine(
     (value) => value == null || isValidIsoDate(value),
-    "Expected date must be a real date in YYYY-MM-DD format"
+    "Expected date must be a real date in YYYY-MM-DD format",
   ),
   shippingCost: nullableString.superRefine((value, ctx) => {
     const normalized = value?.trim() ?? "";
@@ -227,13 +218,13 @@ const rawReceiveLineSchema = z.object({
 });
 
 export const receivePurchaseOrderSchema = z
-	  .object({
-	    lines: z.array(rawReceiveLineSchema).min(1),
-	    confirmOverReceipt: z.boolean().optional(),
-	  })
-	  .transform(({ lines, confirmOverReceipt }) => ({
-	    confirmOverReceipt: confirmOverReceipt ?? false,
-	    lines: lines
+  .object({
+    lines: z.array(rawReceiveLineSchema).min(1),
+    confirmOverReceipt: z.boolean().optional(),
+  })
+  .transform(({ lines, confirmOverReceipt }) => ({
+    confirmOverReceipt: confirmOverReceipt ?? false,
+    lines: lines
       .map((line) => ({
         lineId: line.lineId,
         quantityReceived: line.quantityReceived?.trim() ?? "",

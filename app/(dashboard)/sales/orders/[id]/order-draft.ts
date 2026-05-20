@@ -228,7 +228,7 @@ export function orderToUpdatePayload(
 /** Assemble the create payload from the local draft order. */
 export function draftToInsertPayload(draft: SalesOrderDetail): InsertSalesOrder {
   return {
-    orderNumber: null,
+    orderNumber: draft.orderNumber.trim() || null,
     customerId: draft.customerId,
     customerProjectId: draft.customerProjectId,
     status: "open",

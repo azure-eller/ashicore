@@ -13,6 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { CardPage } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CardTabs, type CardTab } from "@/components/card-page/card-tabs";
 import {
@@ -22,9 +23,14 @@ import {
   type CreateItemCardInput,
   type ItemCardDto,
 } from "@/lib/api/clients/item-cards";
+import {
+  cardSaveMutationKey,
+  saveStateFromEntityStatus,
+  useEntitySaveStatus,
+  type CardSaveState,
+} from "@/components/card-page/card-save-status";
 import { VariantConfigurationDialog } from "@/components/card-page/variant-configuration-dialog";
 import { ProductGeneralInfoTab } from "./tabs/general-info";
-import styles from "@/components/card-page/card-page.module.css";
 
 export type ProductCardTab = "general" | "recipe" | "production" | "lots";
 
@@ -61,6 +67,7 @@ export function ProductCard({
     refetchOnWindowFocus: false,
   });
   const card = isDraft ? draftCard : cardQuery.data ?? draftCard;
+  const liveSaveStatus = useEntitySaveStatus("item-card", currentItemId ?? "__draft__");
 
   useEffect(() => {
     if (!currentItemId) return;
@@ -87,7 +94,7 @@ export function ProductCard({
   const [confirmDeleteCard, setConfirmDeleteCard] = useState(false);
 
   const createMutation = useMutation({
-    mutationKey: ["item-card", "__draft__", "create"],
+    mutationKey: cardSaveMutationKey("item-card", "__draft__", "create"),
     mutationFn: (input: CreateItemCardInput) => createItemCard(input),
     onSuccess: (result) => {
       setCurrentItemId(result.itemId);
@@ -132,7 +139,7 @@ export function ProductCard({
   );
 
   const deleteCardMutation = useMutation({
-    mutationKey: ["item-card", currentItemId ?? "__draft__", "delete-card"],
+    mutationKey: ["item-card-action", currentItemId ?? "__draft__", "delete-card"],
     mutationFn: () => deleteItemCard(currentItemId as string),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["item-cards"] });
@@ -178,29 +185,47 @@ export function ProductCard({
   ).length;
   const avgIngredientsCost = getAverageIngredientsCost(card);
   const resolvedActiveTab = activeTab ?? getProductCardTabFromPath(pathname);
+  const saveState: CardSaveState = isDraft
+    ? createMutation.isPending
+      ? "saving"
+      : createMutation.isError
+        ? "failed"
+        : "not_saved"
+    : saveStateFromEntityStatus(liveSaveStatus.status);
 
   return (
-    <div className={styles.sheet}>
+    <CardPage>
       <CardPageHeader
-        itemId={currentItemId ?? ""}
-        typeLabel="Product"
-        name={card.family.name}
-        category={card.family.category}
-        variantCount={visibleVariantCount}
-        fallbackHref="/inventory/products"
-        isDraft={isDraft}
-        createdAt={card.family.createdAt}
-        updatedAt={card.family.updatedAt}
-        saveStatus={
-          isDraft
-            ? createMutation.isPending
-              ? "saving"
-              : createMutation.isError
-                ? "error"
-                : "draft"
-            : undefined
+        eyebrow={card.family.category ? `Product · ${card.family.category}` : "Product"}
+        title={isDraft && !card.family.name.trim() ? "New product" : card.family.name}
+        meta={
+          <>
+            <span>
+              {visibleVariantCount} {visibleVariantCount === 1 ? "variant" : "variants"}
+            </span>
+          </>
         }
-        onDelete={isDraft ? undefined : () => setConfirmDeleteCard(true)}
+        fallbackHref="/inventory/products"
+        saveState={saveState}
+        menuActions={[
+          ...(currentItemId
+            ? [
+                {
+                  label: "View inventory activity",
+                  href: `/inventory/ledger?itemId=${currentItemId}`,
+                },
+              ]
+            : []),
+          ...(isDraft
+            ? []
+            : [
+                {
+                  label: "Delete product",
+                  onClick: () => setConfirmDeleteCard(true),
+                  destructive: true,
+                },
+              ]),
+        ]}
       />
 
       <CardTabs
@@ -267,7 +292,7 @@ export function ProductCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </CardPage>
   );
 }
 

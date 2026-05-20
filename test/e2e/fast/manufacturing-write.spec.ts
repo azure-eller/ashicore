@@ -136,9 +136,9 @@ test.describe("Manufacturing write-path smoke", () => {
           .select()
           .from(manufacturingOrders)
           .where(eq(manufacturingOrders.id, orderId));
-        return `${row?.plannedDate ?? ""}|${row?.notes ?? ""}`;
+        return `${row?.plannedDate ?? ""}|${row?.notes ?? ""}|${row?.priorityRank == null ? "unranked" : "ranked"}`;
       })
-      .toBe("2026-04-25|Fast manufacturing smoke test");
+      .toBe("2026-04-25|Fast manufacturing smoke test|ranked");
 
     const [order] = await db
       .select()

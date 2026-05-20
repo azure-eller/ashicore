@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import {
   Select,
   SelectContent,
@@ -117,7 +118,7 @@ function CostsForm({
   );
 
   const mutation = useMutation({
-    mutationKey: ["sales-order", order.id, "shipment-costs", shipment.id],
+    mutationKey: cardSaveMutationKey("sales-order", order.id, "shipment-costs", shipment.id),
     mutationFn: async () => {
       const payload = {
         customerFreightChargeAmount: freight.trim() === "" ? null : freight.trim(),

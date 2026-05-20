@@ -21,9 +21,6 @@ import {
   Attachment01Icon,
   Delete02Icon,
   Download01Icon,
-  Cancel01Icon,
-  MoreVerticalIcon,
-  PrinterIcon,
   Upload01Icon,
 } from "@hugeicons/core-free-icons";
 import {
@@ -37,6 +34,7 @@ import {
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import {
   formatPrice,
+  formatDate,
   formatAddressLines,
   getFieldArrayError,
   getFirstFormErrorMessage,
@@ -61,7 +59,6 @@ import {
   EditableLineDataGrid,
   type ColDef,
 } from "@/components/editable-line-data-grid";
-import { EditableInfoGrid } from "@/components/editable-info-grid";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import {
@@ -80,21 +77,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { AutosaveStatus } from "@/components/autosave-status";
-import { TooltipHeader } from "@/components/tooltip-header";
 import { Textarea } from "@/components/ui/textarea";
 import { AddressFields } from "@/components/address-fields";
 import { useAutosaveForm } from "@/lib/hooks/use-autosave-form";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
+import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card-page";
+import { CardPageHeader } from "@/components/card-page/card-page-header";
 import {
-  EXPECTED_DELIVERY_DATE_TOOLTIP,
+  cardSaveMutationKey,
+  type CardSaveState,
+} from "@/components/card-page/card-save-status";
+import {
   PO_LINE_TOTAL_TOOLTIP,
   PURCHASE_ACCOUNT_TOOLTIP,
   PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP,
@@ -752,13 +746,7 @@ function PurchaseMaterialCellEditor(
 }
 
 function hasAutosaveMinimum(values: PurchaseOrderFormValues) {
-  if (!values.supplierId?.trim()) return false;
-
-  return (values.lines ?? []).some((line) => {
-    if (!line?.itemId?.trim()) return false;
-    if (parsePositive(line.quantityOrdered) == null) return false;
-    return parseNonNegative(line.unitCost) != null;
-  });
+  return Boolean(values.supplierId?.trim());
 }
 
 export function PurchaseOrderForm({
@@ -967,7 +955,7 @@ export function PurchaseOrderForm({
   const additionalCostCount = additionalCostRows.filter(
     (cost) => !isBlankPurchaseOrderAdditionalCost(cost),
   ).length;
-  const canAutosaveDraft = hasAutosaveMinimum(form.getValues());
+  const canAutosaveDraft = Boolean(watchedSupplierId?.trim());
   const xeroAccountsByCode = useMemo(
     () => new Map(xeroAccounts.map((account) => [account.code, account])),
     [xeroAccounts],
@@ -1477,6 +1465,11 @@ export function PurchaseOrderForm({
   );
 
   const mutation = useMutation({
+    mutationKey: cardSaveMutationKey(
+      "purchase-order",
+      savedOrderId ?? "__draft__",
+      "submit-form",
+    ),
     mutationFn: savePurchaseOrder,
     onMutate: () => {
       setFormError(null);
@@ -1529,6 +1522,7 @@ export function PurchaseOrderForm({
   });
 
   const uploadFileMutation = useMutation({
+    mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "file-upload"],
     mutationFn: async ({ orderId, file }: { orderId: string; file: File }) => {
       const formData = new FormData();
       formData.set("file", file);
@@ -1553,6 +1547,7 @@ export function PurchaseOrderForm({
   });
 
   const deleteFileMutation = useMutation({
+    mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "file-delete"],
     mutationFn: async (fileId: string) => {
       if (!savedOrderId) throw new Error("Save the purchase order first.");
       const response = await fetch(
@@ -1575,6 +1570,7 @@ export function PurchaseOrderForm({
     onError: (error: Error) => setFileActionError(error.message),
   });
   const duplicateMutation = useMutation({
+    mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "duplicate"],
     mutationFn: async () => {
       if (!savedOrderId) throw new Error("Save the purchase order first.");
       const response = await fetch(
@@ -1598,6 +1594,7 @@ export function PurchaseOrderForm({
     onError: (error: Error) => setFormError(error.message),
   });
   const statusMutation = useMutation({
+    mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "status"],
     mutationFn: async (status: PurchaseOrderStatus) => {
       if (!savedOrderId) throw new Error("Save the purchase order first.");
       const response = await fetch(
@@ -1632,7 +1629,7 @@ export function PurchaseOrderForm({
     if (!valid) {
       const message =
         getFirstFormErrorMessage(form.formState.errors) ??
-        "Complete the supplier and at least one line before uploading files.";
+        "Choose a supplier before uploading files.";
       setFormError(message);
       throw new Error(message);
     }
@@ -1659,6 +1656,7 @@ export function PurchaseOrderForm({
   };
 
   const addressMutation = useMutation({
+    mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "delivery-address"],
     mutationFn: async ({
       id,
       values,
@@ -1811,14 +1809,44 @@ export function PurchaseOrderForm({
       ? "All changes saved"
       : autosave.message
     : "All changes saved";
+  const cardSaveState: CardSaveState = (() => {
+    if (readOnly) return "readonly";
+    if (mutation.isPending || autosaveState === "saving") return "saving";
+    if (mutation.isError || autosaveState === "error") return "failed";
+    if (!savedOrderId || autosaveState === "dirty" || autosaveState === "blocked") {
+      return "not_saved";
+    }
+    return "saved";
+  })();
+  const cardSaveMessage =
+    cardSaveState === "saved"
+      ? "Saved"
+      : cardSaveState === "failed"
+        ? autosaveMessage
+        : null;
   const displayTitle =
     orderTitle ??
     selectedSupplier?.name ??
     (isEditing
       ? `Purchase Order ${savedOrderId?.slice(0, 8) ?? ""}`
       : "New purchase order");
-  const statusEyebrow =
-    displayStatus === "draft" ? "New purchase order" : "Purchase order";
+  const headerMeta = (
+    <>
+      <span>Supplier {selectedSupplier?.code ?? "not selected"}</span>
+      <span className={styles.metaDot} />
+      <span>Expected {form.getValues("expectedDate") ?? "not set"}</span>
+      <span className={styles.metaDot} />
+      <span className={styles.mono}>
+        Total {formatPrice(orderTotal.toFixed(4)) ?? "$0.00"}
+      </span>
+    </>
+  );
+  const submitPurchaseOrderForm = () => {
+    void form.handleSubmit(
+      (values) => mutation.mutate(values),
+      handleInvalidSubmit,
+    )();
+  };
   const materialColumns = lineColumns.map((column) => {
     if (column.field === "itemId") return { ...column, headerName: "Item" };
     if (column.field === "quantityOrdered")
@@ -1837,108 +1865,57 @@ export function PurchaseOrderForm({
   }, 0);
 
   return (
-    <div className={styles.stage}>
-      <div className={styles.sheet}>
-        <header className={styles.header}>
-          <div className={styles.headerIdentity}>
-            <div className={styles.eyebrow}>{statusEyebrow}</div>
-            <div className={styles.titleRow}>
-              <h1 className={styles.title}>{displayTitle}</h1>
-            </div>
-            <div className={styles.meta}>
-              <span>Supplier {selectedSupplier?.code ?? "not selected"}</span>
-              <span className={styles.metaDot} />
-              <span>
-                Expected {form.getValues("expectedDate") ?? "not set"}
-              </span>
-              <span className={styles.metaDot} />
-              <span className={styles.mono}>
-                Total {formatPrice(orderTotal.toFixed(4)) ?? "$0.00"}
-              </span>
-            </div>
-          </div>
-          <div className={styles.headerRight}>
-            <AutosaveStatus state={autosaveState} message={autosaveMessage} />
+    <>
+      <CardPage>
+        <CardPageHeader
+          title={displayTitle}
+          meta={headerMeta}
+          status={
             <PurchaseOrderStatusBadge
               status={displayStatus}
               className="w-[230px]"
               disabled={!canWrite || !savedOrderId || statusMutation.isPending}
               onStatusChange={(status) => statusMutation.mutate(status)}
             />
-            <Button
-              type="submit"
-              form="purchase-order-form"
-              disabled={
-                mutation.isPending ||
-                readOnly ||
-                autosave.state === "saving" ||
-                autosave.state === "dirty"
-              }
-            >
-              {mutation.isPending ? "Saving..." : "Save changes"}
-            </Button>
-            <button
-              type="button"
-              className={styles.iconBtn}
-              aria-label="Print"
-              title="Print"
-              onClick={() => window.print()}
-            >
-              <HugeiconsIcon icon={PrinterIcon} size={14} />
-            </button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className={styles.iconBtn}
-                  aria-label="More actions"
-                  title="More actions"
-                >
-                  <HugeiconsIcon icon={MoreVerticalIcon} size={14} />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="bg-popover text-popover-foreground"
-              >
-                {savedOrderId && canViewLedger ? (
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      router.push(
-                        buildInventoryLedgerHref({
-                          documentType: "purchase_order",
-                          documentId: savedOrderId,
-                        }),
-                      )
-                    }
-                  >
-                    View inventory activity
-                  </DropdownMenuItem>
-                ) : null}
-                <DropdownMenuItem
-                  disabled={!savedOrderId || duplicateMutation.isPending}
-                  onSelect={() => duplicateMutation.mutate()}
-                >
-                  Duplicate
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <button
-              type="button"
-              className={styles.iconBtn}
-              aria-label="Close"
-              onClick={handleCancel}
-            >
-              <HugeiconsIcon icon={Cancel01Icon} size={14} />
-            </button>
-          </div>
-        </header>
+          }
+          saveState={cardSaveState}
+          saveMessage={cardSaveMessage}
+          primaryAction={{
+            label: mutation.isPending ? "Saving..." : "Save changes",
+            onClick: submitPurchaseOrderForm,
+            disabled:
+              mutation.isPending ||
+              readOnly ||
+              autosave.state === "saving" ||
+              autosave.state === "dirty",
+          }}
+          menuActions={[
+            ...(savedOrderId && canViewLedger
+              ? [
+                  {
+                    label: "View inventory activity",
+                    href: buildInventoryLedgerHref({
+                      documentType: "purchase_order",
+                      documentId: savedOrderId,
+                    }),
+                  },
+                ]
+              : []),
+            {
+              label: "Duplicate",
+              onClick: () => duplicateMutation.mutate(),
+              disabled: !savedOrderId || duplicateMutation.isPending,
+            },
+          ]}
+          onClose={handleCancel}
+          fallbackHref={fallbackPath}
+        />
 
-        <div className={styles.body}>
+        <CardPageBody>
           {formError && (
-            <div className={styles.section}>
+            <CardSection>
               <FieldError>{formError}</FieldError>
-            </div>
+            </CardSection>
           )}
 
           <form
@@ -1948,132 +1925,84 @@ export function PurchaseOrderForm({
               handleInvalidSubmit,
             )}
           >
-            <section className={styles.section}>
-              <h2 className={styles.sectionHeading}>Order details</h2>
-              <EditableInfoGrid
-                fields={[
-                  {
-                    id: "supplier",
-                    label: "Supplier",
-                    editable: !readOnly,
-                    renderValue: () => selectedSupplier?.name ?? "-",
-                    renderEditor: readOnly
-                      ? undefined
-                      : () => (
-                          <Controller
-                            control={form.control}
-                            name="supplierId"
-                            render={({ field, fieldState }) => (
-                              <SupplierSelect
-                                suppliers={supplierOptionsSorted}
-                                value={field.value}
-                                onValueChange={(nextValue) =>
-                                  field.onChange(nextValue ?? "")
-                                }
-                                errorMessage={fieldState.error?.message}
-                              />
-                            )}
+            <CardSection title="Order details">
+              <div className={`${styles.formRow} ${styles.formRowPo}`}>
+                <div className={styles.formField}>
+                  <Controller
+                    control={form.control}
+                    name="supplierId"
+                    render={({ field, fieldState }) => (
+                      <SupplierSelect
+                        suppliers={supplierOptionsSorted}
+                        value={field.value}
+                        onValueChange={(nextValue) =>
+                          field.onChange(nextValue ?? "")
+                        }
+                        errorMessage={fieldState.error?.message}
+                        inputClassName={styles.underlineControl}
+                        labelClassName={styles.formLabel}
+                      />
+                    )}
+                  />
+                  {selectedSupplier?.code ? (
+                    <div className={styles.fieldMeta}>{selectedSupplier.code}</div>
+                  ) : null}
+                </div>
+                <div className={styles.formField}>
+                  <Controller
+                    control={form.control}
+                    name="expectedDate"
+                    render={({ field, fieldState }) => (
+                      <Field data-invalid={fieldState.invalid}>
+                        <FieldLabel className={styles.formLabel} htmlFor={field.name}>
+                          Expected arrival <span className={styles.requiredMark}>*</span>
+                        </FieldLabel>
+                        {readOnly ? (
+                          <div className={`${styles.readOnlyFieldValue} ${styles.mono}`}>
+                            {field.value ? formatDate(field.value) : "—"}
+                          </div>
+                        ) : (
+                          <DatePicker
+                            id={field.name}
+                            value={field.value ?? ""}
+                            onChange={(value) => field.onChange(value || null)}
+                            onBlur={field.onBlur}
+                            aria-invalid={fieldState.invalid}
+                            className={styles.underlineControl}
                           />
-                        ),
-                  },
-                  {
-                    id: "expected-arrival",
-                    label: "Expected arrival",
-                    editable: !readOnly,
-                    renderValue: () => form.getValues("expectedDate") ?? "-",
-                    renderEditor: readOnly
-                      ? undefined
-                      : () => (
-                          <Controller
-                            control={form.control}
-                            name="expectedDate"
-                            render={({ field, fieldState }) => (
-                              <Field data-invalid={fieldState.invalid}>
-                                <FieldLabel
-                                  className={styles.compactLabel}
-                                  htmlFor={field.name}
-                                >
-                                  <TooltipHeader
-                                    label="Expected arrival"
-                                    tooltip={EXPECTED_DELIVERY_DATE_TOOLTIP}
-                                  />
-                                </FieldLabel>
-                                <DatePicker
-                                  id={field.name}
-                                  value={field.value ?? ""}
-                                  onChange={(value) =>
-                                    field.onChange(value || null)
-                                  }
-                                  onBlur={field.onBlur}
-                                  aria-invalid={fieldState.invalid}
-                                />
-                                {fieldState.invalid && (
-                                  <FieldError errors={[fieldState.error]} />
-                                )}
-                              </Field>
-                            )}
-                          />
-                        ),
-                  },
-                  {
-                    id: "order-total",
-                    label: "Order total",
-                    renderValue: () =>
-                      formatPrice(orderTotal.toFixed(4)) ?? "$0.00",
-                  },
-                  {
-                    id: "ship-to",
-                    label: "Ship-to",
-                    editable: !readOnly,
-                    renderValue: () =>
-                      formatAddressLines({
-                        line1: currentDeliveryAddress.shipLine1,
-                        line2: currentDeliveryAddress.shipLine2,
-                        city: currentDeliveryAddress.shipCity,
-                        region: currentDeliveryAddress.shipRegion,
-                        postcode: currentDeliveryAddress.shipPostcode,
-                        country: currentDeliveryAddress.shipCountry,
-                      }).join(", ") || "-",
-                    renderEditor: readOnly
-                      ? undefined
-                      : () => (
-                          <DeliveryAddressInput
-                            id="purchase-order-delivery-address"
-                            value={currentDeliveryAddress}
-                            options={deliveryAddressOptions}
-                            onChange={applyDeliveryAddress}
-                            onAddNew={openAddressDialog}
-                            onEdit={openEditAddressDialog}
-                          />
-                        ),
-                  },
-                  {
-                    id: "ordered",
-                    label: "Ordered",
-                    renderValue: () =>
-                      displayStatus === "draft" ? "-" : "Recorded",
-                  },
-                  {
-                    id: "received",
-                    label: "Received",
-                    renderValue: () =>
-                      displayStatus === "received"
-                        ? "Complete"
-                        : displayStatus === "partial"
-                          ? "Partial"
-                          : "-",
-                  },
-                ]}
-                columns={3}
-              />
+                        )}
+                        <div className={styles.fieldHint}>
+                          Supplier-confirmed delivery date.
+                        </div>
+                        {fieldState.invalid && (
+                          <FieldError errors={[fieldState.error]} />
+                        )}
+                      </Field>
+                    )}
+                  />
+                </div>
+                <div className={styles.formField}>
+                  <DeliveryAddressInput
+                    id="purchase-order-delivery-address"
+                    label="Delivery address"
+                    value={currentDeliveryAddress}
+                    options={deliveryAddressOptions}
+                    onChange={applyDeliveryAddress}
+                    onAddNew={openAddressDialog}
+                    onEdit={openEditAddressDialog}
+                    inputClassName={styles.underlineControl}
+                    labelClassName={styles.formLabel}
+                    readOnly={readOnly}
+                  />
+                  <div className={styles.fieldHint}>
+                    Receives this purchase order.
+                  </div>
+                </div>
+              </div>
               <input type="hidden" {...form.register("shippingCost")} />
-            </section>
+            </CardSection>
 
-            <section className={styles.section}>
-              <h2 className={styles.sectionHeading}>
-                Materials
-                <span className={styles.count}>· {lineCount}</span>
-              </h2>
+            <CardSection title="Materials" count={`· ${lineCount}`}>
               <EditableLineDataGrid
                 rows={lineGridRows}
                 columns={materialColumns}
@@ -2088,13 +2017,9 @@ export function PurchaseOrderForm({
                 isBlankRow={isBlankPurchaseOrderLine}
                 error={linesError}
               />
-            </section>
+            </CardSection>
 
-            <section className={styles.section}>
-              <h2 className={styles.sectionHeading}>
-                Additional costs
-                <span className={styles.count}>· {additionalCostCount}</span>
-              </h2>
+            <CardSection title="Additional costs" count={`· ${additionalCostCount}`}>
               <EditableLineDataGrid
                 rows={additionalCostGridRows}
                 columns={additionalCostColumns}
@@ -2109,9 +2034,9 @@ export function PurchaseOrderForm({
                 isBlankRow={isBlankPurchaseOrderAdditionalCost}
                 error={additionalCostsError}
               />
-            </section>
+            </CardSection>
 
-            <section className={styles.section}>
+            <CardSection>
               <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
@@ -2194,10 +2119,10 @@ export function PurchaseOrderForm({
                   </div>
                 </div>
               </div>
-            </section>
+            </CardSection>
           </form>
-        </div>
-      </div>
+        </CardPageBody>
+      </CardPage>
       <Dialog open={attachmentsOpen} onOpenChange={setAttachmentsOpen}>
         <DialogContent size="2xl">
           <DialogHeader>
@@ -2436,7 +2361,7 @@ export function PurchaseOrderForm({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
 
@@ -2448,6 +2373,9 @@ function DeliveryAddressInput({
   onChange,
   onAddNew,
   onEdit,
+  inputClassName,
+  labelClassName,
+  readOnly = false,
 }: {
   id: string;
   label?: ReactNode;
@@ -2456,6 +2384,9 @@ function DeliveryAddressInput({
   onChange: (address: DeliveryAddressFields | null) => void;
   onAddNew: () => void;
   onEdit: (address: DeliveryAddressOption) => void;
+  inputClassName?: string;
+  labelClassName?: string;
+  readOnly?: boolean;
 }) {
   const currentAddressId = deliveryAddressKey(value);
   const canEditCurrent = currentAddressId !== "";
@@ -2464,12 +2395,27 @@ function DeliveryAddressInput({
   const items = canEditCurrent
     ? [...optionIds, EDIT_DELIVERY_ADDRESS_VALUE, ADD_DELIVERY_ADDRESS_VALUE]
     : [...optionIds, ADD_DELIVERY_ADDRESS_VALUE];
+  const addressLines = formatAddressLines({
+    line1: value?.shipLine1 ?? null,
+    line2: value?.shipLine2 ?? null,
+    city: value?.shipCity ?? null,
+    region: value?.shipRegion ?? null,
+    postcode: value?.shipPostcode ?? null,
+    country: value?.shipCountry ?? null,
+  });
 
   return (
     <Field>
-      <FieldLabel className={label ? undefined : "sr-only"} htmlFor={id}>
+      <FieldLabel className={labelClassName ?? (label ? undefined : "sr-only")} htmlFor={id}>
         {label ?? "Delivery Address"}
       </FieldLabel>
+      {readOnly ? (
+        <div className={styles.readOnlyAddress}>
+          {addressLines.length > 0
+            ? addressLines.map((line) => <div key={line}>{line}</div>)
+            : "No delivery address set"}
+        </div>
+      ) : (
       <Combobox
         items={items}
         value={currentAddressId}
@@ -2501,7 +2447,7 @@ function DeliveryAddressInput({
           id={id}
           placeholder="Address"
           showClear={currentAddressId !== ""}
-          className="w-full min-w-0"
+          className={inputClassName ?? "w-full min-w-0"}
         />
         <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
           <ComboboxEmpty>No addresses found</ComboboxEmpty>
@@ -2541,6 +2487,7 @@ function DeliveryAddressInput({
           {optionIds.length > 0 ? <ComboboxSeparator /> : null}
         </ComboboxContent>
       </Combobox>
+      )}
     </Field>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -24,6 +24,7 @@ import {
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import type {
   CustomerOption,
+  SalesAddressOption,
   SalesOrderDetail,
   SalesOrderDetailLine,
   SalesOrderItemOption,
@@ -39,6 +40,8 @@ import { PlanShipmentDialog } from "./plan-shipment-dialog";
 import { MarkShippedDialog } from "./mark-shipped-dialog";
 import { ShipmentCostsDialog } from "./shipment-costs-dialog";
 import { CreateManufacturingOrdersDialog } from "../../create-manufacturing-orders-dialog";
+import { CardPage, CardPageBody } from "@/components/card-page/card-page";
+import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import {
   draftToInsertPayload,
   makeDraftLine,
@@ -46,7 +49,6 @@ import {
   orderToUpdatePayload,
   type OrderDraftController,
 } from "./order-draft";
-import cardStyles from "@/components/card-page/card-page.module.css";
 
 export type XeroInvoiceSetupStatus =
   | "not_connected"
@@ -59,6 +61,7 @@ export type OrderCardProps = {
   initialDraftCustomerId?: string | null;
   initialDraftProjectId?: string | null;
   customerOptions: CustomerOption[];
+  addressOptions: SalesAddressOption[];
   itemOptions: SalesOrderItemOption[];
   addressOptions?: SalesAddressOption[];
   canViewLedger?: boolean;
@@ -85,6 +88,7 @@ export function OrderCard({
   initialDraftCustomerId,
   initialDraftProjectId,
   customerOptions,
+  addressOptions,
   itemOptions,
   addressOptions = [],
   canViewLedger,
@@ -103,6 +107,7 @@ export function OrderCard({
       projectId: initialDraftProjectId ?? null,
     }),
   );
+  const autoCreateStartedRef = useRef(false);
   const isDraft = currentOrderId == null;
 
   const [actionError, setActionError] = useState<string | null>(null);
@@ -186,7 +191,7 @@ export function OrderCard({
   );
 
   const createMutation = useMutation({
-    mutationKey: ["sales-order", "__draft__", "create"],
+    mutationKey: cardSaveMutationKey("sales-order", "__draft__", "create"),
     mutationFn: async () => {
       const created = await createSalesOrder(draftToInsertPayload(draftOrder));
       const detail = await fetchSalesOrderDetail(created.id);
@@ -202,16 +207,18 @@ export function OrderCard({
     onError: (error) => setActionError((error as Error).message),
   });
 
-  const canCreate =
-    draftOrder.customerId.trim().length > 0 &&
-    draftOrder.lines.length > 0 &&
-    draftOrder.lines.every(
-      (line) => Number(line.quantity) > 0 && Number(line.unitPrice) >= 0,
-    );
+  const canCreate = draftOrder.customerId.trim().length > 0;
+
+  useEffect(() => {
+    if (!isDraft || !canCreate || autoCreateStartedRef.current) return;
+    if (createMutation.isPending || createMutation.isSuccess) return;
+    autoCreateStartedRef.current = true;
+    createMutation.mutate();
+  }, [canCreate, createMutation, isDraft]);
 
   // ---- Live mutations ----------------------------------------------------
   const deleteMutation = useMutation({
-    mutationKey: ["sales-order", currentOrderId ?? "draft", "delete"],
+    mutationKey: ["sales-order-action", currentOrderId ?? "draft", "delete"],
     mutationFn: async () => {
       const response = await fetch(`/api/sales-orders/${currentOrderId}`, {
         method: "DELETE",
@@ -229,7 +236,7 @@ export function OrderCard({
   });
 
   const duplicateMutation = useMutation({
-    mutationKey: ["sales-order", currentOrderId ?? "draft", "duplicate"],
+    mutationKey: ["sales-order-action", currentOrderId ?? "draft", "duplicate"],
     mutationFn: async () => {
       const response = await fetch(`/api/sales-orders/${currentOrderId}/duplicate`, {
         method: "POST",
@@ -248,7 +255,7 @@ export function OrderCard({
   });
 
   const deleteLineMutation = useMutation({
-    mutationKey: ["sales-order", currentOrderId ?? "draft", "delete-line"],
+    mutationKey: cardSaveMutationKey("sales-order", currentOrderId ?? "draft", "delete-line"),
     mutationFn: (line: SalesOrderDetailLine) =>
       updateSalesOrderFull(
         currentOrderId as string,
@@ -266,7 +273,7 @@ export function OrderCard({
   });
 
   const addLineMutation = useMutation({
-    mutationKey: ["sales-order", currentOrderId ?? "draft", "add-line"],
+    mutationKey: cardSaveMutationKey("sales-order", currentOrderId ?? "draft", "add-line"),
     mutationFn: (option: SalesOrderItemOption) =>
       updateSalesOrderFull(
         currentOrderId as string,
@@ -312,7 +319,7 @@ export function OrderCard({
   );
 
   const reorderLinesMutation = useMutation({
-    mutationKey: ["sales-order", currentOrderId ?? "draft", "reorder-lines"],
+    mutationKey: cardSaveMutationKey("sales-order", currentOrderId ?? "draft", "reorder-lines"),
     mutationFn: (orderedIds: string[]) =>
       updateSalesOrderFull(
         currentOrderId as string,
@@ -342,7 +349,7 @@ export function OrderCard({
   );
 
   const deleteShipmentMutation = useMutation({
-    mutationKey: ["sales-order", currentOrderId ?? "draft", "delete-shipment"],
+    mutationKey: ["sales-order-action", currentOrderId ?? "draft", "delete-shipment"],
     mutationFn: async (shipment: SalesShipmentRow) => {
       const response = await fetch(
         `/api/sales-orders/${currentOrderId}/shipments/${shipment.id}`,
@@ -364,7 +371,7 @@ export function OrderCard({
   });
 
   const shipmentXeroPushMutation = useMutation({
-    mutationKey: ["sales-order", currentOrderId ?? "draft", "shipment-xero-push"],
+    mutationKey: ["sales-order-action", currentOrderId ?? "draft", "shipment-xero-push"],
     mutationFn: async (shipment: SalesShipmentRow) => {
       const response = await fetch(
         `/api/sales-orders/${currentOrderId}/shipments/${shipment.id}/xero-push`,
@@ -430,12 +437,12 @@ export function OrderCard({
   });
 
   return (
-    <div className={cardStyles.sheet}>
+    <CardPage>
       <OrderCardHeader
         order={isDraft ? null : order}
         mode={isDraft ? "draft" : "edit"}
         draftCustomerName={draftOrder.customerName || null}
-        draftIsDirty={isDraft && (draftOrder.customerId !== "" || draftOrder.lines.length > 0)}
+        draftIsDirty={isDraft}
         draftSaving={createMutation.isPending}
         draftHasError={createMutation.isError}
         onCreate={isDraft ? () => createMutation.mutate() : undefined}
@@ -460,7 +467,7 @@ export function OrderCard({
         </div>
       ) : null}
 
-      <div className={cardStyles.body}>
+      <CardPageBody>
         <OrderDetailsGrid
           order={order}
           editable={isEditable}
@@ -507,7 +514,7 @@ export function OrderCard({
           notesEditable={isEditable}
           draft={isDraft ? draftController : undefined}
         />
-      </div>
+      </CardPageBody>
 
       {isDraft ? null : (
         <>
@@ -650,7 +657,7 @@ export function OrderCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </CardPage>
   );
 }
 

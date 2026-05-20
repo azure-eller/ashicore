@@ -22,6 +22,7 @@ import {
   EndpointNotReadyError,
   type ItemCardVariantDto,
 } from "@/lib/api/clients/item-cards";
+import { cardSaveMutationKey } from "./card-save-status";
 
 export type CopyScope = "bom" | "operations";
 export type CopyDirection = "to" | "from";
@@ -90,7 +91,7 @@ function DialogBody({
   );
 
   const mutation = useMutation({
-    mutationKey: ["item-card", activeVariant.id, "copy", scope, direction],
+    mutationKey: cardSaveMutationKey("item-card", activeVariant.id, "copy", scope, direction),
     mutationFn: async () => {
       if (direction === "to") {
         const targetVariantIds = Array.from(selectedIds);

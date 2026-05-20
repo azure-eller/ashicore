@@ -54,7 +54,7 @@ export function StatusPicker({
   const tone = STATUS_TONE[current];
 
   const mutation = useMutation({
-    mutationKey: ["mo", orderId, "status"],
+    mutationKey: ["mo-action", orderId, "status"],
     mutationFn: async (next: ProductionStatus) => {
       // Map the 4-state picker back to existing DB columns:
       // - blocked        → isBlocked = true

@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { HelpCircleIcon } from "@hugeicons/core-free-icons";
+import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { formatPrice } from "@/lib/format";
 import { patchSalesOrderHeader } from "@/lib/api/clients/sales-orders";
 import type { SalesOrderDetail } from "@/app/(dashboard)/sales/types";
@@ -137,7 +138,7 @@ function NotesEditor({
   const [value, setValue] = useState(initial);
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationKey: ["sales-order", orderId, "patch", "notes"],
+    mutationKey: cardSaveMutationKey("sales-order", orderId, "notes"),
     mutationFn: (notes: string | null) => patchSalesOrderHeader(orderId, { notes }),
     onSuccess: (next) => {
       queryClient.setQueryData(["sales-order", orderId], next);

@@ -6,8 +6,8 @@ import {
   getSalesOrderItemOptions,
 } from "@/app/(dashboard)/sales/queries";
 import { hasModuleAccess } from "@/lib/authz";
-import { getAddressEntries } from "@/lib/dal/addresses";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
+import { getAddressEntries } from "@/lib/dal/addresses";
 import { getXeroConnection } from "@/lib/dal/xero";
 
 export default async function OrderDetailPage({
@@ -18,7 +18,7 @@ export default async function OrderDetailPage({
   const context = await getAuthedMemberContext();
   const { id } = await params;
 
-  const [order, xeroConnection, customerOptions, itemOptions, addressOptions] = await Promise.all([
+  const [order, xeroConnection, customerOptions, itemOptions, addressEntries] = await Promise.all([
     getSalesOrder(id, { includeDeleted: true }),
     getXeroConnection(),
     getSalesOrderCustomerOptions(),
@@ -40,8 +40,21 @@ export default async function OrderDetailPage({
     <OrderCard
       initialOrder={order}
       customerOptions={customerOptions}
+      addressOptions={addressEntries.map((entry) => ({
+        id: entry.id,
+        label: entry.label,
+        contactName: entry.contactName,
+        contactPhone: entry.contactPhone,
+        line1: entry.line1,
+        line2: entry.line2,
+        city: entry.city,
+        region: entry.region,
+        postcode: entry.postcode,
+        country: entry.country,
+        deliveryInstructions: entry.deliveryInstructions,
+        notes: entry.notes,
+      }))}
       itemOptions={itemOptions}
-      addressOptions={addressOptions}
       canViewLedger={hasModuleAccess(context.assignedRoles, "inventory", "read")}
       xeroInvoiceSetupStatus={xeroInvoiceSetupStatus}
     />

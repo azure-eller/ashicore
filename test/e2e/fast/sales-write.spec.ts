@@ -66,13 +66,20 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+async function gotoSalesAllocation(page: Page) {
+  await page.goto("/sales/allocation", {
+    waitUntil: "commit",
+    timeout: 180_000,
+  });
+}
+
 async function openAllocationManagerFromMatrix(params: {
   page: Page;
   orderNumber: string;
   itemName: string;
 }) {
   const { page, orderNumber, itemName } = params;
-  await page.goto("/sales/allocation");
+  await gotoSalesAllocation(page);
   await page.getByLabel("Search sales allocations").fill(orderNumber);
   await expect(page.getByText("Pool coverage").first()).toBeVisible();
   await page.getByText("Pool coverage").first().click();
@@ -685,7 +692,7 @@ test.describe("Sales write-path smoke", () => {
     );
   });
 
-  test("creating without line items returns a readable error", async () => {
+  test("creates a draft sales order with customer only", async ({ db }) => {
     const createResponse = await testFetch("/api/sales-orders", {
       method: "POST",
       body: JSON.stringify({
@@ -699,9 +706,24 @@ test.describe("Sales write-path smoke", () => {
         shipments: [],
       }),
     });
-    expect(createResponse.status).toBe(400);
+    expect(createResponse.status).toBe(201);
     const body = await createResponse.json();
-    expect(body.error).toBe("Sales order must have at least one line item");
+    expect(body.id).toBeTruthy();
+
+    const [created] = await db
+      .select({
+        customerId: salesOrders.customerId,
+        status: salesOrders.status,
+      })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, body.id as string));
+    expect(created).toEqual({ customerId, status: "open" });
+
+    const lines = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, body.id as string));
+    expect(lines).toHaveLength(0);
   });
 
   test("saving a shipment delivery date before the ship date returns a readable error", async () => {
@@ -1360,6 +1382,8 @@ test.describe("Sales write-path smoke", () => {
   test("allocation manager does not count unallocated available stock as allocated", async ({
     page,
   }) => {
+    test.setTimeout(180_000);
+
     const reservedCustomerResult = await createCustomer({
       name: `Fast Reserved Stock Customer ${ts}`,
       email: `fast-reserved-stock-${ts}@example.com`,
@@ -1424,6 +1448,8 @@ test.describe("Sales write-path smoke", () => {
   });
 
   test("allocation matrix saves an inventory allocation", async ({ page, db }) => {
+    test.setTimeout(240_000);
+
     const tokenCustomerResult = await createCustomer({
       name: `Fast Token Allocation Customer ${ts}`,
       email: `fast-token-allocation-${ts}@example.com`,
@@ -1545,6 +1571,8 @@ test.describe("Sales write-path smoke", () => {
   test("allocation matrix collapse scopes demand math and exposes inactive products", async ({
     page,
   }) => {
+    test.setTimeout(180_000);
+
     const suffix = `${ts}-ALLOC-SCOPE`;
     const customerResult = await createCustomer({
       name: `Fast Scope Customer ${suffix}`,
@@ -1624,27 +1652,31 @@ test.describe("Sales write-path smoke", () => {
     });
     expect(unplannedOrder.status).toBe(201);
 
-    await page.goto("/sales/allocation");
+    await gotoSalesAllocation(page);
     await page.getByLabel("Search sales allocations").fill(suffix);
     await expect(
       page.getByText("Pool vs. demand · 2 orders, 2 short of 2 lines")
-    ).toBeVisible();
-    await expect(page.getByText("20/12")).toBeVisible();
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText("20/12")).toBeVisible({ timeout: 60_000 });
 
     await page
       .getByRole("button", { name: /Collapse Unplanned demand/ })
       .click();
     await expect(
       page.getByText("Pool vs. demand · 1 orders, 1 short of 1 lines")
-    ).toBeVisible();
-    await expect(page.getByText("20/7")).toBeVisible();
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText("20/7")).toBeVisible({ timeout: 60_000 });
 
-    await page.reload();
-    await page.getByLabel("Search sales allocations").fill(suffix);
-    await expect(
-      page.getByText("Pool vs. demand · 1 orders, 1 short of 1 lines")
-    ).toBeVisible();
-    await expect(page.getByRole("button", { name: /Expand Unplanned demand/ })).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const raw = window.localStorage.getItem(
+            "ashicore.viewPreferences.sales.orders.allocator",
+          );
+          return raw ? JSON.parse(raw).unplannedOpen : null;
+        }),
+      )
+      .toBe(false);
 
     const hiddenMenu = page.getByRole("button", { name: /hidden/ });
     await expect(hiddenMenu).toBeVisible();

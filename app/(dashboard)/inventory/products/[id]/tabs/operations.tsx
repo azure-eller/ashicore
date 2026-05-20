@@ -13,6 +13,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
+import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import type { BomPayloadRow } from "@/app/(dashboard)/inventory/bom-editor";
 import {
   OperationCostEditor,
@@ -73,7 +74,7 @@ export function ProductOperationsTab({
   const [copyFromOpen, setCopyFromOpen] = useState(false);
 
   const saveMutation = useMutation({
-    mutationKey: ["item-card", focusItemId, "operation-costs"],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId, "operation-costs"),
     mutationFn: () =>
       saveBomRevision(focusItemId, {
         outputQuantity: currentBomOutputQuantity,

@@ -5,12 +5,6 @@ import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import type { ICellRendererParams } from "ag-grid-community";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Cancel01Icon,
-  MoreVerticalIcon,
-  PrinterIcon,
-} from "@hugeicons/core-free-icons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,14 +16,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -48,6 +38,7 @@ import {
 } from "@/components/editable-line-data-grid";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
@@ -55,6 +46,7 @@ import { formatDate, formatPrice, formatQuantity } from "@/lib/format";
 import {
   createManufacturingOrder,
   fetchManufacturingOrder,
+  fetchSalesOrderManufacturingPreview,
   fetchSalesOrderOptions,
   patchManufacturingOrder,
   patchManufacturingOrderIngredient,
@@ -67,7 +59,14 @@ import {
   type PickedLotSummary,
 } from "@/components/manufacturing/lot-strategy-chip";
 import { ManufacturingIngredientLotCard } from "@/components/manufacturing/ingredient-lot-card";
-import { useMoSaveStatus, type MoSaveStatus } from "@/components/manufacturing/use-mo-save-status";
+import { CardPage, CardPageBody } from "@/components/card-page/card-page";
+import { CardPageHeader } from "@/components/card-page/card-page-header";
+import {
+  cardSaveMutationKey,
+  saveStateFromEntityStatus,
+  useEntitySaveStatus,
+  type CardSaveState,
+} from "@/components/card-page/card-save-status";
 import {
   deriveProductionStatus,
   type ProductionStatus,
@@ -76,6 +75,7 @@ import type {
   ManufacturingOrderDetail,
   ManufacturingOrderIngredientDetail,
   ManufacturingOrderOperationCostDetail,
+  ManufacturingSalesOrderPreviewLine,
 } from "@/app/(dashboard)/manufacturing/types";
 import type { ManufacturingLotStrategy } from "@/lib/schemas/manufacturing-orders";
 import { cn } from "@/lib/utils";
@@ -102,6 +102,7 @@ export function ManufacturingOrderCard({
   const router = useRouter();
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(initialOrderId);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [lotPickerIngredient, setLotPickerIngredient] =
     useState<ManufacturingOrderIngredientDetail | null>(null);
   // Draft header fields (used until a product is chosen and the order created).
@@ -133,7 +134,7 @@ export function ManufacturingOrderCard({
   }, [currentOrderId, queryClient]);
 
   const createMutation = useMutation({
-    mutationKey: ["mo", "__draft__", "create"],
+    mutationKey: cardSaveMutationKey("manufacturing-order", "__draft__", "create"),
     mutationFn: createManufacturingOrder,
     onSuccess: (result) => {
       setCurrentOrderId(result.id);
@@ -160,7 +161,7 @@ export function ManufacturingOrderCard({
   };
 
   const duplicateMutation = useMutation({
-    mutationKey: ["mo", currentOrderId ?? "__draft__", "duplicate"],
+    mutationKey: ["mo-action", currentOrderId ?? "__draft__", "duplicate"],
     mutationFn: async () => {
       const response = await fetch(
         `/api/manufacturing-orders/${currentOrderId}/duplicate`,
@@ -177,7 +178,7 @@ export function ManufacturingOrderCard({
   });
 
   const deleteMutation = useMutation({
-    mutationKey: ["mo", currentOrderId ?? "__draft__", "delete"],
+    mutationKey: ["mo-action", currentOrderId ?? "__draft__", "delete"],
     mutationFn: async () => {
       const response = await fetch(`/api/manufacturing-orders/${currentOrderId}`, {
         method: "DELETE",
@@ -193,7 +194,7 @@ export function ManufacturingOrderCard({
     },
   });
   const lotAllocationMutation = useMutation({
-    mutationKey: ["mo", currentOrderId ?? "__draft__", "ingredient-lot-allocation"],
+    mutationKey: ["mo-action", currentOrderId ?? "__draft__", "ingredient-lot-allocation"],
     mutationFn: ({
       ingredientId,
       allocations,
@@ -224,27 +225,22 @@ export function ManufacturingOrderCard({
     : null;
 
   const canEdit = order == null || order.status === "open";
-  const saveStatus = useMoSaveStatus(currentOrderId ?? "__draft__");
-  const headerSaveStatus: MoSaveStatus | "draft" = isDraft
+  const saveStatus = useEntitySaveStatus("manufacturing-order", currentOrderId ?? "__draft__");
+  const headerSaveState: CardSaveState = isDraft
     ? createMutation.isPending
       ? "saving"
       : createMutation.isError
-        ? "error"
-        : "draft"
-    : saveStatus.status;
-
-  const selectedProductName = order?.productName ?? null;
+        ? "failed"
+        : "not_saved"
+    : saveStateFromEntityStatus(saveStatus.status);
 
   return (
-    <div className={styles.sheet}>
-      <header className={styles.header}>
-        <div className={styles.headerIdentity}>
-          <div className={styles.eyebrow}>
-            Manufacturing order{selectedProductName ? ` · ${selectedProductName}` : ""}
-          </div>
-          {order ? (
+    <CardPage>
+      <CardPageHeader
+        title={
+          order ? (
             <>
-              <h1 className={styles.title}>
+              <span>
                 <span className={styles.mono}>{order.orderNumber}</span>
                 {" "}
                 <span className="ml-3">{order.productName}</span>
@@ -259,8 +255,7 @@ export function ManufacturingOrderCard({
                     / {order.productSku}
                   </span>
                 ) : null}
-              </h1>
-              <MoDescription order={order} />
+              </span>
             </>
           ) : (
             <div className="mt-1 max-w-md">
@@ -295,50 +290,42 @@ export function ManufacturingOrderCard({
                 </ComboboxContent>
               </Combobox>
             </div>
-          )}
-        </div>
-        <div className={styles.headerRight}>
-          <SaveStatusPill status={headerSaveStatus} />
-          {order && productionStatus ? (
+          )
+        }
+        meta={order ? <MoDescription order={order} /> : null}
+        status={
+          order && productionStatus ? (
             <StatusPicker orderId={order.id} current={productionStatus} onChanged={refreshOrder} />
-          ) : null}
-          <button
-            type="button"
-            className={styles.iconBtn}
-            aria-label="Print"
-            title="Print"
-            onClick={() => window.print()}
-            disabled={!order}
-          >
-            <HugeiconsIcon icon={PrinterIcon} size={14} />
-          </button>
-          {order ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button type="button" className={styles.iconBtn} aria-label="More actions">
-                  <HugeiconsIcon icon={MoreVerticalIcon} size={14} />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild>
-                  <Link href={`/manufacturing/orders/${order.id}/execute`}>Open execution</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => duplicateMutation.mutate()}>
-                  Duplicate
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setDeleteOpen(true)}>
-                  Delete order
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-          <button type="button" className={styles.iconBtn} aria-label="Close" onClick={goBack}>
-            <HugeiconsIcon icon={Cancel01Icon} size={14} />
-          </button>
-        </div>
-      </header>
+          ) : null
+        }
+        saveState={headerSaveState}
+        showPrint
+        printDisabled={!order}
+        menuActions={
+          order
+            ? [
+                {
+                  label: "Open execution",
+                  href: `/manufacturing/orders/${order.id}/execute`,
+                },
+                {
+                  label: "Duplicate",
+                  onClick: () => duplicateMutation.mutate(),
+                  disabled: duplicateMutation.isPending,
+                },
+                {
+                  label: "Delete order",
+                  onClick: () => setDeleteOpen(true),
+                  destructive: true,
+                },
+              ]
+            : []
+        }
+        onClose={goBack}
+        fallbackHref="/manufacturing/orders"
+      />
 
-      <div className={styles.body}>
+      <CardPageBody>
         <OrderDetailsSection
           order={order}
           canEdit={canEdit}
@@ -347,6 +334,7 @@ export function ManufacturingOrderCard({
           onDraftPlannedQuantity={setDraftPlannedQuantity}
           onDraftPlannedDate={setDraftPlannedDate}
           salesOrderOptions={salesOrderOptions}
+          onOpenSalesLink={() => setLinkDialogOpen(true)}
           onPatched={refreshOrder}
         />
         <IngredientsSection
@@ -357,7 +345,15 @@ export function ManufacturingOrderCard({
         />
         <OperationsSection order={order} />
         <NotesSection order={order} canEdit={canEdit} onPatched={refreshOrder} />
-      </div>
+      </CardPageBody>
+
+      <SalesOrderLinkDialog
+        open={linkDialogOpen}
+        order={order}
+        salesOrderOptions={salesOrderOptions}
+        onOpenChange={setLinkDialogOpen}
+        onLinked={refreshOrder}
+      />
 
       {lotPickerIngredient ? (
         <Dialog
@@ -417,72 +413,48 @@ export function ManufacturingOrderCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </CardPage>
   );
 }
 
 function MoDescription({ order }: { order: ManufacturingOrderDetail }) {
-  const batches = order.numberOfBatches ?? 0;
-  const due = order.plannedDate ? formatDate(order.plannedDate) : null;
+  const actualNumber = order.actualQuantity != null ? Number(order.actualQuantity) : 0;
+  const plannedNumber = Number(order.plannedQuantity);
+  const progressPct =
+    plannedNumber > 0 ? Math.min(100, Math.round((actualNumber / plannedNumber) * 100)) : 0;
+  const materialCost = order.ingredients.reduce((total, ingredient) => {
+    const cost = Number(ingredient.actualCostTotal ?? 0);
+    return Number.isFinite(cost) ? total + cost : total;
+  }, 0);
+  const costPerUnit = actualNumber > 0 ? materialCost / actualNumber : null;
   return (
     <div className={styles.meta}>
       <span>
-        Planned <span className={styles.mono}>{formatQuantity(order.plannedQuantity)}</span>{" "}
-        {order.unitName}
-        {batches > 0 ? ` in ${batches} batch${batches === 1 ? "" : "es"}` : ""}
+        Created{" "}
+        <span className={styles.mono}>
+          {formatDate(new Date(order.createdAt).toISOString().slice(0, 10))}
+        </span>
       </span>
-      {due ? (
-        <>
-          <span className={styles.metaDot} />
-          <span>
-            Due <span className={styles.mono}>{due}</span>
-          </span>
-        </>
-      ) : null}
-      {order.salesOrderNumber ? (
-        <>
-          <span className={styles.metaDot} />
-          <span>
-            For{" "}
-            <Link
-              href={`/sales/orders/${order.salesOrderId}`}
-              className="text-[var(--color-accent)] hover:underline"
-            >
-              {order.salesOrderNumber}
-            </Link>
-          </span>
-        </>
-      ) : null}
+      <span className={styles.metaDot} />
+      <span>
+        Actual / Planned{" "}
+        <span className={styles.mono}>
+          {formatQuantity(order.actualQuantity ?? "0")} / {formatQuantity(order.plannedQuantity)}{" "}
+          {order.unitName}
+        </span>
+      </span>
+      <span className={styles.metaDot} />
+      <span className={styles.mono}>{progressPct}%</span>
+      <span className={styles.metaDot} />
+      <span>
+        Material cost <span className={styles.mono}>{formatPrice(materialCost.toFixed(4)) ?? "—"}</span>
+      </span>
+      <span className={styles.metaDot} />
+      <span>
+        Cost / unit{" "}
+        <span className={styles.mono}>{costPerUnit == null ? "—" : formatPrice(costPerUnit.toFixed(4))}</span>
+      </span>
     </div>
-  );
-}
-
-function SaveStatusPill({ status }: { status: MoSaveStatus | "draft" }) {
-  if (status === "draft") {
-    return (
-      <span className={styles.failedPill}>
-        <span className={styles.pillSquare} /> Not saved
-      </span>
-    );
-  }
-  if (status === "saving") {
-    return (
-      <span className={styles.savingPill}>
-        <span className={styles.pillSquare} /> Saving…
-      </span>
-    );
-  }
-  if (status === "error") {
-    return (
-      <span className={styles.failedPill}>
-        <span className={styles.pillSquare} /> Save failed
-      </span>
-    );
-  }
-  return (
-    <span className={styles.savedPill}>
-      <span className={styles.pillSquare} /> All changes saved
-    </span>
   );
 }
 
@@ -494,6 +466,7 @@ function OrderDetailsSection({
   onDraftPlannedQuantity,
   onDraftPlannedDate,
   salesOrderOptions,
+  onOpenSalesLink,
   onPatched,
 }: {
   order: ManufacturingOrderDetail | null;
@@ -502,18 +475,24 @@ function OrderDetailsSection({
   draftPlannedDate: string;
   onDraftPlannedQuantity: (value: string) => void;
   onDraftPlannedDate: (value: string) => void;
-  salesOrderOptions: Array<{ id: string; orderNumber: string; customerName: string }>;
+  salesOrderOptions: Array<{
+    id: string;
+    orderNumber: string;
+    customerName: string;
+    hasManufacturableLines?: boolean;
+  }>;
+  onOpenSalesLink: () => void;
   onPatched: () => void;
 }) {
   const queryClient = useQueryClient();
   const unitName = order?.unitName ?? "";
-  const actualNumber = order?.actualQuantity != null ? Number(order.actualQuantity) : 0;
-  const plannedNumber = order ? Number(order.plannedQuantity) : 0;
-  const progressPct =
-    plannedNumber > 0 ? Math.min(100, Math.round((actualNumber / plannedNumber) * 100)) : 0;
-
+  const groupSize = largestGroupSize(order);
+  const groupCount =
+    order && groupSize != null
+      ? formatDecimal((Number(order.plannedQuantity) || 0) / groupSize)
+      : null;
   const patchField = useMutation({
-    mutationKey: ["mo", order?.id ?? "__draft__", "header"],
+    mutationKey: cardSaveMutationKey("manufacturing-order", order?.id ?? "__draft__", "header"),
     mutationFn: (patch: Parameters<typeof patchManufacturingOrder>[1]) =>
       patchManufacturingOrder(order!.id, patch),
     onSuccess: () => {
@@ -522,7 +501,7 @@ function OrderDetailsSection({
     },
   });
   const savePlannedQuantity = useMutation({
-    mutationKey: ["mo", order?.id ?? "__draft__", "planned-quantity"],
+    mutationKey: cardSaveMutationKey("manufacturing-order", order?.id ?? "__draft__", "planned-quantity"),
     mutationFn: (plannedQuantity: string) =>
       saveManufacturingOrderIngredients(
         order!.id,
@@ -547,80 +526,23 @@ function OrderDetailsSection({
   return (
     <section className={styles.section}>
       <h2 className={styles.sectionHeading}>Order details</h2>
-      <div className="grid grid-cols-3 border border-[var(--color-line)]">
-        <DetailCell label="Planned quantity">
-          {canEdit ? (
-            <Input
-              key={order?.plannedQuantity ?? "draft"}
-              defaultValue={order ? order.plannedQuantity : draftPlannedQuantity}
-              onBlur={(event) => {
-                const next = event.target.value.trim();
-                if (!next) return;
-                if (order) {
-                  if (next !== order.plannedQuantity) savePlannedQuantity.mutate(next);
-                } else {
-                  onDraftPlannedQuantity(next);
-                }
-              }}
-              inputMode="decimal"
-              className="h-7 border-0 bg-transparent p-0 font-mono text-[15px] font-semibold tabular-nums focus-visible:ring-0"
-              aria-label="Planned quantity"
-            />
-          ) : (
-            <span className="font-mono text-[15px] font-semibold tabular-nums">
-              {order ? formatQuantity(order.plannedQuantity) : "—"}
-            </span>
-          )}
-          {unitName ? <span className="ml-1 text-[11px] text-[var(--color-muted)]">{unitName}</span> : null}
-        </DetailCell>
-        <DetailCell label="Actual / Planned">
-          <div className="flex flex-col gap-1">
-            <div>
-              <span className="font-mono text-[15px] font-semibold tabular-nums">
-                {order?.actualQuantity != null ? formatQuantity(order.actualQuantity) : "—"} /{" "}
-                {order ? formatQuantity(order.plannedQuantity) : "—"}
-              </span>
-              {unitName ? (
-                <span className="ml-1 text-[11px] text-[var(--color-muted)]">{unitName}</span>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="h-[5px] w-[120px] bg-[var(--color-surface-sunk)]">
-                <div
-                  className={cn(
-                    "h-full",
-                    progressPct >= 100
-                      ? "bg-[var(--color-success)]"
-                      : "bg-[var(--color-warning)]",
-                  )}
-                  style={{ width: `${progressPct}%` }}
-                />
-              </div>
-              <span className="font-mono text-[11px] text-[var(--color-muted)] tabular-nums">
-                {progressPct}%
-              </span>
-            </div>
+      <div className={styles.formRow}>
+        <FormField label="Product" required>
+          <div className={styles.readOnlyFieldValue}>
+            {order?.productName ?? "Choose a product to create this order"}
           </div>
-        </DetailCell>
-        <DetailCell label="Yield per batch">
-          {order?.expectedBatchYield ? (
-            <span className="font-mono text-[15px] font-semibold tabular-nums">
-              {formatQuantity(order.expectedBatchYield)}
-            </span>
-          ) : (
-            <span className="text-[var(--color-muted-2)]">—</span>
-          )}
-          {order?.numberOfBatches ? (
-            <span className="ml-1 text-[11px] text-[var(--color-muted)]">
-              {unitName} · {order.numberOfBatches} batch{order.numberOfBatches === 1 ? "" : "es"}
-            </span>
+          {order ? (
+            <div className={styles.fieldMeta}>
+              SKU {order.productSku ?? "—"} · {unitName || "unit"}
+            </div>
           ) : null}
-        </DetailCell>
-        <DetailCell label="Planned date">
+        </FormField>
+        <FormField label="Production deadline" required>
           {canEdit ? (
             <DatePicker
               aria-label="Planned date"
               value={order ? order.plannedDate ?? "" : draftPlannedDate}
+              className={styles.underlineControl}
               onChange={(next) => {
                 const normalized = next || null;
                 if (order) {
@@ -631,60 +553,358 @@ function OrderDetailsSection({
               }}
             />
           ) : (
-            <span className="font-mono text-[13px] tabular-nums">
+            <div className={`${styles.readOnlyFieldValue} ${styles.mono}`}>
               {order?.plannedDate ? formatDate(order.plannedDate) : "—"}
-            </span>
+            </div>
           )}
-        </DetailCell>
-        <DetailCell label="Created">
-          <span className="font-mono text-[13px] tabular-nums">
-            {order ? formatDate(new Date(order.createdAt).toISOString().slice(0, 10)) : "—"}
-          </span>
-        </DetailCell>
-        <DetailCell label="Sales order">
+          <div className={styles.fieldHint}>Target completion date.</div>
+        </FormField>
+        <FormField label="Manufacturing location">
+          <div className={styles.readOnlyFieldValue}>Default location</div>
+          <div className={styles.fieldHint}>Floor / yard where this order runs.</div>
+        </FormField>
+      </div>
+      <div className={styles.formRow}>
+        <FormField label={groupSize != null ? "Groups" : "Planned quantity"} required>
+          {canEdit ? (
+            <div className={styles.suffixField}>
+              <Input
+                key={`${order?.plannedQuantity ?? "draft"}-${groupSize ?? "output"}`}
+                defaultValue={groupCount ?? (order ? order.plannedQuantity : draftPlannedQuantity)}
+                onBlur={(event) => {
+                  const next = event.target.value.trim();
+                  if (!next) return;
+                  const savedQuantity =
+                    groupSize != null
+                      ? formatDecimal((Number(next) || 0) * groupSize)
+                      : next;
+                  if (order) {
+                    if (savedQuantity !== order.plannedQuantity) {
+                      savePlannedQuantity.mutate(savedQuantity);
+                    }
+                  } else {
+                    onDraftPlannedQuantity(savedQuantity);
+                  }
+                }}
+                inputMode="decimal"
+                className={`${styles.underlineInput} ${styles.mono} text-right`}
+                aria-label={groupSize != null ? "Groups" : "Planned quantity"}
+              />
+              <span className={styles.fieldSuffix}>
+                {groupSize != null ? "groups" : unitName}
+              </span>
+            </div>
+          ) : (
+            <div className={`${styles.suffixField} ${styles.suffixFieldReadOnly}`}>
+              <span className={`${styles.underlineInput} ${styles.mono} text-right`}>
+                {groupCount ?? (order ? formatQuantity(order.plannedQuantity) : "—")}
+              </span>
+              <span className={styles.fieldSuffix}>
+                {groupSize != null ? "groups" : unitName}
+              </span>
+            </div>
+          )}
+          {groupSize != null ? (
+            <div className={styles.fieldHint}>
+              {formatQuantity(formatDecimal(groupSize))} {unitName} per group ·{" "}
+              {order ? formatQuantity(order.plannedQuantity) : "—"} {unitName} planned
+            </div>
+          ) : null}
+        </FormField>
+        <FormField label="Group size">
+          <div className={`${styles.suffixField} ${styles.suffixFieldReadOnly}`}>
+            <span className={`${styles.underlineInput} ${styles.mono} text-right`}>
+              {groupSize != null ? formatQuantity(formatDecimal(groupSize)) : "—"}
+            </span>
+            {unitName ? <span className={styles.fieldSuffix}>{unitName}</span> : null}
+          </div>
+          <div className={styles.fieldHint}>
+            {groupSize != null ? "Largest group from product recipe." : "No grouped recipe rows."}
+          </div>
+        </FormField>
+        <FormField label="Sales order">
+          {order?.salesOrderNumber && order.salesOrderId ? (
+            <div className={styles.readOnlyFieldValue}>
+              <Link
+                href={`/sales/orders/${order.salesOrderId}`}
+                className={styles.fieldLink}
+              >
+                {order.salesOrderNumber}
+              </Link>
+              {order.salesCustomerName ? ` · ${order.salesCustomerName}` : null}
+            </div>
+          ) : (
+            <div className={styles.readOnlyFieldValue}>No sales order — make to stock</div>
+          )}
           {order && canEdit ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-(--space-2) h-(--height-input-sm)"
+              onClick={onOpenSalesLink}
+              disabled={salesOrderOptions.length === 0}
+            >
+              {order.salesOrderId ? "Change link" : "Link sales order"}
+            </Button>
+          ) : null}
+          <div className={styles.fieldHint}>Link one customer order line.</div>
+        </FormField>
+      </div>
+    </section>
+  );
+}
+
+function largestGroupSize(order: ManufacturingOrderDetail | null) {
+  if (!order) return null;
+  const sizes = order.ingredients
+    .filter(
+      (ingredient) =>
+        ingredient.consumptionMode === "per_group" &&
+        ingredient.basisOutputQuantity != null,
+    )
+    .map((ingredient) => Number(ingredient.basisOutputQuantity))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (sizes.length === 0) return null;
+  return Math.max(...sizes);
+}
+
+function formatDecimal(value: number) {
+  if (!Number.isFinite(value)) return "";
+  return value
+    .toFixed(6)
+    .replace(/\.?0+$/, "");
+}
+
+function SalesOrderLinkDialog({
+  open,
+  order,
+  salesOrderOptions,
+  onOpenChange,
+  onLinked,
+}: {
+  open: boolean;
+  order: ManufacturingOrderDetail | null;
+  salesOrderOptions: Array<{
+    id: string;
+    orderNumber: string;
+    customerName: string;
+    hasManufacturableLines?: boolean;
+    disabledReason?: string | null;
+  }>;
+  onOpenChange: (open: boolean) => void;
+  onLinked: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [selectedOrderId, setSelectedOrderId] = useState(order?.salesOrderId ?? "");
+  const [selectedLineId, setSelectedLineId] = useState(order?.salesOrderLineId ?? "");
+  const previewQuery = useQuery({
+    queryKey: ["manufacturing-sales-order-preview", selectedOrderId],
+    queryFn: () => fetchSalesOrderManufacturingPreview(selectedOrderId),
+    enabled: open && selectedOrderId.length > 0,
+  });
+  const preview = previewQuery.data;
+  const selectedLine = preview?.lines.find(
+    (line) => line.salesOrderLineId === selectedLineId,
+  );
+  const linkMutation = useMutation({
+    mutationKey: cardSaveMutationKey(
+      "manufacturing-order",
+      order?.id ?? "__draft__",
+      "sales-link",
+    ),
+    mutationFn: (line: ManufacturingSalesOrderPreviewLine) =>
+      saveManufacturingOrderIngredients(
+        order!.id,
+        {
+          plannedQuantity: line.quantity,
+          plannedDate: preview?.shipDate ?? preview?.requestedDate ?? order!.plannedDate,
+          notes: order!.notes,
+          salesOrderId: preview!.salesOrderId,
+          salesOrderLineId: line.salesOrderLineId,
+        },
+        order!.ingredients.map((ingredient) => ({
+          itemId: ingredient.itemId,
+          quantityPerUnit: ingredient.quantityPerUnit,
+        })),
+      ),
+    onSuccess: () => {
+      onLinked();
+      void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
+      onOpenChange(false);
+    },
+  });
+  const unlinkMutation = useMutation({
+    mutationKey: cardSaveMutationKey(
+      "manufacturing-order",
+      order?.id ?? "__draft__",
+      "sales-unlink",
+    ),
+    mutationFn: () => patchManufacturingOrder(order!.id, {
+      salesOrderId: null,
+      salesOrderLineId: null,
+    }),
+    onSuccess: () => {
+      onLinked();
+      void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
+      onOpenChange(false);
+    },
+  });
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (next) {
+          setSelectedOrderId(order?.salesOrderId ?? "");
+          setSelectedLineId(order?.salesOrderLineId ?? "");
+        }
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent size="lg" className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Link sales order</DialogTitle>
+          <DialogDescription>
+            Select one open sales order line for this manufacturing order.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-(--space-4)">
+          <FormField label="Sales order">
             <Combobox
               items={salesOrderOptions.map((option) => option.id)}
-              value={order.salesOrderId ?? ""}
-              onValueChange={(value) =>
-                patchField.mutate({ salesOrderId: value || null, salesOrderLineId: null })
-              }
+              value={selectedOrderId}
+              onValueChange={(value) => {
+                setSelectedOrderId(value ?? "");
+                setSelectedLineId("");
+              }}
               itemToStringLabel={(value) => {
                 const option = salesOrderOptions.find((entry) => entry.id === value);
                 return option ? `${option.orderNumber} (${option.customerName})` : "";
               }}
             >
-              <ComboboxInput placeholder="No sales order" showClear />
+              <ComboboxInput
+                placeholder="Search open sales orders"
+                showClear
+                className={styles.underlineControl}
+              />
               <ComboboxContent className="bg-popover text-popover-foreground">
                 <ComboboxEmpty>No open sales orders</ComboboxEmpty>
                 <ComboboxList>
                   {(id: string) => {
                     const option = salesOrderOptions.find((entry) => entry.id === id);
                     return (
-                      <ComboboxItem key={id} value={id}>
-                        {option ? `${option.orderNumber} (${option.customerName})` : id}
+                      <ComboboxItem
+                        key={id}
+                        value={id}
+                        disabled={option?.hasManufacturableLines === false}
+                      >
+                        <div className="flex min-w-0 flex-col">
+                          <span className="truncate">
+                            {option ? `${option.orderNumber} (${option.customerName})` : id}
+                          </span>
+                          {option?.disabledReason ? (
+                            <span className="text-xs text-[var(--color-muted-2)]">
+                              {option.disabledReason}
+                            </span>
+                          ) : null}
+                        </div>
                       </ComboboxItem>
                     );
                   }}
                 </ComboboxList>
               </ComboboxContent>
             </Combobox>
-          ) : (
-            <span className="text-[13px] text-[var(--color-muted)]">No sales order</span>
-          )}
-        </DetailCell>
-      </div>
-    </section>
+          </FormField>
+
+          {selectedOrderId ? (
+            <div className="space-y-(--space-2)">
+              <div className={styles.formLabel}>Line item</div>
+              {previewQuery.isLoading ? (
+                <div className={styles.readOnlyFieldValue}>Loading lines…</div>
+              ) : preview?.lines.length ? (
+                <div className="max-h-72 overflow-auto border border-[var(--color-line)]">
+                  {preview.lines.map((line) => {
+                    const productMismatch = order != null && line.itemId !== order.productId;
+                    const disabled = line.status !== "will_create" || productMismatch;
+                    return (
+                      <button
+                        key={line.salesOrderLineId}
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => setSelectedLineId(line.salesOrderLineId)}
+                        className={cn(
+                          "flex w-full items-center justify-between gap-(--space-3) border-b border-[var(--color-line)] px-(--space-3) py-(--space-2) text-left text-sm last:border-b-0",
+                          selectedLineId === line.salesOrderLineId
+                            ? "bg-[var(--color-accent-soft)]"
+                            : "bg-card",
+                          disabled ? "opacity-50" : "hover:bg-muted",
+                        )}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium">{line.itemName}</span>
+                          <span className="block truncate text-xs text-[var(--color-muted-2)]">
+                            {[line.itemSku, line.skipMessage, productMismatch ? "Different product" : null]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        </span>
+                        <span className={`${styles.mono} shrink-0`}>
+                          {formatQuantity(line.quantity)} {line.unitName}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className={styles.readOnlyFieldValue}>No manufacturable lines.</div>
+              )}
+            </div>
+          ) : null}
+        </div>
+        <DialogFooter>
+          {order?.salesOrderId ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => unlinkMutation.mutate()}
+              disabled={unlinkMutation.isPending || linkMutation.isPending}
+            >
+              Unlink
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={() => selectedLine && linkMutation.mutate(selectedLine)}
+            disabled={!selectedLine || linkMutation.isPending || unlinkMutation.isPending}
+          >
+            Link line
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function DetailCell({ label, children }: { label: string; children: React.ReactNode }) {
+function FormField({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="min-h-[56px] border-r border-b border-[var(--color-line-2)] px-3.5 py-2.5 last:border-r-0">
-      <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
+    <div className={styles.formField}>
+      <label className={styles.formLabel}>
         {label}
-      </div>
-      <div className="text-[13px] text-[var(--color-ink)]">{children}</div>
+        {required ? <span className={styles.requiredMark}> *</span> : null}
+      </label>
+      {children}
     </div>
   );
 }
@@ -718,13 +938,13 @@ function IngredientsSection({
   }, 0);
 
   const reorderMutation = useMutation({
-    mutationKey: ["mo", order?.id ?? "__draft__", "ingredient-reorder"],
+    mutationKey: cardSaveMutationKey("manufacturing-order", order?.id ?? "__draft__", "ingredient-reorder"),
     mutationFn: (ids: string[]) => reorderManufacturingOrderIngredients(order!.id, ids),
     onSettled: onChanged,
   });
 
   const saveIngredientsMutation = useMutation({
-    mutationKey: ["mo", order?.id ?? "__draft__", "ingredient-save"],
+    mutationKey: cardSaveMutationKey("manufacturing-order", order?.id ?? "__draft__", "ingredient-save"),
     mutationFn: (next: ManufacturingOrderIngredientDetail[]) =>
       saveManufacturingOrderIngredients(
         order!.id,
@@ -1042,7 +1262,7 @@ function NotesSection({
   onPatched: () => void;
 }) {
   const patchNotes = useMutation({
-    mutationKey: ["mo", order?.id ?? "__draft__", "notes"],
+    mutationKey: cardSaveMutationKey("manufacturing-order", order?.id ?? "__draft__", "notes"),
     mutationFn: (value: string | null) => patchManufacturingOrder(order!.id, { notes: value }),
     onSuccess: onPatched,
   });

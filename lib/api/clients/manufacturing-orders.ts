@@ -3,7 +3,10 @@ import type {
   PatchManufacturingOrder,
   PatchManufacturingOrderIngredient,
 } from "@/lib/schemas/manufacturing-orders";
-import type { ManufacturingOrderDetail } from "@/app/(dashboard)/manufacturing/types";
+import type {
+  ManufacturingOrderDetail,
+  ManufacturingSalesOrderPreview,
+} from "@/app/(dashboard)/manufacturing/types";
 
 export class ManufacturingOrderApiError extends Error {
   constructor(
@@ -96,6 +99,11 @@ export type ManufacturingSalesOrderOptionDto = {
   id: string;
   orderNumber: string;
   customerName: string;
+  shipDate: string | null;
+  requestedDate: string | null;
+  manufacturableLineCount: number;
+  hasManufacturableLines: boolean;
+  disabledReason: string | null;
 };
 
 export async function fetchSalesOrderOptions(): Promise<
@@ -104,6 +112,16 @@ export async function fetchSalesOrderOptions(): Promise<
   const response = await fetch("/api/manufacturing-orders/sales-order-options");
   if (!response.ok) return parseError(response);
   return (await response.json()) as ManufacturingSalesOrderOptionDto[];
+}
+
+export async function fetchSalesOrderManufacturingPreview(
+  salesOrderId: string,
+): Promise<ManufacturingSalesOrderPreview> {
+  const response = await fetch(
+    `/api/sales-orders/${salesOrderId}/manufacturing-orders`,
+  );
+  if (!response.ok) return parseError(response);
+  return (await response.json()) as ManufacturingSalesOrderPreview;
 }
 
 /**

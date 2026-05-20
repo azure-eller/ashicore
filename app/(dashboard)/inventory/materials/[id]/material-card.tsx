@@ -13,6 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { CardPage } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CardTabs, type CardTab } from "@/components/card-page/card-tabs";
 import {
@@ -22,6 +23,12 @@ import {
   type CreateItemCardInput,
   type ItemCardDto,
 } from "@/lib/api/clients/item-cards";
+import {
+  cardSaveMutationKey,
+  saveStateFromEntityStatus,
+  useEntitySaveStatus,
+  type CardSaveState,
+} from "@/components/card-page/card-save-status";
 import { LotGridTab, type CardLotRow } from "@/components/card-page/lot-grid-tab";
 import { VariantConfigurationDialog } from "@/components/card-page/variant-configuration-dialog";
 import type { ItemCommitmentSummary } from "@/app/(dashboard)/inventory/commitment-summary";
@@ -29,7 +36,6 @@ import { MaterialGeneralInfoTab } from "./tabs/general-info";
 import { MaterialUsedInBomsTab } from "./tabs/used-in-boms";
 import { MaterialSupplyDetailsTab } from "./tabs/supply-details";
 import type { SupplierOption } from "@/app/(dashboard)/purchasing/types";
-import styles from "@/components/card-page/card-page.module.css";
 
 export type MaterialCardProps = {
   initialItemId: string | null;
@@ -68,12 +74,13 @@ export function MaterialCard({
     refetchOnWindowFocus: false,
   });
   const card = isDraft ? draftCard : cardQuery.data ?? draftCard;
+  const liveSaveStatus = useEntitySaveStatus("item-card", currentItemId ?? "__draft__");
 
   const [configOpen, setConfigOpen] = useState(false);
   const [confirmDeleteCard, setConfirmDeleteCard] = useState(false);
 
   const createMutation = useMutation({
-    mutationKey: ["item-card", "__draft__", "create"],
+    mutationKey: cardSaveMutationKey("item-card", "__draft__", "create"),
     mutationFn: (input: CreateItemCardInput) => createItemCard(input),
     onSuccess: (result) => {
       setCurrentItemId(result.itemId);
@@ -118,7 +125,7 @@ export function MaterialCard({
   );
 
   const deleteCardMutation = useMutation({
-    mutationKey: ["item-card", currentItemId ?? "__draft__", "delete-card"],
+    mutationKey: ["item-card-action", currentItemId ?? "__draft__", "delete-card"],
     mutationFn: () => deleteItemCard(currentItemId as string),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["item-cards"] });
@@ -157,29 +164,45 @@ export function MaterialCard({
     (variant) => variant.deletedAt == null,
   ).length;
   const avgIngredientsCost = getAverageIngredientsCost(card);
+  const saveState: CardSaveState = isDraft
+    ? createMutation.isPending
+      ? "saving"
+      : createMutation.isError
+        ? "failed"
+        : "not_saved"
+    : saveStateFromEntityStatus(liveSaveStatus.status);
 
   return (
-    <div className={styles.sheet}>
+    <CardPage>
       <CardPageHeader
-        itemId={currentItemId ?? ""}
-        typeLabel="Material"
-        name={card.family.name}
-        category={card.family.category}
-        variantCount={visibleVariantCount}
-        fallbackHref="/inventory/materials"
-        isDraft={isDraft}
-        createdAt={card.family.createdAt}
-        updatedAt={card.family.updatedAt}
-        saveStatus={
-          isDraft
-            ? createMutation.isPending
-              ? "saving"
-              : createMutation.isError
-                ? "error"
-                : "draft"
-            : undefined
+        eyebrow={card.family.category ? `Material · ${card.family.category}` : "Material"}
+        title={isDraft && !card.family.name.trim() ? "New material" : card.family.name}
+        meta={
+          <span>
+            {visibleVariantCount} {visibleVariantCount === 1 ? "variant" : "variants"}
+          </span>
         }
-        onDelete={isDraft ? undefined : () => setConfirmDeleteCard(true)}
+        fallbackHref="/inventory/materials"
+        saveState={saveState}
+        menuActions={[
+          ...(currentItemId
+            ? [
+                {
+                  label: "View inventory activity",
+                  href: `/inventory/ledger?itemId=${currentItemId}`,
+                },
+              ]
+            : []),
+          ...(isDraft
+            ? []
+            : [
+                {
+                  label: "Delete material",
+                  onClick: () => setConfirmDeleteCard(true),
+                  destructive: true,
+                },
+              ]),
+        ]}
       />
 
       <CardTabs
@@ -262,7 +285,7 @@ export function MaterialCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </CardPage>
   );
 }
 

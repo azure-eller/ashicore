@@ -126,7 +126,7 @@ function PlanShipmentDialogForm({
 
   const mutation = useMutation({
     mutationKey: [
-      "sales-order",
+      "sales-order-action",
       order.id,
       "shipment",
       editingShipmentId ?? "new",
