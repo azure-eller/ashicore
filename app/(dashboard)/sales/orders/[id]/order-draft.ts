@@ -168,6 +168,54 @@ export function makeDraftLine(input: {
   };
 }
 
+/**
+ * Serialize a live order into the full update (PUT) payload. Used for line
+ * add/remove on a saved order: this reuses the canonical updateSalesOrder DAL
+ * (correct reservation release + re-reserve) instead of hand-rolling kernel
+ * logic. Only planned shipments are serialized — the DAL deletes + recreates
+ * planned shipments and leaves shipped ones untouched, so including shipped
+ * shipments here would duplicate them.
+ */
+export function orderToUpdatePayload(
+  order: SalesOrderDetail,
+  mutate?: (lines: SalesOrderDetail["lines"]) => SalesOrderDetail["lines"],
+): InsertSalesOrder {
+  const lines = mutate ? mutate(order.lines) : order.lines;
+  return {
+    orderNumber: order.orderNumber,
+    customerId: order.customerId,
+    customerProjectId: order.customerProjectId,
+    status: "open",
+    orderDate: order.orderDate,
+    shipDate: order.shipDate,
+    requestedDate: order.requestedDate,
+    notes: order.notes,
+    shipLine1: order.shipLine1,
+    shipLine2: order.shipLine2,
+    shipCity: order.shipCity,
+    shipRegion: order.shipRegion,
+    shipPostcode: order.shipPostcode,
+    shipCountry: order.shipCountry,
+    lines: lines.map((line) => ({
+      itemId: line.itemId,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+    })),
+    shipments: order.shipments
+      .filter((shipment) => shipment.status === "planned")
+      .map((shipment) => ({
+        fulfillmentType: shipment.fulfillmentType,
+        scheduledDate: shipment.scheduledDate,
+        deliveryDate: shipment.deliveryDate,
+        notes: shipment.notes,
+        lines: shipment.lines.map((line) => ({
+          itemId: line.itemId,
+          quantity: line.quantity,
+        })),
+      })),
+  } as InsertSalesOrder;
+}
+
 /** Assemble the create payload from the local draft order. */
 export function draftToInsertPayload(draft: SalesOrderDetail): InsertSalesOrder {
   return {

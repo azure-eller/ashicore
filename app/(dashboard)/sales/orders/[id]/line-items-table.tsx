@@ -59,7 +59,9 @@ export type LineItemsTableProps = {
   editable: boolean;
   itemOptions?: SalesOrderItemOption[];
   draft?: OrderDraftController;
-  onAddLine?: () => void;
+  /** Live-mode add: called with the chosen item; parent PUTs the order. */
+  onAddLineItem?: (option: SalesOrderItemOption) => void;
+  addingLine?: boolean;
   onDeleteLine?: (line: SalesOrderDetailLine) => Promise<void> | void;
   deletingLineId?: string | null;
 };
@@ -69,7 +71,8 @@ export function LineItemsTable({
   editable,
   itemOptions,
   draft,
-  onAddLine,
+  onAddLineItem,
+  addingLine,
   onDeleteLine,
   deletingLineId,
 }: LineItemsTableProps) {
@@ -80,6 +83,7 @@ export function LineItemsTable({
   // Draft lines can be removed freely; a saved order keeps at least one line.
   const canRemove = editable && (draft != null || order.lines.length > 1);
   const existingItemIds = new Set(order.lines.map((line) => line.itemId));
+  const canAddLine = editable && (draft != null || onAddLineItem != null) && itemOptions != null;
 
   const handleDeleteRequest = (line: SalesOrderDetailLine) => {
     if (!canRemove) return;
@@ -103,12 +107,13 @@ export function LineItemsTable({
             {formatQuantity(String(totalQuantity))} units
           </span>
         </h2>
-        {editable && (draft || onAddLine) ? (
+        {canAddLine ? (
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => (draft ? setAddingItem(true) : onAddLine?.())}
+            onClick={() => setAddingItem(true)}
+            disabled={addingLine}
             className="ml-auto"
           >
             <HugeiconsIcon icon={Add01Icon} size={14} className="mr-1" />
@@ -240,7 +245,7 @@ export function LineItemsTable({
                 );
               })
             )}
-            {draft && addingItem && itemOptions ? (
+            {canAddLine && addingItem && itemOptions ? (
               <TableRow>
                 <TableCell colSpan={editable ? 8 : 7}>
                   <InventoryItemCombobox
@@ -252,17 +257,21 @@ export function LineItemsTable({
                       if (!itemId) return;
                       const picked = itemOptions.find((o) => o.id === itemId);
                       if (!picked) return;
-                      draft.addLine(
-                        makeDraftLine({
-                          itemId: picked.id,
-                          itemName: picked.displayName || picked.name,
-                          itemSku: picked.sku,
-                          unitName: picked.unitName,
-                          quantity: "1",
-                          unitPrice: picked.defaultSellingPrice ?? "0",
-                          estimatedUnitCost: picked.estimatedUnitCost,
-                        }),
-                      );
+                      if (draft) {
+                        draft.addLine(
+                          makeDraftLine({
+                            itemId: picked.id,
+                            itemName: picked.displayName || picked.name,
+                            itemSku: picked.sku,
+                            unitName: picked.unitName,
+                            quantity: "1",
+                            unitPrice: picked.defaultSellingPrice ?? "0",
+                            estimatedUnitCost: picked.estimatedUnitCost,
+                          }),
+                        );
+                      } else {
+                        onAddLineItem?.(picked);
+                      }
                       setAddingItem(false);
                     }}
                     placeholder="Search items…"

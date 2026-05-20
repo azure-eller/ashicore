@@ -17,6 +17,7 @@ import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import {
   createSalesOrder,
   fetchSalesOrderDetail,
+  updateSalesOrderFull,
 } from "@/lib/api/clients/sales-orders";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import type {
@@ -26,7 +27,6 @@ import type {
   SalesOrderItemOption,
   SalesShipmentRow,
 } from "@/app/(dashboard)/sales/types";
-import { buildSalesOrderLineRemovalPayload } from "@/app/(dashboard)/sales/order-line-removal";
 import { OrderCardHeader } from "./order-card-header";
 import { OrderDetailsGrid } from "./order-details-grid";
 import { LineItemsTable } from "./line-items-table";
@@ -36,7 +36,9 @@ import { PlanShipmentDialog } from "./plan-shipment-dialog";
 import { MarkShippedDialog } from "./mark-shipped-dialog";
 import {
   draftToInsertPayload,
+  makeDraftLine,
   makeDraftOrder,
+  orderToUpdatePayload,
   type OrderDraftController,
 } from "./order-draft";
 import cardStyles from "@/components/card-page/card-page.module.css";
@@ -203,18 +205,41 @@ export function OrderCard({
 
   const deleteLineMutation = useMutation({
     mutationKey: ["sales-order", currentOrderId ?? "draft", "delete-line"],
-    mutationFn: async (line: SalesOrderDetailLine) => {
-      const response = await fetch(`/api/sales-orders/${currentOrderId}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          ...createIdempotencyHeaders("sales-order-line-delete"),
-        },
-        body: JSON.stringify(buildSalesOrderLineRemovalPayload(order, line.id)),
+    mutationFn: (line: SalesOrderDetailLine) =>
+      updateSalesOrderFull(
+        currentOrderId as string,
+        orderToUpdatePayload(order, (lines) =>
+          lines.filter((existing) => existing.id !== line.id),
+        ),
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["sales-order", currentOrderId],
       });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error ?? "Failed to delete line.");
+      await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
     },
+    onError: (error) => setActionError((error as Error).message),
+  });
+
+  const addLineMutation = useMutation({
+    mutationKey: ["sales-order", currentOrderId ?? "draft", "add-line"],
+    mutationFn: (option: SalesOrderItemOption) =>
+      updateSalesOrderFull(
+        currentOrderId as string,
+        orderToUpdatePayload(order, (lines) => [
+          ...lines,
+          makeDraftLine({
+            itemId: option.id,
+            itemName: option.displayName || option.name,
+            itemSku: option.sku,
+            unitName: option.unitName,
+            quantity: "1",
+            unitPrice: option.defaultSellingPrice ?? "0",
+            estimatedUnitCost: option.estimatedUnitCost,
+          }),
+        ]),
+      ),
+    onMutate: () => setActionError(null),
     onSuccess: async () => {
       await queryClient.invalidateQueries({
         queryKey: ["sales-order", currentOrderId],
@@ -233,6 +258,13 @@ export function OrderCard({
       await deleteLineMutation.mutateAsync(line);
     },
     [isDraft, draftController, deleteLineMutation],
+  );
+
+  const handleAddLineItem = useCallback(
+    (option: SalesOrderItemOption) => {
+      addLineMutation.mutate(option);
+    },
+    [addLineMutation],
   );
 
   return (
@@ -272,11 +304,8 @@ export function OrderCard({
           editable={isEditable}
           itemOptions={itemOptions}
           draft={isDraft ? draftController : undefined}
-          onAddLine={
-            !isDraft && isEditable
-              ? () => router.push(`/sales/orders/${currentOrderId}/edit`)
-              : undefined
-          }
+          onAddLineItem={!isDraft && isEditable ? handleAddLineItem : undefined}
+          addingLine={addLineMutation.isPending}
           onDeleteLine={isEditable ? handleDeleteLine : undefined}
           deletingLineId={
             deleteLineMutation.isPending

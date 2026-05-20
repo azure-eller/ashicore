@@ -75,6 +75,27 @@ export async function patchSalesOrderHeader(
   return (await response.json()) as SalesOrderDetail;
 }
 
+/**
+ * Full-document update (PUT). Used for structural line changes (add/remove)
+ * on a saved order, which need the canonical updateSalesOrder reservation
+ * handling. Returns the updated order.
+ */
+export async function updateSalesOrderFull(
+  orderId: string,
+  payload: InsertSalesOrder,
+): Promise<{ id: string }> {
+  const path = `/api/sales-orders/${orderId}`;
+  const response = await fetch(path, {
+    method: "PUT",
+    headers: createIdempotencyHeaders("updateSalesOrder", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) await parseError(response, path);
+  return (await response.json()) as { id: string };
+}
+
 /** Per-line patch — quantity and/or unit price. */
 export async function patchSalesOrderLine(
   orderId: string,
