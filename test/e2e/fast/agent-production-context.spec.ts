@@ -57,8 +57,9 @@ test.describe("Agent production planning context API", () => {
     expect(markdownResponse.headers.get("content-type")).toContain("text/markdown");
     const markdown = await markdownResponse.text();
     expect(markdown).toContain("# Production Planning Brief");
-    expect(markdown).toContain("## Allocate Now");
-    expect(markdown).toContain("## Make Next");
+    expect(markdown).toContain("## Build Today Or Late");
+    expect(markdown).toContain("## Sales Demand");
+    expect(markdown).toContain("## Top-Level BOM Constraints");
     expect(markdown.length).toBeLessThan(20_000);
 
     const response = await testFetch(
@@ -90,6 +91,7 @@ test.describe("Agent production planning context API", () => {
     expect(Array.isArray(context.purchaseOrders)).toBe(true);
     expect(Array.isArray(context.inventory)).toBe(true);
     expect(Array.isArray(context.allocations)).toBe(true);
+    expect(Array.isArray(context.topLevelBoms)).toBe(true);
     expect(Array.isArray(context.decisionSupport.decisionQueue)).toBe(true);
     expect(Array.isArray(context.decisionSupport.allocationNeeds)).toBe(true);
     expect(Array.isArray(context.decisionSupport.supplyRecommendations)).toBe(true);
@@ -133,6 +135,29 @@ test.describe("Agent production planning context API", () => {
       expect(typeof item.inventoryLotAllocatedQty).toBe("string");
       expect(typeof item.manufacturingOutputAllocatedQty).toBe("string");
       expect(typeof item.totalActiveAllocationQty).toBe("string");
+    }
+    for (const bom of context.topLevelBoms as Array<{
+      productItemId: string;
+      productName: string;
+      components: Array<{
+        bomRevisionComponentId: string;
+        componentItemId: string;
+        minimumLotAgeDays: number | null;
+        constraints: string[];
+      }>;
+    }>) {
+      expect(bom.productItemId).toBeTruthy();
+      expect(bom.productName).toBeTruthy();
+      expect(Array.isArray(bom.components)).toBe(true);
+      for (const component of bom.components) {
+        expect(component.bomRevisionComponentId).toBeTruthy();
+        expect(component.componentItemId).toBeTruthy();
+        expect(
+          component.minimumLotAgeDays == null ||
+            typeof component.minimumLotAgeDays === "number"
+        ).toBe(true);
+        expect(Array.isArray(component.constraints)).toBe(true);
+      }
     }
     for (const need of context.decisionSupport.allocationNeeds as Array<{
       demandType: string;

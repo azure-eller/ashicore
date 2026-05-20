@@ -107,6 +107,7 @@
           "purchaseOrders",
           "inventory",
           "allocations",
+          "topLevelBoms",
           "decisionSupport",
           "planning",
           "allowedNextActions"
@@ -165,6 +166,14 @@
           },
           "allocations": {
             "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "topLevelBoms": {
+            "type": "array",
+            "description": "Current top-level BOMs for products on open sales orders, including component age constraints.",
             "items": {
               "type": "object",
               "additionalProperties": true

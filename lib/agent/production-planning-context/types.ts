@@ -284,6 +284,28 @@ export type AgentDecisionSupportContext = {
   supplyRecommendations: AgentSupplyRecommendationContext[];
 };
 
+export type AgentTopLevelBomContext = {
+  productItemId: string;
+  productName: string;
+  unitName: string | null;
+  revisionId: string;
+  revisionNumber: number;
+  components: Array<{
+    bomRevisionComponentId: string;
+    componentItemId: string;
+    componentName: string;
+    componentItemType: string;
+    unitName: string | null;
+    quantity: string;
+    consumptionMode: string;
+    basisOutputQuantity: string | null;
+    batchScalingMode: string | null;
+    groupRemainderPolicy: string | null;
+    minimumLotAgeDays: number | null;
+    constraints: string[];
+  }>;
+};
+
 export type AgentAllowedAction = {
   action: "read_production_planning_context";
   status: "allowed";
@@ -302,6 +324,7 @@ export type AgentProductionPlanningContext = {
   inventory: AgentInventoryContext[];
   allocations: AgentAllocationContext[];
   decisionSupport: AgentDecisionSupportContext;
+  topLevelBoms: AgentTopLevelBomContext[];
   planning: {
     horizonStart: string | null;
     horizonEnd: string | null;

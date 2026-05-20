@@ -3,6 +3,9 @@ import "server-only";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
+  bomRevisionComponentConstraints,
+  bomRevisionComponents,
+  bomRevisions,
   inventoryItemBalances,
   inventoryLocations,
   inventoryLotBalances,
@@ -44,17 +47,17 @@ import type {
   AgentProductionPlanningContextOptions,
   AgentSupplyRecommendationContext,
   AgentBomRequirementContext,
+  AgentTopLevelBomContext,
 } from "./types";
 
 const OPEN_SALES_ORDER_STATUSES = ["open"] as const;
 const OPEN_PURCHASE_ORDER_STATUSES = ["ordered", "partial"] as const;
 const MAX_AGENT_SOURCE_REFS = 24;
-const MAX_MARKDOWN_ALLOCATE_NOW = 10;
-const MAX_MARKDOWN_SUPPLY_NEEDS = 12;
-const MAX_MARKDOWN_MAKE_NEXT = 12;
-const MAX_MARKDOWN_BUY_NEXT = 8;
-const MAX_MARKDOWN_REVIEW_SETUP = 10;
-const MAX_MARKDOWN_BLOCKERS = 12;
+const MAX_MARKDOWN_SALES_DEMAND = 18;
+const MAX_MARKDOWN_BUILD_TODAY = 14;
+const MAX_MARKDOWN_UPCOMING_BUILDS = 14;
+const MAX_MARKDOWN_OPEN_MOS = 12;
+const MAX_MARKDOWN_TOP_LEVEL_BOMS = 10;
 
 function toQuantity(value: string | number | null | undefined) {
   const parsed = Number(value ?? 0);
@@ -81,6 +84,14 @@ function compactQty(quantity: string | null | undefined, unitName: string | null
 
 function compactDate(value: string | null | undefined) {
   return value ? value.slice(0, 10) : "-";
+}
+
+function subtractDays(value: string | null | undefined, days: number) {
+  if (!value) return null;
+  const date = new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
 }
 
 function earliestDate(
@@ -717,6 +728,147 @@ async function loadOpenPurchaseOrdersInTx(
   }
 
   return [...byOrder.values()];
+}
+
+async function loadTopLevelBomContextInTx(
+  tx: Tx,
+  salesOrders: AgentOpenSalesOrderContext[]
+): Promise<AgentTopLevelBomContext[]> {
+  const productsById = new Map<string, { productName: string; unitName: string | null }>();
+  for (const order of salesOrders) {
+    for (const line of order.lines) {
+      productsById.set(line.itemId, {
+        productName: line.itemName,
+        unitName: line.unitName,
+      });
+    }
+  }
+
+  const productIds = [...productsById.keys()];
+  if (productIds.length === 0) return [];
+
+  const revisionRows = await tx
+    .select({
+      revisionId: bomRevisions.id,
+      productId: bomRevisions.productId,
+      revisionNumber: bomRevisions.revisionNumber,
+    })
+    .from(bomRevisions)
+    .where(and(inArray(bomRevisions.productId, productIds), eq(bomRevisions.isCurrent, true)))
+    .orderBy(asc(bomRevisions.productId), asc(bomRevisions.revisionNumber));
+
+  if (revisionRows.length === 0) return [];
+
+  const componentRows = await tx
+    .select({
+      bomRevisionComponentId: bomRevisionComponents.id,
+      bomRevisionId: bomRevisionComponents.bomRevisionId,
+      componentItemId: bomRevisionComponents.componentId,
+      componentName: bomRevisionComponents.componentName,
+      componentItemType: bomRevisionComponents.componentItemType,
+      unitName: bomRevisionComponents.unitName,
+      quantity: trimScale(bomRevisionComponents.quantity).as("quantity"),
+      consumptionMode: bomRevisionComponents.consumptionMode,
+      basisOutputQuantity: trimScaleNullable(
+        bomRevisionComponents.basisOutputQuantity
+      ).as("basisOutputQuantity"),
+      batchScalingMode: bomRevisionComponents.batchScalingMode,
+      groupRemainderPolicy: bomRevisionComponents.groupRemainderPolicy,
+      sortOrder: bomRevisionComponents.sortOrder,
+      createdAt: bomRevisionComponents.createdAt,
+    })
+    .from(bomRevisionComponents)
+    .where(
+      inArray(
+        bomRevisionComponents.bomRevisionId,
+        revisionRows.map((revision) => revision.revisionId)
+      )
+    )
+    .orderBy(
+      asc(bomRevisionComponents.bomRevisionId),
+      asc(bomRevisionComponents.sortOrder),
+      asc(bomRevisionComponents.createdAt)
+    );
+
+  const constraintRows =
+    componentRows.length === 0
+      ? []
+      : await tx
+          .select({
+            bomRevisionComponentId:
+              bomRevisionComponentConstraints.bomRevisionComponentId,
+            constraintType: bomRevisionComponentConstraints.constraintType,
+            config: bomRevisionComponentConstraints.config,
+            sortOrder: bomRevisionComponentConstraints.sortOrder,
+          })
+          .from(bomRevisionComponentConstraints)
+          .where(
+            inArray(
+              bomRevisionComponentConstraints.bomRevisionComponentId,
+              componentRows.map((component) => component.bomRevisionComponentId)
+            )
+          )
+          .orderBy(
+            asc(bomRevisionComponentConstraints.bomRevisionComponentId),
+            asc(bomRevisionComponentConstraints.sortOrder)
+          );
+
+  const constraintsByComponentId = new Map<
+    string,
+    Array<{ label: string; minimumLotAgeDays: number | null }>
+  >();
+  for (const constraint of constraintRows) {
+    const days =
+      constraint.constraintType === "lot_age_min_days"
+        ? Number(constraint.config?.days)
+        : NaN;
+    const minimumLotAgeDays = Number.isFinite(days) ? days : null;
+    const label =
+      minimumLotAgeDays == null
+        ? constraint.constraintType
+        : `must be at least ${minimumLotAgeDays} days old`;
+    const bucket = constraintsByComponentId.get(constraint.bomRevisionComponentId) ?? [];
+    bucket.push({ label, minimumLotAgeDays });
+    constraintsByComponentId.set(constraint.bomRevisionComponentId, bucket);
+  }
+
+  const componentsByRevisionId = new Map<string, AgentTopLevelBomContext["components"]>();
+  for (const component of componentRows) {
+    const constraints = constraintsByComponentId.get(component.bomRevisionComponentId) ?? [];
+    const bucket = componentsByRevisionId.get(component.bomRevisionId) ?? [];
+    bucket.push({
+      bomRevisionComponentId: component.bomRevisionComponentId,
+      componentItemId: component.componentItemId,
+      componentName: component.componentName,
+      componentItemType: component.componentItemType,
+      unitName: component.unitName,
+      quantity: component.quantity,
+      consumptionMode: component.consumptionMode,
+      basisOutputQuantity: component.basisOutputQuantity,
+      batchScalingMode: component.batchScalingMode,
+      groupRemainderPolicy: component.groupRemainderPolicy,
+      minimumLotAgeDays:
+        constraints.find((constraint) => constraint.minimumLotAgeDays != null)
+          ?.minimumLotAgeDays ?? null,
+      constraints: constraints.map((constraint) => constraint.label),
+    });
+    componentsByRevisionId.set(component.bomRevisionId, bucket);
+  }
+
+  return revisionRows
+    .map((revision) => {
+      const product = productsById.get(revision.productId);
+      if (!product) return null;
+      return {
+        productItemId: revision.productId,
+        productName: product.productName,
+        unitName: product.unitName,
+        revisionId: revision.revisionId,
+        revisionNumber: revision.revisionNumber,
+        components: componentsByRevisionId.get(revision.revisionId) ?? [],
+      } satisfies AgentTopLevelBomContext;
+    })
+    .filter((bom): bom is AgentTopLevelBomContext => bom != null);
 }
 
 function collectRelevantItemIds(args: {
@@ -1401,179 +1553,203 @@ function omittedLine(total: number, shown: number, label: string) {
   return omitted > 0 ? `\n\n_${omitted} more ${label} omitted._` : "";
 }
 
-function compactReason(reasonCodes: readonly string[] | undefined) {
-  if (!reasonCodes || reasonCodes.length === 0) return "-";
-  if (reasonCodes.includes("missing_supplier")) return "missing supplier";
-  if (reasonCodes.includes("missing_bom")) return "missing BOM";
-  if (reasonCodes.includes("projected_shortage")) return "shortage";
-  if (reasonCodes.includes("safety_stock_demand")) return "safety stock";
-  return reasonCodes[0]?.replaceAll("_", " ") ?? "-";
-}
-
-type MarkdownSupplyGroup = {
+type MarkdownBuildTarget = {
+  itemId: string;
   itemName: string;
   unitName: string | null;
   quantity: number;
-  requiredDate: string | null;
-  latestStartDate: string | null;
-  supplierName: string | null;
-  reasons: Set<string>;
+  shipDate: string | null;
+  buildByDate: string | null;
+  reason: string;
+  source: string;
+  salesOrder: string;
 };
 
-function groupSupplyRecommendations(
-  recommendations: AgentSupplyRecommendationContext[]
-) {
-  const groups = new Map<string, MarkdownSupplyGroup>();
+function topLevelBomByProductId(context: AgentProductionPlanningContext) {
+  return new Map(context.topLevelBoms.map((bom) => [bom.productItemId, bom]));
+}
 
-  for (const recommendation of recommendations) {
-    const key = `${recommendation.itemId}:${recommendation.unitName ?? ""}`;
-    const group = groups.get(key) ?? {
-      itemName: recommendation.itemName,
-      unitName: recommendation.unitName,
-      quantity: 0,
-      requiredDate: null,
-      latestStartDate: null,
-      supplierName: recommendation.suggestedSupplierName,
-      reasons: new Set<string>(),
-    };
+function inventoryByItemId(context: AgentProductionPlanningContext) {
+  return new Map(context.inventory.map((item) => [item.itemId, item]));
+}
 
-    group.quantity += toQuantity(recommendation.quantity);
-    group.requiredDate = earliestDate(group.requiredDate, recommendation.requiredDate);
-    group.latestStartDate = earliestDate(
-      group.latestStartDate,
-      recommendation.latestStartDate
+function openMoSupplyByItemId(context: AgentProductionPlanningContext) {
+  const supplyByItem = new Map<string, number>();
+  for (const order of context.manufacturingOrders) {
+    supplyByItem.set(
+      order.itemId,
+      roundQuantity((supplyByItem.get(order.itemId) ?? 0) + toQuantity(order.remainingQty))
     );
-    group.supplierName ??= recommendation.suggestedSupplierName;
-    group.reasons.add(compactReason(recommendation.reasonCodes));
-    groups.set(key, group);
+  }
+  return supplyByItem;
+}
+
+function buildMarkdownTargets(context: AgentProductionPlanningContext) {
+  const bomsByProductId = topLevelBomByProductId(context);
+  const targets: MarkdownBuildTarget[] = [];
+
+  for (const order of context.salesOrders) {
+    for (const salesLine of order.lines) {
+      const shortQty = toQuantity(salesLine.shortQty);
+      if (shortQty <= 0) continue;
+
+      if (
+        salesLine.productionStatus !== "available" &&
+        salesLine.productionStatus !== "allocated"
+      ) {
+        targets.push({
+          itemId: salesLine.itemId,
+          itemName: salesLine.itemName,
+          unitName: salesLine.unitName,
+          quantity: shortQty,
+          shipDate: order.requiredDate,
+          buildByDate: order.requiredDate,
+          reason: "sales order short",
+          source: `${order.orderNumber} / ${salesLine.itemName}`,
+          salesOrder: order.orderNumber,
+        });
+      }
+
+      const bom = bomsByProductId.get(salesLine.itemId);
+      if (!bom) continue;
+
+      for (const component of bom.components) {
+        if (!component.minimumLotAgeDays) continue;
+        if (component.consumptionMode !== "per_output_unit") continue;
+
+        targets.push({
+          itemId: component.componentItemId,
+          itemName: component.componentName,
+          unitName: component.unitName,
+          quantity: roundQuantity(shortQty * toQuantity(component.quantity)),
+          shipDate: order.requiredDate,
+          buildByDate: subtractDays(order.requiredDate, component.minimumLotAgeDays),
+          reason: `${component.minimumLotAgeDays} day age constraint for ${salesLine.itemName}`,
+          source: `${order.orderNumber} / ${salesLine.itemName}`,
+          salesOrder: order.orderNumber,
+        });
+      }
+    }
   }
 
-  return [...groups.values()].sort((left, right) => {
-    const dateDelta = (left.requiredDate ?? "9999-12-31").localeCompare(
-      right.requiredDate ?? "9999-12-31"
+  return targets.sort((left, right) => {
+    const dateDelta = (left.buildByDate ?? "9999-12-31").localeCompare(
+      right.buildByDate ?? "9999-12-31"
     );
     if (dateDelta !== 0) return dateDelta;
     return left.itemName.localeCompare(right.itemName);
   });
 }
 
-type MarkdownBlockerGroup = {
-  blockingItemName: string;
-  unitName: string | null;
-  shortageQuantity: number;
-  requiredDate: string | null;
-  blockerType: string;
-  affectedParents: Set<string>;
-};
+function groupMarkdownTargets(targets: MarkdownBuildTarget[]) {
+  const groups = new Map<string, MarkdownBuildTarget & { sources: Set<string> }>();
 
-function groupProductionBlockers(blockers: AgentProductionBlockerFact[]) {
-  const groups = new Map<string, MarkdownBlockerGroup>();
-
-  for (const blocker of blockers) {
-    if (blocker.blockerType === "component_requirement") continue;
-
-    const blockingItemName = blocker.componentItemName ?? blocker.parentItemName;
-    const unitName = blocker.componentUnitName;
-    const key = `${blocker.blockerType}:${blockingItemName}:${unitName ?? ""}`;
+  for (const target of targets) {
+    const key = [
+      target.itemName,
+      target.unitName ?? "",
+      target.buildByDate ?? "",
+      target.reason,
+    ].join(":");
     const group = groups.get(key) ?? {
-      blockingItemName,
-      unitName,
-      shortageQuantity: 0,
-      requiredDate: null,
-      blockerType: blocker.blockerType,
-      affectedParents: new Set<string>(),
+      ...target,
+      quantity: 0,
+      sources: new Set<string>(),
     };
-
-    group.shortageQuantity += toQuantity(blocker.shortageQuantity);
-    group.requiredDate = earliestDate(group.requiredDate, blocker.earliestRequiredDate);
-    group.affectedParents.add(blocker.parentItemName);
+    group.quantity = roundQuantity(group.quantity + target.quantity);
+    group.shipDate = earliestDate(group.shipDate, target.shipDate);
+    group.sources.add(target.salesOrder);
     groups.set(key, group);
   }
 
   return [...groups.values()].sort((left, right) => {
-    const dateDelta = (left.requiredDate ?? "9999-12-31").localeCompare(
-      right.requiredDate ?? "9999-12-31"
+    const dateDelta = (left.buildByDate ?? "9999-12-31").localeCompare(
+      right.buildByDate ?? "9999-12-31"
     );
     if (dateDelta !== 0) return dateDelta;
-    return left.blockingItemName.localeCompare(right.blockingItemName);
+    return left.itemName.localeCompare(right.itemName);
   });
 }
 
 export function buildAgentProductionPlanningMarkdown(
   context: AgentProductionPlanningContext
 ) {
-  const allocateNow = context.decisionSupport.allocationNeeds.filter(
-    (need) => need.readiness === "allocate_available_inventory"
+  const today = context.generatedAt.slice(0, 10);
+  const inventory = inventoryByItemId(context);
+  const openMoSupply = openMoSupplyByItemId(context);
+  const targets = groupMarkdownTargets(buildMarkdownTargets(context));
+  const dueTargets = targets.filter(
+    (target) => !target.buildByDate || target.buildByDate <= today
   );
-  const needsSupply = context.decisionSupport.allocationNeeds.filter(
-    (need) => need.readiness !== "allocate_available_inventory"
+  const futureTargets = targets.filter(
+    (target) => target.buildByDate && target.buildByDate > today
   );
-  const makeNext = context.decisionSupport.supplyRecommendations.filter(
-    (recommendation) =>
-      recommendation.recommendationType === "create_manufacturing_order"
-  );
-  const buyNext = context.decisionSupport.supplyRecommendations.filter(
-    (recommendation) =>
-      recommendation.recommendationType === "create_purchase_order"
-  );
-  const reviewSetup = context.decisionSupport.supplyRecommendations.filter(
-    (recommendation) => recommendation.recommendationType === "review_item_setup"
-  );
-  const makeGroups = groupSupplyRecommendations(makeNext);
-  const buyGroups = groupSupplyRecommendations(buyNext);
-  const reviewGroups = groupSupplyRecommendations(reviewSetup);
-  const blockerGroups = groupProductionBlockers(context.planning.productionBlockers);
 
-  const allocateRows = allocateNow
-    .slice(0, MAX_MARKDOWN_ALLOCATE_NOW)
-    .map((need) => [
-      need.demandLabel,
-      need.itemName,
-      compactQty(need.unallocatedQty, need.unitName),
-      compactDate(need.requiredDate),
-      `${need.availableQtyBeforeThisNeed} -> ${need.availableQtyAfterThisNeed}`,
-      String(need.allocationRankForItem),
+  const salesDemandRows = context.salesOrders
+    .flatMap((order) =>
+      order.lines.map((salesLine) => [
+        order.orderNumber,
+        order.customerName ?? "-",
+        compactDate(order.orderDate),
+        compactDate(order.requiredDate),
+        salesLine.itemName,
+        compactQty(salesLine.openQty, salesLine.unitName),
+        compactQty(salesLine.allocatedQty, salesLine.unitName),
+        compactQty(salesLine.shortQty, salesLine.unitName),
+        salesLine.productionStatus,
+      ])
+    )
+    .slice(0, MAX_MARKDOWN_SALES_DEMAND);
+
+  const buildRows = dueTargets.slice(0, MAX_MARKDOWN_BUILD_TODAY).map((target) => {
+    const itemInventory = inventory.get(target.itemId);
+    return [
+      target.itemName,
+      compactQty(quantityString(target.quantity), target.unitName),
+      compactDate(target.buildByDate),
+      compactDate(target.shipDate),
+      target.reason,
+      itemInventory?.availableQty ?? "-",
+      quantityString(openMoSupply.get(target.itemId) ?? 0),
+      [...target.sources].slice(0, 4).join(", "),
+    ];
+  });
+
+  const upcomingRows = futureTargets
+    .slice(0, MAX_MARKDOWN_UPCOMING_BUILDS)
+    .map((target) => [
+      target.itemName,
+      compactQty(quantityString(target.quantity), target.unitName),
+      compactDate(target.buildByDate),
+      compactDate(target.shipDate),
+      target.reason,
+      [...target.sources].slice(0, 4).join(", "),
     ]);
-  const needsSupplyRows = needsSupply
-    .slice(0, MAX_MARKDOWN_SUPPLY_NEEDS)
-    .map((need) => [
-      need.demandLabel,
-      need.itemName,
-      compactQty(need.unallocatedQty, need.unitName),
-      compactDate(need.requiredDate),
-      need.readiness,
+
+  const openMoRows = context.manufacturingOrders
+    .slice(0, MAX_MARKDOWN_OPEN_MOS)
+    .map((order) => [
+      order.orderNumber,
+      order.itemName,
+      compactQty(order.remainingQty, order.unitName),
+      compactDate(order.plannedDate),
+      order.outputAllocations
+        .map((allocation) => `${allocation.demandLabel}: ${allocation.quantity}`)
+        .slice(0, 3)
+        .join("; ") || "-",
     ]);
 
-  const makeRows = makeGroups.slice(0, MAX_MARKDOWN_MAKE_NEXT).map((group) => [
-    group.itemName,
-    compactQty(quantityString(group.quantity), group.unitName),
-    compactDate(group.requiredDate),
-    compactDate(group.latestStartDate),
-    [...group.reasons].join(", "),
-  ]);
-
-  const buyRows = buyGroups.slice(0, MAX_MARKDOWN_BUY_NEXT).map((group) => [
-    group.itemName,
-    compactQty(quantityString(group.quantity), group.unitName),
-    compactDate(group.requiredDate),
-    group.supplierName ?? "-",
-    [...group.reasons].join(", "),
-  ]);
-
-  const reviewRows = reviewGroups.slice(0, MAX_MARKDOWN_REVIEW_SETUP).map((group) => [
-    group.itemName,
-    compactQty(quantityString(group.quantity), group.unitName),
-    compactDate(group.requiredDate),
-    [...group.reasons].join(", "),
-  ]);
-
-  const blockerRows = blockerGroups.slice(0, MAX_MARKDOWN_BLOCKERS).map((group) => [
-    group.blockingItemName,
-    compactQty(quantityString(group.shortageQuantity), group.unitName),
-    compactDate(group.requiredDate),
-    group.blockerType,
-    [...group.affectedParents].slice(0, 4).join(", "),
-  ]);
+  const bomRows = context.topLevelBoms
+    .flatMap((bom) =>
+      bom.components.map((component) => [
+        bom.productName,
+        component.componentName,
+        compactQty(component.quantity, component.unitName),
+        component.consumptionMode,
+        component.constraints.join(", ") || "-",
+      ])
+    )
+    .slice(0, MAX_MARKDOWN_TOP_LEVEL_BOMS);
 
   return [
     line("# Production Planning Brief"),
@@ -1586,62 +1762,89 @@ export function buildAgentProductionPlanningMarkdown(
       )}`
     ),
     line(),
-    line("## Counts"),
+    line("## Question"),
     line(
-      `Open sales orders: ${context.summary.openSalesOrderCount}; open sales lines: ${context.summary.openSalesOrderLineCount}; open MOs: ${context.summary.openManufacturingOrderCount}; open POs: ${context.summary.openPurchaseOrderCount}.`
+      "Answer only what bags, totes, or pallets need to be made for open sales demand. Do not recommend purchase orders from this brief."
     ),
     line(
-      `Allocation needs: ${context.summary.allocationNeedCount}; allocatable now: ${context.summary.allocatableNowCount}; make recommendations: ${context.summary.makeRecommendationCount}; buy recommendations: ${context.summary.buyRecommendationCount}; setup reviews: ${context.summary.reviewItemSetupCount}; blockers: ${context.summary.productionBlockerCount}.`
+      `Open sales orders: ${context.summary.openSalesOrderCount}; open sales lines: ${context.summary.openSalesOrderLineCount}; open MOs: ${context.summary.openManufacturingOrderCount}.`
     ),
     line(),
-    line("## Allocate Now"),
+    line("## Build Today Or Late"),
     line(
       markdownTable(
-        ["Demand", "Item", "Qty", "Need date", "Available before -> after", "Rank"],
-        allocateRows
-      ) + omittedLine(allocateNow.length, allocateRows.length, "allocatable needs")
+        [
+          "Item",
+          "Qty",
+          "Build by",
+          "Ship date",
+          "Why",
+          "Avail now",
+          "Open MO supply",
+          "Sales orders",
+        ],
+        buildRows
+      ) + omittedLine(dueTargets.length, buildRows.length, "due build targets")
     ),
     line(),
-    line("## Demand Needing Supply"),
+    line("## Upcoming Build Queue"),
     line(
       markdownTable(
-        ["Demand", "Item", "Short qty", "Need date", "Status"],
-        needsSupplyRows
-      ) + omittedLine(needsSupply.length, needsSupplyRows.length, "short demands")
+        ["Item", "Qty", "Build by", "Ship date", "Why", "Sales orders"],
+        upcomingRows
+      ) + omittedLine(futureTargets.length, upcomingRows.length, "upcoming build targets")
     ),
     line(),
-    line("## Make Next"),
+    line("## Sales Demand"),
     line(
       markdownTable(
-        ["Item", "Qty", "Need date", "Latest start", "Reason"],
-        makeRows
-      ) + omittedLine(makeGroups.length, makeRows.length, "make items")
+        [
+          "SO",
+          "Customer",
+          "Order date",
+          "Ship date",
+          "Item",
+          "Open",
+          "Allocated",
+          "Short",
+          "Status",
+        ],
+        salesDemandRows
+      ) +
+        omittedLine(
+          context.salesOrders.reduce((sum, order) => sum + order.lines.length, 0),
+          salesDemandRows.length,
+          "sales demand lines"
+        )
     ),
     line(),
-    line("## Buy Next"),
-    line(
-      markdownTable(["Item", "Qty", "Need date", "Supplier", "Reason"], buyRows) +
-        omittedLine(buyGroups.length, buyRows.length, "buy items")
-    ),
-    line(),
-    line("## Review Setup"),
-    line(
-      markdownTable(["Item", "Qty", "Need date", "Reason"], reviewRows) +
-        omittedLine(reviewGroups.length, reviewRows.length, "setup items")
-    ),
-    line(),
-    line("## Blockers"),
+    line("## Open Manufacturing Supply"),
     line(
       markdownTable(
-        ["Blocking item", "Short qty", "Need date", "Type", "Affects"],
-        blockerRows
-      ) + omittedLine(blockerGroups.length, blockerRows.length, "blocker groups")
+        ["MO", "Output", "Remaining", "Planned date", "Allocated to"],
+        openMoRows
+      ) +
+        omittedLine(
+          context.manufacturingOrders.length,
+          openMoRows.length,
+          "open manufacturing orders"
+        )
+    ),
+    line(),
+    line("## Top-Level BOM Constraints"),
+    line(
+      markdownTable(["Product", "Component", "Qty", "Mode", "Constraint"], bomRows) +
+        omittedLine(
+          context.topLevelBoms.reduce((sum, bom) => sum + bom.components.length, 0),
+          bomRows.length,
+          "top-level BOM components"
+        )
     ),
     line(),
     line("## Rules"),
     line("- This is read-only. Do not claim allocations, MOs, or POs were created."),
-    line("- Use ERP quantities above as authoritative."),
-    line("- Recommend actions in this order: allocate now, make next, buy/review setup, then blockers."),
+    line("- A constrained component must be built or received by the build-by date so it can age before the sales order ships."),
+    line("- Use open manufacturing supply before recommending new manufacturing orders."),
   ].join("\n");
 }
 
@@ -1655,6 +1858,7 @@ async function buildAgentProductionPlanningContextInTx(
   const salesOrders = await loadOpenSalesOrdersInTx(tx, allocations, snapshot);
   const manufacturingOrders = await loadOpenManufacturingOrdersInTx(tx, allocations);
   const purchaseOrders = await loadOpenPurchaseOrdersInTx(tx);
+  const topLevelBoms = await loadTopLevelBomContextInTx(tx, salesOrders);
   const relevantItemIds = collectRelevantItemIds({
     snapshot,
     salesOrders,
@@ -1724,6 +1928,7 @@ async function buildAgentProductionPlanningContextInTx(
     inventory,
     allocations,
     decisionSupport,
+    topLevelBoms,
     planning: {
       horizonStart: snapshot.horizonStart,
       horizonEnd: snapshot.horizonEnd,
