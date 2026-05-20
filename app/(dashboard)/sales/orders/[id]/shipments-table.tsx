@@ -18,6 +18,7 @@ import {
   EditableLineDataGrid,
   type EditableLineDataGridChange,
 } from "@/components/editable-line-data-grid";
+import { AgGridDateCellEditor } from "@/components/ag-grid-date-cell-editor";
 import { patchSalesShipment } from "@/lib/api/clients/sales-orders";
 import { formatDate, formatPrice, formatQuantity } from "@/lib/format";
 import { isValidIsoDate } from "@/lib/schemas/shared";
@@ -135,7 +136,8 @@ export function ShipmentsTable({
         headerName: "Ship date",
         width: 130,
         editable: (params) => (params.data ? editable && params.data.status === "planned" : false),
-        cellEditor: "agTextCellEditor",
+        cellEditor: AgGridDateCellEditor,
+        cellEditorPopup: true,
         cellClass: "font-mono tabular-nums",
         valueFormatter: ({ value }) => (value ? (formatDate(String(value)) ?? "—") : "—"),
         valueSetter: dateSetter("scheduledDate"),
@@ -145,7 +147,8 @@ export function ShipmentsTable({
         headerName: "Deliver date",
         width: 130,
         editable: (params) => (params.data ? editable && params.data.status === "planned" : false),
-        cellEditor: "agTextCellEditor",
+        cellEditor: AgGridDateCellEditor,
+        cellEditorPopup: true,
         cellClass: "font-mono tabular-nums",
         valueFormatter: ({ value }) => (value ? (formatDate(String(value)) ?? "—") : "—"),
         valueSetter: dateSetter("deliveryDate"),
