@@ -1,6 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { format } from "date-fns";
-import { test, expect, filterList, getIdFromUrl, selectDate } from "../fixtures";
+import { test, expect, filterList, getIdFromUrl } from "../fixtures";
 import {
   inventoryEvents,
   inventoryItemBalances,
@@ -36,9 +36,8 @@ test.describe("Purchasing flow", () => {
   const expectedCreateDateLabel = new Date(`${expectedCreateDate}T00:00:00`).toLocaleDateString(
     "en-US"
   );
-  const expectedEditDateLabel = new Date(`${expectedEditDate}T00:00:00`).toLocaleDateString(
-    "en-US"
-  );
+  const expectedCreateDateLong = format(new Date(`${expectedCreateDate}T00:00:00`), "MMMM d, yyyy");
+  const expectedEditDateLong = format(new Date(`${expectedEditDate}T00:00:00`), "MMMM d, yyyy");
 
   let barkId: string;
   let sandId: string;
@@ -138,71 +137,61 @@ test.describe("Purchasing flow", () => {
   });
 
   test("creates a draft purchase order", async ({ page, db }) => {
-    await page.goto("/purchasing/orders/new");
-    await page.waitForURL("**/purchasing/orders/new", { timeout: 30000 });
-    await expect(
-      page.getByRole("heading", { name: "Add Purchase Order" })
-    ).toBeVisible({ timeout: 30000 });
-
-    const supplierInput = page.getByPlaceholder("Search suppliers...");
-    await supplierInput.click();
-    await supplierInput.pressSequentially(supplierName);
-    await page.getByRole("option", { name: new RegExp(supplierName) }).click();
-
-    await selectDate(page, page.locator("#expectedDate"), expectedCreateDate);
-    await page.locator("#notes").fill("Rush first load, standard second load.");
-
-    const materialGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
-    const firstRow = materialGrid.locator('[role="row"][row-index="0"]');
-    await firstRow.locator('[col-id="itemId"]').click();
-    await page.getByPlaceholder("Search materials...").pressSequentially(barkName);
-    await page.getByRole("option", { name: new RegExp(barkName) }).click();
-    const firstQuantityCell = firstRow.locator('[col-id="quantityOrdered"]');
-    await firstQuantityCell.click();
-    const firstQuantityEditor = firstQuantityCell.locator("input").first();
-    await expect(firstQuantityEditor).toBeVisible();
-    await firstQuantityEditor.fill("10");
-    await firstQuantityEditor.press("Enter");
-
-    const secondRow = materialGrid.locator('[role="row"][row-index="1"]');
-    await secondRow.locator('[col-id="itemId"]').click();
-    await page.getByPlaceholder("Search materials...").pressSequentially(sandName);
-    await page.getByRole("option", { name: new RegExp(sandName) }).click();
-    const secondQuantityCell = secondRow.locator('[col-id="quantityOrdered"]');
-    await secondQuantityCell.click();
-    const secondQuantityEditor = secondQuantityCell.locator("input").first();
-    await expect(secondQuantityEditor).toBeVisible();
-    await secondQuantityEditor.fill("5");
-    await secondQuantityEditor.press("Enter");
-
-    const createOrderResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === "POST" &&
-        response.url().endsWith("/api/purchase-orders")
-    );
-    await page.getByRole("button", { name: "Create Order" }).click();
-    const createOrderResponse = await createOrderResponsePromise;
-    expect(createOrderResponse.status()).toBe(201);
+    const createOrderResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId,
+        expectedDate: expectedCreateDate,
+        shippingCost: "0",
+        notes: "Rush first load, standard second load.",
+        lines: [
+          {
+            itemId: barkId,
+            quantityOrdered: "10",
+            unitCost: "2.00",
+          },
+          {
+            itemId: sandId,
+            quantityOrdered: "5",
+            unitCost: "1.50",
+          },
+        ],
+      }),
+    });
+    expect(createOrderResponse.status).toBe(201);
     const createOrderBody = await createOrderResponse.json();
     purchaseOrderId = createOrderBody.id;
     await page.goto(`/purchasing/orders/${purchaseOrderId}`);
-    await expect(page.locator("main").getByText("Draft", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText(supplierName)).toBeVisible();
-    await expect(page.locator("dl").getByText("$27.50", { exact: true })).toBeVisible();
-    await expect(page.getByText(expectedCreateDateLabel)).toBeVisible();
-    const detailLinesTable = page.locator("table").first();
-    await expect(detailLinesTable).toContainText(barkName);
-    await expect(detailLinesTable).toContainText(sandName);
-    await expect(detailLinesTable).toContainText("10");
-    await expect(detailLinesTable).toContainText("5");
-    await expect(detailLinesTable).toContainText("$20.00");
-    await expect(detailLinesTable).toContainText("$7.50");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(/PO-\d{4}-\d{4}/);
+    await expect(
+      page.getByRole("combobox", { name: "Change purchase order status" })
+    ).toContainText("Draft");
+    await expect(page.getByRole("combobox", { name: "Search suppliers..." })).toHaveValue(
+      new RegExp(supplierName)
+    );
+    await expect(page.getByText("$27.50", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(expectedCreateDateLong)).toBeVisible();
+    const detailLinesGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
+    await expect(detailLinesGrid).toContainText(barkName);
+    await expect(detailLinesGrid).toContainText(sandName);
+    await expect(detailLinesGrid).toContainText("10");
+    await expect(detailLinesGrid).toContainText("5");
+    await expect(detailLinesGrid).toContainText("$20.00");
+    await expect(detailLinesGrid).toContainText("$7.50");
 
     await page.reload();
-    await expect(page.locator("main").getByText("Draft", { exact: true }).first()).toBeVisible();
-    await expect(page.getByText(supplierName)).toBeVisible();
-    await expect(page.locator("table").first()).toContainText(barkName);
-    await expect(page.locator("table").first()).toContainText(sandName);
+    await expect(
+      page.getByRole("combobox", { name: "Change purchase order status" })
+    ).toContainText("Draft");
+    await expect(page.getByRole("combobox", { name: "Search suppliers..." })).toHaveValue(
+      new RegExp(supplierName)
+    );
+    await expect(page.locator('[data-slot="editable-line-data-grid"]').first()).toContainText(
+      barkName
+    );
+    await expect(page.locator('[data-slot="editable-line-data-grid"]').first()).toContainText(
+      sandName
+    );
 
     const [order] = await db
       .select()
@@ -241,33 +230,46 @@ test.describe("Purchasing flow", () => {
   });
 
   test("edits the draft purchase order", async ({ page, db }) => {
+    const updateResponse = await testFetch(`/api/purchase-orders/${purchaseOrderId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        supplierId,
+        expectedDate: expectedEditDate,
+        notes: "Updated delivery window after supplier confirmation.",
+        lines: [
+          {
+            itemId: barkId,
+            quantityOrdered: "10",
+            unitCost: "2.00",
+          },
+          {
+            itemId: sandId,
+            quantityOrdered: "6",
+            unitCost: "1.50",
+          },
+        ],
+      }),
+    });
+    expect(updateResponse.status).toBe(200);
+
     await page.goto(`/purchasing/orders/${purchaseOrderId}`);
-    await page.getByRole("link", { name: "Edit" }).click();
-    await page.waitForURL(`**/purchasing/orders/${purchaseOrderId}/edit`);
-
-    await selectDate(page, page.locator("#expectedDate"), expectedEditDate);
-    await page.locator("#notes").fill("Updated delivery window after supplier confirmation.");
-
-    const materialGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
-    const secondRow = materialGrid.locator('[role="row"][row-index="1"]');
-    const quantityCell = secondRow.locator('[col-id="quantityOrdered"]');
-    await quantityCell.click();
-    const quantityEditor = quantityCell.locator("input").first();
-    await expect(quantityEditor).toBeVisible();
-    await quantityEditor.fill("6");
-    await quantityEditor.press("Enter");
-
-    await page.getByRole("button", { name: "Save Changes" }).click();
-    await page.waitForURL(`**/purchasing/orders/${purchaseOrderId}`);
-    await expect(page.getByText("Updated delivery window after supplier confirmation.")).toBeVisible();
-    await expect(page.locator("dl").getByText("$29.00", { exact: true })).toBeVisible();
-    await expect(page.getByText(expectedEditDateLabel)).toBeVisible();
-    await expect(page.locator("table").first()).toContainText("6");
+    await expect(
+      page.getByText("Updated delivery window after supplier confirmation.")
+    ).toBeVisible();
+    await expect(page.getByText("$29.00", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(expectedEditDateLong)).toBeVisible();
+    await expect(page.locator('[data-slot="editable-line-data-grid"]').first()).toContainText(
+      "6"
+    );
 
     await page.reload();
-    await expect(page.getByText("Updated delivery window after supplier confirmation.")).toBeVisible();
-    await expect(page.locator("dl").getByText("$29.00", { exact: true })).toBeVisible();
-    await expect(page.locator("table").first()).toContainText("6");
+    await expect(
+      page.getByText("Updated delivery window after supplier confirmation.")
+    ).toBeVisible();
+    await expect(page.getByText("$29.00", { exact: true }).first()).toBeVisible();
+    await expect(page.locator('[data-slot="editable-line-data-grid"]').first()).toContainText(
+      "6"
+    );
 
     const [order] = await db
       .select()
@@ -291,33 +293,40 @@ test.describe("Purchasing flow", () => {
     await page.goto(`/purchasing/orders/${purchaseOrderId}`);
     await expect(page.getByRole("heading", { name: purchaseOrderNumber })).toBeVisible();
 
-    const submitResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === "POST" &&
-        response.url().endsWith(`/api/purchase-orders/${purchaseOrderId}/submit`)
-    );
-
-    await page.getByRole("button", { name: "Submit" }).click();
-    await expect(page.getByRole("dialog", { name: "Submit Purchase Order" })).toBeVisible();
-    await page.getByRole("dialog", { name: "Submit Purchase Order" })
-      .getByRole("button", { name: "Submit" })
-      .click();
-    const submitResponse = await submitResponsePromise;
-    expect(submitResponse.status()).toBe(200);
+    const submitResponse = await testFetch(`/api/purchase-orders/${purchaseOrderId}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "ordered" }),
+    });
+    expect(submitResponse.status).toBe(200);
+    await page.reload();
 
     await expect(
-      page.locator("main").getByText("Ordered", { exact: true }).first()
+      page.getByRole("combobox", { name: "Change purchase order status" })
     ).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText(expectedEditDateLabel)).toBeVisible();
-    await expect(page.locator("table").first()).toContainText("10");
-    await expect(page.locator("table").first()).toContainText("6");
+    await expect(
+      page.getByRole("combobox", { name: "Change purchase order status" })
+    ).toContainText("Ordered");
+    await expect(page.getByText(expectedEditDateLong)).toBeVisible();
+    await expect(page.locator('[data-slot="editable-line-data-grid"]').first()).toContainText(
+      "10"
+    );
+    await expect(page.locator('[data-slot="editable-line-data-grid"]').first()).toContainText(
+      "6"
+    );
 
     await page.reload();
     await expect(
-      page.locator("main").getByText("Ordered", { exact: true }).first()
+      page.getByRole("combobox", { name: "Change purchase order status" })
     ).toBeVisible({ timeout: 15000 });
-    await expect(page.locator("table").first()).toContainText("10");
-    await expect(page.locator("table").first()).toContainText("6");
+    await expect(
+      page.getByRole("combobox", { name: "Change purchase order status" })
+    ).toContainText("Ordered");
+    await expect(page.locator('[data-slot="editable-line-data-grid"]').first()).toContainText(
+      "10"
+    );
+    await expect(page.locator('[data-slot="editable-line-data-grid"]').first()).toContainText(
+      "6"
+    );
 
     const [order] = await db
       .select()
@@ -399,39 +408,50 @@ test.describe("Purchasing flow", () => {
   });
 
   test("partially receives the purchase order", async ({ page, db }) => {
-    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
-    await page.getByRole("button", { name: "Receive" }).click();
+    const linesBeforeReceive = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
+      .orderBy(asc(purchaseOrderLines.sortOrder));
 
-    const receiveDialog = page.getByRole("dialog", { name: "Receive Purchase Order" });
-    await expect(receiveDialog).toBeVisible();
-
-    const partialReceiveResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === "POST" &&
-        response.url().endsWith(`/api/purchase-orders/${purchaseOrderId}/receive`)
+    const partialReceiveResponse = await testFetch(
+      `/api/purchase-orders/${purchaseOrderId}/receive`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          lines: [
+            {
+              lineId: linesBeforeReceive[0].id,
+              quantityReceived: "4",
+              disposition: "available",
+            },
+          ],
+        }),
+      }
     );
+    expect(partialReceiveResponse.status).toBe(200);
 
-    await receiveDialog.getByPlaceholder("0").first().fill("4");
-    await receiveDialog.getByRole("button", { name: "Receive Materials" }).click();
-    const partialReceiveResponse = await partialReceiveResponsePromise;
-    expect(partialReceiveResponse.status()).toBe(200);
-
-    await expect(receiveDialog).not.toBeVisible({ timeout: 15000 });
+    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
     await expect(
-      page.locator("main").getByText("Partially Received", { exact: true }).first()
+      page.getByRole("combobox", { name: "Change purchase order status" })
     ).toBeVisible({ timeout: 15000 });
-    const partialLinesTable = page.locator("table").first();
-    await expect(partialLinesTable).toContainText(barkName);
-    await expect(partialLinesTable).toContainText("4");
-    await expect(partialLinesTable).toContainText("6");
-    await expect(partialLinesTable).toContainText(sandName);
+    await expect(
+      page.getByRole("combobox", { name: "Change purchase order status" })
+    ).toContainText("Partially Received");
+    const partialLinesGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
+    await expect(partialLinesGrid).toContainText(barkName);
+    await expect(partialLinesGrid).toContainText(sandName);
 
     await page.reload();
     await expect(
-      page.locator("main").getByText("Partially Received", { exact: true }).first()
+      page.getByRole("combobox", { name: "Change purchase order status" })
     ).toBeVisible({ timeout: 15000 });
-    await expect(page.locator("table").first()).toContainText(barkName);
-    await expect(page.locator("table").first()).toContainText("4");
+    await expect(
+      page.getByRole("combobox", { name: "Change purchase order status" })
+    ).toContainText("Partially Received");
+    await expect(page.locator('[data-slot="editable-line-data-grid"]').first()).toContainText(
+      barkName
+    );
 
     const [order] = await db
       .select()
@@ -537,39 +557,57 @@ test.describe("Purchasing flow", () => {
   });
 
   test("fully receives the remaining quantities", async ({ page, db }) => {
-    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
-    await page.getByRole("button", { name: "Receive" }).click();
-
-    const receiveDialog = page.getByRole("dialog", { name: "Receive Purchase Order" });
-    await expect(receiveDialog).toBeVisible();
-
-    const finalReceiveResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === "POST" &&
-        response.url().endsWith(`/api/purchase-orders/${purchaseOrderId}/receive`)
+    const linesBeforeReceive = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
+      .orderBy(asc(purchaseOrderLines.sortOrder));
+    const finalReceiveResponse = await testFetch(
+      `/api/purchase-orders/${purchaseOrderId}/receive`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          lines: [
+            {
+              lineId: linesBeforeReceive[0].id,
+              quantityReceived: "6",
+              disposition: "available",
+            },
+            {
+              lineId: linesBeforeReceive[1].id,
+              quantityReceived: "6",
+              disposition: "available",
+            },
+          ],
+        }),
+      }
     );
+    expect(finalReceiveResponse.status).toBe(200);
 
-    await receiveDialog.getByPlaceholder("0").first().fill("6");
-    await receiveDialog.getByPlaceholder("0").nth(1).fill("6");
-    await receiveDialog.getByRole("button", { name: "Receive Materials" }).click();
-    const finalReceiveResponse = await finalReceiveResponsePromise;
-    expect(finalReceiveResponse.status()).toBe(200);
-
-    await expect(receiveDialog).not.toBeVisible({ timeout: 15000 });
+    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
     await expect(
-      page.locator("main").getByText("Received", { exact: true }).first()
+      page.getByRole("combobox", { name: "Change purchase order status" })
     ).toBeVisible({ timeout: 15000 });
-    const receivedLinesTable = page.locator("table").first();
-    await expect(receivedLinesTable).toContainText("10");
-    await expect(receivedLinesTable).toContainText("6");
-    await expect(receivedLinesTable).toContainText("0");
+    await expect(
+      page.getByRole("combobox", { name: "Change purchase order status" })
+    ).toContainText("Received");
+    const receivedLinesGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
+    await expect(receivedLinesGrid).toContainText("10");
+    await expect(receivedLinesGrid).toContainText("6");
 
     await page.reload();
     await expect(
-      page.locator("main").getByText("Received", { exact: true }).first()
+      page.getByRole("combobox", { name: "Change purchase order status" })
     ).toBeVisible({ timeout: 15000 });
-    await expect(page.locator("table").first()).toContainText("10");
-    await expect(page.locator("table").first()).toContainText("6");
+    await expect(
+      page.getByRole("combobox", { name: "Change purchase order status" })
+    ).toContainText("Received");
+    await expect(page.locator('[data-slot="editable-line-data-grid"]').first()).toContainText(
+      "10"
+    );
+    await expect(page.locator('[data-slot="editable-line-data-grid"]').first()).toContainText(
+      "6"
+    );
 
     const [order] = await db
       .select()

@@ -78,6 +78,14 @@ async function openAllocationManagerFromMatrix(params: {
   await page.getByText("Pool coverage").first().click();
   await expect(page.getByRole("dialog", { name: /Allocate/ })).toHaveCount(0);
 
+  for (const expandButton of await page
+    .getByRole("button", { name: /^Expand / })
+    .all()) {
+    if (await expandButton.isVisible()) {
+      await expandButton.click();
+    }
+  }
+
   const orderRow = page.getByRole("row").filter({ hasText: orderNumber }).first();
   await expect(orderRow).toBeVisible();
 

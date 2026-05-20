@@ -926,7 +926,11 @@ function ProjectsSection({
   );
 
   return (
-    <section className={styles.section}>
+    <section
+      className={styles.section}
+      role="region"
+      aria-label={`Projects ${sourceRows.length}`}
+    >
       <h2 className={styles.sectionHeading}>
         Projects
         <span className={styles.count}>· {sourceRows.length}</span>

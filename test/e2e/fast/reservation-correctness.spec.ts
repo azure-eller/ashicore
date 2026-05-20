@@ -1,5 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
-import { test, expect, selectDate } from "../fixtures";
+import { test, expect } from "../fixtures";
 import {
   inventoryDemandSummary,
   inventoryItemBalances,
@@ -496,37 +496,16 @@ test.describe("Reservation correctness", () => {
     const customerId = await createCustomerFixture(customerName);
     const itemId = await createMaterial(materialName, "2");
 
-    await page.goto("/sales/orders/new");
-    await expect(page.getByText("Add Sales Order")).toBeVisible();
+    const orderId = await createOpenSalesOrder({
+      customerId,
+      itemId,
+      quantity: "5",
+    });
 
-    const customerInput = page.getByPlaceholder("Search customers...");
-    await customerInput.click();
-    await customerInput.pressSequentially(customerName);
-    await page.getByRole("option", { name: new RegExp(customerName) }).click();
-
-    const itemInput = page.getByPlaceholder("Search items...").first();
-    await itemInput.click();
-    await itemInput.pressSequentially(materialName);
-    await page.getByRole("option", { name: new RegExp(materialName) }).click();
-    await selectDate(page, page.getByLabel("Order Date"), "2026-04-01");
-    await page.locator('input[placeholder="0"]').first().fill("5");
-    await page.locator('input[placeholder="0.00"]').first().fill("9.00");
-
-    const [createOrderResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.request().method() === "POST" &&
-          response.url().endsWith("/api/sales-orders")
-      ),
-      page.getByRole("button", { name: "Create Order" }).click(),
-    ]);
-    expect(createOrderResponse.status()).toBe(201);
-    await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
-
+    await page.goto(`/sales/orders/${orderId}`);
     await expect(
-      page.locator("main").getByText("Open", { exact: true }).first()
+      page.getByRole("heading", { level: 1, name: /^SO-/ })
     ).toBeVisible({ timeout: 15000 });
-
     const balance = await getItemBalance(db, itemId);
     expect(balance.committedQty).toBe("2.0000");
     expect(balance.demandQty).toBe("5.0000");

@@ -63,6 +63,7 @@ export function OrderCard({
   initialOrder,
   customerOptions,
   itemOptions,
+  canViewLedger,
   xeroInvoiceSetupStatus,
 }: OrderCardProps) {
   const router = useRouter();
@@ -375,6 +376,7 @@ export function OrderCard({
         onCreateMoDisabled={!order.hasManufacturableLines}
         onCreateMoDisabledReason={order.manufacturableDisabledReason ?? undefined}
         onDelete={!isDraft ? () => setConfirmDelete(true) : undefined}
+        canViewLedger={canViewLedger}
       />
 
       {actionError ? (
