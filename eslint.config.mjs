@@ -18,6 +18,8 @@ const eslintConfig = defineConfig([
     "playwright-report/**",
     ".worktrees/**",
     "archived/**",
+    "docs/design-system/reference/**",
+    "docs/design-system/sales-order-detail/**",
     "docs/*-redesign/**",
   ]),
 ]);

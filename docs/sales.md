@@ -39,6 +39,37 @@ Sales v1 does not include:
 - Xero freight invoice lines
 - AP matching or GL postings
 
+## Detail page UI
+
+The order detail page at `/sales/orders/[id]` uses the unified Calm Matrix
+single-page card (`app/(dashboard)/sales/orders/[id]/order-card.tsx`). The
+previous 4-tab read-only view + separate `/edit` modal are being retired; the
+new card folds them into one inline-editable surface. The legacy 4-tab view
+remains accessible at `/sales/orders/[id]?view=legacy` until inline-edit and
+the new plan-shipment dialog finish landing.
+
+### Derived order display status
+
+The header status pill is **derived** from
+`SalesOrderDetail.shippingReadiness.state` plus `status` and `lines.length`. See
+`lib/sales/order-display-status.ts#deriveOrderDisplayStatus`. The DB still
+stores only `open` / `done`; the six-state pill (DRAFT / OPEN / ALLOCATED /
+PARTIALLY SHIPPED / SHIPPED / CLOSED) is a UI derivation that both the
+detail page and the orders list page (`orders-table.tsx`) read from the same
+helper, so list filters and detail pill stay in sync.
+
+### Relocated entry points
+
+The redesign moves a few entry points out of the deprecated tabs:
+
+- **Manufacturing**: Create MOs lives in the header ⋯ menu (only enabled when
+  `hasManufacturableLines === true`). The MO list panel is dropped from the
+  order page; linked MOs are visible from each manufacturable item.
+- **Activity**: dropped from the order page entirely (future: global audit
+  panel; see `docs/design-system/sales-order-detail/README.md` §14).
+- **Accounting / Xero push**: order-level push lives in the header ⋯ menu;
+  per-shipment push lives in the shipment row's dots menu.
+
 ## Status Rules
 
 - `open` orders are editable operational work

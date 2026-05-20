@@ -627,6 +627,7 @@ export async function createSupplier(data: {
 export async function createSalesOrder(data: {
   orderNumber?: string | null;
   customerId: string;
+  customerProjectId?: string | null;
   status?: string;
   orderDate?: string;
   shipDate?: string | null;
@@ -654,6 +655,7 @@ export async function createSalesOrder(data: {
     body: JSON.stringify({
       ...(data.orderNumber !== undefined ? { orderNumber: data.orderNumber } : {}),
       customerId: data.customerId,
+      customerProjectId: data.customerProjectId ?? null,
       status: data.status ?? "open",
       orderDate:
         data.orderDate ??
