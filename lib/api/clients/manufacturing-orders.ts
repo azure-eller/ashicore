@@ -33,10 +33,8 @@ async function parseError(response: Response): Promise<never> {
 }
 
 /**
- * Partial PATCH for the redesigned MO sheet. Each call sends only the fields
- * that changed. Mirrors the item-card autosave shape — every mutation uses
- * mutationKey `["mo", moId, ...]` so the `useMoSaveStatus(moId)` aggregator
- * can drive the header pill.
+ * Metadata PATCH for the redesigned MO sheet. Inventory-affecting changes
+ * such as quantity and ingredients go through the full update endpoint.
  */
 export async function patchManufacturingOrder(
   orderId: string,
@@ -110,9 +108,8 @@ export async function fetchSalesOrderOptions(): Promise<
 }
 
 /**
- * Replace the MO's ingredient list (add / delete / reorder) through the
- * existing kernel-safe full-update path. The sheet supplies the current
- * header values so the PUT only changes the ingredient set.
+ * Replace the MO's ingredient list or planned quantity through the existing
+ * kernel-safe full-update path.
  */
 export async function saveManufacturingOrderIngredients(
   orderId: string,

@@ -4686,13 +4686,10 @@ export async function updateManufacturingOrder(
 }
 
 /**
- * Inline-edit PATCH for the redesigned MO sheet. Accepts a narrow partial
- * diff (planned qty / date / notes / sales-order link / status / isBlocked)
- * and writes only those columns. Mirrors the item-card auto-save pattern.
- *
- * NOTE: this skips the heavy validation in updateManufacturingOrder
- * (BOM recompute, batch-mode re-derivation, ingredient delete+recreate)
- * because we never touch the ingredients shape here.
+ * Inline-edit PATCH for the redesigned MO sheet. This is intentionally limited
+ * to metadata that does not affect inventory truth. Quantity and ingredient
+ * changes must continue through updateManufacturingOrder so expected supply,
+ * ingredient demand, batches, and active allocations stay in sync.
  */
 export async function patchManufacturingOrder(
   id: string,
@@ -4702,19 +4699,12 @@ export async function patchManufacturingOrder(
     const existing = await getLockedManufacturingOrderInTx(tx, id);
     if (!existing) return null;
 
+    if (existing.status !== "open") {
+      throw new ManufacturingError("Only open orders can be edited.", 400);
+    }
+
     const updates: Record<string, unknown> = { updatedAt: new Date() };
 
-    if (payload.plannedQuantity !== undefined) {
-      if (existing.status !== "open") {
-        throw new ManufacturingError(
-          "Only open orders can change planned quantity.",
-          400,
-        );
-      }
-      const planned = Number(payload.plannedQuantity);
-      updates.plannedQuantity = normalizeNumeric(planned);
-      updates.requestedQuantity = normalizeNumeric(planned);
-    }
     if (payload.plannedDate !== undefined) {
       updates.plannedDate = payload.plannedDate ?? null;
     }
@@ -4744,15 +4734,6 @@ export async function patchManufacturingOrder(
       updates.salesOrderNumber = salesLink?.salesOrderNumber ?? null;
       updates.salesCustomerName = salesLink?.customerName ?? null;
     }
-    if (payload.status !== undefined) {
-      updates.status = payload.status;
-      if (payload.status === "done") {
-        updates.completedAt = new Date();
-      } else if (payload.status === "open" && existing.status === "done") {
-        // Reopen: clear completedAt.
-        updates.completedAt = null;
-      }
-    }
     if (payload.isBlocked !== undefined) {
       updates.isBlocked = payload.isBlocked;
     }
@@ -4768,19 +4749,53 @@ export async function patchManufacturingOrder(
 }
 
 export async function patchManufacturingOrderIngredient(
+  orderId: string,
   ingredientId: string,
   payload: PatchManufacturingOrderIngredient
 ): Promise<{ id: string } | null> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const order = await getLockedManufacturingOrderInTx(tx, orderId);
+    if (!order) return null;
+
     const [existing] = await tx
       .select({
         id: manufacturingOrderIngredients.id,
+        itemId: manufacturingOrderIngredients.itemId,
         manufacturingOrderId: manufacturingOrderIngredients.manufacturingOrderId,
+        plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
+          "plannedQuantity"
+        ),
+        pickedQuantity: trimScale(manufacturingOrderIngredients.pickedQuantity).as(
+          "pickedQuantity"
+        ),
+        pickStatus: manufacturingOrderIngredients.pickStatus,
       })
       .from(manufacturingOrderIngredients)
-      .where(eq(manufacturingOrderIngredients.id, ingredientId))
+      .where(
+        and(
+          eq(manufacturingOrderIngredients.id, ingredientId),
+          eq(manufacturingOrderIngredients.manufacturingOrderId, orderId)
+        )
+      )
       .for("update");
     if (!existing) return null;
+
+    if (order.status !== "open") {
+      throw new ManufacturingError(
+        "Only open orders can change ingredient lot allocations.",
+        400
+      );
+    }
+
+    if (
+      existing.pickStatus !== "not_picked" ||
+      Number(existing.pickedQuantity) > 0
+    ) {
+      throw new ManufacturingError(
+        "Ingredient lot allocations cannot be changed after picking starts.",
+        400
+      );
+    }
 
     const updates: Record<string, unknown> = { updatedAt: new Date() };
 
@@ -4788,14 +4803,37 @@ export async function patchManufacturingOrderIngredient(
       updates.lotStrategy = payload.lotStrategy;
     }
 
-    // For v1 we only persist the strategy flag. Auto-allocate computation
-    // for FIFO/LIFO happens at picking time via the existing kernel path,
-    // and CUSTOM allocations are written via the existing lot picker flow
-    // (which writes to manufacturing_pick_allocations directly).
     await tx
       .update(manufacturingOrderIngredients)
       .set(updates)
       .where(eq(manufacturingOrderIngredients.id, ingredientId));
+
+    if (payload.allocations !== undefined) {
+      await cancelActiveStockAllocationsInTx(tx, {
+        organizationId: orgId,
+        actorUserId: userId,
+        demandType: "manufacturing_order_ingredient",
+        demandIds: [ingredientId],
+      });
+
+      await saveManufacturingIngredientLotAllocationsInTx(tx, {
+        organizationId: orgId,
+        actorUserId: userId,
+        ingredients: [
+          {
+            ingredientId: existing.id,
+            itemId: existing.itemId,
+            plannedQuantity: existing.plannedQuantity,
+          },
+        ],
+        lotAllocations: [
+          {
+            itemId: existing.itemId,
+            allocations: payload.allocations,
+          },
+        ],
+      });
+    }
 
     return { id: existing.id };
   });

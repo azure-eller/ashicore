@@ -9,19 +9,16 @@ import type { ManufacturingLotStrategy } from "@/lib/schemas/manufacturing-order
 
 const STRATEGY_LABEL: Record<ManufacturingLotStrategy, string> = {
   fifo: "FIFO",
-  lifo: "LIFO",
   custom: "CUSTOM",
 };
 
 const STRATEGY_TONE: Record<ManufacturingLotStrategy, string> = {
   fifo: "text-[var(--color-accent)] bg-[var(--color-accent-soft)]",
-  lifo: "text-[var(--color-ink)] bg-[var(--color-surface-sunk)]",
   custom: "text-[var(--color-warning)] bg-[var(--color-warning-soft)]",
 };
 
 const NEXT_STRATEGY: Record<ManufacturingLotStrategy, ManufacturingLotStrategy> = {
-  fifo: "lifo",
-  lifo: "custom",
+  fifo: "custom",
   custom: "fifo",
 };
 
@@ -34,9 +31,9 @@ export type PickedLotSummary = {
 };
 
 /**
- * Per-ingredient lot allocation control: a strategy chip (FIFO / LIFO /
+ * Per-ingredient lot allocation control: a strategy chip (FIFO /
  * CUSTOM) plus an inline picked-lot summary. Click the strategy segment to
- * cycle FIFO → LIFO → CUSTOM; CUSTOM (or clicking the summary) opens the
+ * cycle FIFO → CUSTOM; CUSTOM (or clicking the summary) opens the
  * existing lot picker.
  */
 export function LotStrategyChip({

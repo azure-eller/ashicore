@@ -111,16 +111,17 @@ export function ManufacturingIngredientLotCard({
       parseQuantityValue(allocation.quantity),
     ]),
   );
+  const effectiveAllocations = value?.allocations ?? sourcesQuery.data?.currentAllocations ?? [];
   const allocationBySourceId = new Map(
-    (value?.allocations ?? []).map((allocation) => [
+    effectiveAllocations.map((allocation) => [
       allocation.sourceId,
       allocation.quantity,
     ]),
   );
-  const manualAllocatedQuantity = sumLotAllocations(value?.allocations);
+  const manualAllocatedQuantity = sumLotAllocations(effectiveAllocations);
   const allocationPreview = (() => {
     const manualBySourceId = new Map(
-      (value?.allocations ?? []).map((allocation) => [
+      effectiveAllocations.map((allocation) => [
         allocation.sourceId,
         parseQuantityValue(allocation.quantity),
       ]),

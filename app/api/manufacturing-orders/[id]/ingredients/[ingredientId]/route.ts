@@ -13,12 +13,12 @@ type IngredientRouteContext = {
 
 export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
-  const { ingredientId } = await (ctx as IngredientRouteContext).params;
+  const { id, ingredientId } = await (ctx as IngredientRouteContext).params;
   const body = await request.json();
   const data = patchManufacturingOrderIngredientSchema.parse(body);
 
   try {
-    const result = await patchManufacturingOrderIngredient(ingredientId, data);
+    const result = await patchManufacturingOrderIngredient(id, ingredientId, data);
     if (!result) {
       return NextResponse.json({ error: "Ingredient not found" }, { status: 404 });
     }

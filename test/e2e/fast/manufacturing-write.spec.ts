@@ -204,7 +204,7 @@ test.describe("Manufacturing write-path smoke", () => {
 
     // The /edit route now redirects into the inline-editable detail sheet.
     await page.goto(`/manufacturing/orders/${orderId}/edit`);
-    await page.waitForURL(`**/manufacturing/orders/${orderId}`);
+    await expect(page).toHaveURL(new RegExp(`/manufacturing/orders/${orderId}$`));
     const editNotesField = page.getByLabel("Notes");
     await expect(editNotesField).toHaveValue("Fast manufacturing smoke test");
     await editNotesField.click();

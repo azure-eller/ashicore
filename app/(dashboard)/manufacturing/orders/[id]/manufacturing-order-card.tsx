@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import type { ICellRendererParams } from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  ArrowLeft01Icon,
   Cancel01Icon,
   MoreVerticalIcon,
   PrinterIcon,
@@ -57,6 +58,7 @@ import {
   fetchManufacturingOrder,
   fetchSalesOrderOptions,
   patchManufacturingOrder,
+  patchManufacturingOrderIngredient,
   reorderManufacturingOrderIngredients,
   saveManufacturingOrderIngredients,
 } from "@/lib/api/clients/manufacturing-orders";
@@ -191,6 +193,26 @@ export function ManufacturingOrderCard({
       goBack();
     },
   });
+  const lotAllocationMutation = useMutation({
+    mutationKey: ["mo", currentOrderId ?? "__draft__", "ingredient-lot-allocation"],
+    mutationFn: ({
+      ingredientId,
+      allocations,
+    }: {
+      ingredientId: string;
+      allocations: Array<{ sourceId: string; quantity: string }>;
+    }) =>
+      patchManufacturingOrderIngredient(currentOrderId!, ingredientId, {
+        lotStrategy: "custom",
+        allocations,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["manufacturing-order", currentOrderId],
+      });
+      void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
+    },
+  });
 
   const productionStatus: ProductionStatus | null = order
     ? deriveProductionStatus({
@@ -215,7 +237,16 @@ export function ManufacturingOrderCard({
   const selectedProductName = order?.productName ?? null;
 
   return (
-    <div className={styles.sheet}>
+    <div className="mx-auto w-full max-w-7xl px-8 py-6">
+      <div className="space-y-5">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden />
+          <Link href="/manufacturing/orders" className="hover:text-foreground">
+            Back to Manufacturing Orders
+          </Link>
+        </div>
+
+        <div className={styles.sheet}>
       <header className={styles.header}>
         <div className={styles.headerIdentity}>
           <div className={styles.eyebrow}>
@@ -225,6 +256,7 @@ export function ManufacturingOrderCard({
             <>
               <h1 className={styles.title}>
                 <span className={styles.mono}>{order.orderNumber}</span>
+                {" "}
                 <span className="ml-3">{order.productName}</span>
                 {order.productSku ? (
                   <span
@@ -233,6 +265,7 @@ export function ManufacturingOrderCard({
                       "ml-2 text-[14px] font-medium text-[var(--color-muted)]",
                     )}
                   >
+                    {" "}
                     / {order.productSku}
                   </span>
                 ) : null}
@@ -359,7 +392,12 @@ export function ManufacturingOrderCard({
               value={undefined}
               manufacturingOrderId={currentOrderId}
               autoAllocateOnSave={false}
-              onChange={() => {}}
+              onChange={(allocations) => {
+                lotAllocationMutation.mutate({
+                  ingredientId: lotPickerIngredient.id,
+                  allocations,
+                });
+              }}
             />
           </DialogContent>
         </Dialog>
@@ -389,6 +427,8 @@ export function ManufacturingOrderCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+        </div>
+      </div>
     </div>
   );
 }
@@ -493,6 +533,28 @@ function OrderDetailsSection({
       void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
     },
   });
+  const savePlannedQuantity = useMutation({
+    mutationKey: ["mo", order?.id ?? "__draft__", "planned-quantity"],
+    mutationFn: (plannedQuantity: string) =>
+      saveManufacturingOrderIngredients(
+        order!.id,
+        {
+          plannedQuantity,
+          plannedDate: order!.plannedDate,
+          notes: order!.notes,
+          salesOrderId: order!.salesOrderId,
+          salesOrderLineId: order!.salesOrderLineId,
+        },
+        order!.ingredients.map((ingredient) => ({
+          itemId: ingredient.itemId,
+          quantityPerUnit: ingredient.quantityPerUnit,
+        })),
+      ),
+    onSuccess: () => {
+      onPatched();
+      void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
+    },
+  });
 
   return (
     <section className={styles.section}>
@@ -507,7 +569,7 @@ function OrderDetailsSection({
                 const next = event.target.value.trim();
                 if (!next) return;
                 if (order) {
-                  if (next !== order.plannedQuantity) patchField.mutate({ plannedQuantity: next });
+                  if (next !== order.plannedQuantity) savePlannedQuantity.mutate(next);
                 } else {
                   onDraftPlannedQuantity(next);
                 }

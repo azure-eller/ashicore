@@ -205,7 +205,7 @@ export const manufacturingOrderIngredients = manufacturingSchema
       ),
       check(
         "manufacturing_order_ingredients_lot_strategy_check",
-        sql`lot_strategy IN ('fifo', 'lifo', 'custom')`
+        sql`lot_strategy IN ('fifo', 'custom')`
       ),
       check(
         "manufacturing_order_ingredients_basis_output_quantity_check",

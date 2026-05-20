@@ -57,28 +57,15 @@ export function StatusPicker({
     mutationKey: ["mo", orderId, "status"],
     mutationFn: async (next: ProductionStatus) => {
       // Map the 4-state picker back to existing DB columns:
-      // - done           → status = "done"
       // - blocked        → isBlocked = true
-      // - in_progress    → isBlocked = false (clear it), reopen if was done
+      // - in_progress    → isBlocked = false
       // - not_started    → same as in_progress (display-only difference)
+      // Completion still belongs to the manufacturing completion endpoints.
       if (next === "done") {
-        return patchManufacturingOrder(orderId, { status: "done" });
+        throw new Error("Complete manufacturing from the execution flow.");
       }
       if (next === "blocked") {
-        if (current === "done") {
-          return patchManufacturingOrder(orderId, {
-            status: "open",
-            isBlocked: true,
-          });
-        }
         return patchManufacturingOrder(orderId, { isBlocked: true });
-      }
-      // in_progress or not_started → clear blocked + reopen if needed
-      if (current === "done") {
-        return patchManufacturingOrder(orderId, {
-          status: "open",
-          isBlocked: false,
-        });
       }
       return patchManufacturingOrder(orderId, { isBlocked: false });
     },
@@ -123,13 +110,21 @@ export function StatusPicker({
               key={option}
               onSelect={(event) => {
                 event.preventDefault();
-                if (option !== current && !mutation.isPending) {
+                if (
+                  option !== current &&
+                  option !== "done" &&
+                  current !== "done" &&
+                  !mutation.isPending
+                ) {
                   mutation.mutate(option);
                 }
               }}
               className={cn(
                 "h-8 cursor-pointer gap-2 rounded-none px-3 text-[12.5px]",
                 active && "bg-[var(--color-accent-soft)] text-[var(--color-accent)]",
+                (option === "done" || current === "done") &&
+                  !active &&
+                  "cursor-not-allowed opacity-50",
               )}
             >
               <span className={cn("inline-block h-3 w-3", optTone.square)} />
