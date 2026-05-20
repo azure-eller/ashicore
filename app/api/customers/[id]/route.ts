@@ -1,14 +1,40 @@
 import { NextResponse } from "next/server";
 import { del } from "@vercel/blob";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
-import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import { updateCustomerSchema } from "@/lib/schemas/customers";
+import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
+import { patchCustomerSchema, updateCustomerSchema } from "@/lib/schemas/customers";
 import {
   deleteCustomer,
+  getCustomerDetail,
+  patchCustomer,
   SalesError,
   updateCustomer,
 } from "@/app/(dashboard)/sales/queries";
 
+export const GET = apiHandler(async (request: Request, ctx: unknown) => {
+  await assertModuleReadAccess("sales", request.headers);
+  const { id } = await (ctx as RouteContext).params;
+  const customer = await getCustomerDetail(id, { includeDeleted: true });
+
+  if (!customer) {
+    return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+  }
+
+  return NextResponse.json(customer);
+});
+
+export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
+  await assertModuleWriteAccess("sales", request.headers);
+  const { id } = await (ctx as RouteContext).params;
+  const data = patchCustomerSchema.parse(await request.json());
+  const customer = await patchCustomer(id, data);
+
+  if (!customer) {
+    return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+  }
+
+  return NextResponse.json(customer);
+});
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);

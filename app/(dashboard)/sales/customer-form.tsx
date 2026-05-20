@@ -55,11 +55,9 @@ type CustomerFormValues = z.input<typeof insertCustomerSchema>;
 const EVERYONE_CATEGORY_VALUE = "__everyone__";
 const CREATE_NEW_CATEGORY = "__create_new__";
 const accountStateLabels = {
-  onboarding: "Onboarding",
   active: "Active",
   growth: "Growth",
   at_risk: "At risk",
-  dormant: "Dormant",
   former: "Former",
 } as const;
 const accountPriorityLabels = {
