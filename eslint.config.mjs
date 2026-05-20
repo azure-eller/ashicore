@@ -20,6 +20,7 @@ const eslintConfig = defineConfig([
     "archived/**",
     "docs/design-system/reference/**",
     "docs/design-system/sales-order-detail/**",
+    "docs/*-redesign/**",
   ]),
 ]);
 

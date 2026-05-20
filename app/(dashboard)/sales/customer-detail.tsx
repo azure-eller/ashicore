@@ -185,11 +185,9 @@ const projectStatuses: Array<{ value: CustomerProjectStatus; label: string }> = 
 ];
 
 const accountStateLabels = {
-  onboarding: "Onboarding",
   active: "Active",
   growth: "Growth",
   at_risk: "At risk",
-  dormant: "Dormant",
   former: "Former",
 } as const;
 

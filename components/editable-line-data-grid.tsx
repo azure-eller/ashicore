@@ -19,7 +19,7 @@ import {
   type RowDragEndEvent,
   type RowClassRules,
 } from "ag-grid-community";
-import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+import { Delete02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 import { Button } from "@/components/ui/button";
@@ -80,6 +80,7 @@ export type EditableLineDataGridProps<TData> = {
    * from option combinations, not row-add).
    */
   enableAddRow?: boolean;
+  initializeBlankRow?: boolean;
   addDisabledReason?: string | null;
   canDeleteRow?: (row: TData, rows: TData[]) => boolean;
   getDeleteDisabledReason?: (row: TData, rows: TData[]) => string | null;
@@ -193,6 +194,7 @@ export function EditableLineDataGrid<TData>({
   enableReorder = true,
   enableDelete = true,
   enableAddRow = true,
+  initializeBlankRow = true,
   addDisabledReason,
   canDeleteRow,
   getDeleteDisabledReason,
@@ -207,39 +209,18 @@ export function EditableLineDataGrid<TData>({
   const gridApiRef = useRef<GridApi<TData> | null>(null);
   const stateRef = useRef({ rows, getRowId, onRowsChange });
   const hasInitializedBlankRowRef = useRef(false);
+  const pendingEditRowIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     stateRef.current = { rows, getRowId, onRowsChange };
   }, [getRowId, onRowsChange, rows]);
 
   useEffect(() => {
-    if (!enableAddRow) return;
-    if (hasInitializedBlankRowRef.current || rows.length > 0) {
-      return;
-    }
+    const pendingRowId = pendingEditRowIdRef.current;
+    if (!pendingRowId) return;
 
-    hasInitializedBlankRowRef.current = true;
-    const row = createRow();
-    onRowsChange([row], {
-      type: "initialized_blank_row",
-      rows: [row],
-      row,
-    });
-  }, [createRow, enableAddRow, onRowsChange, rows.length]);
-
-  const emitRowsChange = useCallback(
-    (nextRows: TData[], change: Omit<EditableLineDataGridChange<TData>, "rows">) => {
-      onRowsChange(nextRows, { ...change, rows: nextRows });
-    },
-    [onRowsChange]
-  );
-
-  const handleAddRow = useCallback(async () => {
-    const latest = stateRef.current;
-    const row = onAddRow ? await onAddRow() : createRow();
-    if (!row) return;
-    const nextRows = [...latest.rows, row];
-    emitRowsChange(nextRows, { type: "row_added", row });
+    const rowIndex = rows.findIndex((row) => getRowId(row) === pendingRowId);
+    if (rowIndex < 0) return;
 
     window.requestAnimationFrame(() => {
       const firstEditableColumn = gridApiRef.current
@@ -253,11 +234,44 @@ export function EditableLineDataGrid<TData>({
         return;
       }
 
+      pendingEditRowIdRef.current = null;
+      gridApiRef.current?.setFocusedCell(rowIndex, firstEditableColumn);
       gridApiRef.current?.startEditingCell({
-        rowIndex: nextRows.length - 1,
+        rowIndex,
         colKey: firstEditableColumn,
       });
     });
+  }, [getRowId, rows]);
+
+  useEffect(() => {
+    if (!enableAddRow || !initializeBlankRow) return;
+    if (hasInitializedBlankRowRef.current || rows.length > 0) {
+      return;
+    }
+
+    hasInitializedBlankRowRef.current = true;
+    const row = createRow();
+    onRowsChange([row], {
+      type: "initialized_blank_row",
+      rows: [row],
+      row,
+    });
+  }, [createRow, enableAddRow, initializeBlankRow, onRowsChange, rows.length]);
+
+  const emitRowsChange = useCallback(
+    (nextRows: TData[], change: Omit<EditableLineDataGridChange<TData>, "rows">) => {
+      onRowsChange(nextRows, { ...change, rows: nextRows });
+    },
+    [onRowsChange]
+  );
+
+  const handleAddRow = useCallback(async () => {
+    const latest = stateRef.current;
+    const row = onAddRow ? await onAddRow() : createRow();
+    if (!row) return;
+    const nextRows = [...latest.rows, row];
+    pendingEditRowIdRef.current = latest.getRowId(row);
+    emitRowsChange(nextRows, { type: "row_added", row });
   }, [createRow, emitRowsChange, onAddRow]);
 
   const handleDeleteRow = useCallback(
@@ -316,6 +330,7 @@ export function EditableLineDataGrid<TData>({
         resizable: false,
         sortable: false,
         suppressMovable: true,
+        cellClass: "erp-editable-grid-action-cell",
         cellRenderer: (params: ICellRendererParams<TData>) => (
           <DeleteCell
             {...params}
@@ -359,10 +374,11 @@ export function EditableLineDataGrid<TData>({
 
   const gridStyle = useMemo<CSSProperties>(
     () => ({
-      minHeight,
+      minHeight: minHeight ?? (rows.length === 0 ? headerHeight + rowHeight : undefined),
+      "--editable-grid-body-min-height": rows.length === 0 ? `${rowHeight}px` : "0",
     }),
-    [minHeight]
-  );
+    [headerHeight, minHeight, rowHeight, rows.length]
+  ) as CSSProperties;
 
   const handleCellValueChanged = useCallback(
     (event: CellValueChangedEvent<TData>) => {
@@ -485,18 +501,18 @@ export function EditableLineDataGrid<TData>({
 
       {enableAddRow ? (
         <div>
-          <Button
+          <button
             type="button"
-            variant="outline"
+            className={styles.addRowButton}
             onClick={() => {
               void handleAddRow();
             }}
             disabled={Boolean(addDisabledReason)}
             title={addDisabledReason ?? undefined}
           >
-            <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
+            <span aria-hidden="true">+</span>
             {addLabel}
-          </Button>
+          </button>
         </div>
       ) : null}
     </div>

@@ -22,6 +22,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { apiJson } from "@/lib/client/api";
 import { formatDate, formatQuantity } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import type { SalesOrdersAllocatorPreference } from "@/lib/view-preferences";
 import styles from "./sales-order-allocator.module.css";
 import { demandKey } from "@/lib/inventory/allocation/types";
 import type {
@@ -33,12 +34,10 @@ import type {
 } from "@/lib/inventory/allocation/types";
 import type { SalesOrderListLine, SalesOrderListRow } from "./types";
 
-export const ALLOCATOR_PREFERENCE_ENDPOINT =
-  "/api/preferences/sales-orders-allocator";
+export const SALES_ORDERS_ALLOCATOR_VIEW_KEY = "sales.orders.allocator";
+export const ALLOCATOR_PREFERENCE_ENDPOINT = `/api/preferences/views/${SALES_ORDERS_ALLOCATOR_VIEW_KEY}`;
 
-export type AllocatorPreference = {
-  hiddenProductIds: string[];
-};
+export type AllocatorPreference = SalesOrdersAllocatorPreference;
 
 export type AllocatorProduct = {
   itemId: string;

@@ -112,12 +112,12 @@
 }
 
 .editableGrid :global(.ag-layout-auto-height .ag-center-cols-viewport) {
-  min-height: 0;
+  min-height: var(--editable-grid-body-min-height, 0);
 }
 
 .editableGrid :global(.ag-cell) {
-  font-size: var(--text-sm);
-  line-height: var(--leading-sm);
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
   padding-block: 0;
 }
 
@@ -142,4 +142,39 @@
 
 .editableGrid :global(.ag-cell.erp-editable-grid-cell-muted) {
   color: var(--color-muted);
+}
+
+.editableGrid :global(.ag-cell.erp-editable-grid-action-cell) {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.addRowButton {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-none);
+  color: var(--color-accent);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  gap: var(--space-1);
+  min-height: 28px;
+  padding: 0 var(--space-3);
+}
+
+.addRowButton:hover {
+  background: var(--color-accent-soft);
+}
+
+.addRowButton:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.addRowButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }

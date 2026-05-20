@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { CustomerDetail } from "@/app/(dashboard)/sales/customer-detail";
+import { getAddressEntries } from "@/lib/dal/addresses";
+import { CustomerCard } from "@/app/(dashboard)/sales/customer-card";
 import { getCustomerDetail } from "@/app/(dashboard)/sales/queries";
 
 export default async function CustomerDetailPage({
@@ -8,11 +9,20 @@ export default async function CustomerDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const customer = await getCustomerDetail(id, { includeDeleted: true });
+  const [customer, addresses] = await Promise.all([
+    getCustomerDetail(id, { includeDeleted: true }),
+    getAddressEntries(),
+  ]);
 
   if (!customer) {
     redirect("/sales/customers");
   }
 
-  return <CustomerDetail customer={customer} />;
+  return (
+    <CustomerCard
+      initialCustomerId={id}
+      initialCustomer={customer}
+      addresses={addresses}
+    />
+  );
 }

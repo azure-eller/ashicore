@@ -1,10 +1,16 @@
 import { requireModuleWriteAccess } from "@/lib/dal/auth";
-import { CustomerForm } from "@/app/(dashboard)/sales/customer-form";
-import { getCustomerCategoryOptions } from "@/app/(dashboard)/sales/queries";
+import { getAddressEntries } from "@/lib/dal/addresses";
+import { CustomerCard } from "@/app/(dashboard)/sales/customer-card";
 
 export default async function NewCustomerPage() {
   await requireModuleWriteAccess("sales");
-  const customerCategories = await getCustomerCategoryOptions();
+  const addresses = await getAddressEntries();
 
-  return <CustomerForm customerCategories={customerCategories} />;
+  return (
+    <CustomerCard
+      initialCustomerId={null}
+      initialCustomer={null}
+      addresses={addresses}
+    />
+  );
 }

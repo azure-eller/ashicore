@@ -14,6 +14,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { addressEntries } from "./addresses";
 import { items } from "./items";
 import { unitDefinitions } from "./units";
 
@@ -97,7 +98,7 @@ export const customers = salesSchema
       index("sales_customers_account_priority_idx").on(table.accountPriority),
       check(
         "sales_customers_account_state_check",
-        sql`${table.accountState} IN ('onboarding', 'active', 'growth', 'at_risk', 'dormant', 'former')`
+        sql`${table.accountState} IN ('active', 'growth', 'at_risk', 'former')`
       ),
       check(
         "sales_customers_account_priority_check",
@@ -126,6 +127,7 @@ export const customerContacts = salesSchema
       title: varchar("title", { length: 255 }),
       email: varchar("email", { length: 255 }),
       phone: varchar("phone", { length: 50 }),
+      addressEntryId: uuid("address_entry_id").references(() => addressEntries.id),
       isPrimary: boolean("is_primary").notNull().default(false),
       receivesShipping: boolean("receives_shipping").notNull().default(false),
       receivesInvoices: boolean("receives_invoices").notNull().default(false),
@@ -139,6 +141,7 @@ export const customerContacts = salesSchema
     (table) => [
       index("sales_customer_contacts_org_id_idx").on(table.organizationId),
       index("sales_customer_contacts_customer_id_idx").on(table.customerId),
+      index("sales_customer_contacts_address_entry_id_idx").on(table.addressEntryId),
       index("sales_customer_contacts_active_idx")
         .on(table.organizationId, table.customerId)
         .where(sql`deleted_at IS NULL`),

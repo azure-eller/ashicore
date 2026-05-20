@@ -60,14 +60,15 @@ import { formatQuantity } from "@/lib/format";
 import type { ItemRow } from "@/app/(dashboard)/inventory/types";
 import type { ManufacturingAllocationDemandRow } from "@/lib/inventory/allocation/manufacturing-demands";
 import {
-  ALLOCATOR_PREFERENCE_ENDPOINT,
   AllocationSourceDialog,
+  SALES_ORDERS_ALLOCATOR_VIEW_KEY,
   productLabel,
   type AllocationTarget,
   type AllocatorPreference,
   type AllocatorProduct,
 } from "./sales-order-allocator";
 import type { SalesOrderListLine, SalesOrderListRow } from "./types";
+import { usePersistentViewState } from "@/lib/client/use-persistent-view-state";
 import styles from "./sales-allocation-table.module.css";
 
 const OPEN_SALES_STATUSES = ["open"] as const;
@@ -76,10 +77,14 @@ const ORDER_COL_WIDTH = 240;
 const SHIP_COL_WIDTH = 96;
 const PRODUCT_COL_WIDTH = 112;
 
-const COLLAPSED_WEEKS_KEY = "ashicore.allocation.collapsedWeeks";
-const UNPLANNED_OPEN_KEY = "ashicore.allocation.unplannedOpen";
-const MANUFACTURING_OPEN_KEY = "ashicore.allocation.manufacturingOpen";
 const POOL_REFRESHED_AT_KEY = "ashicore.allocation.poolRefreshedAt";
+const DEFAULT_ALLOCATOR_PREFERENCE: AllocatorPreference = {
+  version: 1,
+  hiddenProductIds: [],
+  collapsedWeeks: [],
+  unplannedOpen: true,
+  manufacturingOpen: true,
+};
 
 type RibbonFilter = "late" | "shortLines" | "variantsShort" | "moWait";
 
@@ -1590,20 +1595,21 @@ export function SalesAllocationTable({
   const [pendingBulkAction, setPendingBulkAction] =
     useState<BulkAllocationAction | null>(null);
   const [activeFilter, setActiveFilter] = useState<RibbonFilter | null>(null);
-  const [collapsedWeeks, setCollapsedWeeks] = useState<Set<string>>(
-    () => new Set(readLocalStorageJson<string[]>(COLLAPSED_WEEKS_KEY, []))
-  );
-  const [unplannedOpen, setUnplannedOpen] = useState<boolean>(() =>
-    readLocalStorageJson<boolean>(UNPLANNED_OPEN_KEY, true)
-  );
-  const [manufacturingOpen, setManufacturingOpen] = useState<boolean>(() =>
-    readLocalStorageJson<boolean>(MANUFACTURING_OPEN_KEY, true)
-  );
+  const [allocatorPreference, setAllocatorPreference] = usePersistentViewState({
+    viewKey: SALES_ORDERS_ALLOCATOR_VIEW_KEY,
+    defaultValue: DEFAULT_ALLOCATOR_PREFERENCE,
+  });
   const [hiddenFamilies, setHiddenFamilies] = useState<Set<string>>(new Set());
   const [shownExtraProductIds, setShownExtraProductIds] = useState<Set<string>>(
     () => new Set()
   );
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const collapsedWeeks = useMemo(
+    () => new Set(allocatorPreference.collapsedWeeks),
+    [allocatorPreference.collapsedWeeks]
+  );
+  const unplannedOpen = allocatorPreference.unplannedOpen;
+  const manufacturingOpen = allocatorPreference.manufacturingOpen;
 
   useEffect(() => {
     const interval = setInterval(() => setNowTick(Date.now()), 30_000);
@@ -1628,54 +1634,11 @@ export function SalesAllocationTable({
     staleTime: 0,
     refetchOnMount: "always",
   });
-  const preferenceQuery = useQuery({
-    queryKey: ["sales-orders-allocator-preference"],
-    queryFn: () =>
-      apiJson<AllocatorPreference>(ALLOCATOR_PREFERENCE_ENDPOINT, {
-        fallbackError: "Failed to load allocator preferences.",
-      }),
-    initialData: { hiddenProductIds: [] },
-  });
-  const hiddenProductIds = preferenceQuery.data.hiddenProductIds;
+  const hiddenProductIds = allocatorPreference.hiddenProductIds;
   const hiddenProductIdSet = useMemo(
     () => new Set(hiddenProductIds),
     [hiddenProductIds]
   );
-  const preferenceMutation = useMutation({
-    mutationFn: (nextHiddenProductIds: string[]) =>
-      apiJson<AllocatorPreference>(ALLOCATOR_PREFERENCE_ENDPOINT, {
-        method: "PUT",
-        body: { hiddenProductIds: nextHiddenProductIds },
-        fallbackError: "Failed to save allocator preferences.",
-      }),
-    onMutate: async (nextHiddenProductIds) => {
-      await queryClient.cancelQueries({
-        queryKey: ["sales-orders-allocator-preference"],
-      });
-      const previous = queryClient.getQueryData<AllocatorPreference>([
-        "sales-orders-allocator-preference",
-      ]);
-      queryClient.setQueryData<AllocatorPreference>(
-        ["sales-orders-allocator-preference"],
-        { hiddenProductIds: nextHiddenProductIds }
-      );
-      return { previous };
-    },
-    onError: (_error, _variables, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(
-          ["sales-orders-allocator-preference"],
-          context.previous
-        );
-      }
-    },
-    onSuccess: (preference) => {
-      queryClient.setQueryData(
-        ["sales-orders-allocator-preference"],
-        preference
-      );
-    },
-  });
   const bulkAllocationMutation = useMutation({
     mutationFn: (action: BulkAllocationAction) =>
       apiJson<{
@@ -1929,54 +1892,63 @@ export function SalesAllocationTable({
         next.delete(productId);
         return next;
       });
-      preferenceMutation.mutate([...new Set([...hiddenProductIds, productId])]);
+      setAllocatorPreference((current) => ({
+        ...current,
+        hiddenProductIds: [...new Set([...current.hiddenProductIds, productId])],
+      }));
     },
-    [hiddenProductIds, preferenceMutation]
+    [setAllocatorPreference]
   );
 
   const restoreColumn = useCallback(
     (productId: string) => {
       setShownExtraProductIds((current) => new Set([...current, productId]));
-      preferenceMutation.mutate(hiddenProductIds.filter((id) => id !== productId));
+      setAllocatorPreference((current) => ({
+        ...current,
+        hiddenProductIds: current.hiddenProductIds.filter((id) => id !== productId),
+      }));
     },
-    [hiddenProductIds, preferenceMutation]
+    [setAllocatorPreference]
   );
 
   const showAllColumns = useCallback(() => {
     setShownExtraProductIds(
       new Set(productsWithPools.map((product) => product.itemId))
     );
-    preferenceMutation.mutate([]);
-  }, [preferenceMutation, productsWithPools]);
+    setAllocatorPreference((current) => ({
+      ...current,
+      hiddenProductIds: [],
+    }));
+  }, [productsWithPools, setAllocatorPreference]);
 
   const toggleWeek = useCallback((weekKey: string) => {
-    setCollapsedWeeks((previous) => {
-      const next = new Set(previous);
+    setAllocatorPreference((current) => {
+      const next = new Set(current.collapsedWeeks);
       if (next.has(weekKey)) {
         next.delete(weekKey);
       } else {
         next.add(weekKey);
       }
-      writeLocalStorageJson(COLLAPSED_WEEKS_KEY, [...next]);
-      return next;
+      return {
+        ...current,
+        collapsedWeeks: [...next],
+      };
     });
-  }, []);
+  }, [setAllocatorPreference]);
 
   const toggleUnplanned = useCallback(() => {
-    setUnplannedOpen((previous) => {
-      const next = !previous;
-      writeLocalStorageJson(UNPLANNED_OPEN_KEY, next);
-      return next;
-    });
-  }, []);
+    setAllocatorPreference((current) => ({
+      ...current,
+      unplannedOpen: !current.unplannedOpen,
+    }));
+  }, [setAllocatorPreference]);
 
   const toggleManufacturing = useCallback(() => {
-    setManufacturingOpen((previous) => {
-      const next = !previous;
-      writeLocalStorageJson(MANUFACTURING_OPEN_KEY, next);
-      return next;
-    });
-  }, []);
+    setAllocatorPreference((current) => ({
+      ...current,
+      manufacturingOpen: !current.manufacturingOpen,
+    }));
+  }, [setAllocatorPreference]);
 
   const toggleRibbonFilter = useCallback((filter: RibbonFilter) => {
     setActiveFilter((previous) => (previous === filter ? null : filter));
@@ -2270,6 +2242,13 @@ export function SalesAllocationTable({
             rowClassRules={rowClassRules}
             isFullWidthRow={isFullWidthRow}
             fullWidthCellRenderer={fullWidthCellRenderer}
+            persistedGridState={allocatorPreference.grid}
+            onPersistedGridStateChange={(grid) => {
+              setAllocatorPreference((current) => ({
+                ...current,
+                grid,
+              }));
+            }}
             getRowHeight={(row) =>
               row.rowType === "weekHeader" ||
               row.rowType === "unplannedHeader" ||

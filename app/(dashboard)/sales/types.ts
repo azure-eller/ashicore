@@ -58,6 +58,7 @@ export type CustomerContactRow = {
   title: string | null;
   email: string | null;
   phone: string | null;
+  addressEntryId: string | null;
   roles: CustomerContactRole[];
   notes: string | null;
   createdAt: Date;
@@ -103,6 +104,8 @@ export type CustomerProjectRow = {
   summary: string | null;
   files: CustomerProjectFileRow[];
   salesOrders: CustomerLinkedSalesOrderRow[];
+  orderCount: number;
+  orderValue: string;
   createdAt: Date;
   updatedAt: Date;
 };

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -15,7 +16,10 @@ import {
   themeQuartz,
   type ColDef,
   type ColGroupDef,
+  type GridApi,
   type FirstDataRenderedEvent,
+  type GridState,
+  type GridStateKey,
   type GridReadyEvent,
   type GetRowIdParams,
   type IRowNode,
@@ -24,12 +28,41 @@ import {
   type RowHeightParams,
   type SortChangedEvent,
   type SelectionChangedEvent,
+  type StateUpdatedEvent,
 } from "ag-grid-community";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import styles from "./erp-data-grid.module.css";
 
 ModuleRegistry.registerModules([AllCommunityModule, TooltipModule]);
+
+export type ERPGridPersistentState = Partial<
+  Pick<
+    GridState,
+    | "columnOrder"
+    | "columnPinning"
+    | "columnSizing"
+    | "columnVisibility"
+    | "sort"
+  >
+>;
+
+const PERSISTED_GRID_STATE_IGNORED_KEYS: GridStateKey[] = [
+  "aggregation",
+  "cellSelection",
+  "columnGroup",
+  "filter",
+  "focusedCell",
+  "pagination",
+  "pivot",
+  "rowGroup",
+  "rowGroupExpansion",
+  "rowPinning",
+  "rowSelection",
+  "scroll",
+  "sideBar",
+  "ssrmRowGroupExpansion",
+];
 
 export const erpGridTheme = themeQuartz.withParams({
   accentColor: "var(--color-accent)",
@@ -88,6 +121,8 @@ export type ERPDataGridProps<TData extends { id: string }> = {
   isFullWidthRow?: (row: TData) => boolean;
   fullWidthCellRenderer?: (row: TData) => ReactNode;
   getRowHeight?: (row: TData) => number | undefined | null;
+  persistedGridState?: ERPGridPersistentState;
+  onPersistedGridStateChange?: (state: ERPGridPersistentState) => void;
   onGridReady?: (event: GridReadyEvent<TData>) => void;
   onFirstDataRendered?: (event: FirstDataRenderedEvent<TData>) => void;
 };
@@ -169,6 +204,22 @@ function buildRowsFromDropTarget<TData extends { id: string }>(
   ];
 }
 
+function pickPersistedGridState(state: GridState): ERPGridPersistentState {
+  return {
+    ...(state.columnOrder ? { columnOrder: state.columnOrder } : {}),
+    ...(state.columnPinning ? { columnPinning: state.columnPinning } : {}),
+    ...(state.columnSizing ? { columnSizing: state.columnSizing } : {}),
+    ...(state.columnVisibility
+      ? { columnVisibility: state.columnVisibility }
+      : {}),
+    ...(state.sort ? { sort: state.sort } : {}),
+  };
+}
+
+function serializeGridState(state: ERPGridPersistentState | undefined) {
+  return JSON.stringify(state ?? {});
+}
+
 export function ERPDataGrid<TData extends { id: string }>({
   rows,
   columns,
@@ -203,9 +254,14 @@ export function ERPDataGrid<TData extends { id: string }>({
   isFullWidthRow,
   fullWidthCellRenderer,
   getRowHeight,
+  persistedGridState,
+  onPersistedGridStateChange,
   onGridReady,
   onFirstDataRendered,
 }: ERPDataGridProps<TData>) {
+  const gridApiRef = useRef<GridApi<TData> | null>(null);
+  const applyingPersistedGridStateRef = useRef(false);
+  const lastPersistedGridStateRef = useRef(serializeGridState(persistedGridState));
   const managedRowDragStateRef = useRef({
     enableManagedRowDrag,
     getRowId,
@@ -257,6 +313,40 @@ export function ERPDataGrid<TData extends { id: string }>({
     }),
     [height]
   );
+  const initialState = useMemo<GridState | undefined>(
+    () =>
+      persistedGridState
+        ? {
+            ...persistedGridState,
+            partialColumnState: true,
+          }
+        : undefined,
+    [persistedGridState]
+  );
+
+  const applyPersistedGridState = useCallback(
+    (state: ERPGridPersistentState | undefined) => {
+      const api = gridApiRef.current;
+      if (!api || !state || api.isDestroyed()) return;
+
+      const serialized = serializeGridState(state);
+      if (serialized === lastPersistedGridStateRef.current) return;
+
+      applyingPersistedGridStateRef.current = true;
+      api.setState(
+        {
+          ...state,
+          partialColumnState: true,
+        },
+        PERSISTED_GRID_STATE_IGNORED_KEYS
+      );
+      lastPersistedGridStateRef.current = serialized;
+      window.setTimeout(() => {
+        applyingPersistedGridStateRef.current = false;
+      }, 0);
+    },
+    []
+  );
 
   useEffect(() => {
     managedRowDragStateRef.current = {
@@ -267,6 +357,10 @@ export function ERPDataGrid<TData extends { id: string }>({
       searchValue,
     };
   }, [enableManagedRowDrag, getRowId, onManagedRowDragReorder, rows, searchValue]);
+
+  useEffect(() => {
+    applyPersistedGridState(persistedGridState);
+  }, [applyPersistedGridState, persistedGridState]);
 
   useEffect(
     () => () => {
@@ -362,6 +456,25 @@ export function ERPDataGrid<TData extends { id: string }>({
     }, 0);
   };
 
+  const handleStateUpdated = (event: StateUpdatedEvent<TData>) => {
+    if (
+      !onPersistedGridStateChange ||
+      applyingPersistedGridStateRef.current ||
+      event.api.isDestroyed()
+    ) {
+      return;
+    }
+
+    const nextState = pickPersistedGridState(event.state);
+    const serialized = serializeGridState(nextState);
+    if (serialized === lastPersistedGridStateRef.current) {
+      return;
+    }
+
+    lastPersistedGridStateRef.current = serialized;
+    onPersistedGridStateChange(nextState);
+  };
+
   return (
     <section className={cn("space-y-3", styles.root, className)}>
       {(onSearchChange || toolbarContent || actions) && (
@@ -396,6 +509,7 @@ export function ERPDataGrid<TData extends { id: string }>({
           columnDefs={columns}
           pinnedTopRowData={pinnedTopRows}
           pinnedBottomRowData={pinnedBottomRows}
+          initialState={initialState}
           defaultColDef={defaultColDef}
           getRowId={({ data }: GetRowIdParams<TData>) =>
             getRowId ? getRowId(data) : data.id
@@ -452,9 +566,14 @@ export function ERPDataGrid<TData extends { id: string }>({
           onSelectionChanged={(event: SelectionChangedEvent<TData>) => {
             onSelectionChange?.(event.api.getSelectedRows());
           }}
-          onGridReady={onGridReady}
+          onGridReady={(event: GridReadyEvent<TData>) => {
+            gridApiRef.current = event.api;
+            applyPersistedGridState(persistedGridState);
+            onGridReady?.(event);
+          }}
           onFirstDataRendered={onFirstDataRendered}
           onRowDragEnd={handleRowDragEnd}
+          onStateUpdated={handleStateUpdated}
           onSortChanged={(event: SortChangedEvent<TData>) => {
             onSortChange?.(
               event.api.getColumnState().some((column) => column.sort != null)

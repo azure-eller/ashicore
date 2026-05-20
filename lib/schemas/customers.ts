@@ -2,14 +2,12 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { DEFAULT_COUNTRY } from "@/lib/address-options";
 import { customers } from "@/lib/db/schema";
-import { nullableString } from "./shared";
+import { nullableString, nullableStringStrict } from "./shared";
 
 export const CUSTOMER_ACCOUNT_STATES = [
-  "onboarding",
   "active",
   "growth",
   "at_risk",
-  "dormant",
   "former",
 ] as const;
 export type CustomerAccountState = (typeof CUSTOMER_ACCOUNT_STATES)[number];
@@ -61,6 +59,34 @@ export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 
 export const updateCustomerSchema = baseCustomerSchema;
 export type UpdateCustomer = z.infer<typeof updateCustomerSchema>;
+
+export const patchCustomerSchema = z
+  .object({
+    name: z.string().trim().min(1, "Name is required").optional(),
+    customerCategoryId: customerCategoryIdSchema.optional(),
+    accountState: z.enum(CUSTOMER_ACCOUNT_STATES).optional(),
+    accountPriority: z.enum(CUSTOMER_ACCOUNT_PRIORITIES).optional(),
+    email: nullableStringStrict.optional(),
+    phone: nullableStringStrict.optional(),
+    billingLine1: nullableStringStrict.optional(),
+    billingLine2: nullableStringStrict.optional(),
+    billingCity: nullableStringStrict.optional(),
+    billingRegion: nullableStringStrict.optional(),
+    billingPostcode: nullableStringStrict.optional(),
+    billingCountry: nullableStringStrict.optional(),
+    shipLine1: nullableStringStrict.optional(),
+    shipLine2: nullableStringStrict.optional(),
+    shipCity: nullableStringStrict.optional(),
+    shipRegion: nullableStringStrict.optional(),
+    shipPostcode: nullableStringStrict.optional(),
+    shipCountry: nullableStringStrict.optional(),
+    notes: nullableStringStrict.optional(),
+  })
+  .refine(
+  (value) => Object.keys(value).length > 0,
+  "At least one field is required"
+  );
+export type PatchCustomer = z.infer<typeof patchCustomerSchema>;
 
 export const customerDefaultValues: InsertCustomer = {
   name: "",
