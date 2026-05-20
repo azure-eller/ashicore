@@ -30,6 +30,26 @@ export async function getItems(type: ItemType) {
 
 Never call `getAuthedContext()` directly in query functions — `withAuthedOrgContext` handles auth internally.
 
+## Database Roles
+
+Two connection strings, two roles:
+
+- `DATABASE_URL` (owner) — migrations only (`drizzle-kit generate/migrate`). Bypasses RLS unless `FORCE ROW LEVEL SECURITY` is set on the table.
+- `DATABASE_URL_APP` (app_user) — app runtime and Better Auth. RLS enforced. No DDL.
+
+When adding a new schema, `app_user` needs:
+
+- `USAGE` on the schema
+- CRUD (`SELECT, INSERT, UPDATE, DELETE`) on its tables
+- `USAGE, SELECT` on any backing sequences (see the Migrations section for `nextval()` sequences)
+
+When adding a new org-scoped table:
+
+- `.enableRLS()` + an org-isolation `pgPolicy` in the Drizzle schema
+- `ALTER TABLE ... FORCE ROW LEVEL SECURITY` in the migration SQL (Drizzle has no `.forceRLS()` helper). Without `FORCE`, the owner bypasses RLS.
+
+The `system` schema (Better Auth tables) keeps RLS **off**, but `app_user` still needs `USAGE` on the schema plus CRUD on its tables because both the app runtime and Better Auth use `DATABASE_URL_APP`.
+
 ## Row Level Security (RLS)
 
 All non-system tables (inventory schema and any future schemas) **must** have RLS enabled.
