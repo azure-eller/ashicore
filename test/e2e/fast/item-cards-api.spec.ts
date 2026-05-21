@@ -222,4 +222,91 @@ test.describe("item card API", () => {
     });
     expect(legacyUpdate.status).toBe(405);
   });
+
+  test("uses recipe-standard ingredient cost on item cards and list margins", async () => {
+    const ts = Date.now();
+    const unitDefinitionId = getUnitId();
+
+    const material = await createItem({
+      itemType: "material",
+      name: `Card Cost Material ${ts}`,
+      unitDefinitionId,
+      sku: `CARD-COST-MAT-${ts}`,
+      category: `Card Cost ${ts}`,
+      description: null,
+      stock: "0",
+      safetyStock: "0",
+      purchaseUnitDefinitionId: null,
+      purchaseToStockFactor: null,
+      defaultPurchasePrice: "2",
+      defaultSellingPrice: null,
+      currentStockUnitCost: null,
+      bom: [],
+    });
+    expect(material.status, JSON.stringify(material.body)).toBe(201);
+
+    const subassembly = await createItem({
+      itemType: "product",
+      name: `Card Cost Subassembly ${ts}`,
+      unitDefinitionId,
+      sku: `CARD-COST-SUB-${ts}`,
+      category: `Card Cost ${ts}`,
+      description: null,
+      stock: "0",
+      safetyStock: "0",
+      sellable: false,
+      purchaseUnitDefinitionId: null,
+      purchaseToStockFactor: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: null,
+      manufacturingMode: "discrete",
+      expectedBatchYield: null,
+      bom: [{ componentId: material.body.id, quantity: "3" }],
+    });
+    expect(subassembly.status, JSON.stringify(subassembly.body)).toBe(201);
+
+    const product = await createItem({
+      itemType: "product",
+      name: `Card Cost Product ${ts}`,
+      unitDefinitionId,
+      sku: `CARD-COST-PROD-${ts}`,
+      category: `Card Cost ${ts}`,
+      description: null,
+      stock: "0",
+      safetyStock: "0",
+      sellable: true,
+      purchaseUnitDefinitionId: null,
+      purchaseToStockFactor: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "20",
+      manufacturingMode: "discrete",
+      expectedBatchYield: null,
+      bom: [{ componentId: subassembly.body.id, quantity: "2" }],
+    });
+    expect(product.status, JSON.stringify(product.body)).toBe(201);
+
+    const card = await testFetch(`/api/item-cards/${product.body.id}`);
+    expect(card.status).toBe(200);
+    const cardBody = await card.json();
+    const productVariant = cardBody.variants.find(
+      (variant: { id: string }) => variant.id === product.body.id
+    );
+    expect(productVariant).toMatchObject({
+      ingredientsCost: "12",
+      operationsCost: null,
+    });
+
+    const productsResponse = await testFetch("/api/items?itemType=product");
+    expect(productsResponse.status).toBe(200);
+    const products = (await productsResponse.json()) as Array<{
+      id: string;
+      estimatedUnitCost: string | null;
+      marginPercent: string | null;
+    }>;
+    const listProduct = products.find((row) => row.id === product.body.id);
+    expect(listProduct).toMatchObject({
+      estimatedUnitCost: "12",
+      marginPercent: "40",
+    });
+  });
 });

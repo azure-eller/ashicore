@@ -10,7 +10,6 @@ import {
   inventoryItemBalances,
   inventoryEvents,
   bomRevisionComponents,
-  bomRevisionOperationCosts,
   bomRevisions,
   lots,
   manufacturingOrderIngredients,
@@ -39,10 +38,9 @@ import {
   optionalMoneyString,
   optionalNonNegativeDecimalString,
 } from "@/lib/schemas/shared";
-import { normalizeNumeric, normalizeNumericScale } from "@/lib/format";
+import { normalizeNumeric } from "@/lib/format";
 import { projectedOnHandQty } from "@/lib/inventory/kernel/read";
-import { calculateAverageUnitConsumptionQuantity } from "@/lib/manufacturing/consumption";
-import { calculatePlannedOperationCost } from "@/lib/manufacturing/operation-costs";
+import { getEstimatedRecipeCostSummariesByItemIdInTx } from "@/lib/inventory/estimated-cost";
 import type { Tx } from "@/lib/db/with-org-context";
 import type {
   DuplicateCombinationWarning,
@@ -474,155 +472,25 @@ async function getVariantCostSummariesInTx(
   tx: Tx,
   variants: Array<{
     id: string;
-    expectedBatchYield: string | null;
-    typicalBatchSize: string | null;
-    standardCostQuantity: string | null;
   }>,
 ) {
   const variantIds = variants.map((variant) => variant.id);
   const empty = new Map<string, { ingredientsCost: string | null; operationsCost: string | null }>();
   if (variantIds.length === 0) return empty;
 
-  const currentRevisions = await tx
-    .select({
-      productId: bomRevisions.productId,
-      revisionId: bomRevisions.id,
-      outputQuantity: bomRevisions.outputQuantity,
+  const summaries = await getEstimatedRecipeCostSummariesByItemIdInTx(tx, variantIds);
+  return new Map(
+    variantIds.map((id) => {
+      const summary = summaries.get(id);
+      return [
+        id,
+        {
+          ingredientsCost: summary?.ingredientsCost ?? null,
+          operationsCost: summary?.operationsCost ?? null,
+        },
+      ];
     })
-    .from(bomRevisions)
-    .where(
-      and(
-        inArray(bomRevisions.productId, variantIds),
-        eq(bomRevisions.isCurrent, true),
-      ),
-    );
-  const revisionByProduct = new Map(
-    currentRevisions.map((revision) => [revision.productId, revision.revisionId]),
   );
-  const productByRevision = new Map(
-    currentRevisions.map((revision) => [revision.revisionId, revision.productId]),
-  );
-  const outputQuantityByRevision = new Map(
-    currentRevisions.map((revision) => [revision.revisionId, revision.outputQuantity]),
-  );
-  const revisionIds = currentRevisions.map((revision) => revision.revisionId);
-  const costs = new Map(
-    variantIds.map((id) => [
-      id,
-      { ingredientsCost: null, operationsCost: null } as {
-        ingredientsCost: string | null;
-        operationsCost: string | null;
-      },
-    ]),
-  );
-  if (revisionIds.length === 0) return costs;
-
-  const componentRows = await tx
-    .select({
-      revisionId: bomRevisionComponents.bomRevisionId,
-      quantity: bomRevisionComponents.quantity,
-      everyQuantity: bomRevisionComponents.everyQuantity,
-      consumptionMode: bomRevisionComponents.consumptionMode,
-      basisOutputQuantity: bomRevisionComponents.basisOutputQuantity,
-      componentCost: items.currentStockUnitCost,
-    })
-    .from(bomRevisionComponents)
-    .innerJoin(items, eq(bomRevisionComponents.componentId, items.id))
-    .where(inArray(bomRevisionComponents.bomRevisionId, revisionIds));
-
-  const componentGroups = new Map<string, typeof componentRows>();
-  for (const row of componentRows) {
-    componentGroups.set(row.revisionId, [...(componentGroups.get(row.revisionId) ?? []), row]);
-  }
-
-  for (const [revisionId, rows] of componentGroups) {
-    const productId = productByRevision.get(revisionId);
-    if (!productId) continue;
-    let total = 0;
-    let complete = rows.length > 0;
-    for (const row of rows) {
-      if (row.componentCost == null) {
-        complete = false;
-        break;
-      }
-      const averageQty = calculateAverageUnitConsumptionQuantity({
-        quantity: row.quantity,
-        everyQuantity: row.everyQuantity,
-        basisOutputQuantity: row.basisOutputQuantity,
-        outputQuantity: outputQuantityByRevision.get(revisionId) ?? null,
-      });
-      const quantity = Number.parseFloat(averageQty);
-      const unitCost = Number.parseFloat(row.componentCost);
-      if (!Number.isFinite(quantity) || !Number.isFinite(unitCost)) {
-        complete = false;
-        break;
-      }
-      total += quantity * unitCost;
-    }
-    costs.get(productId)!.ingredientsCost = complete
-      ? normalizeNumericScale(total, 6)
-      : null;
-  }
-
-  const variantById = new Map(variants.map((variant) => [variant.id, variant]));
-  const operationRows = await tx
-    .select({
-      revisionId: bomRevisionOperationCosts.bomRevisionId,
-      costScalingMode: bomRevisionOperationCosts.costScalingMode,
-      crewSize: bomRevisionOperationCosts.crewSize,
-      plannedMinutes: bomRevisionOperationCosts.plannedMinutes,
-      loadedCostPerHour: bomRevisionOperationCosts.loadedCostPerHour,
-      plannedCostTotal: bomRevisionOperationCosts.plannedCostTotal,
-    })
-    .from(bomRevisionOperationCosts)
-    .where(inArray(bomRevisionOperationCosts.bomRevisionId, revisionIds));
-
-  const operationGroups = new Map<string, typeof operationRows>();
-  for (const row of operationRows) {
-    operationGroups.set(row.revisionId, [...(operationGroups.get(row.revisionId) ?? []), row]);
-  }
-
-  for (const [revisionId, rows] of operationGroups) {
-    const productId = productByRevision.get(revisionId);
-    const variant = productId ? variantById.get(productId) : null;
-    if (!productId || !variant) continue;
-    const standardCostQuantity =
-      variant.expectedBatchYield ?? variant.typicalBatchSize ?? variant.standardCostQuantity;
-    let total = 0;
-    let complete = rows.length > 0;
-    for (const row of rows) {
-      if (row.costScalingMode === "per_output_unit") {
-        total += Number.parseFloat(
-          calculatePlannedOperationCost({
-            costScalingMode: "per_output_unit",
-            crewSize: row.crewSize,
-            plannedMinutes: row.plannedMinutes,
-            loadedCostPerHour: row.loadedCostPerHour,
-            outputQuantity: 1,
-          }),
-        );
-        continue;
-      }
-      const quantity = standardCostQuantity == null ? null : Number.parseFloat(standardCostQuantity);
-      if (quantity == null || !Number.isFinite(quantity) || quantity <= 0) {
-        complete = false;
-        break;
-      }
-      total += Number.parseFloat(row.plannedCostTotal) / quantity;
-    }
-    costs.get(productId)!.operationsCost = complete
-      ? normalizeNumericScale(total, 6)
-      : null;
-  }
-
-  // Keep an explicit null for variants that have a current revision but no rows.
-  for (const [productId] of revisionByProduct) {
-    costs.set(productId, costs.get(productId) ?? {
-      ingredientsCost: null,
-      operationsCost: null,
-    });
-  }
-  return costs;
 }
 
 async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {

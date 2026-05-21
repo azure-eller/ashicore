@@ -83,7 +83,7 @@ import {
   normalizeStockUnitCost,
   resolveStockUnitCostFromDefaultPurchasePrice,
 } from "@/lib/inventory/cost";
-import { getEstimatedUnitCostsByItemIdInTx } from "@/lib/inventory/estimated-cost";
+import { getEstimatedRecipeCostSummariesByItemIdInTx } from "@/lib/inventory/estimated-cost";
 import { getCurrentBomOperationCostsInTx } from "@/lib/bom/operation-costs";
 import { calculatePlannedOperationCost } from "@/lib/manufacturing/operation-costs";
 import { calculateMarginMetrics } from "@/lib/margin";
@@ -771,11 +771,11 @@ export async function getItems(filters?: {
           );
 
         const leafIds = rows.map((row) => row.id);
-        const [hasBomSet, usedInCounts, revenueByItemId, estimatedUnitCostByItemId] = await Promise.all([
+        const [hasBomSet, usedInCounts, revenueByItemId, estimatedCostSummariesByItemId] = await Promise.all([
           getCurrentBomProductIdSetInTx(tx, leafIds),
           getUsedInCountsInTx(tx, leafIds, bomViewPermissions),
           getRevenue30dByItemIdInTx(tx, leafIds),
-          getEstimatedUnitCostsByItemIdInTx(tx, leafIds),
+          getEstimatedRecipeCostSummariesByItemIdInTx(tx, leafIds),
         ]);
         const optionValuesByItemId = await getVariantOptionValuesByItemIdInTx(tx, leafIds);
         const duplicateWarningsByItemId = buildDuplicateCombinationWarnings(rows);
@@ -783,7 +783,8 @@ export async function getItems(filters?: {
         const results: ItemRow[] = rows
           .map<ItemRow>((row) => {
             const usedInCount = usedInCounts.get(row.id) ?? 0;
-            const estimatedUnitCost = estimatedUnitCostByItemId.get(row.id) ?? null;
+            const estimatedUnitCost =
+              estimatedCostSummariesByItemId.get(row.id)?.totalCost ?? null;
             const optionValues = optionValuesByItemId.get(row.id) ?? [];
             const displayName =
               optionValues.length > 0
