@@ -3,9 +3,9 @@ import logo from "../assets/logo.svg";
 import "../styles/global.css";
 import {
   absoluteUrl,
-  CONSOLE_URL,
   navItems,
   PUBLIC_SITE_URL,
+  SIGN_IN_URL,
   SITE_NAME,
 } from "../lib/site";
 
@@ -47,7 +47,7 @@ const pageTitle = title === SITE_NAME ? SITE_NAME : `${title} | ${SITE_NAME}`;
           {navItems.map((item) => <a href={item.href}>{item.label}</a>)}
         </nav>
         <div class="header-actions">
-          <a class="button secondary" href={CONSOLE_URL}>Open console</a>
+          <a class="button secondary" href={SIGN_IN_URL}>Sign in</a>
         </div>
       </header>
       <slot />

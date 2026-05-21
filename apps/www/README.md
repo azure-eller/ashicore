@@ -17,10 +17,10 @@ The authenticated ERP app remains the existing Next.js app at the repository roo
 Vercel project settings for the public site:
 
 - Root directory: `apps/www`
-- Build command: `pnpm build`
+- Build command: `npm run build`
 - Output directory: `dist`
 
-`vercel.json` contains static rewrites to `https://ashicore-erp.vercel.app`. Replace that host with the ERP project’s stable production origin before assigning `ashicore.app` to this Vercel project. Do not point rewrites back to `https://ashicore.app`.
+`vercel.json` contains static rewrites to `https://erp-orcin-pi.vercel.app`. Replace that host with the ERP project’s stable production origin before assigning `ashicore.app` to this Vercel project. Do not point rewrites back to `https://ashicore.app`.
 
 ## Route Ownership
 
