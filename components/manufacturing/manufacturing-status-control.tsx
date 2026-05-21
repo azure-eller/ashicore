@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import {
   OrderStatusControl,
   type OrderStatusControlConfig,
   type OrderStatusOption,
 } from "@/components/card-page/order-status-control";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { patchManufacturingOrder } from "@/lib/api/clients/manufacturing-orders";
 import { deriveProductionStatus } from "@/lib/manufacturing/derive-status";
 import type { ManufacturingOrderStatus } from "@/lib/schemas/manufacturing-orders";
@@ -19,8 +21,10 @@ export type ManufacturingStatusFields = {
   id: string;
   status: ManufacturingOrderStatus;
   isBlocked: boolean;
+  manufacturingMode: string;
   pickProgressStatus: ManufacturingPickProgressStatus;
   completedBatchCount: number;
+  actualQuantity?: string | null;
 };
 
 type Ctx = { order: ManufacturingStatusFields };
@@ -43,9 +47,15 @@ const config: OrderStatusControlConfig<Ctx> = {
       pickProgressStatus: order.pickProgressStatus,
       completedBatchCount: order.completedBatchCount,
     }),
-  transitionKind: (from, to) => {
+  transitionKind: (from, to, { order }) => {
     if (from === "done") return "disabled";
     if (to === from) return "noop";
+    if (
+      order.manufacturingMode === "batch" &&
+      (to === "partially_complete" || to === "done")
+    ) {
+      return "disabled";
+    }
     if (to === "partially_complete" || to === "done") return "dialog";
     // not_started / in_progress / blocked are instant block-flag toggles
     return "instant";
@@ -69,10 +79,14 @@ export function ManufacturingStatusControl({
   order,
   size = "md",
   onChanged,
+  executeHref,
+  ariaLabel,
 }: {
   order: ManufacturingStatusFields;
   size?: "sm" | "md";
   onChanged?: () => void;
+  executeHref?: string;
+  ariaLabel?: string;
 }) {
   return (
     <OrderStatusControl
@@ -80,6 +94,14 @@ export function ManufacturingStatusControl({
       ctx={{ order }}
       size={size}
       disabled={order.status === "done"}
+      ariaLabel={ariaLabel}
+      extraMenuItems={
+        executeHref && order.status === "open" ? (
+          <DropdownMenuItem asChild className="h-8 rounded-none px-3 text-[12.5px]">
+            <Link href={executeHref}>Execute</Link>
+          </DropdownMenuItem>
+        ) : null
+      }
       onChanged={onChanged}
     />
   );

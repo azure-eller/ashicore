@@ -51,7 +51,7 @@ export type OutputDisposition = "available" | "blocked";
 export async function completeManufacturingOrder(
   orderId: string,
   input: {
-    actualQuantity: string;
+    actualQuantity?: string;
     outputDisposition: OutputDisposition;
     confirmNegativeStock?: boolean;
   },

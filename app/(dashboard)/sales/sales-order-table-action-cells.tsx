@@ -243,7 +243,7 @@ export function DeliveryActionCell({
       apiJson(`/api/sales-orders/${order.id}/shipments/${shipmentId}/ship`, {
         method: "POST",
         headers: createIdempotencyHeaders("sales-shipment-table-ship"),
-        body: { syncAccounting: false },
+        body: {},
         fallbackError: "Failed to mark shipment shipped.",
       }),
     onSuccess: resetAfterMutation,
@@ -266,7 +266,7 @@ export function DeliveryActionCell({
       await apiJson(`/api/sales-orders/${order.id}/shipments/${shipment.id}/ship`, {
         method: "POST",
         headers: createIdempotencyHeaders("sales-shipment-table-ship"),
-        body: { syncAccounting: false },
+        body: {},
         fallbackError: "Failed to mark shipment shipped.",
       });
     },

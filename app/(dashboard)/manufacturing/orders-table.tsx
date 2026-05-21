@@ -213,6 +213,8 @@ function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
     <ManufacturingStatusControl
       order={order}
       size="sm"
+      ariaLabel={`Manufacturing actions for ${order.orderNumber}`}
+      executeHref={`/manufacturing/orders/${order.id}/execute`}
       onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
         void queryClient.invalidateQueries({ queryKey: ["items"] });

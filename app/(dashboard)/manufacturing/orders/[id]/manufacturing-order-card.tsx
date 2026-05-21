@@ -293,10 +293,12 @@ export function ManufacturingOrderCard({
                 id: order.id,
                 status: order.status,
                 isBlocked: order.isBlocked,
+                manufacturingMode: order.manufacturingMode,
                 pickProgressStatus: order.pickProgressStatus,
                 completedBatchCount: order.batches.filter(
                   (batch) => batch.status === "completed",
                 ).length,
+                actualQuantity: order.actualQuantity,
               }}
               onChanged={refreshOrder}
             />
@@ -309,6 +311,10 @@ export function ManufacturingOrderCard({
         menuActions={
           order
             ? [
+                {
+                  label: "Open execution",
+                  href: `/manufacturing/orders/${order.id}/execute`,
+                },
                 {
                   label: "Duplicate",
                   onClick: () => duplicateMutation.mutate(),
