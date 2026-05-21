@@ -56,7 +56,7 @@ test.describe("Agent production planning context API", () => {
     expect(context).not.toHaveProperty("orgId");
     expect(context).not.toHaveProperty("inputHash");
     expect(context).not.toHaveProperty("allowedNextActions");
-    expect(context.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(context).not.toHaveProperty("today");
     expect(context).not.toHaveProperty("horizon");
     expect(Array.isArray(context.openSalesOrders)).toBe(true);
     expect(Array.isArray(context.openManufacturingOrders)).toBe(true);
@@ -71,34 +71,17 @@ test.describe("Agent production planning context API", () => {
       orderNumber: string;
       orderDate: string | null;
       shipDate: string | null;
-      lines: Array<{
-        salesOrderLineId: string;
-        itemId: string;
-        itemName: string;
-        orderedQty: string;
-        shippedQty: string;
-        plannedShipmentQty: string;
-        remainingToShipQty: string;
-        allocatedQty: string;
-        unallocatedQty: string;
-      }>;
+      shipments: Array<{ lines: unknown[] }>;
+      unplannedDemand: Array<{ salesOrderLineId: string; itemId: string }>;
     }>) {
       expect(order.salesOrderId).toBeTruthy();
       expect(order.orderNumber).toBeTruthy();
       expect(order).toHaveProperty("orderDate");
       expect(order).toHaveProperty("shipDate");
-      for (const line of order.lines) {
-        expect(line.salesOrderLineId).toBeTruthy();
-        expect(line.itemId).toBeTruthy();
-        expect(line.itemName).toBeTruthy();
-        expect(typeof line.orderedQty).toBe("string");
-        expect(typeof line.shippedQty).toBe("string");
-        expect(typeof line.plannedShipmentQty).toBe("string");
-        expect(typeof line.remainingToShipQty).toBe("string");
-        expect(typeof line.allocatedQty).toBe("string");
-        expect(typeof line.unallocatedQty).toBe("string");
-        expect(line).not.toHaveProperty("requirements");
-      }
+      expect(order).not.toHaveProperty("priorityRank");
+      expect(order).not.toHaveProperty("lines");
+      expect(Array.isArray(order.shipments)).toBe(true);
+      expect(Array.isArray(order.unplannedDemand)).toBe(true);
     }
 
     for (const order of context.openManufacturingOrders as Array<{
@@ -117,6 +100,7 @@ test.describe("Agent production planning context API", () => {
       expect(typeof order.plannedQty).toBe("string");
       expect(typeof order.remainingQty).toBe("string");
       expect(Array.isArray(order.outputAllocations)).toBe(true);
+      expect(order).not.toHaveProperty("priorityRank");
     }
 
     for (const item of context.productCounts as Array<{
@@ -156,7 +140,7 @@ test.describe("Agent production planning context API", () => {
         bomRevisionComponentId: string;
         componentItemId: string;
         minimumLotAgeDays: number | null;
-        constraints: string[];
+        requirements: string[];
       }>;
     }>) {
       expect(bom.productItemId).toBeTruthy();
@@ -169,7 +153,7 @@ test.describe("Agent production planning context API", () => {
           component.minimumLotAgeDays == null ||
             typeof component.minimumLotAgeDays === "number"
         ).toBe(true);
-        expect(Array.isArray(component.constraints)).toBe(true);
+        expect(Array.isArray(component.requirements)).toBe(true);
       }
     }
 
@@ -217,7 +201,7 @@ test.describe("Agent production planning context API", () => {
     const context = await bearerResponse.json();
     expect(context).not.toHaveProperty("orgId");
     expect(context).not.toHaveProperty("inputHash");
-    expect(context.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(context).not.toHaveProperty("today");
     expect(context).not.toHaveProperty("horizon");
     expect(Array.isArray(context.productCounts)).toBe(true);
 

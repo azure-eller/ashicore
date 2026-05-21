@@ -78,7 +78,6 @@
         "type": "object",
         "required": [
           "generatedAt",
-          "today",
           "openSalesOrders",
           "openManufacturingOrders",
           "productCounts",
@@ -89,14 +88,9 @@
             "type": "string",
             "format": "date-time"
           },
-          "today": {
-            "type": "string",
-            "format": "date",
-            "description": "Current business date for the organization."
-          },
           "openSalesOrders": {
             "type": "array",
-            "description": "Open sales orders with dates, line quantities, and allocation state.",
+            "description": "Open sales orders with planned shipment buckets, unplanned demand, and allocation state.",
             "items": {
               "type": "object",
               "additionalProperties": true
@@ -120,7 +114,7 @@
           },
           "productRequirements": {
             "type": "array",
-            "description": "Top-level requirements for products on open sales orders, including constraints such as minimum lot age.",
+            "description": "Top-level requirements for products on open sales orders, including requirements such as minimum lot age.",
             "items": {
               "type": "object",
               "additionalProperties": true

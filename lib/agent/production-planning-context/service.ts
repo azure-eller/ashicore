@@ -241,6 +241,91 @@ async function getPlannedShipmentAllocationQuantityByLineInTx(
   return new Map(rows.map((row) => [row.salesOrderLineId, toQuantity(row.quantity)]));
 }
 
+async function loadPlannedSalesShipmentsByOrderInTx(
+  tx: Tx,
+  salesOrderLineIds: string[],
+  allocatedByDemand: Map<string, number>
+): Promise<Map<string, AgentOpenSalesOrderContext["shipments"]>> {
+  if (salesOrderLineIds.length === 0) return new Map();
+
+  const rows = await tx
+    .select({
+      salesOrderId: salesShipments.salesOrderId,
+      shipmentId: salesShipments.id,
+      shipmentNumber: salesShipments.shipmentNumber,
+      status: salesShipments.status,
+      fulfillmentType: salesShipments.fulfillmentType,
+      scheduledDate: salesShipments.scheduledDate,
+      deliveryDate: salesShipments.deliveryDate,
+      sequence: salesShipments.sequence,
+      salesShipmentLineId: salesShipmentLines.id,
+      salesOrderLineId: salesShipmentLines.salesOrderLineId,
+      itemId: salesShipmentLines.itemId,
+      itemName: salesShipmentLines.itemName,
+      unitName: salesShipmentLines.unitName,
+      quantity: trimScale(salesShipmentLines.quantity).as("quantity"),
+      sortOrder: salesShipmentLines.sortOrder,
+      createdAt: salesShipmentLines.createdAt,
+    })
+    .from(salesShipmentLines)
+    .innerJoin(salesShipments, eq(salesShipmentLines.salesShipmentId, salesShipments.id))
+    .where(
+      and(
+        inArray(salesShipmentLines.salesOrderLineId, salesOrderLineIds),
+        eq(salesShipments.status, "planned")
+      )
+    )
+    .orderBy(
+      asc(salesShipments.scheduledDate),
+      asc(salesShipments.deliveryDate),
+      asc(salesShipments.sequence),
+      asc(salesShipmentLines.sortOrder),
+      asc(salesShipmentLines.createdAt)
+    );
+
+  const byOrder = new Map<string, AgentOpenSalesOrderContext["shipments"]>();
+  const byShipment = new Map<
+    string,
+    AgentOpenSalesOrderContext["shipments"][number]
+  >();
+
+  for (const row of rows) {
+    const shipment =
+      byShipment.get(row.shipmentId) ??
+      ({
+        shipmentId: row.shipmentId,
+        shipmentNumber: row.shipmentNumber,
+        status: row.status,
+        fulfillmentType: row.fulfillmentType,
+        scheduledDate: row.scheduledDate,
+        deliveryDate: row.deliveryDate,
+        lines: [],
+      } satisfies AgentOpenSalesOrderContext["shipments"][number]);
+    const allocatedQty =
+      allocatedByDemand.get(
+        demandAllocationKey("sales_shipment_line", row.salesShipmentLineId)
+      ) ?? 0;
+    const quantity = toQuantity(row.quantity);
+    shipment.lines.push({
+      salesShipmentLineId: row.salesShipmentLineId,
+      salesOrderLineId: row.salesOrderLineId,
+      itemId: row.itemId,
+      itemName: row.itemName,
+      unitName: row.unitName,
+      quantity: row.quantity,
+      allocatedQty: quantityString(allocatedQty),
+      unallocatedQty: quantityString(Math.max(0, quantity - allocatedQty)),
+    });
+    byShipment.set(row.shipmentId, shipment);
+
+    const orderShipments = byOrder.get(row.salesOrderId) ?? [];
+    if (!orderShipments.includes(shipment)) orderShipments.push(shipment);
+    byOrder.set(row.salesOrderId, orderShipments);
+  }
+
+  return byOrder;
+}
+
 function demandAllocationKey(demandType: string, demandId: string) {
   return `${demandType}:${demandId}`;
 }
@@ -495,6 +580,11 @@ async function loadOpenSalesOrdersInTx(
   const plannedShipmentAllocatedByLine =
     await getPlannedShipmentAllocationQuantityByLineInTx(tx, lineIds);
   const allocatedByDemand = sumAllocationsByDemand(allocations);
+  const shipmentsByOrder = await loadPlannedSalesShipmentsByOrderInTx(
+    tx,
+    lineIds,
+    allocatedByDemand
+  );
   const byOrder = new Map<string, AgentOpenSalesOrderContext>();
 
   for (const row of rows) {
@@ -522,6 +612,7 @@ async function loadOpenSalesOrdersInTx(
         requiredDate: row.shipDate ?? row.requestedDate,
         fulfillmentStatus: "open",
         priorityRank: row.priorityRank,
+        shipments: shipmentsByOrder.get(row.salesOrderId) ?? [],
         lines: [],
       } satisfies AgentOpenSalesOrderContext);
 
@@ -535,6 +626,8 @@ async function loadOpenSalesOrdersInTx(
       plannedShipmentQty: quantityString(plannedShipmentQty),
       cancelledQty: row.cancelledQty,
       openQty: quantityString(openQty),
+      directAllocatedQty: quantityString(directAllocatedQty),
+      shipmentAllocatedQty: quantityString(shipmentAllocatedQty),
       allocatedQty: quantityString(allocatedQty),
       shortQty: quantityString(shortQty),
       productionStatus: productionStatusForSalesLine({
@@ -1756,7 +1849,6 @@ function buildRawProductionContext(
 
   return {
     generatedAt: context.generatedAt,
-    today: context.today,
     openSalesOrders: context.salesOrders.map((order) => ({
       salesOrderId: order.salesOrderId,
       orderNumber: order.orderNumber,
@@ -1764,21 +1856,40 @@ function buildRawProductionContext(
       status: order.status,
       orderDate: order.orderDate,
       shipDate: order.requiredDate,
-      priorityRank: order.priorityRank,
-      lines: order.lines.map((line) => ({
-        salesOrderLineId: line.salesOrderLineId,
-        itemId: line.itemId,
-        itemName: line.itemName,
-        unitName: line.unitName,
-        orderedQty: line.orderedQty,
-        shippedQty: line.shippedQty,
-        plannedShipmentQty: line.plannedShipmentQty,
-        cancelledQty: line.cancelledQty,
-        remainingToShipQty: line.openQty,
-        allocatedQty: line.allocatedQty,
-        unallocatedQty: line.shortQty,
-        productionStatus: line.productionStatus,
-      })),
+      shipments: order.shipments,
+      unplannedDemand: order.lines
+        .map((line) => {
+          const remainingToPlanQty = roundQuantity(
+            Math.max(
+              0,
+              toQuantity(line.openQty) - toQuantity(line.plannedShipmentQty)
+            )
+          );
+          if (remainingToPlanQty <= 0) return null;
+          const allocatedQty = Math.min(
+            remainingToPlanQty,
+            toQuantity(line.directAllocatedQty)
+          );
+          return {
+            salesOrderLineId: line.salesOrderLineId,
+            itemId: line.itemId,
+            itemName: line.itemName,
+            unitName: line.unitName,
+            orderedQty: line.orderedQty,
+            shippedQty: line.shippedQty,
+            plannedShipmentQty: line.plannedShipmentQty,
+            cancelledQty: line.cancelledQty,
+            remainingToPlanQty: quantityString(remainingToPlanQty),
+            allocatedQty: quantityString(allocatedQty),
+            unallocatedQty: quantityString(
+              Math.max(0, remainingToPlanQty - allocatedQty)
+            ),
+            productionStatus: line.productionStatus,
+          };
+        })
+        .filter(
+          (line): line is NonNullable<typeof line> => line != null
+        ),
     })),
     openManufacturingOrders: context.manufacturingOrders.map((order) => ({
       manufacturingOrderId: order.manufacturingOrderId,
@@ -1792,7 +1903,6 @@ function buildRawProductionContext(
       remainingQty: order.remainingQty,
       plannedDate: order.plannedDate,
       expectedOutputDate: order.expectedOutputDate,
-      priorityRank: order.priorityRank,
       linkedSalesOrderId: order.salesOrderId,
       linkedSalesOrderLineId: order.salesOrderLineId,
       outputAllocations: order.outputAllocations,
@@ -1822,8 +1932,27 @@ function buildRawProductionContext(
       }),
     productRequirements: context.topLevelBoms
       .map((bom) => ({
-        ...bom,
-        components: bom.components.filter(isProductionRequirementComponent),
+        productItemId: bom.productItemId,
+        productName: bom.productName,
+        unitName: bom.unitName,
+        revisionId: bom.revisionId,
+        revisionNumber: bom.revisionNumber,
+        components: bom.components
+          .filter(isProductionRequirementComponent)
+          .map((component) => ({
+            bomRevisionComponentId: component.bomRevisionComponentId,
+            componentItemId: component.componentItemId,
+            componentName: component.componentName,
+            componentItemType: component.componentItemType,
+            unitName: component.unitName,
+            quantity: component.quantity,
+            consumptionMode: component.consumptionMode,
+            basisOutputQuantity: component.basisOutputQuantity,
+            batchScalingMode: component.batchScalingMode,
+            groupRemainderPolicy: component.groupRemainderPolicy,
+            minimumLotAgeDays: component.minimumLotAgeDays,
+            requirements: component.constraints,
+          })),
       }))
       .filter((bom) => bom.components.length > 0),
   };

@@ -64,7 +64,7 @@ recommendation. Use:
 - `openManufacturingOrders` for existing production supply.
 - `productCounts` for current sellable product inventory, allocation totals, open sales
   demand, and open manufacturing supply.
-- `productRequirements` for BOM constraints such as minimum lot age.
+- `productRequirements` for BOM requirements such as minimum lot age.
 
 The agent-facing response intentionally omits sales prices, unit costs, draft
 action payloads, and material-purchasing recommendations. This is production

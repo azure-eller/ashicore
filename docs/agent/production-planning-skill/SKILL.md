@@ -29,7 +29,7 @@ Optional query parameters:
 - Use `openManufacturingOrders` for existing production supply.
 - Use `productCounts` for current sellable product inventory, allocation totals, open
   sales demand, and open manufacturing supply.
-- Use `productRequirements` for BOM constraints such as minimum lot age.
+- Use `productRequirements` for BOM requirements such as minimum lot age.
 - Do not ask for or rely on sales prices, unit costs, draft action payloads, or
   material-purchasing recommendations.
 - Do not claim to create, edit, reserve, allocate, purchase, or manufacture

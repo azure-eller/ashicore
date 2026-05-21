@@ -96,6 +96,24 @@ export type AgentOpenSalesOrderContext = {
   requiredDate: string | null;
   fulfillmentStatus: string;
   priorityRank: number | null;
+  shipments: Array<{
+    shipmentId: string;
+    shipmentNumber: string;
+    status: string;
+    fulfillmentType: string;
+    scheduledDate: string | null;
+    deliveryDate: string | null;
+    lines: Array<{
+      salesShipmentLineId: string;
+      salesOrderLineId: string;
+      itemId: string;
+      itemName: string;
+      unitName: string | null;
+      quantity: string;
+      allocatedQty: string;
+      unallocatedQty: string;
+    }>;
+  }>;
   lines: Array<{
     salesOrderLineId: string;
     itemId: string;
@@ -106,6 +124,8 @@ export type AgentOpenSalesOrderContext = {
     plannedShipmentQty: string;
     cancelledQty: string;
     openQty: string;
+    directAllocatedQty: string;
+    shipmentAllocatedQty: string;
     allocatedQty: string;
     shortQty: string;
     productionStatus:
@@ -346,7 +366,6 @@ export type AgentProductionPlanningContext = {
 
 export type AgentProductionRawContext = {
   generatedAt: string;
-  today: string;
   openSalesOrders: Array<{
     salesOrderId: string;
     orderNumber: string;
@@ -354,8 +373,25 @@ export type AgentProductionRawContext = {
     status: string;
     orderDate: string | null;
     shipDate: string | null;
-    priorityRank: number | null;
-    lines: Array<{
+    shipments: Array<{
+      shipmentId: string;
+      shipmentNumber: string;
+      status: string;
+      fulfillmentType: string;
+      scheduledDate: string | null;
+      deliveryDate: string | null;
+      lines: Array<{
+        salesShipmentLineId: string;
+        salesOrderLineId: string;
+        itemId: string;
+        itemName: string;
+        unitName: string | null;
+        quantity: string;
+        allocatedQty: string;
+        unallocatedQty: string;
+      }>;
+    }>;
+    unplannedDemand: Array<{
       salesOrderLineId: string;
       itemId: string;
       itemName: string;
@@ -364,7 +400,7 @@ export type AgentProductionRawContext = {
       shippedQty: string;
       plannedShipmentQty: string;
       cancelledQty: string;
-      remainingToShipQty: string;
+      remainingToPlanQty: string;
       allocatedQty: string;
       unallocatedQty: string;
       productionStatus: AgentOpenSalesOrderContext["lines"][number]["productionStatus"];
@@ -382,7 +418,6 @@ export type AgentProductionRawContext = {
     remainingQty: string;
     plannedDate: string | null;
     expectedOutputDate: string | null;
-    priorityRank: number | null;
     linkedSalesOrderId: string | null;
     linkedSalesOrderLineId: string | null;
     outputAllocations: AgentOpenManufacturingOrderContext["outputAllocations"];
@@ -403,5 +438,25 @@ export type AgentProductionRawContext = {
     openSalesUnallocatedQty: string;
     openManufacturingSupplyQty: string;
   }>;
-  productRequirements: AgentTopLevelBomContext[];
+  productRequirements: Array<{
+    productItemId: string;
+    productName: string;
+    unitName: string | null;
+    revisionId: string;
+    revisionNumber: number;
+    components: Array<{
+      bomRevisionComponentId: string;
+      componentItemId: string;
+      componentName: string;
+      componentItemType: string;
+      unitName: string | null;
+      quantity: string;
+      consumptionMode: string;
+      basisOutputQuantity: string | null;
+      batchScalingMode: string | null;
+      groupRemainderPolicy: string | null;
+      minimumLotAgeDays: number | null;
+      requirements: string[];
+    }>;
+  }>;
 };
