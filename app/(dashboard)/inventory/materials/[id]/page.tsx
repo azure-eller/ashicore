@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import {
-  getItemCommitmentSummary,
   getLots,
   getUnitDefinitions,
   getUsedInParents,
@@ -24,12 +23,11 @@ export default async function MaterialDetailPage({
 
   if (!card) redirect("/inventory/materials");
 
-  const [usedInParents, unitOptions, lots, suppliers, commitmentSummary] = await Promise.all([
+  const [usedInParents, unitOptions, lots, suppliers] = await Promise.all([
     getUsedInParents(id),
     getUnitDefinitions(),
     getLots(id),
     getSuppliers(),
-    getItemCommitmentSummary(id),
   ]);
 
   return (
@@ -49,7 +47,6 @@ export default async function MaterialDetailPage({
         code: supplier.code,
       }))}
       initialLots={lots}
-      commitmentSummary={commitmentSummary}
     />
   );
 }

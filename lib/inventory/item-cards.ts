@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cache } from "react";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   itemFamilies,
@@ -633,6 +633,27 @@ async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
 export const getItemCard = cache(async (itemId: string): Promise<ItemCardDto> => {
   return withAuthedOrgContext((tx) => getItemCardInTx(tx, itemId));
 });
+
+/** Distinct category labels already used by item families of the given type. */
+export const getItemFamilyCategories = cache(
+  async (itemType: ItemType): Promise<string[]> => {
+    return withAuthedOrgContext(async (tx) => {
+      const rows = await tx
+        .selectDistinct({ category: itemFamilies.category })
+        .from(itemFamilies)
+        .where(
+          and(
+            eq(itemFamilies.itemType, itemType),
+            isNotNull(itemFamilies.category),
+            isNull(itemFamilies.deletedAt),
+          ),
+        )
+        .orderBy(asc(itemFamilies.category));
+      // isNotNull in the WHERE clause guarantees no nulls.
+      return rows.map((row) => row.category as string);
+    });
+  },
+);
 
 export async function createItemCard(
   data: z.infer<typeof itemCardCreateSchema>,
