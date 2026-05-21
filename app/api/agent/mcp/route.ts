@@ -21,12 +21,12 @@ const handler = createMcpHandler(
       {
         title: "Get Production Planning Context",
         description:
-          "Returns compact raw JSON for production planning: open sales orders with shipment buckets, open manufacturing orders, sellable product counts, and product requirements.",
+          "Returns compact raw JSON for production planning: sales shipments, open manufacturing orders, sellable product counts with lots, and product BOM requirements.",
         inputSchema: {
           includeLots: z
             .boolean()
             .optional()
-            .describe("Reserved for compatibility. Product counts are item-level."),
+            .describe("Include product lot counts with received dates. Defaults to true."),
         },
         annotations: {
           readOnlyHint: true,
@@ -35,7 +35,7 @@ const handler = createMcpHandler(
           openWorldHint: false,
         },
       },
-      async (_args, extra) => {
+      async (args, extra) => {
         const orgId = extra.authInfo?.extra?.orgId;
 
         if (typeof orgId !== "string" || !orgId) {
@@ -46,7 +46,7 @@ const handler = createMcpHandler(
         }
 
         const context = await getAgentProductionPlanningContextForOrg(orgId, {
-          includeLots: false,
+          includeLots: args.includeLots ?? true,
           includePlanningFacts: false,
         });
         const rawContext = buildAgentProductionPlanningRawJson(context);

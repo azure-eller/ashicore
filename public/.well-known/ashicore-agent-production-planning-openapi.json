@@ -15,7 +15,7 @@
       "get": {
         "operationId": "getProductionPlanningContext",
         "summary": "Get production planning context",
-        "description": "Returns raw production data: open sales orders, open MOs, product counts, and product requirements.",
+        "description": "Returns raw production data: sales shipments, open MOs, product counts with lots, and product BOMs.",
         "x-openai-isConsequential": false,
         "security": [
           {
@@ -27,7 +27,7 @@
             "name": "includePlanningFacts",
             "in": "query",
             "required": false,
-            "description": "Reserved for compatibility.",
+            "description": "Include item-level planning facts. Defaults to false for ChatGPT.",
             "schema": {
               "type": "boolean",
               "default": false
@@ -37,10 +37,10 @@
             "name": "includeLots",
             "in": "query",
             "required": false,
-            "description": "Reserved for compatibility.",
+            "description": "Include product lot counts with received dates. Defaults to true.",
             "schema": {
               "type": "boolean",
-              "default": false
+              "default": true
             }
           }
         ],
@@ -81,7 +81,7 @@
           "openSalesOrders",
           "openManufacturingOrders",
           "productCounts",
-          "productRequirements"
+          "productBoms"
         ],
         "properties": {
           "generatedAt": {
@@ -106,15 +106,15 @@
           },
           "productCounts": {
             "type": "array",
-            "description": "Current sellable product counts plus open sales demand and open MO supply by product.",
+            "description": "Current sellable product counts, lot counts with received dates, open sales demand, and open MO supply by product.",
             "items": {
               "type": "object",
               "additionalProperties": true
             }
           },
-          "productRequirements": {
+          "productBoms": {
             "type": "array",
-            "description": "Top-level requirements for products on open sales orders, including requirements such as minimum lot age.",
+            "description": "Product-to-product BOMs for products in sales demand or open MOs, including minimum lot age requirements.",
             "items": {
               "type": "object",
               "additionalProperties": true

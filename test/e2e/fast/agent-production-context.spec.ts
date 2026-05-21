@@ -78,7 +78,8 @@ test.describe("Agent production planning context API", () => {
     expect(Array.isArray(context.openSalesOrders)).toBe(true);
     expect(Array.isArray(context.openManufacturingOrders)).toBe(true);
     expect(Array.isArray(context.productCounts)).toBe(true);
-    expect(Array.isArray(context.productRequirements)).toBe(true);
+    expect(Array.isArray(context.productBoms)).toBe(true);
+    expect(context).not.toHaveProperty("productRequirements");
     expect(JSON.stringify(context)).not.toContain("unitCost");
     expect(JSON.stringify(context)).not.toContain("defaultSellingPrice");
     expect(JSON.stringify(context)).not.toContain("defaultPurchasePrice");
@@ -134,6 +135,11 @@ test.describe("Agent production planning context API", () => {
       openSalesAllocatedQty: unknown;
       openSalesUnallocatedQty: unknown;
       openManufacturingSupplyQty: unknown;
+      lotCounts: Array<{
+        lotId: string;
+        receivedDate: string | null;
+        ageDays: number | null;
+      }>;
     }>) {
       expect(item.itemId).toBeTruthy();
       expect(item.itemName).toBeTruthy();
@@ -148,16 +154,24 @@ test.describe("Agent production planning context API", () => {
       expect(typeof item.openSalesAllocatedQty).toBe("string");
       expect(typeof item.openSalesUnallocatedQty).toBe("string");
       expect(typeof item.openManufacturingSupplyQty).toBe("string");
+      expect(Array.isArray(item.lotCounts)).toBe(true);
+      for (const lot of item.lotCounts) {
+        expect(lot.lotId).toBeTruthy();
+        expect(lot.receivedDate == null || /^\d{4}-\d{2}-\d{2}$/.test(lot.receivedDate)).toBe(true);
+        expect(lot.ageDays == null || typeof lot.ageDays === "number").toBe(true);
+      }
     }
 
-    for (const bom of context.productRequirements as Array<{
+    for (const bom of context.productBoms as Array<{
       productItemId: string;
       productName: string;
       components: Array<{
         bomRevisionComponentId: string;
         componentItemId: string;
-        minimumLotAgeDays: number | null;
-        requirements: string[];
+        componentName: string;
+        componentItemType: string;
+        quantityMeaning: string;
+        requirements: Array<{ type: string; days?: number }>;
       }>;
     }>) {
       expect(bom.productItemId).toBeTruthy();
@@ -166,10 +180,8 @@ test.describe("Agent production planning context API", () => {
       for (const component of bom.components) {
         expect(component.bomRevisionComponentId).toBeTruthy();
         expect(component.componentItemId).toBeTruthy();
-        expect(
-          component.minimumLotAgeDays == null ||
-            typeof component.minimumLotAgeDays === "number"
-        ).toBe(true);
+        expect(component.componentItemType).toBe("product");
+        expect(component.quantityMeaning).toContain(component.componentName);
         expect(Array.isArray(component.requirements)).toBe(true);
       }
     }
@@ -353,7 +365,7 @@ test.describe("Agent production planning context API", () => {
     expect(Array.isArray(context.openSalesOrders)).toBe(true);
     expect(Array.isArray(context.openManufacturingOrders)).toBe(true);
     expect(Array.isArray(context.productCounts)).toBe(true);
-    expect(Array.isArray(context.productRequirements)).toBe(true);
+    expect(Array.isArray(context.productBoms)).toBe(true);
     expect(context).not.toHaveProperty("orgId");
     expect(context).not.toHaveProperty("today");
   });

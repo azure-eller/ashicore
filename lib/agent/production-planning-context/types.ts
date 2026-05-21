@@ -322,7 +322,11 @@ export type AgentTopLevelBomContext = {
     batchScalingMode: string | null;
     groupRemainderPolicy: string | null;
     minimumLotAgeDays: number | null;
-    constraints: string[];
+    constraints: Array<{
+      type: string;
+      label: string;
+      minimumLotAgeDays: number | null;
+    }>;
   }>;
 };
 
@@ -437,8 +441,18 @@ export type AgentProductionRawContext = {
     openSalesAllocatedQty: string;
     openSalesUnallocatedQty: string;
     openManufacturingSupplyQty: string;
+    lotCounts: Array<{
+      lotId: string;
+      lotCode: string | null;
+      receivedDate: string | null;
+      ageDays: number | null;
+      disposition: string;
+      onHandQty: string;
+      availableQty: string;
+      allocatedQty: string;
+    }>;
   }>;
-  productRequirements: Array<{
+  productBoms: Array<{
     productItemId: string;
     productName: string;
     unitName: string | null;
@@ -449,14 +463,22 @@ export type AgentProductionRawContext = {
       componentItemId: string;
       componentName: string;
       componentItemType: string;
-      unitName: string | null;
+      componentUnitName: string | null;
       quantity: string;
       consumptionMode: string;
       basisOutputQuantity: string | null;
       batchScalingMode: string | null;
       groupRemainderPolicy: string | null;
-      minimumLotAgeDays: number | null;
-      requirements: string[];
+      quantityMeaning: string;
+      requirements: Array<
+        | {
+            type: "minimum_lot_age_days";
+            days: number;
+          }
+        | {
+            type: string;
+          }
+      >;
     }>;
   }>;
 };

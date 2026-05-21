@@ -27,9 +27,11 @@ Optional query parameters:
 - Use `openSalesOrders` for sales order dates, ship dates, line items,
   quantities, and allocation state.
 - Use `openManufacturingOrders` for existing production supply.
-- Use `productCounts` for current sellable product inventory, allocation totals, open
-  sales demand, and open manufacturing supply.
-- Use `productRequirements` for BOM requirements such as minimum lot age.
+- Use `productCounts` for current sellable product inventory, lot counts,
+  received dates, allocation totals, open sales demand, and open manufacturing
+  supply.
+- Use `productBoms` for product-to-product BOM requirements such as a 2cf bag
+  requiring aged 1 yd tote inventory.
 - Do not ask for or rely on sales prices, unit costs, draft action payloads, or
   material-purchasing recommendations.
 - Do not claim to create, edit, reserve, allocate, purchase, or manufacture

@@ -837,7 +837,8 @@ async function loadOpenPurchaseOrdersInTx(
 
 async function loadTopLevelBomContextInTx(
   tx: Tx,
-  salesOrders: AgentOpenSalesOrderContext[]
+  salesOrders: AgentOpenSalesOrderContext[],
+  manufacturingOrders: AgentOpenManufacturingOrderContext[]
 ): Promise<AgentTopLevelBomContext[]> {
   const productsById = new Map<string, { productName: string; unitName: string | null }>();
   for (const order of salesOrders) {
@@ -847,6 +848,12 @@ async function loadTopLevelBomContextInTx(
         unitName: line.unitName,
       });
     }
+  }
+  for (const order of manufacturingOrders) {
+    productsById.set(order.itemId, {
+      productName: order.itemName,
+      unitName: order.unitName,
+    });
   }
 
   const productIds = [...productsById.keys()];
@@ -920,7 +927,7 @@ async function loadTopLevelBomContextInTx(
 
   const constraintsByComponentId = new Map<
     string,
-    Array<{ label: string; minimumLotAgeDays: number | null }>
+    Array<{ type: string; label: string; minimumLotAgeDays: number | null }>
   >();
   for (const constraint of constraintRows) {
     const days =
@@ -933,7 +940,11 @@ async function loadTopLevelBomContextInTx(
         ? constraint.constraintType
         : `must be at least ${minimumLotAgeDays} days old`;
     const bucket = constraintsByComponentId.get(constraint.bomRevisionComponentId) ?? [];
-    bucket.push({ label, minimumLotAgeDays });
+    bucket.push({
+      type: constraint.constraintType,
+      label,
+      minimumLotAgeDays,
+    });
     constraintsByComponentId.set(constraint.bomRevisionComponentId, bucket);
   }
 
@@ -955,7 +966,7 @@ async function loadTopLevelBomContextInTx(
       minimumLotAgeDays:
         constraints.find((constraint) => constraint.minimumLotAgeDays != null)
           ?.minimumLotAgeDays ?? null,
-      constraints: constraints.map((constraint) => constraint.label),
+      constraints,
     });
     componentsByRevisionId.set(component.bomRevisionId, bucket);
   }
@@ -1711,12 +1722,6 @@ function isProductionDecisionBomComponent(
   return /\b(bag|pallet|tote|wrap|topper|label)\b/i.test(component.componentName);
 }
 
-function isProductionRequirementComponent(
-  component: AgentTopLevelBomContext["components"][number]
-) {
-  return component.minimumLotAgeDays != null || component.constraints.length > 0;
-}
-
 function buildMarkdownTargets(context: AgentProductionPlanningContext) {
   const bomsByProductId = topLevelBomByProductId(context);
   const targets: MarkdownBuildTarget[] = [];
@@ -1846,6 +1851,14 @@ function buildRawProductionContext(
   for (const order of context.manufacturingOrders) {
     inventoryItemIds.add(order.itemId);
   }
+  for (const bom of context.topLevelBoms) {
+    inventoryItemIds.add(bom.productItemId);
+    for (const component of bom.components) {
+      if (component.componentItemType === "product") {
+        inventoryItemIds.add(component.componentItemId);
+      }
+    }
+  }
 
   return {
     generatedAt: context.generatedAt,
@@ -1928,9 +1941,28 @@ function buildRawProductionContext(
           openManufacturingSupplyQty: quantityString(
             openManufacturingSupplyByItemId.get(item.itemId) ?? 0
           ),
+          lotCounts: item.lots.map((lot) => ({
+            lotId: lot.lotId,
+            lotCode: lot.lotCode,
+            receivedDate: lot.receivedDate?.slice(0, 10) ?? null,
+            ageDays: lot.receivedDate
+              ? Math.max(
+                  0,
+                  Math.floor(
+                    (new Date(context.generatedAt).getTime() -
+                      new Date(lot.receivedDate).getTime()) /
+                      86_400_000
+                  )
+                )
+              : null,
+            disposition: lot.disposition,
+            onHandQty: lot.onHandQty,
+            availableQty: lot.availableQty,
+            allocatedQty: lot.allocatedQty,
+          })),
         };
       }),
-    productRequirements: context.topLevelBoms
+    productBoms: context.topLevelBoms
       .map((bom) => ({
         productItemId: bom.productItemId,
         productName: bom.productName,
@@ -1938,20 +1970,31 @@ function buildRawProductionContext(
         revisionId: bom.revisionId,
         revisionNumber: bom.revisionNumber,
         components: bom.components
-          .filter(isProductionRequirementComponent)
+          .filter((component) => component.componentItemType === "product")
           .map((component) => ({
             bomRevisionComponentId: component.bomRevisionComponentId,
             componentItemId: component.componentItemId,
             componentName: component.componentName,
             componentItemType: component.componentItemType,
-            unitName: component.unitName,
+            componentUnitName: component.unitName,
             quantity: component.quantity,
             consumptionMode: component.consumptionMode,
             basisOutputQuantity: component.basisOutputQuantity,
             batchScalingMode: component.batchScalingMode,
             groupRemainderPolicy: component.groupRemainderPolicy,
-            minimumLotAgeDays: component.minimumLotAgeDays,
-            requirements: component.constraints,
+            quantityMeaning:
+              component.basisOutputQuantity == null
+                ? `${component.quantity} ${component.unitName ?? "units"} of ${component.componentName} per output of ${bom.productName}`
+                : `${component.quantity} ${component.unitName ?? "units"} of ${component.componentName} per ${component.basisOutputQuantity} ${bom.unitName ?? "units"} of ${bom.productName}`,
+            requirements: component.constraints.map((constraint) => {
+              if (constraint.minimumLotAgeDays != null) {
+                return {
+                  type: "minimum_lot_age_days" as const,
+                  days: constraint.minimumLotAgeDays,
+                };
+              }
+              return { type: constraint.type };
+            }),
           })),
       }))
       .filter((bom) => bom.components.length > 0),
@@ -2043,7 +2086,7 @@ export function buildAgentProductionPlanningMarkdown(
       component.componentName,
       compactQty(component.quantity, component.unitName),
       component.consumptionMode,
-      component.constraints.join(", ") || "-",
+      component.constraints.map((constraint) => constraint.label).join(", ") || "-",
     ])
     .slice(0, MAX_MARKDOWN_TOP_LEVEL_BOMS);
 
@@ -2151,16 +2194,30 @@ async function buildAgentProductionPlanningContextInTx(
   const salesOrders = await loadOpenSalesOrdersInTx(tx, allocations, snapshot);
   const manufacturingOrders = await loadOpenManufacturingOrdersInTx(tx, allocations);
   const purchaseOrders = await loadOpenPurchaseOrdersInTx(tx);
-  const topLevelBoms = await loadTopLevelBomContextInTx(tx, salesOrders);
-  const relevantItemIds = collectRelevantItemIds({
+  const topLevelBoms = await loadTopLevelBomContextInTx(
+    tx,
+    salesOrders,
+    manufacturingOrders
+  );
+  const relevantItemIds = new Set(
+    collectRelevantItemIds({
     snapshot,
     salesOrders,
     manufacturingOrders,
     purchaseOrders,
     allocations,
-  });
+    })
+  );
+  for (const bom of topLevelBoms) {
+    relevantItemIds.add(bom.productItemId);
+    for (const component of bom.components) {
+      if (component.componentItemType === "product") {
+        relevantItemIds.add(component.componentItemId);
+      }
+    }
+  }
   const inventory = await loadRelevantInventoryContextInTx(tx, {
-    itemIds: relevantItemIds,
+    itemIds: [...relevantItemIds].sort(),
     snapshot,
     allocations,
     includeLots: options.includeLots,
