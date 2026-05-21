@@ -101,13 +101,12 @@ test.describe("Manufacturing write-path smoke", () => {
     // set planned quantity, then selecting a product creates the order inline.
     await page.goto("/manufacturing/order");
     await page.waitForURL("**/manufacturing/order");
-    const productInput = page.getByPlaceholder("Search or create product…");
-    await expect(productInput).toBeVisible();
+    const productSelect = page.getByLabel("Product");
+    await expect(productSelect).toBeVisible();
 
     await page.getByLabel("Planned quantity").fill("5");
 
-    await productInput.click();
-    await productInput.fill(productName);
+    await productSelect.click();
     const [createResponse] = await Promise.all([
       page.waitForResponse(
         (response) =>
@@ -1466,9 +1465,8 @@ test.describe("Manufacturing write-path smoke", () => {
     // Unified sheet uses output quantity; a yield-2 product at qty 6 → 3 batches.
     await page.goto("/manufacturing/order");
     await page.getByLabel("Planned quantity").fill("6");
-    const productInput = page.getByPlaceholder("Search or create product…");
-    await productInput.click();
-    await productInput.fill(batchProductName);
+    const productSelect = page.getByLabel("Product");
+    await productSelect.click();
     await page.getByRole("option", { name: new RegExp(batchProductName) }).click();
 
     await page.waitForURL(/\/manufacturing\/orders\/[0-9a-f-]+$/);

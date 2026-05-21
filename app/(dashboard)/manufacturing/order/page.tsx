@@ -19,6 +19,7 @@ export default async function ManufacturingOrderDraftPage() {
       productOptions={templates.map((template) => ({
         id: template.id,
         name: template.name,
+        displayName: template.displayName,
         sku: template.sku,
         unitName: template.unitName,
         bom: template.bom.map((row) => ({

@@ -226,10 +226,13 @@ export type ManufacturingOrderCreateFormValues = z.infer<
   typeof manufacturingOrderCreateFormSchema
 >;
 
-export const updateManufacturingOrderSchema = baseManufacturingOrderSchema.omit({
-  productId: true,
-  confirmShortage: true,
-});
+export const updateManufacturingOrderSchema = baseManufacturingOrderSchema
+  .omit({
+    confirmShortage: true,
+  })
+  .extend({
+    productId: z.string().min(1, "Product is required").optional(),
+  });
 export type UpdateManufacturingOrder = z.infer<
   typeof updateManufacturingOrderSchema
 >;

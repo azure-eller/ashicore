@@ -213,6 +213,9 @@ type SalesLineSnapshot = {
 type LockedManufacturingOrder = {
   id: string;
   productId: string;
+  productName: string;
+  productSku: string | null;
+  unitName: string;
   status: (typeof manufacturingOrders.$inferSelect)["status"];
   manufacturingMode: string;
   numberOfBatches: number | null;
@@ -594,6 +597,9 @@ async function getLockedManufacturingOrderInTx(
     .select({
       id: manufacturingOrders.id,
       productId: manufacturingOrders.productId,
+      productName: manufacturingOrders.productName,
+      productSku: manufacturingOrders.productSku,
+      unitName: manufacturingOrders.unitName,
       bomRevisionId: manufacturingOrders.bomRevisionId,
       status: manufacturingOrders.status,
       manufacturingMode: manufacturingOrders.manufacturingMode,
@@ -3956,6 +3962,8 @@ export async function getManufacturingSalesLineOptions(
         salesOrderLineId: salesOrderLines.id,
         salesOrderNumber: salesOrders.orderNumber,
         customerName: salesOrders.customerName,
+        shipDate: salesOrders.shipDate,
+        requestedDate: salesOrders.requestedDate,
         itemId: salesOrderLines.itemId,
         itemName: salesOrderLines.itemName,
         itemSku: salesOrderLines.itemSku,
@@ -4656,16 +4664,29 @@ export async function updateManufacturingOrder(
       }
     }
 
+    const nextProductId = payload.productId ?? existing.productId;
+    const productChanged = nextProductId !== existing.productId;
+    const product = productChanged
+      ? await getValidatedProductInTx(tx, nextProductId)
+      : {
+          id: existing.productId,
+          name: existing.productName,
+          sku: existing.productSku,
+          unitName: existing.unitName,
+        };
     const plannedQuantity = Number(payload.plannedQuantity);
+    const salesOrderId = payload.salesOrderId ?? (productChanged ? null : existing.salesOrderId);
+    const salesOrderLineId =
+      payload.salesOrderLineId ?? (productChanged ? null : existing.salesOrderLineId);
 
     const salesLink = await validateSalesLineLinkInTx(
       tx,
       {
-        salesOrderId: payload.salesOrderId,
-        salesOrderLineId: payload.salesOrderLineId,
-        productId: existing.productId,
+        salesOrderId,
+        salesOrderLineId,
+        productId: nextProductId,
       },
-      existing.salesOrderId && existing.salesOrderLineId
+      !productChanged && existing.salesOrderId && existing.salesOrderLineId
         ? {
             salesOrderId: existing.salesOrderId,
             salesOrderLineId: existing.salesOrderLineId,
@@ -4675,13 +4696,23 @@ export async function updateManufacturingOrder(
         : null,
       id
     );
-    const ingredients = await prepareUpdatedIngredientsInTx(
-      tx,
-      id,
-      existing.bomRevisionId,
-      plannedQuantity,
-      payload.ingredients
-    );
+    const { bomRevisionId, ingredients } = productChanged
+      ? await prepareCreateIngredientsInTx(
+          tx,
+          nextProductId,
+          plannedQuantity,
+          payload.ingredients
+        )
+      : await prepareUpdatedIngredientsInTx(
+          tx,
+          id,
+          existing.bomRevisionId,
+          plannedQuantity,
+          payload.ingredients
+        ).then((result) => ({
+          bomRevisionId: existing.bomRevisionId,
+          ingredients: result,
+        }));
     const scalingPlan = deriveScalingPlan(plannedQuantity, ingredients);
     const existingIngredientRows = await tx
       .select({ id: manufacturingOrderIngredients.id })
@@ -4692,6 +4723,11 @@ export async function updateManufacturingOrder(
     const [order] = await tx
       .update(manufacturingOrders)
       .set({
+        productId: product.id,
+        productName: product.name,
+        productSku: product.sku,
+        unitName: product.unitName,
+        bomRevisionId,
         salesOrderId: salesLink?.salesOrderId ?? null,
         salesOrderLineId: salesLink?.salesOrderLineId ?? null,
         salesOrderNumber: salesLink?.salesOrderNumber ?? null,
@@ -4740,18 +4776,35 @@ export async function updateManufacturingOrder(
     );
     await insertManufacturingOperationCostsInTx(tx, {
       manufacturingOrderId: id,
-      bomRevisionId: existing.bomRevisionId,
+      bomRevisionId,
       plannedQuantity,
     });
 
     if (isOpenManufacturingOrder(existing)) {
-      await editExpectedFromManufacturingInTx(tx, {
-        organizationId: orgId,
-        manufacturingOrderId: id,
-        productId: existing.productId,
-        nextQuantity: plannedQuantity,
-        actorUserId: userId,
-      });
+      if (productChanged) {
+        await editExpectedFromManufacturingInTx(tx, {
+          organizationId: orgId,
+          manufacturingOrderId: id,
+          productId: existing.productId,
+          nextQuantity: 0,
+          actorUserId: userId,
+        });
+        await addExpectedFromManufacturingInTx(tx, {
+          organizationId: orgId,
+          manufacturingOrderId: id,
+          productId: nextProductId,
+          quantity: plannedQuantity,
+          actorUserId: userId,
+        });
+      } else {
+        await editExpectedFromManufacturingInTx(tx, {
+          organizationId: orgId,
+          manufacturingOrderId: id,
+          productId: existing.productId,
+          nextQuantity: plannedQuantity,
+          actorUserId: userId,
+        });
+      }
 
       if (existing.manufacturingMode === "batch") {
         await tx

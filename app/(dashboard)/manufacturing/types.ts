@@ -26,6 +26,8 @@ export type ManufacturingSalesLineOption = {
   salesOrderLineId: string;
   salesOrderNumber: string;
   customerName: string;
+  shipDate: string | null;
+  requestedDate: string | null;
   itemId: string;
   itemName: string;
   itemSku: string | null;

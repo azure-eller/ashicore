@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -18,19 +17,9 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-} from "@/components/ui/combobox";
 import {
   EditableLineDataGrid,
   type ColDef,
@@ -38,16 +27,21 @@ import {
 } from "@/components/editable-line-data-grid";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { formatDate, formatPrice, formatQuantity } from "@/lib/format";
 import {
   createManufacturingOrder,
+  fetchManufacturingSalesLineOptions,
   fetchManufacturingOrder,
-  fetchSalesOrderManufacturingPreview,
-  fetchSalesOrderOptions,
   patchManufacturingOrder,
   patchManufacturingOrderIngredient,
   reorderManufacturingOrderIngredients,
@@ -72,7 +66,6 @@ import type {
   ManufacturingOrderDetail,
   ManufacturingOrderIngredientDetail,
   ManufacturingOrderOperationCostDetail,
-  ManufacturingSalesOrderPreviewLine,
 } from "@/app/(dashboard)/manufacturing/types";
 import type { ManufacturingLotStrategy } from "@/lib/schemas/manufacturing-orders";
 import { cn } from "@/lib/utils";
@@ -81,10 +74,13 @@ import styles from "@/components/card-page/card-page.module.css";
 export type ManufacturingProductOption = {
   id: string;
   name: string;
+  displayName?: string;
   sku: string | null;
   unitName: string;
   bom: Array<{ itemId: string; quantityPerUnit: string }>;
 };
+
+const MAKE_TO_STOCK_VALUE = "__make_to_stock__";
 
 export function ManufacturingOrderCard({
   initialOrderId,
@@ -99,10 +95,10 @@ export function ManufacturingOrderCard({
   const router = useRouter();
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(initialOrderId);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [lotPickerIngredient, setLotPickerIngredient] =
     useState<ManufacturingOrderIngredientDetail | null>(null);
   // Draft header fields (used until a product is chosen and the order created).
+  const [draftProductId, setDraftProductId] = useState("");
   const [draftPlannedQuantity, setDraftPlannedQuantity] = useState("1");
   const [draftPlannedDate, setDraftPlannedDate] = useState("");
   const goBack = useSmartBack("/manufacturing/orders");
@@ -117,13 +113,6 @@ export function ManufacturingOrderCard({
     refetchOnWindowFocus: false,
   });
   const order = isDraft ? null : orderQuery.data ?? initialOrder;
-
-  const salesOrderOptionsQuery = useQuery({
-    queryKey: ["manufacturing-sales-order-options"],
-    queryFn: fetchSalesOrderOptions,
-    staleTime: 60_000,
-  });
-  const salesOrderOptions = salesOrderOptionsQuery.data ?? [];
 
   const refreshOrder = useCallback(() => {
     if (currentOrderId == null) return;
@@ -145,6 +134,7 @@ export function ManufacturingOrderCard({
     if (!productId || createMutation.isPending) return;
     const product = productOptions.find((option) => option.id === productId);
     if (!product) return;
+    setDraftProductId(productId);
     const plannedQuantity = draftPlannedQuantity.trim() || "1";
     createMutation.mutate({
       productId,
@@ -251,38 +241,7 @@ export function ManufacturingOrderCard({
               </span>
             </>
           ) : (
-            <div className="mt-1 max-w-md">
-              <Combobox
-                items={productOptions.map((option) => option.id)}
-                value=""
-                onValueChange={(value) => onPickProduct(value || null)}
-                itemToStringLabel={(value) =>
-                  productOptions.find((option) => option.id === value)?.name ?? ""
-                }
-              >
-                <ComboboxInput placeholder="Search or create product…" showClear />
-                <ComboboxContent className="bg-popover text-popover-foreground">
-                  <ComboboxEmpty>No manufacturable products found</ComboboxEmpty>
-                  <ComboboxList>
-                    {(id: string) => {
-                      const option = productOptions.find((entry) => entry.id === id);
-                      return (
-                        <ComboboxItem key={id} value={id}>
-                          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                            <span className="truncate">{option?.name}</span>
-                            {option?.sku ? (
-                              <span className="font-mono text-xs text-muted-foreground">
-                                {option.sku}
-                              </span>
-                            ) : null}
-                          </div>
-                        </ComboboxItem>
-                      );
-                    }}
-                  </ComboboxList>
-                </ComboboxContent>
-              </Combobox>
-            </div>
+            "New manufacturing order"
           )
         }
         meta={order ? <MoDescription order={order} /> : null}
@@ -331,6 +290,8 @@ export function ManufacturingOrderCard({
       <CardPageBody>
         <OrderDetailsSection
           order={order}
+          productOptions={productOptions}
+          draftProductId={draftProductId}
           canEditMetadata={editState.canEditMetadata}
           canEditPlanning={editState.canEditPlanning}
           planningLockedReason={editState.planningLockedReason}
@@ -338,8 +299,7 @@ export function ManufacturingOrderCard({
           draftPlannedDate={draftPlannedDate}
           onDraftPlannedQuantity={setDraftPlannedQuantity}
           onDraftPlannedDate={setDraftPlannedDate}
-          salesOrderOptions={salesOrderOptions}
-          onOpenSalesLink={() => setLinkDialogOpen(true)}
+          onDraftPickProduct={onPickProduct}
           onPatched={refreshOrder}
         />
         <IngredientsSection
@@ -359,14 +319,6 @@ export function ManufacturingOrderCard({
           onPatched={refreshOrder}
         />
       </CardPageBody>
-
-      <SalesOrderLinkDialog
-        open={linkDialogOpen}
-        order={order}
-        salesOrderOptions={salesOrderOptions}
-        onOpenChange={setLinkDialogOpen}
-        onLinked={refreshOrder}
-      />
 
       {lotPickerIngredient ? (
         <Dialog
@@ -473,6 +425,8 @@ function MoDescription({ order }: { order: ManufacturingOrderDetail }) {
 
 function OrderDetailsSection({
   order,
+  productOptions,
+  draftProductId,
   canEditMetadata,
   canEditPlanning,
   planningLockedReason,
@@ -480,11 +434,12 @@ function OrderDetailsSection({
   draftPlannedDate,
   onDraftPlannedQuantity,
   onDraftPlannedDate,
-  salesOrderOptions,
-  onOpenSalesLink,
+  onDraftPickProduct,
   onPatched,
 }: {
   order: ManufacturingOrderDetail | null;
+  productOptions: ManufacturingProductOption[];
+  draftProductId: string;
   canEditMetadata: boolean;
   canEditPlanning: boolean;
   planningLockedReason: string | null;
@@ -492,13 +447,7 @@ function OrderDetailsSection({
   draftPlannedDate: string;
   onDraftPlannedQuantity: (value: string) => void;
   onDraftPlannedDate: (value: string) => void;
-  salesOrderOptions: Array<{
-    id: string;
-    orderNumber: string;
-    customerName: string;
-    hasManufacturableLines?: boolean;
-  }>;
-  onOpenSalesLink: () => void;
+  onDraftPickProduct: (productId: string | null) => void;
   onPatched: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -508,6 +457,13 @@ function OrderDetailsSection({
     order && groupSize != null
       ? formatDecimal((Number(order.plannedQuantity) || 0) / groupSize)
       : null;
+  const salesLineOptionsQuery = useQuery({
+    queryKey: ["manufacturing-sales-line-options", order?.productId ?? "__draft__"],
+    queryFn: () => fetchManufacturingSalesLineOptions(order!.productId),
+    enabled: order != null,
+    staleTime: 60_000,
+  });
+  const salesLineOptions = salesLineOptionsQuery.data ?? [];
   const patchField = useMutation({
     mutationKey: cardSaveMutationKey("manufacturing-order", order?.id ?? "__draft__", "header"),
     mutationFn: (patch: Parameters<typeof patchManufacturingOrder>[1]) =>
@@ -539,18 +495,123 @@ function OrderDetailsSection({
       void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
     },
   });
+  const saveOrderSnapshot = useMutation({
+    mutationKey: cardSaveMutationKey("manufacturing-order", order?.id ?? "__draft__", "snapshot"),
+    mutationFn: (input: {
+      productId?: string;
+      plannedQuantity: string;
+      plannedDate: string | null;
+      salesOrderId: string | null;
+      salesOrderLineId: string | null;
+      ingredients: Array<{ itemId: string; quantityPerUnit: string }>;
+    }) =>
+      saveManufacturingOrderIngredients(
+        order!.id,
+        {
+          productId: input.productId,
+          plannedQuantity: input.plannedQuantity,
+          plannedDate: input.plannedDate,
+          notes: order!.notes,
+          salesOrderId: input.salesOrderId,
+          salesOrderLineId: input.salesOrderLineId,
+        },
+        input.ingredients,
+      ),
+    onSuccess: () => {
+      onPatched();
+      void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["manufacturing-sales-line-options", order?.productId ?? "__draft__"],
+      });
+    },
+  });
+
+  const selectedProductId = order?.productId ?? draftProductId;
+  const selectedProduct = productOptions.find((option) => option.id === selectedProductId);
+  const productSelectDisabled =
+    saveOrderSnapshot.isPending || productOptions.length === 0;
+
+  const handleProductChange = (productId: string) => {
+    const product = productOptions.find((option) => option.id === productId);
+    if (!product) return;
+
+    if (!order) {
+      onDraftPickProduct(productId);
+      return;
+    }
+
+    if (productId === order.productId || !canEditPlanning) return;
+
+    saveOrderSnapshot.mutate({
+      productId,
+      plannedQuantity: order.plannedQuantity,
+      plannedDate: order.plannedDate,
+      salesOrderId: null,
+      salesOrderLineId: null,
+      ingredients: product.bom.map((row) => ({
+        itemId: row.itemId,
+        quantityPerUnit: row.quantityPerUnit,
+      })),
+    });
+  };
+
+  const handleSalesLineChange = (value: string) => {
+    if (!order || !canEditPlanning) return;
+    if (value === MAKE_TO_STOCK_VALUE) {
+      if (!order.salesOrderId && !order.salesOrderLineId) return;
+      patchField.mutate({ salesOrderId: null, salesOrderLineId: null });
+      return;
+    }
+
+    const line = salesLineOptions.find((option) => option.salesOrderLineId === value);
+    if (!line || line.salesOrderLineId === order.salesOrderLineId) return;
+
+    saveOrderSnapshot.mutate({
+      plannedQuantity: line.quantity,
+      plannedDate: line.shipDate ?? line.requestedDate ?? order.plannedDate,
+      salesOrderId: line.salesOrderId,
+      salesOrderLineId: line.salesOrderLineId,
+      ingredients: order.ingredients.map((ingredient) => ({
+        itemId: ingredient.itemId,
+        quantityPerUnit: ingredient.quantityPerUnit,
+      })),
+    });
+  };
 
   return (
     <section className={styles.section}>
       <h2 className={styles.sectionHeading}>Order details</h2>
       <div className={styles.formRow}>
         <FormField label="Product" required>
-          <div className={styles.readOnlyFieldValue}>
-            {order?.productName ?? "Choose a product to create this order"}
-          </div>
-          {order ? (
+          {canEditPlanning ? (
+            <Select
+              value={selectedProductId}
+              onValueChange={handleProductChange}
+              disabled={productSelectDisabled}
+            >
+              <SelectTrigger
+                aria-label="Product"
+                className={`${styles.underlineControl} w-full justify-between`}
+              >
+                <SelectValue placeholder="Select product" />
+              </SelectTrigger>
+              <SelectContent>
+                {productOptions.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {productLabel(option)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <div className={styles.readOnlyFieldValue} title={planningLockedReason ?? undefined}>
+              {order?.productName ?? "Select product"}
+            </div>
+          )}
+          {order || selectedProduct ? (
             <div className={styles.fieldMeta}>
-              SKU {order.productSku ?? "—"} · {unitName || "unit"}
+              SKU {order?.productSku ?? selectedProduct?.sku ?? "—"} ·{" "}
+              {unitName || selectedProduct?.unitName || "unit"}
             </div>
           ) : null}
         </FormField>
@@ -646,50 +707,45 @@ function OrderDetailsSection({
           </div>
         </FormField>
         <FormField label="Sales order">
-          {order?.salesOrderNumber && order.salesOrderId ? (
-            <div className={styles.readOnlyFieldValue}>
-              <Link
-                href={`/sales/orders/${order.salesOrderId}`}
-                className={styles.fieldLink}
+          {order && canEditPlanning ? (
+            <Select
+              value={order.salesOrderLineId ?? MAKE_TO_STOCK_VALUE}
+              onValueChange={handleSalesLineChange}
+              disabled={saveOrderSnapshot.isPending || salesLineOptionsQuery.isLoading}
+            >
+              <SelectTrigger
+                aria-label="Sales order"
+                className={`${styles.underlineControl} w-full justify-between`}
               >
-                {order.salesOrderNumber}
-              </Link>
-              {order.salesCustomerName ? ` · ${order.salesCustomerName}` : null}
-            </div>
+                <SelectValue placeholder="Make to stock" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={MAKE_TO_STOCK_VALUE}>Make to stock</SelectItem>
+                {salesLineOptions.map((line) => (
+                  <SelectItem key={line.salesOrderLineId} value={line.salesOrderLineId}>
+                    {line.salesOrderNumber} · {line.customerName} ·{" "}
+                    {formatQuantity(line.quantity)} {line.unitName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           ) : (
-            <div className={styles.readOnlyFieldValue}>No sales order — make to stock</div>
+            <div className={styles.readOnlyFieldValue} title={planningLockedReason ?? undefined}>
+              {order?.salesOrderNumber
+                ? `${order.salesOrderNumber}${order.salesCustomerName ? ` · ${order.salesCustomerName}` : ""}`
+                : "Make to stock"}
+            </div>
           )}
-          {order ? (
-            canEditPlanning ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="mt-(--space-2) h-(--height-input-sm)"
-                onClick={onOpenSalesLink}
-                disabled={salesOrderOptions.length === 0}
-              >
-                {order.salesOrderId ? "Change link" : "Link sales order"}
-              </Button>
-            ) : (
-              <span title={planningLockedReason ?? undefined}>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-(--space-2) h-(--height-input-sm)"
-                  disabled
-                >
-                  {order.salesOrderId ? "Change link" : "Link sales order"}
-                </Button>
-              </span>
-            )
-          ) : null}
-          <div className={styles.fieldHint}>Link one customer order line.</div>
         </FormField>
       </div>
     </section>
   );
+}
+
+function productLabel(option: ManufacturingProductOption) {
+  return option.displayName && option.displayName !== option.name
+    ? `${option.displayName} (${option.name})`
+    : option.name;
 }
 
 
@@ -747,219 +803,6 @@ function getManufacturingExecutionStartedReason(order: ManufacturingOrderDetail 
   }
 
   return null;
-}
-
-function SalesOrderLinkDialog({
-  open,
-  order,
-  salesOrderOptions,
-  onOpenChange,
-  onLinked,
-}: {
-  open: boolean;
-  order: ManufacturingOrderDetail | null;
-  salesOrderOptions: Array<{
-    id: string;
-    orderNumber: string;
-    customerName: string;
-    hasManufacturableLines?: boolean;
-    disabledReason?: string | null;
-  }>;
-  onOpenChange: (open: boolean) => void;
-  onLinked: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const [selectedOrderId, setSelectedOrderId] = useState(order?.salesOrderId ?? "");
-  const [selectedLineId, setSelectedLineId] = useState(order?.salesOrderLineId ?? "");
-  const previewQuery = useQuery({
-    queryKey: ["manufacturing-sales-order-preview", selectedOrderId],
-    queryFn: () => fetchSalesOrderManufacturingPreview(selectedOrderId),
-    enabled: open && selectedOrderId.length > 0,
-  });
-  const preview = previewQuery.data;
-  const selectedLine = preview?.lines.find(
-    (line) => line.salesOrderLineId === selectedLineId,
-  );
-  const linkMutation = useMutation({
-    mutationKey: cardSaveMutationKey(
-      "manufacturing-order",
-      order?.id ?? "__draft__",
-      "sales-link",
-    ),
-    mutationFn: (line: ManufacturingSalesOrderPreviewLine) =>
-      saveManufacturingOrderIngredients(
-        order!.id,
-        {
-          plannedQuantity: line.quantity,
-          plannedDate: preview?.shipDate ?? preview?.requestedDate ?? order!.plannedDate,
-          notes: order!.notes,
-          salesOrderId: preview!.salesOrderId,
-          salesOrderLineId: line.salesOrderLineId,
-        },
-        order!.ingredients.map((ingredient) => ({
-          itemId: ingredient.itemId,
-          quantityPerUnit: ingredient.quantityPerUnit,
-        })),
-      ),
-    onSuccess: () => {
-      onLinked();
-      void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
-      onOpenChange(false);
-    },
-  });
-  const unlinkMutation = useMutation({
-    mutationKey: cardSaveMutationKey(
-      "manufacturing-order",
-      order?.id ?? "__draft__",
-      "sales-unlink",
-    ),
-    mutationFn: () => patchManufacturingOrder(order!.id, {
-      salesOrderId: null,
-      salesOrderLineId: null,
-    }),
-    onSuccess: () => {
-      onLinked();
-      void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
-      onOpenChange(false);
-    },
-  });
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (next) {
-          setSelectedOrderId(order?.salesOrderId ?? "");
-          setSelectedLineId(order?.salesOrderLineId ?? "");
-        }
-        onOpenChange(next);
-      }}
-    >
-      <DialogContent size="lg" className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Link sales order</DialogTitle>
-          <DialogDescription>
-            Select one open sales order line for this manufacturing order.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-(--space-4)">
-          <FormField label="Sales order">
-            <Combobox
-              items={salesOrderOptions.map((option) => option.id)}
-              value={selectedOrderId}
-              onValueChange={(value) => {
-                setSelectedOrderId(value ?? "");
-                setSelectedLineId("");
-              }}
-              itemToStringLabel={(value) => {
-                const option = salesOrderOptions.find((entry) => entry.id === value);
-                return option ? `${option.orderNumber} (${option.customerName})` : "";
-              }}
-            >
-              <ComboboxInput
-                placeholder="Search open sales orders"
-                showClear
-                className={styles.underlineControl}
-              />
-              <ComboboxContent className="bg-popover text-popover-foreground">
-                <ComboboxEmpty>No open sales orders</ComboboxEmpty>
-                <ComboboxList>
-                  {(id: string) => {
-                    const option = salesOrderOptions.find((entry) => entry.id === id);
-                    return (
-                      <ComboboxItem
-                        key={id}
-                        value={id}
-                        disabled={option?.hasManufacturableLines === false}
-                      >
-                        <div className="flex min-w-0 flex-col">
-                          <span className="truncate">
-                            {option ? `${option.orderNumber} (${option.customerName})` : id}
-                          </span>
-                          {option?.disabledReason ? (
-                            <span className="text-xs text-[var(--color-muted-2)]">
-                              {option.disabledReason}
-                            </span>
-                          ) : null}
-                        </div>
-                      </ComboboxItem>
-                    );
-                  }}
-                </ComboboxList>
-              </ComboboxContent>
-            </Combobox>
-          </FormField>
-
-          {selectedOrderId ? (
-            <div className="space-y-(--space-2)">
-              <div className={styles.formLabel}>Line item</div>
-              {previewQuery.isLoading ? (
-                <div className={styles.readOnlyFieldValue}>Loading lines…</div>
-              ) : preview?.lines.length ? (
-                <div className="max-h-72 overflow-auto border border-[var(--color-line)]">
-                  {preview.lines.map((line) => {
-                    const productMismatch = order != null && line.itemId !== order.productId;
-                    const disabled = line.status !== "will_create" || productMismatch;
-                    return (
-                      <button
-                        key={line.salesOrderLineId}
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => setSelectedLineId(line.salesOrderLineId)}
-                        className={cn(
-                          "flex w-full items-center justify-between gap-(--space-3) border-b border-[var(--color-line)] px-(--space-3) py-(--space-2) text-left text-sm last:border-b-0",
-                          selectedLineId === line.salesOrderLineId
-                            ? "bg-[var(--color-accent-soft)]"
-                            : "bg-card",
-                          disabled ? "opacity-50" : "hover:bg-muted",
-                        )}
-                      >
-                        <span className="min-w-0">
-                          <span className="block truncate font-medium">{line.itemName}</span>
-                          <span className="block truncate text-xs text-[var(--color-muted-2)]">
-                            {[line.itemSku, line.skipMessage, productMismatch ? "Different product" : null]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </span>
-                        </span>
-                        <span className={`${styles.mono} shrink-0`}>
-                          {formatQuantity(line.quantity)} {line.unitName}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className={styles.readOnlyFieldValue}>No manufacturable lines.</div>
-              )}
-            </div>
-          ) : null}
-        </div>
-        <DialogFooter>
-          {order?.salesOrderId ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => unlinkMutation.mutate()}
-              disabled={unlinkMutation.isPending || linkMutation.isPending}
-            >
-              Unlink
-            </Button>
-          ) : null}
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={() => selectedLine && linkMutation.mutate(selectedLine)}
-            disabled={!selectedLine || linkMutation.isPending || unlinkMutation.isPending}
-          >
-            Link line
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 function FormField({
@@ -1099,28 +942,6 @@ function IngredientsSection({
           ) : null,
       },
       {
-        colId: "pickedActual",
-        headerName: "Picked / Actual",
-        type: "rightAligned",
-        width: 140,
-        cellRenderer: (params: ICellRendererParams<ManufacturingOrderIngredientDetail>) => {
-          if (!params.data) return null;
-          return (
-            <div className="flex flex-col items-end leading-tight">
-              <span className={styles.mono}>
-                {formatQuantity(params.data.pickedQuantity)} /{" "}
-                {params.data.actualQuantity != null
-                  ? formatQuantity(params.data.actualQuantity)
-                  : "—"}
-              </span>
-              <span className="text-[11px] text-[var(--color-muted)]">
-                of {formatQuantity(params.data.plannedQuantity)}
-              </span>
-            </div>
-          );
-        },
-      },
-      {
         colId: "lotAllocation",
         headerName: "Lot allocation",
         flex: 1.2,
@@ -1172,29 +993,6 @@ function IngredientsSection({
         width: 110,
         cellClass: styles.mono,
         valueFormatter: ({ value }) => (value != null ? (formatPrice(String(value)) ?? "—") : "—"),
-      },
-      {
-        colId: "requirements",
-        headerName: "Requirements",
-        width: 160,
-        cellRenderer: (params: ICellRendererParams<ManufacturingOrderIngredientDetail>) => {
-          const constraints = params.data?.constraints ?? [];
-          if (constraints.length === 0) return <span className={styles.placeholder}>—</span>;
-          return (
-            <span className="inline-flex flex-wrap gap-1">
-              {constraints.map((constraint, index) => (
-                <span
-                  key={index}
-                  className="inline-flex h-5 items-center bg-[var(--color-warning-soft)] px-1.5 text-[10.5px] font-semibold text-[var(--color-warning)]"
-                >
-                  {constraint.constraintType === "lot_age_min_days"
-                    ? `≥ ${constraint.config.days}d age`
-                    : constraint.constraintType}
-                </span>
-              ))}
-            </span>
-          );
-        },
       },
     ],
     [canEditLotAllocations, metadataLockedReason, onOpenLotPicker, order],

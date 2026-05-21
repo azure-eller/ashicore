@@ -6,7 +6,7 @@ import type {
 import type {
   ManufacturingOrderDetail,
   ManufacturingReleaseWarningPayload,
-  ManufacturingSalesOrderPreview,
+  ManufacturingSalesLineOption,
 } from "@/app/(dashboard)/manufacturing/types";
 
 export class ManufacturingOrderApiError extends Error {
@@ -159,33 +159,15 @@ export async function createManufacturingOrder(
   return (await response.json()) as { id: string };
 }
 
-export type ManufacturingSalesOrderOptionDto = {
-  id: string;
-  orderNumber: string;
-  customerName: string;
-  shipDate: string | null;
-  requestedDate: string | null;
-  manufacturableLineCount: number;
-  hasManufacturableLines: boolean;
-  disabledReason: string | null;
-};
-
-export async function fetchSalesOrderOptions(): Promise<
-  ManufacturingSalesOrderOptionDto[]
-> {
-  const response = await fetch("/api/manufacturing-orders/sales-order-options");
-  if (!response.ok) return parseError(response);
-  return (await response.json()) as ManufacturingSalesOrderOptionDto[];
-}
-
-export async function fetchSalesOrderManufacturingPreview(
-  salesOrderId: string,
-): Promise<ManufacturingSalesOrderPreview> {
+export async function fetchManufacturingSalesLineOptions(
+  productId: string,
+): Promise<ManufacturingSalesLineOption[]> {
+  const params = new URLSearchParams({ productId });
   const response = await fetch(
-    `/api/sales-orders/${salesOrderId}/manufacturing-orders`,
+    `/api/manufacturing-orders/sales-line-options?${params.toString()}`,
   );
   if (!response.ok) return parseError(response);
-  return (await response.json()) as ManufacturingSalesOrderPreview;
+  return (await response.json()) as ManufacturingSalesLineOption[];
 }
 
 /**
@@ -195,6 +177,7 @@ export async function fetchSalesOrderManufacturingPreview(
 export async function saveManufacturingOrderIngredients(
   orderId: string,
   header: {
+    productId?: string;
     plannedQuantity: string;
     plannedDate: string | null;
     notes: string | null;
@@ -209,6 +192,7 @@ export async function saveManufacturingOrderIngredients(
       "Content-Type": "application/json",
     }),
     body: JSON.stringify({
+      productId: header.productId,
       plannedQuantity: header.plannedQuantity,
       plannedDate: header.plannedDate,
       notes: header.notes,
