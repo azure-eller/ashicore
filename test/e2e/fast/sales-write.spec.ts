@@ -3448,7 +3448,7 @@ test.describe("Sales write-path smoke", () => {
     expect(soldEvents.map((event) => Number(event.extendedCost))).toEqual([10, 20]);
   });
 
-  test("estimates margin from stocked subassembly cost before nested BOM cost", async () => {
+  test("keeps sales stocked-subassembly estimates separate from inventory recipe margin", async () => {
     const suffix = `${ts}-SUB`;
     const materialResult = await createItem({
       name: `Fast Estimate Material ${suffix}`,
@@ -3530,8 +3530,8 @@ test.describe("Sales write-path smoke", () => {
     }>;
     const finishedProduct = products.find((product) => product.id === finishedId);
     expect(finishedProduct).toMatchObject({
-      estimatedUnitCost: "5",
-      marginPercent: "75",
+      estimatedUnitCost: "10",
+      marginPercent: "50",
     });
   });
 
