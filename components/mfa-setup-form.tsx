@@ -81,56 +81,68 @@ export function MfaSetupForm({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Verify email</CardTitle>
+        <CardTitle>
+          {codeSent ? "Enter your verification code" : "Verify email"}
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleVerify}>
           <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="mfa-email-code">Email code</FieldLabel>
-              <Input
-                id="mfa-email-code"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                required
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-              />
-              {notice ? <FieldDescription>{notice}</FieldDescription> : null}
-            </Field>
+            {!codeSent ? (
+              <Field>
+                <Button
+                  type="button"
+                  onClick={handleSendEmailCode}
+                  disabled={sendingCode || verifying}
+                >
+                  {sendingCode ? "Sending..." : "Send code"}
+                </Button>
+              </Field>
+            ) : (
+              <>
+                <Field>
+                  <FieldLabel htmlFor="mfa-email-code">Email code</FieldLabel>
+                  <Input
+                    id="mfa-email-code"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    required
+                    value={code}
+                    onChange={(event) => setCode(event.target.value)}
+                  />
+                  {notice ? <FieldDescription>{notice}</FieldDescription> : null}
+                </Field>
+                <Field>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleSendEmailCode}
+                    disabled={sendingCode || verifying}
+                  >
+                    {sendingCode ? "Sending..." : "Resend code"}
+                  </Button>
+                </Field>
+                <Field orientation="horizontal">
+                  <Checkbox
+                    id="mfa-trust-device"
+                    checked={trustDevice}
+                    onCheckedChange={(value) => setTrustDevice(value === true)}
+                  />
+                  <FieldLabel htmlFor="mfa-trust-device" className="font-normal">
+                    Remember this device for 30 days
+                  </FieldLabel>
+                </Field>
+                <Field>
+                  <Button
+                    type="submit"
+                    disabled={verifying || sendingCode || !code.trim()}
+                  >
+                    {verifying ? "Verifying..." : "Verify"}
+                  </Button>
+                </Field>
+              </>
+            )}
             {error ? <FieldError>{error}</FieldError> : null}
-            <Field>
-              <Button
-                type="button"
-                variant={codeSent ? "outline" : "default"}
-                onClick={handleSendEmailCode}
-                disabled={sendingCode || verifying}
-              >
-                {sendingCode
-                  ? "Sending..."
-                  : codeSent
-                    ? "Resend code"
-                    : "Send email code"}
-              </Button>
-            </Field>
-            <Field orientation="horizontal">
-              <Checkbox
-                id="mfa-trust-device"
-                checked={trustDevice}
-                onCheckedChange={(value) => setTrustDevice(value === true)}
-              />
-              <FieldLabel htmlFor="mfa-trust-device" className="font-normal">
-                Remember this device for 30 days
-              </FieldLabel>
-            </Field>
-            <Field>
-              <Button
-                type="submit"
-                disabled={verifying || sendingCode || !code.trim()}
-              >
-                {verifying ? "Verifying..." : "Verify"}
-              </Button>
-            </Field>
           </FieldGroup>
         </form>
       </CardContent>

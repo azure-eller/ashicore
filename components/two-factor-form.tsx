@@ -77,57 +77,71 @@ export function TwoFactorForm({ next = "/" }: { next?: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Verify email</CardTitle>
+        <CardTitle>
+          {codeSent ? "Enter your verification code" : "Verify email"}
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit}>
           <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="two-factor-code">Email code</FieldLabel>
-              <Input
-                id="two-factor-code"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                required
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-              />
-            </Field>
-            <Field>
-              <Button
-                type="button"
-                variant={codeSent ? "outline" : "default"}
-                onClick={sendEmailCode}
-                disabled={sendingEmail || verifying}
-              >
-                {sendingEmail
-                  ? "Sending..."
-                  : codeSent
-                    ? "Resend code"
-                    : "Send email code"}
-              </Button>
-            </Field>
-            <Field orientation="horizontal">
-              <Checkbox
-                id="two-factor-trust-device"
-                checked={trustDevice}
-                onCheckedChange={(value) => setTrustDevice(value === true)}
-              />
-              <FieldLabel htmlFor="two-factor-trust-device" className="font-normal">
-                Remember this device for 30 days
-              </FieldLabel>
-            </Field>
+            {!codeSent ? (
+              <Field>
+                <Button
+                  type="button"
+                  onClick={sendEmailCode}
+                  disabled={sendingEmail || verifying}
+                >
+                  {sendingEmail ? "Sending..." : "Send code"}
+                </Button>
+              </Field>
+            ) : (
+              <>
+                <Field>
+                  <FieldLabel htmlFor="two-factor-code">Email code</FieldLabel>
+                  <Input
+                    id="two-factor-code"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    required
+                    value={code}
+                    onChange={(event) => setCode(event.target.value)}
+                  />
+                </Field>
+                <Field>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={sendEmailCode}
+                    disabled={sendingEmail || verifying}
+                  >
+                    {sendingEmail ? "Sending..." : "Resend code"}
+                  </Button>
+                </Field>
+                <Field orientation="horizontal">
+                  <Checkbox
+                    id="two-factor-trust-device"
+                    checked={trustDevice}
+                    onCheckedChange={(value) => setTrustDevice(value === true)}
+                  />
+                  <FieldLabel htmlFor="two-factor-trust-device" className="font-normal">
+                    Remember this device for 30 days
+                  </FieldLabel>
+                </Field>
+                <Field>
+                  <Button
+                    type="submit"
+                    disabled={verifying || sendingEmail || !code.trim()}
+                  >
+                    {verifying ? "Verifying..." : "Verify"}
+                  </Button>
+                </Field>
+              </>
+            )}
             {notice ? (
               <FieldDescription className="text-center">{notice}</FieldDescription>
             ) : null}
             {error ? <FieldError>{error}</FieldError> : null}
             <Field>
-              <Button
-                type="submit"
-                disabled={verifying || sendingEmail || !code.trim()}
-              >
-                {verifying ? "Verifying..." : "Verify"}
-              </Button>
               <FieldDescription className="text-center">
                 <a href="/sign-in">Use a different account</a>
               </FieldDescription>
