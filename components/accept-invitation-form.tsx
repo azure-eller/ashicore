@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { PublicInvitationDetails } from "@/app/(dashboard)/settings/types";
 import { authClient } from "@/lib/auth-client";
-import { formatAccessPresetLabel } from "@/lib/authz";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -29,7 +28,6 @@ export function AcceptInvitationForm({
 }) {
   const router = useRouter();
   const session = authClient.useSession();
-  const [mode, setMode] = useState<"sign-up" | "sign-in">("sign-up");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -66,6 +64,9 @@ export function AcceptInvitationForm({
   const sessionEmail = session.data?.user.email?.toLowerCase();
   const invitedEmail = activeInvitation.email.toLowerCase();
   const hasMatchingSession = sessionEmail === invitedEmail;
+  const loginHref = `/sign-in?callbackURL=${encodeURIComponent(
+    `/accept-invitation?id=${activeInvitation.id}`
+  )}`;
 
   async function waitForSession(email: string) {
     const normalizedEmail = email.toLowerCase();
@@ -123,58 +124,28 @@ export function AcceptInvitationForm({
     setError(null);
     setLoading(true);
 
-    if (mode === "sign-up" && password !== confirmPassword) {
+    if (password !== confirmPassword) {
       setError("Passwords do not match");
       setLoading(false);
       return;
     }
 
-    if (mode === "sign-up") {
-      const { error: signUpError } = await authClient.signUp.email({
-        name,
-        email: activeInvitation.email,
-        password,
-      });
-
-      if (signUpError) {
-        const message = signUpError.message ?? "Failed to create account";
-        if (message.toLowerCase().includes("already")) {
-          setMode("sign-in");
-          setError("This email already has an account. Sign in to accept the invite.");
-        } else {
-          setError(message);
-        }
-        setLoading(false);
-        return;
-      }
-
-      const hasSession = await waitForSession(activeInvitation.email);
-
-      if (!hasSession) {
-        setError("Signed in, but your session was not ready to join the invitation. Try again.");
-        setLoading(false);
-        return;
-      }
-
-      const accepted = await joinInviteIfNeeded();
-      if (!accepted) {
-        setLoading(false);
-      }
-      return;
-    }
-
-    const { data: signInData, error: signInError } = await authClient.signIn.email({
+    const { error: signUpError } = await authClient.signUp.email({
+      name,
       email: activeInvitation.email,
       password,
     });
 
-    if (signInError) {
-      setError(signInError.message ?? "Failed to sign in");
+    if (signUpError) {
+      const message = signUpError.message ?? "Failed to create account";
+      if (message.toLowerCase().includes("already")) {
+        setError(
+          "An account already exists for this email. Use Back to login to sign in and continue this invite."
+        );
+      } else {
+        setError(message);
+      }
       setLoading(false);
-      return;
-    }
-
-    if (signInData && "twoFactorRedirect" in signInData) {
       return;
     }
 
@@ -261,51 +232,29 @@ export function AcceptInvitationForm({
 
   return (
     <Card>
-        <CardHeader>
-          <CardTitle>Join {activeInvitation.organizationName}</CardTitle>
-          <CardDescription>
-            {activeInvitation.email} •{" "}
-            {formatAccessPresetLabel(activeInvitation.presetKey)} access.
-          </CardDescription>
-        </CardHeader>
+      <CardHeader>
+        <CardTitle>Set up your account</CardTitle>
+        <CardDescription>
+          You have been invited to join {activeInvitation.organizationName} on
+          Ashicore. Please set up your account.
+        </CardDescription>
+      </CardHeader>
       <CardContent>
-        <div className="mb-6 flex gap-2">
-          <Button
-            type="button"
-            variant={mode === "sign-up" ? "default" : "outline"}
-            onClick={() => setMode("sign-up")}
-          >
-            Create Account
-          </Button>
-          <Button
-            type="button"
-            variant={mode === "sign-in" ? "default" : "outline"}
-            onClick={() => setMode("sign-in")}
-          >
-            Sign In
-          </Button>
-        </div>
-
         <form onSubmit={handleSubmit}>
           <FieldGroup>
-            {mode === "sign-up" && (
-              <Field>
-                <FieldLabel htmlFor="invite-name">Full Name</FieldLabel>
-                <Input
-                  id="invite-name"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  required
-                />
-              </Field>
-            )}
+            <Field>
+              <FieldLabel htmlFor="invite-name">Full Name</FieldLabel>
+              <Input
+                id="invite-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+              />
+            </Field>
 
             <Field>
               <FieldLabel htmlFor="invite-email">Email</FieldLabel>
               <Input id="invite-email" value={activeInvitation.email} disabled />
-              <FieldDescription>
-                Invitations are tied to the invited email address.
-              </FieldDescription>
             </Field>
 
             <Field>
@@ -319,33 +268,28 @@ export function AcceptInvitationForm({
               />
             </Field>
 
-            {mode === "sign-up" && (
-              <Field>
-                <FieldLabel htmlFor="invite-confirm-password">
-                  Confirm Password
-                </FieldLabel>
-                <Input
-                  id="invite-confirm-password"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.target.value)}
-                  required
-                />
-              </Field>
-            )}
+            <Field>
+              <FieldLabel htmlFor="invite-confirm-password">
+                Confirm Password
+              </FieldLabel>
+              <Input
+                id="invite-confirm-password"
+                type="password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                required
+              />
+            </Field>
 
             {error && <FieldError>{error}</FieldError>}
 
             <Field>
               <Button type="submit" disabled={loading}>
-                {loading
-                  ? mode === "sign-up"
-                    ? "Creating Account..."
-                    : "Signing In..."
-                  : mode === "sign-up"
-                    ? "Create Account"
-                    : "Sign In"}
+                {loading ? "Creating Account..." : "Create Account"}
               </Button>
+              <FieldDescription className="text-center">
+                <a href={loginHref}>Back to login</a>
+              </FieldDescription>
             </Field>
           </FieldGroup>
         </form>

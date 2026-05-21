@@ -473,8 +473,7 @@ test.describe("Team management and invite flow", () => {
     await page.getByRole("button", { name: "Log out" }).click();
 
     await expect(page.locator("form").getByRole("button", { name: "Create Account" })).toBeEnabled();
-    await page.getByRole("button", { name: "Sign In" }).click();
-    await expect(page.locator("form").getByRole("button", { name: "Sign In" })).toBeEnabled();
+    await expect(page.getByRole("link", { name: "Back to login" })).toBeVisible();
 
     await context.close();
   });
@@ -517,10 +516,16 @@ test.describe("Team management and invite flow", () => {
     await invited.page.locator("form").getByRole("button", { name: "Create Account" }).click();
 
     await expect(
-      invited.page.getByText("This email already has an account. Sign in to accept the invite.")
+      invited.page.getByText(
+        "An account already exists for this email. Use Back to login to sign in and continue this invite."
+      )
     ).toBeVisible();
     await setUserMfaEnrollment(existingEmail, false);
-    await invited.page.locator("form").getByRole("button", { name: "Sign In" }).click();
+    await invited.page.getByRole("link", { name: "Back to login" }).click();
+    await invited.page.getByLabel("Email").fill(existingEmail);
+    await invited.page.getByLabel("Password").fill(existingPassword);
+    await invited.page.getByRole("button", { name: "Login" }).click();
+    await invited.page.getByRole("button", { name: "Join workspace" }).click();
     await invited.page.waitForURL("**/settings", { timeout: 15_000 });
     await setUserMfaEnrollment(existingEmail, true);
 

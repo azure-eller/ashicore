@@ -262,9 +262,7 @@ export const auth = betterAuth({
         await sendTeamInvitationEmail({
           invitationId: data.id,
           email: data.email,
-          role: data.role,
           organizationName: data.organization.name,
-          inviterName: data.inviter.user.name ?? null,
         });
       },
     }),

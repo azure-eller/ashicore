@@ -8,39 +8,30 @@ import { TeamInvite } from "@/lib/email/components/team-invite";
 type TeamInviteEmailInput = {
   invitationId: string;
   email: string;
-  role: string;
   organizationName: string;
-  inviterName: string | null;
 };
 
 export async function sendTeamInvitationEmail({
   invitationId,
   email,
-  role,
   organizationName,
-  inviterName,
 }: TeamInviteEmailInput) {
   const baseUrl = getCanonicalAppUrl();
   const inviteUrl = new URL(
     `/accept-invitation?id=${invitationId}`,
     baseUrl
   ).toString();
-  const roleLabel = role === "member" ? "viewer" : role;
 
   const html = await render(
     <TeamInvite
       inviteUrl={inviteUrl}
       organizationName={organizationName}
-      inviterName={inviterName}
-      roleLabel={roleLabel}
     />
   );
   const text = await render(
     <TeamInvite
       inviteUrl={inviteUrl}
       organizationName={organizationName}
-      inviterName={inviterName}
-      roleLabel={roleLabel}
     />,
     { plainText: true }
   );
