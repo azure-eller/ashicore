@@ -5,6 +5,30 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "redirects": [
+    {
+      "source": "/",
+      "destination": "/sales/orders",
+      "permanent": false,
+      "has": [{ "type": "cookie", "key": "better-auth.session_token" }]
+    },
+    {
+      "source": "/",
+      "destination": "/sales/orders",
+      "permanent": false,
+      "has": [{ "type": "cookie", "key": "__Secure-better-auth.session_token" }]
+    },
+    {
+      "source": "/",
+      "destination": "/sales/orders",
+      "permanent": false,
+      "has": [{ "type": "cookie", "key": "better-auth-session_token" }]
+    },
+    {
+      "source": "/",
+      "destination": "/sales/orders",
+      "permanent": false,
+      "has": [{ "type": "cookie", "key": "__Secure-better-auth-session_token" }]
+    },
     { "source": "/login", "destination": "/sign-in", "permanent": false },
     { "source": "/documents", "destination": "/resources", "permanent": false }
   ],
@@ -18,7 +42,6 @@
     { "source": "/mfa-setup", "destination": "https://erp-orcin-pi.vercel.app/mfa-setup" },
     { "source": "/org-setup", "destination": "https://erp-orcin-pi.vercel.app/org-setup" },
     { "source": "/xero/sign-up/:path*", "destination": "https://erp-orcin-pi.vercel.app/xero/sign-up/:path*" },
-    { "source": "/console", "destination": "https://erp-orcin-pi.vercel.app/console" },
     { "source": "/sales", "destination": "https://erp-orcin-pi.vercel.app/sales" },
     { "source": "/sales/:path*", "destination": "https://erp-orcin-pi.vercel.app/sales/:path*" },
     { "source": "/inventory", "destination": "https://erp-orcin-pi.vercel.app/inventory" },
