@@ -32,6 +32,7 @@ import type {
   NegativeStockWarningPayload,
 } from "@/app/(dashboard)/sales/types";
 import { OrderCardHeader } from "./order-card-header";
+import { SalesStatusControl } from "@/components/sales/sales-status-control";
 import { OrderDetailsGrid } from "./order-details-grid";
 import { LineItemsTable } from "./line-items-table";
 import { ShipmentsTable } from "./shipments-table";
@@ -448,10 +449,20 @@ export function OrderCard({
         draftIsDirty={isDraft}
         draftSaving={createMutation.isPending}
         draftHasError={createMutation.isError}
+        statusControl={
+          !isDraft ? (
+            <SalesStatusControl
+              order={order}
+              onShip={isEditable ? () => setConfirmShipOrder(true) : undefined}
+              onChanged={() => {
+                void queryClient.invalidateQueries({ queryKey: ["sales-order", order.id] });
+                void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+              }}
+            />
+          ) : undefined
+        }
         onCreate={isDraft ? () => createMutation.mutate() : undefined}
         onCreateDisabled={!canCreate || createMutation.isPending}
-        onShipOrder={!isDraft && isEditable ? () => setConfirmShipOrder(true) : undefined}
-        onShipOrderDisabled={shipOrderMutation.isPending}
         onDuplicate={!isDraft ? () => duplicateMutation.mutate() : undefined}
         onPushXero={
           !isDraft && xeroInvoiceSetupStatus === "ready"

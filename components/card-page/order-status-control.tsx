@@ -65,8 +65,20 @@ export type OrderStatusOption = {
   tone: OrderStatusTone;
 };
 
-/** How selecting a target option behaves, given the current state. */
-export type OrderStatusTransitionKind = "noop" | "instant" | "dialog" | "disabled";
+/**
+ * How selecting a target option behaves, given the current state:
+ * - `instant`   — PATCH immediately, show the saving indicator.
+ * - `dialog`    — open the config's dialog; the operation runs on confirm.
+ * - `action`    — delegate to the caller's `onAction` (e.g. an existing page-owned
+ *                 flow); the control does nothing else.
+ * - `derived`/`noop`/`disabled` — not user-actionable.
+ */
+export type OrderStatusTransitionKind =
+  | "noop"
+  | "instant"
+  | "dialog"
+  | "action"
+  | "disabled";
 
 export type OrderStatusDialogArgs<Ctx> = {
   to: string;
@@ -89,6 +101,8 @@ export type OrderStatusControlConfig<Ctx> = {
   runInstant?: (to: string, ctx: Ctx) => Promise<void>;
   /** Render the dialog for a "dialog" transition. Required if any option is "dialog". */
   renderDialog?: (args: OrderStatusDialogArgs<Ctx>) => ReactNode;
+  /** Delegate to a page-owned flow for an "action" transition. */
+  onAction?: (to: string, ctx: Ctx) => void;
 };
 
 export type OrderStatusControlProps<Ctx> = {
@@ -134,6 +148,10 @@ export function OrderStatusControl<Ctx>({
       instant.mutate(to);
       return;
     }
+    if (kind === "action") {
+      config.onAction?.(to, ctx);
+      return;
+    }
     setDialogTarget(to);
   };
 
@@ -173,7 +191,7 @@ export function OrderStatusControl<Ctx>({
             const optTone = TONE[option.tone];
             const active = option.value === current;
             const kind = config.transitionKind(current, option.value, ctx);
-            const selectable = kind === "instant" || kind === "dialog";
+            const selectable = kind === "instant" || kind === "dialog" || kind === "action";
             return (
               <DropdownMenuItem
                 key={option.value}
