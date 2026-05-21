@@ -9,6 +9,7 @@ import {
   purchaseOrders,
   suppliers as purchasingSuppliers,
 } from "../../../lib/db/schema";
+import { classifyImportedPurchaseOrderChargeLine } from "@/lib/accounting/purchase-order-line-classification";
 import { createItem, getUnitId, testFetch } from "../../helpers/api";
 import { readTestEnv } from "../../helpers/test-env";
 
@@ -553,6 +554,98 @@ test.describe("Purchasing write-path smoke", () => {
       .from(items)
       .where(eq(items.id, partialMaterial.body.id));
     expect(Number(partialItem.currentStockUnitCost)).toBeCloseTo(30, 6);
+  });
+
+  test("uses imported accounting freight lines as landed receipt cost", async ({
+    db,
+  }) => {
+    const importedMaterial = await createItem({
+      name: `Fast Imported Freight Material ${ts}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-IMPORTED-FREIGHT-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: "Imported PO landed cost material",
+      defaultPurchasePrice: "10",
+      accountingPurchaseAccountCode: "316",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(importedMaterial.status).toBe(201);
+
+    const freightCost = classifyImportedPurchaseOrderChargeLine({
+      itemCode: "FREIGHT",
+      description: "Freight from Xero PO",
+      quantity: 1,
+      unitAmount: 50,
+      accountCode: "400",
+    });
+    expect(freightCost).not.toBeNull();
+
+    const createResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId,
+        expectedDate: null,
+        shippingCost: "0",
+        notes: "Imported accounting PO freight classification",
+        lines: [
+          {
+            itemId: importedMaterial.body.id,
+            quantityOrdered: "10",
+            unitCost: "10",
+          },
+        ],
+        additionalCosts: [freightCost],
+      }),
+    });
+    const createBody = await createResponse.json();
+    expect(createResponse.status).toBe(201);
+
+    const [additionalCost] = await db
+      .select()
+      .from(purchaseOrderAdditionalCosts)
+      .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, createBody.id));
+    expect(additionalCost.costType).toBe("shipping");
+    expect(additionalCost.distributionMethod).toBe("by_value");
+    expect(additionalCost.amount).toBe("50.0000");
+
+    const [line] = await db
+      .select()
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, createBody.id));
+    expect(Number(line.stockUnitCost)).toBeCloseTo(15, 6);
+
+    const submitResponse = await testFetch(
+      `/api/purchase-orders/${createBody.id}/submit`,
+      { method: "POST" },
+    );
+    expect(submitResponse.status).toBe(200);
+
+    const receiveResponse = await testFetch(
+      `/api/purchase-orders/${createBody.id}/receive`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          lines: [{ lineId: line.id, quantityReceived: "10" }],
+        }),
+      },
+    );
+    expect(receiveResponse.status).toBe(200);
+
+    const [receiptLot] = await db
+      .select()
+      .from(inventoryLotBalances)
+      .where(eq(inventoryLotBalances.itemId, importedMaterial.body.id));
+    expect(Number(receiptLot.unitCost)).toBeCloseTo(15, 6);
+
+    const [material] = await db
+      .select({ currentStockUnitCost: items.currentStockUnitCost })
+      .from(items)
+      .where(eq(items.id, importedMaterial.body.id));
+    expect(Number(material.currentStockUnitCost)).toBeCloseTo(15, 6);
   });
 
   test("duplicates a purchase order from the detail actions", async ({ page, db }) => {
