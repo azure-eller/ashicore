@@ -88,6 +88,10 @@ export default async function SettingsPage({
   claudeInstallUrl.searchParams.set("connectorName", "Ashicore");
   claudeInstallUrl.searchParams.set("connectorUrl", agentMcpServerUrl);
   const chatGptBuilderUrl = "https://chatgpt.com/gpts/editor";
+  const claudePluginDownloadUrl = new URL(
+    "/downloads/ashicore-claude-plugin.zip",
+    getRequestOrigin(requestHeaders)
+  ).toString();
   const sections = getSettingsSections({
     showTeam,
     showAgentAccess,
@@ -116,6 +120,7 @@ export default async function SettingsPage({
           mcpServerUrl: agentMcpServerUrl,
           claudeInstallUrl: claudeInstallUrl.toString(),
           chatGptBuilderUrl,
+          claudePluginDownloadUrl,
         }))
       : null,
     showIntegrations ? getXeroConnection() : null,

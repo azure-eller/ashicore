@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ashicore": {
+      "type": "http",
+      "url": "https://ashicore.app/api/agent/mcp"
+    }
+  }
+}
