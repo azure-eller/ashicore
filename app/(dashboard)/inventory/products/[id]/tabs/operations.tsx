@@ -221,6 +221,7 @@ export function ProductOperationsTab({
       <CopyDialog
         open={copyToOpen}
         onOpenChange={setCopyToOpen}
+        cardItemId={focusItemId}
         scope="operations"
         direction="to"
         activeVariant={activeVariant}
@@ -229,6 +230,7 @@ export function ProductOperationsTab({
       <CopyDialog
         open={copyFromOpen}
         onOpenChange={setCopyFromOpen}
+        cardItemId={focusItemId}
         scope="operations"
         direction="from"
         activeVariant={activeVariant}

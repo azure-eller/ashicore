@@ -1,6 +1,6 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { format } from "date-fns";
-import { test, expect, filterList, getIdFromUrl } from "../fixtures";
+import { test, expect, filterList, selectDate } from "../fixtures";
 import {
   inventoryEvents,
   inventoryItemBalances,
@@ -24,6 +24,11 @@ import {
   testFetch,
   updateItem,
 } from "../../helpers/api";
+
+async function openSalesOrderCreateMoDialog(page: Parameters<typeof filterList>[0]) {
+  await page.getByRole("button", { name: "More actions" }).click();
+  await page.getByRole("menuitem", { name: "Create manufacturing order(s)" }).click();
+}
 
 async function createCustomer(name: string) {
   const response = await testFetch("/api/customers", {
@@ -506,21 +511,20 @@ test.describe("Manufacturing order flow", () => {
 
     await page.goto(`/manufacturing/orders/${releasedOrderId}`);
     await expect(page.getByText("Initial draft manufacturing order")).toBeVisible();
-    await expect(
-      page.getByText(
-        new Date("2026-04-25T00:00:00").toLocaleDateString("en-US"),
-        { exact: true }
-      )
-    ).toBeVisible();
-    await expect(page.locator("main")).toContainText(sandName);
-    await expect(page.locator("main")).toContainText(compostName);
-    await expect(page.locator("main")).toContainText("10");
-    await expect(page.locator("main")).toContainText("5");
+    await expect(page.getByRole("button", { name: /Production status:/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Planned date" })).toContainText(
+      "April 25, 2026"
+    );
+    await expect(page.getByRole("grid").first()).toContainText(sandName);
+    await expect(page.getByRole("grid").first()).toContainText(compostName);
+    await expect(page.getByRole("grid").first()).toContainText("10");
+    await expect(page.getByRole("grid").first()).toContainText("5");
 
     await page.reload();
     await expect(page.getByText("Initial draft manufacturing order")).toBeVisible();
-    await expect(page.locator("main")).toContainText(sandName);
-    await expect(page.locator("main")).toContainText(compostName);
+    await expect(page.getByRole("button", { name: /Production status:/ })).toBeVisible();
+    await expect(page.getByRole("grid").first()).toContainText(sandName);
+    await expect(page.getByRole("grid").first()).toContainText(compostName);
 
     const [order] = await db
       .select()
@@ -566,6 +570,9 @@ test.describe("Manufacturing order flow", () => {
           { itemId: sandId, quantityPerUnit: "2" },
           { itemId: compostId, quantityPerUnit: "1" },
         ],
+        groupRemainderChoices: [],
+        lotAllocations: [],
+        autoAllocateIngredientLots: false,
       }),
     });
     const linkBody = await linkResponse.json().catch(() => null);
@@ -582,9 +589,12 @@ test.describe("Manufacturing order flow", () => {
     expect(linkedOrder.salesOrderNumber).toBe(salesOrderNumber);
     expect(linkedOrder.salesCustomerName).toBe(customerName);
 
-    await expect(page.locator("main")).toContainText(salesOrderNumber);
+    await expect(page.getByRole("link", { name: salesOrderNumber })).toBeVisible();
+    await expect(page.getByText(customerName)).toBeVisible();
     await page.reload();
-    await expect(page.locator("main")).toContainText(salesOrderNumber);
+    await expect(page.getByRole("link", { name: salesOrderNumber })).toBeVisible();
+    await expect(page.getByText(customerName)).toBeVisible();
+    await expect(page.getByRole("button", { name: /Production status:/ })).toBeVisible();
 
     await page.goto("/manufacturing/orders");
     await expect(page.getByLabel("Search manufacturing orders")).toBeVisible();
@@ -628,6 +638,29 @@ test.describe("Manufacturing order flow", () => {
     expect(batchOrder).toBeTruthy();
     await confirmSalesOrder(batchSalesOrderId, true);
 
+    await page.goto(`/sales/orders/${batchSalesOrderId}`);
+    await openSalesOrderCreateMoDialog(page);
+    const dialog = page.getByRole("dialog", { name: "Create Manufacturing Orders" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(new RegExp(`^${batchOrder.orderNumber} -`))).toBeVisible();
+    await expect(dialog.locator("table")).toContainText(productName);
+    await expect(dialog.locator("table")).toContainText(nonManufacturableProductName);
+    await expect(dialog.locator("table")).toContainText("Will create");
+    await expect(dialog.locator("table")).toContainText("Skipped");
+    await expect(dialog.locator("table")).toContainText(
+      "Product has no active BOM ingredients."
+    );
+
+    await selectDate(page, dialog.getByLabel("Planned Date"), expectedBatchPlannedDate);
+    const createResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(
+          `/api/sales-orders/${batchSalesOrderId}/manufacturing-orders`
+        ) && response.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: "Create 1 order" }).click();
+    expect((await createResponse).status()).toBe(201);
+
     const lineRows = await db
       .select({
         id: salesOrderLines.id,
@@ -636,19 +669,6 @@ test.describe("Manufacturing order flow", () => {
       .from(salesOrderLines)
       .where(eq(salesOrderLines.salesOrderId, batchSalesOrderId));
     const lineByItemId = new Map(lineRows.map((line) => [line.itemId, line.id]));
-    const createResult = await createManufacturingOrdersFromSalesOrder({
-      salesOrderId: batchSalesOrderId,
-      plannedDate: expectedBatchPlannedDate,
-      salesOrderLineIds: [lineByItemId.get(productId)!],
-      notes: null,
-    });
-    expect(createResult?.created).toHaveLength(1);
-    expect(createResult?.skipped).toEqual([
-      {
-        salesOrderLineId: lineByItemId.get(nonManufacturableProductId),
-        reason: "no_active_bom",
-      },
-    ]);
 
     const createdOrders = await db
       .select()
@@ -763,12 +783,12 @@ test.describe("Manufacturing order flow", () => {
     expect(completeResult.body?.id).toBe(repeatOrderId);
 
     await page.goto(`/sales/orders/${repeatSalesOrderId}`);
+    await expect(page.getByRole("button", { name: "New shipment" }).first()).toBeVisible();
+    await page.getByRole("button", { name: "More actions" }).click();
     await expect(
-      page.getByRole("button", { name: "Plan shipment", exact: true })
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Create MOs", exact: true })
+      page.getByRole("menuitem", { name: "Create manufacturing order(s)" })
     ).toHaveCount(0);
+    await page.keyboard.press("Escape");
 
     const [repeatLine] = await db
       .select({ id: salesOrderLines.id })
@@ -847,25 +867,25 @@ test.describe("Manufacturing order flow", () => {
     expect(rewrittenSalesLine.id).not.toBe(staleSalesOrderLineId);
     salesOrderLineId = rewrittenSalesLine.id;
 
-    const editDraftResponse = await testFetch(
-      `/api/manufacturing-orders/${releasedOrderId}`,
-      {
-        method: "PUT",
-        body: JSON.stringify({
-          salesOrderId,
-          salesOrderLineId,
-          plannedQuantity: "6",
-          plannedDate: "2026-04-25",
-          notes: "Edited draft before release",
-          ingredients: [
-            { itemId: sandId, quantityPerUnit: "3.5" },
-            { itemId: compostId, quantityPerUnit: "1" },
-          ],
-        }),
-      }
-    );
-    const editDraftBody = await editDraftResponse.json().catch(() => null);
-    expect(editDraftResponse.status, JSON.stringify(editDraftBody)).toBe(200);
+    const editResponse = await testFetch(`/api/manufacturing-orders/${releasedOrderId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        salesOrderId,
+        salesOrderLineId,
+        plannedQuantity: "6",
+        plannedDate: "2026-04-25",
+        notes: "Edited draft before release",
+        ingredients: [
+          { itemId: sandId, quantityPerUnit: "3.5" },
+          { itemId: compostId, quantityPerUnit: "1" },
+        ],
+        groupRemainderChoices: [],
+        lotAllocations: [],
+        autoAllocateIngredientLots: false,
+      }),
+    });
+    const editBody = await editResponse.json().catch(() => null);
+    expect(editResponse.status, JSON.stringify(editBody)).toBe(200);
     await page.goto(`/manufacturing/orders/${releasedOrderId}`);
 
     const [editedOrder] = await db
@@ -889,11 +909,14 @@ test.describe("Manufacturing order flow", () => {
     expect(editedByItemId.get(compostId)?.quantityPerUnit).toBe("1.0000");
     expect(editedByItemId.get(compostId)?.plannedQuantity).toBe("6.0000");
 
-    await expect(page.getByRole("button", { name: "More actions" })).toBeVisible({
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(page.getByRole("menuitem", { name: "Open execution" })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.locator("main")).toContainText("21");
-    await expect(page.locator("main")).toContainText("6");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { name: /Production status:/ })).toBeVisible();
+    await expect(page.getByRole("grid").first()).toContainText("21");
+    await expect(page.getByRole("grid").first()).toContainText("6");
 
     const [releasedOrder] = await db
       .select()
@@ -1021,10 +1044,12 @@ test.describe("Manufacturing order flow", () => {
     expect(productBeforeDelete.expectedQty).toBe("2.0000");
 
     await page.goto(`/manufacturing/orders/${deleteOrderId}`);
-    await expect(page.getByRole("button", { name: "More actions" })).toBeVisible();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(page.getByRole("menuitem", { name: "Open execution" })).toBeVisible();
+    await page.keyboard.press("Escape");
 
     await page.getByRole("button", { name: "More actions" }).click();
-    await page.getByRole("menuitem", { name: "Delete" }).click();
+    await page.getByRole("menuitem", { name: "Delete order" }).click();
     await expect(page.getByText("Delete this order?")).toBeVisible();
     await page.getByRole("button", { name: "Delete Order" }).click();
 
@@ -1504,33 +1529,16 @@ test.describe("Manufacturing order flow", () => {
     page,
     db,
   }) => {
-    await page.goto("/manufacturing/order");
-    await page.waitForURL("**/manufacturing/order");
-
-    const productInput = page.getByPlaceholder("Search or create product…");
-    await expect(productInput).toBeVisible();
-    await page.getByLabel("Planned quantity").fill("4");
-    await productInput.click();
-    await productInput.fill(productName);
-    const [createResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.request().method() === "POST" &&
-          response.url().endsWith("/api/manufacturing-orders")
-      ),
-      page.getByRole("option", { name: new RegExp(productName) }).click(),
-    ]);
-    expect(createResponse.status()).toBe(201);
-
-    await page.waitForURL(/\/manufacturing\/orders\/[0-9a-f-]+$/);
-    completionOrderId = getIdFromUrl(page.url());
-    expect(completionOrderId).toBeTruthy();
-
-    await page.getByLabel("Notes").fill("Completion flow");
-
-    await expect(page.getByRole("button", { name: "More actions" })).toBeVisible({
-      timeout: 15_000,
+    completionOrderId = await createManufacturingOrder({
+      productId,
+      plannedQuantity: "4",
+      notes: "Completion flow",
+      ingredients: [
+        { itemId: sandId, quantityPerUnit: "2" },
+        { itemId: compostId, quantityPerUnit: "1" },
+      ],
     });
+    expect(completionOrderId).toBeTruthy();
 
     const [releasedProduct] = await db
       .select({
@@ -1540,9 +1548,7 @@ test.describe("Manufacturing order flow", () => {
       .where(eq(inventoryItemBalances.itemId, productId));
     expect(releasedProduct.expectedQty).toBe("13.0000");
 
-    await page.getByRole("button", { name: "More actions" }).click();
-    await page.getByRole("menuitem", { name: "Open execution" }).click();
-    await page.waitForURL(`**/manufacturing/orders/${completionOrderId}/execute`);
+    await page.goto(`/manufacturing/orders/${completionOrderId}/execute`);
 
     const sandCard = page.locator('[data-slot="card"]').filter({ hasText: sandName }).first();
     const compostCard = page
@@ -1571,16 +1577,22 @@ test.describe("Manufacturing order flow", () => {
       .toBe("done");
 
     await page.goto(`/manufacturing/orders/${completionOrderId}`);
-    await expect(page.getByRole("button", { name: /Production status: Done/ })).toBeVisible();
-    await expect(page.locator("main")).toContainText("$22.00");
-    await expect(page.locator("main")).toContainText("8");
-    await expect(page.locator("main")).toContainText("4");
+    await expect(
+      page.getByRole("button", { name: /Production status: Done/ })
+    ).toBeVisible();
+    await expect(page.locator("main")).toContainText("Material cost $22.00");
+    await expect(page.locator("main")).toContainText("Cost / unit $3.67");
+    await expect(page.getByRole("grid").first()).toContainText("8 / 8");
+    await expect(page.getByRole("grid").first()).toContainText("4 / 4");
+    await expect(page.locator("main")).toContainText("Actual / Planned");
     await expect(page.locator("main")).toContainText("6 / 4");
 
     await page.reload();
-    await expect(page.getByRole("button", { name: /Production status: Done/ })).toBeVisible();
-    await expect(page.locator("main")).toContainText("$22.00");
-    await expect(page.locator("main")).toContainText("8");
+    await expect(
+      page.getByRole("button", { name: /Production status: Done/ })
+    ).toBeVisible();
+    await expect(page.locator("main")).toContainText("Material cost $22.00");
+    await expect(page.getByRole("grid").first()).toContainText("8 / 8");
     await expect(page.locator("main")).toContainText("6 / 4");
 
     const [completedOrder] = await db
@@ -1936,6 +1948,7 @@ test.describe("Manufacturing order flow", () => {
 
   test("materializes MO output allocation promises into lot holds for downstream picks", async ({
     db,
+    page,
   }) => {
     const allocationTs = Date.now();
     const category = `MO Output Allocation ${allocationTs}`;
@@ -2027,6 +2040,12 @@ test.describe("Manufacturing order flow", () => {
     if (!salesDestination) {
       throw new Error("Expected output allocation sales destination.");
     }
+
+    await page.goto(`/manufacturing/orders/${sourceOrderId}`);
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByRole("heading", { name: /Allocation Tote/ })).toBeVisible();
+    await expect(page.getByRole("grid").first()).toContainText("Allocation Base");
+    await expect(page.locator("main")).toContainText("0 / 5");
 
     const allocationResponse = await testFetch(
       `/api/manufacturing-orders/${sourceOrderId}/output-allocation`,

@@ -15,7 +15,10 @@ test("page search navigation shows optimistic destination shell while route is p
   });
 
   await page.route(
-    (url) => url.pathname === "/inventory/products",
+    (url) =>
+      url.pathname === "/inventory/products" ||
+      url.href.includes("/inventory/products") ||
+      url.href.includes("inventory%2Fproducts"),
     async (route) => {
       await navigationRequestBlocked;
       await route.continue();

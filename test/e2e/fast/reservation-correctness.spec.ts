@@ -496,7 +496,7 @@ test.describe("Reservation correctness", () => {
     const customerId = await createCustomerFixture(customerName);
     const itemId = await createMaterial(materialName, "2");
 
-    await page.goto("/sales/orders/new");
+    await page.goto("/sales/order");
     await expect(page.getByRole("heading", { name: "New sales order" })).toBeVisible();
 
     const customerInput = page.getByPlaceholder("Search customers…");

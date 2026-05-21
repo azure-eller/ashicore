@@ -247,6 +247,7 @@ export function ProductRecipeTab({
       <CopyDialog
         open={copyToOpen}
         onOpenChange={setCopyToOpen}
+        cardItemId={focusItemId}
         scope="bom"
         direction="to"
         activeVariant={activeVariant}
@@ -255,6 +256,7 @@ export function ProductRecipeTab({
       <CopyDialog
         open={copyFromOpen}
         onOpenChange={setCopyFromOpen}
+        cardItemId={focusItemId}
         scope="bom"
         direction="from"
         activeVariant={activeVariant}

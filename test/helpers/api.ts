@@ -189,7 +189,13 @@ export async function createItem(data: Record<string, unknown>) {
     body: JSON.stringify(data),
   });
   const body = await res.json().catch(() => null);
-  return { status: res.status, body };
+  const item =
+    body && typeof body === "object" && "item" in body
+      ? (body as { item?: unknown }).item
+      : body && typeof body === "object" && "data" in body
+        ? (body as { data?: unknown }).data
+        : body;
+  return { status: res.status, body: item };
 }
 
 export async function updateItem(id: string, data: Record<string, unknown>) {
@@ -318,7 +324,15 @@ async function getItemSnapshot(id: string) {
 
 async function getItemRows() {
   const itemRes = await testFetch("/api/items");
-  return (await itemRes.json().catch(() => [])) as Array<{
+  const body = await itemRes.json().catch(() => []);
+  const rows = Array.isArray(body)
+    ? body
+    : Array.isArray(body?.items)
+      ? body.items
+      : Array.isArray(body?.data)
+        ? body.data
+        : [];
+  return rows as Array<{
     id: string;
     itemType: string;
     stock: string;

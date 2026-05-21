@@ -61,26 +61,10 @@ export type OrderCardProps = {
   initialDraftCustomerId?: string | null;
   initialDraftProjectId?: string | null;
   customerOptions: CustomerOption[];
-  addressOptions: SalesAddressOption[];
   itemOptions: SalesOrderItemOption[];
   addressOptions?: SalesAddressOption[];
   canViewLedger?: boolean;
   xeroInvoiceSetupStatus?: XeroInvoiceSetupStatus;
-};
-
-export type SalesAddressOption = {
-  id: string;
-  label: string;
-  contactName: string | null;
-  contactPhone: string | null;
-  line1: string | null;
-  line2: string | null;
-  city: string | null;
-  region: string | null;
-  postcode: string | null;
-  country: string | null;
-  deliveryInstructions: string | null;
-  notes: string | null;
 };
 
 export function OrderCard({
@@ -88,7 +72,6 @@ export function OrderCard({
   initialDraftCustomerId,
   initialDraftProjectId,
   customerOptions,
-  addressOptions,
   itemOptions,
   addressOptions = [],
   canViewLedger,

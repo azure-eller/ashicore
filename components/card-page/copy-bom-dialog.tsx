@@ -30,6 +30,7 @@ export type CopyDirection = "to" | "from";
 export type CopyDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  cardItemId: string;
   scope: CopyScope;
   direction: CopyDirection;
   activeVariant: ItemCardVariantDto | null;
@@ -43,6 +44,7 @@ export type CopyDialogProps = {
 export function CopyDialog({
   open,
   onOpenChange,
+  cardItemId,
   scope,
   direction,
   activeVariant,
@@ -54,6 +56,7 @@ export function CopyDialog({
         {open && activeVariant ? (
           <DialogBody
             onOpenChange={onOpenChange}
+            cardItemId={cardItemId}
             scope={scope}
             direction={direction}
             activeVariant={activeVariant}
@@ -67,12 +70,14 @@ export function CopyDialog({
 
 function DialogBody({
   onOpenChange,
+  cardItemId,
   scope,
   direction,
   activeVariant,
   siblings,
 }: {
   onOpenChange: (open: boolean) => void;
+  cardItemId: string;
   scope: CopyScope;
   direction: CopyDirection;
   activeVariant: ItemCardVariantDto;
@@ -91,7 +96,7 @@ function DialogBody({
   );
 
   const mutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", activeVariant.id, "copy", scope, direction),
+    mutationKey: cardSaveMutationKey("item-card", cardItemId, "copy", scope, direction),
     mutationFn: async () => {
       if (direction === "to") {
         const targetVariantIds = Array.from(selectedIds);

@@ -143,8 +143,9 @@ test.describe("Partial sales shipments", () => {
 
     await page.goto(`/sales/orders/${orderId}`);
     await expect(page.getByRole("heading", { name: orderHeader.orderNumber })).toBeVisible();
-    await expect(page.locator("main")).toContainText(itemName);
-    await expect(page.locator("main")).toContainText("10");
+    await expect(page.locator("main").getByText(/OPEN|PARTIALLY SHIPPED/).first()).toBeVisible();
+    await expect(page.getByRole("grid").first()).toContainText(itemName);
+    await expect(page.getByRole("grid").first()).toContainText("10");
 
     const [line] = await db
       .select({ id: salesOrderLines.id })
@@ -206,6 +207,7 @@ test.describe("Partial sales shipments", () => {
     expect(partialOrder.shippedAt).toBeNull();
 
     await page.goto(`/sales/orders/${orderId}`);
+    await expect(page.locator("main").getByText(/OPEN|PARTIALLY SHIPPED/).first()).toBeVisible();
     await expect(page.locator("main")).toContainText("1 of 1 shipped");
     await expect(page.locator("main")).toContainText("SHIPPED");
 

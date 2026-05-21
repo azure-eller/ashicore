@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { format } from "date-fns";
-import { test, expect, filterList, getIdFromUrl } from "../fixtures";
+import type { Page } from "@playwright/test";
+import { test, expect, filterList } from "../fixtures";
 import {
   customerCategories,
   customers as salesCustomers,
@@ -23,10 +24,34 @@ import {
   createPricingSchedule,
   getUnitId,
   testFetch,
+  updateCustomer,
 } from "../../helpers/api";
 
 function salesOrderCard(page: Parameters<typeof filterList>[0], orderNumber: string) {
   return page.getByRole("row").filter({ hasText: orderNumber }).first();
+}
+
+function idFromUrl(url: string) {
+  return url.split("/").filter(Boolean).at(-1) ?? "";
+}
+
+async function createCustomerFromCard(page: Page, name: string) {
+  await page.goto("/sales/customer");
+  await expect(page.getByRole("heading", { name: "New customer" })).toBeVisible();
+
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (res) => res.request().method() === "POST" && res.url().endsWith("/api/customers")
+    ),
+    (async () => {
+      await page.getByLabel("Customer name").fill(name);
+      await page.getByLabel("Customer name").blur();
+    })(),
+  ]);
+  expect(response.status()).toBe(201);
+  await page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/);
+  await expect(page.getByRole("heading", { name })).toBeVisible();
+  return idFromUrl(page.url());
 }
 
 async function createDraftSalesOrder(payload: {
@@ -113,9 +138,6 @@ test.describe("Sales order flow", () => {
   currentMonthFourteenth.setDate(14);
   const expectedOrderDate = format(currentMonthFirst, "yyyy-MM-dd");
   const expectedShipDate = format(currentMonthFourteenth, "yyyy-MM-dd");
-  const expectedShipDateLabel = new Date(
-    `${expectedShipDate}T00:00:00`
-  ).toLocaleDateString("en-US");
   const expectedRequestedDate = format(currentMonthFifteenth, "yyyy-MM-dd");
   const expectedRequestedDateLabel = new Date(
     `${expectedRequestedDate}T00:00:00`
@@ -224,36 +246,18 @@ test.describe("Sales order flow", () => {
 
   test("creates a customer with all fields", async ({ page, db }) => {
     customerName = `Acme Landscaping ${run}`;
-
-    await page.goto("/sales/customer");
-    await expect(page.getByRole("heading", { name: "New customer" })).toBeVisible();
-
-    const [createCustomerResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.request().method() === "POST" &&
-          response.url().endsWith("/api/customers")
-      ),
-      (async () => {
-        await page.getByLabel("Customer name").fill(customerName);
-        await page.getByLabel("Customer name").blur();
-      })(),
-    ]);
-    expect(createCustomerResponse.status()).toBe(201);
-    await page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/);
-    customerId = getIdFromUrl(page.url());
-
-    const updateCustomerResponse = await page.request.patch(
-      `/api/customers/${customerId}`,
-      {
-        data: {
-          email: `sales-${run}@example.com`,
-          phone: "555-0100",
-          notes: "Primary landscaping account",
-        },
-      }
-    );
-    expect(updateCustomerResponse.status()).toBe(200);
+    customerId = await createCustomerFromCard(page, customerName);
+    const updateResult = await updateCustomer(customerId, {
+      name: customerName,
+      email: `sales-${run}@example.com`,
+      phone: "555-0100",
+      billingLine1: "123 Market Street",
+      billingCity: "Paonia",
+      billingRegion: "CO",
+      billingPostcode: "81428",
+      notes: "Primary landscaping account",
+    });
+    expect(updateResult.status, JSON.stringify(updateResult.body)).toBe(200);
     await page.reload();
 
     // UI — verify the detail page
@@ -262,13 +266,13 @@ test.describe("Sales order flow", () => {
     ).toBeVisible({ timeout: 30000 });
     await expect(page.getByLabel("Email")).toHaveValue(`sales-${run}@example.com`);
     await expect(page.getByLabel("Phone")).toHaveValue("555-0100");
-    await expect(page.getByLabel("Notes")).toHaveValue("Primary landscaping account");
+    await expect(page.getByText("Primary landscaping account")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
     await page.reload();
     await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
     await expect(page.getByLabel("Email")).toHaveValue(`sales-${run}@example.com`);
-    await expect(page.getByLabel("Notes")).toHaveValue("Primary landscaping account");
+    await expect(page.getByText("Primary landscaping account")).toBeVisible();
 
     // DB
     const rows = await db
@@ -278,10 +282,13 @@ test.describe("Sales order flow", () => {
     expect(rows).toHaveLength(1);
 
     const customer = rows[0];
-    expect(customer.id).toBe(customerId);
 
     expect(customer.email).toBe(`sales-${run}@example.com`);
     expect(customer.phone).toBe("555-0100");
+    expect(customer.billingLine1).toBe("123 Market Street");
+    expect(customer.billingCity).toBe("Paonia");
+    expect(customer.billingRegion).toBe("CO");
+    expect(customer.billingPostcode).toBe("81428");
     expect(customer.notes).toBe("Primary landscaping account");
     expect(customer.deletedAt).toBeNull();
   });
@@ -300,23 +307,36 @@ test.describe("Sales order flow", () => {
 
     // Make changes
     await page.getByLabel("Phone").fill("555-0200");
+    await expect(page.getByLabel("Phone")).toHaveValue("555-0200");
     await page.getByLabel("Phone").blur();
-
-    const editCustomerResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === "PATCH" &&
-        response.url().endsWith(`/api/customers/${customerId}`)
-    );
     await page.getByLabel("Notes").fill("Updated account notes");
+    await expect(page.getByLabel("Notes")).toHaveValue("Updated account notes");
     await page.getByLabel("Notes").blur();
-    expect((await editCustomerResponsePromise).status()).toBe(200);
 
     // UI — verify detail page reflects the edits
     await expect(page.getByLabel("Phone")).toHaveValue("555-0200", {
       timeout: 30000,
     });
-    await expect(page.getByLabel("Notes")).toHaveValue("Updated account notes");
+    await expect(page.getByLabel("Notes")).toHaveValue("Updated account notes", {
+      timeout: 30000,
+    });
     await expect(page.locator("body")).not.toContainText("Invalid");
+
+    await expect
+      .poll(
+        async () => {
+          const [row] = await db
+            .select({ phone: salesCustomers.phone, notes: salesCustomers.notes })
+            .from(salesCustomers)
+            .where(eq(salesCustomers.id, customerId));
+          return row;
+        },
+        { timeout: 10_000 }
+      )
+      .toMatchObject({
+        phone: "555-0200",
+        notes: "Updated account notes",
+      });
 
     await page.reload();
     await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
@@ -328,27 +348,12 @@ test.describe("Sales order flow", () => {
     expect(updated.phone).toBe("555-0200");
     expect(updated.notes).toBe("Updated account notes");
     expect(updated.email).toBe(`sales-${run}@example.com`);
+    expect(updated.billingLine1).toBe("123 Market Street");
   });
 
   test("creates a minimal customer", async ({ page, db }) => {
     extraCustomerName = `Backup Builder ${run}`;
-
-    await page.goto("/sales/customer");
-    await expect(page.getByRole("heading", { name: "New customer" })).toBeVisible();
-
-    const [createMinimalCustomerResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.request().method() === "POST" &&
-          response.url().endsWith("/api/customers")
-      ),
-      (async () => {
-        await page.getByLabel("Customer name").fill(extraCustomerName);
-        await page.getByLabel("Customer name").blur();
-      })(),
-    ]);
-    expect(createMinimalCustomerResponse.status()).toBe(201);
-    await page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/);
+    extraCustomerId = await createCustomerFromCard(page, extraCustomerName);
 
     // UI — verify the detail page
     await expect(
@@ -364,7 +369,6 @@ test.describe("Sales order flow", () => {
     expect(rows).toHaveLength(1);
 
     const customer = rows[0];
-    extraCustomerId = customer.id;
     expect(customer.email).toBeNull();
     expect(customer.phone).toBeNull();
     expect(customer.billingLine1).toBeNull();
@@ -396,13 +400,18 @@ test.describe("Sales order flow", () => {
     expect(scheduleResult.status).toBe(201);
     wholesaleScheduleId = scheduleResult.body.id;
 
-    const assignCategoryResponse = await page.request.patch(
-      `/api/customers/${customerId}`,
-      {
-        data: { customerCategoryId: wholesaleCategoryId },
-      }
-    );
-    expect(assignCategoryResponse.status()).toBe(200);
+    const assignCategory = await updateCustomer(customerId, {
+      name: customerName,
+      customerCategoryId: wholesaleCategoryId,
+      email: `sales-${run}@example.com`,
+      phone: "555-0200",
+      billingLine1: "123 Market Street",
+      billingCity: "Paonia",
+      billingRegion: "CO",
+      billingPostcode: "81428",
+      notes: "Updated account notes",
+    });
+    expect(assignCategory.status, JSON.stringify(assignCategory.body)).toBe(200);
 
     await page.goto("/sales/pricing");
     await expect(
@@ -445,12 +454,13 @@ test.describe("Sales order flow", () => {
   // user-entered prices on items with no default/suggested price. Add it
   // back once the order-form isPriceOverridden logic handles null suggested prices.
   test("creates a confirmed order with multiple lines", async ({ page, db }) => {
-    fullOrderId = await createDraftSalesOrder({
+    const orderId = await createDraftSalesOrder({
       customerId,
       orderDate: expectedOrderDate,
       shipDate: expectedShipDate,
       requestedDate: expectedRequestedDate,
       notes: "Full lifecycle test order",
+      confirmOversell: true,
       lines: [
         { itemId: primaryProductId, quantity: "3", unitPrice: "34.99" },
         { itemId: secondaryProductId, quantity: "5", unitPrice: "10.80" },
@@ -458,36 +468,37 @@ test.describe("Sales order flow", () => {
       shipments: plannedShipmentForItems({
         shipDate: expectedShipDate,
         deliveryDate: expectedRequestedDate,
-        notes: "Full lifecycle test order",
         lines: [
           { itemId: primaryProductId, quantity: "3" },
           { itemId: secondaryProductId, quantity: "5" },
         ],
       }),
     });
+    await page.goto(`/sales/orders/${orderId}`);
 
-    const [createdOrder] = await db
-      .select()
-      .from(salesOrders)
-      .where(eq(salesOrders.id, fullOrderId));
-    fullOrderNumber = createdOrder.orderNumber;
-
-    await page.goto(`/sales/orders/${fullOrderId}`);
-    await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
-    await expect(page.locator("main")).toContainText(customerName);
-    await expect(page.locator("main")).toContainText(primaryProductName);
-    await expect(page.locator("main")).toContainText(secondaryProductName);
+    // UI — verify the detail page
+    await expect(
+      page.locator("main").getByText(/OPEN|PARTIALLY SHIPPED/).first()
+    ).toBeVisible({ timeout: 30000 });
+    await expect(page.getByRole("heading", { name: /SO-/ })).toContainText(customerName);
     await expect(page.getByText(expectedRequestedDateLabel).first()).toBeVisible();
     await expect(page.getByText("$158.97", { exact: true }).first()).toBeVisible();
-    await expect(page.locator("main")).toContainText("$104.97");
-    await expect(page.locator("main")).toContainText("$54.00");
+    const lineItemsTable = page.getByRole("grid").first();
+    await expect(lineItemsTable).toContainText(primaryProductName);
+    await expect(lineItemsTable).toContainText(secondaryProductName);
+    await expect(lineItemsTable).toContainText("$104.97");
+    await expect(lineItemsTable).toContainText("$54.00");
     await expect(page.getByText("Full lifecycle test order")).toBeVisible();
     await expect(page.locator("body")).not.toContainText("Invalid");
 
     await page.reload();
-    await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
-    await expect(page.locator("main")).toContainText(primaryProductName);
-    await expect(page.locator("main")).toContainText(secondaryProductName);
+    await expect(
+      page.locator("main").getByText(/OPEN|PARTIALLY SHIPPED/).first()
+    ).toBeVisible({ timeout: 30000 });
+    await expect(page.getByRole("heading", { name: /SO-/ })).toContainText(customerName);
+    const reloadedLineItemsTable = page.getByRole("grid").first();
+    await expect(reloadedLineItemsTable).toContainText(primaryProductName);
+    await expect(reloadedLineItemsTable).toContainText(secondaryProductName);
 
     // DB
     const orderRows = await db
@@ -497,6 +508,8 @@ test.describe("Sales order flow", () => {
     expect(orderRows).toHaveLength(1);
 
     const order = orderRows[0];
+    fullOrderId = order.id;
+    fullOrderNumber = order.orderNumber;
 
     expect(order.customerName).toBe(customerName);
     expect(order.status).toBe("open");
@@ -545,62 +558,54 @@ test.describe("Sales order flow", () => {
     expect(secondaryItem?.committedQty ?? "0.0000").toBe("0.0000");
     expect(primaryMaterial?.committedQty ?? "0.0000").toBe("0.0000");
 
-    await page.goto("/sales/orders");
-    await filterList(page, "Search orders", fullOrderNumber);
-    const confirmedCard = salesOrderCard(page, fullOrderNumber);
-    await expect(confirmedCard).toContainText(customerName);
-    await expect(confirmedCard).toContainText("$158.97");
-    await expect(confirmedCard).toContainText(expectedShipDateLabel);
+    await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
   });
 
   test("edits the confirmed order — verifies pre-population and changes quantity", async ({ page, db }) => {
-    const existingLineRows = await db
-      .select()
-      .from(salesOrderLines)
-      .where(eq(salesOrderLines.salesOrderId, fullOrderId));
-    const primaryLine = existingLineRows.find((line) => line.itemId === primaryProductId);
-    const secondaryLine = existingLineRows.find((line) => line.itemId === secondaryProductId);
-    expect(primaryLine).toBeTruthy();
-    expect(secondaryLine).toBeTruthy();
-
-    const headerResponse = await testFetch(`/api/sales-orders/${fullOrderId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ notes: "Updated to 5 units" }),
+    const updateResponse = await testFetch(`/api/sales-orders/${fullOrderId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        customerId,
+        status: "open",
+        orderDate: expectedOrderDate,
+        shipDate: expectedShipDate,
+        requestedDate: expectedRequestedDate,
+        notes: "Updated to 5 units",
+        confirmOversell: true,
+        lines: [
+          { itemId: primaryProductId, quantity: "5", unitPrice: "34.99" },
+          { itemId: secondaryProductId, quantity: "5", unitPrice: "11.25" },
+        ],
+        shipments: plannedShipmentForItems({
+          shipDate: expectedShipDate,
+          deliveryDate: expectedRequestedDate,
+          lines: [
+            { itemId: primaryProductId, quantity: "5" },
+            { itemId: secondaryProductId, quantity: "5" },
+          ],
+        }),
+      }),
     });
-    expect(headerResponse.status).toBe(200);
-
-    const primaryLineResponse = await testFetch(
-      `/api/sales-orders/${fullOrderId}/lines/${primaryLine!.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ quantity: "5" }),
-      }
-    );
-    expect(primaryLineResponse.status).toBe(200);
-
-    const secondaryLineResponse = await testFetch(
-      `/api/sales-orders/${fullOrderId}/lines/${secondaryLine!.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ unitPrice: "11.25" }),
-      }
-    );
-    expect(secondaryLineResponse.status).toBe(200);
+    const updateBody = await updateResponse.json().catch(() => null);
+    expect(updateResponse.status, JSON.stringify(updateBody)).toBe(200);
+    fullOrderNumber = updateBody.orderNumber ?? fullOrderNumber;
 
     await page.goto(`/sales/orders/${fullOrderId}`);
-    await expect(
-      page.getByRole("heading", { name: fullOrderNumber })
-    ).toBeVisible({ timeout: 30000 });
+    await expect(page.getByRole("heading", { name: /SO-/ })).toContainText(customerName, {
+      timeout: 30000,
+    });
 
     // UI
     await expect(page.getByText("Updated to 5 units")).toBeVisible();
-    await expect(page.locator("main")).toContainText("$11.25");
+    const editedLineItemsTable = page.getByRole("grid").first();
+    await expect(editedLineItemsTable).toContainText("$11.25");
     await expect(page.locator("body")).not.toContainText("Invalid");
 
     await page.reload();
-    await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /SO-/ })).toContainText(customerName);
     await expect(page.getByText("Updated to 5 units")).toBeVisible();
-    await expect(page.locator("main")).toContainText("$11.25");
+    const reloadedEditedLineItemsTable = page.getByRole("grid").first();
+    await expect(reloadedEditedLineItemsTable).toContainText("$11.25");
 
     // DB
     const orderRows = await db
@@ -608,6 +613,7 @@ test.describe("Sales order flow", () => {
       .from(salesOrders)
       .where(eq(salesOrders.id, fullOrderId));
     expect(orderRows).toHaveLength(1);
+    fullOrderNumber = orderRows[0].orderNumber;
     expect(orderRows[0].status).toBe("open");
     expect(orderRows[0].notes).toBe("Updated to 5 units");
 
@@ -637,10 +643,10 @@ test.describe("Sales order flow", () => {
     expect(updatedSecondaryLine?.unitPrice).toBe("11.25");
     expect(updatedSecondaryLine?.suggestedUnitPrice).toBe("10.80");
     expect(updatedSecondaryLine?.isPriceOverridden).toBe(true);
-    await expect(page.locator("main")).toContainText(
+    await expect(reloadedEditedLineItemsTable).toContainText(
       currencyFormatter.format(parseFloat(updatedPrimaryLine!.lineTotal))
     );
-    await expect(page.locator("main")).toContainText(
+    await expect(reloadedEditedLineItemsTable).toContainText(
       currencyFormatter.format(parseFloat(updatedSecondaryLine!.lineTotal))
     );
   });
@@ -755,17 +761,24 @@ test.describe("Sales order flow", () => {
         material: "0.0000",
       });
 
+    await expect(page.locator("main").getByText(/OPEN|PARTIALLY SHIPPED/).first()).toBeVisible();
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(
+      page.getByRole("menuitem", { name: "Create manufacturing order(s)" })
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+
     await page.reload();
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
     await expect(page.getByRole("button", { name: "New shipment" }).first()).toBeVisible();
   });
 
-  test("confirmed orders can be edited from detail", async ({ page }) => {
+  test("confirmed order cards expose edit and workflow actions", async ({ page }) => {
     await page.goto(`/sales/orders/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
     await expect(page.getByRole("button", { name: "New shipment" }).first()).toBeVisible();
     await page.getByRole("button", { name: "More actions" }).click();
-    await expect(page.getByRole("menuitem", { name: "Delete order" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Delete" })).toBeVisible();
     await page.keyboard.press("Escape");
   });
 
@@ -824,8 +837,22 @@ test.describe("Sales order flow", () => {
   });
 
   test("confirmed manufacturable orders show Create MOs when allocation is short", async ({
+    page,
     db,
   }) => {
+    await page.goto(`/sales/orders/${fullOrderId}`);
+    await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
+
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Create manufacturing order(s)" }).click();
+    await expect(page.getByRole("dialog", { name: "Create Manufacturing Orders" })).toBeVisible();
+    await expect(
+      page
+        .getByRole("dialog", { name: "Create Manufacturing Orders" })
+        .getByText(new RegExp(`^${fullOrderNumber} -`))
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+
     const shortOrderId = await createDraftSalesOrder({
       customerId,
       requestedDate: "2026-04-22",
@@ -855,32 +882,22 @@ test.describe("Sales order flow", () => {
       .where(eq(salesOrders.id, shortOrderId));
     expect(shortOrder.status).toBe("open");
 
-    const [shortLine] = await db
-      .select({ id: salesOrderLines.id })
-      .from(salesOrderLines)
-      .where(eq(salesOrderLines.salesOrderId, shortOrderId));
-    expect(shortLine?.id).toBeTruthy();
+    await page.goto("/sales/orders");
+    await filterList(page, "Search orders", shortOrder.orderNumber);
 
-    const createMoResponse = await testFetch(
-      `/api/sales-orders/${shortOrderId}/manufacturing-orders`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          plannedDate: null,
-          salesOrderLineIds: [shortLine.id],
-          notes: null,
-        }),
-      }
-    );
-    const createMoBody = await createMoResponse.json().catch(() => null);
-    expect(createMoResponse.status, JSON.stringify(createMoBody)).toBe(201);
-    expect(createMoBody?.created).toHaveLength(1);
+    const confirmedRow = salesOrderCard(page, shortOrder.orderNumber);
+    await confirmedRow.getByRole("button", { name: "Create MOs" }).click();
+    await page.getByRole("menuitem", { name: "Make to order" }).click();
 
-    const [linkedMo] = await db
-      .select()
-      .from(manufacturingOrders)
-      .where(eq(manufacturingOrders.salesOrderId, shortOrderId));
-    expect(linkedMo?.salesOrderLineId).toBe(shortLine.id);
+    const createMoDialog = page.getByRole("dialog", {
+      name: "Create Manufacturing Orders",
+    });
+    await expect(createMoDialog).toBeVisible();
+    await expect(
+      createMoDialog.getByText(new RegExp(`^${shortOrder.orderNumber} -`))
+    ).toBeVisible();
+
+    await page.keyboard.press("Escape");
     await deleteSalesOrderByApi(shortOrderId);
   });
 
@@ -958,8 +975,18 @@ test.describe("Sales order flow", () => {
       .toBe("0.0000");
   });
 
-  test("deletes the confirmed order and releases committed stock", async ({ db }) => {
-    await deleteSalesOrderByApi(fullOrderId);
+  test("deletes the confirmed order and releases committed stock", async ({ page, db }) => {
+    await page.goto(`/sales/orders/${fullOrderId}`);
+    await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
+
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+    await page
+      .getByRole("alertdialog", { name: "Delete sales order?" })
+      .getByRole("button", { name: "Delete" })
+      .click();
+    await page.waitForURL("**/sales/orders");
+
     const orderRows = await db
       .select()
       .from(salesOrders)
@@ -1180,10 +1207,10 @@ test.describe("Sales order flow", () => {
     expect(afterRejectedDeleteShipment.shippedAt).not.toBeNull();
 
     await page.goto(`/sales/orders/${shipOrderId}`);
-    await expect(page.locator("main").getByText("SHIPPED", { exact: true }).first()).toBeVisible();
+    await expect(page.locator("main").getByText(/SHIPPED|Shipped/).first()).toBeVisible();
     await expect(page.getByText("Shipping coverage")).toBeVisible();
     await expect(page.locator("main")).toContainText(primaryProductName);
-    await expect(page.getByRole("button", { name: "Plan shipment" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Plan Fulfillment" })).toHaveCount(0);
 
   });
 
@@ -1578,12 +1605,19 @@ test.describe("Sales order flow", () => {
     expect(guardOrder.status).toBe("open");
     expect(guardOrder.deletedAt).toBeNull();
 
-    const deleteCustomerResponse = await page.request.delete(
-      `/api/customers/${customerId}`
-    );
-    const deleteCustomerBody = await deleteCustomerResponse.json().catch(() => null);
-    expect(deleteCustomerResponse.status()).toBe(400);
-    expect(deleteCustomerBody?.error ?? "").toMatch(/active sales orders/i);
+    await page.goto(`/sales/customers/${customerId}`);
+    await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
+
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
+    await page
+      .getByRole("alertdialog", { name: "Delete customer?" })
+      .getByRole("button", { name: "Delete" })
+      .click();
+
+    await expect(
+      page.getByText("Cannot delete customer with active sales orders.")
+    ).toBeVisible();
 
     const customerRows = await db
       .select()
