@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useContext, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Select,
@@ -9,7 +9,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
 import { EntityCombobox } from "@/components/entity-combobox";
 import {
   DeliveryAddressInput,
@@ -18,16 +17,19 @@ import {
   type DeliveryAddressFields,
   type DeliveryAddressOption,
 } from "@/components/delivery-address-input";
+import { DatePicker } from "@/components/ui/date-picker";
+import { Input } from "@/components/ui/input";
+import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { patchSalesOrderHeader } from "@/lib/api/clients/sales-orders";
+import { formatDate } from "@/lib/format";
 import type {
   CustomerOption,
+  SalesAddressOption,
   SalesOrderDetail,
 } from "@/app/(dashboard)/sales/types";
 import type { PatchSalesOrderHeader } from "@/lib/schemas/sales-orders";
 import type { OrderDraftController } from "./order-draft";
-import type { SalesAddressOption } from "./order-card";
 import cardStyles from "@/components/card-page/card-page.module.css";
-import styles from "./order-card.module.css";
 
 export type OrderDetailsGridProps = {
   order: SalesOrderDetail;
@@ -58,13 +60,34 @@ export function OrderDetailsGrid({
     <DetailsContext.Provider value={{ orderId: order.id, draft }}>
       <section className={cardStyles.section}>
         <h2 className={cardStyles.sectionHeading}>Order details</h2>
-        <div className={styles.detailsGrid}>
+        <div className={cardStyles.formRowFour}>
+          <OrderNumberCell order={order} editable={editable} />
           <CustomerCell
             order={order}
             editable={editable}
             customerOptions={customerOptions}
           />
           <ProjectCell order={order} editable={editable} projects={customerProjects} />
+          <DateCell
+            editable={editable}
+            field="orderDate"
+            label="Order date"
+            value={order.orderDate}
+          />
+        </div>
+        <div className={cardStyles.formRowFour}>
+          <DateCell
+            editable={editable}
+            field="requestedDate"
+            label="Requested date"
+            value={order.requestedDate}
+          />
+          <DateCell
+            editable={editable}
+            field="shipDate"
+            label="Shipping date"
+            value={order.shipDate}
+          />
           <AddressCell
             order={order}
             editable={editable}
@@ -80,6 +103,54 @@ export function OrderDetailsGrid({
 // Cells
 // ============================================================================
 
+function OrderNumberCell({
+  order,
+  editable,
+}: {
+  order: SalesOrderDetail;
+  editable: boolean;
+}) {
+  const { draft } = useContext(DetailsContext);
+  const commit = useFieldCommit("orderNumber");
+  const [value, setValue] = useState(order.orderNumber ?? "");
+
+  if (!editable) {
+    return (
+      <CellShell label="Sales order #">
+        <div className={`${cardStyles.readOnlyFieldValue} ${cardStyles.mono}`}>
+          {order.orderNumber || "Assigned on save"}
+        </div>
+      </CellShell>
+    );
+  }
+
+  return (
+    <CellShell label="Sales order #">
+      <Input
+        value={value}
+        placeholder="Assigned on save"
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={() => {
+          const next = value.trim() || null;
+          if (next === (order.orderNumber || null)) return;
+          if (draft) {
+            draft.patchHeader({ orderNumber: next });
+            return;
+          }
+          commit(next);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          }
+        }}
+        className={`${cardStyles.underlineInput} ${cardStyles.mono}`}
+      />
+    </CellShell>
+  );
+}
+
 function CustomerCell({
   order,
   editable,
@@ -93,7 +164,7 @@ function CustomerCell({
   const commitPatch = useHeaderPatchCommit("customer");
 
   return (
-    <CellShell label="Customer" span={2}>
+    <CellShell label="Customer" required>
       {editable ? (
         <>
           <EntityCombobox
@@ -121,17 +192,18 @@ function CustomerCell({
             }}
             placeholder="Search customers…"
             emptyMessage="No customers found"
+            inputClassName={cardStyles.underlineControl}
             createLinks={[{ href: "/sales/customer", label: "Create customer" }]}
           />
           {order.customerEmail ? (
-            <div className={styles.detailsCellSub}>{order.customerEmail}</div>
+            <div className={cardStyles.fieldMeta}>{order.customerEmail}</div>
           ) : null}
         </>
       ) : (
         <>
-          <div className={styles.detailsCellValue}>{order.customerName}</div>
+          <div className={cardStyles.readOnlyFieldValue}>{order.customerName}</div>
           {order.customerEmail ? (
-            <div className={styles.detailsCellSub}>{order.customerEmail}</div>
+            <div className={cardStyles.fieldMeta}>{order.customerEmail}</div>
           ) : null}
         </>
       )}
@@ -156,9 +228,9 @@ function ProjectCell({
     return (
       <CellShell label="Project / Job">
         {order.customerProjectName ? (
-          <div className={styles.detailsCellValue}>{order.customerProjectName}</div>
+          <div className={cardStyles.readOnlyFieldValue}>{order.customerProjectName}</div>
         ) : (
-          <div className={`${styles.detailsCellValue} ${styles.detailsCellPlaceholder}`}>—</div>
+          <div className={cardStyles.readOnlyFieldValue}>No project</div>
         )}
       </CellShell>
     );
@@ -179,8 +251,9 @@ function ProjectCell({
           }
           commit(next);
         }}
+        disabled={projects.length === 0}
       >
-        <SelectTrigger className="h-(--height-input-sm) text-[length:var(--text-sm)]">
+        <SelectTrigger className={cardStyles.underlineControl}>
           <SelectValue placeholder={projects.length === 0 ? "No projects" : "No project"} />
         </SelectTrigger>
         <SelectContent>
@@ -196,6 +269,163 @@ function ProjectCell({
   );
 }
 
+function DateCell({
+  editable,
+  field,
+  label,
+  value,
+}: {
+  editable: boolean;
+  field: "orderDate" | "shipDate" | "requestedDate";
+  label: string;
+  value: string | null;
+}) {
+  const { draft } = useContext(DetailsContext);
+  const commit = useFieldCommit(field);
+
+  if (!editable) {
+    return (
+      <CellShell label={label}>
+        {value ? (
+          <div className={`${cardStyles.readOnlyFieldValue} ${cardStyles.mono}`}>{formatDate(value)}</div>
+        ) : (
+          <div className={cardStyles.readOnlyFieldValue}>—</div>
+        )}
+      </CellShell>
+    );
+  }
+
+  return (
+    <CellShell label={label}>
+      <DatePicker
+        value={value ?? ""}
+        className={cardStyles.underlineControl}
+        onChange={(next) => {
+          const normalized = field === "orderDate" ? next || "" : next || null;
+          if (field === "orderDate" && !normalized) return;
+          if (normalized === (value ?? (field === "orderDate" ? "" : null))) return;
+          if (draft) {
+            draft.patchHeader({ [field]: normalized } as PatchSalesOrderHeader);
+            return;
+          }
+          commit(normalized);
+        }}
+      />
+    </CellShell>
+  );
+}
+
+function AddressCell({
+  order,
+  editable,
+  addressOptions,
+}: {
+  order: SalesOrderDetail;
+  editable: boolean;
+  addressOptions: SalesAddressOption[];
+}) {
+  const { draft } = useContext(DetailsContext);
+  const commitPatch = useHeaderPatchCommit("shipping-address");
+  const currentAddress = normalizeDeliveryAddress({
+    shipLine1: order.shipLine1,
+    shipLine2: order.shipLine2,
+    shipCity: order.shipCity,
+    shipRegion: order.shipRegion,
+    shipPostcode: order.shipPostcode,
+    shipCountry: order.shipCountry,
+  });
+  const options = buildSalesShipAddressOptions(order, addressOptions);
+
+  if (!editable) {
+    const lines = [
+      order.shipLine1,
+      order.shipLine2,
+      [order.shipCity, order.shipRegion, order.shipPostcode].filter(Boolean).join(", "),
+      order.shipCountry,
+    ].filter((line): line is string => Boolean(line && line.trim()));
+
+    return (
+      <CellShell label="Shipping address" span={3}>
+        {lines.length > 0 ? (
+          <div className={cardStyles.readOnlyAddress}>
+            {lines.map((line, idx) => (
+              <div key={idx}>{line}</div>
+            ))}
+          </div>
+        ) : (
+          <div className={cardStyles.readOnlyAddress}>
+            No shipping address set
+          </div>
+        )}
+      </CellShell>
+    );
+  }
+
+  const commitAddress = (address: DeliveryAddressFields | null) => {
+    const patch = address
+      ? salesAddressPatch(address)
+      : {
+          shipLine1: null,
+          shipLine2: null,
+          shipCity: null,
+          shipRegion: null,
+          shipPostcode: null,
+          shipCountry: null,
+        };
+    if (draft) {
+      draft.patchHeader(patch);
+      return;
+    }
+    commitPatch(patch);
+  };
+
+  return (
+    <CellShell label="Shipping address" span={3}>
+      <DeliveryAddressInput
+        id="sales-order-shipping-address"
+        value={currentAddress}
+        options={options}
+        onChange={commitAddress}
+        inputClassName={cardStyles.underlineControl}
+      />
+    </CellShell>
+  );
+}
+
+// ============================================================================
+// Shared helpers
+// ============================================================================
+
+function CellShell({
+  label,
+  span,
+  required,
+  children,
+}: {
+  label: string;
+  span?: 1 | 2 | 3 | 4;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cardStyles.formField}
+      style={span && span > 1 ? { gridColumn: `span ${span}` } : undefined}
+    >
+      <label className={cardStyles.formLabel}>
+        {label}
+        {required ? <span className={cardStyles.requiredMark}> *</span> : null}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+type SalesShipAddressPatch = Pick<
+  PatchSalesOrderHeader,
+  "shipLine1" | "shipLine2" | "shipCity" | "shipRegion" | "shipPostcode" | "shipCountry"
+>;
+
 function customerDefaultShipAddressPatch(
   customer: CustomerOption | undefined
 ): SalesShipAddressPatch {
@@ -210,11 +440,6 @@ function customerDefaultShipAddressPatch(
     })
   );
 }
-
-type SalesShipAddressPatch = Pick<
-  PatchSalesOrderHeader,
-  "shipLine1" | "shipLine2" | "shipCity" | "shipRegion" | "shipPostcode" | "shipCountry"
->;
 
 function salesAddressPatch(address: DeliveryAddressFields): SalesShipAddressPatch {
   return {
@@ -253,35 +478,25 @@ function buildSalesShipAddressOptions(
     );
   }
 
-  const current = makeDeliveryAddressOption(
-    {
-      shipLine1: order.shipLine1,
-      shipLine2: order.shipLine2,
-      shipCity: order.shipCity,
-      shipRegion: order.shipRegion,
-      shipPostcode: order.shipPostcode,
-      shipCountry: order.shipCountry,
-    }
-  );
+  const current = makeDeliveryAddressOption({
+    shipLine1: order.shipLine1,
+    shipLine2: order.shipLine2,
+    shipCity: order.shipCity,
+    shipRegion: order.shipRegion,
+    shipPostcode: order.shipPostcode,
+    shipCountry: order.shipCountry,
+  });
   if (current && !options.has(current.id)) add(current);
 
   return [...options.values()];
 }
 
-function AddressCell({
-  order,
-  editable,
-  addressOptions,
-}: {
-  order: SalesOrderDetail;
-  editable: boolean;
-  addressOptions: SalesAddressOption[];
-}) {
-  const { draft, orderId } = useContext(DetailsContext);
+function useHeaderPatchCommit(scope: string) {
+  const { orderId } = useContext(DetailsContext);
   const queryClient = useQueryClient();
-  const addressMutation = useMutation({
-    mutationKey: ["sales-order", orderId, "patch", "shipAddress"],
-    mutationFn: (patch: SalesShipAddressPatch) =>
+  const mutation = useMutation({
+    mutationKey: cardSaveMutationKey("sales-order", orderId, "header", scope),
+    mutationFn: (patch: PatchSalesOrderHeader) =>
       patchSalesOrderHeader(orderId, patch),
     onSuccess: (next) => {
       queryClient.setQueryData(["sales-order", orderId], next);
@@ -290,109 +505,7 @@ function AddressCell({
       void queryClient.invalidateQueries({ queryKey: ["sales-order", orderId] });
     },
   });
-
-  const commitAddress = (address: DeliveryAddressFields | null) => {
-    const patch = address
-      ? salesAddressPatch(address)
-      : {
-          shipLine1: null,
-          shipLine2: null,
-          shipCity: null,
-          shipRegion: null,
-          shipPostcode: null,
-          shipCountry: null,
-        };
-    if (draft) {
-      draft.patchHeader(patch);
-      return;
-    }
-    addressMutation.mutate(patch);
-  };
-
-  if (!editable) {
-    const lines = [
-      order.shipLine1,
-      order.shipLine2,
-      [order.shipCity, order.shipRegion, order.shipPostcode].filter(Boolean).join(", "),
-      order.shipCountry,
-    ].filter((line): line is string => Boolean(line && line.trim()));
-
-    return (
-      <CellShell label="Ship to" span={2}>
-        {lines.length > 0 ? (
-          <div
-            className={styles.detailsCellValue}
-            style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}
-          >
-            {lines.map((line, idx) => (
-              <span key={idx}>{line}</span>
-            ))}
-          </div>
-        ) : (
-          <div className={`${styles.detailsCellValue} ${styles.detailsCellPlaceholder}`}>
-            No shipping address set
-          </div>
-        )}
-      </CellShell>
-    );
-  }
-
-  const currentAddress = normalizeDeliveryAddress({
-    shipLine1: order.shipLine1,
-    shipLine2: order.shipLine2,
-    shipCity: order.shipCity,
-    shipRegion: order.shipRegion,
-    shipPostcode: order.shipPostcode,
-    shipCountry: order.shipCountry,
-  });
-  const shipAddressOptions = buildSalesShipAddressOptions(
-    order,
-    addressOptions
-  );
-
-  return (
-    <CellShell label="Ship to" span={2}>
-      <div className="flex items-start gap-(--space-4)">
-        <div className="min-w-0 flex-1">
-          <DeliveryAddressInput
-            id="sales-order-shipping-address"
-            value={currentAddress}
-            options={shipAddressOptions}
-            onChange={commitAddress}
-            inputClassName="h-(--height-input-sm) w-full text-[length:var(--text-sm)]"
-          />
-        </div>
-        <label className="flex shrink-0 items-center gap-(--space-2) pt-(--space-2) text-[length:var(--text-sm)] text-foreground">
-          <Checkbox checked disabled aria-label="Billing address is same as shipping address" />
-          <span>Billing same as shipping</span>
-        </label>
-      </div>
-    </CellShell>
-  );
-}
-
-// ============================================================================
-// Shared helpers
-// ============================================================================
-
-function CellShell({
-  label,
-  span,
-  children,
-}: {
-  label: string;
-  span?: 1 | 2;
-  children: React.ReactNode;
-}) {
-  const className = [styles.detailsCell, span === 2 ? styles.detailsCellSpan2 : ""]
-    .filter(Boolean)
-    .join(" ");
-  return (
-    <div className={className}>
-      <div className={styles.detailsCellLabel}>{label}</div>
-      {children}
-    </div>
-  );
+  return (patch: PatchSalesOrderHeader) => mutation.mutate(patch);
 }
 
 /** Live-mode per-field PATCH commit. In draft mode the cells short-circuit to
@@ -401,7 +514,7 @@ function useFieldCommit<Field extends keyof PatchSalesOrderHeader>(field: Field)
   const { orderId } = useContext(DetailsContext);
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationKey: ["sales-order", orderId, "patch", field],
+    mutationKey: cardSaveMutationKey("sales-order", orderId, "header", field),
     mutationFn: (value: PatchSalesOrderHeader[Field]) =>
       patchSalesOrderHeader(orderId, { [field]: value } as PatchSalesOrderHeader),
     onSuccess: (next) => {
@@ -412,20 +525,4 @@ function useFieldCommit<Field extends keyof PatchSalesOrderHeader>(field: Field)
     },
   });
   return (value: PatchSalesOrderHeader[Field]) => mutation.mutate(value);
-}
-
-function useHeaderPatchCommit(mutationLabel: string) {
-  const { orderId } = useContext(DetailsContext);
-  const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationKey: ["sales-order", orderId, "patch", mutationLabel],
-    mutationFn: (patch: PatchSalesOrderHeader) => patchSalesOrderHeader(orderId, patch),
-    onSuccess: (next) => {
-      queryClient.setQueryData(["sales-order", orderId], next);
-    },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["sales-order", orderId] });
-    },
-  });
-  return (patch: PatchSalesOrderHeader) => mutation.mutate(patch);
 }

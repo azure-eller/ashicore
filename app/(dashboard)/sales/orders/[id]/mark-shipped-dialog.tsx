@@ -42,7 +42,7 @@ export function MarkShippedDialog({
     useState<NegativeStockWarningPayload | null>(null);
 
   const mutation = useMutation({
-    mutationKey: ["sales-order", order.id, "ship", shipment?.id ?? ""],
+    mutationKey: ["sales-order-action", order.id, "ship", shipment?.id ?? ""],
     mutationFn: async (confirmNegativeStock: boolean) => {
       const response = await fetch(
         `/api/sales-orders/${order.id}/shipments/${shipment?.id}/ship`,

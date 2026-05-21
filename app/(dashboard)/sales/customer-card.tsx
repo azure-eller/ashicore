@@ -9,12 +9,7 @@ import type { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Cancel01Icon,
-  MoreVerticalIcon,
-  PrinterIcon,
-  StarIcon,
-} from "@hugeicons/core-free-icons";
+import { StarIcon } from "@hugeicons/core-free-icons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,6 +49,18 @@ import {
 } from "@/components/editable-line-data-grid";
 import { EditableInfoGrid } from "@/components/editable-info-grid";
 import {
+  CardPage,
+  CardPageBody,
+  CardSection,
+} from "@/components/card-page/card-page";
+import { CardPageHeader } from "@/components/card-page/card-page-header";
+import {
+  cardSaveMutationKey,
+  saveStateFromEntityStatus,
+  useEntitySaveStatus,
+  type CardSaveState,
+} from "@/components/card-page/card-save-status";
+import {
   createAddressEntry,
   createCustomer,
   createCustomerContact,
@@ -83,7 +90,6 @@ import type {
   CustomerLinkedSalesOrderRow,
   CustomerProjectRow,
 } from "./types";
-import { useCustomerSaveStatus } from "@/components/customer-card/use-customer-save-status";
 import { SalesOrderStatusBadge } from "./status-badge";
 import styles from "@/components/card-page/card-page.module.css";
 
@@ -182,10 +188,10 @@ export function CustomerCard({
   });
   const customer = isDraft ? null : customerQuery.data ?? initialCustomer;
   const readOnly = Boolean(customer?.deletedAt);
-  const saveStatus = useCustomerSaveStatus(currentCustomerId ?? "__draft__");
+  const saveStatus = useEntitySaveStatus("customer", currentCustomerId ?? "__draft__");
 
   const createMutation = useMutation({
-    mutationKey: ["customer-card", "__draft__", "create"],
+    mutationKey: cardSaveMutationKey("customer", "__draft__", "create"),
     mutationFn: (input: InsertCustomer) => createCustomer(input),
     onSuccess: async (result) => {
       setCurrentCustomerId(result.id);
@@ -197,7 +203,7 @@ export function CustomerCard({
   });
 
   const patchMutation = useMutation({
-    mutationKey: ["customer-card", currentCustomerId ?? "__draft__", "patch"],
+    mutationKey: cardSaveMutationKey("customer", currentCustomerId ?? "__draft__", "patch"),
     mutationFn: (input: PatchCustomer) =>
       patchCustomer(currentCustomerId as string, input),
     onSettled: async () => {
@@ -210,7 +216,7 @@ export function CustomerCard({
   });
 
   const deleteMutation = useMutation({
-    mutationKey: ["customer-card", currentCustomerId ?? "__draft__", "delete"],
+    mutationKey: ["customer-action", currentCustomerId ?? "__draft__", "delete"],
     mutationFn: () => deleteCustomer(currentCustomerId as string),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["customers"] });
@@ -224,7 +230,7 @@ export function CustomerCard({
   });
 
   const addressMutation = useMutation({
-    mutationKey: ["customer-card", currentCustomerId ?? "__draft__", "address-book"],
+    mutationKey: cardSaveMutationKey("customer", currentCustomerId ?? "__draft__", "address-book"),
     mutationFn: ({ id, values }: { id: string | null; values: AddressDialogValues }) => {
       const data = createAddressEntrySchema.parse(values);
       return id ? updateAddressEntry(id, data) : createAddressEntry(data);
@@ -356,66 +362,43 @@ export function CustomerCard({
     [addressBook]
   );
 
-  return (
-    <div className={styles.sheet}>
-      <header className={styles.header}>
-        <div className={styles.headerIdentity}>
-          <div className={styles.eyebrow}>Customer</div>
-          <div className={styles.titleRow}>
-            <h1 className={styles.title}>
-              {display.name.trim() || "New customer"}
-            </h1>
-          </div>
-          <div className={styles.meta}>
-            {display.createdAt ? (
-              <span>Customer since {formatDate(dateOnly(display.createdAt))}</span>
-            ) : null}
-          </div>
-        </div>
-        <div className={styles.headerRight}>
-          <SaveStatus
-            status={
-              isDraft
-                ? createMutation.isPending
-                  ? "saving"
-                  : createMutation.isError
-                    ? "error"
-                    : "draft"
-                : saveStatus
-            }
-          />
-          <button
-            type="button"
-            className={styles.iconBtn}
-            aria-label="Print"
-            title="Print"
-            onClick={() => window.print()}
-          >
-            <HugeiconsIcon icon={PrinterIcon} size={14} />
-          </button>
-          <button
-            type="button"
-            className={styles.iconBtn}
-            aria-label="More actions"
-            onClick={() => setConfirmDelete(true)}
-            disabled={isDraft || readOnly}
-          >
-            <HugeiconsIcon icon={MoreVerticalIcon} size={14} />
-          </button>
-          <button
-            type="button"
-            className={styles.iconBtn}
-            aria-label="Close"
-            onClick={() => router.push("/sales/customers")}
-          >
-            <HugeiconsIcon icon={Cancel01Icon} size={14} />
-          </button>
-        </div>
-      </header>
+  const cardSaveState: CardSaveState = readOnly
+    ? "readonly"
+    : isDraft
+      ? createMutation.isPending
+        ? "saving"
+        : createMutation.isError
+          ? "failed"
+          : "not_saved"
+      : saveStateFromEntityStatus(saveStatus.status);
 
-      <div className={styles.body}>
-        <section className={styles.section}>
-          <h2 className={styles.sectionHeading}>Customer at a glance</h2>
+  return (
+    <CardPage>
+      <CardPageHeader
+        eyebrow="Customer"
+        title={display.name.trim() || "New customer"}
+        meta={
+          display.createdAt ? (
+            <span>Customer since {formatDate(dateOnly(display.createdAt))}</span>
+          ) : null
+        }
+        saveState={cardSaveState}
+        fallbackHref="/sales/customers"
+        menuActions={
+          isDraft || readOnly
+            ? []
+            : [
+                {
+                  label: "Delete customer",
+                  onClick: () => setConfirmDelete(true),
+                  destructive: true,
+                },
+              ]
+        }
+      />
+
+      <CardPageBody>
+        <CardSection title="Customer at a glance">
           <EditableInfoGrid
             fields={[
               {
@@ -504,7 +487,7 @@ export function CustomerCard({
               },
             ]}
           />
-        </section>
+        </CardSection>
 
         <ContactsSection
           customerId={currentCustomerId}
@@ -539,7 +522,7 @@ export function CustomerCard({
             </div>
           </div>
         </section>
-      </div>
+      </CardPageBody>
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent size="sm">
@@ -709,7 +692,7 @@ export function CustomerCard({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </CardPage>
   );
 }
 
@@ -726,7 +709,7 @@ function ContactsSection({
   const [rows, setRows] = useSyncedRows<ContactGridRow>(sourceRows);
 
   const saveMutation = useMutation({
-    mutationKey: ["customer-card", customerId ?? "__draft__", "contact-cell"],
+    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "contact-cell"),
     mutationFn: async (row: ContactGridRow) => {
       if (!customerId) return null;
       const payload = contactPayload(row);
@@ -740,7 +723,7 @@ function ContactsSection({
     },
   });
   const deleteMutation = useMutation({
-    mutationKey: ["customer-card", customerId ?? "__draft__", "contact-delete"],
+    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "contact-delete"),
     mutationFn: (contactId: string) => deleteCustomerContact(customerId as string, contactId),
     onSettled: () => {
       if (customerId) {
@@ -849,7 +832,7 @@ function ProjectsSection({
   const queryClient = useQueryClient();
   const [rows, setRows] = useSyncedRows<ProjectGridRow>(sourceRows);
   const saveMutation = useMutation({
-    mutationKey: ["customer-card", customerId ?? "__draft__", "project-cell"],
+    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-cell"),
     mutationFn: async (row: ProjectGridRow) => {
       if (!customerId) return null;
       const payload = projectPayload(row);
@@ -863,7 +846,7 @@ function ProjectsSection({
     },
   });
   const deleteMutation = useMutation({
-    mutationKey: ["customer-card", customerId ?? "__draft__", "project-delete"],
+    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-delete"),
     mutationFn: (projectId: string) => deleteCustomerProject(customerId as string, projectId),
     onSettled: () => {
       if (customerId) {
@@ -1271,28 +1254,6 @@ function InlineTextareaField({
         />
       )}
     </Field>
-  );
-}
-
-function SaveStatus({ status }: { status: "idle" | "saving" | "error" | "draft" }) {
-  const className =
-    status === "idle"
-      ? styles.savedPill
-      : status === "saving"
-        ? styles.savingPill
-        : styles.failedPill;
-  const label =
-    status === "idle"
-      ? "All changes saved"
-      : status === "saving"
-        ? "Saving..."
-        : status === "draft"
-          ? "Not saved"
-          : "Save failed";
-  return (
-    <span className={className}>
-      <span className={styles.pillSquare} /> {label}
-    </span>
   );
 }
 

@@ -9,21 +9,26 @@ export function SupplierSelect({
   value,
   onValueChange,
   errorMessage,
+  inputClassName,
+  labelClassName,
 }: {
   suppliers: SupplierOption[];
   value: string | null;
   onValueChange: (value: string | null) => void;
   errorMessage?: string;
+  inputClassName?: string;
+  labelClassName?: string;
 }) {
   return (
     <Field data-invalid={Boolean(errorMessage)}>
-      <FieldLabel>Supplier</FieldLabel>
+      <FieldLabel className={labelClassName}>Supplier</FieldLabel>
       <EntityCombobox
         options={suppliers}
         value={value ?? null}
         onValueChange={onValueChange}
         placeholder="Search suppliers..."
         emptyMessage="No suppliers found"
+        inputClassName={inputClassName}
         createLinks={[
           {
             href: "/purchasing/suppliers/new",

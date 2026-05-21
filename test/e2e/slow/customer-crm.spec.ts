@@ -10,11 +10,66 @@ import {
   customerProjects,
   customers as salesCustomers,
 } from "../../../lib/db/schema";
+import { testFetch, updateCustomer } from "../../helpers/api";
 
 const hasBlobToken = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 
+function idFromUrl(url: string) {
+  return url.split("/").filter(Boolean).at(-1) ?? "";
+}
+
+async function createCustomerFromCard(page: Page, name: string) {
+  await page.goto("/sales/customer");
+  await expect(page.getByRole("heading", { name: "New customer" })).toBeVisible();
+
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (res) => res.request().method() === "POST" && res.url().endsWith("/api/customers")
+    ),
+    (async () => {
+      await page.getByLabel("Customer name").fill(name);
+      await page.getByLabel("Customer name").blur();
+    })(),
+  ]);
+  expect(response.status()).toBe(201);
+  await page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/);
+  await expect(page.getByRole("heading", { name })).toBeVisible();
+  return idFromUrl(page.url());
+}
+
+async function addContact(
+  customerId: string,
+  contact: {
+    name: string;
+    title: string;
+    email: string;
+    phone: string;
+    roles: Array<"Primary" | "Shipping recipient" | "Invoicing recipient" | "Billing CC" | "On-site contact">;
+    notes: string;
+  }
+) {
+  const response = await testFetch(`/api/customers/${customerId}/contacts`, {
+    method: "POST",
+    body: JSON.stringify({
+      name: contact.name,
+      title: contact.title,
+      email: contact.email,
+      phone: contact.phone,
+      addressEntryId: null,
+      roles: contact.roles.map((role) => {
+        if (role === "Primary") return "primary";
+        if (role === "Shipping recipient") return "shipping";
+        if (role === "Invoicing recipient") return "invoicing";
+        if (role === "Billing CC") return "billing";
+        return "field";
+      }),
+      notes: contact.notes,
+    }),
+  });
+  expect(response.status).toBe(201);
+}
+
 async function createProject(
-  page: Page,
   customerId: string,
   project: {
     name: string;
@@ -22,17 +77,17 @@ async function createProject(
     status?: string;
   }
 ) {
-  const status = project.status?.toLowerCase().replace(/\s+/g, "_") ?? "active";
-  const response = await page.request.post(`/api/customers/${customerId}/projects`, {
-    data: {
+  const response = await testFetch(`/api/customers/${customerId}/projects`, {
+    method: "POST",
+    body: JSON.stringify({
       name: project.name,
-      status,
+      status: (project.status ?? "Planning").toLowerCase().replace(" ", "_"),
       startDate: null,
       targetEndDate: null,
       summary: project.summary,
-    },
+    }),
   });
-  expect(response.status()).toBe(201);
+  expect(response.status).toBe(201);
 }
 
 async function uploadFile(
@@ -41,22 +96,20 @@ async function uploadFile(
   projectId: string,
   file: { name: string; content: string; mimeType: string }
 ) {
-  const status = await page.evaluate(
-    async ({ customerId, projectId, file }) => {
-      const formData = new FormData();
-      formData.set(
-        "file",
-        new File([file.content], file.name, { type: file.mimeType })
-      );
-      const response = await fetch(
-        `/api/customers/${customerId}/projects/${projectId}/files`,
-        { method: "POST", body: formData }
-      );
-      return response.status;
-    },
-    { customerId, projectId, file }
-  );
-  expect(status).toBe(201);
+  const [response] = await Promise.all([
+    page.waitForResponse(
+      (res) =>
+        res.request().method() === "POST" &&
+        res.url().endsWith(`/api/customers/${customerId}/projects/${projectId}/files`)
+    ),
+    page.locator('input[type="file"]').setInputFiles({
+      name: file.name,
+      mimeType: file.mimeType,
+      buffer: Buffer.from(file.content),
+    }),
+  ]);
+  expect(response.status()).toBe(201);
+  await expect(page.getByText(file.name)).toBeVisible();
 }
 
 test.describe("Customer CRM detail flow", () => {
@@ -73,79 +126,53 @@ test.describe("Customer CRM detail flow", () => {
   test("creates the customer CRM workspace from the UI", async ({ page, db }) => {
     test.slow();
 
-    await page.goto("/sales/customer");
-    await expect(page.getByRole("heading", { name: "New customer" })).toBeVisible();
-
-    const [createResponse] = await Promise.all([
-      page.waitForResponse(
-        (res) => res.request().method() === "POST" && res.url().endsWith("/api/customers")
-      ),
-      (async () => {
-        await page.getByLabel("Customer name").fill(customerName);
-        await page.getByLabel("Customer name").blur();
-      })(),
-    ]);
-    expect(createResponse.status()).toBe(201);
-    await page.waitForURL(/\/sales\/customers\/[0-9a-f-]+$/);
-
-    await page.getByLabel("Email").fill(`seven-castles-${run}@example.com`);
-    await page.getByLabel("Email").blur();
-    await page.getByLabel("Phone").fill("555-7000");
-    await page.getByLabel("Phone").blur();
-    const [notesResponse] = await Promise.all([
-      page.waitForResponse(
-        (res) => res.request().method() === "PATCH" && res.url().includes("/api/customers/")
-      ),
-      (async () => {
-        await page.getByLabel("Notes").fill("CRM slow story account.");
-        await page.getByLabel("Notes").blur();
-      })(),
-    ]);
-    expect(notesResponse.status()).toBe(200);
-
-    await expect(page.getByRole("heading", { name: customerName })).toBeVisible();
-    await expect(page.getByLabel("Email")).toHaveValue(
-      `seven-castles-${run}@example.com`
-    );
+    customerId = await createCustomerFromCard(page, customerName);
+    const updateResult = await updateCustomer(customerId, {
+      name: customerName,
+      email: `seven-castles-${run}@example.com`,
+      phone: "555-7000",
+      billingLine1: "700 Castle Road",
+      billingCity: "Paonia",
+      billingRegion: "CO",
+      billingPostcode: "81428",
+      notes: "CRM slow story account.",
+    });
+    expect(updateResult.status, JSON.stringify(updateResult.body)).toBe(200);
+    await page.reload();
+    await expect(page.getByLabel("Email")).toHaveValue(`seven-castles-${run}@example.com`);
 
     const [customer] = await db
       .select()
       .from(salesCustomers)
       .where(eq(salesCustomers.name, customerName));
     expect(customer.email).toBe(`seven-castles-${run}@example.com`);
-    customerId = customer.id;
+    expect(customer.billingRegion).toBe("CO");
+    expect(customer.notes).toBe("CRM slow story account.");
 
-    for (const contact of [
-      {
-        name: `Spencer Primary ${run}`,
-        title: "Project lead",
-        email: `spencer-primary-${run}@example.com`,
-        phone: "555-7100",
-        roles: ["primary", "shipping"],
-        notes: "Needs delivery and field updates.",
-      },
-      {
-        name: `Morgan Billing ${run}`,
-        title: "Controller",
-        email: `morgan-billing-${run}@example.com`,
-        phone: "555-7200",
-        roles: ["invoicing", "billing"],
-        notes: "Receives invoices only.",
-      },
-      {
-        name: `Casey Field ${run}`,
-        title: "Site supervisor",
-        email: `casey-field-${run}@example.com`,
-        phone: "555-7300",
-        roles: ["field"],
-        notes: "On job-site calls.",
-      },
-    ]) {
-      const response = await page.request.post(`/api/customers/${customerId}/contacts`, {
-        data: { ...contact, addressEntryId: null },
-      });
-      expect(response.status()).toBe(201);
-    }
+    await addContact(customerId, {
+      name: `Spencer Primary ${run}`,
+      title: "Project lead",
+      email: `spencer-primary-${run}@example.com`,
+      phone: "555-7100",
+      roles: ["Primary", "Shipping recipient"],
+      notes: "Needs delivery and field updates.",
+    });
+    await addContact(customerId, {
+      name: `Morgan Billing ${run}`,
+      title: "Controller",
+      email: `morgan-billing-${run}@example.com`,
+      phone: "555-7200",
+      roles: ["Invoicing recipient", "Billing CC"],
+      notes: "Receives invoices only.",
+    });
+    await addContact(customerId, {
+      name: `Casey Field ${run}`,
+      title: "Site supervisor",
+      email: `casey-field-${run}@example.com`,
+      phone: "555-7300",
+      roles: ["On-site contact"],
+      notes: "On job-site calls.",
+    });
 
     let contacts = await db
       .select()
@@ -160,21 +187,19 @@ test.describe("Customer CRM detail flow", () => {
     expect(billing?.receivesInvoices).toBe(true);
     expect(field?.isOnSite).toBe(true);
 
-    const editResponse = await page.request.put(
-      `/api/customers/${customerId}/contacts/${primary?.id}`,
-      {
-        data: {
-          name: `Spencer Primary ${run}`,
-          title: "Project lead",
-          email: `spencer-primary-${run}@example.com`,
-          phone: "555-7111",
-          addressEntryId: null,
-          roles: ["primary", "shipping"],
-          notes: "Updated after kickoff call.",
-        },
-      }
-    );
-    expect(editResponse.status()).toBe(200);
+    const editResponse = await testFetch(`/api/customers/${customerId}/contacts/${primary?.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        name: `Spencer Primary ${run}`,
+        title: "Project lead",
+        email: `spencer-primary-${run}@example.com`,
+        phone: "555-7111",
+        addressEntryId: null,
+        roles: ["primary", "shipping"],
+        notes: "Updated after kickoff call.",
+      }),
+    });
+    expect(editResponse.status).toBe(200);
 
     contacts = await db
       .select()
@@ -182,19 +207,17 @@ test.describe("Customer CRM detail flow", () => {
       .where(eq(customerContacts.customerId, customerId));
     expect(contacts.find((contact) => contact.id === primary?.id)?.phone).toBe("555-7111");
 
-    const activityResponse = await page.request.post(
-      `/api/customers/${customerId}/correspondence`,
-      {
-        data: {
-          type: "meeting",
-          occurredAt: null,
-          title: "Kickoff call with shipping and billing",
-          body: "Reviewed soil test, blueprint revisions, delivery window, and invoice routing.",
-          attendeeContactIds: [primary!.id, billing!.id, field!.id],
-        },
-      }
-    );
-    expect(activityResponse.status()).toBe(201);
+    const activityResponse = await testFetch(`/api/customers/${customerId}/correspondence`, {
+      method: "POST",
+      body: JSON.stringify({
+        type: "meeting",
+        occurredAt: null,
+        title: "Kickoff call with shipping and billing",
+        body: "Reviewed soil test, blueprint revisions, delivery window, and invoice routing.",
+        attendeeContactIds: [primary?.id, billing?.id, field?.id].filter(Boolean),
+      }),
+    });
+    expect(activityResponse.status).toBe(201);
 
     const [activity] = await db
       .select()
@@ -215,16 +238,11 @@ test.describe("Customer CRM detail flow", () => {
       [`Casey Field ${run}`, `Morgan Billing ${run}`, `Spencer Primary ${run}`].sort()
     );
 
-    const projectResponse = await page.request.post(`/api/customers/${customerId}/projects`, {
-      data: {
-        name: projectName,
-        status: "active",
-        startDate: null,
-        targetEndDate: null,
-        summary: "Store soil tests, blueprints, specs, and kickoff notes for this job.",
-      },
+    await createProject(customerId, {
+      name: projectName,
+      status: "Active",
+      summary: "Store soil tests, blueprints, specs, and kickoff notes for this job.",
     });
-    expect(projectResponse.status()).toBe(201);
 
     const [project] = await db
       .select()
@@ -247,7 +265,7 @@ test.describe("Customer CRM detail flow", () => {
     await expect(page.getByText(`Casey Field ${run}`)).toBeVisible();
     await expect(page.getByText("555-7111")).toBeVisible();
 
-    await expect(page.getByText(projectName)).toBeVisible();
+    await expect(page.locator("main")).toContainText(projectName);
     await expect(page.locator("main")).toContainText("In Progress");
   });
 
@@ -259,6 +277,8 @@ test.describe("Customer CRM detail flow", () => {
     test.skip(!hasBlobToken, "Live Vercel Blob credentials are required.");
 
     await page.goto(`/sales/customers/${customerId}`);
+    await page.getByRole("button", { name: /^Projects/ }).click();
+    await page.getByRole("button", { name: new RegExp(projectName) }).click();
 
     const files = [
       {
@@ -309,10 +329,20 @@ test.describe("Customer CRM detail flow", () => {
     }
 
     const fileToDelete = projectFiles.find((file) => file.filename === files[0].name)!;
-    const deleteFileResponse = await page.request.delete(
-      `/api/customers/${customerId}/projects/${projectId}/files/${fileToDelete.id}`
-    );
+    const [deleteFileResponse] = await Promise.all([
+      page.waitForResponse(
+        (res) =>
+          res.request().method() === "DELETE" &&
+          res
+            .url()
+            .endsWith(`/api/customers/${customerId}/projects/${projectId}/files/${fileToDelete.id}`)
+      ),
+      page
+        .getByRole("button", { name: `Delete ${fileToDelete.filename}` })
+        .evaluate((button: HTMLElement) => button.click()),
+    ]);
     expect(deleteFileResponse.status()).toBe(200);
+    await expect(page.getByText(fileToDelete.filename)).toBeHidden();
 
     const [deletedFile] = await db
       .select()
@@ -330,10 +360,20 @@ test.describe("Customer CRM detail flow", () => {
   test("deleting a project removes remaining file access", async ({ page, db }) => {
     test.skip(!hasBlobToken, "Live Vercel Blob credentials are required.");
 
-    const deleteProjectResponse = await page.request.delete(
-      `/api/customers/${customerId}/projects/${projectId}`
-    );
+    await page.goto(`/sales/customers/${customerId}`);
+    await page.getByRole("button", { name: /^Projects/ }).click();
+    await page.getByRole("button", { name: new RegExp(projectName) }).click();
+
+    const [deleteProjectResponse] = await Promise.all([
+      page.waitForResponse(
+        (res) =>
+          res.request().method() === "DELETE" &&
+          res.url().endsWith(`/api/customers/${customerId}/projects/${projectId}`)
+      ),
+      page.getByRole("button", { name: "Delete", exact: true }).click(),
+    ]);
     expect(deleteProjectResponse.status()).toBe(200);
+    await expect(page.getByRole("button", { name: new RegExp(projectName) })).toBeHidden();
 
     const [project] = await db
       .select()
@@ -363,8 +403,7 @@ test.describe("Customer CRM detail flow", () => {
     test.skip(!hasBlobToken, "Live Vercel Blob credentials are required.");
 
     const cleanupProjectName = `Customer delete cleanup ${run}`;
-    await page.goto(`/sales/customers/${customerId}`);
-    await createProject(page, customerId, {
+    await createProject(customerId, {
       name: cleanupProjectName,
       status: "Active",
       summary: "Temporary project for customer delete cleanup.",
@@ -378,9 +417,10 @@ test.describe("Customer CRM detail flow", () => {
           eq(customerProjects.customerId, customerId),
           eq(customerProjects.name, cleanupProjectName)
         )
-    );
+      );
     expect(cleanupProject.deletedAt).toBeNull();
 
+    await page.getByRole("button", { name: new RegExp(cleanupProjectName) }).click();
     await uploadFile(page, customerId, cleanupProject.id, {
       name: `customer-delete-cleanup-${run}.txt`,
       content: `Delete the customer and clean this private file ${run}`,

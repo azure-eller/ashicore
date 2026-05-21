@@ -141,6 +141,21 @@ export type CustomerOption = {
   shipCountry: string | null;
 };
 
+export type SalesAddressOption = {
+  id: string;
+  label: string;
+  contactName: string | null;
+  contactPhone: string | null;
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  region: string | null;
+  postcode: string | null;
+  country: string | null;
+  deliveryInstructions: string | null;
+  notes: string | null;
+};
+
 export type CustomerLinkedSalesOrderRow = {
   id: string;
   orderNumber: string;

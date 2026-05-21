@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
+import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { BomEditor, type BomPayloadRow } from "@/app/(dashboard)/inventory/bom-editor";
 import { saveBomRevision, type ItemCardDto } from "@/lib/api/clients/item-cards";
 import styles from "@/components/card-page/card-page.module.css";
@@ -58,7 +59,7 @@ export function ProductRecipeTab({
   const [copyFromOpen, setCopyFromOpen] = useState(false);
 
   const saveMutation = useMutation({
-    mutationKey: ["item-card", focusItemId, "bom-revision"],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId, "bom-revision"),
     mutationFn: () =>
       saveBomRevision(focusItemId, {
         outputQuantity,
@@ -246,6 +247,7 @@ export function ProductRecipeTab({
       <CopyDialog
         open={copyToOpen}
         onOpenChange={setCopyToOpen}
+        cardItemId={focusItemId}
         scope="bom"
         direction="to"
         activeVariant={activeVariant}
@@ -254,6 +256,7 @@ export function ProductRecipeTab({
       <CopyDialog
         open={copyFromOpen}
         onOpenChange={setCopyFromOpen}
+        cardItemId={focusItemId}
         scope="bom"
         direction="from"
         activeVariant={activeVariant}

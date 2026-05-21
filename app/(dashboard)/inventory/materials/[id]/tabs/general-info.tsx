@@ -17,6 +17,7 @@ import {
 import { CardPageTwoColumn } from "@/components/card-page/card-page-two-column";
 import { VariantTable } from "@/components/card-page/variant-table";
 import { GenerateBarcodesButton } from "@/components/card-page/generate-barcodes-button";
+import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InventoryCommitmentDonut } from "@/app/(dashboard)/inventory/inventory-commitment-donut";
 import type { ItemCommitmentSummary } from "@/app/(dashboard)/inventory/commitment-summary";
@@ -202,7 +203,7 @@ function EditableFieldText({
   const queryClient = useQueryClient();
   const inputId = `card-field-${String(field)}`;
   const mutation = useMutation({
-    mutationKey: ["item-card", focusItemId, "patch", field],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "patch", field),
     mutationFn: (next: string | null) =>
       updateItemCard(focusItemId as string, { [field]: next } as UpdateItemCardInput),
     onSettled: () => {
@@ -274,7 +275,7 @@ function EditableFieldTextarea({
   const queryClient = useQueryClient();
   const inputId = `card-field-${String(field)}`;
   const mutation = useMutation({
-    mutationKey: ["item-card", focusItemId, "patch", field],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "patch", field),
     mutationFn: (next: string | null) =>
       updateItemCard(focusItemId as string, { [field]: next } as UpdateItemCardInput),
     onSettled: () => {
@@ -333,7 +334,7 @@ function MaterialUnitSelectField({
 }) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationKey: ["item-card", focusItemId, "patch", "unitDefinitionId"],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "patch", "unitDefinitionId"),
     mutationFn: (next: string) =>
       updateItemCard(focusItemId as string, { unitDefinitionId: next }),
     onSettled: () => {

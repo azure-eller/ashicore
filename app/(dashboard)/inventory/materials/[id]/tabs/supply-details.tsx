@@ -19,6 +19,7 @@ import {
   type ColDef,
   type EditableLineDataGridChange,
 } from "@/components/editable-line-data-grid";
+import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import {
   updateItemCard,
   updateItemCardVariant,
@@ -48,7 +49,7 @@ export function MaterialSupplyDetailsTab({
   const [purchaseUnitOn, setPurchaseUnitOn] = useState(purchaseUnitEnabled);
 
   const disablePurchaseUnit = useMutation({
-    mutationKey: ["item-card", focusItemId, "patch", "purchase-unit-off"],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId, "purchase-unit-off"),
     mutationFn: () =>
       updateItemCard(focusItemId, {
         purchaseUnitDefinitionId: null,
@@ -59,7 +60,7 @@ export function MaterialSupplyDetailsTab({
     },
   });
   const supplierMutation = useMutation({
-    mutationKey: ["item-card", focusItemId, "patch", "defaultSupplierId"],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId, "defaultSupplierId"),
     mutationFn: (defaultSupplierId: string | null) =>
       updateItemCard(focusItemId, { defaultSupplierId }),
     onSettled: () => {
@@ -67,7 +68,7 @@ export function MaterialSupplyDetailsTab({
     },
   });
   const purchaseUnitMutation = useMutation({
-    mutationKey: ["item-card", focusItemId, "patch", "purchaseUnitDefinitionId"],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId, "purchaseUnitDefinitionId"),
     mutationFn: (purchaseUnitDefinitionId: string | null) =>
       updateItemCard(focusItemId, { purchaseUnitDefinitionId }),
     onSettled: () => {
@@ -165,15 +166,17 @@ export function MaterialSupplyDetailsTab({
 
       <section className={styles.section}>
         <h2 className={styles.sectionHeading}>Variants</h2>
-        <SupplyVariantsGrid variants={visibleVariants} />
+        <SupplyVariantsGrid focusItemId={focusItemId} variants={visibleVariants} />
       </section>
     </>
   );
 }
 
 function SupplyVariantsGrid({
+  focusItemId,
   variants,
 }: {
+  focusItemId: string;
   variants: ItemCardVariantDto[];
 }) {
   const queryClient = useQueryClient();
@@ -185,7 +188,7 @@ function SupplyVariantsGrid({
   }
 
   const cellMutation = useMutation({
-    mutationKey: ["item-card", variants[0]?.id ?? "supply", "variant-cell"],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId, "supply-variant-cell"),
     mutationFn: ({
       variantId,
       payload,
@@ -356,7 +359,7 @@ function ConversionField({
   const [draft, setDraft] = useState(value ?? "");
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationKey: ["item-card", focusItemId, "patch", "purchaseToStockFactor"],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId, "purchaseToStockFactor"),
     mutationFn: (next: string | null) =>
       updateItemCard(focusItemId, { purchaseToStockFactor: next }),
     onSettled: () => {

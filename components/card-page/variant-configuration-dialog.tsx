@@ -36,6 +36,7 @@ import {
   type ItemCardDto,
   type VariantConfigInput,
 } from "@/lib/api/clients/item-cards";
+import { cardSaveMutationKey } from "./card-save-status";
 import styles from "./card-page.module.css";
 
 const MAX_OPTIONS = 3;
@@ -131,7 +132,7 @@ function DialogBody({
   }, [card.family.id, sourcesQuery.data]);
 
   const saveAndGenerateMutation = useMutation({
-    mutationKey: ["item-card", focusItemId ?? card.family.id, "variant-config-save-generate"],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId ?? card.family.id, "variant-config-save-generate"),
     mutationFn: async ({ mode }: { mode: "save-only" | "generate-all" }) => {
       if (!focusItemId) {
         throw new Error("Cannot configure variants on a card with no items.");
@@ -173,7 +174,7 @@ function DialogBody({
   });
 
   const copyMutation = useMutation({
-    mutationKey: ["item-card", focusItemId ?? card.family.id, "variant-config-copy"],
+    mutationKey: cardSaveMutationKey("item-card", focusItemId ?? card.family.id, "variant-config-copy"),
     mutationFn: async () => {
       if (!focusItemId || !sourceItemId) {
         throw new Error("Choose a card to copy from.");

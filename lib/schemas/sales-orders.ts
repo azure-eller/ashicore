@@ -296,14 +296,6 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
     confirmOversell: z.boolean().optional(),
   })
   .superRefine((values, ctx) => {
-    if (values.status === "open" && values.lines.length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Sales order must have at least one line item",
-        path: ["lines"],
-      });
-    }
-
     if (values.shipDate && values.orderDate && values.shipDate < values.orderDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -380,6 +372,12 @@ export type UpdateSalesOrder = z.infer<typeof updateSalesOrderSchema>;
  */
 export const patchSalesOrderHeaderSchema = z
   .object({
+    orderNumber: nullableString
+      .refine(
+        (value) => value == null || value.length <= 32,
+        "Order number must be 32 characters or fewer"
+      )
+      .optional(),
     customerId: z.string().min(1, "Customer is required").optional(),
     customerProjectId: nullableString
       .refine(

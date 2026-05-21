@@ -1308,12 +1308,14 @@ export async function createPurchaseOrderInTx(
     });
   }
 
-  await tx.insert(purchaseOrderLines).values(
-    prepared.preparedLines.map((line) => ({
-      purchaseOrderId: order.id,
-      ...line,
-    })),
-  );
+  if (prepared.preparedLines.length > 0) {
+    await tx.insert(purchaseOrderLines).values(
+      prepared.preparedLines.map((line) => ({
+        purchaseOrderId: order.id,
+        ...line,
+      })),
+    );
+  }
 
   if (prepared.preparedAdditionalCosts.length > 0) {
     await tx.insert(purchaseOrderAdditionalCosts).values(
@@ -1461,21 +1463,24 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
     await tx
       .delete(purchaseOrderLines)
       .where(eq(purchaseOrderLines.purchaseOrderId, existing.id));
-    const insertedLines = await tx
-      .insert(purchaseOrderLines)
-      .values(
-        prepared.preparedLines.map((line) => ({
-          purchaseOrderId: existing.id,
-          ...line,
-        })),
-      )
-      .returning({
-        id: purchaseOrderLines.id,
-        itemId: purchaseOrderLines.itemId,
-        stockQuantityOrdered: trimScale(
-          purchaseOrderLines.stockQuantityOrdered,
-        ).as("stockQuantityOrdered"),
-      });
+    const insertedLines =
+      prepared.preparedLines.length > 0
+        ? await tx
+            .insert(purchaseOrderLines)
+            .values(
+              prepared.preparedLines.map((line) => ({
+                purchaseOrderId: existing.id,
+                ...line,
+              })),
+            )
+            .returning({
+              id: purchaseOrderLines.id,
+              itemId: purchaseOrderLines.itemId,
+              stockQuantityOrdered: trimScale(
+                purchaseOrderLines.stockQuantityOrdered,
+              ).as("stockQuantityOrdered"),
+            })
+        : [];
 
     const nextLines = insertedLines.map((line) => ({
       purchaseOrderLineId: line.id,
@@ -1607,6 +1612,13 @@ export async function updatePurchaseOrder(
     ]);
 
     if (order.status !== "draft") {
+      if (prepared.preparedLines.length === 0) {
+        throw new PurchasingError(
+          "Ordered purchase orders must have at least one material.",
+          400,
+        );
+      }
+
       const nextItemIds = new Set(
         prepared.preparedLines.map((line) => line.itemId),
       );
@@ -1725,12 +1737,14 @@ export async function updatePurchaseOrder(
         .delete(purchaseOrderLines)
         .where(eq(purchaseOrderLines.purchaseOrderId, id));
 
-      await tx.insert(purchaseOrderLines).values(
-        prepared.preparedLines.map((line) => ({
-          purchaseOrderId: id,
-          ...line,
-        })),
-      );
+      if (prepared.preparedLines.length > 0) {
+        await tx.insert(purchaseOrderLines).values(
+          prepared.preparedLines.map((line) => ({
+            purchaseOrderId: id,
+            ...line,
+          })),
+        );
+      }
     }
 
     await tx
@@ -1870,6 +1884,12 @@ export async function submitPurchaseOrder(
     }
 
     const lines = await getPurchaseOrderLinesInTx(tx, id);
+    if (lines.length === 0) {
+      throw new PurchasingError(
+        "Add at least one material before ordering this purchase order.",
+        400,
+      );
+    }
 
     await tx
       .update(purchaseOrders)

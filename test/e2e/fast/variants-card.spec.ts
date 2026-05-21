@@ -47,7 +47,7 @@ test.describe("variant-first item card", () => {
     await expect(
       page.getByRole("heading", { name: productName, level: 1 }),
     ).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText("All changes saved").first()).toBeVisible();
+    await expect(page.getByText("Saved").first()).toBeVisible();
     await expect(page.getByRole("link", { name: "General info" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Recipe" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Production" })).toBeVisible();
