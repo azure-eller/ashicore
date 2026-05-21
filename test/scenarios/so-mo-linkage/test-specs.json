@@ -56,11 +56,11 @@
             "Customer C1 via createCustomer",
             "Sales Order SO1 with one line for Product-P, quantity 4, unitPrice 45"
           ],
-          "route": "/manufacturing/orders/new"
+          "route": "/manufacturing/order"
         },
         "interaction_plan": [
           "Capture Q0 = parseFloat(inventoryItemBalances.expectedQty) for Product-P pre-create.",
-          "Navigate to /manufacturing/orders/new via page.goto.",
+          "Navigate to /manufacturing/order via page.goto.",
           "Open the Sales Order combobox; type SO1's orderNumber; click the matching option.",
           "Open the Sales Order Line combobox; click the single line option.",
           "Confirm productId + plannedQuantity auto-populated from the line (expect plannedQuantity to read 4).",

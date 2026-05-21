@@ -363,7 +363,7 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
         !event.altKey &&
         !inField
       ) {
-        window.location.href = "/sales/orders/new";
+        window.location.href = "/sales/order";
       }
     };
 
@@ -763,7 +763,7 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
             ) : null}
           </Button>
           <Button asChild aria-label="New Order">
-            <Link href="/sales/orders/new">
+            <Link href="/sales/order">
               <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
               New Order
             </Link>

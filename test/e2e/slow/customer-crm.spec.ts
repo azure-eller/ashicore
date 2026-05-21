@@ -73,7 +73,7 @@ test.describe("Customer CRM detail flow", () => {
   test("creates the customer CRM workspace from the UI", async ({ page, db }) => {
     test.slow();
 
-    await page.goto("/sales/customers/new");
+    await page.goto("/sales/customer");
     await expect(page.getByRole("heading", { name: "New customer" })).toBeVisible();
 
     const [createResponse] = await Promise.all([

@@ -318,7 +318,7 @@
       ],
       "suggested_scenario": {
         "title": "Unsaved-changes: MO form holding stale salesOrderLineId after concurrent SO line rewrite fails with 404 link_missing (no snapshot fallback on create)",
-        "narrative": "User opens /manufacturing/orders/new in tab A, picks a sales order and a line, sees the form auto-populate. Without submitting, the user opens tab B, edits the same SO via PUT /api/sales-orders/[id], rewriting the line (different itemId — so no replacement matches productId, OR even same itemId since the fallback does not run on create). User submits tab A. POST /api/manufacturing-orders fails with 404 'Sales order line not found' and field error 'Select an active sales order line for this product'. This pins the create-time snapshot-fallback absence so a future regression that adds the fallback (or that silently swaps to a new line id) is caught at the test layer.",
+        "narrative": "User opens /manufacturing/order in tab A, picks a sales order and a line, sees the form auto-populate. Without submitting, the user opens tab B, edits the same SO via PUT /api/sales-orders/[id], rewriting the line (different itemId — so no replacement matches productId, OR even same itemId since the fallback does not run on create). User submits tab A. POST /api/manufacturing-orders fails with 404 'Sales order line not found' and field error 'Select an active sales order line for this product'. This pins the create-time snapshot-fallback absence so a future regression that adds the fallback (or that silently swaps to a new line id) is caught at the test layer.",
         "lane": "slow",
         "trigger_sequence": [
           "Create customer + product-A + product-B + active BOMs.",

@@ -58,6 +58,7 @@ This file is a constitution + map. Deep reference lives in `docs/` — read the 
 | Task area | Read |
 |-----------|------|
 | Forms / form fields | `docs/references/field-example.md`, `docs/references/react-hook-form-example.md` |
+| Reusable components / before creating UI | `docs/reusable-components.md` |
 | UI, components, layout | `docs/ui-patterns.md` |
 | Design system (tokens, color, type, density) | `docs/design-system/01_DESIGN_SYSTEM.md` |
 | API routes, mutations | `docs/api-patterns.md` |

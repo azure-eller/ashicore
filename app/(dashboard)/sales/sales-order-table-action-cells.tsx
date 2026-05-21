@@ -170,7 +170,7 @@ export function ProductionActionCell({ order, state }: ProductionActionCellProps
             Make to order
           </DropdownMenuItem>
           <DropdownMenuItem asChild className="gap-(--space-6) py-(--space-5) text-[length:var(--text-sm)]">
-            <Link href="/manufacturing/orders/new">
+            <Link href="/manufacturing/order">
               <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-(--space-8)" />
               Make to stock
             </Link>

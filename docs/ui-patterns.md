@@ -185,7 +185,7 @@ For standard dashboard list pages, use the shared AG Grid list shell instead of 
   queryKey={["customers"]}
   queryFn={fetchCustomers}
   searchAriaLabel="Search customers"
-  addHref="/sales/customers/new"
+  addHref="/sales/customer"
   addAriaLabel="Add customer"
   emptyMessage="No customers yet."
   deleteAction={{

@@ -124,20 +124,20 @@ const dashboardNavModules: DashboardNavModule[] = [
 ];
 
 const dashboardCreateActions: DashboardCreateAction[] = [
-  { title: "Sales Order", href: "/sales/orders/new", module: "sales" },
-  { title: "Customer", href: "/sales/customers/new", module: "sales" },
+  { title: "Sales Order", href: "/sales/order", module: "sales" },
+  { title: "Customer", href: "/sales/customer", module: "sales" },
   { title: "Material", href: "/inventory/material", module: "inventory" },
   { title: "Product", href: "/inventory/product", module: "inventory" },
   { title: "Stocktake", href: "/inventory/stocktakes/new", module: "inventory" },
   {
     title: "Purchase Order",
-    href: "/purchasing/orders/new",
+    href: "/purchasing/order",
     module: "purchasing",
   },
   { title: "Supplier", href: "/purchasing/suppliers/new", module: "purchasing" },
   {
     title: "Manufacturing Order",
-    href: "/manufacturing/orders/new",
+    href: "/manufacturing/order",
     module: "manufacturing",
   },
 ];
@@ -164,14 +164,14 @@ export function getDashboardSearchActions(
       {
         title: "New Sales Order",
         description: "Create a new sales order",
-        href: "/sales/orders/new",
+        href: "/sales/order",
         icon: Add01Icon,
         group: "Sales",
       },
       {
         title: "New Customer",
         description: "Create a new customer",
-        href: "/sales/customers/new",
+        href: "/sales/customer",
         icon: Add01Icon,
         group: "Sales",
       },
@@ -265,7 +265,7 @@ export function getDashboardSearchActions(
       {
         title: "New Purchase Order",
         description: "Create a new purchase order",
-        href: "/purchasing/orders/new",
+        href: "/purchasing/order",
         icon: Add01Icon,
         group: "Purchasing",
       },
@@ -326,7 +326,7 @@ export function getDashboardSearchActions(
       {
         title: "New Manufacturing Order",
         description: "Create a new manufacturing order",
-        href: "/manufacturing/orders/new",
+        href: "/manufacturing/order",
         icon: Add01Icon,
         group: "Manufacturing",
       },

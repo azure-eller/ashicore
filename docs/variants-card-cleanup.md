@@ -17,7 +17,7 @@ read_when: planning follow-up work on the variant-first card UI or before droppi
 
 ## Still Live On Purpose
 
-- `/inventory/products/new` and `/inventory/materials/new` use the item-card create shell and call `/api/item-cards`.
+- `/inventory/product` and `/inventory/material` use the item-card create shell and call `/api/item-cards`.
 
 ## Remaining Cleanup Gates
 

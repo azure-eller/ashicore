@@ -1054,7 +1054,7 @@ function OpenOrdersSection({
         addDisabledReason={!customerId ? "Save the customer before adding orders." : null}
         onAddRow={() => {
           if (!customerId) return null;
-          router.push(`/sales/orders/new?customerId=${customerId}`);
+          router.push(`/sales/order?customerId=${customerId}`);
           return null;
         }}
         emptyMessage="No open orders."

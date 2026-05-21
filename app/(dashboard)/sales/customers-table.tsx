@@ -79,7 +79,7 @@ export function CustomersTable({ initialData }: { initialData: CustomerRow[] }) 
         return response.json();
       }}
       searchAriaLabel="Search customers"
-      addHref="/sales/customers/new"
+      addHref="/sales/customer"
       addAriaLabel="New Customer"
       emptyMessage="No customers yet."
       deleteAction={{

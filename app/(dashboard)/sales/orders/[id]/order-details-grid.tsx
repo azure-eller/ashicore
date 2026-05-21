@@ -137,7 +137,7 @@ function CustomerCell({
             }}
             placeholder="Search customers…"
             emptyMessage="No customers found"
-            createLinks={[{ href: "/sales/customers/new", label: "Create customer" }]}
+            createLinks={[{ href: "/sales/customer", label: "Create customer" }]}
           />
           {order.customerEmail ? (
             <div className={styles.detailsCellSub}>{order.customerEmail}</div>

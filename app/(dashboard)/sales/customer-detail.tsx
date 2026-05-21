@@ -760,7 +760,6 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
 
             {!isDeleted ? (
               <DetailPageActions
-                editHref={`/sales/customers/${detail.id}/edit`}
                 menu={[
                   {
                     label: "Delete",
@@ -961,7 +960,7 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                       <CardTitle>Open orders</CardTitle>
                       <CardAction>
                         <Button variant="ghost" size="sm" asChild>
-                          <Link href={`/sales/orders/new?customerId=${detail.id}`}>
+                          <Link href={`/sales/order?customerId=${detail.id}`}>
                             New order
                           </Link>
                         </Button>
@@ -1428,7 +1427,7 @@ export function CustomerDetail({ customer }: { customer: CustomerDetailData }) {
                             <CardAction>
                               <Button variant="outline" size="sm" asChild>
                                 <Link
-                                  href={`/sales/orders/new?customerId=${detail.id}&projectId=${activeProject.id}`}
+                                  href={`/sales/order?customerId=${detail.id}&projectId=${activeProject.id}`}
                                 >
                                   New order
                                 </Link>

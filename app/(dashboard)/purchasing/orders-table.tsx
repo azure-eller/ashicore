@@ -145,7 +145,7 @@ export function OrdersTable({
         return response.json();
       }}
       searchAriaLabel="Search purchase orders"
-      addHref="/purchasing/orders/new"
+      addHref="/purchasing/order"
       addAriaLabel="New Purchase Order"
       emptyMessage="No purchase orders yet."
       deleteAction={{
