@@ -690,16 +690,6 @@ test.describe("Manufacturing write-path smoke", () => {
       page.getByRole("row", { name: new RegExp(secondOrderNumber) })
     ).toBeVisible();
 
-    const firstOrderRow = page.getByRole("row", {
-      name: new RegExp(firstOrderNumber),
-    });
-    await firstOrderRow
-      .getByRole("button", { name: new RegExp(`Manufacturing actions for ${firstOrderNumber}`) })
-      .click();
-    await expect(page.getByRole("menuitem", { name: "Execute" })).toBeVisible({
-      timeout: 15_000,
-    });
-    await page.keyboard.press("Escape");
     await expect(
       page.getByRole("row", { name: new RegExp(secondOrderNumber) })
     ).toBeVisible();
@@ -760,7 +750,7 @@ test.describe("Manufacturing write-path smoke", () => {
   });
 
   test("uses generic requirement copy for pick override warnings", async ({
-    page,
+    db,
   }) => {
     const requirementTs = Date.now();
     const requirementMaterial = await createItem({
@@ -810,24 +800,18 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(order.status).toBe(201);
     const requirementOrderId = order.body.id as string;
 
-    await page.goto(`/manufacturing/orders/${requirementOrderId}/execute`);
-    const markDoneButton = page
-      .getByRole("button", { name: "Mark Done", exact: true })
-      .first();
-    await expect(markDoneButton).toBeEnabled({ timeout: 15_000 });
-    const [pickResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.request().method() === "POST" &&
-          response.url().includes(
-            `/api/manufacturing-orders/${requirementOrderId}/ingredients/`
-          ) &&
-          response.url().endsWith("/pick")
-      ),
-      markDoneButton.click(),
-    ]);
-    expect(pickResponse.status()).toBe(409);
+    const [requirementIngredient] = await db
+      .select()
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, requirementOrderId));
+    expect(requirementIngredient).toBeDefined();
+
+    const pickResponse = await testFetch(
+      `/api/manufacturing-orders/${requirementOrderId}/ingredients/${requirementIngredient!.id}/pick`,
+      { method: "POST" }
+    );
     const pickBody = await pickResponse.json();
+    expect(pickResponse.status, JSON.stringify(pickBody)).toBe(409);
     const warningIngredient = pickBody.shortage?.ingredients?.[0];
     expect(warningIngredient?.warningType).toBe("requirement_violation");
     expect(warningIngredient?.requirement).toBe(
@@ -843,16 +827,7 @@ test.describe("Manufacturing write-path smoke", () => {
       overrideAllowed: true,
       overrideReasonRequired: false,
     });
-
-    const warningDialog = page.getByRole("alertdialog", {
-      name: "Mark done with requirement override?",
-    });
-    await expect(warningDialog).toBeVisible({ timeout: 15_000 });
-    await expect(warningDialog).toContainText("Age ≥ 7d");
-    await expect(warningDialog).toContainText(
-      "Lots must be at least 7 days old based on received date."
-    );
-    await expect(warningDialog).not.toContainText("under-age");
+    expect(JSON.stringify(pickBody)).not.toContain("under-age");
   });
 
   test("direct order completion records manufacturing output detail", async ({
@@ -1508,11 +1483,11 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(openOrder.plannedQuantity).toBe("6.0000");
     expect(openOrder.numberOfBatches).toBe(3);
 
-    // Execution moved into the redesigned sheet's overflow menu.
+    // Web execution was removed; batch execution remains API/mobile-owned.
     await page.getByRole("button", { name: "More actions" }).click();
     await expect(
       page.getByRole("menuitem", { name: "Open execution" })
-    ).toBeVisible({ timeout: 15_000 });
+    ).toHaveCount(0);
     await page.keyboard.press("Escape");
 
     const createdBatches = await db
@@ -1567,10 +1542,6 @@ test.describe("Manufacturing write-path smoke", () => {
     );
     expect(blockedCompleteResponse.status).toBe(400);
 
-    await page.getByRole("button", { name: "More actions" }).click();
-    await page.getByRole("menuitem", { name: "Open execution" }).click();
-    await page.waitForURL(`**/manufacturing/orders/${batchOrderId}/execute`);
-
     const runBatch = async (
       output: string,
       expectedActual: string,
@@ -1578,31 +1549,41 @@ test.describe("Manufacturing write-path smoke", () => {
       options: { pickBeforeComplete?: boolean } = {}
     ) => {
       const pickBeforeComplete = options.pickBeforeComplete ?? true;
-      const [startBatchResponse] = await Promise.all([
-        page.waitForResponse(
-          (response) =>
-            response.request().method() === "POST" &&
-            response
-              .url()
-              .includes(`/api/manufacturing-orders/${batchOrderId}/batches/`) &&
-            response.url().endsWith("/start")
-        ),
-        page.getByRole("button", { name: "Start Batch" }).click(),
-      ]);
-      expect(startBatchResponse.status()).toBe(200);
+      const batches = await db
+        .select()
+        .from(manufacturingOrderBatches)
+        .where(eq(manufacturingOrderBatches.manufacturingOrderId, batchOrderId))
+        .orderBy(asc(manufacturingOrderBatches.batchNumber));
+      const currentBatch = batches.find((batch) => batch.status !== "completed");
+      expect(currentBatch).toBeDefined();
 
-      const sandCard = page
-        .locator('[data-slot="card"]')
-        .filter({ hasText: batchSandName })
-        .first();
-      const compostCard = page
-        .locator('[data-slot="card"]')
-        .filter({ hasText: batchCompostName })
-        .first();
+      const startBatchResponse = await testFetch(
+        `/api/manufacturing-orders/${batchOrderId}/batches/${currentBatch!.id}/start`,
+        {
+          method: "POST",
+          body: JSON.stringify({}),
+        }
+      );
+      const startBatchBody = await startBatchResponse.json().catch(() => null);
+      expect(startBatchResponse.status, JSON.stringify(startBatchBody)).toBe(200);
+
+      const currentIngredients = await db
+        .select()
+        .from(manufacturingOrderIngredients)
+        .where(eq(manufacturingOrderIngredients.manufacturingOrderBatchId, currentBatch!.id));
 
       if (pickBeforeComplete) {
-        await sandCard.getByRole("button", { name: "Mark Done", exact: true }).click();
-        await compostCard.getByRole("button", { name: "Mark Done", exact: true }).click();
+        for (const ingredient of currentIngredients) {
+          const pickResponse = await testFetch(
+            `/api/manufacturing-orders/${batchOrderId}/ingredients/${ingredient.id}/pick`,
+            {
+              method: "POST",
+              body: JSON.stringify({}),
+            }
+          );
+          const pickBody = await pickResponse.json().catch(() => null);
+          expect(pickResponse.status, JSON.stringify(pickBody)).toBe(200);
+        }
 
         await expect
           .poll(
@@ -1641,30 +1622,30 @@ test.describe("Manufacturing write-path smoke", () => {
             { timeout: 15_000 }
           )
           .toBe(true);
+      } else {
+        const pickRemainingResponse = await testFetch(
+          `/api/manufacturing-orders/${batchOrderId}/ingredients/pick-remaining`,
+          {
+            method: "POST",
+            body: JSON.stringify({}),
+          }
+        );
+        const pickRemainingBody = await pickRemainingResponse.json().catch(() => null);
+        expect(pickRemainingResponse.status, JSON.stringify(pickRemainingBody)).toBe(200);
       }
 
-      await page.reload();
-      await expect(page.getByRole("button", { name: "Complete Batch" })).toBeEnabled();
-      if (pickBeforeComplete) {
-        await page.getByRole("button", { name: "Complete Batch" }).click();
-      } else {
-        const [pickRemainingResponse] = await Promise.all([
-          page.waitForResponse(
-            (response) =>
-              response.request().method() === "POST" &&
-              response
-                .url()
-                .endsWith(
-                  `/api/manufacturing-orders/${batchOrderId}/ingredients/pick-remaining`
-                )
-          ),
-          page.getByRole("button", { name: "Complete Batch" }).click(),
-        ]);
-        expect(pickRemainingResponse.status()).toBe(200);
-      }
-      await expect(page.getByLabel("Actual Output")).toBeVisible({ timeout: 15_000 });
-      await page.getByLabel("Actual Output").fill(output);
-      await page.getByRole("button", { name: "Confirm" }).click();
+      const completeResponse = await testFetch(
+        `/api/manufacturing-orders/${batchOrderId}/batches/${currentBatch!.id}/complete`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            actualQuantity: output,
+            outputDisposition: "available",
+          }),
+        }
+      );
+      const completeBody = await completeResponse.json().catch(() => null);
+      expect(completeResponse.status, JSON.stringify(completeBody)).toBe(200);
 
       await expect
         .poll(

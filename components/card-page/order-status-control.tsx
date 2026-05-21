@@ -101,8 +101,6 @@ export type OrderStatusControlProps<Ctx> = {
   ctx: Ctx;
   size?: "sm" | "md";
   disabled?: boolean;
-  ariaLabel?: string;
-  extraMenuItems?: ReactNode;
   /** Called after any successful transition so the caller can invalidate/refetch. */
   onChanged?: () => void;
 };
@@ -112,8 +110,6 @@ export function OrderStatusControl<Ctx>({
   ctx,
   size = "md",
   disabled = false,
-  ariaLabel,
-  extraMenuItems,
   onChanged,
 }: OrderStatusControlProps<Ctx>) {
   const [dialogTarget, setDialogTarget] = useState<string | null>(null);
@@ -155,7 +151,7 @@ export function OrderStatusControl<Ctx>({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            aria-label={ariaLabel ?? `Status: ${currentOption?.label ?? current}`}
+            aria-label={`Status: ${currentOption?.label ?? current}`}
             disabled={busy}
             onClick={(event) => event.stopPropagation()}
             className={cn(
@@ -202,7 +198,6 @@ export function OrderStatusControl<Ctx>({
               </DropdownMenuItem>
             );
           })}
-          {extraMenuItems}
         </DropdownMenuContent>
       </DropdownMenu>
       {dialogTarget && config.renderDialog

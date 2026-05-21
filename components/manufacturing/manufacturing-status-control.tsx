@@ -1,12 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import {
   OrderStatusControl,
   type OrderStatusControlConfig,
   type OrderStatusOption,
 } from "@/components/card-page/order-status-control";
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { patchManufacturingOrder } from "@/lib/api/clients/manufacturing-orders";
 import { deriveProductionStatus } from "@/lib/manufacturing/derive-status";
 import type { ManufacturingOrderStatus } from "@/lib/schemas/manufacturing-orders";
@@ -79,14 +77,10 @@ export function ManufacturingStatusControl({
   order,
   size = "md",
   onChanged,
-  executeHref,
-  ariaLabel,
 }: {
   order: ManufacturingStatusFields;
   size?: "sm" | "md";
   onChanged?: () => void;
-  executeHref?: string;
-  ariaLabel?: string;
 }) {
   return (
     <OrderStatusControl
@@ -94,14 +88,6 @@ export function ManufacturingStatusControl({
       ctx={{ order }}
       size={size}
       disabled={order.status === "done"}
-      ariaLabel={ariaLabel}
-      extraMenuItems={
-        executeHref && order.status === "open" ? (
-          <DropdownMenuItem asChild className="h-8 rounded-none px-3 text-[12.5px]">
-            <Link href={executeHref}>Execute</Link>
-          </DropdownMenuItem>
-        ) : null
-      }
       onChanged={onChanged}
     />
   );

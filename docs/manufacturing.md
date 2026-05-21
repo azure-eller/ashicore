@@ -17,11 +17,11 @@ Manufacturing v1 now covers both planning and simple execution:
 - editable draft snapshots before release
 - optional sales-order-line traceability
 - release without shortage confirmation
-- mobile-first execution flow with a minimal web fallback
+- mobile-first execution flow through the Android app
 - discrete orders picked once, then completed once
 - batch-mode orders executed one batch at a time
 - ingredient lot allocations on direct create/edit, with FIFO defaults
-- universal partial output from the execution screen, without a product-level mode
+- universal partial output through the execution API/mobile workflow, without a product-level mode
 
 Still excluded in v1:
 
@@ -66,18 +66,20 @@ Ranking only changes queue order. It does not affect inventory, reservations, co
 
 ## Execution Surfaces
 
-There are now two manufacturing experiences:
+There are two manufacturing experiences:
 
 - detail pages for planning, review, history, and traceability
-- execution pages for field work
+- Android execution for field work
 
 Use:
 
 - `/manufacturing/orders/[id]` for admin/detail
-- `/manufacturing/execution` for the actionable queue
-- `/manufacturing/orders/[id]/execute` for discrete execution
+- Android for pick/start-batch/complete execution workflows
+- `/api/manufacturing-orders/[id]/execution` and related execution endpoints as the mobile/API contract
 
-The detail page should link into execution with `Start Manufacturing` or `Continue Manufacturing`.
+The web app must not expose a `/manufacturing/orders/[id]/execute` workflow. Web detail/list
+surfaces can change simple status metadata and record discrete output through the shared
+status control, but field execution belongs to mobile/API clients.
 
 ## Snapshot Model
 
