@@ -86,7 +86,7 @@
           {
             "id": "S01",
             "title": "Direct sales-linked single MO create attaches both ids, seeds ingredients with correct quantities, and increments items.expectedQty by exactly plannedQuantity",
-            "narrative": "From /manufacturing/orders/new, with the user picking a sales order then a specific sales-order line, the form must submit to POST /api/manufacturing-orders with both salesOrderId AND salesOrderLineId set. The created MO row must persist (a) salesOrderId, (b) salesOrderLineId, (c) salesOrderNumber + salesCustomerName snapshots, AND (d) manufacturingOrderIngredients rows seeded from the product's active BOM with QUANTITIES matching the BOM components' consumption mode and basisOutputQuantity (per multiplyQuantity scaling). Pre-948c155e the form silently nulled both ids and left ingredients empty — this is the exact regression class to lock in. The expectedQty assertion uses an exact delta (before vs after equals plannedQuantity), not a vague 'reflects' check.",
+            "narrative": "From /manufacturing/order, with the user picking a sales order then a specific sales-order line, the form must submit to POST /api/manufacturing-orders with both salesOrderId AND salesOrderLineId set. The created MO row must persist (a) salesOrderId, (b) salesOrderLineId, (c) salesOrderNumber + salesCustomerName snapshots, AND (d) manufacturingOrderIngredients rows seeded from the product's active BOM with QUANTITIES matching the BOM components' consumption mode and basisOutputQuantity (per multiplyQuantity scaling). Pre-948c155e the form silently nulled both ids and left ingredients empty — this is the exact regression class to lock in. The expectedQty assertion uses an exact delta (before vs after equals plannedQuantity), not a vague 'reflects' check.",
             "lane": "slow",
             "setup": [
               "Create a customer via /api/customers.",
@@ -96,7 +96,7 @@
               "Sign in as the canonical test user (Playwright fixture)."
             ],
             "trigger_sequence": [
-              "Navigate to /manufacturing/orders/new",
+              "Navigate to /manufacturing/order",
               "Pick the sales order from the Sales Order combobox",
               "Pick the sales order line from the Sales Order Line combobox",
               "Confirm form auto-populated productId and plannedQuantity from the line",
@@ -1110,7 +1110,7 @@
           {
             "id": "S30",
             "title": "Stale-form unsaved-changes: MO create form holding stale salesOrderLineId after concurrent SO line rewrite fails with 404 link_missing (no snapshot fallback on CREATE path)",
-            "narrative": "validateSalesLineLinkInTx's snapshot fallback only runs when existingSnapshot is non-null AND isUnchangedSnapshot is true (queries.ts:750-811). On CREATE, createManufacturingOrderInTx calls validateSalesLineLinkInTx without the third (existingSnapshot) arg at queries.ts:3561 — so existingSnapshot is undefined and the fallback NEVER runs. This means: User A opens /manufacturing/orders/new in tab A, picks an SO + line, sees auto-populated form. Without submitting, User B (or the same user in tab B) PUTs the SO with the line rewritten (different itemId — or even same itemId, fallback still doesn't run on create). User A submits. POST /api/manufacturing-orders fails with 404 'Sales order line not found' even though a same-itemId replacement exists. This pins the create-time fallback absence so a regression that adds it (or that silently swaps to a new line id) is caught.",
+            "narrative": "validateSalesLineLinkInTx's snapshot fallback only runs when existingSnapshot is non-null AND isUnchangedSnapshot is true (queries.ts:750-811). On CREATE, createManufacturingOrderInTx calls validateSalesLineLinkInTx without the third (existingSnapshot) arg at queries.ts:3561 — so existingSnapshot is undefined and the fallback NEVER runs. This means: User A opens /manufacturing/order in tab A, picks an SO + line, sees auto-populated form. Without submitting, User B (or the same user in tab B) PUTs the SO with the line rewritten (different itemId — or even same itemId, fallback still doesn't run on create). User A submits. POST /api/manufacturing-orders fails with 404 'Sales order line not found' even though a same-itemId replacement exists. This pins the create-time fallback absence so a regression that adds it (or that silently swaps to a new line id) is caught.",
             "lane": "slow",
             "setup": [
               "Create customer + product-A + product-B + active BOMs.",

@@ -184,7 +184,7 @@ test.describe("Sales write-path smoke", () => {
   let crmProjectId = "";
 
   test("creates and edits a customer through the browser form", async ({ page, db }) => {
-    await page.goto("/sales/customers/new");
+    await page.goto("/sales/customer");
     await expect(page.getByRole("heading", { name: "New customer" })).toBeVisible();
 
     const [createCustomerResponse] = await Promise.all([

@@ -1504,7 +1504,7 @@ test.describe("Manufacturing order flow", () => {
     page,
     db,
   }) => {
-    await page.goto("/manufacturing/orders/new");
+    await page.goto("/manufacturing/order");
     await page.waitForURL("**/manufacturing/order");
 
     const productInput = page.getByPlaceholder("Search or create product…");

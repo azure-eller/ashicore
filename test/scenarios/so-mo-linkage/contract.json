@@ -689,11 +689,11 @@
       ],
       "routing": [
         {
-          "path": "/manufacturing/orders/new",
+          "path": "/manufacturing/order",
           "detail": "Renders ManufacturingOrderForm; may carry ?salesOrderId= so the form lands in bulk-from-SO mode."
         },
         {
-          "path": "/manufacturing/orders/[id]/edit",
+          "path": "/manufacturing/orders/[id]",
           "detail": "Renders ManufacturingOrderForm with initialData; edit path only re-validates the sales link via snapshot fallback."
         },
         {
@@ -983,7 +983,7 @@
     "user_actions": [
       {
         "action": "Create a sales order",
-        "where": "/sales/orders/new",
+        "where": "/sales/order",
         "effect": "POST /api/sales-orders inserts the SO with status='open' (schema-forced) and unconditionally reserves the full order against ATP via reserveForSalesInTx. Auto-creates a planned shipment when shipDate is set. confirmOversell is accepted by the schema but not read by the DAL — no shortage rejection path exists at create time.",
         "evidence": "app/(dashboard)/sales/queries.ts:5911-6017, lib/schemas/sales-orders.ts:127-130"
       },
@@ -1007,25 +1007,25 @@
       },
       {
         "action": "Create a single sales-linked MO",
-        "where": "/manufacturing/orders/new with both Sales Order and Sales Order Line pickers chosen",
+        "where": "/manufacturing/order with both Sales Order and Sales Order Line pickers chosen",
         "effect": "POSTs to /api/manufacturing-orders with both salesOrderId and salesOrderLineId set; ingredients are seeded from the BOM (post-948c155e). Accepted as long as the link resolves to an open SO line whose itemId matches productId. Server rejects with 400 bom_required if the product BOM is empty, or 409 bom_changed if the submitted ingredient row count does not match the active BOM row count (e.g. BOM was edited after the picker rendered).",
         "evidence": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:523-606,721-762, app/(dashboard)/manufacturing/queries.ts:3552-3598, 821-836"
       },
       {
         "action": "Create an unlinked MO",
-        "where": "/manufacturing/orders/new with product chosen, no SO link",
+        "where": "/manufacturing/order with product chosen, no SO link",
         "effect": "POSTs to /api/manufacturing-orders with salesOrderId=null; ingredients populated from BOM; product picker excludes products whose active BOM has no non-deleted components.",
         "evidence": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx:704-719, app/(dashboard)/manufacturing/queries.ts:2987-2988"
       },
       {
         "action": "Edit a linked MO",
-        "where": "/manufacturing/orders/[id]/edit",
+        "where": "/manufacturing/orders/[id]",
         "effect": "PUT /api/manufacturing-orders/:id. Allowed only while status='open' and no pick/batch work has progressed. The sales link is re-validated with snapshot fallback so SO line rewrites do not orphan the MO.",
         "evidence": "app/(dashboard)/manufacturing/queries.ts:3829-3997, 729-819"
       },
       {
         "action": "Edit an open SO with line changes (same items)",
-        "where": "/sales/orders/[id]/edit",
+        "where": "/sales/orders/[id]",
         "effect": "Hard-deletes and re-inserts all salesOrderLines. moveReplacedSalesLineAllocationsInTx migrates active allocations from old to new line ids when itemId matches. A linked MO's snapshot is preserved; on next MO edit/save, validateSalesLineLinkInTx re-binds salesOrderLineId via the snapshot-fallback lookup. updateSalesOrder does NOT inspect downstream MO pick state, so the SO update succeeds even when the linked MO already has pickAllocations (the snapshot rebind is deferred until the MO edit attempt, which is blocked by edit:work_started).",
         "evidence": "app/(dashboard)/sales/queries.ts:6056-6241, app/(dashboard)/manufacturing/queries.ts:788-811, 3877-3882"
       },

@@ -863,7 +863,7 @@ test.describe("Team management and invite flow", () => {
     await memberPage.goto("/inventory/stocktakes/new");
     await expect(memberPage).toHaveURL(/\/inventory\/stocktakes\/new$/);
 
-    // /inventory/materials/new redirects to the card draft route /inventory/material.
+    // /inventory/material redirects to the card draft route /inventory/material.
     await memberPage.goto("/inventory/material");
     await expect(memberPage).toHaveURL(/\/inventory\/material$/);
 
@@ -891,7 +891,7 @@ test.describe("Team management and invite flow", () => {
     expect(materialCreate.status).toBe(201);
     expect(materialCreate.body?.id).toBeTruthy();
 
-    // /inventory/products/new redirects to the card draft route /inventory/product.
+    // /inventory/product redirects to the card draft route /inventory/product.
     await memberPage.goto("/inventory/product");
     await expect(memberPage).toHaveURL(/\/inventory\/product$/);
 
@@ -1261,8 +1261,8 @@ test.describe("Team management and invite flow", () => {
     await expectModuleHidden(memberPage, "Inventory", "/inventory/products");
     await expectModuleHidden(memberPage, "Sales", "/sales/orders");
 
-    await memberPage.goto("/purchasing/orders/new");
-    await expect(memberPage).toHaveURL(/\/purchasing\/orders\/new$/);
+    await memberPage.goto("/purchasing/order");
+    await expect(memberPage).toHaveURL(/\/purchasing\/order$/);
 
     await memberPage.goto("/purchasing/suppliers/new");
     await expect(memberPage).toHaveURL(/\/purchasing\/suppliers\/new$/);

@@ -53,6 +53,8 @@ export type XeroInvoiceSetupStatus =
 export type OrderCardProps = {
   /** null on the /sales/order draft route. */
   initialOrder: SalesOrderDetail | null;
+  initialDraftCustomerId?: string | null;
+  initialDraftProjectId?: string | null;
   customerOptions: CustomerOption[];
   itemOptions: SalesOrderItemOption[];
   addressOptions?: SalesAddressOption[];
@@ -77,6 +79,8 @@ export type SalesAddressOption = {
 
 export function OrderCard({
   initialOrder,
+  initialDraftCustomerId,
+  initialDraftProjectId,
   customerOptions,
   itemOptions,
   addressOptions = [],
@@ -91,7 +95,10 @@ export function OrderCard({
     initialOrder?.id ?? null,
   );
   const [draftOrder, setDraftOrder] = useState<SalesOrderDetail>(
-    () => initialOrder ?? makeDraftOrder(timeZone),
+    () => initialOrder ?? makeInitialDraftOrder(timeZone, customerOptions, {
+      customerId: initialDraftCustomerId ?? null,
+      projectId: initialDraftProjectId ?? null,
+    }),
   );
   const isDraft = currentOrderId == null;
 
@@ -548,4 +555,38 @@ export function OrderCard({
       </AlertDialog>
     </div>
   );
+}
+
+function makeInitialDraftOrder(
+  timeZone: string,
+  customerOptions: CustomerOption[],
+  defaults: { customerId: string | null; projectId: string | null },
+) {
+  const draft = makeDraftOrder(timeZone);
+  if (!defaults.customerId) {
+    return draft;
+  }
+
+  const customer = customerOptions.find((option) => option.id === defaults.customerId);
+  if (!customer) {
+    return draft;
+  }
+
+  const project = defaults.projectId
+    ? customer.projects.find((option) => option.id === defaults.projectId)
+    : null;
+
+  return {
+    ...draft,
+    customerId: customer.id,
+    customerName: customer.name,
+    customerProjectId: project?.id ?? null,
+    customerProjectName: project?.name ?? null,
+    shipLine1: customer.shipLine1,
+    shipLine2: customer.shipLine2,
+    shipCity: customer.shipCity,
+    shipRegion: customer.shipRegion,
+    shipPostcode: customer.shipPostcode,
+    shipCountry: customer.shipCountry,
+  };
 }

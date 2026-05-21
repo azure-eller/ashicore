@@ -9,9 +9,9 @@
       "direct_imports": [
         "/home/aeller/Projects/erp/.worktrees/erp-test-coverage-so-mo/app/(dashboard)/manufacturing/manufacturing-order-form.tsx",
         "/home/aeller/Projects/erp/.worktrees/erp-test-coverage-so-mo/app/(dashboard)/manufacturing/manufacturing-order-detail.tsx",
-        "/home/aeller/Projects/erp/.worktrees/erp-test-coverage-so-mo/app/(dashboard)/manufacturing/orders/new/page.tsx",
+        "/home/aeller/Projects/erp/.worktrees/erp-test-coverage-so-mo/app/(dashboard)/manufacturing/order/page.tsx",
         "/home/aeller/Projects/erp/.worktrees/erp-test-coverage-so-mo/app/(dashboard)/manufacturing/orders/[id]/page.tsx",
-        "/home/aeller/Projects/erp/.worktrees/erp-test-coverage-so-mo/app/(dashboard)/manufacturing/orders/[id]/edit/page.tsx",
+        "/home/aeller/Projects/erp/.worktrees/erp-test-coverage-so-mo/app/(dashboard)/manufacturing/orders/[id]/page.tsx",
         "/home/aeller/Projects/erp/.worktrees/erp-test-coverage-so-mo/app/(dashboard)/sales/order-form.tsx",
         "/home/aeller/Projects/erp/.worktrees/erp-test-coverage-so-mo/app/(dashboard)/sales/create-manufacturing-orders-dialog.tsx",
         "/home/aeller/Projects/erp/.worktrees/erp-test-coverage-so-mo/app/(dashboard)/sales/sales-order-table-action-cells.tsx",
@@ -506,7 +506,7 @@
     "suspected_risk_areas": [
       "salesOrderLineId one-time claim: The check at lib/manufacturing/sales-order-manufacturability.ts:222-235 uses status IN ('open','done') AND deletedAt IS NULL. Cancelled (deleted) MOs reopen the claim; completed MOs (status='done', deletedAt null) block it. The existing test at manufacturing-order.spec.ts:736-848 covers the completed case; the cancelled→reopen case appears uncovered by the slow specs (no test references `cancelled` MOs reopening Create MOs).",
       "Sales line rewrite drift: updateSalesOrder hard-deletes and re-inserts salesOrderLines (queries.ts:6139). If the new line has the SAME itemId, validateSalesLineLinkInTx falls back to a replacement line lookup (manufacturing/queries.ts:788-811) AND moveReplacedSalesLineAllocationsInTx migrates allocations. If the new line has a DIFFERENT itemId, the MO becomes orphaned and the snapshot path raises 'manufacturing order is linked to the order but not to a matching active sales line' on SO delete (sales/queries.ts:2373-2375). Concurrent rewrite + MO edit/release is not tested.",
-      "Bug 948c155e regression surface: The new path '/manufacturing/orders/new with salesOrderId+salesOrderLineId picked' should now (a) hit POST /api/manufacturing-orders with both ids set, (b) load ingredients from the product template, and (c) NOT redirect to bulk preview mode. Pre-fix it silently dropped both ids in the payload and left ingredients empty. The existing failing/stale test (manufacturing-order.spec.ts:462-475) still asserts the old block.",
+      "Bug 948c155e regression surface: The new path '/manufacturing/order with salesOrderId+salesOrderLineId picked' should now (a) hit POST /api/manufacturing-orders with both ids set, (b) load ingredients from the product template, and (c) NOT redirect to bulk preview mode. Pre-fix it silently dropped both ids in the payload and left ingredients empty. The existing failing/stale test (manufacturing-order.spec.ts:462-475) still asserts the old block.",
       "Idempotency mismatch: POST /api/manufacturing-orders does not require an Idempotency-Key header, but POST /api/sales-orders does. Retries on flaky tests may create duplicate MOs. Not directly tested.",
       "Status-name drift in CLAUDE.md vs code: CLAUDE.md describes status names 'draft|released|completed|cancelled' for MOs and 'draft|confirmed|partially_shipped' for SOs, but the persisted enums (lib/schemas/manufacturing-orders.ts:7-10 and lib/schemas/sales-orders.ts:12-13) are only 'open'|'done'. Cancellation is signaled by deletedAt + cancelledAt; completion by completedAt + actualQuantity. Inference: tests must use 'open'|'done' literals at the DB layer.",
       "Item soft-delete races vs MO create: queries/internal.ts:1139-1160 only checks status='open'; if the item is the productId of a 'done' but not deleted MO, the check passes. Inference: subassembly chains may bypass this. Not load-bearing for the linkage but mentioned in CLAUDE.md ('Items used by draft or released MOs cannot be soft-deleted').",
@@ -552,7 +552,7 @@
       "claim": "isSalesOrderMode is now `!isEditing && watchedSalesOrderId != null && watchedSalesOrderLineId == null` (previously only required watchedSalesOrderId). handleSalesLineChange now fills productId/plannedQuantity from the picked line and seeds ingredients from productMap.get(line.itemId).bom. ingredientOptions now also includes ingredientItemOptions (from getAvailableComponents) so non-BOM ingredients are pickable. The mutation payload (lines 595-596 in new) now uses `values.salesOrderId, values.salesOrderLineId` instead of nulling them."
     },
     {
-      "file": "git show 948c155e (app/(dashboard)/manufacturing/orders/new/page.tsx diff)",
+      "file": "git show 948c155e (app/(dashboard)/manufacturing/order/page.tsx diff)",
       "symbol": "NewManufacturingOrderPage",
       "lines": "diff",
       "claim": "Now fetches getAvailableComponents() and getManufacturingSalesLineOptions() in parallel and passes them as ingredientItemOptions / salesLineOptions to ManufacturingOrderForm."

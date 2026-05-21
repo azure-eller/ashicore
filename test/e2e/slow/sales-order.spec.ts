@@ -225,7 +225,7 @@ test.describe("Sales order flow", () => {
   test("creates a customer with all fields", async ({ page, db }) => {
     customerName = `Acme Landscaping ${run}`;
 
-    await page.goto("/sales/customers/new");
+    await page.goto("/sales/customer");
     await expect(page.getByRole("heading", { name: "New customer" })).toBeVisible();
 
     const [createCustomerResponse] = await Promise.all([
@@ -333,7 +333,7 @@ test.describe("Sales order flow", () => {
   test("creates a minimal customer", async ({ page, db }) => {
     extraCustomerName = `Backup Builder ${run}`;
 
-    await page.goto("/sales/customers/new");
+    await page.goto("/sales/customer");
     await expect(page.getByRole("heading", { name: "New customer" })).toBeVisible();
 
     const [createMinimalCustomerResponse] = await Promise.all([

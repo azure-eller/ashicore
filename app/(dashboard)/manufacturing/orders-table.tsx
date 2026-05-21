@@ -615,7 +615,7 @@ export function OrdersTable({
               ) : null}
             </Button>
             <Button asChild aria-label="New Order">
-              <Link href="/manufacturing/orders/new">
+              <Link href="/manufacturing/order">
                 <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
                 New Order
               </Link>

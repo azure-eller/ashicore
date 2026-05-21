@@ -97,9 +97,9 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(productCreate.status).toBe(201);
     productId = productCreate.body.id;
 
-    // /new redirects into the unified sheet. The sheet IS the create surface:
+    // The singular draft route is the create surface:
     // set planned quantity, then selecting a product creates the order inline.
-    await page.goto("/manufacturing/orders/new");
+    await page.goto("/manufacturing/order");
     await page.waitForURL("**/manufacturing/order");
     const productInput = page.getByPlaceholder("Search or create product…");
     await expect(productInput).toBeVisible();
@@ -202,8 +202,8 @@ test.describe("Manufacturing write-path smoke", () => {
       quantity: 5,
     });
 
-    // The /edit route now redirects into the inline-editable detail sheet.
-    await page.goto(`/manufacturing/orders/${orderId}/edit`);
+    // Existing orders edit inline on the detail sheet.
+    await page.goto(`/manufacturing/orders/${orderId}`);
     await expect(page).toHaveURL(new RegExp(`/manufacturing/orders/${orderId}$`));
     const editNotesField = page.getByLabel("Notes");
     await expect(editNotesField).toHaveValue("Fast manufacturing smoke test");
@@ -1884,9 +1884,9 @@ test.describe("Manufacturing write-path smoke", () => {
       createdIngredients.every((ingredient) => ingredient.manufacturingOrderBatchId != null)
     ).toBe(true);
 
-    // /edit redirects into the inline-editable detail sheet; ingredients
+    // Existing orders edit inline on the detail sheet; ingredients
     // render in the Ingredients table rather than a legacy edit form.
-    await page.goto(`/manufacturing/orders/${legacyOrderId}/edit`);
+    await page.goto(`/manufacturing/orders/${legacyOrderId}`);
     await page.waitForURL(`**/manufacturing/orders/${legacyOrderId}`);
     await expect(page.getByRole("heading", { name: "Order details" })).toBeVisible();
     await expect(page.getByText(`Legacy Batch Sand ${legacyTs}`)).toBeVisible();

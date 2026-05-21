@@ -725,7 +725,6 @@ export function PurchaseOrderDetail({
   });
 
   const isDeleted = order.deletedAt != null;
-  const canEdit = !isDeleted;
   const canSubmit = !isDeleted && order.status === "draft";
   const canReceive = !isDeleted && ["ordered", "partial"].includes(order.status);
   const canDelete = !isDeleted;
@@ -757,7 +756,6 @@ export function PurchaseOrderDetail({
           </div>
 
           <DetailPageActions
-            editHref={canEdit ? `/purchasing/orders/${order.id}/edit` : undefined}
             menu={[
               ...(canViewLedger
                 ? [

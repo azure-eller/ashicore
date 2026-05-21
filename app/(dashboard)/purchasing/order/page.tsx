@@ -12,7 +12,7 @@ function getValues(value: string | string[] | undefined) {
   return value ? [value] : [];
 }
 
-export default async function NewPurchaseOrderPage({
+export default async function PurchaseOrderDraftPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
