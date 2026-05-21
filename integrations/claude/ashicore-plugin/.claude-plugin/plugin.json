@@ -1,0 +1,10 @@
+{
+  "name": "ashicore",
+  "description": "Ashicore production planning for Claude.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Ashicore"
+  },
+  "homepage": "https://ashicore.app",
+  "license": "UNLICENSED"
+}

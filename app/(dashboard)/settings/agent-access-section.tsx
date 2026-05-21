@@ -320,6 +320,51 @@ function ChatGptConnectDialog({
   );
 }
 
+function ClaudePluginDialog({ downloadUrl }: { downloadUrl: string }) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button
+          variant="outline"
+          className="h-auto justify-start gap-(--space-4) px-(--space-5) py-(--space-4)"
+        >
+          <ProviderMark label="ZIP" />
+          <span className="grid text-left">
+            <span>Download Claude plugin</span>
+            <span className="text-[length:var(--text-xs)] font-normal text-muted-foreground">
+              Skill + MCP
+            </span>
+          </span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent size="md">
+        <DialogHeader>
+          <DialogTitle>Download Claude plugin</DialogTitle>
+          <DialogDescription>
+            This plugin adds a small production schedule skill and references
+            the Ashicore MCP server.
+          </DialogDescription>
+        </DialogHeader>
+
+        <ol className="grid list-decimal gap-(--space-2) pl-(--space-6) text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
+          <li>Download the plugin zip.</li>
+          <li>Install it in Claude Code or a Claude client that supports plugins.</li>
+          <li>Connect Ashicore when Claude asks for MCP access.</li>
+        </ol>
+
+        <DialogFooter>
+          <Button asChild>
+            <a href={downloadUrl}>
+              <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
+              Download plugin
+            </a>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function AgentAccessSection({
   initialData,
 }: {
@@ -396,7 +441,7 @@ export function AgentAccessSection({
               </Badge>
             </div>
           </div>
-          <div className="grid gap-(--space-4) sm:grid-cols-2">
+          <div className="grid gap-(--space-4) sm:grid-cols-3">
             <ClaudeConnectDialog
               installUrl={data.claudeInstallUrl}
               serverUrl={data.mcpServerUrl}
@@ -406,6 +451,7 @@ export function AgentAccessSection({
               openApiUrl={data.openApiUrl}
               onCreated={refreshData}
             />
+            <ClaudePluginDialog downloadUrl={data.claudePluginDownloadUrl} />
           </div>
         </div>
 

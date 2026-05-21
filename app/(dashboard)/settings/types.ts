@@ -54,6 +54,7 @@ export type AgentAccessPageData = {
   mcpServerUrl: string;
   claudeInstallUrl: string;
   chatGptBuilderUrl: string;
+  claudePluginDownloadUrl: string;
 };
 
 export type PublicInvitationDetails = {
