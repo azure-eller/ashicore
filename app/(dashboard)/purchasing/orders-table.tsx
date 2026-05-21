@@ -2,47 +2,33 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import type { ICellRendererParams } from "ag-grid-community";
 import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import type { ColDef } from "@/components/erp-data-grid";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { formatDate, formatPrice } from "@/lib/format";
 import {
   EXPECTED_DELIVERY_DATE_TOOLTIP,
   PURCHASE_ORDER_STATUS_COLUMN_TOOLTIP,
 } from "@/lib/tooltip-copy";
-import { PurchaseOrderStatusBadge } from "./status-badge";
+import { PurchaseStatusControl } from "@/components/purchasing/purchase-status-control";
 import type { PurchaseOrderListRow } from "./types";
-import type { PurchaseOrderStatus } from "@/lib/schemas/purchase-orders";
 
-async function updatePurchaseOrderStatus(
-  id: string,
-  status: PurchaseOrderStatus,
-) {
-  const response = await fetch(`/api/purchase-orders/${id}/status`, {
-    method: "PATCH",
-    headers: createIdempotencyHeaders("purchase-order-status", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify({ status }),
-  });
-  const body = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    throw new Error(body?.error ?? "Failed to update purchase order status.");
-  }
-
-  return body as { id: string };
+function PurchaseStatusCell({ order }: { order: PurchaseOrderListRow }) {
+  const queryClient = useQueryClient();
+  return (
+    <PurchaseStatusControl
+      orderId={order.id}
+      status={order.status}
+      size="sm"
+      onChanged={() => {
+        void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      }}
+    />
+  );
 }
 
-function createColumns({
-  onStatusChange,
-  statusPending,
-}: {
-  onStatusChange: (id: string, status: PurchaseOrderStatus) => void;
-  statusPending: boolean;
-}): ColDef<PurchaseOrderListRow>[] {
+function createColumns(): ColDef<PurchaseOrderListRow>[] {
   return [
     {
       field: "orderNumber",
@@ -91,13 +77,7 @@ function createColumns({
       headerTooltip: PURCHASE_ORDER_STATUS_COLUMN_TOOLTIP,
       width: 150,
       cellRenderer: ({ data }: ICellRendererParams<PurchaseOrderListRow>) =>
-        data ? (
-          <PurchaseOrderStatusBadge
-            status={data.status}
-            disabled={statusPending}
-            onStatusChange={(status) => onStatusChange(data.id, status)}
-          />
-        ) : null,
+        data ? <PurchaseStatusCell order={data} /> : null,
     },
     {
       field: "expectedDate",
@@ -114,22 +94,7 @@ export function OrdersTable({
 }: {
   initialData: PurchaseOrderListRow[];
 }) {
-  const queryClient = useQueryClient();
-  const statusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: PurchaseOrderStatus }) =>
-      updatePurchaseOrderStatus(id, status),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
-    },
-  });
-  const columns = useMemo(
-    () =>
-      createColumns({
-        statusPending: statusMutation.isPending,
-        onStatusChange: (id, status) => statusMutation.mutate({ id, status }),
-      }),
-    [statusMutation],
-  );
+  const columns = useMemo(() => createColumns(), []);
 
   return (
     <ERPDataGridList

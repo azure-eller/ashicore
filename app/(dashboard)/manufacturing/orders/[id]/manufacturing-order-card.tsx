@@ -288,7 +288,18 @@ export function ManufacturingOrderCard({
         meta={order ? <MoDescription order={order} /> : null}
         statusControl={
           order ? (
-            <ManufacturingStatusControl order={order} onChanged={refreshOrder} />
+            <ManufacturingStatusControl
+              order={{
+                id: order.id,
+                status: order.status,
+                isBlocked: order.isBlocked,
+                pickProgressStatus: order.pickProgressStatus,
+                completedBatchCount: order.batches.filter(
+                  (batch) => batch.status === "completed",
+                ).length,
+              }}
+              onChanged={refreshOrder}
+            />
           ) : null
         }
         saveState={headerSaveState}

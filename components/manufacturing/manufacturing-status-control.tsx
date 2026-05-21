@@ -7,10 +7,23 @@ import {
 } from "@/components/card-page/order-status-control";
 import { patchManufacturingOrder } from "@/lib/api/clients/manufacturing-orders";
 import { deriveProductionStatus } from "@/lib/manufacturing/derive-status";
-import type { ManufacturingOrderDetail } from "@/app/(dashboard)/manufacturing/types";
+import type { ManufacturingOrderStatus } from "@/lib/schemas/manufacturing-orders";
+import type { ManufacturingPickProgressStatus } from "@/app/(dashboard)/manufacturing/types";
 import { ManufacturingCompletionDialog } from "./manufacturing-completion-dialog";
 
-type Ctx = { order: ManufacturingOrderDetail };
+/**
+ * The minimal fields the status control needs — satisfied by both the full order
+ * detail (header) and a list row, so the same control renders in both places.
+ */
+export type ManufacturingStatusFields = {
+  id: string;
+  status: ManufacturingOrderStatus;
+  isBlocked: boolean;
+  pickProgressStatus: ManufacturingPickProgressStatus;
+  completedBatchCount: number;
+};
+
+type Ctx = { order: ManufacturingStatusFields };
 
 const OPTIONS: OrderStatusOption[] = [
   { value: "not_started", label: "Not started", tone: "neutral" },
@@ -28,8 +41,7 @@ const config: OrderStatusControlConfig<Ctx> = {
       status: order.status,
       isBlocked: order.isBlocked,
       pickProgressStatus: order.pickProgressStatus,
-      completedBatchCount: order.batches.filter((batch) => batch.status === "completed")
-        .length,
+      completedBatchCount: order.completedBatchCount,
     }),
   transitionKind: (from, to) => {
     if (from === "done") return "disabled";
@@ -44,7 +56,7 @@ const config: OrderStatusControlConfig<Ctx> = {
     if (to !== "done" && to !== "partially_complete") return null;
     return (
       <ManufacturingCompletionDialog
-        order={ctx.order}
+        orderId={ctx.order.id}
         mode={to === "done" ? "complete" : "output"}
         onClose={onClose}
         onDone={onDone}
@@ -58,7 +70,7 @@ export function ManufacturingStatusControl({
   size = "md",
   onChanged,
 }: {
-  order: ManufacturingOrderDetail;
+  order: ManufacturingStatusFields;
   size?: "sm" | "md";
   onChanged?: () => void;
 }) {

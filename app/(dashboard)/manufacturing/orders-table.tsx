@@ -10,10 +10,7 @@ import { apiJson } from "@/lib/client/api";
 import { usePersistentViewState } from "@/lib/client/use-persistent-view-state";
 import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
-import {
-  OperationalStateCell,
-  type OperationalState,
-} from "@/components/operational-state-cell";
+import { type OperationalState } from "@/components/operational-state-cell";
 import { DateTimeText } from "@/components/date-time-text";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,7 +33,7 @@ import {
   MANUFACTURING_SALES_ORDER_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import type { ManufacturingOrdersPreference } from "@/lib/view-preferences";
-import { MoStageAction } from "./mo-stage-action";
+import { ManufacturingStatusControl } from "@/components/manufacturing/manufacturing-status-control";
 import type { ManufacturingOrderListRow } from "./types";
 
 const BADGE_VARIANTS = ["secondary", "outline", "default"] as const;
@@ -211,23 +208,15 @@ function ManufacturingStatusLabel({
 }
 
 function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
-  const state = getProductionState(order);
-
-  if (order.status !== "open") {
-    return <OperationalStateCell state={state} />;
-  }
-
+  const queryClient = useQueryClient();
   return (
-    <MoStageAction
-      orderId={order.id}
-      status={order.status}
-      trigger={
-        <OperationalStateCell
-          state={state}
-          className="transition-colors hover:border-primary"
-        />
-      }
-      triggerAriaLabel={`Manufacturing actions for ${order.orderNumber}`}
+    <ManufacturingStatusControl
+      order={order}
+      size="sm"
+      onChanged={() => {
+        void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
+        void queryClient.invalidateQueries({ queryKey: ["items"] });
+      }}
     />
   );
 }

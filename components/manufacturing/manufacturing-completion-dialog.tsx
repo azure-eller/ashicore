@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -22,6 +22,7 @@ import {
 import {
   completeManufacturingOrder,
   recordManufacturingOutput,
+  fetchManufacturingOrder,
   ManufacturingOrderApiError,
   type OutputDisposition,
 } from "@/lib/api/clients/manufacturing-orders";
@@ -36,11 +37,46 @@ export type CompletionMode = "complete" | "output";
 
 /**
  * Dialog behind the status dropdown's "Done" (complete) and "Partially complete"
- * (output) transitions. When the product is produced in fixed groups it collects a
- * group count and shows the resulting total output; otherwise it collects a raw
- * quantity. Surfaces the 409 negative-stock warning up-front and confirms-and-retries.
+ * (output) transitions, usable from the order header and from list rows: it fetches the
+ * full order detail by id so it has the ingredients (group size) and planned quantity.
  */
 export function ManufacturingCompletionDialog({
+  orderId,
+  mode,
+  onClose,
+  onDone,
+}: {
+  orderId: string;
+  mode: CompletionMode;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const detailQuery = useQuery({
+    queryKey: ["manufacturing-order", orderId],
+    queryFn: () => fetchManufacturingOrder(orderId),
+  });
+
+  if (!detailQuery.data) {
+    return (
+      <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{mode === "complete" ? "Complete order" : "Partially complete"}</DialogTitle>
+            <DialogDescription>
+              {detailQuery.isError ? "Failed to load the order." : "Loading order…"}
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <CompletionDialogForm order={detailQuery.data} mode={mode} onClose={onClose} onDone={onDone} />
+  );
+}
+
+function CompletionDialogForm({
   order,
   mode,
   onClose,
