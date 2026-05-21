@@ -1006,6 +1006,7 @@ test.describe("Sales write-path smoke", () => {
         { itemId: detailDeleteId, quantity: "1", unitPrice: "10" },
         { itemId: detailKeepId, quantity: "2", unitPrice: "10" },
       ],
+      shipments: [],
     });
     expect(detailOrderResult.status).toBe(201);
     const detailOrderId = detailOrderResult.body.id as string;

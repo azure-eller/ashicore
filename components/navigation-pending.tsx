@@ -43,6 +43,7 @@ type NavigationMetric = {
 
 const NAVIGATION_TIMEOUT_MS = 10_000;
 const NAVIGATION_SETTLE_MS = 150;
+const DEFAULT_NAVIGATION_TELEMETRY_SAMPLE_RATE = 0.05;
 const NAVIGATION_TELEMETRY_SAMPLE_RATE = parseSampleRate(
   process.env.NEXT_PUBLIC_NAVIGATION_TELEMETRY_SAMPLE_RATE
 );
@@ -318,7 +319,7 @@ function getComparableLocation(href?: LinkHref) {
 
 function parseSampleRate(value: string | undefined) {
   if (!value) {
-    return 1;
+    return DEFAULT_NAVIGATION_TELEMETRY_SAMPLE_RATE;
   }
 
   const parsed = Number(value);

@@ -3,8 +3,6 @@
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import {
-  QueryClient,
-  QueryClientProvider,
   useMutation,
   useQuery,
   useQueryClient,
@@ -73,22 +71,7 @@ type ERPDataGridListProps<TData extends { id: string }> = {
 export function ERPDataGridList<TData extends { id: string }>({
   ...props
 }: ERPDataGridListProps<TData>) {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 60 * 1000,
-          },
-        },
-      })
-  );
-
-  return (
-    <QueryClientProvider client={queryClient}>
-      <ERPDataGridListInner {...props} />
-    </QueryClientProvider>
-  );
+  return <ERPDataGridListInner {...props} />;
 }
 
 function ERPDataGridListInner<TData extends { id: string }>({

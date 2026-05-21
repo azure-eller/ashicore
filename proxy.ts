@@ -140,5 +140,7 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/:path*"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|downloads/|.*\\.(?:css|js|map|png|jpg|jpeg|gif|webp|svg|ico|txt|xml|json)$).*)",
+  ],
 };

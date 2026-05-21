@@ -3,8 +3,6 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  QueryClient,
-  QueryClientProvider,
   useMutation,
   useQuery,
   useQueryClient,
@@ -318,22 +316,20 @@ function FilterChip({
 }
 
 export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] }) {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 60 * 1000,
-          },
-        },
-      })
-  );
+  return <OrdersTableContent initialData={initialData} />;
+}
 
-  return (
-    <QueryClientProvider client={queryClient}>
-      <OrdersTableContent initialData={initialData} />
-    </QueryClientProvider>
-  );
+function LastSyncStatus({ dataUpdatedAt }: { dataUpdatedAt: number }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const seconds = Math.max(0, Math.floor((now - dataUpdatedAt) / 1000));
+
+  return <span>Last sync {seconds < 30 ? "<30" : seconds}s ago</span>;
 }
 
 function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] }) {
@@ -348,7 +344,6 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
   const [selectedOrders, setSelectedOrders] = useState<SalesOrderListRow[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [hasActiveSort, setHasActiveSort] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
   const { data: orders = initialData, dataUpdatedAt } = useQuery({
     queryKey: ["sales-orders"],
     queryFn: () =>
@@ -357,10 +352,6 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
       }),
     initialData,
   });
-  useEffect(() => {
-    const interval = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(interval);
-  }, []);
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -447,10 +438,6 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
   }, [allocationFilter, orders, searchValue, statusFilter]);
   const reorderEnabled =
     statusFilter === "open" && searchValue.trim() === "" && !hasActiveSort;
-  const lastSyncSeconds = Math.max(
-    0,
-    Math.floor((now - dataUpdatedAt) / 1000)
-  );
   const filterSummary =
     statusFilter === "done"
       ? "Done"
@@ -878,7 +865,7 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
           <span>
             {displayedOrders.length} of {orders.length} rows
           </span>
-          <span>Last sync {lastSyncSeconds < 30 ? "<30" : lastSyncSeconds}s ago</span>
+          <LastSyncStatus dataUpdatedAt={dataUpdatedAt} />
           <div className="flex-1" />
           <button type="button" className="hover:text-foreground" onClick={clearSort}>
             Sort: {hasActiveSort ? "Custom" : "Ship by ↑"}
