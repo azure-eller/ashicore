@@ -11,6 +11,7 @@ import {
 import { getAccountPageData, getTeamPageData } from "./queries";
 import { getDailyManufacturingReportSchedule } from "@/lib/dal/reports";
 import { listAgentApiTokens } from "@/lib/agent/external-access/tokens";
+import { AGENT_MCP_PATH } from "@/lib/agent/mcp-oauth/metadata";
 import { getCanonicalAppUrl } from "@/lib/app-url";
 import { getSettingsSections } from "./sections";
 import { SettingsNav } from "./settings-nav";
@@ -78,6 +79,14 @@ export default async function SettingsPage({
     "/.well-known/ashicore-agent-production-planning-openapi.json",
     getRequestOrigin(requestHeaders)
   ).toString();
+  const agentMcpServerUrl = new URL(
+    AGENT_MCP_PATH,
+    getRequestOrigin(requestHeaders)
+  ).toString();
+  const claudeInstallUrl = new URL("/customize/connectors", "https://claude.ai");
+  claudeInstallUrl.searchParams.set("modal", "add-custom-connector");
+  claudeInstallUrl.searchParams.set("connectorName", "Ashicore");
+  claudeInstallUrl.searchParams.set("connectorUrl", agentMcpServerUrl);
   const sections = getSettingsSections({
     showTeam,
     showAgentAccess,
@@ -103,6 +112,8 @@ export default async function SettingsPage({
       ? listAgentApiTokens().then((tokens) => ({
           tokens,
           openApiUrl: agentOpenApiUrl,
+          mcpServerUrl: agentMcpServerUrl,
+          claudeInstallUrl: claudeInstallUrl.toString(),
         }))
       : null,
     showIntegrations ? getXeroConnection() : null,

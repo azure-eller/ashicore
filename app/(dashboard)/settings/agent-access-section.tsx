@@ -9,6 +9,7 @@ import {
   Copy01Icon,
   Delete02Icon,
   Key01Icon,
+  LinkSquare02Icon,
 } from "@hugeicons/core-free-icons";
 import { DateTimeText } from "@/components/date-time-text";
 import { Badge } from "@/components/ui/badge";
@@ -232,20 +233,36 @@ export function AgentAccessSection({
         </div>
       ) : null}
 
-      <div className="grid gap-(--space-8) p-(--space-8)">
+        <div className="grid gap-(--space-8) p-(--space-8)">
         <div className="grid gap-(--space-6) border bg-muted/20 p-(--space-8) md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
           <div className="min-w-0">
             <div className="flex items-center gap-(--space-4) text-[length:var(--text-sm)] font-medium">
               <HugeiconsIcon icon={ApiIcon} className="size-(--space-7)" />
-              Production planning context
+              Ashicore MCP
             </div>
           </div>
-          <Badge variant={enabledCount > 0 ? "default" : "outline"}>
-            {enabledCount > 0 ? "Enabled" : "Disabled"}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-(--space-4)">
+            <Button asChild size="sm">
+              <a href={data.claudeInstallUrl} target="_blank" rel="noreferrer">
+                <HugeiconsIcon icon={LinkSquare02Icon} data-icon="inline-start" />
+                Connect Claude
+              </a>
+            </Button>
+            <Badge variant={enabledCount > 0 ? "default" : "outline"}>
+              {enabledCount > 0 ? "Enabled" : "Disabled"}
+            </Badge>
+          </div>
         </div>
 
         <div className="grid gap-(--space-4)">
+          <div className="grid gap-(--space-4) md:grid-cols-[7rem_minmax(0,1fr)]">
+            <div className="text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-muted-foreground">
+              Claude MCP
+            </div>
+            <code className="break-all font-mono text-[length:var(--text-xs)] text-foreground">
+              {data.mcpServerUrl}
+            </code>
+          </div>
           <div className="grid gap-(--space-4) md:grid-cols-[7rem_minmax(0,1fr)]">
             <div className="text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-muted-foreground">
               OpenAPI
@@ -260,6 +277,14 @@ export function AgentAccessSection({
             </div>
             <div className="text-[length:var(--text-sm)] text-foreground">
               production_planning:read
+            </div>
+          </div>
+          <div className="grid gap-(--space-4) md:grid-cols-[7rem_minmax(0,1fr)]">
+            <div className="text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-muted-foreground">
+              OAuth
+            </div>
+            <div className="text-[length:var(--text-sm)] text-muted-foreground">
+              Leave Claude client ID and client secret blank.
             </div>
           </div>
         </div>
