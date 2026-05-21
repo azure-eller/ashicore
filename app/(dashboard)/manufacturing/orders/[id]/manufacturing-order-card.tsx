@@ -53,7 +53,8 @@ import {
   reorderManufacturingOrderIngredients,
   saveManufacturingOrderIngredients,
 } from "@/lib/api/clients/manufacturing-orders";
-import { StatusPicker } from "@/components/manufacturing/status-picker";
+import { ManufacturingStatusControl } from "@/components/manufacturing/manufacturing-status-control";
+import { largestGroupSize } from "@/lib/manufacturing/group-size";
 import {
   LotStrategyChip,
   type PickedLotSummary,
@@ -67,10 +68,6 @@ import {
   useEntitySaveStatus,
   type CardSaveState,
 } from "@/components/card-page/card-save-status";
-import {
-  deriveProductionStatus,
-  type ProductionStatus,
-} from "@/lib/manufacturing/derive-status";
 import type {
   ManufacturingOrderDetail,
   ManufacturingOrderIngredientDetail,
@@ -214,16 +211,6 @@ export function ManufacturingOrderCard({
     },
   });
 
-  const productionStatus: ProductionStatus | null = order
-    ? deriveProductionStatus({
-        status: order.status,
-        isBlocked: order.isBlocked,
-        pickProgressStatus: order.pickProgressStatus,
-        completedBatchCount: order.batches.filter((batch) => batch.status === "completed")
-          .length,
-      })
-    : null;
-
   const editState = getManufacturingOrderEditState(order);
   const saveStatus = useEntitySaveStatus("manufacturing-order", currentOrderId ?? "__draft__");
   const headerSaveState: CardSaveState = isDraft
@@ -299,9 +286,22 @@ export function ManufacturingOrderCard({
           )
         }
         meta={order ? <MoDescription order={order} /> : null}
-        status={
-          order && productionStatus ? (
-            <StatusPicker orderId={order.id} current={productionStatus} onChanged={refreshOrder} />
+        statusControl={
+          order ? (
+            <ManufacturingStatusControl
+              order={{
+                id: order.id,
+                status: order.status,
+                isBlocked: order.isBlocked,
+                manufacturingMode: order.manufacturingMode,
+                pickProgressStatus: order.pickProgressStatus,
+                completedBatchCount: order.batches.filter(
+                  (batch) => batch.status === "completed",
+                ).length,
+                actualQuantity: order.actualQuantity,
+              }}
+              onChanged={refreshOrder}
+            />
           ) : null
         }
         saveState={headerSaveState}
@@ -696,19 +696,6 @@ function OrderDetailsSection({
   );
 }
 
-function largestGroupSize(order: ManufacturingOrderDetail | null) {
-  if (!order) return null;
-  const sizes = order.ingredients
-    .filter(
-      (ingredient) =>
-        ingredient.consumptionMode === "per_group" &&
-        ingredient.basisOutputQuantity != null,
-    )
-    .map((ingredient) => Number(ingredient.basisOutputQuantity))
-    .filter((value) => Number.isFinite(value) && value > 0);
-  if (sizes.length === 0) return null;
-  return Math.max(...sizes);
-}
 
 function formatDecimal(value: number) {
   if (!Number.isFinite(value)) return "";

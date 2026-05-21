@@ -1,15 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
-import { StatusLabel, type StatusTone } from "@/components/ui/status-label";
+import type { ReactNode } from "react";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { formatDate } from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import type { SalesOrderDetail } from "@/app/(dashboard)/sales/types";
-import {
-  deriveOrderDisplayStatus,
-  type OrderDisplayStatusTone,
-} from "@/lib/sales/order-display-status";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import {
   saveStateFromEntityStatus,
@@ -28,12 +23,11 @@ export type OrderCardHeaderProps = {
   /** Disable the saved-pill (e.g. while a create POST is pending). */
   draftSaving?: boolean;
   draftHasError?: boolean;
+  /** Interactive status dropdown (edit mode); shown in the top-right cluster. */
+  statusControl?: ReactNode;
   /** CTA handlers — only the one matching the current status is rendered. */
   onCreate?: () => void;
   onCreateDisabled?: boolean;
-  onShipOrder?: () => void;
-  onShipOrderDisabled?: boolean;
-  onReturn?: () => void;
   /** ⋯ menu callbacks. Items hide when the callback is missing. */
   onDuplicate?: () => void;
   onPushXero?: () => void;
@@ -48,13 +42,6 @@ export type OrderCardHeaderProps = {
   canViewLedger?: boolean;
 };
 
-const toneMap: Record<OrderDisplayStatusTone, StatusTone> = {
-  neutral: "neutral",
-  accent: "info",
-  warning: "warning",
-  success: "success",
-};
-
 export function OrderCardHeader({
   order,
   mode,
@@ -62,11 +49,9 @@ export function OrderCardHeader({
   draftIsDirty,
   draftSaving,
   draftHasError,
+  statusControl,
   onCreate,
   onCreateDisabled,
-  onShipOrder,
-  onShipOrderDisabled,
-  onReturn,
   onDuplicate,
   onPushXero,
   onPushXeroDisabled,
@@ -81,11 +66,6 @@ export function OrderCardHeader({
 }: OrderCardHeaderProps) {
   const handleClose = useSmartBack("/sales/orders");
   const liveSaveStatus = useEntitySaveStatus("sales-order", order?.id ?? "__draft__");
-
-  const status = useMemo(
-    () => (order ? deriveOrderDisplayStatus(order) : null),
-    [order],
-  );
 
   const customerName = order?.customerName ?? draftCustomerName ?? null;
   const title = order
@@ -104,37 +84,10 @@ export function OrderCardHeader({
     return saveStateFromEntityStatus(liveSaveStatus.status);
   })();
 
-  const primaryAction = (() => {
-    if (mode === "draft") {
-      return {
-        label: "Create order",
-        onClick: onCreate,
-        disabled: onCreateDisabled,
-      };
-    }
-    if (
-      mode === "edit" &&
-      status &&
-      (status.label === "OPEN" ||
-        status.label === "ALLOCATED" ||
-        status.label === "PARTIALLY SHIPPED")
-    ) {
-      return {
-        label: "Mark shipped",
-        onClick: onShipOrder,
-        disabled: onShipOrderDisabled,
-      };
-    }
-    if (mode === "edit" && status && (status.label === "SHIPPED" || status.label === "CLOSED")) {
-      return {
-        label: "Return",
-        onClick: onReturn,
-        disabled: true,
-        tooltip: "Returns coming soon.",
-      };
-    }
-    return undefined;
-  })();
+  const primaryAction =
+    mode === "draft"
+      ? { label: "Create order", onClick: onCreate, disabled: onCreateDisabled }
+      : undefined;
 
   return (
     <CardPageHeader
@@ -148,7 +101,7 @@ export function OrderCardHeader({
           ) : null}
         </span>
       }
-      status={status ? <StatusLabel tone={toneMap[status.tone]}>{status.label}</StatusLabel> : null}
+      statusControl={statusControl}
       meta={description}
       saveState={saveState}
       primaryAction={primaryAction}

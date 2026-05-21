@@ -48,6 +48,12 @@ export type CardPageHeaderProps = {
   title: ReactNode;
   meta?: ReactNode;
   status?: ReactNode;
+  /**
+   * Interactive order-status control rendered in the top-right cluster (not inline with
+   * the title). Order pages pass an `OrderStatusControl` here; `status` remains for
+   * non-order pages that want an inline badge beside the title.
+   */
+  statusControl?: ReactNode;
   saveState?: CardSaveState | null;
   saveMessage?: string | null;
   primaryAction?: CardHeaderAction;
@@ -64,6 +70,7 @@ export function CardPageHeader({
   title,
   meta,
   status,
+  statusControl,
   saveState,
   saveMessage,
   primaryAction,
@@ -96,6 +103,7 @@ export function CardPageHeader({
         {meta ? <div className={styles.meta}>{meta}</div> : null}
       </div>
       <div className={styles.headerRight}>
+        {statusControl}
         {saveState ? (
           <CardSaveStatusIndicator state={saveState} message={saveMessage} />
         ) : null}

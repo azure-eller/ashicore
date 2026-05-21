@@ -5,6 +5,7 @@ import type {
 } from "@/lib/schemas/manufacturing-orders";
 import type {
   ManufacturingOrderDetail,
+  ManufacturingReleaseWarningPayload,
   ManufacturingSalesOrderPreview,
 } from "@/app/(dashboard)/manufacturing/types";
 
@@ -13,6 +14,8 @@ export class ManufacturingOrderApiError extends Error {
     message: string,
     public status: number,
     public fieldErrors?: Record<string, string[]>,
+    /** Populated on a 409 stock/requirement shortage so callers can confirm-and-retry. */
+    public shortage?: ManufacturingReleaseWarningPayload,
   ) {
     super(message);
     this.name = "ManufacturingOrderApiError";
@@ -22,17 +25,78 @@ export class ManufacturingOrderApiError extends Error {
 async function parseError(response: Response): Promise<never> {
   let message = `${response.status} ${response.statusText}`;
   let fieldErrors: Record<string, string[]> | undefined;
+  let shortage: ManufacturingReleaseWarningPayload | undefined;
   try {
     const body = (await response.json()) as {
       error?: string;
       errors?: Record<string, string[]>;
+      shortage?: ManufacturingReleaseWarningPayload;
     };
     if (body.error) message = body.error;
     if (body.errors) fieldErrors = body.errors;
+    if (body.shortage) shortage = body.shortage;
   } catch {
     // body wasn't JSON; keep status message
   }
-  throw new ManufacturingOrderApiError(message, response.status, fieldErrors);
+  throw new ManufacturingOrderApiError(message, response.status, fieldErrors, shortage);
+}
+
+export type OutputDisposition = "available" | "blocked";
+
+/**
+ * Finalize an MO: backflush ingredients and produce the good output, moving the order
+ * to `done`. On a 409 stock shortage the thrown error carries `.shortage`; retry with
+ * `confirmNegativeStock: true` after the user confirms.
+ */
+export async function completeManufacturingOrder(
+  orderId: string,
+  input: {
+    actualQuantity?: string;
+    outputDisposition: OutputDisposition;
+    confirmNegativeStock?: boolean;
+  },
+): Promise<{ id: string }> {
+  const response = await fetch(`/api/manufacturing-orders/${orderId}/complete`, {
+    method: "POST",
+    headers: createIdempotencyHeaders("completeManufacturingOrder", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify({
+      actualQuantity: input.actualQuantity,
+      outputDisposition: input.outputDisposition,
+      ingredientActuals: [],
+      confirmNegativeStock: input.confirmNegativeStock ?? false,
+    }),
+  });
+  if (!response.ok) return parseError(response);
+  return (await response.json()) as { id: string };
+}
+
+/**
+ * Record partial good output without closing the order (the order stays open for the
+ * remaining quantity). Same 409 shortage / confirm-and-retry contract as completion.
+ */
+export async function recordManufacturingOutput(
+  orderId: string,
+  input: {
+    quantity: string;
+    outputDisposition: OutputDisposition;
+    confirmNegativeStock?: boolean;
+  },
+): Promise<{ id: string }> {
+  const response = await fetch(`/api/manufacturing-orders/${orderId}/outputs`, {
+    method: "POST",
+    headers: createIdempotencyHeaders("recordManufacturingOutput", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify({
+      quantity: input.quantity,
+      outputDisposition: input.outputDisposition,
+      confirmNegativeStock: input.confirmNegativeStock ?? false,
+    }),
+  });
+  if (!response.ok) return parseError(response);
+  return (await response.json()) as { id: string };
 }
 
 /**

@@ -4,13 +4,18 @@ import type {
   PatchSalesOrderHeader,
   PatchSalesOrderLine,
 } from "@/lib/schemas/sales-orders";
-import type { SalesOrderDetail } from "@/app/(dashboard)/sales/types";
+import type {
+  NegativeStockWarningPayload,
+  SalesOrderDetail,
+} from "@/app/(dashboard)/sales/types";
 
 export class SalesOrderApiError extends Error {
   constructor(
     message: string,
     public status: number,
     public fieldErrors?: Record<string, string[]>,
+    /** Populated on a 409 stock shortage so callers can confirm-and-retry. */
+    public negativeStock?: NegativeStockWarningPayload,
   ) {
     super(message);
     this.name = "SalesOrderApiError";
@@ -27,7 +32,49 @@ async function parseError(response: Response, path: string): Promise<never> {
     body && typeof body === "object" && "errors" in body
       ? ((body as { errors?: Record<string, string[]> }).errors)
       : undefined;
-  throw new SalesOrderApiError(message, response.status, fieldErrors);
+  const negativeStock =
+    body && typeof body === "object" && "negativeStock" in body
+      ? ((body as { negativeStock?: NegativeStockWarningPayload }).negativeStock)
+      : undefined;
+  throw new SalesOrderApiError(message, response.status, fieldErrors, negativeStock);
+}
+
+/**
+ * Ship the whole sales order (all remaining). 409 carries `.negativeStock`.
+ * `syncAccounting` is intentionally omitted: the server defaults it on and only pushes
+ * a Xero invoice when the org's `autoPushSalesInvoices` setting is enabled, so invoicing
+ * is governed by settings — identical wherever shipping is triggered from.
+ */
+export async function shipSalesOrder(
+  orderId: string,
+  confirmNegativeStock: boolean,
+): Promise<void> {
+  const path = `/api/sales-orders/${orderId}/ship`;
+  const response = await fetch(path, {
+    method: "POST",
+    headers: createIdempotencyHeaders("shipSalesOrder", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify({ confirmNegativeStock }),
+  });
+  if (!response.ok) await parseError(response, path);
+}
+
+/** Mark a single planned shipment shipped. 409 carries `.negativeStock`. */
+export async function shipSalesShipment(
+  orderId: string,
+  shipmentId: string,
+  confirmNegativeStock: boolean,
+): Promise<void> {
+  const path = `/api/sales-orders/${orderId}/shipments/${shipmentId}/ship`;
+  const response = await fetch(path, {
+    method: "POST",
+    headers: createIdempotencyHeaders("shipSalesShipment", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify({ confirmNegativeStock }),
+  });
+  if (!response.ok) await parseError(response, path);
 }
 
 /** Create a sales order from the draft card. Returns the new order id. */

@@ -57,11 +57,23 @@ import {
   getSalesItemsState,
   type AllocationFilterValue,
 } from "@/lib/sales/order-display-status";
-import {
-  DeliveryActionCell,
-  ProductionActionCell,
-} from "./sales-order-table-action-cells";
+import { ProductionActionCell } from "./sales-order-table-action-cells";
+import { SalesStatusControl } from "@/components/sales/sales-status-control";
 import type { SalesOrderListRow } from "./types";
+
+function SalesDeliveryCell({ order }: { order: SalesOrderListRow }) {
+  const queryClient = useQueryClient();
+  return (
+    <SalesStatusControl
+      order={order}
+      size="sm"
+      onChanged={() => {
+        void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+        void queryClient.invalidateQueries({ queryKey: ["items"] });
+      }}
+    />
+  );
+}
 
 const OPEN_SALES_STATUSES = ["open"] as const;
 const DONE_SALES_STATUSES = ["done"] as const;
@@ -568,12 +580,7 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
         minWidth: 130,
         valueGetter: ({ data }) => (data ? getDeliveryState(data).label : ""),
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
-          data ? (
-            <DeliveryActionCell
-              order={data}
-              state={getDeliveryState(data)}
-            />
-          ) : null,
+          data ? <SalesDeliveryCell order={data} /> : null,
         comparator: (_left, _right, leftNode, rightNode) => {
           const leftOrder = leftNode.data;
           const rightOrder = rightNode.data;

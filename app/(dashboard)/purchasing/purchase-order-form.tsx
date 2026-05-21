@@ -107,7 +107,7 @@ import type {
   SupplierOption,
 } from "./types";
 import { SupplierSelect } from "./supplier-select";
-import { PurchaseOrderStatusBadge } from "./status-badge";
+import { PurchaseStatusControl } from "@/components/purchasing/purchase-status-control";
 import styles from "@/components/card-page/card-page.module.css";
 
 type PurchaseOrderFormValues = z.input<typeof insertPurchaseOrderSchema>;
@@ -1858,12 +1858,6 @@ export function PurchaseOrderForm({
       </span>
     </>
   );
-  const submitPurchaseOrderForm = () => {
-    void form.handleSubmit(
-      (values) => mutation.mutate(values),
-      handleInvalidSubmit,
-    )();
-  };
   const materialColumns = lineColumns.map((column) => {
     if (column.field === "itemId") return { ...column, headerName: "Item" };
     if (column.field === "quantityOrdered")
@@ -1887,25 +1881,18 @@ export function PurchaseOrderForm({
         <CardPageHeader
           title={displayTitle}
           meta={headerMeta}
-          status={
-            <PurchaseOrderStatusBadge
-              status={displayStatus}
-              className="w-[230px]"
-              disabled={!canWrite || !savedOrderId || statusMutation.isPending}
-              onStatusChange={(status) => statusMutation.mutate(status)}
-            />
+          statusControl={
+            savedOrderId ? (
+              <PurchaseStatusControl
+                orderId={savedOrderId}
+                status={displayStatus}
+                disabled={!canWrite || statusMutation.isPending}
+                onChanged={() => router.refresh()}
+              />
+            ) : null
           }
           saveState={cardSaveState}
           saveMessage={cardSaveMessage}
-          primaryAction={{
-            label: mutation.isPending ? "Saving..." : "Save changes",
-            onClick: submitPurchaseOrderForm,
-            disabled:
-              mutation.isPending ||
-              readOnly ||
-              autosave.state === "saving" ||
-              autosave.state === "dirty",
-          }}
           menuActions={[
             ...(savedOrderId && canViewLedger
               ? [
@@ -1923,6 +1910,22 @@ export function PurchaseOrderForm({
               onClick: () => duplicateMutation.mutate(),
               disabled: !savedOrderId || duplicateMutation.isPending,
             },
+            ...(savedOrderId &&
+            canWrite &&
+            (displayStatus === "draft" || displayStatus === "ordered")
+              ? [
+                  {
+                    label: "Cancel purchase order",
+                    destructive: true,
+                    onClick: () => {
+                      if (window.confirm("Cancel this PO? You can't reactivate it.")) {
+                        statusMutation.mutate("cancelled");
+                      }
+                    },
+                    disabled: statusMutation.isPending,
+                  },
+                ]
+              : []),
           ]}
           onClose={handleCancel}
           fallbackHref={fallbackPath}
