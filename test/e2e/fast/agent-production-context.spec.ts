@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { test, expect, type TestDb } from "../fixtures";
 import {
@@ -6,7 +7,7 @@ import {
   purchaseOrders,
   stockAllocations,
 } from "../../../lib/db/schema";
-import { getBaseUrl, testFetch } from "../../helpers/api";
+import { getBaseUrl, getSessionCookie, testFetch } from "../../helpers/api";
 
 async function readMutationSensitiveCounts(db: TestDb) {
   const [allocationCount] = await db
@@ -28,6 +29,22 @@ async function readMutationSensitiveCounts(db: TestDb) {
     manufacturingOrders: manufacturingOrderCount?.count ?? 0,
     purchaseOrders: purchaseOrderCount?.count ?? 0,
   };
+}
+
+async function readMcpJsonResponse(response: Response) {
+  const text = await response.text();
+
+  if (!text.startsWith("event:")) {
+    return JSON.parse(text);
+  }
+
+  const dataLine = text.split("\n").find((line) => line.startsWith("data: "));
+
+  if (!dataLine) {
+    throw new Error(`MCP SSE response did not include a data line: ${text}`);
+  }
+
+  return JSON.parse(dataLine.slice("data: ".length));
 }
 
 test.describe("Agent production planning context API", () => {
@@ -221,5 +238,123 @@ test.describe("Agent production planning context API", () => {
       }
     );
     expect(revokedResponse.status).toBe(401);
+  });
+
+  test("supports Claude remote MCP OAuth and tool calls", async () => {
+    const codeVerifier = randomBytes(32).toString("base64url");
+    const codeChallenge = createHash("sha256")
+      .update(codeVerifier)
+      .digest("base64url");
+    const redirectUri = "https://claude.ai/api/mcp/auth_callback";
+    const clientId = "https://claude.ai/.well-known/oauth-client";
+    const authorizeUrl = new URL(
+      `${getBaseUrl()}/api/agent/mcp/oauth/authorize`
+    );
+
+    authorizeUrl.searchParams.set("response_type", "code");
+    authorizeUrl.searchParams.set("client_id", clientId);
+    authorizeUrl.searchParams.set("redirect_uri", redirectUri);
+    authorizeUrl.searchParams.set("scope", "production_planning:read");
+    authorizeUrl.searchParams.set("state", "test-state");
+    authorizeUrl.searchParams.set("code_challenge", codeChallenge);
+    authorizeUrl.searchParams.set("code_challenge_method", "S256");
+
+    const authorizeResponse = await fetch(authorizeUrl, {
+      headers: {
+        Cookie: getSessionCookie(),
+        Origin: getBaseUrl(),
+      },
+      redirect: "manual",
+    });
+    expect(authorizeResponse.status).toBe(307);
+
+    const location = authorizeResponse.headers.get("location");
+    expect(location).toBeTruthy();
+    const callbackUrl = new URL(location!);
+    expect(callbackUrl.origin + callbackUrl.pathname).toBe(redirectUri);
+    expect(callbackUrl.searchParams.get("state")).toBe("test-state");
+    const code = callbackUrl.searchParams.get("code");
+    expect(code).toMatch(/^ash_mcp_code\./);
+
+    const tokenResponse = await fetch(
+      `${getBaseUrl()}/api/agent/mcp/oauth/token`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Origin: getBaseUrl(),
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: code!,
+          client_id: clientId,
+          redirect_uri: redirectUri,
+          code_verifier: codeVerifier,
+        }),
+      }
+    );
+    expect(tokenResponse.status).toBe(200);
+    const tokenBody = await tokenResponse.json();
+    expect(tokenBody.access_token).toMatch(/^ash_mcp_access\./);
+    expect(tokenBody.refresh_token).toMatch(/^ash_mcp_refresh\./);
+    expect(tokenBody.scope).toBe("production_planning:read");
+
+    const unauthenticatedMcpResponse = await fetch(
+      `${getBaseUrl()}/api/agent/mcp`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Origin: getBaseUrl(),
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: {
+            name: "get_production_planning_context",
+            arguments: {},
+          },
+        }),
+      }
+    );
+    expect(unauthenticatedMcpResponse.status).toBe(401);
+    expect(unauthenticatedMcpResponse.headers.get("www-authenticate")).toContain(
+      "/.well-known/oauth-protected-resource/api/agent/mcp"
+    );
+
+    const toolResponse = await fetch(
+      `${getBaseUrl()}/api/agent/mcp`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${tokenBody.access_token}`,
+          Origin: getBaseUrl(),
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: {
+            name: "get_production_planning_context",
+            arguments: {},
+          },
+        }),
+      }
+    );
+    expect(toolResponse.status).toBe(200);
+    const toolBody = await readMcpJsonResponse(toolResponse);
+    const toolText = toolBody.result.content[0].text;
+    const context = JSON.parse(toolText);
+
+    expect(Array.isArray(context.openSalesOrders)).toBe(true);
+    expect(Array.isArray(context.openManufacturingOrders)).toBe(true);
+    expect(Array.isArray(context.productCounts)).toBe(true);
+    expect(Array.isArray(context.productRequirements)).toBe(true);
+    expect(context).not.toHaveProperty("orgId");
+    expect(context).not.toHaveProperty("today");
   });
 });

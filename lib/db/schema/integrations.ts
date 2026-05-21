@@ -296,6 +296,7 @@ export const integrationAuditEvents = integrationsSchema
   .enableRLS();
 
 export type AgentApiTokenScope = "production_planning:read";
+export type AgentMcpOAuthScope = "production_planning:read";
 
 export const agentApiTokens = integrationsSchema
   .table(
@@ -330,6 +331,95 @@ export const agentApiTokens = integrationsSchema
         .on(table.organizationId, table.revokedAt)
         .where(sql`revoked_at IS NULL`),
       pgPolicy("agent_api_tokens_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const agentMcpOAuthCodes = integrationsSchema
+  .table(
+    "agent_mcp_oauth_codes",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      userId: text("user_id").notNull(),
+      clientId: text("client_id").notNull(),
+      redirectUri: text("redirect_uri").notNull(),
+      codeHash: text("code_hash").notNull(),
+      codeChallenge: text("code_challenge").notNull(),
+      codeChallengeMethod: varchar("code_challenge_method", { length: 20 }).notNull(),
+      scopes: jsonb("scopes")
+        .$type<AgentMcpOAuthScope[]>()
+        .notNull()
+        .default(sql`'["production_planning:read"]'::jsonb`),
+      expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+      consumedAt: timestamp("consumed_at", { withTimezone: true }),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      uniqueIndex("agent_mcp_oauth_codes_hash_uidx").on(table.codeHash),
+      index("agent_mcp_oauth_codes_org_created_idx").on(
+        table.organizationId,
+        table.createdAt
+      ),
+      index("agent_mcp_oauth_codes_expiry_idx").on(table.expiresAt),
+      pgPolicy("agent_mcp_oauth_codes_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const agentMcpOAuthTokens = integrationsSchema
+  .table(
+    "agent_mcp_oauth_tokens",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      userId: text("user_id").notNull(),
+      clientId: text("client_id").notNull(),
+      accessTokenHash: text("access_token_hash").notNull(),
+      refreshTokenHash: text("refresh_token_hash").notNull(),
+      scopes: jsonb("scopes")
+        .$type<AgentMcpOAuthScope[]>()
+        .notNull()
+        .default(sql`'["production_planning:read"]'::jsonb`),
+      accessTokenExpiresAt: timestamp("access_token_expires_at", {
+        withTimezone: true,
+      }).notNull(),
+      refreshTokenExpiresAt: timestamp("refresh_token_expires_at", {
+        withTimezone: true,
+      }).notNull(),
+      lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+      revokedAt: timestamp("revoked_at", { withTimezone: true }),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true })
+        .notNull()
+        .defaultNow()
+        .$onUpdate(() => new Date()),
+    },
+    (table) => [
+      uniqueIndex("agent_mcp_oauth_tokens_access_hash_uidx").on(
+        table.accessTokenHash
+      ),
+      uniqueIndex("agent_mcp_oauth_tokens_refresh_hash_uidx").on(
+        table.refreshTokenHash
+      ),
+      index("agent_mcp_oauth_tokens_org_created_idx").on(
+        table.organizationId,
+        table.createdAt
+      ),
+      index("agent_mcp_oauth_tokens_active_idx")
+        .on(table.organizationId, table.revokedAt)
+        .where(sql`revoked_at IS NULL`),
+      pgPolicy("agent_mcp_oauth_tokens_org_isolation", {
         for: "all",
         to: "public",
         using: sql`organization_id = current_setting('app.current_org_id', true)`,

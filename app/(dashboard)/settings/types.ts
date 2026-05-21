@@ -51,6 +51,8 @@ export type AgentApiTokenRow = {
 export type AgentAccessPageData = {
   tokens: AgentApiTokenRow[];
   openApiUrl: string;
+  mcpServerUrl: string;
+  claudeInstallUrl: string;
 };
 
 export type PublicInvitationDetails = {
