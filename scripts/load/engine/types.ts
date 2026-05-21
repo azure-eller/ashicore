@@ -41,6 +41,7 @@ export type ItemSeed = {
   bom?: Array<{
     componentKey: string;
     quantity: string;
+    everyQuantity?: string | null;
     consumptionMode?: "per_output_unit" | "per_batch" | "per_group";
     basisOutputQuantity?: string | null;
     batchScalingMode?: "proportional" | "full_batches_only" | null;
@@ -101,6 +102,7 @@ export type ExistingBomRow = {
   itemId: string;
   componentId: string;
   quantity: string;
+  everyQuantity: string;
   consumptionMode: string;
   basisOutputQuantity: string | null;
   batchScalingMode: string | null;
@@ -112,6 +114,7 @@ export type ExistingBomRow = {
 export type BomSeedRow = {
   componentId: string;
   quantity: string;
+  everyQuantity: string;
   consumptionMode: "per_output_unit" | "per_batch" | "per_group";
   basisOutputQuantity: string | null;
   batchScalingMode: "proportional" | "full_batches_only" | null;

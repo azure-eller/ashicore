@@ -799,6 +799,13 @@
       "when": 1779300000003,
       "tag": "0113_bom_every_quantity",
       "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1779300000004,
+      "tag": "0114_repair_bom_every_quantities",
+      "breakpoints": true
     }
   ]
 }

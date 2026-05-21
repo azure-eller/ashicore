@@ -27,10 +27,20 @@ function normalizeOptionalNumeric(value: string | null | undefined) {
   return value == null ? "" : normalizeNumeric(Number(value));
 }
 
+export function resolveSeedBomOutputQuantity(seed: ItemSeed) {
+  return (
+    seed.expectedBatchYield ??
+    seed.typicalBatchSize ??
+    seed.typicalGroupSize ??
+    "1"
+  );
+}
+
 export function buildBomSignature(
   rows: Array<{
     componentId: string;
     quantity: string;
+    everyQuantity?: string | null;
     consumptionMode?: string | null;
     basisOutputQuantity?: string | null;
     batchScalingMode?: string | null;
@@ -43,6 +53,8 @@ export function buildBomSignature(
     .map(
       (row) =>
         `${row.componentId}:${normalizeNumeric(Number(row.quantity))}:${
+          normalizeOptionalNumeric(row.everyQuantity)
+        }:${
           row.consumptionMode ?? "per_output_unit"
         }:${normalizeOptionalNumeric(row.basisOutputQuantity)}:${row.batchScalingMode ?? ""}:${
           row.groupRemainderPolicy ?? ""
@@ -60,6 +72,7 @@ export function resolveSeedBomConsumption(
 ): Pick<
   BomSeedRow,
   | "consumptionMode"
+  | "everyQuantity"
   | "basisOutputQuantity"
   | "batchScalingMode"
   | "groupRemainderPolicy"
@@ -77,6 +90,7 @@ export function resolveSeedBomConsumption(
 
     return {
       consumptionMode,
+      everyQuantity: row.everyQuantity ?? basisOutputQuantity,
       basisOutputQuantity,
       batchScalingMode: row.batchScalingMode ?? "full_batches_only",
       groupRemainderPolicy: null,
@@ -92,6 +106,7 @@ export function resolveSeedBomConsumption(
 
     return {
       consumptionMode,
+      everyQuantity: row.everyQuantity ?? basisOutputQuantity,
       basisOutputQuantity,
       batchScalingMode: null,
       groupRemainderPolicy: row.groupRemainderPolicy ?? "ask",
@@ -101,6 +116,7 @@ export function resolveSeedBomConsumption(
 
   return {
     consumptionMode: "per_output_unit",
+    everyQuantity: row.everyQuantity ?? "1",
     basisOutputQuantity: null,
     batchScalingMode: null,
     groupRemainderPolicy: null,
@@ -119,6 +135,7 @@ export async function loadCurrentBomRowsInTx(tx: Tx, productIds: string[]) {
       bomRevisionComponentId: bomRevisionComponents.id,
       componentId: bomRevisionComponents.componentId,
       quantity: bomRevisionComponents.quantity,
+      everyQuantity: bomRevisionComponents.everyQuantity,
       consumptionMode: bomRevisionComponents.consumptionMode,
       basisOutputQuantity: bomRevisionComponents.basisOutputQuantity,
       batchScalingMode: bomRevisionComponents.batchScalingMode,
@@ -181,6 +198,7 @@ export async function loadCurrentBomRowsInTx(tx: Tx, productIds: string[]) {
     itemId: row.itemId,
     componentId: row.componentId,
     quantity: row.quantity,
+    everyQuantity: row.everyQuantity,
     consumptionMode: row.consumptionMode,
     basisOutputQuantity: row.basisOutputQuantity,
     batchScalingMode: row.batchScalingMode,
@@ -197,6 +215,7 @@ export async function createLoaderBomRevisionInTx(
   params: {
     orgId: string;
     productId: string;
+    outputQuantity: string;
     bom: BomSeedRow[];
     createdBy: string;
     note: string;
@@ -226,6 +245,7 @@ export async function createLoaderBomRevisionInTx(
       organizationId: params.orgId,
       productId: params.productId,
       revisionNumber: (currentRevision?.revisionNumber ?? 0) + 1,
+      outputQuantity: params.outputQuantity,
       isCurrent: true,
       note: params.note,
       createdBy: params.createdBy,
@@ -265,6 +285,7 @@ export async function createLoaderBomRevisionInTx(
         componentItemType: component.itemType,
         unitName: component.unitName,
         quantity: row.quantity,
+        everyQuantity: row.everyQuantity,
         consumptionMode: row.consumptionMode,
         basisOutputQuantity: row.basisOutputQuantity,
         batchScalingMode: row.batchScalingMode,
@@ -512,6 +533,7 @@ export async function applyBomsSyncInTx(
     await createLoaderBomRevisionInTx(tx, {
       orgId,
       productId: itemId,
+      outputQuantity: resolveSeedBomOutputQuantity(seed),
       bom: nextRows,
       createdBy,
       note: revisionNote,
