@@ -757,13 +757,13 @@ test.describe("Sales order flow", () => {
 
     await page.reload();
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Plan shipment" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "New shipment" }).first()).toBeVisible();
   });
 
   test("confirmed orders can be edited from detail", async ({ page }) => {
     await page.goto(`/sales/orders/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Plan shipment" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "New shipment" }).first()).toBeVisible();
     await page.getByRole("button", { name: "More actions" }).click();
     await expect(page.getByRole("menuitem", { name: "Delete order" })).toBeVisible();
     await page.keyboard.press("Escape");

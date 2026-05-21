@@ -2468,10 +2468,39 @@ async function createPlannedShipmentsFromOrderPayloadInTx(
   orgId: string,
   order: AutoPlannedShipmentOrderSnapshot & { status: string },
   shipments: InsertSalesOrder["shipments"],
-  insertedLines: Array<{ salesOrderLineId: string; itemId: string }>,
-  actorUserId?: string | null
+  insertedLines: Array<{ salesOrderLineId: string; itemId: string; quantity: string }>,
+  actorUserId?: string | null,
+  options: { createDefaultFromOrderDates?: boolean } = {}
 ) {
   if (shipments.length === 0) {
+    const scheduledDate = order.shipDate ?? order.requestedDate;
+    const deliveryDate = order.requestedDate ?? order.shipDate;
+
+    if (
+      options.createDefaultFromOrderDates &&
+      scheduledDate &&
+      deliveryDate &&
+      insertedLines.length > 0
+    ) {
+      await upsertPlannedShipmentForFulfillmentPlanInTx(
+        tx,
+        orgId,
+        order,
+        {
+          fulfillmentType: "delivery",
+          shipDate: scheduledDate,
+          deliveryDate,
+          shipmentNotes: null,
+          shipmentLines: insertedLines.map((line) => ({
+            salesOrderLineId: line.salesOrderLineId,
+            quantity: line.quantity,
+          })),
+        },
+        actorUserId,
+        { createNew: true }
+      );
+    }
+
     await syncSalesOrderShipDateFromShipmentsInTx(tx, order.id);
     return;
   }
@@ -6043,7 +6072,8 @@ export async function createSalesOrder(
       },
       data.shipments,
       insertedLines,
-      userId
+      userId,
+      { createDefaultFromOrderDates: true }
     );
 
     if (isOpenSalesOrderStatus(data.status)) {

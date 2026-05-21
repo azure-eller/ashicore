@@ -3,25 +3,22 @@
 import { createContext, useContext, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxSeparator,
-} from "@/components/ui/combobox";
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { EntityCombobox } from "@/components/entity-combobox";
-import { DatePicker } from "@/components/ui/date-picker";
+import {
+  DeliveryAddressInput,
+  makeDeliveryAddressOption,
+  normalizeDeliveryAddress,
+  type DeliveryAddressFields,
+  type DeliveryAddressOption,
+} from "@/components/delivery-address-input";
 import { patchSalesOrderHeader } from "@/lib/api/clients/sales-orders";
-import { formatAddressLines, formatDate, normalizeAddressFields } from "@/lib/format";
 import type {
   CustomerOption,
   SalesOrderDetail,
@@ -68,23 +65,10 @@ export function OrderDetailsGrid({
             customerOptions={customerOptions}
           />
           <ProjectCell order={order} editable={editable} projects={customerProjects} />
-          <DateCell
-            editable={editable}
-            field="orderDate"
-            label="Order date"
-            value={order.orderDate}
-          />
           <AddressCell
             order={order}
             editable={editable}
-            customerOptions={customerOptions}
             addressOptions={addressOptions}
-          />
-          <DateCell
-            editable={editable}
-            field="shipDate"
-            label="Ship date"
-            value={order.shipDate}
           />
         </div>
       </section>
@@ -195,7 +179,6 @@ function ProjectCell({
           }
           commit(next);
         }}
-        disabled={projects.length === 0}
       >
         <SelectTrigger className="h-(--height-input-sm) text-[length:var(--text-sm)]">
           <SelectValue placeholder={projects.length === 0 ? "No projects" : "No project"} />
@@ -213,201 +196,49 @@ function ProjectCell({
   );
 }
 
-function DateCell({
-  editable,
-  field,
-  label,
-  value,
-}: {
-  editable: boolean;
-  field: "orderDate" | "shipDate";
-  label: string;
-  value: string | null;
-}) {
-  const { draft } = useContext(DetailsContext);
-  const commit = useFieldCommit(field);
-  const commitPatch = useHeaderPatchCommit(field);
-
-  if (!editable) {
-    return (
-      <CellShell label={label}>
-        {value ? (
-          <div className={`${styles.detailsCellValue} ${cardStyles.mono}`}>{formatDate(value)}</div>
-        ) : (
-          <div className={`${styles.detailsCellValue} ${styles.detailsCellPlaceholder}`}>—</div>
-        )}
-      </CellShell>
-    );
-  }
-
-  return (
-    <CellShell label={label}>
-      <DatePicker
-        value={value ?? ""}
-        onChange={(next) => {
-          const normalized = field === "orderDate" ? next || "" : next || null;
-          if (field === "orderDate" && !normalized) return;
-          if (normalized === (value ?? (field === "orderDate" ? "" : null))) return;
-          if (field === "shipDate") {
-            const patch = { shipDate: normalized, requestedDate: normalized };
-            if (draft) {
-              draft.patchHeader(patch);
-              return;
-            }
-            commitPatch(patch);
-            return;
-          }
-          if (draft) {
-            draft.patchHeader({ [field]: normalized } as PatchSalesOrderHeader);
-            return;
-          }
-          commit(normalized);
-        }}
-      />
-    </CellShell>
+function customerDefaultShipAddressPatch(
+  customer: CustomerOption | undefined
+): SalesShipAddressPatch {
+  return salesAddressPatch(
+    normalizeDeliveryAddress({
+      shipLine1: customer?.shipLine1 ?? customer?.billingLine1 ?? null,
+      shipLine2: customer?.shipLine2 ?? customer?.billingLine2 ?? null,
+      shipCity: customer?.shipCity ?? customer?.billingCity ?? null,
+      shipRegion: customer?.shipRegion ?? customer?.billingRegion ?? null,
+      shipPostcode: customer?.shipPostcode ?? customer?.billingPostcode ?? null,
+      shipCountry: customer?.shipCountry ?? customer?.billingCountry ?? null,
+    })
   );
 }
 
-type SalesShipAddressFields = Pick<
+type SalesShipAddressPatch = Pick<
   PatchSalesOrderHeader,
   "shipLine1" | "shipLine2" | "shipCity" | "shipRegion" | "shipPostcode" | "shipCountry"
 >;
 
-type SalesShipAddressOption = SalesShipAddressFields & {
-  id: string;
-  label: string;
-  source: "address_book" | "customer_shipping" | "customer_billing" | "current";
-};
-
-const CLEAR_SHIP_ADDRESS_VALUE = "__clear_ship_address__";
-
-function normalizeSalesShipAddress(
-  address: Partial<SalesShipAddressFields> | null | undefined
-): SalesShipAddressFields {
-  const normalized = normalizeAddressFields({
-    line1: address?.shipLine1,
-    line2: address?.shipLine2,
-    city: address?.shipCity,
-    region: address?.shipRegion,
-    postcode: address?.shipPostcode,
-    country: address?.shipCountry,
-  });
-
+function salesAddressPatch(address: DeliveryAddressFields): SalesShipAddressPatch {
   return {
-    shipLine1: normalized.line1,
-    shipLine2: normalized.line2,
-    shipCity: normalized.city,
-    shipRegion: normalized.region,
-    shipPostcode: normalized.postcode,
-    shipCountry: normalized.country,
+    shipLine1: address.shipLine1 ?? null,
+    shipLine2: address.shipLine2 ?? null,
+    shipCity: address.shipCity ?? null,
+    shipRegion: address.shipRegion ?? null,
+    shipPostcode: address.shipPostcode ?? null,
+    shipCountry: address.shipCountry ?? null,
   };
-}
-
-function salesShipAddressKey(address: Partial<SalesShipAddressFields> | null | undefined) {
-  const normalized = normalizeSalesShipAddress(address);
-  return [
-    normalized.shipLine1,
-    normalized.shipLine2,
-    normalized.shipCity,
-    normalized.shipRegion,
-    normalized.shipPostcode,
-    normalized.shipCountry,
-  ]
-    .map((part) => part ?? "")
-    .join("\u001f")
-    .replace(/^\u001f+|\u001f+$/g, "");
-}
-
-function salesShipAddressLabel(address: Partial<SalesShipAddressFields>) {
-  return formatAddressLines({
-    line1: address.shipLine1,
-    line2: address.shipLine2,
-    city: address.shipCity,
-    region: address.shipRegion,
-    postcode: address.shipPostcode,
-    country: address.shipCountry,
-  }).join(", ");
-}
-
-function makeSalesShipAddressOption(
-  address: Partial<SalesShipAddressFields>,
-  label: string | null | undefined,
-  source: SalesShipAddressOption["source"]
-): SalesShipAddressOption | null {
-  const normalized = normalizeSalesShipAddress(address);
-  const key = salesShipAddressKey(normalized);
-  if (!key) return null;
-
-  return {
-    ...normalized,
-    id: `${source}:${encodeURIComponent(key)}`,
-    label: label?.trim() || salesShipAddressLabel(normalized),
-    source,
-  };
-}
-
-function customerDefaultShipAddressPatch(
-  customer: CustomerOption | undefined
-): SalesShipAddressFields {
-  return normalizeSalesShipAddress({
-    shipLine1: customer?.shipLine1 ?? customer?.billingLine1 ?? null,
-    shipLine2: customer?.shipLine2 ?? customer?.billingLine2 ?? null,
-    shipCity: customer?.shipCity ?? customer?.billingCity ?? null,
-    shipRegion: customer?.shipRegion ?? customer?.billingRegion ?? null,
-    shipPostcode: customer?.shipPostcode ?? customer?.billingPostcode ?? null,
-    shipCountry: customer?.shipCountry ?? customer?.billingCountry ?? null,
-  });
 }
 
 function buildSalesShipAddressOptions(
   order: SalesOrderDetail,
-  customerOptions: CustomerOption[],
   addressOptions: SalesAddressOption[]
 ) {
-  const options = new Map<string, SalesShipAddressOption>();
-  const keys = new Set<string>();
-  const add = (option: SalesShipAddressOption | null) => {
-    if (!option) return;
-    const key = salesShipAddressKey(option);
-    if (keys.has(key)) return;
-    keys.add(key);
-    options.set(option.id, option);
+  const options = new Map<string, DeliveryAddressOption>();
+  const add = (option: DeliveryAddressOption | null) => {
+    if (option) options.set(option.id, option);
   };
-  const customer = customerOptions.find((candidate) => candidate.id === order.customerId);
 
-  if (customer) {
-    add(
-      makeSalesShipAddressOption(
-        {
-          shipLine1: customer.shipLine1,
-          shipLine2: customer.shipLine2,
-          shipCity: customer.shipCity,
-          shipRegion: customer.shipRegion,
-          shipPostcode: customer.shipPostcode,
-          shipCountry: customer.shipCountry,
-        },
-        "Customer shipping address",
-        "customer_shipping"
-      )
-    );
-    add(
-      makeSalesShipAddressOption(
-        {
-          shipLine1: customer.billingLine1,
-          shipLine2: customer.billingLine2,
-          shipCity: customer.billingCity,
-          shipRegion: customer.billingRegion,
-          shipPostcode: customer.billingPostcode,
-          shipCountry: customer.billingCountry,
-        },
-        "Customer billing address",
-        "customer_billing"
-      )
-    );
-  }
   for (const address of addressOptions) {
     add(
-      makeSalesShipAddressOption(
+      makeDeliveryAddressOption(
         {
           shipLine1: address.line1,
           shipLine2: address.line2,
@@ -417,24 +248,22 @@ function buildSalesShipAddressOptions(
           shipCountry: address.country,
         },
         address.label,
-        "address_book"
+        address.notes
       )
     );
   }
-  add(
-    makeSalesShipAddressOption(
-      {
-        shipLine1: order.shipLine1,
-        shipLine2: order.shipLine2,
-        shipCity: order.shipCity,
-        shipRegion: order.shipRegion,
-        shipPostcode: order.shipPostcode,
-        shipCountry: order.shipCountry,
-      },
-      "Current shipping address",
-      "current"
-    )
+
+  const current = makeDeliveryAddressOption(
+    {
+      shipLine1: order.shipLine1,
+      shipLine2: order.shipLine2,
+      shipCity: order.shipCity,
+      shipRegion: order.shipRegion,
+      shipPostcode: order.shipPostcode,
+      shipCountry: order.shipCountry,
+    }
   );
+  if (current && !options.has(current.id)) add(current);
 
   return [...options.values()];
 }
@@ -442,19 +271,17 @@ function buildSalesShipAddressOptions(
 function AddressCell({
   order,
   editable,
-  customerOptions,
   addressOptions,
 }: {
   order: SalesOrderDetail;
   editable: boolean;
-  customerOptions: CustomerOption[];
   addressOptions: SalesAddressOption[];
 }) {
   const { draft, orderId } = useContext(DetailsContext);
   const queryClient = useQueryClient();
   const addressMutation = useMutation({
     mutationKey: ["sales-order", orderId, "patch", "shipAddress"],
-    mutationFn: (patch: SalesShipAddressFields) =>
+    mutationFn: (patch: SalesShipAddressPatch) =>
       patchSalesOrderHeader(orderId, patch),
     onSuccess: (next) => {
       queryClient.setQueryData(["sales-order", orderId], next);
@@ -464,12 +291,22 @@ function AddressCell({
     },
   });
 
-  const commitAddress = (address: SalesShipAddressFields) => {
+  const commitAddress = (address: DeliveryAddressFields | null) => {
+    const patch = address
+      ? salesAddressPatch(address)
+      : {
+          shipLine1: null,
+          shipLine2: null,
+          shipCity: null,
+          shipRegion: null,
+          shipPostcode: null,
+          shipCountry: null,
+        };
     if (draft) {
-      draft.patchHeader(address);
+      draft.patchHeader(patch);
       return;
     }
-    addressMutation.mutate(address);
+    addressMutation.mutate(patch);
   };
 
   if (!editable) {
@@ -500,7 +337,7 @@ function AddressCell({
     );
   }
 
-  const normalizedCurrent = normalizeSalesShipAddress({
+  const currentAddress = normalizeDeliveryAddress({
     shipLine1: order.shipLine1,
     shipLine2: order.shipLine2,
     shipCity: order.shipCity,
@@ -508,89 +345,28 @@ function AddressCell({
     shipPostcode: order.shipPostcode,
     shipCountry: order.shipCountry,
   });
-  const currentAddressId = salesShipAddressKey(normalizedCurrent);
   const shipAddressOptions = buildSalesShipAddressOptions(
     order,
-    customerOptions,
     addressOptions
   );
-  const selectedAddressId =
-    shipAddressOptions.find(
-      (option) => salesShipAddressKey(option) === currentAddressId
-    )?.id ?? "";
-  const optionMap = new Map(shipAddressOptions.map((option) => [option.id, option]));
-  const items = [
-    ...shipAddressOptions.map((option) => option.id),
-    ...(currentAddressId ? [CLEAR_SHIP_ADDRESS_VALUE] : []),
-  ];
 
   return (
     <CellShell label="Ship to" span={2}>
-      <Combobox
-        items={items}
-        value={selectedAddressId}
-        onValueChange={(nextValue) => {
-          if (!nextValue || nextValue === CLEAR_SHIP_ADDRESS_VALUE) {
-            commitAddress({
-              shipLine1: null,
-              shipLine2: null,
-              shipCity: null,
-              shipRegion: null,
-              shipPostcode: null,
-              shipCountry: null,
-            });
-            return;
-          }
-          const selected = optionMap.get(nextValue);
-          if (selected) {
-            commitAddress({
-              shipLine1: selected.shipLine1,
-              shipLine2: selected.shipLine2,
-              shipCity: selected.shipCity,
-              shipRegion: selected.shipRegion,
-              shipPostcode: selected.shipPostcode,
-              shipCountry: selected.shipCountry,
-            });
-          }
-        }}
-        itemToStringLabel={(itemId) => {
-          if (itemId === CLEAR_SHIP_ADDRESS_VALUE) return "Clear shipping address";
-          return optionMap.get(itemId)?.label ?? "";
-        }}
-      >
-        <ComboboxInput
-          placeholder="Address book"
-          showClear={currentAddressId !== ""}
-          className="h-(--height-input-sm) w-full text-[length:var(--text-sm)]"
-        />
-        <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
-          <ComboboxEmpty>No addresses found</ComboboxEmpty>
-          <ComboboxList>
-            {(itemId: string) => {
-              if (itemId === CLEAR_SHIP_ADDRESS_VALUE) {
-                return (
-                  <ComboboxItem key={itemId} value={itemId}>
-                    Clear shipping address
-                  </ComboboxItem>
-                );
-              }
-
-              const option = optionMap.get(itemId);
-              return (
-                <ComboboxItem key={itemId} value={itemId}>
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate">{option?.label}</span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      {option ? salesShipAddressLabel(option) : ""}
-                    </span>
-                  </span>
-                </ComboboxItem>
-              );
-            }}
-          </ComboboxList>
-          {currentAddressId ? <ComboboxSeparator /> : null}
-        </ComboboxContent>
-      </Combobox>
+      <div className="flex items-start gap-(--space-4)">
+        <div className="min-w-0 flex-1">
+          <DeliveryAddressInput
+            id="sales-order-shipping-address"
+            value={currentAddress}
+            options={shipAddressOptions}
+            onChange={commitAddress}
+            inputClassName="h-(--height-input-sm) w-full text-[length:var(--text-sm)]"
+          />
+        </div>
+        <label className="flex shrink-0 items-center gap-(--space-2) pt-(--space-2) text-[length:var(--text-sm)] text-foreground">
+          <Checkbox checked disabled aria-label="Billing address is same as shipping address" />
+          <span>Billing same as shipping</span>
+        </label>
+      </div>
     </CellShell>
   );
 }

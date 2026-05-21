@@ -142,6 +142,28 @@ function activeShipmentCount(order: SalesOrderListRow) {
   return order.shipments.length;
 }
 
+function getOrderShipmentSchedule(order: SalesOrderListRow) {
+  const openShipments = order.shipments.filter(
+    (shipment) => shipment.status === "planned"
+  );
+  const datedShipments = (openShipments.length > 0 ? openShipments : order.shipments)
+    .filter((shipment) => shipment.scheduledDate)
+    .sort((left, right) =>
+      String(left.scheduledDate).localeCompare(String(right.scheduledDate))
+    );
+  const firstDate = datedShipments[0]?.scheduledDate ?? null;
+  const uniqueDates = new Set(
+    datedShipments.map((shipment) => shipment.scheduledDate).filter(Boolean)
+  );
+
+  return {
+    date: firstDate,
+    label: firstDate
+      ? `${formatDate(firstDate)}${uniqueDates.size > 1 ? ` +${uniqueDates.size - 1}` : ""}`
+      : "—",
+  };
+}
+
 function SalesItemsActionCell({ order }: { order: SalesOrderListRow }) {
   const state = getSalesItemsState(order);
   const isAllocationLink =
@@ -242,7 +264,8 @@ function salesOrderMatchesSearch(order: SalesOrderListRow, searchValue: string) 
     order.customerName,
     order.notes,
     order.totalAmount,
-    order.shipDate,
+    getOrderShipmentSchedule(order).date,
+    getOrderShipmentSchedule(order).label,
     getSalesItemsState(order).label,
     getProductionState(order).label,
     getDeliveryState(order).label,
@@ -402,7 +425,7 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
     0
   );
   const shipsThisWeek = openOrders.filter((order) =>
-    isThisWeek(order.shipDate ?? order.requestedDate)
+    isThisWeek(getOrderShipmentSchedule(order).date)
   ).length;
   const displayedOrders = useMemo(() => {
     const allowedStatuses =
@@ -574,21 +597,27 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
             doneSalesOrderRank(leftOrder) - doneSalesOrderRank(rightOrder);
           if (doneRank !== 0) return doneRank;
 
-          return (leftOrder.shipDate ?? "").localeCompare(
-            rightOrder.shipDate ?? ""
+          return (getOrderShipmentSchedule(leftOrder).date ?? "").localeCompare(
+            getOrderShipmentSchedule(rightOrder).date ?? ""
           );
         },
       },
       {
-        field: "shipDate",
+        colId: "shipDate",
         headerName: "Ship by",
         headerTooltip: SALES_ORDER_SHIP_DATE_TOOLTIP,
         width: 100,
         minWidth: 100,
         cellClass: "mono",
-        valueFormatter: ({ value }) => formatDate(value as string | null),
-        comparator: (left, right, leftNode, rightNode) => {
-          const dateCompare = String(left ?? "").localeCompare(String(right ?? ""));
+        valueGetter: ({ data }) => (data ? getOrderShipmentSchedule(data).date : null),
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
+          data ? getOrderShipmentSchedule(data).label : "—",
+        comparator: (_left, _right, leftNode, rightNode) => {
+          const dateCompare = String(
+            leftNode.data ? getOrderShipmentSchedule(leftNode.data).date : ""
+          ).localeCompare(
+            String(rightNode.data ? getOrderShipmentSchedule(rightNode.data).date : "")
+          );
 
           if (dateCompare !== 0) {
             return dateCompare;

@@ -182,6 +182,7 @@ export function orderToUpdatePayload(
   mutate?: (lines: SalesOrderDetail["lines"]) => SalesOrderDetail["lines"],
 ): InsertSalesOrder {
   const lines = mutate ? mutate(order.lines) : order.lines;
+  const lineItemIds = new Set(lines.map((line) => line.itemId));
   return {
     orderNumber: order.orderNumber,
     customerId: order.customerId,
@@ -204,16 +205,23 @@ export function orderToUpdatePayload(
     })),
     shipments: order.shipments
       .filter((shipment) => shipment.status === "planned")
-      .map((shipment) => ({
-        fulfillmentType: shipment.fulfillmentType,
-        scheduledDate: shipment.scheduledDate,
-        deliveryDate: shipment.deliveryDate,
-        notes: shipment.notes,
-        lines: shipment.lines.map((line) => ({
-          itemId: line.itemId,
-          quantity: line.quantity,
-        })),
-      })),
+      .map((shipment) => {
+        const shipmentLines = shipment.lines
+          .filter((line) => lineItemIds.has(line.itemId))
+          .map((line) => ({
+            itemId: line.itemId,
+            quantity: line.quantity,
+          }));
+
+        return {
+          fulfillmentType: shipment.fulfillmentType,
+          scheduledDate: shipment.scheduledDate,
+          deliveryDate: shipment.deliveryDate,
+          notes: shipment.notes,
+          lines: shipmentLines,
+        };
+      })
+      .filter((shipment) => shipment.lines.length > 0),
   } as InsertSalesOrder;
 }
 

@@ -16,6 +16,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { StatusLabel, type StatusTone } from "@/components/ui/status-label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
@@ -42,8 +49,8 @@ export type OrderCardHeaderProps = {
   /** CTA handlers — only the one matching the current status is rendered. */
   onCreate?: () => void;
   onCreateDisabled?: boolean;
-  onPlanShipment?: () => void;
-  onPlanShipmentDisabled?: boolean;
+  onShipOrder?: () => void;
+  onShipOrderDisabled?: boolean;
   onReturn?: () => void;
   /** ⋯ menu callbacks. Items hide when the callback is missing. */
   onDuplicate?: () => void;
@@ -75,8 +82,8 @@ export function OrderCardHeader({
   draftHasError,
   onCreate,
   onCreateDisabled,
-  onPlanShipment,
-  onPlanShipmentDisabled,
+  onShipOrder,
+  onShipOrderDisabled,
   onReturn,
   onDuplicate,
   onPushXero,
@@ -109,6 +116,12 @@ export function OrderCardHeader({
     : "New sales order";
 
   const description = order ? buildDescriptionLine(order) : null;
+  const deliveryStatusValue = (() => {
+    if (!status) return "not_shipped";
+    if (status.label === "SHIPPED" || status.label === "CLOSED") return "shipped";
+    if (status.label === "PARTIALLY SHIPPED") return "partially_shipped";
+    return "not_shipped";
+  })();
 
   // Save-indicator state. Edit mode reads from the live mutation aggregator.
   // Draft mode is driven by the parent (Create order POST).
@@ -164,15 +177,27 @@ export function OrderCardHeader({
           </button>
         ) : null}
 
-        {mode === "edit" && status && (status.label === "OPEN" || status.label === "ALLOCATED" || status.label === "PARTIALLY SHIPPED") ? (
-          <button
-            type="button"
-            onClick={onPlanShipment}
-            disabled={onPlanShipmentDisabled}
-            className="h-[28px] px-[12px] bg-[var(--color-accent)] text-white text-[12px] font-semibold uppercase tracking-[0.04em] disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[var(--color-accent-hover)]"
+        {mode === "edit" && status ? (
+          <Select
+            value={deliveryStatusValue}
+            onValueChange={(value) => {
+              if (value === "shipped") onShipOrder?.();
+            }}
+            disabled={!onShipOrder && status.label !== "SHIPPED" && status.label !== "CLOSED"}
           >
-            Plan shipment
-          </button>
+            <SelectTrigger className="h-[28px] w-[150px] text-[12px] font-semibold uppercase tracking-[0.04em]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end">
+              <SelectItem value="not_shipped">Not shipped</SelectItem>
+              {deliveryStatusValue === "partially_shipped" ? (
+                <SelectItem value="partially_shipped">Partially shipped</SelectItem>
+              ) : null}
+              <SelectItem value="shipped" disabled={status.label === "SHIPPED" || status.label === "CLOSED" || onShipOrderDisabled}>
+                Shipped
+              </SelectItem>
+            </SelectContent>
+          </Select>
         ) : null}
 
         {mode === "edit" && status && (status.label === "SHIPPED" || status.label === "CLOSED") ? (

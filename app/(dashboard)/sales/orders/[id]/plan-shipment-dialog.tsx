@@ -56,15 +56,12 @@ type FormState = {
   quantities: Record<string, string>;
 };
 
-function makeFormState(
-  target: "new" | SalesShipmentRow,
-  order: SalesOrderDetail,
-): FormState {
+function makeFormState(target: "new" | SalesShipmentRow): FormState {
   if (target === "new") {
     return {
       fulfillmentType: "delivery",
-      scheduledDate: order.shipDate ?? "",
-      deliveryDate: order.requestedDate ?? order.shipDate ?? "",
+      scheduledDate: "",
+      deliveryDate: "",
       notes: "",
       quantities: {},
     };
@@ -124,7 +121,7 @@ function PlanShipmentDialogForm({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [form, setForm] = useState<FormState>(() => makeFormState(target, order));
+  const [form, setForm] = useState<FormState>(() => makeFormState(target));
   const editingShipmentId = target === "new" ? null : target.id;
 
   const mutation = useMutation({
