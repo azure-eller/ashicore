@@ -134,6 +134,14 @@ export const manufacturingOrderIngredients = manufacturingSchema
       unitName: varchar("unit_name", { length: 50 }).notNull(),
       quantityPerUnit: numeric("quantity_per_unit", { precision: 12, scale: 4 })
         .notNull(),
+      bomOutputQuantity: numeric("bom_output_quantity", {
+        precision: 12,
+        scale: 4,
+      }),
+      everyQuantity: numeric("every_quantity", {
+        precision: 12,
+        scale: 4,
+      }).notNull().default("1"),
       consumptionMode: varchar("consumption_mode", { length: 32 })
         .notNull()
         .default("per_output_unit"),
@@ -210,6 +218,10 @@ export const manufacturingOrderIngredients = manufacturingSchema
       check(
         "manufacturing_order_ingredients_basis_output_quantity_check",
         sql`basis_output_quantity IS NULL OR basis_output_quantity > 0`
+      ),
+      check(
+        "manufacturing_order_ingredients_every_quantity_check",
+        sql`every_quantity > 0`
       ),
       pgPolicy("manufacturing_order_ingredients_org_isolation", {
         for: "all",

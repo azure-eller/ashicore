@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import {
   getAvailableComponents,
   getBomComponents,
+  getBomRevisionHistory,
   getItem,
 } from "@/app/(dashboard)/inventory/queries";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
@@ -35,10 +36,12 @@ export default async function ProductRecipePage({
     ? hasModuleAccess(context.assignedRoles, "inventory", "admin") &&
       canManageLockedBom(context.assignedRoles)
     : hasModuleAccess(context.assignedRoles, "inventory", "operate");
-  const [bomRows, availableComponents] = await Promise.all([
+  const [bomRows, availableComponents, bomRevisions] = await Promise.all([
     canViewBom ? getBomComponents(id) : Promise.resolve([]),
     getAvailableComponents(id),
+    canViewBom ? getBomRevisionHistory(id) : Promise.resolve([]),
   ]);
+  const currentRevision = bomRevisions.find((revision) => revision.isCurrent);
 
   return (
     <ProductRecipeTab
@@ -47,6 +50,7 @@ export default async function ProductRecipePage({
       initialBomRows={bomRows.map((row) => ({
         componentId: row.componentId,
         quantity: row.quantity,
+        everyQuantity: row.everyQuantity ?? row.basisOutputQuantity ?? null,
         consumptionMode:
           (row.consumptionMode as
             | "per_output_unit"
@@ -70,6 +74,7 @@ export default async function ProductRecipePage({
           itemId: alternate.itemId,
         })),
       }))}
+      initialOutputQuantity={currentRevision?.outputQuantity ?? "1"}
       availableComponents={availableComponents.map((component) => ({
         id: component.id,
         name: component.name,

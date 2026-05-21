@@ -34,6 +34,7 @@ export type GroupRemainderHandling =
 export type ConsumptionCalculationInput = {
   quantity: string | number;
   outputQuantity: string | number;
+  everyQuantity?: string | number | null;
   consumptionMode?: ConsumptionMode | null;
   basisOutputQuantity?: string | number | null;
   batchScalingMode?: BatchScalingMode | null;
@@ -50,17 +51,81 @@ export type ConsumptionCalculationResult = {
   chosenGroupRemainderHandling: GroupRemainderHandling | null;
 };
 
-export type GroupRemainderChoice = {
-  basisOutputQuantity: string;
-  handling: GroupRemainderHandling;
+type ParsedDecimal = {
+  sign: bigint;
+  digits: bigint;
+  scale: number;
 };
 
-const EPSILON = 0.000001;
+function parseDecimal(value: string | number | null | undefined): ParsedDecimal | null {
+  if (value == null) return null;
+  const raw = String(value).trim();
+  if (!/^-?(?:\d+|\d*\.\d+)$/.test(raw)) return null;
+
+  const sign = raw.startsWith("-") ? BigInt(-1) : BigInt(1);
+  const unsigned = raw.replace(/^-/, "");
+  const [whole, fraction = ""] = unsigned.split(".");
+  const digits = BigInt(`${whole || "0"}${fraction}`.replace(/^0+(?=\d)/, "") || "0");
+
+  return { sign, digits, scale: fraction.length };
+}
+
+function pow10(exponent: number) {
+  return BigInt(10) ** BigInt(exponent);
+}
+
+function comparePositiveDecimals(left: ParsedDecimal, right: ParsedDecimal) {
+  const scale = Math.max(left.scale, right.scale);
+  const leftScaled = left.digits * pow10(scale - left.scale);
+  const rightScaled = right.digits * pow10(scale - right.scale);
+  if (leftScaled === rightScaled) return 0;
+  return leftScaled > rightScaled ? 1 : -1;
+}
+
+function ceilDividePositiveDecimals(numerator: ParsedDecimal, denominator: ParsedDecimal) {
+  if (numerator.digits === BigInt(0)) return BigInt(0);
+  const scale = Math.max(numerator.scale, denominator.scale);
+  const numeratorScaled = numerator.digits * pow10(scale - numerator.scale);
+  const denominatorScaled = denominator.digits * pow10(scale - denominator.scale);
+  return (numeratorScaled + denominatorScaled - BigInt(1)) / denominatorScaled;
+}
+
+function formatScaledDecimal(value: bigint, scale: number) {
+  if (value === BigInt(0)) return "0";
+  const sign = value < BigInt(0) ? "-" : "";
+  const abs = value < BigInt(0) ? -value : value;
+
+  if (scale === 0) return `${sign}${abs.toString()}`;
+
+  const divisor = pow10(scale);
+  const whole = abs / divisor;
+  const fraction = (abs % divisor).toString().padStart(scale, "0").replace(/0+$/, "");
+  return fraction ? `${sign}${whole.toString()}.${fraction}` : `${sign}${whole.toString()}`;
+}
+
+function multiplyDecimalByInteger(value: ParsedDecimal, multiplier: bigint, scale: number) {
+  const raw = value.digits * multiplier;
+  let scaled: bigint;
+  if (value.scale > scale) {
+    const divisor = pow10(value.scale - scale);
+    scaled = raw / divisor;
+    const remainder = raw % divisor;
+    if (remainder * BigInt(2) >= divisor) scaled += BigInt(1);
+  } else {
+    scaled = raw * pow10(scale - value.scale);
+  }
+
+  return formatScaledDecimal(scaled * value.sign, scale);
+}
 
 function toFiniteNumber(value: string | number | null | undefined) {
   if (value == null) return null;
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isPositiveDecimal(value: ParsedDecimal | null) {
+  return value != null && value.sign > BigInt(0) && value.digits > BigInt(0);
 }
 
 export function normalizeConsumptionMode(
@@ -76,7 +141,7 @@ export function normalizeBatchScalingMode(
 ): BatchScalingMode {
   return BATCH_SCALING_MODES.includes(mode as BatchScalingMode)
     ? (mode as BatchScalingMode)
-    : "proportional";
+    : "full_batches_only";
 }
 
 export function normalizeGroupRemainderPolicy(
@@ -84,7 +149,7 @@ export function normalizeGroupRemainderPolicy(
 ): GroupRemainderPolicy {
   return GROUP_REMAINDER_POLICIES.includes(policy as GroupRemainderPolicy)
     ? (policy as GroupRemainderPolicy)
-    : "ask";
+    : "create_partial_group";
 }
 
 export function normalizeGroupRemainderHandling(
@@ -103,23 +168,17 @@ export function makeGroupChoiceKey(basisOutputQuantity: string | number) {
 export function calculateConsumptionRequirement(
   input: ConsumptionCalculationInput
 ): ConsumptionCalculationResult {
-  const quantity = toFiniteNumber(input.quantity) ?? 0;
-  const outputQuantity = toFiniteNumber(input.outputQuantity) ?? 0;
-  const mode = normalizeConsumptionMode(input.consumptionMode);
+  const quantity = parseDecimal(input.quantity);
+  const outputQuantity = parseDecimal(input.outputQuantity);
+  const everyQuantity = parseDecimal(
+    input.everyQuantity ?? input.basisOutputQuantity ?? input.outputQuantity
+  );
 
-  if (mode === "per_output_unit") {
-    return {
-      plannedQuantity: normalizeNumeric(quantity * outputQuantity),
-      calculatedBatchCount: null,
-      calculatedGroupCount: null,
-      fullGroupCount: null,
-      groupRemainderQuantity: null,
-      chosenGroupRemainderHandling: null,
-    };
-  }
-
-  const basisOutputQuantity = toFiniteNumber(input.basisOutputQuantity);
-  if (basisOutputQuantity == null || basisOutputQuantity <= 0) {
+  if (
+    !isPositiveDecimal(quantity) ||
+    !isPositiveDecimal(outputQuantity) ||
+    !isPositiveDecimal(everyQuantity)
+  ) {
     return {
       plannedQuantity: "0",
       calculatedBatchCount: null,
@@ -130,123 +189,71 @@ export function calculateConsumptionRequirement(
     };
   }
 
-  if (mode === "per_batch") {
-    const batchScalingMode = normalizeBatchScalingMode(input.batchScalingMode);
-    const batchCount =
-      batchScalingMode === "full_batches_only"
-        ? Math.ceil(outputQuantity / basisOutputQuantity)
-        : outputQuantity / basisOutputQuantity;
-
-    return {
-      plannedQuantity: normalizeNumeric(quantity * batchCount),
-      calculatedBatchCount: normalizeNumeric(batchCount),
-      calculatedGroupCount: null,
-      fullGroupCount: null,
-      groupRemainderQuantity: null,
-      chosenGroupRemainderHandling: null,
-    };
-  }
-
-  const fullGroupCount = Math.floor(outputQuantity / basisOutputQuantity);
-  const remainderQuantity = Math.max(
-    0,
-    outputQuantity - fullGroupCount * basisOutputQuantity
-  );
-  const hasRemainder = remainderQuantity > EPSILON;
-  const policy = normalizeGroupRemainderPolicy(input.groupRemainderPolicy);
-  const requestedHandling = normalizeGroupRemainderHandling(
-    input.chosenGroupRemainderHandling
-  );
-  const chosenHandling =
-    policy === "ask"
-      ? requestedHandling ?? "leave_loose"
-      : policy === "create_partial_group"
-        ? "create_partial_group"
-        : "leave_loose";
-  const groupCount =
-    hasRemainder && chosenHandling === "create_partial_group"
-      ? fullGroupCount + 1
-      : fullGroupCount;
+  const groupCount = ceilDividePositiveDecimals(outputQuantity!, everyQuantity!);
+  const plannedQuantity = multiplyDecimalByInteger(quantity!, groupCount, 4);
 
   return {
-    plannedQuantity: normalizeNumeric(quantity * groupCount),
-    calculatedBatchCount: null,
-    calculatedGroupCount: normalizeNumeric(groupCount),
-    fullGroupCount,
-    groupRemainderQuantity: normalizeNumeric(remainderQuantity),
-    chosenGroupRemainderHandling: hasRemainder ? chosenHandling : null,
+    plannedQuantity,
+    calculatedBatchCount: normalizeNumeric(Number(groupCount)),
+    calculatedGroupCount: normalizeNumeric(Number(groupCount)),
+    fullGroupCount: Number(groupCount),
+    groupRemainderQuantity: null,
+    chosenGroupRemainderHandling: null,
   };
 }
 
 export function calculateAverageUnitConsumptionQuantity(
-  input: Pick<
-    ConsumptionCalculationInput,
-    "quantity" | "consumptionMode" | "basisOutputQuantity"
-  >
-) {
-  const quantity = toFiniteNumber(input.quantity) ?? 0;
-  const mode = normalizeConsumptionMode(input.consumptionMode);
-
-  if (mode === "per_output_unit") {
-    return normalizeNumericScale(quantity, 6);
+  input: {
+    quantity: string | number;
+    everyQuantity?: string | number | null;
+    basisOutputQuantity?: string | number | null;
+    outputQuantity?: string | number | null;
   }
+) {
+  const outputQuantity = parseDecimal(
+    input.outputQuantity ?? input.everyQuantity ?? input.basisOutputQuantity
+  );
+  const requirement = calculateConsumptionRequirement({
+    quantity: input.quantity,
+    outputQuantity: input.outputQuantity ?? input.everyQuantity ?? input.basisOutputQuantity ?? "0",
+    everyQuantity: input.everyQuantity ?? input.basisOutputQuantity ?? input.outputQuantity,
+  });
+  const requiredQuantity = toFiniteNumber(requirement.plannedQuantity);
+  const outputQuantityNumber = toFiniteNumber(
+    input.outputQuantity ?? input.everyQuantity ?? input.basisOutputQuantity
+  );
 
-  const basisOutputQuantity = toFiniteNumber(input.basisOutputQuantity);
-  if (basisOutputQuantity == null || basisOutputQuantity <= 0) {
+  if (
+    !isPositiveDecimal(outputQuantity) ||
+    requiredQuantity == null ||
+    outputQuantityNumber == null ||
+    outputQuantityNumber <= 0
+  ) {
     return "0";
   }
 
-  return normalizeNumericScale(quantity / basisOutputQuantity, 6);
+  return normalizeNumericScale(requiredQuantity / outputQuantityNumber, 6);
 }
 
-export function summarizeGroupRemainders(
-  rows: Array<{
-    consumptionMode?: string | null;
-    basisOutputQuantity?: string | number | null;
-    groupRemainderPolicy?: string | null;
-  }>,
-  outputQuantity: string | number
-) {
-  const output = toFiniteNumber(outputQuantity);
-  if (output == null || output <= 0) return [];
+export function summarizeGroupRemainders(..._args: unknown[]): Array<{
+  basisOutputQuantity: string;
+  fullGroupCount: number;
+  remainderQuantity: string;
+  requiresChoice: boolean;
+  policies: Set<GroupRemainderPolicy>;
+}> {
+  void _args;
+  return [];
+}
 
-  const byBasis = new Map<
-    string,
-    {
-      basisOutputQuantity: string;
-      fullGroupCount: number;
-      remainderQuantity: string;
-      requiresChoice: boolean;
-      policies: Set<GroupRemainderPolicy>;
-    }
-  >();
-
-  rows.forEach((row) => {
-    if (normalizeConsumptionMode(row.consumptionMode) !== "per_group") return;
-    const basis = toFiniteNumber(row.basisOutputQuantity);
-    if (basis == null || basis <= 0) return;
-
-    const key = makeGroupChoiceKey(basis);
-    const fullGroupCount = Math.floor(output / basis);
-    const remainderQuantity = Math.max(0, output - fullGroupCount * basis);
-    const policy = normalizeGroupRemainderPolicy(row.groupRemainderPolicy);
-    const current =
-      byBasis.get(key) ??
-      {
-        basisOutputQuantity: key,
-        fullGroupCount,
-        remainderQuantity: normalizeNumeric(remainderQuantity),
-        requiresChoice: false,
-        policies: new Set<GroupRemainderPolicy>(),
-      };
-
-    current.requiresChoice ||= remainderQuantity > EPSILON && policy === "ask";
-    current.policies.add(policy);
-    byBasis.set(key, current);
-  });
-
-  return [...byBasis.values()].sort(
-    (left, right) =>
-      Number(left.basisOutputQuantity) - Number(right.basisOutputQuantity)
-  );
+export function hasPartialEveryQuantityGroup(params: {
+  outputQuantity: string | number;
+  everyQuantity: string | number | null | undefined;
+}) {
+  const outputQuantity = parseDecimal(params.outputQuantity);
+  const everyQuantity = parseDecimal(params.everyQuantity);
+  if (!isPositiveDecimal(outputQuantity) || !isPositiveDecimal(everyQuantity)) {
+    return false;
+  }
+  return comparePositiveDecimals(outputQuantity!, everyQuantity!) !== 0;
 }

@@ -487,6 +487,7 @@ async function getVariantCostSummariesInTx(
     .select({
       productId: bomRevisions.productId,
       revisionId: bomRevisions.id,
+      outputQuantity: bomRevisions.outputQuantity,
     })
     .from(bomRevisions)
     .where(
@@ -500,6 +501,9 @@ async function getVariantCostSummariesInTx(
   );
   const productByRevision = new Map(
     currentRevisions.map((revision) => [revision.revisionId, revision.productId]),
+  );
+  const outputQuantityByRevision = new Map(
+    currentRevisions.map((revision) => [revision.revisionId, revision.outputQuantity]),
   );
   const revisionIds = currentRevisions.map((revision) => revision.revisionId);
   const costs = new Map(
@@ -517,6 +521,7 @@ async function getVariantCostSummariesInTx(
     .select({
       revisionId: bomRevisionComponents.bomRevisionId,
       quantity: bomRevisionComponents.quantity,
+      everyQuantity: bomRevisionComponents.everyQuantity,
       consumptionMode: bomRevisionComponents.consumptionMode,
       basisOutputQuantity: bomRevisionComponents.basisOutputQuantity,
       componentCost: items.currentStockUnitCost,
@@ -542,8 +547,9 @@ async function getVariantCostSummariesInTx(
       }
       const averageQty = calculateAverageUnitConsumptionQuantity({
         quantity: row.quantity,
-        consumptionMode: row.consumptionMode as never,
+        everyQuantity: row.everyQuantity,
         basisOutputQuantity: row.basisOutputQuantity,
+        outputQuantity: outputQuantityByRevision.get(revisionId) ?? null,
       });
       const quantity = Number.parseFloat(averageQty);
       const unitCost = Number.parseFloat(row.componentCost);

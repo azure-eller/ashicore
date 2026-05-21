@@ -1,7 +1,6 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { manufacturingOrders } from "@/lib/db/schema";
-import { GROUP_REMAINDER_HANDLINGS } from "@/lib/manufacturing/consumption";
 import { isValidIsoDate, nullableString, positiveDecimalString } from "./shared";
 
 export const MANUFACTURING_ORDER_STATUSES = ["open", "done"] as const;
@@ -108,11 +107,6 @@ const ingredientsSchema = cleanedIngredientRowsSchema
     });
   });
 
-const groupRemainderChoiceSchema = z.object({
-  basisOutputQuantity: positiveDecimalString("Group size"),
-  handling: z.enum(GROUP_REMAINDER_HANDLINGS),
-});
-
 const manufacturingIngredientLotAllocationSchema = z.object({
   itemId: z.string().min(1, "Ingredient is required"),
   allocations: z
@@ -160,7 +154,6 @@ const baseManufacturingOrderSchema = createInsertSchema(manufacturingOrders, {
   .extend({
     plannedQuantity: positiveDecimalString("Planned quantity"),
     batchCount: positiveDecimalString("Batches").optional(),
-    groupRemainderChoices: z.array(groupRemainderChoiceSchema).optional().default([]),
     ingredients: ingredientsSchema,
     lotAllocations: z
       .array(manufacturingIngredientLotAllocationSchema)
@@ -188,7 +181,6 @@ export const manufacturingOrderCreateFormSchema = z
     ),
     notes: nullableString,
     ingredients: cleanedIngredientRowsSchema,
-    groupRemainderChoices: z.array(groupRemainderChoiceSchema).default([]),
     lotAllocations: z.array(manufacturingIngredientLotAllocationSchema).default([]),
     autoAllocateIngredientLots: z.boolean().optional().default(true),
     confirmShortage: z.boolean().optional(),
@@ -454,13 +446,6 @@ export const createManufacturingOrdersFromSalesOrderSchema = z.object({
       })
     )
     .optional(),
-  groupRemainderChoices: z
-    .array(
-      groupRemainderChoiceSchema.extend({
-        salesOrderLineId: z.string().uuid("Sales order line is required"),
-      })
-    )
-    .default([]),
   notes: nullableString,
 });
 export type CreateManufacturingOrdersFromSalesOrder = z.infer<
@@ -474,7 +459,6 @@ export const manufacturingOrderDefaultValues: ManufacturingOrderCreateFormValues
   plannedQuantity: "",
   plannedDate: null,
   notes: null,
-  groupRemainderChoices: [],
   lotAllocations: [],
   autoAllocateIngredientLots: true,
   ingredients: [],

@@ -5,7 +5,6 @@ import type {
   CellClassParams,
   ICellEditorParams,
   ICellRendererParams,
-  ValueFormatterParams,
   ValueSetterParams,
 } from "ag-grid-community";
 import type { CustomCellEditorProps } from "ag-grid-react";
@@ -49,6 +48,7 @@ type AvailableComponent = {
 type BomPayloadRow = {
   componentId: string | null;
   quantity: string | null;
+  everyQuantity?: string | null;
   consumptionMode?: "per_output_unit" | "per_batch" | "per_group" | null;
   basisOutputQuantity?: string | null;
   batchScalingMode?: "proportional" | "full_batches_only" | null;
@@ -64,9 +64,7 @@ type BomGridRow = BomPayloadRow & {
 type BomColumnKey =
   | "componentId"
   | "quantity"
-  | "consumptionMode"
-  | "basisOutputQuantity"
-  | "scalingPolicy"
+  | "everyQuantity"
   | "minimumLotAgeDays"
   | "alternates";
 
@@ -80,26 +78,10 @@ type BomEditorChangeMeta = {
   change: EditableLineDataGridChange<BomGridRow>;
 };
 
-const CONSUMPTION_MODE_LABELS = {
-  per_output_unit: "Output unit",
-  per_batch: "Batch",
-  per_group: "Group",
-} as const;
-
-const BATCH_SCALING_LABELS = {
-  proportional: "Proportional",
-  full_batches_only: "Full batches only",
-} as const;
-
-const GROUP_REMAINDER_LABELS = {
-  ask: "Ask",
-  leave_loose: "Leave loose",
-  create_partial_group: "Create partial group",
-} as const;
-
 const blankBomLine = {
   componentId: "",
   quantity: null,
+  everyQuantity: null,
   consumptionMode: "per_output_unit" as const,
   basisOutputQuantity: null,
   batchScalingMode: null,
@@ -134,31 +116,38 @@ function normalizeMinimumLotAge(value: unknown) {
   return nextValue === "" ? null : nextValue;
 }
 
-function createBlankGridRow(): BomGridRow {
+function createBlankGridRow(defaultEveryQuantity?: string | null): BomGridRow {
   return {
     ...blankBomLine,
+    everyQuantity: defaultEveryQuantity ?? null,
     clientRowId: createClientRowId(),
   };
 }
 
-function toGridRows(rows: BomPayloadRow[] | undefined): BomGridRow[] {
+function toGridRows(
+  rows: BomPayloadRow[] | undefined,
+  defaultEveryQuantity?: string | null
+): BomGridRow[] {
   const gridRows =
     rows?.map((row) => ({
       ...blankBomLine,
       ...row,
       componentId: row.componentId ?? "",
+      everyQuantity:
+        row.everyQuantity ?? row.basisOutputQuantity ?? defaultEveryQuantity ?? null,
       consumptionMode: row.consumptionMode ?? "per_output_unit",
       alternates: row.alternates ?? [],
       clientRowId: createClientRowId(),
     })) ?? [];
 
-  return gridRows.length > 0 ? gridRows : [createBlankGridRow()];
+  return gridRows.length > 0 ? gridRows : [createBlankGridRow(defaultEveryQuantity)];
 }
 
 function toPayloadRows(rows: BomGridRow[]): BomPayloadRow[] {
   return rows.map((row) => ({
     componentId: row.componentId ?? "",
     quantity: normalizeTextCell(row.quantity),
+    everyQuantity: normalizeTextCell(row.everyQuantity),
     consumptionMode: row.consumptionMode ?? "per_output_unit",
     basisOutputQuantity: normalizeTextCell(row.basisOutputQuantity),
     batchScalingMode: row.batchScalingMode ?? null,
@@ -184,6 +173,7 @@ function comparablePayload(rows: BomGridRow[]) {
       .map((row) => ({
         componentId: row.componentId ?? "",
         quantity: row.quantity ?? null,
+        everyQuantity: row.everyQuantity ?? null,
         consumptionMode: row.consumptionMode ?? "per_output_unit",
         basisOutputQuantity: row.basisOutputQuantity ?? null,
         batchScalingMode: row.batchScalingMode ?? null,
@@ -192,22 +182,6 @@ function comparablePayload(rows: BomGridRow[]) {
         alternates: row.alternates ?? [],
       }))
   );
-}
-
-function needsBasis(row: BomPayloadRow) {
-  return row.consumptionMode === "per_batch" || row.consumptionMode === "per_group";
-}
-
-function scalingPolicyValue(row: BomPayloadRow) {
-  if (row.consumptionMode === "per_batch") {
-    return row.batchScalingMode ?? "proportional";
-  }
-
-  if (row.consumptionMode === "per_group") {
-    return row.groupRemainderPolicy ?? "ask";
-  }
-
-  return null;
 }
 
 function getNestedMessage(value: unknown): string | null {
@@ -244,21 +218,13 @@ function buildErrorState(error: unknown, rows: BomGridRow[]): BomErrorState {
     const keys: BomColumnKey[] = [
       "componentId",
       "quantity",
-      "consumptionMode",
-      "basisOutputQuantity",
-      "scalingPolicy",
+      "everyQuantity",
       "minimumLotAgeDays",
       "alternates",
     ];
 
     keys.forEach((key) => {
-      const sourceKey =
-        key === "scalingPolicy"
-          ? row.consumptionMode === "per_group"
-            ? "groupRemainderPolicy"
-            : "batchScalingMode"
-          : key;
-      const message = getNestedMessage(rowErrorObject[sourceKey]);
+      const message = getNestedMessage(rowErrorObject[key]);
       if (message) {
         rowMessages.set(key, message);
       }
@@ -287,33 +253,6 @@ function hasCellError(
   return errorState.byRowId.get(row.clientRowId)?.has(key) ?? false;
 }
 
-function applyConsumptionModeDefaults(
-  row: BomGridRow,
-  value: BomGridRow["consumptionMode"],
-  typicalBatchSize?: string | null,
-  typicalGroupSize?: string | null
-) {
-  row.consumptionMode = value ?? "per_output_unit";
-
-  if (row.consumptionMode === "per_batch") {
-    row.basisOutputQuantity = typicalBatchSize ?? null;
-    row.batchScalingMode = "proportional";
-    row.groupRemainderPolicy = null;
-    return;
-  }
-
-  if (row.consumptionMode === "per_group") {
-    row.basisOutputQuantity = typicalGroupSize ?? null;
-    row.batchScalingMode = null;
-    row.groupRemainderPolicy = "ask";
-    return;
-  }
-
-  row.basisOutputQuantity = null;
-  row.batchScalingMode = null;
-  row.groupRemainderPolicy = null;
-}
-
 function ComponentCell({
   data,
   componentMap,
@@ -330,24 +269,6 @@ function ComponentCell({
         componentMap.get(data.componentId)?.name ??
         data.componentId}
     </span>
-  );
-}
-
-function ScalingPolicyCell({ data }: ICellRendererParams<BomGridRow>) {
-  if (!data || data.consumptionMode === "per_output_unit") {
-    return <span className="text-muted-foreground">—</span>;
-  }
-
-  if (data.consumptionMode === "per_batch") {
-    return (
-      <span>
-        {BATCH_SCALING_LABELS[data.batchScalingMode ?? "proportional"]}
-      </span>
-    );
-  }
-
-  return (
-    <span>{GROUP_REMAINDER_LABELS[data.groupRemainderPolicy ?? "ask"]}</span>
   );
 }
 
@@ -680,8 +601,8 @@ function ComponentCellEditor(
 interface BomEditorProps {
   initialRows?: BomPayloadRow[];
   availableComponents: AvailableComponent[];
-  typicalBatchSize?: string | null;
-  typicalGroupSize?: string | null;
+  outputQuantity?: string | null;
+  outputUnitName?: string | null;
   error?: unknown;
   onRowsChange?: (rows: BomPayloadRow[], meta: BomEditorChangeMeta) => void;
 }
@@ -689,13 +610,15 @@ interface BomEditorProps {
 export function BomEditor({
   initialRows,
   availableComponents,
-  typicalBatchSize,
-  typicalGroupSize,
+  outputQuantity,
+  outputUnitName,
   error,
   onRowsChange,
 }: BomEditorProps) {
-  const [initialGridRows] = useState(() => toGridRows(initialRows));
-  const [initialComparable] = useState(() => comparablePayload(toGridRows(initialRows)));
+  const [initialGridRows] = useState(() => toGridRows(initialRows, outputQuantity));
+  const [initialComparable] = useState(() =>
+    comparablePayload(toGridRows(initialRows, outputQuantity))
+  );
   const [rows, setRows] = useState<BomGridRow[]>(initialGridRows);
   const componentMap = useMemo(
     () => new Map(availableComponents.map((component) => [component.id, component])),
@@ -800,110 +723,44 @@ export function BomEditor({
         tooltipValueGetter: errorTooltip("quantity"),
       },
       {
-        field: "consumptionMode",
-        headerName: "Used per",
-        minWidth: 136,
-        flex: 0.7,
-        editable: true,
-        cellEditor: "agSelectCellEditor",
-        cellEditorParams: {
-          values: ["per_output_unit", "per_batch", "per_group"],
-        },
-        valueSetter: (
-          params: ValueSetterParams<BomGridRow, BomGridRow["consumptionMode"]>
-        ) => {
-          applyConsumptionModeDefaults(
-            params.data,
-            params.newValue,
-            typicalBatchSize,
-            typicalGroupSize
-          );
-          return true;
-        },
-        valueFormatter: ({
-          value,
-        }: ValueFormatterParams<BomGridRow, BomGridRow["consumptionMode"]>) =>
-          CONSUMPTION_MODE_LABELS[value ?? "per_output_unit"],
-        cellClassRules: {
-          "erp-editable-grid-cell-error": hasError("consumptionMode"),
-        },
-        tooltipValueGetter: errorTooltip("consumptionMode"),
-      },
-      {
-        field: "basisOutputQuantity",
-        headerName: "Basis",
-        minWidth: 108,
+        field: "everyQuantity",
+        headerName: "Every",
+        minWidth: 112,
         flex: 0.55,
-        editable: ({ data }) => (data ? needsBasis(data) : false),
+        editable: true,
         cellEditor: "agTextCellEditor",
         valueSetter: (params: ValueSetterParams<BomGridRow, string | null>) => {
-          params.data.basisOutputQuantity = normalizeTextCell(params.newValue);
+          params.data.everyQuantity = normalizeTextCell(params.newValue);
           return true;
         },
-        valueFormatter: ({ data, value }) =>
-          data && needsBasis(data) ? (value ?? "") : "—",
-        cellClassRules: {
-          "erp-editable-grid-cell-error": hasError("basisOutputQuantity"),
-          "erp-editable-grid-cell-muted": ({ data }) =>
-            data ? !needsBasis(data) : false,
-        },
-        tooltipValueGetter: errorTooltip("basisOutputQuantity"),
-      },
-      {
-        colId: "scalingPolicy",
-        headerName: "Scaling / leftovers",
-        minWidth: 152,
-        flex: 0.8,
-        editable: ({ data }) => Boolean(data && data.consumptionMode !== "per_output_unit"),
-        cellEditor: "agSelectCellEditor",
+        valueFormatter: ({ value }) =>
+          value && outputUnitName ? `${value} ${outputUnitName}` : (value ?? ""),
         cellEditorParams: {
-          openEditorOnStart: true,
-        },
-        cellEditorSelector: ({ data }) => {
-          if (data?.consumptionMode === "per_batch") {
-            return {
-              component: "agSelectCellEditor",
-              params: { values: ["proportional", "full_batches_only"] },
+          getValidationErrors: ({
+            value,
+            cellEditorParams,
+          }: {
+            value: string | null | undefined;
+            cellEditorParams: ICellEditorParams<BomGridRow>;
+          }) => {
+            const row = {
+              ...cellEditorParams.data,
+              everyQuantity: normalizeTextCell(value),
             };
-          }
+            if (isBlankBomRow(row)) {
+              return null;
+            }
 
-          if (data?.consumptionMode === "per_group") {
-            return {
-              component: "agSelectCellEditor",
-              params: { values: ["ask", "leave_loose", "create_partial_group"] },
-            };
-          }
-
-          return undefined;
+            const parsed = Number(row.everyQuantity);
+            return Number.isFinite(parsed) && parsed > 0
+              ? null
+              : ["Every must be greater than 0"];
+          },
         },
-        valueGetter: ({ data }) => (data ? scalingPolicyValue(data) : null),
-        valueSetter: (params: ValueSetterParams<BomGridRow, string | null>) => {
-          if (params.data.consumptionMode === "per_batch") {
-            params.data.batchScalingMode =
-              params.newValue === "full_batches_only"
-                ? "full_batches_only"
-                : "proportional";
-            return true;
-          }
-
-          if (params.data.consumptionMode === "per_group") {
-            params.data.groupRemainderPolicy =
-              params.newValue === "leave_loose" ||
-              params.newValue === "create_partial_group"
-                ? params.newValue
-                : "ask";
-            return true;
-          }
-
-          return false;
-        },
-        cellRenderer: ScalingPolicyCell,
         cellClassRules: {
-          "erp-editable-grid-cell-error": hasError("scalingPolicy"),
-          "erp-editable-grid-cell-muted": ({ data }) =>
-            data ? data.consumptionMode === "per_output_unit" : false,
+          "erp-editable-grid-cell-error": hasError("everyQuantity"),
         },
-        tooltipValueGetter: errorTooltip("scalingPolicy"),
+        tooltipValueGetter: errorTooltip("everyQuantity"),
       },
       {
         field: "minimumLotAgeDays",
@@ -953,8 +810,7 @@ export function BomEditor({
       componentOptions,
       errorTooltip,
       hasError,
-      typicalBatchSize,
-      typicalGroupSize,
+      outputUnitName,
     ]
   );
 
@@ -963,7 +819,7 @@ export function BomEditor({
       rows={rows}
       columns={columns}
       getRowId={getRowId}
-      createRow={createBlankGridRow}
+      createRow={() => createBlankGridRow(outputQuantity)}
       onRowsChange={emitRowsChange}
       addLabel="Add ingredient"
       emptyMessage="No ingredients yet."

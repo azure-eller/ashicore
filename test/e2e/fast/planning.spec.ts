@@ -652,8 +652,8 @@ test.describe("Planning workspace", () => {
     expect(line.unitCost).toBe("2.5000");
   });
 
-  test("production planning backend derives batch count from BOM line basis", async () => {
-    const productName = `Production Batch Blend ${runToken}`;
+  test("production planning uses every quantity without batch metadata", async () => {
+    const productName = `Production Every Blend ${runToken}`;
     const componentId = await createMaterial("Production Batch Component", {
       stock: "100",
       skuKey: "PROD-BATCH-COMP",
@@ -675,9 +675,7 @@ test.describe("Planning workspace", () => {
         {
           componentId,
           quantity: "2",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "4",
-          batchScalingMode: "proportional",
+          everyQuantity: "4",
         },
       ],
     });
@@ -690,9 +688,9 @@ test.describe("Planning workspace", () => {
 
     expect(row.latestStartDate).toBeNull();
     expect(row.productionBucket).toBe("next-week");
-    expect(row.manufacturingMode).toBe("batch");
-    expect(row.expectedBatchYield).toBe("4");
-    expect(row.plannedBatchCount).toBe(3);
+    expect(row.manufacturingMode).toBe("discrete");
+    expect(row.expectedBatchYield).toBeNull();
+    expect(row.plannedBatchCount).toBeNull();
     expect(
       planning.productionBlockerFacts.some(
         (fact) => fact.parentItemId === productId

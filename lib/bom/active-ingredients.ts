@@ -28,12 +28,18 @@ export async function getCurrentActiveBomIngredientsInTx(tx: Tx, productId: stri
     .select({
       bomRevisionComponentId: bomRevisionComponents.id,
       bomRevisionId: bomRevisionComponents.bomRevisionId,
+      bomOutputQuantity: trimScale(bomRevisions.outputQuantity).as(
+        "bomOutputQuantity"
+      ),
       itemId: bomRevisionComponents.componentId,
       itemName: items.name,
       itemSku: items.sku,
       itemType: items.itemType,
       unitName: unitDefinitions.name,
       quantityPerUnit: trimScale(bomRevisionComponents.quantity).as("quantityPerUnit"),
+      everyQuantity: trimScale(bomRevisionComponents.everyQuantity).as(
+        "everyQuantity"
+      ),
       consumptionMode: bomRevisionComponents.consumptionMode,
       basisOutputQuantity: trimScaleNullable(
         bomRevisionComponents.basisOutputQuantity
@@ -45,6 +51,7 @@ export async function getCurrentActiveBomIngredientsInTx(tx: Tx, productId: stri
       sortOrder: bomRevisionComponents.sortOrder,
     })
     .from(bomRevisionComponents)
+    .innerJoin(bomRevisions, eq(bomRevisionComponents.bomRevisionId, bomRevisions.id))
     .innerJoin(items, eq(bomRevisionComponents.componentId, items.id))
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
     .where(

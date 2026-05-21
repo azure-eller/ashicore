@@ -28,6 +28,10 @@ export const bomRevisions = inventorySchema
         .notNull()
         .references(() => items.id, { onDelete: "cascade" }),
       revisionNumber: integer("revision_number").notNull(),
+      outputQuantity: numeric("output_quantity", {
+        precision: 12,
+        scale: 4,
+      }).notNull().default("1"),
       isCurrent: boolean("is_current").notNull().default(false),
       note: varchar("note", { length: 500 }),
       createdBy: text("created_by").notNull(),
@@ -45,6 +49,7 @@ export const bomRevisions = inventorySchema
       uniqueIndex("bom_revisions_product_current_uidx")
         .on(table.productId)
         .where(sql`${table.isCurrent} = true`),
+      check("bom_revisions_output_quantity_check", sql`output_quantity > 0`),
       pgPolicy("bom_revisions_org_isolation", {
         for: "all",
         to: "public",
@@ -71,6 +76,10 @@ export const bomRevisionComponents = inventorySchema
       componentItemType: varchar("component_item_type", { length: 20 }).notNull(),
       unitName: varchar("unit_name", { length: 50 }).notNull(),
       quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
+      everyQuantity: numeric("every_quantity", {
+        precision: 12,
+        scale: 4,
+      }).notNull().default("1"),
       consumptionMode: varchar("consumption_mode", { length: 32 })
         .notNull()
         .default("per_output_unit"),
@@ -95,6 +104,10 @@ export const bomRevisionComponents = inventorySchema
         table.componentId
       ),
       check("bom_revision_components_no_self_reference", sql`component_id IS NOT NULL`),
+      check(
+        "bom_revision_components_every_quantity_check",
+        sql`every_quantity > 0`
+      ),
       check(
         "bom_revision_components_consumption_mode_check",
         sql`consumption_mode IN ('per_output_unit', 'per_batch', 'per_group')`

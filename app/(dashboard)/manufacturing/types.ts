@@ -188,6 +188,8 @@ export type ManufacturingOrderIngredientDetail = {
   itemType: string;
   unitName: string;
   quantityPerUnit: string;
+  bomOutputQuantity: string | null;
+  everyQuantity: string;
   consumptionMode: string;
   basisOutputQuantity: string | null;
   batchScalingMode: string | null;
@@ -369,6 +371,8 @@ export type ManufacturingOrderEditData = {
     itemType: string;
     unitName: string;
     quantityPerUnit: string;
+    bomOutputQuantity: string | null;
+    everyQuantity: string;
     consumptionMode: string;
     basisOutputQuantity: string | null;
     batchScalingMode: string | null;

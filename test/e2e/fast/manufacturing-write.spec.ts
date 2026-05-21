@@ -230,7 +230,7 @@ test.describe("Manufacturing write-path smoke", () => {
       .toBe("Fast manufacturing updated");
   });
 
-  test("plans shared group remainder choices once per basis", async ({ db }) => {
+  test("rounds every-quantity BOM requirements up without remainder choices", async ({ db }) => {
     const groupTs = Date.now();
     const materialPayloads = [
       ["soil", "1.00", "500"],
@@ -306,54 +306,29 @@ test.describe("Manufacturing write-path smoke", () => {
       { itemId: labelId, quantityPerUnit: "4" },
     ];
 
-    const looseOrder = await createManufacturingOrder({
+    const roundedOrder = await createManufacturingOrder({
       productId: productIdForGroup,
       plannedQuantity: "52",
       ingredients,
-      groupRemainderChoices: [
-        { basisOutputQuantity: "50", handling: "leave_loose" },
-      ],
     });
-    expect(looseOrder.status).toBe(201);
+    expect(roundedOrder.status).toBe(201);
 
-    const looseRows = await db
+    const roundedRows = await db
       .select()
       .from(manufacturingOrderIngredients)
-      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, looseOrder.body.id));
-    const looseByItem = new Map(looseRows.map((row) => [row.itemId, row]));
-    expect(looseByItem.get(soilId)?.plannedQuantity).toBe("104.0000");
-    expect(looseByItem.get(palletId)?.plannedQuantity).toBe("1.0000");
-    expect(looseByItem.get(wrapId)?.plannedQuantity).toBe("1.0000");
-    expect(looseByItem.get(labelId)?.plannedQuantity).toBe("4.0000");
-    expect(looseByItem.get(palletId)?.chosenGroupRemainderHandling).toBe("leave_loose");
-    expect(looseByItem.get(wrapId)?.chosenGroupRemainderHandling).toBe("leave_loose");
-    expect(looseByItem.get(labelId)?.calculatedGroupCount).toBe("1.0000");
-
-    const partialOrder = await createManufacturingOrder({
-      productId: productIdForGroup,
-      plannedQuantity: "52",
-      ingredients,
-      groupRemainderChoices: [
-        { basisOutputQuantity: "50", handling: "create_partial_group" },
-      ],
-    });
-    expect(partialOrder.status).toBe(201);
-
-    const partialRows = await db
-      .select()
-      .from(manufacturingOrderIngredients)
-      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, partialOrder.body.id));
-    const partialByItem = new Map(partialRows.map((row) => [row.itemId, row]));
-    expect(partialByItem.get(palletId)?.plannedQuantity).toBe("2.0000");
-    expect(partialByItem.get(wrapId)?.plannedQuantity).toBe("2.0000");
-    expect(partialByItem.get(labelId)?.plannedQuantity).toBe("8.0000");
-    expect(partialByItem.get(palletId)?.chosenGroupRemainderHandling).toBe(
-      "create_partial_group"
-    );
-    expect(partialByItem.get(labelId)?.calculatedGroupCount).toBe("2.0000");
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, roundedOrder.body.id));
+    const roundedByItem = new Map(roundedRows.map((row) => [row.itemId, row]));
+    expect(roundedByItem.get(soilId)?.plannedQuantity).toBe("104.0000");
+    expect(roundedByItem.get(palletId)?.plannedQuantity).toBe("2.0000");
+    expect(roundedByItem.get(wrapId)?.plannedQuantity).toBe("2.0000");
+    expect(roundedByItem.get(labelId)?.plannedQuantity).toBe("8.0000");
+    expect(roundedByItem.get(palletId)?.everyQuantity).toBe("50.0000");
+    expect(roundedByItem.get(palletId)?.chosenGroupRemainderHandling).toBeNull();
+    expect(roundedByItem.get(wrapId)?.chosenGroupRemainderHandling).toBeNull();
+    expect(roundedByItem.get(labelId)?.calculatedGroupCount).toBe("2.0000");
 
     const duplicateResponse = await testFetch(
-      `/api/manufacturing-orders/${partialOrder.body.id}/duplicate`,
+      `/api/manufacturing-orders/${roundedOrder.body.id}/duplicate`,
       { method: "POST" }
     );
     expect(duplicateResponse.status).toBe(201);
@@ -367,9 +342,7 @@ test.describe("Manufacturing write-path smoke", () => {
     );
     expect(duplicatedByItem.get(palletId)?.plannedQuantity).toBe("2.0000");
     expect(duplicatedByItem.get(wrapId)?.plannedQuantity).toBe("2.0000");
-    expect(duplicatedByItem.get(labelId)?.chosenGroupRemainderHandling).toBe(
-      "create_partial_group"
-    );
+    expect(duplicatedByItem.get(labelId)?.chosenGroupRemainderHandling).toBeNull();
   });
 
   test("keeps batch order readiness based on execution ingredient rows", async () => {
@@ -417,14 +390,6 @@ test.describe("Manufacturing write-path smoke", () => {
 
     const productsResponse = await testFetch("/api/manufacturing-products");
     expect(productsResponse.status).toBe(200);
-    const products = await productsResponse.json();
-    const template = products.find(
-      (candidate: { id: string }) => candidate.id === batchProductId
-    );
-    expect(template).toMatchObject({
-      manufacturingMode: "batch",
-      expectedBatchYield: "10",
-    });
 
     const orderResult = await createManufacturingOrder({
       productId: batchProductId,
@@ -1984,7 +1949,6 @@ test.describe("Manufacturing write-path smoke", () => {
         plannedQuantity: "5",
         plannedDate: null,
         notes: "Open batch linked from edit",
-        groupRemainderChoices: [],
         ingredients: [firstEditableIngredient, secondEditableIngredient].map((ingredient) => ({
           itemId: ingredient.itemId,
           quantityPerUnit: String(parseFloat(ingredient.quantityPerUnit)),

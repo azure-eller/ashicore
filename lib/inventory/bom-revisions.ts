@@ -17,6 +17,15 @@ const bomRowSchema = z.object({
     },
     "Quantity must be a positive number",
   ),
+  everyQuantity: z
+    .string()
+    .nullable()
+    .optional()
+    .refine((value) => {
+      if (value == null) return true;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed > 0;
+    }, "Every must be greater than 0"),
   consumptionMode: z
     .enum(["per_output_unit", "per_batch", "per_group"])
     .nullable()
@@ -55,6 +64,15 @@ const operationCostRowSchema = z.object({
 });
 
 export const createBomRevisionSchema = z.object({
+  outputQuantity: z
+    .string()
+    .nullable()
+    .optional()
+    .refine((value) => {
+      if (value == null) return true;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed > 0;
+    }, "Recipe output must be greater than 0"),
   bom: z.array(bomRowSchema).default([]),
   operationCosts: z.array(operationCostRowSchema).optional(),
   note: z
@@ -83,6 +101,7 @@ export async function createBomRevision(
       userId,
       productId,
       note: data.note ?? null,
+      outputQuantity: data.outputQuantity ?? null,
       bom: data.bom as BomInputRow[],
       operationCosts: data.operationCosts as BomOperationCostInputRow[] | undefined,
     });

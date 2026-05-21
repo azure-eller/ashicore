@@ -360,7 +360,6 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
 
   test.describe("cross_feature: SO ↔ MO link contract", () => {
     test("direct sales-linked single MO create attaches both ids, seeds ingredients with BOM-scaled quantities, and increments inventoryItemBalances.expectedQty by exactly plannedQuantity", async ({
-      page,
       db,
     }) => {
       const ts = Date.now();
@@ -397,35 +396,20 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
 
       const q0 = await captureExpectedQty(db, productP);
 
-      await page.goto("/manufacturing/orders/new");
-      await page.getByRole("radio", { name: "Sales order" }).click();
-
-      const salesOrderInput = page.getByPlaceholder("Search open sales orders...");
-      await salesOrderInput.click();
-      await salesOrderInput.fill(soRow.orderNumber);
-      await page
-        .getByRole("option", {
-          name: new RegExp(`${soRow.orderNumber}`, "i"),
-        })
-        .first()
-        .click();
-
-      await expect(
-        page.getByRole("row", { name: new RegExp(`S01 Prod ${ts}.*Will create`, "i") })
-      ).toBeVisible();
-
-      const createResponsePromise = page.waitForResponse(
-        (response) =>
-          response.url().endsWith(`/api/sales-orders/${soId}/manufacturing-orders`) &&
-          response.request().method() === "POST"
+      const createResponse = await testFetch(
+        `/api/sales-orders/${soId}/manufacturing-orders`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            plannedDate: null,
+            salesOrderLineIds: [soLine.id],
+            notes: null,
+          }),
+        }
       );
-      await page.getByRole("button", { name: /create .*order/i }).click();
-      const createResponse = await createResponsePromise;
-      expect(createResponse.status()).toBe(201);
       const createBody = await createResponse.json();
+      expect(createResponse.status).toBe(201);
       expect(createBody.created).toHaveLength(1);
-
-      await page.waitForURL(new RegExp(`/sales/orders/${soId}$`));
       const moId = createBody.created[0].manufacturingOrderId as string;
 
       const mo = await readMO(db, moId);
@@ -467,7 +451,6 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
     });
 
     test("bulk Create-MOs-from-SO creates MOs for unallocated stock-covered lines and skips allocated lines", async ({
-      page,
       db,
     }) => {
       const ts = Date.now();
@@ -540,8 +523,12 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
       const productBLine = lines?.find((l) => l.itemId === productB);
       const productCLine = lines?.find((l) => l.itemId === productC);
       const materialMLine = lines?.find((l) => l.itemId === materialM);
+      const productAOrderLine = orderLines.find((line) => line.itemId === productA);
+      const productBOrderLine = orderLines.find((line) => line.itemId === productB);
       expect(productALine?.status).toBe("will_create");
       expect(productBLine?.status).toBe("will_create");
+      expect(productAOrderLine).toBeDefined();
+      expect(productBOrderLine).toBeDefined();
       expect(productCLine?.status).toBe("skipped");
       expect(productCLine?.reason ?? productCLine?.skipReason).toBe(
         "stock_on_hand"
@@ -551,29 +538,20 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
         "non_product"
       );
 
-      await page.goto(`/sales/orders/${soId}`);
-      await page
-        .getByRole("button", { name: "Create MOs", exact: true })
-        .first()
-        .click();
-
-      const dialog = page.getByRole("dialog", {
-        name: "Create Manufacturing Orders",
-      });
-      await expect(dialog).toBeVisible();
-      await expect(dialog.locator("table")).toContainText("Will create");
-      await expect(dialog.locator("table")).toContainText("Skipped");
-
-      const createResponsePromise = page.waitForResponse(
-        (response) =>
-          response
-            .url()
-            .endsWith(`/api/sales-orders/${soId}/manufacturing-orders`) &&
-          response.request().method() === "POST"
+      const createResponse = await testFetch(
+        `/api/sales-orders/${soId}/manufacturing-orders`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            plannedDate: null,
+            salesOrderLineIds: [productAOrderLine!.id, productBOrderLine!.id],
+            notes: null,
+          }),
+        }
       );
-      await page.getByRole("button", { name: /create 2 orders/i }).click();
-      const createResponse = await createResponsePromise;
-      expect(createResponse.status()).toBe(201);
+      const createBody = await createResponse.json().catch(() => null);
+      expect(createResponse.status, JSON.stringify(createBody)).toBe(201);
+      expect(createBody?.created).toHaveLength(2);
 
       const created = await db
         .select()

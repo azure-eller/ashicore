@@ -35,6 +35,7 @@ export type ProductOperationsTabProps = {
   card: ItemCardDto;
   focusItemId: string;
   currentBomRows: BomPayloadRow[];
+  currentBomOutputQuantity: string;
   initialOperationCosts: OperationCostPayloadRow[];
   resources: ManufacturingResourceOption[];
   expectedBatchYield?: string | null;
@@ -54,6 +55,7 @@ export function ProductOperationsTab({
   card,
   focusItemId,
   currentBomRows,
+  currentBomOutputQuantity,
   initialOperationCosts,
   resources,
   expectedBatchYield,
@@ -74,6 +76,7 @@ export function ProductOperationsTab({
     mutationKey: ["item-card", focusItemId, "operation-costs"],
     mutationFn: () =>
       saveBomRevision(focusItemId, {
+        outputQuantity: currentBomOutputQuantity,
         bom: currentBomRows
           .filter(
             (row) =>
@@ -85,6 +88,7 @@ export function ProductOperationsTab({
           .map((row) => ({
             componentId: row.componentId!,
             quantity: row.quantity!,
+            everyQuantity: row.everyQuantity ?? row.basisOutputQuantity ?? null,
             consumptionMode: row.consumptionMode ?? null,
             basisOutputQuantity: row.basisOutputQuantity ?? null,
             batchScalingMode: row.batchScalingMode ?? null,

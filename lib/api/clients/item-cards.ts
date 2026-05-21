@@ -423,14 +423,14 @@ export async function copyBomFromVariant(
 
 /**
  * Persist a new BOM revision for the given variant (product). Called from the
- * Recipe tab when the user clicks Save. Each row is `{ componentId, quantity,
- * consumptionMode?, basisOutputQuantity?, batchScalingMode?,
- * groupRemainderPolicy?, minimumLotAgeDays?, alternates? }`.
+ * Recipe tab when the user clicks Save.
  */
 export type SaveBomRevisionInput = {
+  outputQuantity?: string | null;
   bom: Array<{
     componentId: string;
     quantity: string;
+    everyQuantity?: string | null;
     consumptionMode?: "per_output_unit" | "per_batch" | "per_group" | null;
     basisOutputQuantity?: string | null;
     batchScalingMode?: "proportional" | "full_batches_only" | null;

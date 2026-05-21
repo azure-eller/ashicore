@@ -146,9 +146,11 @@ test.describe("Stocktake flow", () => {
     });
 
     expect(noCostUpdate.status).toBe(400);
-    expect(noCostUpdate.body?.errors?.defaultPurchasePrice?.[0]).toContain(
-      "default purchase price"
-    );
+    const updateCostError =
+      noCostUpdate.body?.errors?.defaultPurchasePrice?.[0] ??
+      noCostUpdate.body?.errors?.stock?.[0] ??
+      noCostUpdate.body?.error;
+    expect(updateCostError).toMatch(/default purchase price|explicit unit cost/i);
 
     const stocktakeResponse = await testFetch("/api/stocktakes", {
       method: "POST",

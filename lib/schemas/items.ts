@@ -36,6 +36,7 @@ const minimumLotAgeDaysSchema = z
 const bomRowSchema = z.object({
   componentId: z.string().min(1, "Component is required"),
   quantity: bomQuantitySchema,
+  everyQuantity: bomQuantitySchema.optional(),
   consumptionMode: z.enum(CONSUMPTION_MODES).default("per_output_unit"),
   basisOutputQuantity: nullableStringOptional,
   batchScalingMode: z.enum(BATCH_SCALING_MODES).nullable().optional(),
@@ -86,6 +87,7 @@ const rawOperationCostRowSchema = z.object({
 const rawBomRowSchema = z.object({
   componentId: z.string().nullable().optional(),
   quantity: z.string().nullable().optional(),
+  everyQuantity: z.string().nullable().optional(),
   consumptionMode: z.enum(CONSUMPTION_MODES).nullable().optional(),
   basisOutputQuantity: z.string().nullable().optional(),
   batchScalingMode: z.enum(BATCH_SCALING_MODES).nullable().optional(),
@@ -132,6 +134,7 @@ const cleanedBomRowsSchema = z
       const parsed = bomRowSchema.safeParse({
         componentId: row.componentId ?? "",
         quantity: row.quantity ?? null,
+        everyQuantity: row.everyQuantity ?? row.basisOutputQuantity ?? undefined,
         consumptionMode: row.consumptionMode ?? "per_output_unit",
         basisOutputQuantity: row.basisOutputQuantity ?? null,
         batchScalingMode: row.batchScalingMode ?? null,
@@ -249,6 +252,7 @@ const rawBaseItemSchema = createInsertSchema(items, {
     (v) => { const n = Number(v); return !isNaN(n) && n >= 0; },
     "Must be a non-negative number"
   ),
+  outputQuantity: bomQuantitySchema.optional(),
   bom: cleanedBomRowsSchema.optional(),
   operationCosts: cleanedOperationCostRowsSchema.optional(),
   revisionNote: nullableStringOptional,
@@ -319,6 +323,7 @@ function bomRefine(
       componentId: string;
       consumptionMode?: string;
       basisOutputQuantity?: string | null;
+      everyQuantity?: string | null;
       batchScalingMode?: string | null;
       groupRemainderPolicy?: string | null;
       alternates?: Array<{ itemId: string }>;
@@ -339,40 +344,16 @@ function bomRefine(
     seen.add(data.bom[i].componentId);
 
     const row = data.bom[i];
-    if (row.consumptionMode === "per_batch" || row.consumptionMode === "per_group") {
-      const basis = row.basisOutputQuantity?.trim() ?? "";
-      if (basis === "") {
+    const everyQuantity = row.everyQuantity?.trim() ?? row.basisOutputQuantity?.trim() ?? "";
+    if (everyQuantity !== "") {
+      const parsed = Number(everyQuantity);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Basis is required",
-          path: ["bom", i, "basisOutputQuantity"],
+          message: "Every must be greater than 0",
+          path: ["bom", i, "everyQuantity"],
         });
-      } else {
-        const parsed = Number(basis);
-        if (!Number.isFinite(parsed) || parsed <= 0) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Basis must be greater than 0",
-            path: ["bom", i, "basisOutputQuantity"],
-          });
-        }
       }
-    }
-
-    if (row.consumptionMode === "per_batch" && !row.batchScalingMode) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Batch scaling is required",
-        path: ["bom", i, "batchScalingMode"],
-      });
-    }
-
-    if (row.consumptionMode === "per_group" && !row.groupRemainderPolicy) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Leftover handling is required",
-        path: ["bom", i, "groupRemainderPolicy"],
-      });
     }
 
     const alternatesSeen = new Set<string>();
@@ -431,6 +412,7 @@ export const insertItemSchema = rawBaseItemSchema.superRefine((data, ctx) => {
   purchaseUnitRefine(data, ctx);
   bomRefine(data, ctx);
   operationCostsRefine(data, ctx);
+  positiveOptionalRefine(data.outputQuantity, "Recipe output", "outputQuantity", ctx);
   positiveOptionalRefine(data.expectedBatchYield, "Expected batch yield", "expectedBatchYield", ctx);
   positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
   positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);
@@ -460,6 +442,7 @@ export const updateItemSchema = rawBaseItemSchema.omit({
   purchaseUnitRefine(data, ctx);
   bomRefine(data, ctx);
   operationCostsRefine(data, ctx);
+  positiveOptionalRefine(data.outputQuantity, "Recipe output", "outputQuantity", ctx);
   positiveOptionalRefine(data.expectedBatchYield, "Expected batch yield", "expectedBatchYield", ctx);
   positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
   positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);

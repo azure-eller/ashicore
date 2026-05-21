@@ -119,6 +119,7 @@ type BomComponentRecord = {
   componentItemType: string;
   unitName: string;
   quantity: string;
+  everyQuantity: string;
   consumptionMode: string;
   basisOutputQuantity: string | null;
   batchScalingMode: string | null;
@@ -130,6 +131,7 @@ type BomComponentRecord = {
 type CurrentBomRecord = {
   revisionId: string;
   revisionNumber: number;
+  outputQuantity: string;
   components: BomComponentRecord[];
 };
 
@@ -213,12 +215,6 @@ function normalizeQuantity(value: number) {
 
 function positiveQuantity(value: number) {
   return Math.max(0, roundQuantity(value));
-}
-
-function nullableNumber(value: string | null | undefined) {
-  if (value == null) return null;
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function isoDate(date: Date) {
@@ -1415,6 +1411,7 @@ async function getCurrentBomsInTx(
       id: bomRevisions.id,
       productId: bomRevisions.productId,
       revisionNumber: bomRevisions.revisionNumber,
+      outputQuantity: trimScale(bomRevisions.outputQuantity).as("outputQuantity"),
     })
     .from(bomRevisions)
     .where(
@@ -1439,6 +1436,9 @@ async function getCurrentBomsInTx(
       componentItemType: items.itemType,
       unitName: unitDefinitions.name,
       quantity: trimScale(bomRevisionComponents.quantity).as("quantity"),
+      everyQuantity: trimScale(bomRevisionComponents.everyQuantity).as(
+        "everyQuantity"
+      ),
       consumptionMode: bomRevisionComponents.consumptionMode,
       basisOutputQuantity: trimScaleNullable(
         bomRevisionComponents.basisOutputQuantity
@@ -1508,6 +1508,7 @@ async function getCurrentBomsInTx(
       componentItemType: component.componentItemType,
       unitName: component.unitName,
       quantity: component.quantity,
+      everyQuantity: component.everyQuantity,
       consumptionMode: component.consumptionMode,
       basisOutputQuantity: component.basisOutputQuantity,
       batchScalingMode: component.batchScalingMode,
@@ -1524,6 +1525,7 @@ async function getCurrentBomsInTx(
       {
         revisionId: revision.id,
         revisionNumber: revision.revisionNumber,
+        outputQuantity: revision.outputQuantity,
         components: componentsByRevision.get(revision.id) ?? [],
       },
     ])
@@ -1839,36 +1841,21 @@ function computeReplenishmentMetadata(args: {
 function computeBomBatchMetadata(
   bom: CurrentBomRecord | undefined,
   quantity: number
-) {
-  const basisValues = [
-    ...new Set(
-      (bom?.components ?? [])
-        .filter((component) => component.consumptionMode === "per_batch")
-        .map((component) => component.basisOutputQuantity)
-        .filter((value): value is string => value != null)
-    ),
-  ];
-
-  if (basisValues.length !== 1) {
-    return null;
-  }
-
-  const basis = nullableNumber(basisValues[0]);
-  if (basis == null || basis <= 0) {
-    return null;
-  }
-
-  return {
-    manufacturingMode: "batch",
-    expectedBatchYield: normalizeQuantity(basis),
-    plannedBatchCount: Math.ceil(quantity / basis),
-  };
+): {
+  manufacturingMode: "batch";
+  expectedBatchYield: string;
+  plannedBatchCount: number;
+} | null {
+  void bom;
+  void quantity;
+  return null;
 }
 
 function computeBomComponentQuantity(component: BomComponentRecord, outputQuantity: number) {
   const calculation = calculateConsumptionRequirement({
     quantity: component.quantity,
     outputQuantity,
+    everyQuantity: component.everyQuantity,
     consumptionMode: component.consumptionMode as never,
     basisOutputQuantity: component.basisOutputQuantity,
     batchScalingMode: component.batchScalingMode as never,

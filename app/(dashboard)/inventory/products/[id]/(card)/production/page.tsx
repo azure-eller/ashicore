@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import {
   getBomComponents,
+  getBomRevisionHistory,
   getBomOperationCosts,
   getItem,
 } from "@/app/(dashboard)/inventory/queries";
@@ -14,10 +15,11 @@ export default async function ProductProductionPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [item, card, bomRows, operationCosts, resources] = await Promise.all([
+  const [item, card, bomRows, bomRevisions, operationCosts, resources] = await Promise.all([
     getItem(id),
     getItemCard(id),
     getBomComponents(id),
+    getBomRevisionHistory(id),
     getBomOperationCosts(id),
     getManufacturingResources(),
   ]);
@@ -28,9 +30,13 @@ export default async function ProductProductionPage({
     <ProductOperationsTab
       card={card}
       focusItemId={id}
+      currentBomOutputQuantity={
+        bomRevisions.find((revision) => revision.isCurrent)?.outputQuantity ?? "1"
+      }
       currentBomRows={bomRows.map((row) => ({
           componentId: row.componentId,
           quantity: row.quantity,
+          everyQuantity: row.everyQuantity ?? row.basisOutputQuantity ?? null,
           consumptionMode:
             (row.consumptionMode as
               | "per_output_unit"

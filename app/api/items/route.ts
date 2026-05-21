@@ -41,7 +41,7 @@ export const POST = apiHandler(async (request) => {
   const body = await request.json();
 
   const idempotencyKey = requireIdempotencyKey(request, "createItemWithLot");
-  const { stock, bom, operationCosts, revisionNote, ...data } =
+  const { stock, outputQuantity, bom, operationCosts, revisionNote, ...data } =
     insertItemSchema.parse(body);
 
   if (data.itemType === "product" && data.bomLocked) {
@@ -52,6 +52,7 @@ export const POST = apiHandler(async (request) => {
     const item = await createItemWithLot(
       data,
       stock,
+      outputQuantity,
       bom,
       operationCosts,
       revisionNote,

@@ -98,12 +98,15 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
       .select({
         componentId: bomRevisionComponents.componentId,
         quantity: bomRevisionComponents.quantity,
+        everyQuantity: bomRevisionComponents.everyQuantity,
+        outputQuantity: bomRevisions.outputQuantity,
         consumptionMode: bomRevisionComponents.consumptionMode,
         basisOutputQuantity: bomRevisionComponents.basisOutputQuantity,
         batchScalingMode: bomRevisionComponents.batchScalingMode,
         groupRemainderPolicy: bomRevisionComponents.groupRemainderPolicy,
       })
       .from(bomRevisionComponents)
+      .innerJoin(bomRevisions, eq(bomRevisionComponents.bomRevisionId, bomRevisions.id))
       .where(eq(bomRevisionComponents.bomRevisionId, currentRevision.id));
 
     const operationRows = await tx
@@ -130,8 +133,9 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
       const componentCost = await resolve(component.componentId, nextVisited);
       const averageUnitQuantity = calculateAverageUnitConsumptionQuantity({
         quantity: component.quantity,
-        consumptionMode: component.consumptionMode as never,
+        everyQuantity: component.everyQuantity,
         basisOutputQuantity: component.basisOutputQuantity,
+        outputQuantity: component.outputQuantity,
       });
       const componentQuantity = Number.parseFloat(averageUnitQuantity);
 

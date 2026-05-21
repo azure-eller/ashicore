@@ -478,6 +478,7 @@ export async function createBomRevisionInTx(
     userId: string;
     productId: string;
     note?: string | null;
+    outputQuantity?: string | null;
     bom: BomInputRow[];
     operationCosts?: BomOperationCostInputRow[];
   }
@@ -502,6 +503,7 @@ export async function createBomRevisionInTx(
       organizationId: params.orgId,
       productId: params.productId,
       revisionNumber: (currentRevision?.revisionNumber ?? 0) + 1,
+      outputQuantity: params.outputQuantity ?? "1",
       isCurrent: true,
       note: params.note ?? null,
       createdBy: params.userId,
@@ -537,6 +539,11 @@ export async function createBomRevisionInTx(
       }
 
       const consumptionMode = row.consumptionMode ?? "per_output_unit";
+      const everyQuantity =
+        row.everyQuantity ??
+        row.basisOutputQuantity ??
+        params.outputQuantity ??
+        "1";
 
       return {
         bomRevisionId: revision.id,
@@ -546,6 +553,7 @@ export async function createBomRevisionInTx(
         componentItemType: component.itemType,
         unitName: component.unitName,
         quantity: row.quantity,
+        everyQuantity,
         consumptionMode,
         basisOutputQuantity:
           consumptionMode === "per_batch" || consumptionMode === "per_group"
@@ -701,7 +709,7 @@ export async function createBomRevisionInTx(
             crewSize: row.crewSize,
             plannedMinutes: row.plannedMinutes,
             loadedCostPerHour: row.loadedCostPerHour ?? resource.loadedCostPerHour,
-            outputQuantity: 1,
+            outputQuantity: Number(params.outputQuantity ?? "1"),
           }),
           sortOrder: index,
         };
@@ -1963,8 +1971,6 @@ export async function updateItem(
     const normalizedItemData = {
       ...itemData,
       currentStockUnitCost: normalizedCurrentStockUnitCost,
-      manufacturingMode: "discrete" as const,
-      expectedBatchYield: null,
     };
 
     const [item] = await tx
@@ -2000,6 +2006,7 @@ export async function updateItem(
       const nextBom = bom ?? currentBom.map((row) => ({
         componentId: row.componentId,
         quantity: row.quantity,
+        everyQuantity: row.everyQuantity,
         consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
         basisOutputQuantity: row.basisOutputQuantity,
         batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
@@ -2023,6 +2030,7 @@ export async function updateItem(
           currentBom.map((row) => ({
             componentId: row.componentId,
             quantity: row.quantity,
+            everyQuantity: row.everyQuantity,
             consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
             basisOutputQuantity: row.basisOutputQuantity,
             batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
@@ -2183,8 +2191,9 @@ export async function updateItem(
 }
 
 export async function createItemWithLot(
-  data: Omit<InsertItem, "stock" | "bom" | "revisionNote">,
+  data: Omit<InsertItem, "stock" | "outputQuantity" | "bom" | "revisionNote">,
   stock: string,
+  outputQuantity?: string | null,
   bom?: BomInputRow[],
   operationCosts?: BomOperationCostInputRow[],
   revisionNote?: string | null,
@@ -2195,7 +2204,7 @@ export async function createItemWithLot(
       organizationId: orgId,
       operationName: "createItemWithLot",
       idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { data, stock, bom, operationCosts, revisionNote },
+      payload: { data, stock, outputQuantity, bom, operationCosts, revisionNote },
     });
 
     if (replay.replayed) {
@@ -2239,8 +2248,6 @@ export async function createItemWithLot(
         ...data,
         familyId: family.id,
         optionCombinationKey: "",
-        manufacturingMode: "discrete",
-        expectedBatchYield: null,
         currentStockUnitCost: initialCurrentStockUnitCost,
         organizationId: orgId,
       })
@@ -2252,6 +2259,7 @@ export async function createItemWithLot(
         userId,
         productId: item.id,
         note: revisionNote,
+        outputQuantity,
         bom: bom ?? [],
         operationCosts: operationCosts ?? [],
       });
@@ -2484,6 +2492,7 @@ export async function getBomComponents(itemId: string) {
       id: row.id,
       componentId: row.componentId,
       quantity: row.quantity,
+      everyQuantity: row.everyQuantity,
       consumptionMode: row.consumptionMode,
       basisOutputQuantity: row.basisOutputQuantity,
       batchScalingMode: row.batchScalingMode,
@@ -2568,10 +2577,12 @@ export async function copyCurrentBomToVariants(
     }
 
     const sourceBom = await getCurrentBomComponentsInTx(tx, sourceItemId);
+    const sourceRevision = await getCurrentBomRevisionInTx(tx, sourceItemId);
     const sourceOperationCosts = await getCurrentBomOperationCostsInTx(tx, sourceItemId);
     const bom: BomInputRow[] = sourceBom.map((row) => ({
       componentId: row.componentId,
       quantity: row.quantity,
+      everyQuantity: row.everyQuantity,
       consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
       basisOutputQuantity: row.basisOutputQuantity,
       batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
@@ -2597,6 +2608,7 @@ export async function copyCurrentBomToVariants(
         userId,
         productId,
         note: note ?? `Copied from ${sourceItemId}`,
+        outputQuantity: sourceRevision?.outputQuantity ?? null,
         bom,
         operationCosts,
       });
@@ -2682,9 +2694,11 @@ export async function copyCurrentOperationsToVariants(
     const copied: Array<{ id: string; revisionId: string }> = [];
     for (const productId of targetIds) {
       const targetBom = await getCurrentBomComponentsInTx(tx, productId);
+      const targetRevision = await getCurrentBomRevisionInTx(tx, productId);
       const bom: BomInputRow[] = targetBom.map((row) => ({
         componentId: row.componentId,
         quantity: row.quantity,
+        everyQuantity: row.everyQuantity,
         consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
         basisOutputQuantity: row.basisOutputQuantity,
         batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
@@ -2700,6 +2714,7 @@ export async function copyCurrentOperationsToVariants(
         userId,
         productId,
         note: note ?? `Copied operations from ${sourceItemId}`,
+        outputQuantity: targetRevision?.outputQuantity ?? null,
         bom,
         operationCosts,
       });

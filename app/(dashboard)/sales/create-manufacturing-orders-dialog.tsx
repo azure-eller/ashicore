@@ -13,13 +13,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -38,12 +31,6 @@ import {
 } from "@/components/ui/table";
 import type { SalesOrderDetail } from "./types";
 import { cn } from "@/lib/utils";
-import { formatQuantity } from "@/lib/format";
-import {
-  makeGroupChoiceKey,
-  summarizeGroupRemainders,
-  type GroupRemainderHandling,
-} from "@/lib/manufacturing/consumption";
 
 type Props = {
   salesOrderId: string;
@@ -116,9 +103,6 @@ export function CreateManufacturingOrdersDialog({
   );
   const [selectedLineIds, setSelectedLineIds] = useState<string[] | null>(null);
   const [lineQuantities, setLineQuantities] = useState<Record<string, string>>({});
-  const [groupRemainderChoices, setGroupRemainderChoices] = useState<
-    Record<string, Record<string, GroupRemainderHandling>>
-  >({});
   const initialLineQuantityMap = useMemo(
     () =>
       new Map(
@@ -186,43 +170,6 @@ export function CreateManufacturingOrdersDialog({
   );
   const isSingleLineMode = initialLineQuantityMap.size === 1;
   const showStatusColumns = skippedLines.length > 0;
-  const selectedGroupSummaries = useMemo(
-    () =>
-      creatableLines
-        .filter((line) => selectedLineIdSet.has(line.salesOrderLineId))
-        .map((line) => {
-          const quantity =
-            lineQuantities[line.salesOrderLineId] ??
-            initialLineQuantityMap.get(line.salesOrderLineId) ??
-            line.quantity;
-          return {
-            line,
-            summaries: summarizeGroupRemainders(
-              line.groupRemainderRows,
-              quantity
-            ).filter((summary) => summary.requiresChoice),
-          };
-        })
-        .filter((entry) => entry.summaries.length > 0),
-    [
-      creatableLines,
-      initialLineQuantityMap,
-      lineQuantities,
-      selectedLineIdSet,
-    ]
-  );
-  const submittedGroupRemainderChoices = selectedGroupSummaries.flatMap(
-    ({ line, summaries }) =>
-      summaries.map((summary) => ({
-        salesOrderLineId: line.salesOrderLineId,
-        basisOutputQuantity: summary.basisOutputQuantity,
-        handling:
-          groupRemainderChoices[line.salesOrderLineId]?.[
-            summary.basisOutputQuantity
-          ] ?? "leave_loose",
-      }))
-  );
-
   const mutation = useMutation({
     mutationFn: () =>
       apiJson(`/api/sales-orders/${salesOrderId}/manufacturing-orders`, {
@@ -240,7 +187,6 @@ export function CreateManufacturingOrdersDialog({
                 ?.quantity ??
               "0",
           })),
-          groupRemainderChoices: submittedGroupRemainderChoices,
           notes: null,
         },
         fallbackError: "Failed to create manufacturing orders.",
@@ -266,7 +212,6 @@ export function CreateManufacturingOrdersDialog({
     setPlannedDate(undefined);
     setSelectedLineIds(null);
     setLineQuantities({});
-    setGroupRemainderChoices({});
     mutation.reset();
   };
 
@@ -289,21 +234,6 @@ export function CreateManufacturingOrdersDialog({
           : [...selected, lineId]
         : selected.filter((currentLineId) => currentLineId !== lineId);
     });
-  };
-
-  const setGroupChoice = (
-    salesOrderLineId: string,
-    basisOutputQuantity: string,
-    handling: GroupRemainderHandling
-  ) => {
-    const key = makeGroupChoiceKey(basisOutputQuantity);
-    setGroupRemainderChoices((current) => ({
-      ...current,
-      [salesOrderLineId]: {
-        ...(current[salesOrderLineId] ?? {}),
-        [key]: handling,
-      },
-    }));
   };
 
   const canSubmit =
@@ -503,67 +433,6 @@ export function CreateManufacturingOrdersDialog({
                 </div>
               ) : null}
             </div>
-
-            {selectedGroupSummaries.length > 0 ? (
-              <div className="rounded-md border border-dashed px-4 py-3">
-                <h3 className="font-medium">Grouped materials</h3>
-                <div className="mt-3 space-y-3">
-                  {selectedGroupSummaries.map(({ line, summaries }) =>
-                    summaries.map((summary) => {
-                      const currentChoice =
-                        groupRemainderChoices[line.salesOrderLineId]?.[
-                          summary.basisOutputQuantity
-                        ] ?? "leave_loose";
-                      const groupCount =
-                        currentChoice === "create_partial_group"
-                          ? summary.fullGroupCount + 1
-                          : summary.fullGroupCount;
-
-                      return (
-                        <div
-                          key={`${line.salesOrderLineId}:${summary.basisOutputQuantity}`}
-                          className="grid gap-3 md:grid-cols-[1fr_auto]"
-                        >
-                          <div className="text-sm text-muted-foreground">
-                            <span className="font-medium text-foreground">
-                              {line.itemName}
-                            </span>
-                            {": "}
-                            {groupCount} group{groupCount === 1 ? "" : "s"} of{" "}
-                            {formatQuantity(summary.basisOutputQuantity)}{" "}
-                            {line.unitName}
-                            {"; "}
-                            {formatQuantity(summary.remainderQuantity)} leftover
-                          </div>
-                          <Select
-                            value={currentChoice}
-                            onValueChange={(value) =>
-                              setGroupChoice(
-                                line.salesOrderLineId,
-                                summary.basisOutputQuantity,
-                                value as GroupRemainderHandling
-                              )
-                            }
-                          >
-                            <SelectTrigger className="w-56">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="leave_loose">
-                                Leave loose
-                              </SelectItem>
-                              <SelectItem value="create_partial_group">
-                                Create partial group
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            ) : null}
 
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center justify-between gap-2">

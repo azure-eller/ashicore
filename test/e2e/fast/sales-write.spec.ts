@@ -3503,7 +3503,7 @@ test.describe("Sales write-path smoke", () => {
     });
   });
 
-  test("applies batch yield to estimated product margin", async () => {
+  test("applies recipe output quantity to estimated product margin", async () => {
     const suffix = `${ts}-BATCH-MARGIN`;
     const materialResult = await createItem({
       name: `Fast Batch Margin Material ${suffix}`,
@@ -3533,15 +3533,12 @@ test.describe("Sales write-path smoke", () => {
       defaultSellingPrice: "15",
       stock: "0",
       safetyStock: "0",
-      manufacturingMode: "batch",
-      expectedBatchYield: "4",
+      outputQuantity: "4",
       bom: [
         {
           componentId: materialId,
           quantity: "2",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "4",
-          batchScalingMode: "full_batches_only",
+          everyQuantity: "4",
         },
       ],
     });
@@ -3620,11 +3617,13 @@ test.describe("Sales write-path smoke", () => {
       defaultSellingPrice: "20",
       stock: "0",
       safetyStock: "0",
+      outputQuantity: "50",
       bom: [
-        { componentId: materialId, quantity: "2" },
+        { componentId: materialId, quantity: "100", everyQuantity: "50" },
         {
           componentId: palletId,
           quantity: "1",
+          everyQuantity: "50",
           consumptionMode: "per_group",
           basisOutputQuantity: "50",
           groupRemainderPolicy: "ask",
@@ -3711,7 +3710,7 @@ test.describe("Sales write-path smoke", () => {
     expect(pricing.estimatedUnitCost).toBe("10");
   });
 
-  test("creates sales-linked MOs with explicit group remainder choices", async ({
+  test("creates sales-linked MOs with every-quantity rounding and no remainder choices", async ({
     db,
   }) => {
     const suffix = `${ts}-SALES-GROUP-MO`;
@@ -3796,10 +3795,6 @@ test.describe("Sales write-path smoke", () => {
         candidate.itemId === productIdForSalesGroup
     );
     expect(line).toBeTruthy();
-    expect(line.groupRemainderRows).toEqual([
-      { basisOutputQuantity: "50", groupRemainderPolicy: "ask" },
-    ]);
-
     const fallbackResponse = await testFetch(
       `/api/sales-orders/${groupOrderId}/manufacturing-orders`,
       {
@@ -3825,10 +3820,9 @@ test.describe("Sales write-path smoke", () => {
     const fallbackByItemId = new Map(
       fallbackIngredientRows.map((row) => [row.itemId, row])
     );
-    expect(fallbackByItemId.get(palletId)?.plannedQuantity).toBe("1.0000");
-    expect(fallbackByItemId.get(palletId)?.chosenGroupRemainderHandling).toBe(
-      "leave_loose"
-    );
+    expect(fallbackByItemId.get(palletId)?.plannedQuantity).toBe("2.0000");
+    expect(fallbackByItemId.get(palletId)?.everyQuantity).toBe("50.0000");
+    expect(fallbackByItemId.get(palletId)?.chosenGroupRemainderHandling).toBeNull();
 
     const secondOrderResult = await createSalesOrder({
       customerId,
@@ -3861,13 +3855,6 @@ test.describe("Sales write-path smoke", () => {
           lineQuantities: [
             { salesOrderLineId: secondLine.salesOrderLineId, quantity: "52" },
           ],
-          groupRemainderChoices: [
-            {
-              salesOrderLineId: secondLine.salesOrderLineId,
-              basisOutputQuantity: "50",
-              handling: "create_partial_group",
-            },
-          ],
           notes: null,
         }),
       }
@@ -3887,9 +3874,7 @@ test.describe("Sales write-path smoke", () => {
     const byItemId = new Map(ingredientRows.map((row) => [row.itemId, row]));
     expect(byItemId.get(materialId)?.plannedQuantity).toBe("52.0000");
     expect(byItemId.get(palletId)?.plannedQuantity).toBe("2.0000");
-    expect(byItemId.get(palletId)?.chosenGroupRemainderHandling).toBe(
-      "create_partial_group"
-    );
+    expect(byItemId.get(palletId)?.chosenGroupRemainderHandling).toBeNull();
   });
 
   test("keeps Create MOs available when another line is already in production", async ({

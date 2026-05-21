@@ -11,6 +11,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
 import { BomEditor, type BomPayloadRow } from "@/app/(dashboard)/inventory/bom-editor";
@@ -29,6 +30,7 @@ export type ProductRecipeTabProps = {
   card: ItemCardDto;
   focusItemId: string;
   initialBomRows: BomPayloadRow[];
+  initialOutputQuantity: string;
   availableComponents: AvailableComponent[];
   canViewBom: boolean;
   canEditProduct: boolean;
@@ -38,6 +40,7 @@ export function ProductRecipeTab({
   card,
   focusItemId,
   initialBomRows,
+  initialOutputQuantity,
   availableComponents,
   canViewBom,
   canEditProduct,
@@ -49,6 +52,7 @@ export function ProductRecipeTab({
     visibleVariants.find((variant) => variant.id === focusItemId) ?? visibleVariants[0];
 
   const [rows, setRows] = useState<BomPayloadRow[]>(initialBomRows);
+  const [outputQuantity, setOutputQuantity] = useState(initialOutputQuantity);
   const [dirty, setDirty] = useState(false);
   const [copyToOpen, setCopyToOpen] = useState(false);
   const [copyFromOpen, setCopyFromOpen] = useState(false);
@@ -57,6 +61,7 @@ export function ProductRecipeTab({
     mutationKey: ["item-card", focusItemId, "bom-revision"],
     mutationFn: () =>
       saveBomRevision(focusItemId, {
+        outputQuantity,
         bom: rows
           .filter(
             (row) =>
@@ -68,6 +73,7 @@ export function ProductRecipeTab({
           .map((row) => ({
             componentId: row.componentId!,
             quantity: row.quantity!,
+            everyQuantity: row.everyQuantity ?? outputQuantity,
             consumptionMode: row.consumptionMode ?? null,
             basisOutputQuantity: row.basisOutputQuantity ?? null,
             batchScalingMode: row.batchScalingMode ?? null,
@@ -171,6 +177,7 @@ export function ProductRecipeTab({
                 className="px-(--space-4)"
                 onClick={() => {
                   setRows(initialBomRows);
+                  setOutputQuantity(initialOutputQuantity);
                   setDirty(false);
                 }}
                 disabled={saveMutation.isPending}
@@ -200,9 +207,26 @@ export function ProductRecipeTab({
         Any changes made here only affect <strong>{activeVariant.displayName}</strong>.
       </p>
 
+      <div className="mb-(--space-3) grid max-w-sm grid-cols-[1fr_auto] items-center gap-(--space-2)">
+        <Input
+          aria-label="Recipe output quantity"
+          inputMode="decimal"
+          value={outputQuantity}
+          onChange={(event) => {
+            setOutputQuantity(event.target.value);
+            setDirty(true);
+          }}
+        />
+        <span className="text-[length:var(--text-sm)] text-muted-foreground">
+          {card.family.unitName ?? "units"} output
+        </span>
+      </div>
+
       <BomEditor
         initialRows={initialBomRows}
         availableComponents={availableComponents}
+        outputQuantity={outputQuantity}
+        outputUnitName={card.family.unitName}
         onRowsChange={handleRowsChange}
         error={errorMessage}
       />

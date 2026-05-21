@@ -84,7 +84,6 @@ export async function createManufacturingOrder(
       plannedQuantity: input.plannedQuantity,
       plannedDate: input.plannedDate,
       ingredients: input.ingredients,
-      groupRemainderChoices: [],
       autoAllocateIngredientLots: true,
       confirmShortage: true,
     }),
@@ -134,7 +133,6 @@ export async function saveManufacturingOrderIngredients(
       salesOrderId: header.salesOrderId,
       salesOrderLineId: header.salesOrderLineId,
       ingredients,
-      groupRemainderChoices: [],
       autoAllocateIngredientLots: true,
     }),
   });
