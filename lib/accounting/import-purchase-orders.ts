@@ -29,6 +29,10 @@ import {
   accountingAuditErrorMetadata,
   tryRecordAccountingAuditEvent,
 } from "@/lib/accounting/audit-events";
+import {
+  classifyImportedPurchaseOrderChargeLine,
+  isImportedPurchaseOrderChargeLine,
+} from "@/lib/accounting/purchase-order-line-classification";
 import { cleanString } from "@/lib/accounting/providers/common";
 import type {
   ExternalPurchaseOrderDocument,
@@ -204,13 +208,18 @@ function buildCandidate(
   local: Awaited<ReturnType<typeof loadLocalMatchesInTx>>
 ): AccountingPurchaseOrderImportCandidate {
   const importableLines = order.lines.filter(isImportableLine);
+  const materialLines = importableLines.filter(
+    (line) => !isImportedPurchaseOrderChargeLine(line)
+  );
   const supplierId = findSupplierId(order, local);
-  const matchedLineCount = importableLines.filter((line) =>
+  const matchedLineCount = materialLines.filter((line) =>
     findItemId(line, local)
   ).length;
-  const createsMaterials = importableLines.length - matchedLineCount;
+  const createsMaterials = materialLines.length - matchedLineCount;
   const exclusionReason =
-    importableLines.length === 0 ? "No item lines with quantity and price" : null;
+    materialLines.length === 0
+      ? "No material lines with quantity and price"
+      : null;
   const status = exclusionReason
     ? "excluded"
     : supplierId && createsMaterials === 0
@@ -392,7 +401,15 @@ async function buildPurchaseOrderPayloadInTx(
   let createdItems = 0;
   const lines = [];
 
-  for (const line of order.lines.filter(isImportableLine)) {
+  const importableLines = order.lines.filter(isImportableLine);
+  const materialLines = importableLines.filter(
+    (line) => !isImportedPurchaseOrderChargeLine(line)
+  );
+  const additionalCosts = importableLines
+    .map((line) => classifyImportedPurchaseOrderChargeLine(line))
+    .filter((line): line is NonNullable<typeof line> => line != null);
+
+  for (const line of materialLines) {
     const item = await getOrCreateItemInTx(tx, orgId, provider, line, local);
     if (item.created) {
       createdItems += 1;
@@ -494,7 +511,7 @@ async function buildPurchaseOrderPayloadInTx(
     shipPostcode: address.postcode,
     shipCountry: address.country,
     lines,
-    additionalCosts: [],
+    additionalCosts,
   };
 
   return {
