@@ -1245,6 +1245,12 @@ async function getLockedSalesOrderInTx(tx: Tx, id: string) {
       shipRegion: salesOrders.shipRegion,
       shipPostcode: salesOrders.shipPostcode,
       shipCountry: salesOrders.shipCountry,
+      billingLine1: salesOrders.billingLine1,
+      billingLine2: salesOrders.billingLine2,
+      billingCity: salesOrders.billingCity,
+      billingRegion: salesOrders.billingRegion,
+      billingPostcode: salesOrders.billingPostcode,
+      billingCountry: salesOrders.billingCountry,
     })
     .from(salesOrders)
     .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)))
@@ -2761,6 +2767,12 @@ async function prepareOrderPayload(
   shipRegion: string | null;
   shipPostcode: string | null;
   shipCountry: string | null;
+  billingLine1: string | null;
+  billingLine2: string | null;
+  billingCity: string | null;
+  billingRegion: string | null;
+  billingPostcode: string | null;
+  billingCountry: string | null;
   totalAmount: string;
   preparedLines: PreparedOrderLine[];
   affectedItemIds: string[];
@@ -2840,6 +2852,12 @@ async function prepareOrderPayload(
     shipRegion: payload.shipRegion ?? null,
     shipPostcode: payload.shipPostcode ?? null,
     shipCountry: payload.shipCountry ?? null,
+    billingLine1: payload.billingLine1 ?? null,
+    billingLine2: payload.billingLine2 ?? null,
+    billingCity: payload.billingCity ?? null,
+    billingRegion: payload.billingRegion ?? null,
+    billingPostcode: payload.billingPostcode ?? null,
+    billingCountry: payload.billingCountry ?? null,
     totalAmount: normalizeMoney(totalAmount),
     preparedLines,
     affectedItemIds: preparedLines.map((line) => line.itemId),
@@ -5267,6 +5285,12 @@ export async function getSalesOrder(
         shipRegion: salesOrders.shipRegion,
         shipPostcode: salesOrders.shipPostcode,
         shipCountry: salesOrders.shipCountry,
+        billingLine1: salesOrders.billingLine1,
+        billingLine2: salesOrders.billingLine2,
+        billingCity: salesOrders.billingCity,
+        billingRegion: salesOrders.billingRegion,
+        billingPostcode: salesOrders.billingPostcode,
+        billingCountry: salesOrders.billingCountry,
         xeroInvoiceId: accountingDocumentSyncs.externalDocumentId,
         xeroInvoiceNumber: accountingDocumentSyncs.externalDocumentNumber,
         xeroPushStatus: accountingDocumentSyncs.pushStatus,
@@ -5899,6 +5923,12 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
         shipRegion: salesOrders.shipRegion,
         shipPostcode: salesOrders.shipPostcode,
         shipCountry: salesOrders.shipCountry,
+        billingLine1: salesOrders.billingLine1,
+        billingLine2: salesOrders.billingLine2,
+        billingCity: salesOrders.billingCity,
+        billingRegion: salesOrders.billingRegion,
+        billingPostcode: salesOrders.billingPostcode,
+        billingCountry: salesOrders.billingCountry,
       })
       .from(salesOrders)
       .where(
@@ -6019,6 +6049,12 @@ export async function createSalesOrder(
         shipRegion: prepared.shipRegion,
         shipPostcode: prepared.shipPostcode,
         shipCountry: prepared.shipCountry,
+        billingLine1: prepared.billingLine1,
+        billingLine2: prepared.billingLine2,
+        billingCity: prepared.billingCity,
+        billingRegion: prepared.billingRegion,
+        billingPostcode: prepared.billingPostcode,
+        billingCountry: prepared.billingCountry,
         totalAmount: prepared.totalAmount,
       })
       .returning({ id: salesOrders.id });
@@ -6116,6 +6152,12 @@ export async function duplicateSalesOrder(
       shipRegion: order.shipRegion,
       shipPostcode: order.shipPostcode,
       shipCountry: order.shipCountry,
+      billingLine1: order.billingLine1,
+      billingLine2: order.billingLine2,
+      billingCity: order.billingCity,
+      billingRegion: order.billingRegion,
+      billingPostcode: order.billingPostcode,
+      billingCountry: order.billingCountry,
       lines: order.lines.map((line) => ({
         itemId: line.itemId,
         quantity: line.quantity,
@@ -7828,6 +7870,14 @@ export async function patchSalesOrderHeader(
     if (patch.shipRegion !== undefined) updates.shipRegion = patch.shipRegion;
     if (patch.shipPostcode !== undefined) updates.shipPostcode = patch.shipPostcode;
     if (patch.shipCountry !== undefined) updates.shipCountry = patch.shipCountry;
+    if (patch.billingLine1 !== undefined) updates.billingLine1 = patch.billingLine1;
+    if (patch.billingLine2 !== undefined) updates.billingLine2 = patch.billingLine2;
+    if (patch.billingCity !== undefined) updates.billingCity = patch.billingCity;
+    if (patch.billingRegion !== undefined) updates.billingRegion = patch.billingRegion;
+    if (patch.billingPostcode !== undefined) {
+      updates.billingPostcode = patch.billingPostcode;
+    }
+    if (patch.billingCountry !== undefined) updates.billingCountry = patch.billingCountry;
 
     if (Object.keys(updates).length > 0) {
       updates.updatedAt = new Date();

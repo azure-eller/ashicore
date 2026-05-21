@@ -279,6 +279,12 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
   shipRegion: nullableString,
   shipPostcode: nullableString,
   shipCountry: nullableString,
+  billingLine1: nullableString,
+  billingLine2: nullableString,
+  billingCity: nullableString,
+  billingRegion: nullableString,
+  billingPostcode: nullableString,
+  billingCountry: nullableString,
 }).omit({
   id: true,
   organizationId: true,
@@ -411,6 +417,12 @@ export const patchSalesOrderHeaderSchema = z
     shipRegion: nullableString.optional(),
     shipPostcode: nullableString.optional(),
     shipCountry: nullableString.optional(),
+    billingLine1: nullableString.optional(),
+    billingLine2: nullableString.optional(),
+    billingCity: nullableString.optional(),
+    billingRegion: nullableString.optional(),
+    billingPostcode: nullableString.optional(),
+    billingCountry: nullableString.optional(),
   })
   .superRefine((values, ctx) => {
     if (
@@ -611,6 +623,12 @@ export const salesOrderDefaultValues: InsertSalesOrder = {
   shipRegion: null,
   shipPostcode: null,
   shipCountry: DEFAULT_COUNTRY,
+  billingLine1: null,
+  billingLine2: null,
+  billingCity: null,
+  billingRegion: null,
+  billingPostcode: null,
+  billingCountry: null,
   lines: [
     {
       itemId: "",

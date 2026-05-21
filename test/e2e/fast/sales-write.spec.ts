@@ -999,8 +999,8 @@ test.describe("Sales write-path smoke", () => {
     const detailOrderResult = await createSalesOrder({
       customerId,
       status: "open",
-      shipDate: "2026-04-20",
-      requestedDate: "2026-04-20",
+      shipDate: null,
+      requestedDate: null,
       notes: "Fast detail line delete regression",
       lines: [
         { itemId: detailDeleteId, quantity: "1", unitPrice: "10" },

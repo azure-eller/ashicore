@@ -426,6 +426,12 @@ export const salesOrders = salesSchema
       shipRegion: varchar("ship_region", { length: 120 }),
       shipPostcode: varchar("ship_postcode", { length: 30 }),
       shipCountry: varchar("ship_country", { length: 120 }),
+      billingLine1: varchar("billing_line1", { length: 255 }),
+      billingLine2: varchar("billing_line2", { length: 255 }),
+      billingCity: varchar("billing_city", { length: 120 }),
+      billingRegion: varchar("billing_region", { length: 120 }),
+      billingPostcode: varchar("billing_postcode", { length: 30 }),
+      billingCountry: varchar("billing_country", { length: 120 }),
       totalAmount: numeric("total_amount", { precision: 12, scale: 2 })
         .notNull()
         .default("0"),

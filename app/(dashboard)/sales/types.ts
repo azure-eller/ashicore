@@ -517,6 +517,12 @@ export type SalesOrderDetail = {
   shipRegion: string | null;
   shipPostcode: string | null;
   shipCountry: string | null;
+  billingLine1: string | null;
+  billingLine2: string | null;
+  billingCity: string | null;
+  billingRegion: string | null;
+  billingPostcode: string | null;
+  billingCountry: string | null;
   xeroInvoiceId: string | null;
   xeroInvoiceNumber: string | null;
   xeroPushStatus: "pending" | "pushed" | "failed" | null;
@@ -675,6 +681,12 @@ export type SalesOrderEditData = {
   shipRegion: string | null;
   shipPostcode: string | null;
   shipCountry: string | null;
+  billingLine1: string | null;
+  billingLine2: string | null;
+  billingCity: string | null;
+  billingRegion: string | null;
+  billingPostcode: string | null;
+  billingCountry: string | null;
   lines: Array<{
     itemId: string;
     quantity: string;
