@@ -12,6 +12,7 @@ import {
   Settings02Icon,
 } from "@hugeicons/core-free-icons";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { AshicoreLogo } from "@/components/brand/ashicore-logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -134,8 +135,7 @@ export function DashboardTopNav({
               href="/sales/orders"
               className="flex items-center gap-[11px] text-[19px] font-semibold tracking-[0] text-sidebar-foreground"
             >
-              <AshicoreMark />
-              <span>ashicore</span>
+              <AshicoreLogo showWordmark markClassName="size-(--space-10)" />
             </NavigationLink>
           </div>
 
@@ -439,22 +439,5 @@ export function DashboardTopNav({
         </nav>
       ) : null}
     </>
-  );
-}
-
-function AshicoreMark() {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 108 108"
-      className="size-(--space-10) shrink-0"
-      fill="currentColor"
-    >
-      <path d="M16 14h59v20H16z" />
-      <path d="M80 14h19v67H80z" />
-      <path d="M16 39h20v58H16z" />
-      <path d="M47 45h23v23H47z" />
-      <path d="M40 78h59v19H40z" />
-    </svg>
   );
 }

@@ -25,8 +25,8 @@ export function EmailLayout({ preview, children, maxWidth = 480 }: EmailLayoutPr
       <Body style={body}>
         <Container style={{ ...container, maxWidth }}>
           <Section style={brandRow}>
-            <Text style={brandMark}>a</Text>
-            <Text style={brandName}>ashicore</Text>
+            <Text style={brandMark}>|||</Text>
+            <Text style={brandName}>Ashicore</Text>
           </Section>
           <Section style={panel}>{children}</Section>
           <Text style={footer}>
@@ -126,12 +126,14 @@ const brandRow: React.CSSProperties = {
 };
 
 const brandMark: React.CSSProperties = {
-  backgroundColor: "#1c3d6b",
+  backgroundColor: "#11151a",
+  borderBottom: "4px solid #65b99f",
   color: "#ffffff",
   display: "inline-block",
-  fontSize: 13,
+  fontSize: 10,
   fontWeight: 700,
-  lineHeight: "24px",
+  letterSpacing: 1,
+  lineHeight: "20px",
   margin: "0 10px 0 0",
   textAlign: "center",
   width: 24,

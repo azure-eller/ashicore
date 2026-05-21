@@ -1,0 +1,66 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { SIGN_UP_URL } from "../lib/site";
+---
+
+<BaseLayout
+  title="Pricing"
+  description="Ashicore is free for six months for companies joining the launch program."
+  path="/pricing"
+>
+    <main class="content-page">
+    <p class="kicker">Launch program</p>
+    <h1 class="page-title">Six months free for early customers.</h1>
+    <p class="page-description">
+      Ashicore is cutting-edge operating-core software for teams ready to run
+      inventory, manufacturing, sales, purchasing, and planning in the AI era.
+    </p>
+
+    <section class="pricing-panel" aria-labelledby="pricing-offer">
+      <div class="pricing-offer">
+        <p class="pricing-price" id="pricing-offer">
+          <span class="price-free">$0</span>
+          <span class="price-was">$299/month</span>
+        </p>
+        <p class="price-term">
+          Free for your first six months. After that, standard pricing is $299 per
+          month unless we agree on a different plan before renewal.
+        </p>
+        <div class="hero-actions">
+          <a class="button" href={SIGN_UP_URL}>
+            Create account
+          </a>
+        </div>
+      </div>
+      <aside class="pricing-proof" aria-label="Launch program details">
+        <h2>Built with real operators. Now opening to more companies.</h2>
+        <p>
+          Ashicore was shaped in collaboration with real businesses solving
+          real operational problems. The launch program gives qualified teams a
+          direct path into the platform while the offer is available.
+        </p>
+        <ul class="pricing-list">
+          <li>Full Ashicore service access during the first six months.</li>
+          <li>Inventory, manufacturing, sales, purchasing, and planning workflows.</li>
+          <li>Accounting handoff and agent-ready operational context.</li>
+          <li>Direct onboarding path for companies adopting the platform now.</li>
+        </ul>
+      </aside>
+    </section>
+
+    <article class="content-body">
+      <h2>Why the offer exists</h2>
+      <p>
+        Ashicore was built in close collaboration with operators who needed
+        modern business software for real inventory, production, sales, and
+        purchasing workflows. We are now opening access beyond the initial
+        pilot group.
+      </p>
+      <p>
+        The six-month offer is simple: if Ashicore fits your operation, you get
+        a serious head start on cutting-edge business software while the launch
+        program is open.
+      </p>
+    </article>
+  </main>
+</BaseLayout>

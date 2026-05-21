@@ -1,0 +1,68 @@
+---
+import logo from "../assets/logo.svg";
+import "../styles/global.css";
+import {
+  absoluteUrl,
+  CONSOLE_URL,
+  navItems,
+  PUBLIC_SITE_URL,
+  SITE_NAME,
+} from "../lib/site";
+
+interface Props {
+  title: string;
+  description: string;
+  path?: string;
+}
+
+const { title, description, path = "/" } = Astro.props;
+const canonical = absoluteUrl(path);
+const pageTitle = title === SITE_NAME ? SITE_NAME : `${title} | ${SITE_NAME}`;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:site_name" content={SITE_NAME} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content={`${PUBLIC_SITE_URL}/og.svg`} />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header">
+        <a class="brand-link" href="/" aria-label="Ashicore home">
+          <img class="brand-mark" src={logo.src} width="24" height="24" alt="" />
+          <span>{SITE_NAME}</span>
+        </a>
+        <nav class="header-nav" aria-label="Main navigation">
+          {navItems.map((item) => <a href={item.href}>{item.label}</a>)}
+        </nav>
+        <div class="header-actions">
+          <a class="button secondary" href={CONSOLE_URL}>Open console</a>
+        </div>
+      </header>
+      <slot />
+      <footer class="footer">
+        <div class="footer-inner">
+          <span>© {new Date().getFullYear()} Ashicore</span>
+          <nav class="footer-links" aria-label="Footer navigation">
+            <a href="/privacy">Privacy</a>
+            <a href="/terms">Terms</a>
+            <a href="/security">Security</a>
+            <a href="/subprocessors">Subprocessors</a>
+            <a href="/support">Support</a>
+          </nav>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

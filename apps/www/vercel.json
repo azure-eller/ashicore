@@ -1,0 +1,38 @@
+{
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "redirects": [
+    { "source": "/login", "destination": "/sign-in", "permanent": false },
+    { "source": "/documents", "destination": "/resources", "permanent": false }
+  ],
+  "rewrites": [
+    { "source": "/sign-in", "destination": "https://ashicore-erp.vercel.app/sign-in" },
+    { "source": "/sign-up", "destination": "https://ashicore-erp.vercel.app/sign-up" },
+    { "source": "/accept-invitation", "destination": "https://ashicore-erp.vercel.app/accept-invitation" },
+    { "source": "/forgot-password", "destination": "https://ashicore-erp.vercel.app/forgot-password" },
+    { "source": "/reset-password", "destination": "https://ashicore-erp.vercel.app/reset-password" },
+    { "source": "/two-factor", "destination": "https://ashicore-erp.vercel.app/two-factor" },
+    { "source": "/mfa-setup", "destination": "https://ashicore-erp.vercel.app/mfa-setup" },
+    { "source": "/org-setup", "destination": "https://ashicore-erp.vercel.app/org-setup" },
+    { "source": "/xero/sign-up/:path*", "destination": "https://ashicore-erp.vercel.app/xero/sign-up/:path*" },
+    { "source": "/console", "destination": "https://ashicore-erp.vercel.app/console" },
+    { "source": "/sales", "destination": "https://ashicore-erp.vercel.app/sales" },
+    { "source": "/sales/:path*", "destination": "https://ashicore-erp.vercel.app/sales/:path*" },
+    { "source": "/inventory", "destination": "https://ashicore-erp.vercel.app/inventory" },
+    { "source": "/inventory/:path*", "destination": "https://ashicore-erp.vercel.app/inventory/:path*" },
+    { "source": "/manufacturing", "destination": "https://ashicore-erp.vercel.app/manufacturing" },
+    { "source": "/manufacturing/:path*", "destination": "https://ashicore-erp.vercel.app/manufacturing/:path*" },
+    { "source": "/purchasing", "destination": "https://ashicore-erp.vercel.app/purchasing" },
+    { "source": "/purchasing/:path*", "destination": "https://ashicore-erp.vercel.app/purchasing/:path*" },
+    { "source": "/settings", "destination": "https://ashicore-erp.vercel.app/settings" },
+    { "source": "/settings/:path*", "destination": "https://ashicore-erp.vercel.app/settings/:path*" },
+    { "source": "/onboarding", "destination": "https://ashicore-erp.vercel.app/onboarding" },
+    { "source": "/no-access", "destination": "https://ashicore-erp.vercel.app/no-access" },
+    { "source": "/android", "destination": "https://ashicore-erp.vercel.app/android" },
+    { "source": "/downloads/:path*", "destination": "https://ashicore-erp.vercel.app/downloads/:path*" },
+    { "source": "/api/:path*", "destination": "https://ashicore-erp.vercel.app/api/:path*" },
+    { "source": "/.well-known", "destination": "https://ashicore-erp.vercel.app/.well-known" },
+    { "source": "/.well-known/:path*", "destination": "https://ashicore-erp.vercel.app/.well-known/:path*" },
+    { "source": "/monitoring/:path*", "destination": "https://ashicore-erp.vercel.app/monitoring/:path*" }
+  ]
+}

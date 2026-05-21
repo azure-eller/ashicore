@@ -17,6 +17,8 @@ const eslintConfig = defineConfig([
     "test-results/**",
     "playwright-report/**",
     ".worktrees/**",
+    "apps/**",
+    "packages/**",
     "archived/**",
     "docs/design-system/reference/**",
     "docs/design-system/sales-order-detail/**",

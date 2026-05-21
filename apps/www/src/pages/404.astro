@@ -1,0 +1,22 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { CONSOLE_URL } from "../lib/site";
+---
+
+<BaseLayout
+  title="Page not found"
+  description="The requested Ashicore page could not be found."
+  path="/404"
+>
+  <main class="content-page">
+    <p class="kicker">404</p>
+    <h1 class="page-title">Page not found.</h1>
+    <p class="page-description">
+      The link may be stale, or the route may belong to the authenticated console.
+    </p>
+    <div class="hero-actions">
+      <a class="button" href="/support">Support</a>
+      <a class="button secondary" href={CONSOLE_URL}>Open console</a>
+    </div>
+  </main>
+</BaseLayout>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#F7F8F5"/>
+  <path d="M0 120h1200M0 240h1200M0 360h1200M0 480h1200M120 0v630M240 0v630M360 0v630M480 0v630M600 0v630M720 0v630M840 0v630M960 0v630M1080 0v630" stroke="#D9DDD5" stroke-width="1"/>
+  <rect x="92" y="90" width="88" height="88" fill="#11151A"/>
+  <path d="M116 154V114h10v40h-10Zm22 0V114h10v40h-10Zm22 0V114h10v40h-10Z" fill="#F7F8F5"/>
+  <path d="M116 154h54v-10h-54v10Z" fill="#65B99F"/>
+  <text x="92" y="278" fill="#11151A" font-family="Arial, Helvetica, sans-serif" font-size="82" font-weight="700">Ashicore</text>
+  <text x="92" y="356" fill="#11151A" font-family="Arial, Helvetica, sans-serif" font-size="56" font-weight="700">Run the core without slowing the floor.</text>
+  <text x="94" y="424" fill="#5B626B" font-family="Arial, Helvetica, sans-serif" font-size="30">Inventory, manufacturing, sales, purchasing, planning, and accounting handoff.</text>
+  <rect x="850" y="152" width="198" height="72" fill="#FFFFFF" stroke="#AEB6AA"/>
+  <rect x="786" y="288" width="230" height="72" fill="#FFFFFF" stroke="#AEB6AA"/>
+  <rect x="922" y="424" width="188" height="72" fill="#FFFFFF" stroke="#AEB6AA"/>
+  <path d="M949 224l-70 64M924 360l76 64" stroke="#165D48" stroke-width="3"/>
+</svg>
