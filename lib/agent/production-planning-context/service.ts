@@ -14,6 +14,7 @@ import {
   lots,
   manufacturingOrderIngredients,
   manufacturingOrders,
+  organization,
   purchaseOrderLines,
   purchaseOrders,
   salesOrderLines,
@@ -26,7 +27,7 @@ import {
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { type Tx, withOrgContext } from "@/lib/db/with-org-context";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
-import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import { normalizeNumeric, roundQuantity, todayInTimeZone } from "@/lib/format";
 import { calculateConsumptionRequirement } from "@/lib/manufacturing/consumption";
 import { buildPlanningSnapshotInTx } from "@/lib/planning/service";
 import type { PlanningSnapshot } from "@/lib/planning/types";
@@ -60,6 +61,7 @@ const MAX_MARKDOWN_BUILD_TODAY = 30;
 const MAX_MARKDOWN_UPCOMING_BUILDS = 30;
 const MAX_MARKDOWN_OPEN_MOS = 20;
 const MAX_MARKDOWN_TOP_LEVEL_BOMS = 90;
+const DEFAULT_AGENT_CONTEXT_TIME_ZONE = "America/Denver";
 
 function toQuantity(value: string | number | null | undefined) {
   const parsed = Number(value ?? 0);
@@ -68,6 +70,16 @@ function toQuantity(value: string | number | null | undefined) {
 
 function quantityString(value: number) {
   return normalizeNumeric(roundQuantity(Math.max(0, value)));
+}
+
+async function loadOrganizationTodayInTx(tx: Tx, orgId: string) {
+  const [row] = await tx
+    .select({ timeZone: organization.timeZone })
+    .from(organization)
+    .where(eq(organization.id, orgId))
+    .limit(1);
+
+  return todayInTimeZone(row?.timeZone ?? DEFAULT_AGENT_CONTEXT_TIME_ZONE);
 }
 
 function line(text = "") {
@@ -1735,11 +1747,8 @@ function buildRawProductionContext(
   return {
     orgId: context.orgId,
     generatedAt: context.generatedAt,
+    today: context.today,
     inputHash: context.inputHash,
-    horizon: {
-      start: context.planning.horizonStart,
-      end: context.planning.horizonEnd,
-    },
     openSalesOrders: context.salesOrders.map((order) => ({
       salesOrderId: order.salesOrderId,
       orderNumber: order.orderNumber,
@@ -1838,7 +1847,7 @@ export function buildAgentProductionPlanningRawJson(
 export function buildAgentProductionPlanningMarkdown(
   context: AgentProductionPlanningContext
 ) {
-  const today = context.generatedAt.slice(0, 10);
+  const today = context.today;
   const inventory = inventoryByItemId(context);
   const openMoSupply = openMoSupplyByItemId(context);
   const targets = groupMarkdownTargets(buildMarkdownTargets(context));
@@ -1922,12 +1931,8 @@ export function buildAgentProductionPlanningMarkdown(
     line("# Production Planning Brief"),
     line(),
     line(`Generated: ${context.generatedAt}`),
+    line(`Today: ${context.today}`),
     line(`Input hash: ${context.inputHash}`),
-    line(
-      `Horizon: ${compactDate(context.planning.horizonStart)} to ${compactDate(
-        context.planning.horizonEnd
-      )}`
-    ),
     line(),
     line("## Question"),
     line(
@@ -2021,6 +2026,7 @@ async function buildAgentProductionPlanningContextInTx(
   options: Required<AgentProductionPlanningContextOptions>
 ): Promise<AgentProductionPlanningContext> {
   const snapshot = await buildPlanningSnapshotInTx(tx, orgId);
+  const today = await loadOrganizationTodayInTx(tx, orgId);
   const allocations = await loadActiveAllocationContextInTx(tx, orgId);
   const salesOrders = await loadOpenSalesOrdersInTx(tx, allocations, snapshot);
   const manufacturingOrders = await loadOpenManufacturingOrdersInTx(tx, allocations);
@@ -2067,6 +2073,7 @@ async function buildAgentProductionPlanningContextInTx(
   return {
     orgId: snapshot.orgId,
     generatedAt: snapshot.generatedAt,
+    today,
     inputHash: snapshot.inputHash,
     summary: {
       openSalesOrderCount: salesOrders.length,

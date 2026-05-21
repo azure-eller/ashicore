@@ -99,8 +99,8 @@
         "required": [
           "orgId",
           "generatedAt",
+          "today",
           "inputHash",
-          "horizon",
           "openSalesOrders",
           "openManufacturingOrders",
           "inventoryCounts",
@@ -115,13 +115,14 @@
             "type": "string",
             "format": "date-time"
           },
+          "today": {
+            "type": "string",
+            "format": "date",
+            "description": "Current business date for the organization."
+          },
           "inputHash": {
             "type": "string",
             "description": "Stable hash for the planning inputs. Future write workflows should compare against this before acting."
-          },
-          "horizon": {
-            "type": "object",
-            "additionalProperties": true
           },
           "openSalesOrders": {
             "type": "array",

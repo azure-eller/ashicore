@@ -58,8 +58,8 @@ test.describe("Agent production planning context API", () => {
     const context = await response.json();
 
     expect(context.inputHash).toBe(planning.inputHash);
-    expect(context.horizon.start).toBe(planning.horizonStart);
-    expect(context.horizon.end).toBe(planning.horizonEnd);
+    expect(context.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(context).not.toHaveProperty("horizon");
     expect(Array.isArray(context.openSalesOrders)).toBe(true);
     expect(Array.isArray(context.openManufacturingOrders)).toBe(true);
     expect(Array.isArray(context.inventoryCounts)).toBe(true);
@@ -231,7 +231,8 @@ test.describe("Agent production planning context API", () => {
     expect(bearerResponse.status).toBe(200);
     const context = await bearerResponse.json();
     expect(context.inputHash).toBe(planning.inputHash);
-    expect(context.horizon.start).toBe(planning.horizonStart);
+    expect(context.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(context).not.toHaveProperty("horizon");
     expect(Array.isArray(context.inventoryCounts)).toBe(true);
 
     const revokeResponse = await testFetch(

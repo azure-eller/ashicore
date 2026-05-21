@@ -315,6 +315,7 @@ export type AgentAllowedAction = {
 export type AgentProductionPlanningContext = {
   orgId: string;
   generatedAt: string;
+  today: string;
   inputHash: string;
   summary: AgentProductionSummary;
   attentionQueue: AgentAttentionQueueItem[];
@@ -346,11 +347,8 @@ export type AgentProductionPlanningContext = {
 export type AgentProductionRawContext = {
   orgId: string;
   generatedAt: string;
+  today: string;
   inputHash: string;
-  horizon: {
-    start: string | null;
-    end: string | null;
-  };
   openSalesOrders: Array<{
     salesOrderId: string;
     orderNumber: string;
