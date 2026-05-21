@@ -224,7 +224,7 @@ export function ManufacturingOrderCard({
       })
     : null;
 
-  const canEdit = order == null || order.status === "open";
+  const editState = getManufacturingOrderEditState(order);
   const saveStatus = useEntitySaveStatus("manufacturing-order", currentOrderId ?? "__draft__");
   const headerSaveState: CardSaveState = isDraft
     ? createMutation.isPending
@@ -233,6 +233,12 @@ export function ManufacturingOrderCard({
         ? "failed"
         : "not_saved"
     : saveStateFromEntityStatus(saveStatus.status);
+  const headerSaveMessage =
+    isDraft && createMutation.isError
+      ? createMutation.error instanceof Error
+        ? createMutation.error.message
+        : "Save failed"
+      : null;
 
   return (
     <CardPage>
@@ -299,6 +305,7 @@ export function ManufacturingOrderCard({
           ) : null
         }
         saveState={headerSaveState}
+        saveMessage={headerSaveMessage}
         showPrint
         printDisabled={!order}
         menuActions={
@@ -328,7 +335,9 @@ export function ManufacturingOrderCard({
       <CardPageBody>
         <OrderDetailsSection
           order={order}
-          canEdit={canEdit}
+          canEditMetadata={editState.canEditMetadata}
+          canEditPlanning={editState.canEditPlanning}
+          planningLockedReason={editState.planningLockedReason}
           draftPlannedQuantity={draftPlannedQuantity}
           draftPlannedDate={draftPlannedDate}
           onDraftPlannedQuantity={setDraftPlannedQuantity}
@@ -339,12 +348,20 @@ export function ManufacturingOrderCard({
         />
         <IngredientsSection
           order={order}
-          canEdit={canEdit}
+          canEditPlanning={editState.canEditPlanning}
+          planningLockedReason={editState.planningLockedReason}
+          canEditLotAllocations={editState.canEditMetadata}
+          metadataLockedReason={editState.metadataLockedReason}
           onOpenLotPicker={(ingredient) => setLotPickerIngredient(ingredient)}
           onChanged={refreshOrder}
         />
         <OperationsSection order={order} />
-        <NotesSection order={order} canEdit={canEdit} onPatched={refreshOrder} />
+        <NotesSection
+          order={order}
+          canEdit={editState.canEditMetadata}
+          lockedReason={editState.metadataLockedReason}
+          onPatched={refreshOrder}
+        />
       </CardPageBody>
 
       <SalesOrderLinkDialog
@@ -460,7 +477,9 @@ function MoDescription({ order }: { order: ManufacturingOrderDetail }) {
 
 function OrderDetailsSection({
   order,
-  canEdit,
+  canEditMetadata,
+  canEditPlanning,
+  planningLockedReason,
   draftPlannedQuantity,
   draftPlannedDate,
   onDraftPlannedQuantity,
@@ -470,7 +489,9 @@ function OrderDetailsSection({
   onPatched,
 }: {
   order: ManufacturingOrderDetail | null;
-  canEdit: boolean;
+  canEditMetadata: boolean;
+  canEditPlanning: boolean;
+  planningLockedReason: string | null;
   draftPlannedQuantity: string;
   draftPlannedDate: string;
   onDraftPlannedQuantity: (value: string) => void;
@@ -538,7 +559,7 @@ function OrderDetailsSection({
           ) : null}
         </FormField>
         <FormField label="Production deadline" required>
-          {canEdit ? (
+          {canEditMetadata ? (
             <DatePicker
               aria-label="Planned date"
               value={order ? order.plannedDate ?? "" : draftPlannedDate}
@@ -553,7 +574,10 @@ function OrderDetailsSection({
               }}
             />
           ) : (
-            <div className={`${styles.readOnlyFieldValue} ${styles.mono}`}>
+            <div
+              className={`${styles.readOnlyFieldValue} ${styles.mono}`}
+              title="Completed manufacturing orders are historical records."
+            >
               {order?.plannedDate ? formatDate(order.plannedDate) : "—"}
             </div>
           )}
@@ -566,7 +590,7 @@ function OrderDetailsSection({
       </div>
       <div className={styles.formRow}>
         <FormField label={groupSize != null ? "Groups" : "Planned quantity"} required>
-          {canEdit ? (
+          {canEditPlanning ? (
             <div className={styles.suffixField}>
               <Input
                 key={`${order?.plannedQuantity ?? "draft"}-${groupSize ?? "output"}`}
@@ -595,7 +619,10 @@ function OrderDetailsSection({
               </span>
             </div>
           ) : (
-            <div className={`${styles.suffixField} ${styles.suffixFieldReadOnly}`}>
+            <div
+              className={`${styles.suffixField} ${styles.suffixFieldReadOnly}`}
+              title={planningLockedReason ?? undefined}
+            >
               <span className={`${styles.underlineInput} ${styles.mono} text-right`}>
                 {groupCount ?? (order ? formatQuantity(order.plannedQuantity) : "—")}
               </span>
@@ -636,17 +663,31 @@ function OrderDetailsSection({
           ) : (
             <div className={styles.readOnlyFieldValue}>No sales order — make to stock</div>
           )}
-          {order && canEdit ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="mt-(--space-2) h-(--height-input-sm)"
-              onClick={onOpenSalesLink}
-              disabled={salesOrderOptions.length === 0}
-            >
-              {order.salesOrderId ? "Change link" : "Link sales order"}
-            </Button>
+          {order ? (
+            canEditPlanning ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-(--space-2) h-(--height-input-sm)"
+                onClick={onOpenSalesLink}
+                disabled={salesOrderOptions.length === 0}
+              >
+                {order.salesOrderId ? "Change link" : "Link sales order"}
+              </Button>
+            ) : (
+              <span title={planningLockedReason ?? undefined}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-(--space-2) h-(--height-input-sm)"
+                  disabled
+                >
+                  {order.salesOrderId ? "Change link" : "Link sales order"}
+                </Button>
+              </span>
+            )
           ) : null}
           <div className={styles.fieldHint}>Link one customer order line.</div>
         </FormField>
@@ -674,6 +715,55 @@ function formatDecimal(value: number) {
   return value
     .toFixed(6)
     .replace(/\.?0+$/, "");
+}
+
+function getManufacturingOrderEditState(order: ManufacturingOrderDetail | null) {
+  const metadataLockedReason =
+    order?.status === "done"
+      ? "Completed manufacturing orders are historical records."
+      : null;
+  const executionStartedReason = getManufacturingExecutionStartedReason(order);
+  const planningLockedReason = metadataLockedReason ?? executionStartedReason;
+
+  return {
+    canEditMetadata: order == null || order.status === "open",
+    canEditPlanning: order == null || (order.status === "open" && executionStartedReason == null),
+    metadataLockedReason,
+    planningLockedReason,
+  };
+}
+
+function getManufacturingExecutionStartedReason(order: ManufacturingOrderDetail | null) {
+  if (!order) return null;
+
+  if (order.producedLots.length > 0 || Number(order.actualQuantity ?? 0) > 0) {
+    return "Output has already been recorded, so planning fields are locked to preserve inventory history.";
+  }
+
+  if (
+    order.batches.some(
+      (batch) =>
+        batch.status !== "pending" ||
+        batch.startedAt != null ||
+        batch.pickedAt != null ||
+        batch.completedAt != null,
+    )
+  ) {
+    return "Batch work has started, so planning fields are locked to preserve execution history.";
+  }
+
+  if (
+    order.ingredients.some(
+      (ingredient) =>
+        ingredient.pickStatus !== "not_picked" ||
+        Number(ingredient.pickedQuantity) > 0 ||
+        ingredient.actualQuantity != null,
+    )
+  ) {
+    return "Ingredients have already been picked, so planning fields are locked to preserve inventory history.";
+  }
+
+  return null;
 }
 
 function SalesOrderLinkDialog({
@@ -911,12 +1001,18 @@ function FormField({
 
 function IngredientsSection({
   order,
-  canEdit,
+  canEditPlanning,
+  planningLockedReason,
+  canEditLotAllocations,
+  metadataLockedReason,
   onOpenLotPicker,
   onChanged,
 }: {
   order: ManufacturingOrderDetail | null;
-  canEdit: boolean;
+  canEditPlanning: boolean;
+  planningLockedReason: string | null;
+  canEditLotAllocations: boolean;
+  metadataLockedReason: string | null;
   onOpenLotPicker: (ingredient: ManufacturingOrderIngredientDetail) => void;
   onChanged: () => void;
 }) {
@@ -1050,6 +1146,13 @@ function IngredientsSection({
           if (!params.data || !order) return null;
           const ingredient = params.data;
           const picked = Number(ingredient.pickedQuantity);
+          const canEditIngredientLots =
+            canEditLotAllocations &&
+            ingredient.pickStatus === "not_picked" &&
+            (!Number.isFinite(picked) || picked <= 0);
+          const lotLockReason = !canEditLotAllocations
+            ? metadataLockedReason
+            : "Lot allocations cannot be changed after this ingredient has been picked.";
           const summary: PickedLotSummary = {
             count: Number.isFinite(picked) && picked > 0 ? 1 : 0,
             firstLot: null,
@@ -1058,9 +1161,12 @@ function IngredientsSection({
                 ? formatQuantity(ingredient.pickedQuantity)
                 : null,
           };
-          if (!canEdit) {
+          if (!canEditIngredientLots) {
             return (
-              <span className="text-[11.5px] text-[var(--color-muted)]">
+              <span
+                className="text-[11.5px] text-[var(--color-muted)]"
+                title={lotLockReason ?? undefined}
+              >
                 {summary.count} lot{summary.count === 1 ? "" : "s"}
               </span>
             );
@@ -1108,7 +1214,7 @@ function IngredientsSection({
         },
       },
     ],
-    [canEdit, onOpenLotPicker, order],
+    [canEditLotAllocations, metadataLockedReason, onOpenLotPicker, order],
   );
 
   return (
@@ -1129,11 +1235,15 @@ function IngredientsSection({
         addLabel="Add ingredient"
         emptyMessage="No ingredients yet. Pick a product to populate the bill of materials."
         enableAddRow={false}
-        enableReorder={canEdit && order != null}
-        enableDelete={canEdit && order != null}
+        enableReorder={canEditPlanning && order != null}
+        enableDelete={canEditPlanning && order != null}
         canDeleteRow={(_row, current) => current.length > 1}
         getDeleteDisabledReason={(_row, current) =>
-          current.length <= 1 ? "An order needs at least one ingredient." : null
+          !canEditPlanning
+            ? planningLockedReason
+            : current.length <= 1
+              ? "An order needs at least one ingredient."
+              : null
         }
         onDeleteRow={(row) => setConfirmDelete(row)}
         headerHeight={36}
@@ -1255,10 +1365,12 @@ function OperationsSection({ order }: { order: ManufacturingOrderDetail | null }
 function NotesSection({
   order,
   canEdit,
+  lockedReason,
   onPatched,
 }: {
   order: ManufacturingOrderDetail | null;
   canEdit: boolean;
+  lockedReason: string | null;
   onPatched: () => void;
 }) {
   const patchNotes = useMutation({
@@ -1289,7 +1401,10 @@ function NotesSection({
           placeholder="Notes for this order…"
         />
       ) : (
-        <div className="min-h-20 border border-[var(--color-line)] bg-[var(--color-surface-alt)] p-3 text-[13px] text-[var(--color-ink)] whitespace-pre-wrap">
+        <div
+          className="min-h-20 border border-[var(--color-line)] bg-[var(--color-surface-alt)] p-3 text-[13px] text-[var(--color-ink)] whitespace-pre-wrap"
+          title={lockedReason ?? undefined}
+        >
           {order?.notes ?? <span className="text-[var(--color-muted)]">No notes.</span>}
         </div>
       )}

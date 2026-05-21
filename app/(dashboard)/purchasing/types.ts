@@ -175,6 +175,8 @@ export type PurchaseOrderEditData = {
   lines: Array<{
     itemId: string;
     quantityOrdered: string;
+    quantityReceived: string;
+    stockQuantityReceived: string;
     unitCost: string;
     accountingPurchaseAccountCode: string | null;
     shipAddressEntryId: string | null;

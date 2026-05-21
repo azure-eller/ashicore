@@ -812,6 +812,19 @@ export function PurchaseOrderForm({
     () => new Map(materials.map((material) => [material.id, material])),
     [materials],
   );
+  const receivedMaterialIds = useMemo(
+    () =>
+      new Set(
+        (initialData?.lines ?? [])
+          .filter(
+            (line) =>
+              Number(line.quantityReceived) > 0 ||
+              Number(line.stockQuantityReceived) > 0,
+          )
+          .map((line) => line.itemId),
+      ),
+    [initialData?.lines],
+  );
   const displayStatus = initialData?.status ?? "draft";
   const readOnly =
     !canWrite || displayStatus === "received" || displayStatus === "cancelled";
@@ -987,6 +1000,9 @@ export function PurchaseOrderForm({
       (key: PurchaseOrderLineColumnKey) =>
       ({ data }: { data?: PurchaseOrderLineGridRow }) => {
         if (!data) return null;
+        if (key === "itemId" && receivedMaterialIds.has(data.itemId ?? "")) {
+          return "Received material lines cannot change item. Add another line for a different material.";
+        }
         const index = rowErrorIndex(data);
         return index >= 0
           ? getPurchaseOrderLineCellError(
@@ -1004,7 +1020,7 @@ export function PurchaseOrderForm({
         headerTooltip: PURCHASE_MATERIAL_TOOLTIP,
         minWidth: 220,
         flex: 1.55,
-        editable: !readOnly,
+        editable: ({ data }) => !readOnly && !receivedMaterialIds.has(data?.itemId ?? ""),
         cellEditor: PurchaseMaterialCellEditor,
         cellEditorParams: {
           options: materialOptions,
@@ -1185,6 +1201,7 @@ export function PurchaseOrderForm({
     lineGridRows,
     materialMap,
     materialOptions,
+    receivedMaterialIds,
     readOnly,
     xeroAccounts,
     xeroAccountsByCode,
@@ -2013,6 +2030,12 @@ export function PurchaseOrderForm({
                 rowHeight={42}
                 enableAddRow={!readOnly}
                 enableDelete={!readOnly}
+                canDeleteRow={(row) => !receivedMaterialIds.has(row.itemId ?? "")}
+                getDeleteDisabledReason={(row) =>
+                  receivedMaterialIds.has(row.itemId ?? "")
+                    ? "Received material lines cannot be removed. Increase or reduce the ordered quantity instead."
+                    : null
+                }
                 emptyMessage="No materials yet."
                 isBlankRow={isBlankPurchaseOrderLine}
                 error={linesError}

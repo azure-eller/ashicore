@@ -136,8 +136,9 @@ export function LineItemsTable({
         editable,
         cellEditor: "agTextCellEditor",
         cellClass: "font-mono tabular-nums",
+        tooltipValueGetter: ({ data }) => data ? quantityLockReason(data) : null,
         valueFormatter: ({ value }) => formatQuantity(String(value ?? "0")) ?? "0",
-        valueSetter: numericSetter("quantity", (value) => value > 0),
+        valueSetter: numericSetter("quantity", (value, line) => value >= minimumLineQuantity(line)),
       },
       {
         field: "estimatedUnitCost",
@@ -297,9 +298,13 @@ export function LineItemsTable({
         enableAddRow={false}
         enableReorder={editable}
         enableDelete={editable}
-        canDeleteRow={(_row, rows) => draft != null || rows.length > 1}
-        getDeleteDisabledReason={(_row, rows) =>
-          draft == null && rows.length <= 1 ? "Order needs at least one line" : null
+        canDeleteRow={(row, rows) =>
+          draft != null || (rows.length > 1 && deleteLineLockedReason(row) == null)
+        }
+        getDeleteDisabledReason={(row, rows) =>
+          draft == null && rows.length <= 1
+            ? "Order needs at least one line"
+            : deleteLineLockedReason(row)
         }
         onDeleteRow={(row) => requestDelete(row)}
         minHeight={120}
@@ -353,17 +358,44 @@ export function LineItemsTable({
 
   function numericSetter(
     field: "quantity" | "unitPrice",
-    valid: (value: number) => boolean,
+    valid: (value: number, line: SalesOrderDetailLine) => boolean,
   ) {
     return (params: ValueSetterParams<SalesOrderDetailLine>) => {
       const parsed = Number.parseFloat(String(params.newValue).trim());
-      if (!Number.isFinite(parsed) || !valid(parsed)) return false;
+      if (!Number.isFinite(parsed) || !valid(parsed, params.data)) return false;
       const normalized = parsed.toString();
       if (normalized === Number.parseFloat(params.data[field]).toString()) return false;
       params.data[field] = normalized;
       return true;
     };
   }
+}
+
+function minimumLineQuantity(line: SalesOrderDetailLine) {
+  return (
+    Number(line.plannedQuantity) +
+    Number(line.shippedQuantity) +
+    Number(line.cancelledQuantity)
+  );
+}
+
+function quantityLockReason(line: SalesOrderDetailLine) {
+  const minimum = minimumLineQuantity(line);
+  if (minimum <= 0) return null;
+  return `Quantity cannot be reduced below ${formatQuantity(String(minimum))} because fulfillment is already planned, shipped, or cancelled.`;
+}
+
+function deleteLineLockedReason(line: SalesOrderDetailLine) {
+  if (Number(line.shippedQuantity) > 0) {
+    return "This line has shipped quantity, so it cannot be removed.";
+  }
+  if (Number(line.cancelledQuantity) > 0) {
+    return "This line has cancelled quantity, so it cannot be removed.";
+  }
+  if (Number(line.plannedQuantity) > 0) {
+    return "This line is on a planned shipment. Edit or remove the shipment before removing the line.";
+  }
+  return null;
 }
 
 function money(value: string | null | undefined): string {

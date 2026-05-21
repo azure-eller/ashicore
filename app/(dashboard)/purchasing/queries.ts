@@ -1130,6 +1130,8 @@ export async function getEditablePurchaseOrder(
       lines: lines.map((line) => ({
         itemId: line.itemId,
         quantityOrdered: line.quantityOrdered,
+        quantityReceived: line.quantityReceived,
+        stockQuantityReceived: line.stockQuantityReceived,
         unitCost: line.unitCost,
         accountingPurchaseAccountCode: line.accountingPurchaseAccountCode,
         shipAddressEntryId: line.shipAddressEntryId,
