@@ -193,6 +193,13 @@ export async function getItemCard(itemId: string): Promise<ItemCardDto> {
   return (await response.json()) as ItemCardDto;
 }
 
+export async function fetchItemCategories(itemType: ItemType): Promise<string[]> {
+  const path = `/api/item-cards/categories?itemType=${itemType}`;
+  const response = await fetch(path);
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as string[];
+}
+
 export type CreateItemCardResult = {
   itemId: string;
   card: ItemCardDto;

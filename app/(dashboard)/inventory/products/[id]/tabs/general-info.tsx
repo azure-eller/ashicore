@@ -17,6 +17,7 @@ import {
 import { CardPageTwoColumn } from "@/components/card-page/card-page-two-column";
 import { VariantTable } from "@/components/card-page/variant-table";
 import { GenerateBarcodesButton } from "@/components/card-page/generate-barcodes-button";
+import { CategoryComboboxField } from "@/components/card-page/category-combobox-field";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import styles from "@/components/card-page/card-page.module.css";
 import {
@@ -90,14 +91,14 @@ export function ProductGeneralInfoTab({
               onDraftCommit={onDraftCommit}
               disabled={draftCreatePending}
             />
-            <EditableFieldText
+            <CategoryComboboxField
               focusItemId={focusItemId}
-              field="category"
+              itemType={card.family.itemType}
               label="Category"
               value={card.family.category}
               placeholder="Select or create category"
-              onDraftFamilyChange={onDraftFamilyChange}
-              onDraftCommit={onDraftCommit}
+              onDraftChange={(category) => onDraftFamilyChange({ category })}
+              onDraftCommit={(category) => onDraftCommit({ category })}
               disabled={draftCreatePending}
             />
             <EditableFieldTextarea

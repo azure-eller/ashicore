@@ -17,10 +17,8 @@ import {
 import { CardPageTwoColumn } from "@/components/card-page/card-page-two-column";
 import { VariantTable } from "@/components/card-page/variant-table";
 import { GenerateBarcodesButton } from "@/components/card-page/generate-barcodes-button";
+import { CategoryComboboxField } from "@/components/card-page/category-combobox-field";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { InventoryCommitmentDonut } from "@/app/(dashboard)/inventory/inventory-commitment-donut";
-import type { ItemCommitmentSummary } from "@/app/(dashboard)/inventory/commitment-summary";
 import styles from "@/components/card-page/card-page.module.css";
 import {
   updateItemCard,
@@ -41,7 +39,6 @@ export type MaterialGeneralInfoTabProps = {
   onDraftFamilyChange: (patch: DraftFamilyPatch) => void;
   onDraftCommit: (patch?: DraftFamilyPatch) => void;
   draftCreatePending?: boolean;
-  commitmentSummary?: ItemCommitmentSummary;
 };
 
 export function MaterialGeneralInfoTab({
@@ -52,7 +49,6 @@ export function MaterialGeneralInfoTab({
   onDraftFamilyChange,
   onDraftCommit,
   draftCreatePending,
-  commitmentSummary,
 }: MaterialGeneralInfoTabProps) {
   const hasOptions = card.options.some((option) => option.disabledAt == null);
   const [variantsEnabled, setVariantsEnabled] = useState(hasOptions);
@@ -76,14 +72,14 @@ export function MaterialGeneralInfoTab({
               onDraftCommit={onDraftCommit}
               disabled={draftCreatePending}
             />
-            <EditableFieldText
+            <CategoryComboboxField
               focusItemId={focusItemId}
-              field="category"
+              itemType={card.family.itemType}
               label="Category"
               value={card.family.category}
               placeholder="Select or create category"
-              onDraftFamilyChange={onDraftFamilyChange}
-              onDraftCommit={onDraftCommit}
+              onDraftChange={(category) => onDraftFamilyChange({ category })}
+              onDraftCommit={(category) => onDraftCommit({ category })}
               disabled={draftCreatePending}
             />
             <EditableFieldTextarea
@@ -153,25 +149,6 @@ export function MaterialGeneralInfoTab({
 
         <VariantTable card={card} viewMode="material" />
       </section>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Stock Commitments</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {commitmentSummary && commitmentSummary.slices.length > 0 ? (
-            <InventoryCommitmentDonut
-              slices={commitmentSummary.slices}
-              onHandQty={commitmentSummary.onHandQty}
-              unitName={commitmentSummary.unitName}
-            />
-          ) : (
-            <div className="flex min-h-40 items-center justify-center text-[length:var(--text-sm)] text-muted-foreground">
-              No on-hand stock to chart.
-            </div>
-          )}
-        </CardContent>
-      </Card>
     </>
   );
 }
