@@ -30,12 +30,7 @@ import type {
 } from "@/app/(dashboard)/sales/types";
 
 type SalesOrderForStatus = SalesOrderListRow | SalesOrderDetail;
-/**
- * `onShip`, when provided (the detail page), delegates the "Shipped" transition to the
- * page's existing ship flow (which is Xero-aware). Without it (list rows) the control
- * ships the order itself via a self-contained dialog.
- */
-type Ctx = { order: SalesOrderForStatus; onShip?: () => void };
+type Ctx = { order: SalesOrderForStatus };
 
 type ShipmentLike = {
   id: string;
@@ -63,23 +58,18 @@ const config: OrderStatusControlConfig<Ctx> = {
   type: "sales",
   options: () => OPTIONS,
   current: ({ order }) => deriveOrderDisplayStatus(order).label,
-  transitionKind: (from, to, { order, onShip }) => {
+  transitionKind: (from, to, { order }) => {
     if (from === "SHIPPED" || from === "CLOSED") return "disabled";
     if (to === from) return "noop";
-    if (to === "SHIPPED") return onShip ? "action" : "dialog";
+    if (to === "SHIPPED") return "dialog";
     if (to === "PARTIALLY SHIPPED") {
-      // Detail page manages partial shipping via the shipments table below.
-      if (onShip) return "disabled";
-      // List: only meaningful when there's more than one shipment to ship selectively.
+      // Only meaningful when there's more than one shipment to ship selectively.
       return order.shipments.length > 1 && plannedShipments(order).length > 0
         ? "dialog"
         : "disabled";
     }
     // OPEN / ALLOCATED are derived from allocation, not user-selectable.
     return "disabled";
-  },
-  onAction: (to, { onShip }) => {
-    if (to === "SHIPPED") onShip?.();
   },
   renderDialog: ({ to, ctx, onClose, onDone }) => {
     if (to === "SHIPPED") {
@@ -242,13 +232,10 @@ function PartialShipDialog({
 
 export function SalesStatusControl({
   order,
-  onShip,
   size = "md",
   onChanged,
 }: {
   order: SalesOrderForStatus;
-  /** Detail page delegates "Shipped" to its existing (Xero-aware) ship flow. */
-  onShip?: () => void;
   size?: "sm" | "md";
   onChanged?: () => void;
 }) {
@@ -256,7 +243,7 @@ export function SalesStatusControl({
   return (
     <OrderStatusControl
       config={config}
-      ctx={{ order, onShip }}
+      ctx={{ order }}
       size={size}
       disabled={current === "SHIPPED" || current === "CLOSED"}
       onChanged={onChanged}

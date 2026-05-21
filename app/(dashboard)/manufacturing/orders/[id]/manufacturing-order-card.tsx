@@ -310,10 +310,6 @@ export function ManufacturingOrderCard({
           order
             ? [
                 {
-                  label: "Open execution",
-                  href: `/manufacturing/orders/${order.id}/execute`,
-                },
-                {
                   label: "Duplicate",
                   onClick: () => duplicateMutation.mutate(),
                   disabled: duplicateMutation.isPending,

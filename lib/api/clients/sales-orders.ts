@@ -39,7 +39,12 @@ async function parseError(response: Response, path: string): Promise<never> {
   throw new SalesOrderApiError(message, response.status, fieldErrors, negativeStock);
 }
 
-/** Ship the whole sales order (all remaining). 409 carries `.negativeStock`. */
+/**
+ * Ship the whole sales order (all remaining). 409 carries `.negativeStock`.
+ * `syncAccounting` is intentionally omitted: the server defaults it on and only pushes
+ * a Xero invoice when the org's `autoPushSalesInvoices` setting is enabled, so invoicing
+ * is governed by settings — identical wherever shipping is triggered from.
+ */
 export async function shipSalesOrder(
   orderId: string,
   confirmNegativeStock: boolean,
@@ -50,7 +55,7 @@ export async function shipSalesOrder(
     headers: createIdempotencyHeaders("shipSalesOrder", {
       "Content-Type": "application/json",
     }),
-    body: JSON.stringify({ confirmNegativeStock, syncAccounting: false }),
+    body: JSON.stringify({ confirmNegativeStock }),
   });
   if (!response.ok) await parseError(response, path);
 }
@@ -67,7 +72,7 @@ export async function shipSalesShipment(
     headers: createIdempotencyHeaders("shipSalesShipment", {
       "Content-Type": "application/json",
     }),
-    body: JSON.stringify({ confirmNegativeStock, syncAccounting: false }),
+    body: JSON.stringify({ confirmNegativeStock }),
   });
   if (!response.ok) await parseError(response, path);
 }

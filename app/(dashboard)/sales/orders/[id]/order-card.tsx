@@ -14,8 +14,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
-import { getApiErrorMessage } from "@/lib/client/api";
-import { formatQuantity } from "@/lib/format";
 import {
   createSalesOrder,
   fetchSalesOrderDetail,
@@ -29,7 +27,6 @@ import type {
   SalesOrderDetailLine,
   SalesOrderItemOption,
   SalesShipmentRow,
-  NegativeStockWarningPayload,
 } from "@/app/(dashboard)/sales/types";
 import { OrderCardHeader } from "./order-card-header";
 import { SalesStatusControl } from "@/components/sales/sales-status-control";
@@ -96,9 +93,6 @@ export function OrderCard({
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [confirmShipOrder, setConfirmShipOrder] = useState(false);
-  const [negativeStock, setNegativeStock] =
-    useState<NegativeStockWarningPayload | null>(null);
   const [shipmentDialogTarget, setShipmentDialogTarget] = useState<
     "new" | SalesShipmentRow | null
   >(null);
@@ -394,52 +388,6 @@ export function OrderCard({
     onError: (error) => setActionError((error as Error).message),
   });
 
-  const shipOrderMutation = useMutation({
-    mutationKey: ["sales-order", currentOrderId ?? "draft", "ship-order"],
-    mutationFn: async (confirmNegativeStock: boolean) => {
-      const response = await fetch(`/api/sales-orders/${currentOrderId}/ship`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...Object.fromEntries(createIdempotencyHeaders("shipSalesOrder").entries()),
-        },
-        body: JSON.stringify({
-          confirmNegativeStock,
-          syncAccounting: xeroInvoiceSetupStatus === "ready",
-        }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw {
-          status: response.status,
-          message: getApiErrorMessage(body, "Failed to ship sales order."),
-          negativeStock: body?.negativeStock as NegativeStockWarningPayload | undefined,
-        };
-      }
-    },
-    onMutate: () => setActionError(null),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["sales-order", currentOrderId] }),
-        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
-        queryClient.invalidateQueries({ queryKey: ["items"] }),
-      ]);
-      setNegativeStock(null);
-      setConfirmShipOrder(false);
-    },
-    onError: (error: {
-      status?: number;
-      message?: string;
-      negativeStock?: NegativeStockWarningPayload;
-    }) => {
-      if (error.status === 409 && error.negativeStock) {
-        setNegativeStock(error.negativeStock);
-        return;
-      }
-      setActionError(error.message ?? "Failed to ship sales order.");
-    },
-  });
-
   return (
     <CardPage>
       <OrderCardHeader
@@ -453,7 +401,6 @@ export function OrderCard({
           !isDraft ? (
             <SalesStatusControl
               order={order}
-              onShip={isEditable ? () => setConfirmShipOrder(true) : undefined}
               onChanged={() => {
                 void queryClient.invalidateQueries({ queryKey: ["sales-order", order.id] });
                 void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
@@ -609,52 +556,6 @@ export function OrderCard({
           </AlertDialog>
         </>
       )}
-
-      <AlertDialog
-        open={confirmShipOrder}
-        onOpenChange={(next) => {
-          setConfirmShipOrder(next);
-          if (!next) {
-            setNegativeStock(null);
-            shipOrderMutation.reset();
-          }
-        }}
-      >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {negativeStock ? "Ship despite shortage?" : "Mark order shipped?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {negativeStock
-                ? `${negativeStock.itemName} is short by ${formatQuantity(
-                    String(negativeStock.shortage)
-                  )} (available ${formatQuantity(
-                    String(negativeStock.available)
-                  )}, needs ${formatQuantity(
-                    String(negativeStock.requested)
-                  )}). Shipping will drive stock negative.`
-                : `Order ${order.orderNumber} will be marked shipped and inventory consumed via FIFO. This cannot be undone.`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(event) => {
-                event.preventDefault();
-                shipOrderMutation.mutate(negativeStock != null);
-              }}
-              disabled={shipOrderMutation.isPending}
-            >
-              {shipOrderMutation.isPending
-                ? "Shipping..."
-                : negativeStock
-                  ? "Ship anyway"
-                  : "Mark shipped"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent size="sm">
