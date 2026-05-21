@@ -1,7 +1,16 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxSeparator,
+} from "@/components/ui/combobox";
 import {
   Select,
   SelectContent,
@@ -11,15 +20,15 @@ import {
 } from "@/components/ui/select";
 import { EntityCombobox } from "@/components/entity-combobox";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Input } from "@/components/ui/input";
 import { patchSalesOrderHeader } from "@/lib/api/clients/sales-orders";
-import { formatDate } from "@/lib/format";
+import { formatAddressLines, formatDate, normalizeAddressFields } from "@/lib/format";
 import type {
   CustomerOption,
   SalesOrderDetail,
 } from "@/app/(dashboard)/sales/types";
 import type { PatchSalesOrderHeader } from "@/lib/schemas/sales-orders";
 import type { OrderDraftController } from "./order-draft";
+import type { SalesAddressOption } from "./order-card";
 import cardStyles from "@/components/card-page/card-page.module.css";
 import styles from "./order-card.module.css";
 
@@ -27,6 +36,7 @@ export type OrderDetailsGridProps = {
   order: SalesOrderDetail;
   editable: boolean;
   customerOptions: CustomerOption[];
+  addressOptions: SalesAddressOption[];
   draft?: OrderDraftController;
 };
 
@@ -39,6 +49,7 @@ export function OrderDetailsGrid({
   order,
   editable,
   customerOptions,
+  addressOptions,
   draft,
 }: OrderDetailsGridProps) {
   const customerProjects = useMemo(() => {
@@ -63,18 +74,17 @@ export function OrderDetailsGrid({
             label="Order date"
             value={order.orderDate}
           />
-          <AddressCell order={order} editable={editable} />
-          <DateCell
+          <AddressCell
+            order={order}
             editable={editable}
-            field="shipDate"
-            label="Shipping date"
-            value={order.shipDate}
+            customerOptions={customerOptions}
+            addressOptions={addressOptions}
           />
           <DateCell
             editable={editable}
-            field="requestedDate"
-            label="Requested date"
-            value={order.requestedDate}
+            field="shipDate"
+            label="Ship date"
+            value={order.shipDate}
           />
         </div>
       </section>
@@ -96,7 +106,7 @@ function CustomerCell({
   customerOptions: CustomerOption[];
 }) {
   const { draft } = useContext(DetailsContext);
-  const commit = useFieldCommit("customerId");
+  const commitPatch = useHeaderPatchCommit("customer");
 
   return (
     <CellShell label="Customer" span={2}>
@@ -114,10 +124,16 @@ function CustomerCell({
                   customerName: picked?.name ?? "",
                   customerProjectId: null,
                   customerProjectName: null,
+                  ...customerDefaultShipAddressPatch(picked),
                 });
                 return;
               }
-              commit(value);
+              const picked = customerOptions.find((c) => c.id === value);
+              commitPatch({
+                customerId: value,
+                customerProjectId: null,
+                ...customerDefaultShipAddressPatch(picked),
+              });
             }}
             placeholder="Search customers…"
             emptyMessage="No customers found"
@@ -204,12 +220,13 @@ function DateCell({
   value,
 }: {
   editable: boolean;
-  field: "orderDate" | "shipDate" | "requestedDate";
+  field: "orderDate" | "shipDate";
   label: string;
   value: string | null;
 }) {
   const { draft } = useContext(DetailsContext);
   const commit = useFieldCommit(field);
+  const commitPatch = useHeaderPatchCommit(field);
 
   if (!editable) {
     return (
@@ -231,6 +248,15 @@ function DateCell({
           const normalized = field === "orderDate" ? next || "" : next || null;
           if (field === "orderDate" && !normalized) return;
           if (normalized === (value ?? (field === "orderDate" ? "" : null))) return;
+          if (field === "shipDate") {
+            const patch = { shipDate: normalized, requestedDate: normalized };
+            if (draft) {
+              draft.patchHeader(patch);
+              return;
+            }
+            commitPatch(patch);
+            return;
+          }
           if (draft) {
             draft.patchHeader({ [field]: normalized } as PatchSalesOrderHeader);
             return;
@@ -242,7 +268,210 @@ function DateCell({
   );
 }
 
-function AddressCell({ order, editable }: { order: SalesOrderDetail; editable: boolean }) {
+type SalesShipAddressFields = Pick<
+  PatchSalesOrderHeader,
+  "shipLine1" | "shipLine2" | "shipCity" | "shipRegion" | "shipPostcode" | "shipCountry"
+>;
+
+type SalesShipAddressOption = SalesShipAddressFields & {
+  id: string;
+  label: string;
+  source: "address_book" | "customer_shipping" | "customer_billing" | "current";
+};
+
+const CLEAR_SHIP_ADDRESS_VALUE = "__clear_ship_address__";
+
+function normalizeSalesShipAddress(
+  address: Partial<SalesShipAddressFields> | null | undefined
+): SalesShipAddressFields {
+  const normalized = normalizeAddressFields({
+    line1: address?.shipLine1,
+    line2: address?.shipLine2,
+    city: address?.shipCity,
+    region: address?.shipRegion,
+    postcode: address?.shipPostcode,
+    country: address?.shipCountry,
+  });
+
+  return {
+    shipLine1: normalized.line1,
+    shipLine2: normalized.line2,
+    shipCity: normalized.city,
+    shipRegion: normalized.region,
+    shipPostcode: normalized.postcode,
+    shipCountry: normalized.country,
+  };
+}
+
+function salesShipAddressKey(address: Partial<SalesShipAddressFields> | null | undefined) {
+  const normalized = normalizeSalesShipAddress(address);
+  return [
+    normalized.shipLine1,
+    normalized.shipLine2,
+    normalized.shipCity,
+    normalized.shipRegion,
+    normalized.shipPostcode,
+    normalized.shipCountry,
+  ]
+    .map((part) => part ?? "")
+    .join("\u001f")
+    .replace(/^\u001f+|\u001f+$/g, "");
+}
+
+function salesShipAddressLabel(address: Partial<SalesShipAddressFields>) {
+  return formatAddressLines({
+    line1: address.shipLine1,
+    line2: address.shipLine2,
+    city: address.shipCity,
+    region: address.shipRegion,
+    postcode: address.shipPostcode,
+    country: address.shipCountry,
+  }).join(", ");
+}
+
+function makeSalesShipAddressOption(
+  address: Partial<SalesShipAddressFields>,
+  label: string | null | undefined,
+  source: SalesShipAddressOption["source"]
+): SalesShipAddressOption | null {
+  const normalized = normalizeSalesShipAddress(address);
+  const key = salesShipAddressKey(normalized);
+  if (!key) return null;
+
+  return {
+    ...normalized,
+    id: `${source}:${encodeURIComponent(key)}`,
+    label: label?.trim() || salesShipAddressLabel(normalized),
+    source,
+  };
+}
+
+function customerDefaultShipAddressPatch(
+  customer: CustomerOption | undefined
+): SalesShipAddressFields {
+  return normalizeSalesShipAddress({
+    shipLine1: customer?.shipLine1 ?? customer?.billingLine1 ?? null,
+    shipLine2: customer?.shipLine2 ?? customer?.billingLine2 ?? null,
+    shipCity: customer?.shipCity ?? customer?.billingCity ?? null,
+    shipRegion: customer?.shipRegion ?? customer?.billingRegion ?? null,
+    shipPostcode: customer?.shipPostcode ?? customer?.billingPostcode ?? null,
+    shipCountry: customer?.shipCountry ?? customer?.billingCountry ?? null,
+  });
+}
+
+function buildSalesShipAddressOptions(
+  order: SalesOrderDetail,
+  customerOptions: CustomerOption[],
+  addressOptions: SalesAddressOption[]
+) {
+  const options = new Map<string, SalesShipAddressOption>();
+  const keys = new Set<string>();
+  const add = (option: SalesShipAddressOption | null) => {
+    if (!option) return;
+    const key = salesShipAddressKey(option);
+    if (keys.has(key)) return;
+    keys.add(key);
+    options.set(option.id, option);
+  };
+  const customer = customerOptions.find((candidate) => candidate.id === order.customerId);
+
+  if (customer) {
+    add(
+      makeSalesShipAddressOption(
+        {
+          shipLine1: customer.shipLine1,
+          shipLine2: customer.shipLine2,
+          shipCity: customer.shipCity,
+          shipRegion: customer.shipRegion,
+          shipPostcode: customer.shipPostcode,
+          shipCountry: customer.shipCountry,
+        },
+        "Customer shipping address",
+        "customer_shipping"
+      )
+    );
+    add(
+      makeSalesShipAddressOption(
+        {
+          shipLine1: customer.billingLine1,
+          shipLine2: customer.billingLine2,
+          shipCity: customer.billingCity,
+          shipRegion: customer.billingRegion,
+          shipPostcode: customer.billingPostcode,
+          shipCountry: customer.billingCountry,
+        },
+        "Customer billing address",
+        "customer_billing"
+      )
+    );
+  }
+  for (const address of addressOptions) {
+    add(
+      makeSalesShipAddressOption(
+        {
+          shipLine1: address.line1,
+          shipLine2: address.line2,
+          shipCity: address.city,
+          shipRegion: address.region,
+          shipPostcode: address.postcode,
+          shipCountry: address.country,
+        },
+        address.label,
+        "address_book"
+      )
+    );
+  }
+  add(
+    makeSalesShipAddressOption(
+      {
+        shipLine1: order.shipLine1,
+        shipLine2: order.shipLine2,
+        shipCity: order.shipCity,
+        shipRegion: order.shipRegion,
+        shipPostcode: order.shipPostcode,
+        shipCountry: order.shipCountry,
+      },
+      "Current shipping address",
+      "current"
+    )
+  );
+
+  return [...options.values()];
+}
+
+function AddressCell({
+  order,
+  editable,
+  customerOptions,
+  addressOptions,
+}: {
+  order: SalesOrderDetail;
+  editable: boolean;
+  customerOptions: CustomerOption[];
+  addressOptions: SalesAddressOption[];
+}) {
+  const { draft, orderId } = useContext(DetailsContext);
+  const queryClient = useQueryClient();
+  const addressMutation = useMutation({
+    mutationKey: ["sales-order", orderId, "patch", "shipAddress"],
+    mutationFn: (patch: SalesShipAddressFields) =>
+      patchSalesOrderHeader(orderId, patch),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["sales-order", orderId], next);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["sales-order", orderId] });
+    },
+  });
+
+  const commitAddress = (address: SalesShipAddressFields) => {
+    if (draft) {
+      draft.patchHeader(address);
+      return;
+    }
+    addressMutation.mutate(address);
+  };
+
   if (!editable) {
     const lines = [
       order.shipLine1,
@@ -271,57 +500,98 @@ function AddressCell({ order, editable }: { order: SalesOrderDetail; editable: b
     );
   }
 
+  const normalizedCurrent = normalizeSalesShipAddress({
+    shipLine1: order.shipLine1,
+    shipLine2: order.shipLine2,
+    shipCity: order.shipCity,
+    shipRegion: order.shipRegion,
+    shipPostcode: order.shipPostcode,
+    shipCountry: order.shipCountry,
+  });
+  const currentAddressId = salesShipAddressKey(normalizedCurrent);
+  const shipAddressOptions = buildSalesShipAddressOptions(
+    order,
+    customerOptions,
+    addressOptions
+  );
+  const selectedAddressId =
+    shipAddressOptions.find(
+      (option) => salesShipAddressKey(option) === currentAddressId
+    )?.id ?? "";
+  const optionMap = new Map(shipAddressOptions.map((option) => [option.id, option]));
+  const items = [
+    ...shipAddressOptions.map((option) => option.id),
+    ...(currentAddressId ? [CLEAR_SHIP_ADDRESS_VALUE] : []),
+  ];
+
   return (
     <CellShell label="Ship to" span={2}>
-      <div className="grid grid-cols-1 gap-(--space-2) sm:grid-cols-2">
-        <AddressInputField order={order} field="shipLine1" placeholder="Address line 1" />
-        <AddressInputField order={order} field="shipLine2" placeholder="Address line 2" />
-        <AddressInputField order={order} field="shipCity" placeholder="City" />
-        <AddressInputField order={order} field="shipRegion" placeholder="State / region" />
-        <AddressInputField order={order} field="shipPostcode" placeholder="Postcode" />
-        <AddressInputField order={order} field="shipCountry" placeholder="Country" />
-      </div>
+      <Combobox
+        items={items}
+        value={selectedAddressId}
+        onValueChange={(nextValue) => {
+          if (!nextValue || nextValue === CLEAR_SHIP_ADDRESS_VALUE) {
+            commitAddress({
+              shipLine1: null,
+              shipLine2: null,
+              shipCity: null,
+              shipRegion: null,
+              shipPostcode: null,
+              shipCountry: null,
+            });
+            return;
+          }
+          const selected = optionMap.get(nextValue);
+          if (selected) {
+            commitAddress({
+              shipLine1: selected.shipLine1,
+              shipLine2: selected.shipLine2,
+              shipCity: selected.shipCity,
+              shipRegion: selected.shipRegion,
+              shipPostcode: selected.shipPostcode,
+              shipCountry: selected.shipCountry,
+            });
+          }
+        }}
+        itemToStringLabel={(itemId) => {
+          if (itemId === CLEAR_SHIP_ADDRESS_VALUE) return "Clear shipping address";
+          return optionMap.get(itemId)?.label ?? "";
+        }}
+      >
+        <ComboboxInput
+          placeholder="Address book"
+          showClear={currentAddressId !== ""}
+          className="h-(--height-input-sm) w-full text-[length:var(--text-sm)]"
+        />
+        <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
+          <ComboboxEmpty>No addresses found</ComboboxEmpty>
+          <ComboboxList>
+            {(itemId: string) => {
+              if (itemId === CLEAR_SHIP_ADDRESS_VALUE) {
+                return (
+                  <ComboboxItem key={itemId} value={itemId}>
+                    Clear shipping address
+                  </ComboboxItem>
+                );
+              }
+
+              const option = optionMap.get(itemId);
+              return (
+                <ComboboxItem key={itemId} value={itemId}>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate">{option?.label}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {option ? salesShipAddressLabel(option) : ""}
+                    </span>
+                  </span>
+                </ComboboxItem>
+              );
+            }}
+          </ComboboxList>
+          {currentAddressId ? <ComboboxSeparator /> : null}
+        </ComboboxContent>
+      </Combobox>
     </CellShell>
-  );
-}
-
-function AddressInputField({
-  order,
-  field,
-  placeholder,
-}: {
-  order: SalesOrderDetail;
-  field: "shipLine1" | "shipLine2" | "shipCity" | "shipRegion" | "shipPostcode" | "shipCountry";
-  placeholder: string;
-}) {
-  const { draft } = useContext(DetailsContext);
-  const initial = order[field] ?? "";
-  const commit = useFieldCommit(field);
-  const [draftValue, setDraftValue] = useState(initial);
-
-  return (
-    <Input
-      value={draftValue}
-      placeholder={placeholder}
-      onChange={(event) => setDraftValue(event.target.value)}
-      onBlur={() => {
-        const trimmed = draftValue.trim();
-        const next = trimmed === "" ? null : trimmed;
-        if (next === (order[field] ?? null)) return;
-        if (draft) {
-          draft.patchHeader({ [field]: next } as PatchSalesOrderHeader);
-          return;
-        }
-        commit(next);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          event.currentTarget.blur();
-        }
-      }}
-      className="h-(--height-input-sm) text-[length:var(--text-sm)]"
-    />
   );
 }
 
@@ -366,4 +636,20 @@ function useFieldCommit<Field extends keyof PatchSalesOrderHeader>(field: Field)
     },
   });
   return (value: PatchSalesOrderHeader[Field]) => mutation.mutate(value);
+}
+
+function useHeaderPatchCommit(mutationLabel: string) {
+  const { orderId } = useContext(DetailsContext);
+  const queryClient = useQueryClient();
+  const mutation = useMutation({
+    mutationKey: ["sales-order", orderId, "patch", mutationLabel],
+    mutationFn: (patch: PatchSalesOrderHeader) => patchSalesOrderHeader(orderId, patch),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["sales-order", orderId], next);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["sales-order", orderId] });
+    },
+  });
+  return (patch: PatchSalesOrderHeader) => mutation.mutate(patch);
 }

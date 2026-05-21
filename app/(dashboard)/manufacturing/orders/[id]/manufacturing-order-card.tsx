@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import type { ICellRendererParams } from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  ArrowLeft01Icon,
   Cancel01Icon,
   MoreVerticalIcon,
   PrinterIcon,
@@ -237,16 +236,7 @@ export function ManufacturingOrderCard({
   const selectedProductName = order?.productName ?? null;
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-8 py-6">
-      <div className="space-y-5">
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden />
-          <Link href="/manufacturing/orders" className="hover:text-foreground">
-            Back to Manufacturing Orders
-          </Link>
-        </div>
-
-        <div className={styles.sheet}>
+    <div className={styles.sheet}>
       <header className={styles.header}>
         <div className={styles.headerIdentity}>
           <div className={styles.eyebrow}>
@@ -427,8 +417,6 @@ export function ManufacturingOrderCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-        </div>
-      </div>
     </div>
   );
 }

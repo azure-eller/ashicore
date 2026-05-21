@@ -7,6 +7,7 @@ import type { ICellRendererParams } from "ag-grid-community";
 import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { apiJson } from "@/lib/client/api";
+import { usePersistentViewState } from "@/lib/client/use-persistent-view-state";
 import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import {
@@ -34,12 +35,17 @@ import {
   MANUFACTURING_PLANNED_QTY_TOOLTIP,
   MANUFACTURING_SALES_ORDER_TOOLTIP,
 } from "@/lib/tooltip-copy";
+import type { ManufacturingOrdersPreference } from "@/lib/view-preferences";
 import { MoStageAction } from "./mo-stage-action";
 import type { ManufacturingOrderListRow } from "./types";
 
 const BADGE_VARIANTS = ["secondary", "outline", "default"] as const;
 const OPEN_MANUFACTURING_STATUSES = ["open"] as const;
 const DONE_MANUFACTURING_STATUSES = ["done"] as const;
+const MANUFACTURING_ORDERS_VIEW_KEY = "manufacturing.orders";
+const DEFAULT_MANUFACTURING_ORDERS_PREFERENCE: ManufacturingOrdersPreference = {
+  version: 1,
+};
 type ManufacturingWorkflowFilterValue = "open" | "done";
 
 function AttributeBadges({ attrs }: { attrs: string[] }) {
@@ -70,10 +76,10 @@ function PlannedQuantityCell({ order }: { order: ManufacturingOrderListRow }) {
       : null;
 
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+    <div className="flex min-w-0 flex-nowrap items-center gap-1.5">
       <QuantityWithUnit value={order.plannedQuantity} unitName={order.unitName} />
       {batchLabel != null ? (
-        <Badge variant="outline" className="text-xs font-normal">
+        <Badge variant="outline" className="shrink-0 text-xs font-normal">
           {batchLabel}
         </Badge>
       ) : null}
@@ -305,6 +311,10 @@ export function OrdersTable({
   const [selectedOrders, setSelectedOrders] = useState<ManufacturingOrderListRow[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [hasActiveSort, setHasActiveSort] = useState(false);
+  const [ordersPreference, setOrdersPreference] = usePersistentViewState({
+    viewKey: MANUFACTURING_ORDERS_VIEW_KEY,
+    defaultValue: DEFAULT_MANUFACTURING_ORDERS_PREFERENCE,
+  });
   const { data: orders = initialData } = useQuery({
     queryKey: ["manufacturing-orders"],
     queryFn: () =>
@@ -402,7 +412,8 @@ export function OrdersTable({
         field: "plannedQuantity",
         headerName: "Planned",
         headerTooltip: MANUFACTURING_PLANNED_QTY_TOOLTIP,
-        width: 140,
+        width: 156,
+        minWidth: 150,
         comparator: (left, right) =>
           parseFloat(String(left ?? "0")) - parseFloat(String(right ?? "0")),
         cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
@@ -557,6 +568,13 @@ export function OrdersTable({
         suppressMoveWhenRowDragging
         resetRowDataOnUpdate
         onSortChange={setHasActiveSort}
+        persistedGridState={ordersPreference.grid}
+        onPersistedGridStateChange={(grid) => {
+          setOrdersPreference((current) => ({
+            ...current,
+            grid,
+          }));
+        }}
         onManagedRowDragReorder={(orderedRows) => {
           if (!reorderEnabled || reorderMutation.isPending) {
             return;

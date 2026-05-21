@@ -3,13 +3,15 @@ import {
   getSalesOrderCustomerOptions,
   getSalesOrderItemOptions,
 } from "@/app/(dashboard)/sales/queries";
+import { getAddressEntries } from "@/lib/dal/addresses";
 import { OrderCard } from "@/app/(dashboard)/sales/orders/[id]/order-card";
 
 export default async function NewSalesOrderPage() {
   await requireModuleWriteAccess("sales");
-  const [customerOptions, itemOptions] = await Promise.all([
+  const [customerOptions, itemOptions, addressOptions] = await Promise.all([
     getSalesOrderCustomerOptions(),
     getSalesOrderItemOptions(),
+    getAddressEntries(),
   ]);
 
   return (
@@ -17,6 +19,7 @@ export default async function NewSalesOrderPage() {
       initialOrder={null}
       customerOptions={customerOptions}
       itemOptions={itemOptions}
+      addressOptions={addressOptions}
     />
   );
 }

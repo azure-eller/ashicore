@@ -6,6 +6,7 @@ import {
   getSalesOrderItemOptions,
 } from "@/app/(dashboard)/sales/queries";
 import { hasModuleAccess } from "@/lib/authz";
+import { getAddressEntries } from "@/lib/dal/addresses";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { getXeroConnection } from "@/lib/dal/xero";
 
@@ -17,11 +18,12 @@ export default async function OrderDetailPage({
   const context = await getAuthedMemberContext();
   const { id } = await params;
 
-  const [order, xeroConnection, customerOptions, itemOptions] = await Promise.all([
+  const [order, xeroConnection, customerOptions, itemOptions, addressOptions] = await Promise.all([
     getSalesOrder(id, { includeDeleted: true }),
     getXeroConnection(),
     getSalesOrderCustomerOptions(),
     getSalesOrderItemOptions(),
+    getAddressEntries(),
   ]);
 
   if (!order) {
@@ -39,6 +41,7 @@ export default async function OrderDetailPage({
       initialOrder={order}
       customerOptions={customerOptions}
       itemOptions={itemOptions}
+      addressOptions={addressOptions}
       canViewLedger={hasModuleAccess(context.assignedRoles, "inventory", "read")}
       xeroInvoiceSetupStatus={xeroInvoiceSetupStatus}
     />

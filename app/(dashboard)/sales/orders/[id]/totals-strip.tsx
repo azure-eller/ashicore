@@ -37,7 +37,6 @@ export function TotalsStrip({ order, notesEditable, draft }: TotalsStripProps) {
       <div className={styles.totalsLeft}>
         <div className={styles.totalsLeftLabel}>
           Notes
-          <span className={styles.totalsLeftLabelMeta}>· visible on packing slip</span>
         </div>
         {notesEditable ? (
           <NotesEditor orderId={order.id} initial={notesValue} draft={draft} />
