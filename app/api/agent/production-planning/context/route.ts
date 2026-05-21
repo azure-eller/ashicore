@@ -6,7 +6,6 @@ import {
   readBearerToken,
 } from "@/lib/agent/external-access/tokens";
 import {
-  buildAgentProductionPlanningMarkdown,
   buildAgentProductionPlanningRawJson,
   getAgentProductionPlanningContext,
   getAgentProductionPlanningContextForOrg,
@@ -19,19 +18,11 @@ const booleanQuerySchema = z
   .transform((value) => (value == null ? undefined : value === "true"));
 
 const querySchema = z.object({
-  format: z.enum(["markdown", "json"]).optional().default("json"),
   includePlanningFacts: booleanQuerySchema,
   includeLots: booleanQuerySchema,
 });
 
 function contextOptions(query: z.infer<typeof querySchema>) {
-  if (query.format === "markdown") {
-    return {
-      includePlanningFacts: false,
-      includeLots: false,
-    };
-  }
-
   return {
     includePlanningFacts: query.includePlanningFacts,
     includeLots: query.includeLots,
@@ -39,18 +30,9 @@ function contextOptions(query: z.infer<typeof querySchema>) {
 }
 
 function responseForContext(
-  context: Awaited<ReturnType<typeof getAgentProductionPlanningContext>>,
-  format: "markdown" | "json"
+  context: Awaited<ReturnType<typeof getAgentProductionPlanningContext>>
 ) {
-  if (format === "json") {
-    return NextResponse.json(buildAgentProductionPlanningRawJson(context));
-  }
-
-  return new NextResponse(buildAgentProductionPlanningMarkdown(context), {
-    headers: {
-      "Content-Type": "text/markdown; charset=utf-8",
-    },
-  });
+  return NextResponse.json(buildAgentProductionPlanningRawJson(context));
 }
 
 export const GET = apiHandler(async (request) => {
@@ -68,11 +50,11 @@ export const GET = apiHandler(async (request) => {
       contextOptions(query)
     );
 
-    return responseForContext(context, query.format);
+    return responseForContext(context);
   }
 
   await assertPlanningReadAccess(request.headers);
   const context = await getAgentProductionPlanningContext(contextOptions(query));
 
-  return responseForContext(context, query.format);
+  return responseForContext(context);
 });

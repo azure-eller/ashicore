@@ -10,8 +10,7 @@ GET https://ashicore.app/api/agent/production-planning/context
 ```
 
 The default response is raw JSON production data for ChatGPT Actions: open sales
-orders, open manufacturing orders, inventory counts, and product requirements.
-Markdown is available for manual inspection with `?format=markdown`.
+orders, open manufacturing orders, product counts, and product requirements.
 
 OpenAPI schema:
 
@@ -61,12 +60,11 @@ Treat the ERP response as raw production data, not as a precomputed
 recommendation. Use:
 
 - `openSalesOrders` for sales order dates, ship dates, line items, quantities,
-  allocation state, and per-line production requirements.
+  and allocation state.
 - `openManufacturingOrders` for existing production supply.
-- `inventoryCounts` for current product inventory, allocation totals, open sales
+- `productCounts` for current sellable product inventory, allocation totals, open sales
   demand, and open manufacturing supply.
 - `productRequirements` for BOM constraints such as minimum lot age.
-- `inputHash` when explaining that advice is based on this snapshot.
 
 The agent-facing response intentionally omits sales prices, unit costs, draft
 action payloads, and material-purchasing recommendations. This is production

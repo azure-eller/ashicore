@@ -18,19 +18,16 @@ Authorization: Bearer <ASHICORE_AGENT_API_TOKEN>
 
 Optional query parameters:
 
-- `format=markdown|json`
 - `includePlanningFacts=true|false`
 - `includeLots=true|false`
-
-Default to JSON. Use `format=markdown` only for manual inspection.
 
 ## Reasoning Rules
 
 - Treat the ERP response as raw production data, not as a precomputed decision.
 - Use `openSalesOrders` for sales order dates, ship dates, line items,
-  quantities, allocation state, and per-line production requirements.
+  quantities, and allocation state.
 - Use `openManufacturingOrders` for existing production supply.
-- Use `inventoryCounts` for current product inventory, allocation totals, open
+- Use `productCounts` for current sellable product inventory, allocation totals, open
   sales demand, and open manufacturing supply.
 - Use `productRequirements` for BOM constraints such as minimum lot age.
 - Do not ask for or rely on sales prices, unit costs, draft action payloads, or

@@ -15,7 +15,7 @@
       "get": {
         "operationId": "getProductionPlanningContext",
         "summary": "Get production planning context",
-        "description": "Returns raw production data: open sales orders, open MOs, inventory counts, and product requirements.",
+        "description": "Returns raw production data: open sales orders, open MOs, product counts, and product requirements.",
         "x-openai-isConsequential": false,
         "security": [
           {
@@ -23,20 +23,6 @@
           }
         ],
         "parameters": [
-          {
-            "name": "format",
-            "in": "query",
-            "required": false,
-            "description": "Response format. Defaults to json.",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "markdown",
-                "json"
-              ],
-              "default": "json"
-            }
-          },
           {
             "name": "includePlanningFacts",
             "in": "query",
@@ -62,12 +48,6 @@
           "200": {
             "description": "Current raw production data.",
             "content": {
-              "text/markdown": {
-                "schema": {
-                  "type": "string",
-                  "description": "Human-readable production data view."
-                }
-              },
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AgentProductionRawContext"
@@ -97,20 +77,14 @@
       "AgentProductionRawContext": {
         "type": "object",
         "required": [
-          "orgId",
           "generatedAt",
           "today",
-          "inputHash",
           "openSalesOrders",
           "openManufacturingOrders",
-          "inventoryCounts",
-          "productRequirements",
-          "allowedNextActions"
+          "productCounts",
+          "productRequirements"
         ],
         "properties": {
-          "orgId": {
-            "type": "string"
-          },
           "generatedAt": {
             "type": "string",
             "format": "date-time"
@@ -120,13 +94,9 @@
             "format": "date",
             "description": "Current business date for the organization."
           },
-          "inputHash": {
-            "type": "string",
-            "description": "Stable hash for the planning inputs. Future write workflows should compare against this before acting."
-          },
           "openSalesOrders": {
             "type": "array",
-            "description": "Open sales orders with dates, line quantities, allocation state, and line-level product requirements.",
+            "description": "Open sales orders with dates, line quantities, and allocation state.",
             "items": {
               "type": "object",
               "additionalProperties": true
@@ -140,9 +110,9 @@
               "additionalProperties": true
             }
           },
-          "inventoryCounts": {
+          "productCounts": {
             "type": "array",
-            "description": "Current product inventory counts plus open sales demand and open MO supply by product.",
+            "description": "Current sellable product counts plus open sales demand and open MO supply by product.",
             "items": {
               "type": "object",
               "additionalProperties": true
@@ -151,13 +121,6 @@
           "productRequirements": {
             "type": "array",
             "description": "Top-level requirements for products on open sales orders, including constraints such as minimum lot age.",
-            "items": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          },
-          "allowedNextActions": {
-            "type": "array",
             "items": {
               "type": "object",
               "additionalProperties": true

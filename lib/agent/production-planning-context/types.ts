@@ -345,10 +345,8 @@ export type AgentProductionPlanningContext = {
 };
 
 export type AgentProductionRawContext = {
-  orgId: string;
   generatedAt: string;
   today: string;
-  inputHash: string;
   openSalesOrders: Array<{
     salesOrderId: string;
     orderNumber: string;
@@ -370,19 +368,6 @@ export type AgentProductionRawContext = {
       allocatedQty: string;
       unallocatedQty: string;
       productionStatus: AgentOpenSalesOrderContext["lines"][number]["productionStatus"];
-      requirements: Array<{
-        componentItemId: string;
-        componentName: string;
-        componentItemType: string;
-        quantity: string;
-        unitName: string | null;
-        consumptionMode: string;
-        basisOutputQuantity: string | null;
-        batchScalingMode: string | null;
-        groupRemainderPolicy: string | null;
-        minimumLotAgeDays: number | null;
-        constraints: string[];
-      }>;
     }>;
   }>;
   openManufacturingOrders: Array<{
@@ -402,7 +387,7 @@ export type AgentProductionRawContext = {
     linkedSalesOrderLineId: string | null;
     outputAllocations: AgentOpenManufacturingOrderContext["outputAllocations"];
   }>;
-  inventoryCounts: Array<{
+  productCounts: Array<{
     itemId: string;
     itemName: string;
     unitName: string | null;
@@ -419,5 +404,4 @@ export type AgentProductionRawContext = {
     openManufacturingSupplyQty: string;
   }>;
   productRequirements: AgentTopLevelBomContext[];
-  allowedNextActions: AgentAllowedAction[];
 };

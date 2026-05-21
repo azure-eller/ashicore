@@ -45,24 +45,22 @@ test.describe("Agent production planning context API", () => {
     expect(body.error).toBe("Authentication required.");
   });
 
-  test("returns full read-only context with the planning input hash", async ({ db }) => {
+  test("returns compact read-only production data", async ({ db }) => {
     const before = await readMutationSensitiveCounts(db);
-
-    const planningResponse = await testFetch("/api/planning");
-    expect(planningResponse.status).toBe(200);
-    const planning = await planningResponse.json();
 
     const response = await testFetch("/api/agent/production-planning/context");
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("application/json");
     const context = await response.json();
 
-    expect(context.inputHash).toBe(planning.inputHash);
+    expect(context).not.toHaveProperty("orgId");
+    expect(context).not.toHaveProperty("inputHash");
+    expect(context).not.toHaveProperty("allowedNextActions");
     expect(context.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(context).not.toHaveProperty("horizon");
     expect(Array.isArray(context.openSalesOrders)).toBe(true);
     expect(Array.isArray(context.openManufacturingOrders)).toBe(true);
-    expect(Array.isArray(context.inventoryCounts)).toBe(true);
+    expect(Array.isArray(context.productCounts)).toBe(true);
     expect(Array.isArray(context.productRequirements)).toBe(true);
     expect(JSON.stringify(context)).not.toContain("unitCost");
     expect(JSON.stringify(context)).not.toContain("defaultSellingPrice");
@@ -83,7 +81,6 @@ test.describe("Agent production planning context API", () => {
         remainingToShipQty: string;
         allocatedQty: string;
         unallocatedQty: string;
-        requirements: unknown[];
       }>;
     }>) {
       expect(order.salesOrderId).toBeTruthy();
@@ -100,7 +97,7 @@ test.describe("Agent production planning context API", () => {
         expect(typeof line.remainingToShipQty).toBe("string");
         expect(typeof line.allocatedQty).toBe("string");
         expect(typeof line.unallocatedQty).toBe("string");
-        expect(Array.isArray(line.requirements)).toBe(true);
+        expect(line).not.toHaveProperty("requirements");
       }
     }
 
@@ -122,7 +119,7 @@ test.describe("Agent production planning context API", () => {
       expect(Array.isArray(order.outputAllocations)).toBe(true);
     }
 
-    for (const item of context.inventoryCounts as Array<{
+    for (const item of context.productCounts as Array<{
       itemId: string;
       itemName: string;
       onHandQty: unknown;
@@ -176,20 +173,12 @@ test.describe("Agent production planning context API", () => {
       }
     }
 
-    const markdownResponse = await testFetch(
-      "/api/agent/production-planning/context?format=markdown"
-    );
-    expect(markdownResponse.status).toBe(200);
-    expect(markdownResponse.headers.get("content-type")).toContain("text/markdown");
-    const markdown = await markdownResponse.text();
-    expect(markdown).toContain("# Production Planning Brief");
-
     const withoutLotsResponse = await testFetch(
-      "/api/agent/production-planning/context?format=json&includeLots=false"
+      "/api/agent/production-planning/context?includeLots=false"
     );
     expect(withoutLotsResponse.status).toBe(200);
     const withoutLots = await withoutLotsResponse.json();
-    expect(Array.isArray(withoutLots.inventoryCounts)).toBe(true);
+    expect(Array.isArray(withoutLots.productCounts)).toBe(true);
 
     const after = await readMutationSensitiveCounts(db);
 
@@ -197,10 +186,6 @@ test.describe("Agent production planning context API", () => {
   });
 
   test("allows external bearer token access and token revocation", async () => {
-    const planningResponse = await testFetch("/api/planning");
-    expect(planningResponse.status).toBe(200);
-    const planning = await planningResponse.json();
-
     const createResponse = await testFetch("/api/agent/api-tokens", {
       method: "POST",
       body: JSON.stringify({ name: "Playwright external agent token" }),
@@ -220,7 +205,7 @@ test.describe("Agent production planning context API", () => {
     expect(JSON.stringify(listed)).not.toContain(created.token);
 
     const bearerResponse = await fetch(
-      `${getBaseUrl()}/api/agent/production-planning/context?format=json&includeLots=false`,
+      `${getBaseUrl()}/api/agent/production-planning/context?includeLots=false`,
       {
         headers: {
           Authorization: `Bearer ${created.token}`,
@@ -230,10 +215,11 @@ test.describe("Agent production planning context API", () => {
     );
     expect(bearerResponse.status).toBe(200);
     const context = await bearerResponse.json();
-    expect(context.inputHash).toBe(planning.inputHash);
+    expect(context).not.toHaveProperty("orgId");
+    expect(context).not.toHaveProperty("inputHash");
     expect(context.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(context).not.toHaveProperty("horizon");
-    expect(Array.isArray(context.inventoryCounts)).toBe(true);
+    expect(Array.isArray(context.productCounts)).toBe(true);
 
     const revokeResponse = await testFetch(
       `/api/agent/api-tokens/${created.tokenRecord.id}`,
