@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
     types:
+      - opened
       - labeled
       - reopened
       - ready_for_review
@@ -24,6 +25,33 @@ env:
   TEST_BASE_URL: http://127.0.0.1:3000
 
 jobs:
+  migration-order:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ github.event_name == 'pull_request' && github.event.action == 'opened' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify migration order
+        run: pnpm verify:migration-order
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
