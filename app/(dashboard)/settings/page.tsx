@@ -56,20 +56,10 @@ export default async function SettingsPage({
     "sales",
     "operate"
   );
-  const canResetCustomerImports = hasModuleAccess(
-    context.assignedRoles,
-    "sales",
-    "admin"
-  );
   const canImportSuppliers = hasModuleAccess(
     context.assignedRoles,
     "purchasing",
     "operate"
-  );
-  const canResetSupplierImports = hasModuleAccess(
-    context.assignedRoles,
-    "purchasing",
-    "admin"
   );
   const showIntegrations = canManageXero || canImportSuppliers;
 
@@ -129,7 +119,7 @@ export default async function SettingsPage({
     showIntegrations
       ? getRecentXeroExports({
           includeSales: canManageXero,
-          includePurchasing: canImportSuppliers,
+          includePurchasing: false,
         })
       : [],
     searchParams,
@@ -157,8 +147,6 @@ export default async function SettingsPage({
               canManageConnection={canManageXero}
               canImportCustomers={canManageXero}
               canImportSuppliers={canImportSuppliers}
-              canResetCustomerImports={canResetCustomerImports}
-              canResetSupplierImports={canResetSupplierImports}
             />
           ) : null}
         </div>

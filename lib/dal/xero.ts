@@ -76,10 +76,10 @@ function toSummary(row: XeroConnectionRow): XeroConnectionSummary {
     defaultTaxType: row.defaultTaxType,
     invoiceStatusPreference: row.invoiceStatusPreference,
     autoPushSalesInvoices: row.autoPushSalesInvoices,
-    autoPushPurchaseOrders: row.autoPushPurchaseOrders,
+    autoPushPurchaseOrders: false,
     autoSyncPurchaseOrdersFromAccounting: row.autoSyncPurchaseOrdersFromAccounting,
     autoEmailSalesInvoices: row.autoEmailSalesInvoices,
-    autoEmailPurchaseOrders: row.autoEmailPurchaseOrders,
+    autoEmailPurchaseOrders: false,
     purchaseOrderDefaultAccountCode: row.purchaseOrderDefaultAccountCode,
     purchaseOrderDefaultTaxType: row.purchaseOrderDefaultTaxType,
     purchaseOrderStatusPreference: row.purchaseOrderStatusPreference,
@@ -281,7 +281,7 @@ export async function getXeroAutomationSettingsForOrg(orgId: string) {
         )
       );
 
-    return row ?? null;
+    return row ? { ...row, autoPushPurchaseOrders: false } : null;
   });
 }
 
@@ -429,10 +429,10 @@ export async function updateXeroSettings(params: {
         defaultTaxType: params.defaultTaxType,
         invoiceStatusPreference: params.invoiceStatusPreference,
         autoPushSalesInvoices: params.autoPushSalesInvoices,
-        autoPushPurchaseOrders: params.autoPushPurchaseOrders,
+        autoPushPurchaseOrders: false,
         autoSyncPurchaseOrdersFromAccounting: params.autoSyncPurchaseOrdersFromAccounting,
         autoEmailSalesInvoices: params.autoEmailSalesInvoices,
-        autoEmailPurchaseOrders: params.autoEmailPurchaseOrders,
+        autoEmailPurchaseOrders: false,
         purchaseOrderDefaultAccountCode: params.purchaseOrderDefaultAccountCode,
         purchaseOrderDefaultTaxType: params.purchaseOrderDefaultTaxType,
         purchaseOrderStatusPreference: params.purchaseOrderStatusPreference,

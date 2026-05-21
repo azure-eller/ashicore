@@ -33,10 +33,10 @@ export const PUT = apiHandler(async (request: Request) => {
     defaultTaxType: data.defaultTaxType?.length ? data.defaultTaxType : null,
     invoiceStatusPreference: data.invoiceStatusPreference,
     autoPushSalesInvoices: data.autoPushSalesInvoices,
-    autoPushPurchaseOrders: data.autoPushPurchaseOrders,
+    autoPushPurchaseOrders: false,
     autoSyncPurchaseOrdersFromAccounting: data.autoSyncPurchaseOrdersFromAccounting,
     autoEmailSalesInvoices: data.autoEmailSalesInvoices,
-    autoEmailPurchaseOrders: data.autoEmailPurchaseOrders,
+    autoEmailPurchaseOrders: false,
     purchaseOrderDefaultAccountCode: data.purchaseOrderDefaultAccountCode?.length
       ? data.purchaseOrderDefaultAccountCode
       : null,
@@ -91,11 +91,11 @@ export const PUT = apiHandler(async (request: Request) => {
       invoiceStatusPreference: data.invoiceStatusPreference,
       purchaseOrderStatusPreference: data.purchaseOrderStatusPreference,
       autoPushSalesInvoices: data.autoPushSalesInvoices,
-      autoPushPurchaseOrders: data.autoPushPurchaseOrders,
+      autoPushPurchaseOrders: false,
       autoSyncPurchaseOrdersFromAccounting:
         data.autoSyncPurchaseOrdersFromAccounting,
       autoEmailSalesInvoices: data.autoEmailSalesInvoices,
-      autoEmailPurchaseOrders: data.autoEmailPurchaseOrders,
+      autoEmailPurchaseOrders: false,
       changedTenant: Boolean(data.tenantId),
     },
   });

@@ -157,7 +157,7 @@ export function OrderCardHeader({
         ...(onPushXero
           ? [
               {
-                label: onPushXeroLabel ?? "Push to Xero",
+                label: onPushXeroLabel ?? "Send invoice to Xero",
                 onClick: onPushXero,
                 disabled: onPushXeroDisabled,
               },

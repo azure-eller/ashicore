@@ -373,6 +373,26 @@ export function OrderCard({
     onError: (error) => setActionError((error as Error).message),
   });
 
+  const orderXeroPushMutation = useMutation({
+    mutationKey: ["sales-order-action", currentOrderId ?? "draft", "order-xero-push"],
+    mutationFn: async () => {
+      const response = await fetch(`/api/sales-orders/${currentOrderId}/accounting-push`, {
+        method: "POST",
+        headers: createIdempotencyHeaders("retryXeroPushForSalesOrder"),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to send invoice to Xero.");
+      }
+    },
+    onMutate: () => setActionError(null),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sales-order", currentOrderId] });
+      await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+    },
+    onError: (error) => setActionError((error as Error).message),
+  });
+
   const shipOrderMutation = useMutation({
     mutationKey: ["sales-order", currentOrderId ?? "draft", "ship-order"],
     mutationFn: async (confirmNegativeStock: boolean) => {
@@ -433,6 +453,15 @@ export function OrderCard({
         onShipOrder={!isDraft && isEditable ? () => setConfirmShipOrder(true) : undefined}
         onShipOrderDisabled={shipOrderMutation.isPending}
         onDuplicate={!isDraft ? () => duplicateMutation.mutate() : undefined}
+        onPushXero={
+          !isDraft && xeroInvoiceSetupStatus === "ready"
+            ? () => orderXeroPushMutation.mutate()
+            : undefined
+        }
+        onPushXeroDisabled={orderXeroPushMutation.isPending}
+        onPushXeroLabel={
+          orderXeroPushMutation.isPending ? "Sending invoice..." : "Send invoice to Xero"
+        }
         onCreateMo={
           !isDraft && order.hasManufacturableLines
             ? () => setMakeToOrderOpen(true)

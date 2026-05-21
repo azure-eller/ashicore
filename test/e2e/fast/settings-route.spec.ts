@@ -66,7 +66,7 @@ test("settings renders in the default fast smoke lane", async ({ page }) => {
   expect(body.recipientUserIds?.length).toBeGreaterThan(0);
 });
 
-test("xero settings show automation toggles, draft defaults, and export history", async ({
+test("xero settings show invoice automation, PO import, and sync history", async ({
   db,
   page,
 }) => {
@@ -166,15 +166,22 @@ test("xero settings show automation toggles, draft defaults, and export history"
     page.getByRole("checkbox", { name: "Auto-export sales invoices" })
   ).toBeChecked();
   await expect(
+    page.getByRole("checkbox", { name: "Auto-sync purchase orders from Xero" })
+  ).not.toBeChecked();
+  await expect(
     page.getByRole("checkbox", { name: "Auto-export purchase orders" })
-  ).toBeChecked();
-  await expect(page.getByText("Draft")).toHaveCount(2);
+  ).toHaveCount(0);
+  await expect(page.getByText("Draft")).toHaveCount(1);
 
   await expect(page.getByText("400")).toBeVisible();
   await expect(page.getByText("Output tax")).toBeVisible();
-  await expect(page.getByText("500")).toBeVisible();
-  await expect(page.getByText("No tax")).toBeVisible();
-
-  await expect(page.getByRole("button", { name: "History" })).toBeVisible();
+  await expect(page.getByText("500")).toHaveCount(0);
+  await expect(page.getByText("No tax")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Defaults" })).toBeVisible();
+
+  await page.getByRole("button", { name: "View Xero sync history" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Sync history" })
+  ).toBeVisible();
+  await expect(page.getByText(orderNumber)).toBeVisible();
 });

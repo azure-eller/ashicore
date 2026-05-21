@@ -24,25 +24,22 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   then Better Auth endpoints under `/api/auth/xero-signup/*` create a
   passwordless owner account or link the intent to a signed-in existing user.
 - **Sales push** — `lib/xero/push-invoice.ts`. Reconciles by
-  `InvoiceNumber` before issuing a create.
-- **PO push** — `lib/xero/push-purchase-order.ts`. Reconciles by
-  `getPurchaseOrderByNumber`. Pushes a Xero Purchase Order, **not** an
-  ACCPAY Bill — Bills represent supplier invoices and are deferred to a
-  future AP workflow.
-- **PO email** — Xero has no API send endpoint for purchase orders. The
-  app fetches the Xero-rendered PDF with `getPurchaseOrderAsPdf` and sends
-  it through the transactional email pipeline.
-- **Contact upsert** — `lib/xero/contacts.ts`. Shared by both push paths.
+  `InvoiceNumber` before issuing a create. Sales orders can be sent manually
+  from the order header; shipped orders can still auto-send when the org
+  enables invoice automation.
+- **PO push retired** — Xero is the purchasing source of truth for synced POs.
+  The UI no longer exports ERP purchase orders to Xero or emails Xero-rendered
+  PO PDFs. Legacy push routes remain only for old history/retry compatibility
+  and should not be wired into new workflows.
+- **Contact upsert** — `lib/xero/contacts.ts`. Used by sales invoice push.
 - **Contact import** — `lib/xero/import-contacts.ts`. Customer/supplier
   imports preview counts before writing, record `xero_import_runs`, and
   can reset a completed run when imported rows are not referenced by orders.
   Fetch active contacts, update matching ERP rows by Xero ID/email/name, but
   only create new rows for Xero contacts flagged as customers or suppliers.
-- **Purchasing sync** — `lib/xero/import-purchasing.ts`. Preview-first,
-  history-driven supplier item sync. Fetches purchased Xero items plus recent
-  POs/bills. Matched selected rows update `supplier_items`; unmatched selected
-  rows may create missing ERP suppliers/items first. Xero item codes are stored
-  as external metadata, not ERP item SKUs.
+- **Supplier price sync retired** — the previous history-driven supplier item
+  price updater is no longer exposed because Xero line units are not reliable
+  enough to infer ERP stock-unit costs automatically.
 - **PO import** — `lib/accounting/import-purchase-orders.ts`. Provider-first
   purchase order import for ERP receiving. The current provider adapter fetches
   open Xero or QuickBooks POs, while routes/UI/orchestration stay under
@@ -116,9 +113,7 @@ Demo Company properties:
 
 - Pre-loaded with fake contacts, items, accounts, tax codes
 - Demo contacts have throwaway emails, so even with
-  `auto_email_sales_invoices=true` nothing reaches a real customer
-- Purchase-order emails use the app email pipeline, so Demo Company can
-  render the PDF while Resend/outbox handles delivery.
+   `auto_email_sales_invoices=true` nothing reaches a real customer
 - **Auto-resets every 28 days** — your `xero_invoice_id`,
   `xero_purchase_order_id`, and `xero_contact_id` columns will start
   pointing to documents that no longer exist. If `Pushed` rows go
@@ -134,25 +129,21 @@ Once Demo Company smoke is green:
 1. Disconnect from Demo Company.
 2. Reconnect, picking the pilot tenant.
 3. **Keep `auto_email_sales_invoices` OFF** for any test runs against
-   the pilot — we don't want test invoices reaching real customers. Also
-   keep `auto_email_purchase_orders` OFF unless you are intentionally testing
-   supplier email delivery.
+   the pilot — we don't want test invoices reaching real customers.
 4. Use a TEST- prefix on order numbers so they're easy to find and
    void/delete in Xero afterwards.
 
 ## Manual smoke checklist
 
-After any change in `lib/xero/` or in either push hook
-(`shipSalesOrder`, `submitPurchaseOrder`):
+After any change in `lib/xero/` or in the sales push hook (`shipSalesOrder`):
 
 1. **Sales happy path.** Confirm + ship an order. Expect a row in Xero
    under Business → Invoices, with `xero_push_status='pushed'` and
    `xero_invoice_id` populated locally. If `auto_email_sales_invoices`
    is on, expect `xero_email_status='sent'`.
-2. **Purchase happy path.** Submit a draft PO. Expect a row in Xero
-   under Business → Purchase orders, with the same fields populated.
-   If `auto_email_purchase_orders` is on and PO status is SUBMITTED or
-   AUTHORISED, expect `xero_po_email_status='sent'`.
+2. **Purchase import happy path.** Enable purchase order import or run bulk
+   import. Expect open Xero POs to appear in ERP for receiving; received ERP PO
+   lines must not be rewritten by later imports.
 3. **Failure path.** Revoke the access token from inside Xero
    (Settings → Connected apps → revoke). Ship another order. Expect
    `xero_push_status='failed'`, the order detail page to show the
@@ -176,11 +167,11 @@ After any change in `lib/xero/` or in either push hook
 Playwright is the only test runner per `CLAUDE.md`, and live OAuth
 into a real Xero tenant is not a thing CI should do. The tradeoff:
 
-- Local flows in `pushSalesOrderToXero` / `pushPurchaseOrderToXero`
+- Local flows in `pushSalesOrderToXero`
   throw `XeroError('not connected', 409)` when there is no
-  `xero_connections` row. `shipSalesOrder` and `submitPurchaseOrder`
-  treat that specific 409 as "Xero isn't set up — leave push status
-  null", so the existing Playwright suites pass with no Xero stubs.
+  `xero_connections` row. `shipSalesOrder` treats that specific 409 as
+  "Xero isn't set up — leave push status null", so the existing Playwright
+  suites pass with no Xero stubs.
 - Anything Xero-specific (idempotency, reconcile-by-reference, scope
   detection) is verified manually against the Demo Company before
   shipping.

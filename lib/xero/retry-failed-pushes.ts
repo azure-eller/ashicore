@@ -4,15 +4,11 @@ import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import {
   accountingDocumentSyncs,
   organization,
-  purchaseOrders,
   salesOrders,
   salesShipments,
   integrationConnections,
 } from "@/lib/db/schema";
-import {
-  ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
-  ACCOUNTING_PROVIDER_XERO,
-} from "@/lib/accounting/sync-state";
+import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
 import { db } from "@/lib/db";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { XeroError } from "./errors";
@@ -147,32 +143,6 @@ async function listFailedSalesShipments(
   });
 }
 
-async function listFailedPurchaseOrders(orgId: string): Promise<string[]> {
-  return withOrgContext(orgId, async (tx) => {
-    const rows = await tx
-      .select({ id: purchaseOrders.id })
-      .from(purchaseOrders)
-      .innerJoin(
-        accountingDocumentSyncs,
-        and(
-          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
-          eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_ORDER),
-          eq(accountingDocumentSyncs.documentId, purchaseOrders.id)
-        )
-      )
-      .where(
-        and(
-          eq(accountingDocumentSyncs.pushStatus, "failed"),
-          sql`${accountingDocumentSyncs.retryCount} < ${MAX_PUSH_ATTEMPTS}`,
-          isNull(purchaseOrders.deletedAt)
-        )
-      )
-      .orderBy(accountingDocumentSyncs.lastPushAttemptAt)
-      .limit(BATCH_SIZE_PER_ORG);
-    return rows.map((row) => row.id);
-  });
-}
-
 /**
  * Retry every failed Xero push across every connected org. Idempotency
  * is guaranteed by the push functions themselves: they reconcile against
@@ -193,8 +163,6 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
     markXeroPushFailed,
     markShipmentXeroPushFailed,
   } = await import("./push-invoice");
-  const { pushPurchaseOrderToXero, markXeroPurchaseOrderPushFailed } =
-    await import("./push-purchase-order");
 
   for (const orgId of orgIds) {
     const orgResult: XeroRetryOrgResult = {
@@ -295,46 +263,6 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
         orgResult.errors.push({
           entity: "sales_shipment",
           id: shipmentId,
-          message: (error as Error).message ?? "unknown",
-        });
-      }
-    }
-
-    let poIds: string[] = [];
-    try {
-      poIds = await listFailedPurchaseOrders(orgId);
-    } catch (error) {
-      orgResult.errors.push({
-        entity: "purchase_order",
-        id: "*",
-        message: `Failed to list candidates: ${(error as Error).message}`,
-      });
-    }
-    orgResult.purchaseOrders.candidates = poIds.length;
-
-    for (const id of poIds) {
-      try {
-        await pushPurchaseOrderToXero(orgId, id);
-        orgResult.purchaseOrders.recovered += 1;
-      } catch (error) {
-        if (
-          error instanceof XeroError &&
-          (error.status === 400 || error.status === 404 || error.status === 409)
-        ) {
-          orgResult.purchaseOrders.skipped += 1;
-          continue;
-        }
-
-        try {
-          await markXeroPurchaseOrderPushFailed(orgId, id, error);
-        } catch {
-          // ignore — best effort.
-        }
-
-        orgResult.purchaseOrders.stillFailed += 1;
-        orgResult.errors.push({
-          entity: "purchase_order",
-          id,
           message: (error as Error).message ?? "unknown",
         });
       }
