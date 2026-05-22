@@ -236,6 +236,17 @@ test.describe("Inventory write-path smoke (card UI)", () => {
     await componentInput.click();
     await componentInput.fill(materialName);
     await page.getByRole("option", { name: materialName }).click();
+    await expect(
+      page
+        .locator('[data-slot="editable-line-data-grid"] .ag-header-cell-text')
+        .filter({ hasText: /^Unit$/ })
+    ).toHaveCount(0);
+    await expect(
+      page
+        .locator('[data-slot="editable-line-data-grid"] .ag-row', { hasText: materialName })
+        .first()
+        .locator('[col-id="quantity"]')
+    ).toContainText("test-unit");
     await fillBomQuantity(page, materialName, "1.25");
     await setBomMinimumLotAge(page, materialName, "14");
     await addBomAlternate(page, materialName, alternateMaterialName);

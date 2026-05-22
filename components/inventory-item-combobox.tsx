@@ -111,6 +111,7 @@ export function InventoryItemCombobox<TOption extends InventoryItemComboboxOptio
         aria-invalid={inputAriaInvalid}
         data-editable-line-primary={inputPrimaryFocus ? "" : undefined}
         className={inputClassName}
+        autoFocus={defaultOpen}
         placeholder={placeholder}
       />
       <ComboboxContent className={cn("bg-popover text-popover-foreground", contentClassName)}>

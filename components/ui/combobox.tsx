@@ -56,15 +56,36 @@ function ComboboxInput({
   disabled = false,
   showTrigger = true,
   showClear = false,
+  onKeyDownCapture,
+  onMouseDownCapture,
+  onClickCapture,
   ...props
 }: ComboboxPrimitive.Input.Props & {
   showTrigger?: boolean
   showClear?: boolean
 }) {
+  const stopGridEvent = (event: React.SyntheticEvent<HTMLInputElement>) => {
+    if (event.currentTarget.closest(".ag-root")) {
+      event.stopPropagation()
+    }
+  }
+
   return (
     <InputGroup className={cn("w-auto", className)}>
       <ComboboxPrimitive.Input
         render={<InputGroupInput disabled={disabled} />}
+        onKeyDownCapture={(event) => {
+          stopGridEvent(event)
+          onKeyDownCapture?.(event)
+        }}
+        onMouseDownCapture={(event) => {
+          stopGridEvent(event)
+          onMouseDownCapture?.(event)
+        }}
+        onClickCapture={(event) => {
+          stopGridEvent(event)
+          onClickCapture?.(event)
+        }}
         {...props}
       />
       <InputGroupAddon align="inline-end">
@@ -114,7 +135,7 @@ function ComboboxContent({
           data-slot="combobox-content"
           data-chips={!!anchor}
         className={cn(
-            "group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-[calc(var(--anchor-width)+--spacing(7))] origin-(--transform-origin) overflow-hidden rounded-(--radius-none) bg-popover text-popover-foreground shadow-[var(--shadow-overlay)] duration-(--duration-2) data-[chips=true]:min-w-(--anchor-width) data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-(--space-2) *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:h-(--height-input-md) *:data-[slot=input-group]:border-input *:data-[slot=input-group]:bg-background *:data-[slot=input-group]:shadow-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+            "ag-custom-component-popup group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-[calc(var(--anchor-width)+--spacing(7))] origin-(--transform-origin) overflow-hidden rounded-(--radius-none) bg-popover text-popover-foreground shadow-[var(--shadow-overlay)] duration-(--duration-2) data-[chips=true]:min-w-(--anchor-width) data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-(--space-2) *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:h-(--height-input-md) *:data-[slot=input-group]:border-input *:data-[slot=input-group]:bg-background *:data-[slot=input-group]:shadow-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             className
           )}
           {...props}

@@ -443,6 +443,19 @@ export function EditableLineDataGrid<TData>({
       return;
     }
 
+    const colId = event.column.getColId();
+    const isEditingThisCell = event.api
+      .getEditingCells()
+      .some(
+        (cell) =>
+          cell.rowIndex === event.rowIndex &&
+          cell.column?.getColId() === colId &&
+          cell.rowPinned === event.node.rowPinned
+      );
+    if (isEditingThisCell) {
+      return;
+    }
+
     const colDef = event.column.getColDef();
     if (!isEditableColumn(event, colDef)) {
       return;
