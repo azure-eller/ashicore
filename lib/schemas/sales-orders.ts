@@ -307,26 +307,6 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
     confirmOversell: z.boolean().optional(),
   })
   .superRefine((values, ctx) => {
-    if (values.shipDate && values.orderDate && values.shipDate < values.orderDate) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Ship date cannot be before order date",
-        path: ["shipDate"],
-      });
-    }
-
-    if (
-      values.shipDate &&
-      values.requestedDate &&
-      values.requestedDate < values.shipDate
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Delivery date cannot be before shipping date",
-        path: ["requestedDate"],
-      });
-    }
-
     const orderQtyByItemId = new Map<string, number>();
     values.lines.forEach((line) => {
       orderQtyByItemId.set(line.itemId, Number(line.quantity));
@@ -446,30 +426,7 @@ export const patchSalesOrderHeaderSchema = z
     shippingFeeAmount: patchMoneyString,
     shippingFeeTaxAmount: patchMoneyString,
   })
-  .superRefine((values, ctx) => {
-    if (
-      values.shipDate != null &&
-      values.orderDate != null &&
-      values.shipDate < values.orderDate
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Ship date cannot be before order date",
-        path: ["shipDate"],
-      });
-    }
-    if (
-      values.requestedDate != null &&
-      values.shipDate != null &&
-      values.requestedDate < values.shipDate
-    ) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Delivery date cannot be before shipping date",
-        path: ["requestedDate"],
-      });
-    }
-  });
+  .strict();
 export type PatchSalesOrderHeader = z.infer<typeof patchSalesOrderHeaderSchema>;
 
 /**

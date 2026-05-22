@@ -11,6 +11,7 @@ export type EntitySaveStatus = {
   status: "idle" | "saving" | "error";
   pendingCount: number;
   errorCount: number;
+  errorMessage: string | null;
 };
 
 export function cardSaveMutationKey(
@@ -30,6 +31,10 @@ export function useEntitySaveStatus(entityKey: string, entityId: string): Entity
     select: (mutation) => ({
       status: mutation.state.status,
       submittedAt: mutation.state.submittedAt,
+      error:
+        mutation.state.error instanceof Error
+          ? mutation.state.error.message
+          : null,
     }),
   });
   const pendingCount = states.filter((state) => state.status === "pending").length;
@@ -40,12 +45,17 @@ export function useEntitySaveStatus(entityKey: string, entityId: string): Entity
     .at(-1);
 
   if (latest?.status === "pending") {
-    return { status: "saving", pendingCount, errorCount };
+    return { status: "saving", pendingCount, errorCount, errorMessage: null };
   }
   if (latest?.status === "error") {
-    return { status: "error", pendingCount, errorCount };
+    return {
+      status: "error",
+      pendingCount,
+      errorCount,
+      errorMessage: latest.error,
+    };
   }
-  return { status: "idle", pendingCount, errorCount };
+  return { status: "idle", pendingCount, errorCount, errorMessage: null };
 }
 
 export function CardSaveStatusIndicator({

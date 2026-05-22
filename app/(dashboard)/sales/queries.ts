@@ -7654,30 +7654,6 @@ export async function patchSalesOrderHeader(
           : existingOrder.customerProjectId;
     await getValidatedCustomerProjectInTx(tx, customer.id, nextCustomerProjectId);
 
-    const nextOrderDate = patch.orderDate ?? existingOrder.orderDate;
-    const nextShipDate =
-      patch.shipDate !== undefined ? patch.shipDate : existingOrder.shipDate;
-    const nextRequestedDate =
-      patch.requestedDate !== undefined
-        ? patch.requestedDate
-        : existingOrder.requestedDate;
-    if (nextShipDate != null && nextShipDate < nextOrderDate) {
-      throw new SalesError("Ship date cannot be before order date", 400, {
-        errors: { shipDate: ["Ship date cannot be before order date"] },
-      });
-    }
-    if (
-      nextRequestedDate != null &&
-      nextShipDate != null &&
-      nextRequestedDate < nextShipDate
-    ) {
-      throw new SalesError("Delivery date cannot be before shipping date", 400, {
-        errors: {
-          requestedDate: ["Delivery date cannot be before shipping date"],
-        },
-      });
-    }
-
     const updates: Record<string, unknown> = {};
     if (patch.orderNumber !== undefined) {
       updates.orderNumber = await resolveSalesOrderNumberInTx(

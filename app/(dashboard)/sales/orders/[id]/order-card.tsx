@@ -247,6 +247,10 @@ export function OrderCard({
         ? "failed"
         : "not_saved"
     : saveStateFromEntityStatus(liveSaveStatus.status);
+  const saveMessage =
+    saveState === "failed"
+      ? liveSaveStatus.errorMessage ?? actionError ?? "Save failed"
+      : null;
 
   useEffect(() => {
     if (!startsAsNewOrder || hasPersistedOrder || !canCreate) return;
@@ -432,6 +436,7 @@ export function OrderCard({
         }
         meta={<SalesOrderMeta order={order} />}
         saveState={saveState}
+        saveMessage={saveMessage}
         statusControl={
           !isDraft ? (
             <SalesStatusControl
