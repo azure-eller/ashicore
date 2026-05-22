@@ -3,6 +3,7 @@ import { test, expect } from "../fixtures";
 import {
   inventoryEvents,
   lots,
+  manufacturingOrderBatches,
   manufacturingOrderIngredients,
   manufacturingOrderOutputs,
   manufacturingOrders,
@@ -160,8 +161,7 @@ test.describe("MO execute and fulfill — fast write-path smoke", () => {
       .from(inventoryEvents)
       .where(
         and(
-          eq(inventoryEvents.referenceType, "manufacturing_order"),
-          eq(inventoryEvents.referenceId, orderId),
+          eq(inventoryEvents.itemId, product.body.id as string),
           eq(inventoryEvents.eventType, "manufacturing_output")
         )
       );
@@ -181,7 +181,7 @@ test.describe("MO execute and fulfill — fast write-path smoke", () => {
     expect(outputsAfter).toHaveLength(0);
   });
 
-  test("S15: batch-mode MO rejects direct parent /complete with 400", async ({
+  test("S15: batch-mode MO parent /complete finishes every remaining batch", async ({
     db,
   }) => {
     const ts = Date.now();
@@ -226,7 +226,7 @@ test.describe("MO execute and fulfill — fast write-path smoke", () => {
 
     const order = await createManufacturingOrder({
       productId: product.body.id,
-      plannedQuantity: "50",
+      plannedQuantity: "100",
       ingredients: [{ itemId: material.body.id, quantityPerUnit: "1" }],
     });
     expect(order.status).toBe(201);
@@ -243,28 +243,38 @@ test.describe("MO execute and fulfill — fast write-path smoke", () => {
     expect(createdOrder.manufacturingMode).toBe("batch");
     expect(createdOrder.status).toBe("open");
 
-    // Attempt direct parent /complete — should 400.
     const completeResponse = await testFetch(
       `/api/manufacturing-orders/${orderId}/complete`,
       {
         method: "POST",
-        body: JSON.stringify({ actualQuantity: "50" }),
+        body: JSON.stringify({ outputDisposition: "available" }),
       }
     );
-    expect(completeResponse.status).toBe(400);
-    const completeBody = await completeResponse.json();
-    expect(completeBody.error).toMatch(/Batch-mode/i);
+    const completeBody = await completeResponse.json().catch(() => null);
+    expect(completeResponse.status, JSON.stringify(completeBody)).toBe(200);
 
-    // Order unchanged.
     const [orderAfter] = await db
       .select({
         status: manufacturingOrders.status,
+        actualQuantity: manufacturingOrders.actualQuantity,
         completedAt: manufacturingOrders.completedAt,
       })
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, orderId));
-    expect(orderAfter.status).toBe("open");
-    expect(orderAfter.completedAt).toBeNull();
+    expect(orderAfter.status).toBe("done");
+    expect(orderAfter.actualQuantity).toBe("100.0000");
+    expect(orderAfter.completedAt).not.toBeNull();
+
+    const batches = await db
+      .select({
+        status: manufacturingOrderBatches.status,
+        actualQuantity: manufacturingOrderBatches.actualQuantity,
+      })
+      .from(manufacturingOrderBatches)
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, orderId));
+    expect(batches).toHaveLength(2);
+    expect(batches.every((batch) => batch.status === "completed")).toBe(true);
+    expect(batches.every((batch) => batch.actualQuantity === "50.0000")).toBe(true);
 
     const outputEvents = await db
       .select({ id: inventoryEvents.id })
@@ -276,19 +286,23 @@ test.describe("MO execute and fulfill — fast write-path smoke", () => {
           eq(inventoryEvents.eventType, "manufacturing_output")
         )
       );
-    expect(outputEvents).toHaveLength(0);
+    expect(outputEvents).toHaveLength(2);
 
     const productLots = await db
       .select({ id: lots.id })
       .from(lots)
       .where(eq(lots.itemId, product.body.id as string));
-    expect(productLots).toHaveLength(0);
+    expect(productLots).toHaveLength(1);
 
     const outputRows = await db
-      .select({ id: manufacturingOrderOutputs.id })
+      .select({
+        id: manufacturingOrderOutputs.id,
+        quantity: manufacturingOrderOutputs.quantity,
+      })
       .from(manufacturingOrderOutputs)
       .where(eq(manufacturingOrderOutputs.manufacturingOrderId, orderId));
-    expect(outputRows).toHaveLength(0);
+    expect(outputRows).toHaveLength(2);
+    expect(outputRows.every((row) => row.quantity === "50.0000")).toBe(true);
   });
 
   test("S16: pick on already-fully-picked ingredient returns 400 'is already picked'", async ({
@@ -845,4 +859,3 @@ test.describe("MO execute and fulfill — fast write-path smoke", () => {
     expect(negLots).toHaveLength(0);
   });
 });
-

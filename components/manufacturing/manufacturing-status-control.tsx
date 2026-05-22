@@ -48,10 +48,7 @@ const config: OrderStatusControlConfig<Ctx> = {
   transitionKind: (from, to, { order }) => {
     if (from === "done") return "disabled";
     if (to === from) return "noop";
-    if (
-      order.manufacturingMode === "batch" &&
-      (to === "partially_complete" || to === "done")
-    ) {
+    if (order.manufacturingMode === "batch" && to === "partially_complete") {
       return "disabled";
     }
     if (to === "partially_complete" || to === "done") return "dialog";
