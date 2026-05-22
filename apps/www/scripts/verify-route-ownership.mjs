@@ -20,7 +20,6 @@ const expectedExact = new Set([
   "/two-factor",
   "/mfa-setup",
   "/org-setup",
-  "/console",
   "/onboarding",
   "/no-access",
   "/android",

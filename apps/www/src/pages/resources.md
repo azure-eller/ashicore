@@ -18,7 +18,7 @@ Use these resources for vendor review, app approval, procurement, and support wo
 
 ## Product entry points
 
-- [Sign in](/console)
+- [Sign in](/sign-in?next=%2Fsales%2Forders)
 - [Android app page](/android)
 
 ## Contact

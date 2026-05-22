@@ -12,7 +12,7 @@ Email [support@ashicore.app](mailto:support@ashicore.app) for product support, s
 
 ## Account access
 
-Use [Sign in](/console) to access the authenticated Ashicore console. If you are already signed in, Ashicore opens your workspace. If you were invited by a team, use the invitation link from your email.
+Use [Sign in](/sign-in?next=%2Fsales%2Forders) to access Ashicore. If you are already signed in, Ashicore opens your sales orders. If you were invited by a team, use the invitation link from your email.
 
 ## App and integration reviews
 

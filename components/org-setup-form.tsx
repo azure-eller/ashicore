@@ -20,6 +20,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { authClient } from "@/lib/auth-client"
 
+const DEFAULT_APP_ENTRY_PATH = "/sales/orders"
+
 type OrganizationOption = {
   id: string
   name: string
@@ -64,7 +66,7 @@ export function OrgSetupForm({
         return
       }
 
-      router.push("/")
+      router.replace(DEFAULT_APP_ENTRY_PATH)
     }
 
     void activateOnlyOrganization()
@@ -88,7 +90,7 @@ export function OrgSetupForm({
       return
     }
 
-    router.push("/")
+    router.replace(DEFAULT_APP_ENTRY_PATH)
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -129,7 +131,7 @@ export function OrgSetupForm({
       return
     }
 
-    router.push("/")
+    router.replace(DEFAULT_APP_ENTRY_PATH)
   }
 
   return (

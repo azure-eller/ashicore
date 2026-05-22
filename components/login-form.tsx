@@ -21,6 +21,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { authClient } from "@/lib/auth-client"
 
+const DEFAULT_SIGN_IN_TARGET = "/sales/orders"
+
 export function LoginForm({
   className,
   notice,
@@ -58,7 +60,7 @@ export function LoginForm({
       return
     }
 
-    router.push(next ?? "/")
+    router.replace(next ?? DEFAULT_SIGN_IN_TARGET)
   }
 
   return (

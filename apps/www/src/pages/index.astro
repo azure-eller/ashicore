@@ -189,21 +189,3 @@ import BaseLayout from "../layouts/BaseLayout.astro";
     </section>
   </main>
 </BaseLayout>
-
-<script is:inline>
-  (() => {
-    if (window.location.pathname !== "/") return;
-
-    fetch("/api/auth/get-session", {
-      credentials: "include",
-      headers: { accept: "application/json" },
-    })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((session) => {
-        if (session?.session) {
-          window.location.assign("/console");
-        }
-      })
-      .catch(() => {});
-  })();
-</script>

@@ -1,5 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { format } from "date-fns";
+import type { Page } from "@playwright/test";
 import { test, expect, filterList, getIdFromUrl } from "../fixtures";
 import {
   inventoryEvents,
@@ -44,6 +45,10 @@ test.describe("Purchasing flow", () => {
   let supplierId: string;
   let purchaseOrderId: string;
   let purchaseOrderNumber: string;
+
+  function purchaseOrderStatusButton(page: Page) {
+    return page.getByRole("button", { name: /^Status:/ });
+  }
 
   test("creates material fixtures for purchasing", async ({ db }) => {
     test.slow();
@@ -164,8 +169,8 @@ test.describe("Purchasing flow", () => {
     await page.goto(`/purchasing/orders/${purchaseOrderId}`);
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/PO-\d{4}-\d{4}/);
     await expect(
-      page.getByRole("combobox", { name: "Change purchase order status" })
-    ).toContainText("Draft");
+      purchaseOrderStatusButton(page)
+    ).toContainText(/Draft/i);
     await expect(page.getByRole("combobox", { name: "Search suppliers..." })).toHaveValue(
       new RegExp(supplierName)
     );
@@ -181,8 +186,8 @@ test.describe("Purchasing flow", () => {
 
     await page.reload();
     await expect(
-      page.getByRole("combobox", { name: "Change purchase order status" })
-    ).toContainText("Draft");
+      purchaseOrderStatusButton(page)
+    ).toContainText(/Draft/i);
     await expect(page.getByRole("combobox", { name: "Search suppliers..." })).toHaveValue(
       new RegExp(supplierName)
     );
@@ -205,7 +210,7 @@ test.describe("Purchasing flow", () => {
     const draftRow = page.getByRole("row", { name: new RegExp(purchaseOrderNumber) });
     await expect(draftRow).toContainText(supplierName);
     await expect(draftRow).toContainText("$27.50");
-    await expect(draftRow).toContainText("Draft");
+    await expect(draftRow).toContainText(/Draft/i);
     await expect(draftRow).toContainText(expectedCreateDateLabel);
 
     expect(order.status).toBe("draft");
@@ -301,11 +306,11 @@ test.describe("Purchasing flow", () => {
     await page.reload();
 
     await expect(
-      page.getByRole("combobox", { name: "Change purchase order status" })
+      purchaseOrderStatusButton(page)
     ).toBeVisible({ timeout: 15000 });
     await expect(
-      page.getByRole("combobox", { name: "Change purchase order status" })
-    ).toContainText("Ordered");
+      purchaseOrderStatusButton(page)
+    ).toContainText(/Ordered/i);
     await expect(page.getByText(expectedEditDateLong)).toBeVisible();
     await expect(page.locator('[data-slot="editable-line-data-grid"]').first()).toContainText(
       "10"
@@ -316,11 +321,11 @@ test.describe("Purchasing flow", () => {
 
     await page.reload();
     await expect(
-      page.getByRole("combobox", { name: "Change purchase order status" })
+      purchaseOrderStatusButton(page)
     ).toBeVisible({ timeout: 15000 });
     await expect(
-      page.getByRole("combobox", { name: "Change purchase order status" })
-    ).toContainText("Ordered");
+      purchaseOrderStatusButton(page)
+    ).toContainText(/Ordered/i);
     await expect(page.locator('[data-slot="editable-line-data-grid"]').first()).toContainText(
       "10"
     );
@@ -403,7 +408,7 @@ test.describe("Purchasing flow", () => {
     await page.goto("/purchasing/orders");
     await filterList(page, "Search purchase orders", purchaseOrderNumber);
     const orderedRow = page.getByRole("row", { name: new RegExp(purchaseOrderNumber) });
-    await expect(orderedRow).toContainText("Ordered");
+    await expect(orderedRow).toContainText(/Ordered/i);
     await expect(orderedRow).toContainText("$29.00");
   });
 
@@ -433,22 +438,22 @@ test.describe("Purchasing flow", () => {
 
     await page.goto(`/purchasing/orders/${purchaseOrderId}`);
     await expect(
-      page.getByRole("combobox", { name: "Change purchase order status" })
+      purchaseOrderStatusButton(page)
     ).toBeVisible({ timeout: 15000 });
     await expect(
-      page.getByRole("combobox", { name: "Change purchase order status" })
-    ).toContainText("Partially Received");
+      purchaseOrderStatusButton(page)
+    ).toContainText(/Partially received/i);
     const partialLinesGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
     await expect(partialLinesGrid).toContainText(barkName);
     await expect(partialLinesGrid).toContainText(sandName);
 
     await page.reload();
     await expect(
-      page.getByRole("combobox", { name: "Change purchase order status" })
+      purchaseOrderStatusButton(page)
     ).toBeVisible({ timeout: 15000 });
     await expect(
-      page.getByRole("combobox", { name: "Change purchase order status" })
-    ).toContainText("Partially Received");
+      purchaseOrderStatusButton(page)
+    ).toContainText(/Partially received/i);
     await expect(page.locator('[data-slot="editable-line-data-grid"]').first()).toContainText(
       barkName
     );
@@ -553,7 +558,7 @@ test.describe("Purchasing flow", () => {
     await page.goto("/purchasing/orders");
     await filterList(page, "Search purchase orders", purchaseOrderNumber);
     const partialRow = page.getByRole("row", { name: new RegExp(purchaseOrderNumber) });
-    await expect(partialRow).toContainText("Partially Received");
+    await expect(partialRow).toContainText(/Partially received/i);
   });
 
   test("fully receives the remaining quantities", async ({ page, db }) => {
@@ -586,22 +591,22 @@ test.describe("Purchasing flow", () => {
 
     await page.goto(`/purchasing/orders/${purchaseOrderId}`);
     await expect(
-      page.getByRole("combobox", { name: "Change purchase order status" })
+      purchaseOrderStatusButton(page)
     ).toBeVisible({ timeout: 15000 });
     await expect(
-      page.getByRole("combobox", { name: "Change purchase order status" })
-    ).toContainText("Received");
+      purchaseOrderStatusButton(page)
+    ).toContainText(/Received/i);
     const receivedLinesGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
     await expect(receivedLinesGrid).toContainText("10");
     await expect(receivedLinesGrid).toContainText("6");
 
     await page.reload();
     await expect(
-      page.getByRole("combobox", { name: "Change purchase order status" })
+      purchaseOrderStatusButton(page)
     ).toBeVisible({ timeout: 15000 });
     await expect(
-      page.getByRole("combobox", { name: "Change purchase order status" })
-    ).toContainText("Received");
+      purchaseOrderStatusButton(page)
+    ).toContainText(/Received/i);
     await expect(page.locator('[data-slot="editable-line-data-grid"]').first()).toContainText(
       "10"
     );
@@ -689,7 +694,7 @@ test.describe("Purchasing flow", () => {
     await page.goto("/purchasing/orders");
     await filterList(page, "Search purchase orders", purchaseOrderNumber);
     const receivedRow = page.getByRole("row", { name: new RegExp(purchaseOrderNumber) });
-    await expect(receivedRow).toContainText("Received");
+    await expect(receivedRow).toContainText(/Received/i);
     await expect(receivedRow).toContainText("$29.00");
   });
 });
