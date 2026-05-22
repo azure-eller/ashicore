@@ -33,6 +33,9 @@ test.describe("item card API", () => {
       body: JSON.stringify({ name: patchName }),
     });
     expect(patch.status).toBe(200);
+    const patchBody = await patch.json();
+    expect(patchBody.family.name).toBe(patchName);
+    expect(patchBody.family.category).toBe(`Card API ${ts}`);
 
     const patchedCard = await testFetch(`/api/item-cards/${materialCardItemId}`);
     expect(patchedCard.status).toBe(200);

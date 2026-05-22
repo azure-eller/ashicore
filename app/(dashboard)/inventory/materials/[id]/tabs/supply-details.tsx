@@ -20,6 +20,7 @@ import {
   type EditableLineDataGridChange,
 } from "@/components/editable-line-data-grid";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
+import { setItemCardFamilyQueryData } from "@/components/card-page/item-card-cache";
 import {
   updateItemCard,
   updateItemCardVariant,
@@ -55,24 +56,24 @@ export function MaterialSupplyDetailsTab({
         purchaseUnitDefinitionId: null,
         purchaseToStockFactor: null,
       }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+    onSuccess: (nextCard) => {
+      setItemCardFamilyQueryData(queryClient, focusItemId, nextCard);
     },
   });
   const supplierMutation = useMutation({
     mutationKey: cardSaveMutationKey("item-card", focusItemId, "defaultSupplierId"),
     mutationFn: (defaultSupplierId: string | null) =>
       updateItemCard(focusItemId, { defaultSupplierId }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+    onSuccess: (nextCard) => {
+      setItemCardFamilyQueryData(queryClient, focusItemId, nextCard);
     },
   });
   const purchaseUnitMutation = useMutation({
     mutationKey: cardSaveMutationKey("item-card", focusItemId, "purchaseUnitDefinitionId"),
     mutationFn: (purchaseUnitDefinitionId: string | null) =>
       updateItemCard(focusItemId, { purchaseUnitDefinitionId }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+    onSuccess: (nextCard) => {
+      setItemCardFamilyQueryData(queryClient, focusItemId, nextCard);
     },
   });
 
@@ -362,8 +363,8 @@ function ConversionField({
     mutationKey: cardSaveMutationKey("item-card", focusItemId, "purchaseToStockFactor"),
     mutationFn: (next: string | null) =>
       updateItemCard(focusItemId, { purchaseToStockFactor: next }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card", focusItemId] });
+    onSuccess: (nextCard) => {
+      setItemCardFamilyQueryData(queryClient, focusItemId, nextCard);
     },
   });
 

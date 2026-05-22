@@ -12,6 +12,7 @@ import {
   ComboboxList,
 } from "@/components/ui/combobox";
 import { Field, FieldLabel } from "@/components/ui/field";
+import { setItemCardFamilyQueryData } from "@/components/card-page/item-card-cache";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { fetchItemCategories, updateItemCard } from "@/lib/api/clients/item-cards";
 import type { ItemType } from "@/app/(dashboard)/inventory/types";
@@ -56,8 +57,8 @@ export function CategoryComboboxField({
     mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "patch", "category"),
     mutationFn: (next: string | null) =>
       updateItemCard(focusItemId as string, { category: next }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card", focusItemId] });
+    onSuccess: (nextCard) => {
+      setItemCardFamilyQueryData(queryClient, focusItemId as string, nextCard);
       void queryClient.invalidateQueries({ queryKey: ["item-categories", itemType] });
     },
   });

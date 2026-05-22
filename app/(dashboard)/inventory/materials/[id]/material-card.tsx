@@ -68,6 +68,7 @@ export function MaterialCard({
     queryFn: () => getItemCard(currentItemId as string),
     initialData: initialCard,
     enabled: !isDraft,
+    staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
   const card = isDraft ? draftCard : cardQuery.data ?? draftCard;
@@ -80,9 +81,10 @@ export function MaterialCard({
     mutationKey: cardSaveMutationKey("item-card", "__draft__", "create"),
     mutationFn: (input: CreateItemCardInput) => createItemCard(input),
     onSuccess: (result) => {
+      const displayCard = preserveDraftVariantDisplay(draftCard, result.card);
       setCurrentItemId(result.itemId);
-      setDraftCard(result.card);
-      queryClient.setQueryData(["item-card", result.itemId], result.card);
+      setDraftCard(displayCard);
+      queryClient.setQueryData(["item-card", result.itemId], displayCard);
       void queryClient.invalidateQueries({ queryKey: ["item-cards"] });
       window.history.replaceState(null, "", `/inventory/materials/${result.itemId}`);
     },
@@ -292,4 +294,15 @@ function getAverageIngredientsCost(card: ItemCardDto) {
     .filter((value) => Number.isFinite(value));
   if (costs.length === 0) return null;
   return costs.reduce((total, value) => total + value, 0) / costs.length;
+}
+
+function preserveDraftVariantDisplay(
+  draftCard: ItemCardDto,
+  savedCard: ItemCardDto,
+): ItemCardDto {
+  return {
+    ...savedCard,
+    options: draftCard.options,
+    variants: draftCard.variants,
+  };
 }

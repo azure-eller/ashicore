@@ -64,6 +64,7 @@ export function ProductCard({
     queryFn: () => getItemCard(currentItemId as string),
     initialData: initialCard,
     enabled: !isDraft,
+    staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
   const card = isDraft ? draftCard : cardQuery.data ?? draftCard;
@@ -97,9 +98,10 @@ export function ProductCard({
     mutationKey: cardSaveMutationKey("item-card", "__draft__", "create"),
     mutationFn: (input: CreateItemCardInput) => createItemCard(input),
     onSuccess: (result) => {
+      const displayCard = preserveDraftVariantDisplay(draftCard, result.card);
       setCurrentItemId(result.itemId);
-      setDraftCard(result.card);
-      queryClient.setQueryData(["item-card", result.itemId], result.card);
+      setDraftCard(displayCard);
+      queryClient.setQueryData(["item-card", result.itemId], displayCard);
       void queryClient.invalidateQueries({ queryKey: ["item-cards"] });
       window.history.replaceState(null, "", `/inventory/products/${result.itemId}`);
     },
@@ -310,4 +312,15 @@ function getProductCardTabFromPath(pathname: string): ProductCardTab {
   if (pathname.endsWith("/production")) return "production";
   if (pathname.endsWith("/lots")) return "lots";
   return "general";
+}
+
+function preserveDraftVariantDisplay(
+  draftCard: ItemCardDto,
+  savedCard: ItemCardDto,
+): ItemCardDto {
+  return {
+    ...savedCard,
+    options: draftCard.options,
+    variants: draftCard.variants,
+  };
 }
