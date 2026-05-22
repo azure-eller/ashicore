@@ -313,7 +313,13 @@ export function OrderCard({
 
   const addLineMutation = useMutation({
     mutationKey: cardSaveMutationKey("sales-order", currentOrderId ?? "draft", "add-line"),
-    mutationFn: (option: SalesOrderItemOption) =>
+    mutationFn: ({
+      line,
+      option,
+    }: {
+      line: Pick<SalesOrderDetailLine, "quantity" | "unitPrice">;
+      option: SalesOrderItemOption;
+    }) =>
       updateSalesOrderFull(
         currentOrderId as string,
         orderToUpdatePayload(order, (lines) => [
@@ -323,8 +329,8 @@ export function OrderCard({
             itemName: option.displayName || option.name,
             itemSku: option.sku,
             unitName: option.unitName,
-            quantity: "1",
-            unitPrice: option.defaultSellingPrice ?? "0",
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
             estimatedUnitCost: option.estimatedUnitCost,
           }),
         ]),
@@ -351,8 +357,11 @@ export function OrderCard({
   );
 
   const handleAddLineItem = useCallback(
-    (option: SalesOrderItemOption) => {
-      addLineMutation.mutate(option);
+    (
+      line: Pick<SalesOrderDetailLine, "quantity" | "unitPrice">,
+      option: SalesOrderItemOption,
+    ) => {
+      addLineMutation.mutate({ line, option });
     },
     [addLineMutation],
   );

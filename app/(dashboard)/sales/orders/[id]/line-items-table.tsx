@@ -38,7 +38,10 @@ export type LineItemsTableProps = {
   editable: boolean;
   itemOptions?: SalesOrderItemOption[];
   draft?: OrderDraftController;
-  onAddLineItem?: (option: SalesOrderItemOption) => void;
+  onAddLineItem?: (
+    line: Pick<SalesOrderDetailLine, "itemId" | "quantity" | "unitPrice">,
+    option: SalesOrderItemOption,
+  ) => void;
   addingLine?: boolean;
   onDeleteLine?: (line: SalesOrderDetailLine) => Promise<void> | void;
   onReorderLines?: (orderedIds: string[]) => void;
@@ -246,18 +249,16 @@ export function LineItemsTable({
       onReorderLines?.(nextRows.filter((row) => !isBlankSalesOrderLine(row)).map((row) => row.id));
       return;
     }
-    if (
-      (change.type === "cell_edit_committed" || change.type === "blank_row_committed") &&
-      change.row &&
-      change.field === "itemId" &&
-      !isPersistedLine(change.row)
-    ) {
+    if (isDraftLineSaveAttempt(change)) {
       const picked = itemMap.get(change.row.itemId);
-      if (!picked) return;
+      if (!picked || !isSavableDraftLine(change.row)) return;
       if (draft) {
-        draft.addLine(lineFromItem(picked));
+        draft.addLine(lineFromItem(picked, undefined, {
+          quantity: change.row.quantity,
+          unitPrice: change.row.unitPrice,
+        }));
       } else {
-        onAddLineItem?.(picked);
+        onAddLineItem?.(change.row, picked);
       }
       return;
     }
@@ -298,21 +299,19 @@ export function LineItemsTable({
         readOnly={!canAddLine}
         addDisabledReason={addingLine ? "Adding line..." : null}
         emptyMessage="No line items yet."
-        canDeleteRow={(row, rows) =>
+        canDeleteRow={(row) =>
           isBlankSalesOrderLine(row) ||
+          !isPersistedLine(row) ||
           draft != null ||
-          (rows.filter((line) => !isBlankSalesOrderLine(line)).length > 1 &&
-            deleteLineLockedReason(row) == null)
+          deleteLineLockedReason(row) == null
         }
-        getDeleteDisabledReason={(row, rows) =>
-          isBlankSalesOrderLine(row)
+        getDeleteDisabledReason={(row) =>
+          isBlankSalesOrderLine(row) || !isPersistedLine(row) || draft != null
             ? null
-            : draft == null && rows.filter((line) => !isBlankSalesOrderLine(line)).length <= 1
-            ? "Order needs at least one line"
             : deleteLineLockedReason(row)
         }
         onDeleteRow={(row) => {
-          if (isBlankSalesOrderLine(row)) {
+          if (!isPersistedLine(row)) {
             setRows((current) => current.filter((line) => line.id !== row.id));
             return;
           }
@@ -394,14 +393,18 @@ function makeBlankLine() {
   });
 }
 
-function lineFromItem(item: SalesOrderItemOption, id?: string) {
+function lineFromItem(
+  item: SalesOrderItemOption,
+  id?: string,
+  values?: { quantity?: string; unitPrice?: string },
+) {
   const line = makeDraftLine({
     itemId: item.id,
     itemName: item.displayName || item.name,
     itemSku: item.sku,
     unitName: item.unitName,
-    quantity: "1",
-    unitPrice: item.defaultSellingPrice ?? "0",
+    quantity: values?.quantity ?? "1",
+    unitPrice: values?.unitPrice ?? item.defaultSellingPrice ?? "0",
     estimatedUnitCost: item.estimatedUnitCost,
   });
   return id ? { ...line, id } : line;
@@ -413,6 +416,30 @@ function isBlankSalesOrderLine(line: SalesOrderDetailLine | undefined) {
 
 function isPersistedLine(line: SalesOrderDetailLine | undefined) {
   return Boolean(line?.id && !line.id.startsWith("draft-") && line.itemId);
+}
+
+function isDraftLineSaveAttempt(
+  change: EditableLineDataGridChange<SalesOrderDetailLine>,
+): change is EditableLineDataGridChange<SalesOrderDetailLine> & {
+  row: SalesOrderDetailLine;
+  field: "itemId" | "quantity" | "unitPrice";
+} {
+  return (
+    (change.type === "cell_edit_committed" || change.type === "blank_row_committed") &&
+    change.row != null &&
+    (change.field === "itemId" ||
+      change.field === "quantity" ||
+      change.field === "unitPrice") &&
+    !isPersistedLine(change.row)
+  );
+}
+
+function isSavableDraftLine(line: SalesOrderDetailLine) {
+  return (
+    Boolean(line.itemId) &&
+    Number(line.quantity) > 0 &&
+    Number(line.unitPrice) > 0
+  );
 }
 
 function optimisticLinePatch(
