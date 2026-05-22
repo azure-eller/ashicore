@@ -10,6 +10,7 @@ label: Public resources
 
 Use these resources for vendor review, app approval, procurement, and support workflows.
 
+- [Documentation](/docs)
 - [Privacy Policy](/privacy)
 - [Terms of Service](/terms)
 - [Security](/security)

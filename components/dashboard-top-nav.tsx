@@ -10,6 +10,7 @@ import {
   LogoutIcon,
   Search01Icon,
   Settings02Icon,
+  Task01Icon,
 } from "@hugeicons/core-free-icons";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AshicoreLogo } from "@/components/brand/ashicore-logo";
@@ -60,6 +61,10 @@ type DashboardTopNavProps = {
   }>;
   assignedRoles: string[];
 };
+
+const DOCS_URL =
+  process.env.NEXT_PUBLIC_DOCS_URL ??
+  (process.env.NODE_ENV === "development" ? "http://localhost:4321/docs" : "/docs");
 
 export function DashboardTopNav({
   user,
@@ -401,6 +406,12 @@ export function DashboardTopNav({
                       <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
                       Settings
                     </NavigationLink>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <a href={DOCS_URL}>
+                      <HugeiconsIcon icon={Task01Icon} strokeWidth={2} />
+                      Documentation
+                    </a>
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
