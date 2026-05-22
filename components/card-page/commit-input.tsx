@@ -15,7 +15,10 @@ export function CommitInput({
   required,
   autoFocus,
   inputMode,
+  placeholder,
   className,
+  onDraftChange,
+  commitUnchangedValue,
   onCommit,
 }: {
   label: string;
@@ -25,7 +28,10 @@ export function CommitInput({
   required?: boolean;
   autoFocus?: boolean;
   inputMode?: HTMLAttributes<HTMLInputElement>["inputMode"];
+  placeholder?: string;
   className?: string;
+  onDraftChange?: (value: string) => void;
+  commitUnchangedValue?: boolean;
   onCommit: (value: string | null) => void;
 }) {
   const id = useId();
@@ -45,15 +51,19 @@ export function CommitInput({
       className={cn(styles.underlineControl, className)}
       value={draft}
       autoFocus={autoFocus}
+      placeholder={placeholder}
       disabled={disabled}
-      onChange={(event) => setDraft(event.target.value)}
+      onChange={(event) => {
+        setDraft(event.target.value);
+        onDraftChange?.(event.target.value);
+      }}
       onBlur={() => {
         const next = draft.trim() || null;
         if (required && next == null) {
           setDraft(normalizedValue);
           return;
         }
-        if (next === (normalizedValue || null)) return;
+        if (!commitUnchangedValue && next === (normalizedValue || null)) return;
         onCommit(next);
       }}
       onKeyDown={(event) => {

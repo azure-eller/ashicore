@@ -21,6 +21,7 @@ import {
   type EditableLineDataGridChange,
   type LineField,
 } from "@/components/editable-lines";
+import { CardSection } from "@/components/card-page/card-page";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { patchSalesOrderLine } from "@/lib/api/clients/sales-orders";
 import { cn } from "@/lib/utils";
@@ -31,7 +32,6 @@ import type {
   SalesOrderItemOption,
 } from "@/app/(dashboard)/sales/types";
 import { makeDraftLine, type OrderDraftController } from "./order-draft";
-import cardStyles from "@/components/card-page/card-page.module.css";
 
 export type LineItemsTableProps = {
   order: SalesOrderDetail;
@@ -278,18 +278,15 @@ export function LineItemsTable({
     void onDeleteLine?.(line);
   };
 
+  const lineCount = rows.filter((line) => !isBlankSalesOrderLine(line)).length;
+
   return (
-    <section className={cardStyles.section}>
-      <div className="flex items-center gap-3 mb-3">
-        <h2 className={cardStyles.sectionHeading} style={{ margin: 0 }}>
-          Line items
-          <span className={cardStyles.count}>
-            {rows.filter((line) => !isBlankSalesOrderLine(line)).length}{" "}
-            {rows.filter((line) => !isBlankSalesOrderLine(line)).length === 1 ? "line" : "lines"} ·{" "}
-            {formatQuantity(String(totalQuantity))} units
-          </span>
-        </h2>
-      </div>
+    <CardSection
+      title="Line items"
+      count={`· ${lineCount} ${lineCount === 1 ? "line" : "lines"} · ${
+        formatQuantity(String(totalQuantity))
+      } units`}
+    >
 
       <MutableLines<SalesOrderDetailLine>
         rows={rows}
@@ -367,7 +364,7 @@ export function LineItemsTable({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </CardSection>
   );
 
   function numericSetter(

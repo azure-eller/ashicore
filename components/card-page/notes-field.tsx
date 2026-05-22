@@ -16,6 +16,7 @@ export function NotesField({
   readOnlyClassName,
   placeholder,
   onDraftChange,
+  commitUnchangedValue,
   onCommit,
 }: {
   label?: string;
@@ -27,6 +28,7 @@ export function NotesField({
   readOnlyClassName?: string;
   placeholder?: string;
   onDraftChange?: (value: string) => void;
+  commitUnchangedValue?: boolean;
   onCommit: (value: string | null) => void;
 }) {
   const id = useId();
@@ -63,7 +65,7 @@ export function NotesField({
           }}
           onBlur={() => {
             const next = draft.trim() || null;
-            if (next === (normalizedValue || null)) return;
+            if (!commitUnchangedValue && next === (normalizedValue || null)) return;
             onCommit(next);
           }}
         />

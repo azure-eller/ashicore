@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo } from "react";
 import type { ICellRendererParams } from "ag-grid-community";
+import { CardSection } from "@/components/card-page/card-page";
 import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
 import styles from "@/components/card-page/card-page.module.css";
 
@@ -44,17 +45,14 @@ export function MaterialUsedInBomsTab({ usedInBoms }: MaterialUsedInBomsTabProps
 
   if (usedInBoms.length === 0) {
     return (
-      <section className={styles.section}>
+      <CardSection>
         <p className={styles.helper}>Not used in any current product recipes.</p>
-      </section>
+      </CardSection>
     );
   }
 
   return (
-    <section className={styles.section}>
-      <h2 className={styles.sectionHeading}>
-        BOMs <span className={styles.count}>· {usedInBoms.length}</span>
-      </h2>
+    <CardSection title="BOMs" count={`· ${usedInBoms.length}`}>
       <ERPDataGrid<UsedInBomRow>
         rows={usedInBoms}
         columns={columns}
@@ -62,6 +60,6 @@ export function MaterialUsedInBomsTab({ usedInBoms }: MaterialUsedInBomsTabProps
         headerHeight={30}
         rowHeight={34}
       />
-    </section>
+    </CardSection>
   );
 }

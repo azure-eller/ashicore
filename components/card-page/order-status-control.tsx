@@ -101,8 +101,8 @@ export type OrderStatusControlProps<Ctx> = {
   ctx: Ctx;
   size?: "sm" | "md";
   disabled?: boolean;
-  /** Called after any successful transition so the caller can invalidate/refetch. */
-  onChanged?: () => void;
+  /** Called after any successful transition so the caller can update local state and invalidate/refetch. */
+  onChanged?: (status: string) => void;
 };
 
 export function OrderStatusControl<Ctx>({
@@ -127,7 +127,7 @@ export function OrderStatusControl<Ctx>({
       }
       return config.runInstant(to, ctx);
     },
-    onSuccess: () => onChanged?.(),
+    onSuccess: (_result, to) => onChanged?.(to),
   });
 
   const busy = disabled || instant.isPending;
@@ -207,7 +207,7 @@ export function OrderStatusControl<Ctx>({
             onClose: () => setDialogTarget(null),
             onDone: () => {
               setDialogTarget(null);
-              onChanged?.();
+              onChanged?.(dialogTarget);
             },
           })
         : null}

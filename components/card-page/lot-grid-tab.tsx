@@ -17,11 +17,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { DateTimeText } from "@/components/date-time-text";
 import {
-  EditableLineDataGrid,
-  type ColDef,
+  FixedEditableLines,
   type EditableLineDataGridChange,
-} from "@/components/editable-line-data-grid";
+  type LineField,
+} from "@/components/editable-lines";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
+import { CardSection } from "@/components/card-page/card-page";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { LotDispositionActions } from "@/app/(dashboard)/inventory/lot-disposition-actions";
 import type { InventoryDisposition } from "@/lib/db/schema";
@@ -164,25 +165,25 @@ export function LotGridTab({
     setPendingAdjustment(null);
   }, [visibleLots]);
 
-  const columns = useMemo<ColDef<CardLotRow>[]>(
+  const fields = useMemo<LineField<CardLotRow>[]>(
     () => [
       {
         field: "lotNumber",
         headerName: "Lot number",
+        kind: "display",
         flex: 1.35,
         minWidth: 230,
         cellRenderer: LotNumberCell,
-        editable: false,
       },
       {
         field: "quantity",
         headerName: "On hand",
-        type: "rightAligned",
+        kind: "number",
+        rightAligned: true,
         flex: 0.8,
         minWidth: 130,
         editable: true,
-        cellEditor: "agTextCellEditor",
-        cellClass: styles.mono,
+        mono: true,
         valueFormatter: ({ value }) => formatQuantity(String(value ?? "0")),
         valueSetter: (params: ValueSetterParams<CardLotRow>) => {
           const next = normalizeEditedQuantity(params.newValue);
@@ -194,10 +195,11 @@ export function LotGridTab({
       {
         colId: "free",
         headerName: "Free",
-        type: "rightAligned",
+        kind: "display",
+        rightAligned: true,
         flex: 0.7,
         minWidth: 110,
-        cellClass: styles.mono,
+        mono: true,
         valueGetter: ({ data }) => {
           if (!data) return "0";
           const availableQuantity = data.dispositionBalances
@@ -214,6 +216,7 @@ export function LotGridTab({
       {
         colId: "claimedBy",
         headerName: "Claimed by",
+        kind: "display",
         flex: 1.4,
         minWidth: 220,
         cellRenderer: AllocationsCell,
@@ -221,16 +224,18 @@ export function LotGridTab({
       {
         field: "costPerUnit",
         headerName: "Cost / unit",
-        type: "rightAligned",
+        kind: "display",
+        rightAligned: true,
         flex: 0.75,
         minWidth: 120,
-        cellClass: styles.mono,
+        mono: true,
         valueFormatter: ({ value }) => formatCost(value == null ? null : String(value)) ?? "—",
       },
       {
         field: "receivedAt",
         headerName: "Received",
-        type: "rightAligned",
+        kind: "display",
+        rightAligned: true,
         flex: 0.9,
         minWidth: 150,
         cellRenderer: ({ value }: ICellRendererParams<CardLotRow>) =>
@@ -239,6 +244,7 @@ export function LotGridTab({
       {
         colId: "lotActions",
         headerName: "",
+        kind: "display",
         width: 48,
         minWidth: 48,
         maxWidth: 48,
@@ -328,14 +334,10 @@ export function LotGridTab({
   };
 
   return (
-    <section className={styles.section}>
-      <h2 className={styles.sectionHeading}>
-        Lots
-        <span className={styles.hint}>
-          {visibleLots.length} {visibleLots.length === 1 ? "lot" : "lots"}
-        </span>
-      </h2>
-
+    <CardSection
+      title="Lots"
+      count={`· ${visibleLots.length} ${visibleLots.length === 1 ? "lot" : "lots"}`}
+    >
       <div className="mb-(--space-3)">
         <ActiveVariantSelect
           variants={visibleVariants}
@@ -345,20 +347,13 @@ export function LotGridTab({
         />
       </div>
 
-      <EditableLineDataGrid<CardLotRow>
+      <FixedEditableLines<CardLotRow>
         rows={rows}
-        columns={columns}
+        fields={fields}
         getRowId={(row) => row.id}
         createRow={() => visibleLots[0] ?? rows[0]}
         onRowsChange={handleRowsChange}
-        addLabel=""
         emptyMessage="No lots yet."
-        minHeight={rows.length === 0 ? 72 : undefined}
-        enableAddRow={false}
-        enableDelete={false}
-        enableReorder={false}
-        headerHeight={30}
-        rowHeight={34}
         error={error}
       />
 
@@ -391,6 +386,6 @@ export function LotGridTab({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </CardSection>
   );
 }

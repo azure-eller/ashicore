@@ -3,9 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -14,7 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CardSection } from "@/components/card-page/card-page";
 import { CardPageTwoColumn } from "@/components/card-page/card-page-two-column";
+import {
+  ItemCardCommitField,
+  ItemCardNotesField,
+} from "@/components/card-page/item-card-fields";
 import { VariantTable } from "@/components/card-page/variant-table";
 import { GenerateBarcodesButton } from "@/components/card-page/generate-barcodes-button";
 import { CategoryComboboxField } from "@/components/card-page/category-combobox-field";
@@ -27,9 +30,7 @@ import {
   type UpdateItemCardInput,
 } from "@/lib/api/clients/item-cards";
 
-type DraftFamilyPatch = Partial<
-  Pick<ItemCardDto["family"], "name" | "category" | "description" | "unitDefinitionId">
->;
+type DraftFamilyPatch = Partial<UpdateItemCardInput>;
 
 export type MaterialGeneralInfoTabProps = {
   card: ItemCardDto;
@@ -59,16 +60,17 @@ export function MaterialGeneralInfoTab({
 
   return (
     <>
-      <section className={styles.section}>
+      <CardSection>
         <CardPageTwoColumn
         left={
           <>
-            <EditableFieldText
+            <ItemCardCommitField
               focusItemId={focusItemId}
               field="name"
               label="Material name"
               value={card.family.name}
               required
+              autoFocus={isDraft}
               onDraftFamilyChange={onDraftFamilyChange}
               onDraftCommit={onDraftCommit}
               disabled={draftCreatePending}
@@ -83,7 +85,7 @@ export function MaterialGeneralInfoTab({
               onDraftCommit={(category) => onDraftCommit({ category })}
               disabled={draftCreatePending}
             />
-            <EditableFieldTextarea
+            <ItemCardNotesField
               focusItemId={focusItemId}
               field="description"
               label="Additional info"
@@ -108,15 +110,13 @@ export function MaterialGeneralInfoTab({
         }
       />
 
-      </section>
+      </CardSection>
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionHeading}>
-          Variants
-          {hasOptions ? (
-            <span className={styles.count}>· {visibleVariantCount} variants</span>
-          ) : null}
-          <span className={styles.hint} style={{ display: "flex", gap: "var(--space-2)" }}>
+      <CardSection
+        title="Variants"
+        count={hasOptions ? `· ${visibleVariantCount} variants` : null}
+        actions={
+          <>
             {hasOptions || variantsEnabled ? (
               <Button
                 type="button"
@@ -133,8 +133,9 @@ export function MaterialGeneralInfoTab({
               variants={card.variants}
               disabled={isDraft}
             />
-          </span>
-        </h2>
+          </>
+        }
+      >
         <label className="mb-(--space-2) flex items-center gap-(--space-2) text-[length:var(--text-sm)] text-muted-foreground">
           <Checkbox
             checked={hasOptions || variantsEnabled}
@@ -148,150 +149,13 @@ export function MaterialGeneralInfoTab({
           This material has multiple variants
         </label>
 
-        <VariantTable card={card} viewMode="material" />
-      </section>
+        {hasOptions || variantsEnabled ? (
+          <VariantTable card={card} viewMode="material" />
+        ) : (
+          <p className={styles.helper}>No variants yet. Open configuration to add some.</p>
+        )}
+      </CardSection>
     </>
-  );
-}
-
-type EditableFieldTextProps = {
-  focusItemId: string | null;
-  field: keyof UpdateItemCardInput;
-  label: string;
-  value: string | null;
-  placeholder?: string;
-  required?: boolean;
-  disabled?: boolean;
-  onDraftFamilyChange: (patch: DraftFamilyPatch) => void;
-  onDraftCommit: (patch?: DraftFamilyPatch) => void;
-};
-
-function EditableFieldText({
-  focusItemId,
-  field,
-  label,
-  value,
-  placeholder,
-  required,
-  disabled,
-  onDraftFamilyChange,
-  onDraftCommit,
-}: EditableFieldTextProps) {
-  const [draft, setDraft] = useState(value ?? "");
-  const queryClient = useQueryClient();
-  const inputId = `card-field-${String(field)}`;
-  const mutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "patch", field),
-    mutationFn: (next: string | null) =>
-      updateItemCard(focusItemId as string, { [field]: next } as UpdateItemCardInput),
-    onSuccess: (nextCard) => {
-      setItemCardFamilyQueryData(queryClient, focusItemId as string, nextCard);
-    },
-  });
-  const showRequiredError =
-    required && draft.trim() === "" && (focusItemId == null || mutation.isError);
-
-  return (
-    <Field data-invalid={showRequiredError || mutation.isError}>
-      <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
-      <Input
-        id={inputId}
-        autoFocus={focusItemId == null && field === "name"}
-        value={draft}
-        onChange={(event) => {
-          const next = event.target.value;
-          setDraft(next);
-          if (focusItemId == null) {
-            onDraftFamilyChange({ [field]: next } as DraftFamilyPatch);
-          }
-        }}
-        onBlur={() => {
-          if (disabled) return;
-          const trimmed = draft.trim();
-          const next = trimmed === "" ? null : trimmed;
-          if (focusItemId == null) {
-            if (required && next == null) {
-              onDraftFamilyChange({ [field]: "" } as DraftFamilyPatch);
-              return;
-            }
-            const patch = { [field]: next } as DraftFamilyPatch;
-            onDraftFamilyChange(patch);
-            onDraftCommit(patch);
-            return;
-          }
-          if (next === (value ?? null)) return;
-          if (required && next == null) {
-            setDraft(value ?? "");
-            return;
-          }
-          mutation.mutate(next);
-        }}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter") return;
-          event.preventDefault();
-          event.currentTarget.blur();
-        }}
-        placeholder={placeholder}
-        disabled={disabled}
-        aria-invalid={showRequiredError || mutation.isError || undefined}
-      />
-      {showRequiredError ? <FieldError>Name is required</FieldError> : null}
-    </Field>
-  );
-}
-
-function EditableFieldTextarea({
-  focusItemId,
-  field,
-  label,
-  value,
-  disabled,
-  onDraftFamilyChange,
-  onDraftCommit,
-}: Omit<EditableFieldTextProps, "placeholder" | "required">) {
-  const [draft, setDraft] = useState(value ?? "");
-  const queryClient = useQueryClient();
-  const inputId = `card-field-${String(field)}`;
-  const mutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "patch", field),
-    mutationFn: (next: string | null) =>
-      updateItemCard(focusItemId as string, { [field]: next } as UpdateItemCardInput),
-    onSuccess: (nextCard) => {
-      setItemCardFamilyQueryData(queryClient, focusItemId as string, nextCard);
-    },
-  });
-
-  return (
-    <Field>
-      <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
-      <Textarea
-        id={inputId}
-        rows={3}
-        value={draft}
-        onChange={(event) => {
-          const next = event.target.value;
-          setDraft(next);
-          if (focusItemId == null) {
-            onDraftFamilyChange({ [field]: next } as DraftFamilyPatch);
-          }
-        }}
-        onBlur={() => {
-          if (disabled) return;
-          const trimmed = draft.trim();
-          const next = trimmed === "" ? null : trimmed;
-          if (focusItemId == null) {
-            const patch = { [field]: next } as DraftFamilyPatch;
-            onDraftFamilyChange(patch);
-            onDraftCommit(patch);
-            return;
-          }
-          if (next === (value ?? null)) return;
-          mutation.mutate(next);
-        }}
-        disabled={disabled}
-        aria-invalid={mutation.isError || undefined}
-      />
-    </Field>
   );
 }
 

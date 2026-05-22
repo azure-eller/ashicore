@@ -1,5 +1,5 @@
 import { requireModuleWriteAccess } from "@/lib/dal/auth";
-import { PurchaseOrderCard } from "@/app/(dashboard)/purchasing/purchase-order-form";
+import { PurchaseOrderCard } from "@/app/(dashboard)/purchasing/purchase-order-card";
 import { purchaseOrderDefaultValues } from "@/lib/schemas/purchase-orders";
 import { getAddressEntries } from "@/lib/dal/addresses";
 import {

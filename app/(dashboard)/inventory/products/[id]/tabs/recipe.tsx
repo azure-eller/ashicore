@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { CardSection } from "@/components/card-page/card-page";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
@@ -101,12 +102,12 @@ export function ProductRecipeTab({
 
   if (!canViewBom) {
     return (
-      <section className={styles.section} aria-label="Locked recipe">
+      <CardSection aria-label="Locked recipe">
         <p className={styles.helper}>
           This recipe is locked. Inventory or manufacturing admin access is required
           to view or edit recipe details.
         </p>
-      </section>
+      </CardSection>
     );
   }
 
@@ -131,11 +132,7 @@ export function ProductRecipeTab({
   const errorMessage = saveMutation.error ? (saveMutation.error as Error).message : null;
 
   return (
-    <section className={styles.section}>
-      <h2 className={styles.sectionHeading}>
-        Recipe / Bill of Materials
-      </h2>
-
+    <CardSection title="Recipe / Bill of Materials">
       <div className="flex flex-col gap-(--space-3) md:flex-row md:items-end md:justify-between">
         <div className="flex flex-col gap-(--space-3) md:flex-row md:items-end md:gap-(--space-6)">
           <ActiveVariantSelect
@@ -300,6 +297,6 @@ export function ProductRecipeTab({
           />
         </>
       ) : null}
-    </section>
+    </CardSection>
   );
 }

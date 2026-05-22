@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { PurchaseOrderCard } from "@/app/(dashboard)/purchasing/purchase-order-form";
+import { PurchaseOrderCard } from "@/app/(dashboard)/purchasing/purchase-order-card";
 import {
   getEditablePurchaseOrder,
   getPurchaseOrderMaterialOptions,

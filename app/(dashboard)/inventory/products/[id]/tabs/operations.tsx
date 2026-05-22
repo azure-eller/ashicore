@@ -11,6 +11,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
+import { CardSection } from "@/components/card-page/card-page";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
@@ -127,8 +128,7 @@ export function ProductOperationsTab({
   };
 
   return (
-    <section className={styles.section}>
-      <h2 className={styles.sectionHeading}>Production</h2>
+    <CardSection title="Production">
       <div className="flex flex-col gap-(--space-3) md:flex-row md:items-end md:justify-between">
         <ActiveVariantSelect
           variants={visibleVariants}
@@ -237,6 +237,6 @@ export function ProductOperationsTab({
           />
         </>
       ) : null}
-    </section>
+    </CardSection>
   );
 }

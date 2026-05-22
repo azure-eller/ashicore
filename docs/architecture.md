@@ -74,7 +74,7 @@ Page component
 | Sales table example | `app/(dashboard)/sales/orders-table.tsx` |
 | Manufacturing form example | `app/(dashboard)/manufacturing/manufacturing-order-form.tsx` |
 | Manufacturing table example | `app/(dashboard)/manufacturing/orders-table.tsx` |
-| Purchasing form example | `app/(dashboard)/purchasing/purchase-order-form.tsx` |
+| Purchasing card example | `app/(dashboard)/purchasing/purchase-order-card.tsx` |
 | Purchasing table example | `app/(dashboard)/purchasing/orders-table.tsx` |
 
 ## Variant Families

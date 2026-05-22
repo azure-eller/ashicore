@@ -107,7 +107,7 @@ export function PurchaseStatusControl({
   orderId: string;
   status: PurchaseOrderStatus;
   disabled?: boolean;
-  onChanged?: () => void;
+  onChanged?: (status: PurchaseOrderStatus) => void;
   size?: "sm" | "md";
 }) {
   return (
@@ -116,7 +116,7 @@ export function PurchaseStatusControl({
       ctx={{ orderId, status }}
       size={size}
       disabled={disabled}
-      onChanged={onChanged}
+      onChanged={(next) => onChanged?.(next as PurchaseOrderStatus)}
     />
   );
 }

@@ -14,6 +14,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CardSection } from "@/components/card-page/card-page";
+import { CommitInput } from "@/components/card-page/commit-input";
 import {
   FixedEditableLines,
   type EditableLineDataGridChange,
@@ -84,8 +86,7 @@ export function MaterialSupplyDetailsTab({
 
   return (
     <>
-      <section className={styles.section}>
-        <h2 className={styles.sectionHeading}>Card defaults</h2>
+      <CardSection title="Card defaults">
         <div className="grid gap-(--space-4) md:grid-cols-2">
           <Field>
             <FieldLabel>Default supplier</FieldLabel>
@@ -163,12 +164,11 @@ export function MaterialSupplyDetailsTab({
             </>
           ) : null}
         </div>
-      </section>
+      </CardSection>
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionHeading}>Variants</h2>
+      <CardSection title="Variants">
         <SupplyVariantsGrid focusItemId={focusItemId} variants={visibleVariants} />
-      </section>
+      </CardSection>
     </>
   );
 }
@@ -348,7 +348,6 @@ function ConversionField({
   stockUnitName: string;
   value: string | null;
 }) {
-  const [draft, setDraft] = useState(value ?? "");
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationKey: cardSaveMutationKey("item-card", focusItemId, "purchaseToStockFactor"),
@@ -366,17 +365,15 @@ function ConversionField({
         <span className="text-[length:var(--text-sm)] text-muted-foreground">
           1 purchase unit =
         </span>
-        <Input
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={() => {
-            const trimmed = draft.trim();
-            const next = trimmed === "" ? null : trimmed;
+        <CommitInput
+          label="Unit conversion rate"
+          value={value}
+          inputMode="decimal"
+          className="max-w-[8rem]"
+          onCommit={(next) => {
             if (next === (value ?? null)) return;
             mutation.mutate(next);
           }}
-          inputMode="decimal"
-          className="max-w-[8rem]"
         />
         <span className="text-[length:var(--text-sm)] text-muted-foreground">
           {stockUnitName || "stock units"}

@@ -19,12 +19,12 @@ import {
   type EditableLineDataGridChange,
   type LineField,
 } from "@/components/editable-lines";
+import { CardSection } from "@/components/card-page/card-page";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { patchSalesShipment } from "@/lib/api/clients/sales-orders";
 import { formatDate, formatPrice, formatQuantity } from "@/lib/format";
 import { isValidIsoDate } from "@/lib/schemas/shared";
 import type { SalesOrderDetail, SalesShipmentRow } from "@/app/(dashboard)/sales/types";
-import cardStyles from "@/components/card-page/card-page.module.css";
 
 export type ShipmentsTableProps = {
   order: SalesOrderDetail;
@@ -289,15 +289,10 @@ export function ShipmentsTable({
   };
 
   return (
-    <section className={cardStyles.section}>
-      <div className="flex items-center gap-3 mb-3">
-        <h2 className={cardStyles.sectionHeading} style={{ margin: 0 }}>
-          Shipments
-          <span className={cardStyles.count}>
-            {shipped} of {total} shipped · {planned} planned
-          </span>
-        </h2>
-      </div>
+    <CardSection
+      title="Shipments"
+      count={`· ${shipped} of ${total} shipped · ${planned} planned`}
+    >
 
       <MutableLines<SalesShipmentRow>
         rows={order.shipments}
@@ -319,7 +314,7 @@ export function ShipmentsTable({
           return null;
         }}
       />
-    </section>
+    </CardSection>
   );
 }
 

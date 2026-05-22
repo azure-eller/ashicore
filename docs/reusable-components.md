@@ -11,7 +11,7 @@ read_when:
 - `MaterialCard` — `app/(dashboard)/inventory/materials/[id]/material-card.tsx`
 - `OrderCard` — `app/(dashboard)/sales/orders/[id]/order-card.tsx`
 - `CustomerCard` — `app/(dashboard)/sales/customer-card.tsx`
-- `PurchaseOrderCard` — `app/(dashboard)/purchasing/purchase-order-form.tsx`
+- `PurchaseOrderCard` — `app/(dashboard)/purchasing/purchase-order-card.tsx`
 - `ManufacturingOrderCard` — `app/(dashboard)/manufacturing/orders/[id]/manufacturing-order-card.tsx`
 
 ## Card Building Blocks

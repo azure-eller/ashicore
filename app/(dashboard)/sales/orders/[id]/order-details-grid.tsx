@@ -14,6 +14,7 @@ import {
   type DeliveryAddressOption,
 } from "@/components/delivery-address-input";
 import { EntityCombobox } from "@/components/entity-combobox";
+import { CardSection } from "@/components/card-page/card-page";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { CellShell } from "@/components/card-page/form-cell";
 import { useEntityFieldCommit } from "@/components/card-page/use-entity-field-commit";
@@ -107,8 +108,7 @@ export function OrderDetailsGrid({
 
   return (
     <DetailsContext.Provider value={{ orderId: order.id, draft }}>
-      <section className={cardStyles.section}>
-        <h2 className={cardStyles.sectionHeading}>Order details</h2>
+      <CardSection title="Order details">
         <div className={`${cardStyles.formRow} ${cardStyles.formRowFour}`}>
           <CustomerCell
             order={order}
@@ -138,7 +138,7 @@ export function OrderDetailsGrid({
             addressOptions={addressOptions}
           />
         </div>
-      </section>
+      </CardSection>
     </DetailsContext.Provider>
   );
 }

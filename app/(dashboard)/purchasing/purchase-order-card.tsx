@@ -717,6 +717,9 @@ export function PurchaseOrderCard({
   const [savedOrderId, setSavedOrderId] = useState<string | null>(
     initialData?.id ?? null,
   );
+  const [displayStatus, setDisplayStatus] = useState<PurchaseOrderStatus>(
+    initialData?.status ?? "draft",
+  );
   const [attachments, setAttachments] = useState<PurchaseOrderFormAttachment[]>(
     initialData?.attachments ?? [],
   );
@@ -760,7 +763,6 @@ export function PurchaseOrderCard({
       ),
     [initialData?.lines],
   );
-  const displayStatus = initialData?.status ?? "draft";
   const readOnly =
     !canWrite || displayStatus === "received" || displayStatus === "cancelled";
   const supplierOptionsSorted = [...suppliers].sort((a, b) =>
@@ -1527,8 +1529,8 @@ export function PurchaseOrderCard({
       return body as { id: string };
     },
     onSuccess: async () => {
+      setDisplayStatus("cancelled");
       await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
-      router.refresh();
     },
     onError: (error: Error) => setFormError(error.message),
   });
@@ -1789,7 +1791,10 @@ export function PurchaseOrderCard({
                 orderId={savedOrderId}
                 status={displayStatus}
                 disabled={!canWrite || statusMutation.isPending}
-                onChanged={() => router.refresh()}
+                onChanged={(next) => {
+                  setDisplayStatus(next);
+                  void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+                }}
               />
             ) : null
           }

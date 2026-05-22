@@ -532,6 +532,7 @@ export function CustomerCard({
               value={display.notes ?? ""}
               disabled={readOnly || createMutation.isPending}
               readOnlyValue={readOnly}
+              commitUnchangedValue={isDraft}
               onDraftChange={(notes) => {
                 if (isDraft) updateDraft({ notes });
               }}
