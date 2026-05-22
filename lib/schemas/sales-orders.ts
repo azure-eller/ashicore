@@ -2,9 +2,11 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { DEFAULT_COUNTRY } from "@/lib/address-options";
 import { salesOrders } from "@/lib/db/schema";
+import { normalizeMoney } from "@/lib/format";
 import {
   isValidIsoDate,
   nullableString,
+  nullableStringStrict,
   optionalMoneyString,
   positiveMoneyString,
 } from "./shared";
@@ -285,6 +287,9 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
   billingRegion: nullableString,
   billingPostcode: nullableString,
   billingCountry: nullableString,
+  shippingFeeDescription: nullableString,
+  shippingFeeAmount: optionalMoneyString(),
+  shippingFeeTaxAmount: optionalMoneyString(),
 }).omit({
   id: true,
   organizationId: true,
@@ -298,7 +303,7 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
 })
   .extend({
     lines: cleanedLinesSchema,
-    shipments: cleanedOrderShipmentsSchema,
+    shipments: cleanedOrderShipmentsSchema.default([]),
     confirmOversell: z.boolean().optional(),
   })
   .superRefine((values, ctx) => {
@@ -369,6 +374,24 @@ export type InsertSalesOrder = z.infer<typeof insertSalesOrderSchema>;
 export const updateSalesOrderSchema = baseSalesOrderSchema;
 export type UpdateSalesOrder = z.infer<typeof updateSalesOrderSchema>;
 
+const patchNullableString = nullableStringStrict.optional();
+const patchMoneyString = z
+  .union([z.string(), z.null()])
+  .transform((value) => {
+    if (value == null) return null;
+    return value.trim() || null;
+  })
+  .refine((value) => {
+    if (value == null) return true;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0;
+  }, "Amount must be a non-negative number")
+  .transform((value) => {
+    if (value == null) return value;
+    return normalizeMoney(Number(value));
+  })
+  .optional();
+
 /**
  * Partial header-only patch for the inline-edit flow on the new Calm Matrix
  * Sales Order page. Mirrors the Item Detail PATCH pattern: every field is
@@ -378,19 +401,17 @@ export type UpdateSalesOrder = z.infer<typeof updateSalesOrderSchema>;
  */
 export const patchSalesOrderHeaderSchema = z
   .object({
-    orderNumber: nullableString
+    orderNumber: patchNullableString
       .refine(
         (value) => value == null || value.length <= 32,
         "Order number must be 32 characters or fewer"
-      )
-      .optional(),
+      ),
     customerId: z.string().min(1, "Customer is required").optional(),
-    customerProjectId: nullableString
+    customerProjectId: patchNullableString
       .refine(
         (value) => value == null || z.string().uuid().safeParse(value).success,
         "Invalid project"
-      )
-      .optional(),
+      ),
     orderDate: z
       .string()
       .refine(
@@ -398,31 +419,32 @@ export const patchSalesOrderHeaderSchema = z
         "Order date must be a real date in YYYY-MM-DD format"
       )
       .optional(),
-    shipDate: nullableString
+    shipDate: patchNullableString
       .refine(
         (value) => value == null || isValidIsoDate(value),
         "Shipping date must be a real date in YYYY-MM-DD format"
-      )
-      .optional(),
-    requestedDate: nullableString
+      ),
+    requestedDate: patchNullableString
       .refine(
         (value) => value == null || isValidIsoDate(value),
         "Delivery date must be a real date in YYYY-MM-DD format"
-      )
-      .optional(),
-    notes: nullableString.optional(),
-    shipLine1: nullableString.optional(),
-    shipLine2: nullableString.optional(),
-    shipCity: nullableString.optional(),
-    shipRegion: nullableString.optional(),
-    shipPostcode: nullableString.optional(),
-    shipCountry: nullableString.optional(),
-    billingLine1: nullableString.optional(),
-    billingLine2: nullableString.optional(),
-    billingCity: nullableString.optional(),
-    billingRegion: nullableString.optional(),
-    billingPostcode: nullableString.optional(),
-    billingCountry: nullableString.optional(),
+      ),
+    notes: patchNullableString,
+    shipLine1: patchNullableString,
+    shipLine2: patchNullableString,
+    shipCity: patchNullableString,
+    shipRegion: patchNullableString,
+    shipPostcode: patchNullableString,
+    shipCountry: patchNullableString,
+    billingLine1: patchNullableString,
+    billingLine2: patchNullableString,
+    billingCity: patchNullableString,
+    billingRegion: patchNullableString,
+    billingPostcode: patchNullableString,
+    billingCountry: patchNullableString,
+    shippingFeeDescription: patchNullableString,
+    shippingFeeAmount: patchMoneyString,
+    shippingFeeTaxAmount: patchMoneyString,
   })
   .superRefine((values, ctx) => {
     if (
@@ -629,6 +651,9 @@ export const salesOrderDefaultValues: InsertSalesOrder = {
   billingRegion: null,
   billingPostcode: null,
   billingCountry: null,
+  shippingFeeDescription: null,
+  shippingFeeAmount: null,
+  shippingFeeTaxAmount: null,
   lines: [
     {
       itemId: "",

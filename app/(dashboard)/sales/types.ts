@@ -522,6 +522,9 @@ export type SalesOrderDetail = {
   billingRegion: string | null;
   billingPostcode: string | null;
   billingCountry: string | null;
+  shippingFeeDescription: string | null;
+  shippingFeeAmount: string;
+  shippingFeeTaxAmount: string;
   xeroInvoiceId: string | null;
   xeroInvoiceNumber: string | null;
   xeroPushStatus: "pending" | "pushed" | "failed" | null;

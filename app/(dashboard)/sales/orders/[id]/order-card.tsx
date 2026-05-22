@@ -30,16 +30,12 @@ import type {
   SalesOrderDetail,
   SalesOrderDetailLine,
   SalesOrderItemOption,
-  SalesShipmentRow,
 } from "@/app/(dashboard)/sales/types";
 import { SalesStatusControl } from "@/components/sales/sales-status-control";
 import { OrderDetailsGrid } from "./order-details-grid";
 import { LineItemsTable } from "./line-items-table";
-import { ShipmentsTable } from "./shipments-table";
+import { ShippingFeeSection } from "./shipping-fee-section";
 import { TotalsStrip } from "./totals-strip";
-import { PlanShipmentDialog } from "./plan-shipment-dialog";
-import { MarkShippedDialog } from "./mark-shipped-dialog";
-import { ShipmentCostsDialog } from "./shipment-costs-dialog";
 import { CreateManufacturingOrdersDialog } from "../../create-manufacturing-orders-dialog";
 import { CardPage, CardPageBody } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
@@ -108,14 +104,7 @@ export function OrderCard({
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [shipmentDialogTarget, setShipmentDialogTarget] = useState<
-    "new" | SalesShipmentRow | null
-  >(null);
-  const [shipTarget, setShipTarget] = useState<SalesShipmentRow | null>(null);
-  const [costsTarget, setCostsTarget] = useState<SalesShipmentRow | null>(null);
   const [makeToOrderOpen, setMakeToOrderOpen] = useState(false);
-  const [deleteShipmentTarget, setDeleteShipmentTarget] =
-    useState<SalesShipmentRow | null>(null);
 
   const orderQuery = useQuery({
     queryKey: ["sales-order", currentOrderId ?? "__draft__"],
@@ -144,9 +133,11 @@ export function OrderCard({
       (sum, line) => sum + Number(line.lineTotal || 0),
       0,
     );
+    const shippingFee = Number(next.shippingFeeAmount || 0);
+    const shippingTax = Number(next.shippingFeeTaxAmount || 0);
     return {
       ...next,
-      totalAmount: revenue.toFixed(2),
+      totalAmount: (revenue + shippingFee + shippingTax).toFixed(2),
       marginSummary: {
         ...next.marginSummary,
         productRevenue: revenue.toFixed(2),
@@ -180,7 +171,9 @@ export function OrderCard({
   const draftController = useMemo<OrderDraftController>(
     () => ({
       patchHeader: (patch) => {
-        setDraftOrder((prev) => ({ ...prev, ...patch }) as SalesOrderDetail);
+        setDraftOrder((prev) =>
+          recomputeTotals({ ...prev, ...patch } as SalesOrderDetail)
+        );
         persistDraftHeaderPatch(persistedDraftHeaderPatch(patch));
       },
       addLine: (line) =>
@@ -394,48 +387,6 @@ export function OrderCard({
     [isDraft, draftController, reorderLinesMutation],
   );
 
-  const deleteShipmentMutation = useMutation({
-    mutationKey: ["sales-order-action", currentOrderId ?? "draft", "delete-shipment"],
-    mutationFn: async (shipment: SalesShipmentRow) => {
-      const response = await fetch(
-        `/api/sales-orders/${currentOrderId}/shipments/${shipment.id}`,
-        {
-          method: "DELETE",
-          headers: createIdempotencyHeaders("deleteSalesShipment"),
-        },
-      );
-      const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error ?? "Failed to delete shipment.");
-    },
-    onMutate: () => setActionError(null),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["sales-order", currentOrderId] });
-      await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
-      setDeleteShipmentTarget(null);
-    },
-    onError: (error) => setActionError((error as Error).message),
-  });
-
-  const shipmentXeroPushMutation = useMutation({
-    mutationKey: ["sales-order-action", currentOrderId ?? "draft", "shipment-xero-push"],
-    mutationFn: async (shipment: SalesShipmentRow) => {
-      const response = await fetch(
-        `/api/sales-orders/${currentOrderId}/shipments/${shipment.id}/xero-push`,
-        {
-          method: "POST",
-          headers: createIdempotencyHeaders("retryXeroPushForSalesShipment"),
-        },
-      );
-      const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error ?? "Failed to push to Xero.");
-    },
-    onMutate: () => setActionError(null),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["sales-order", currentOrderId] });
-    },
-    onError: (error) => setActionError((error as Error).message),
-  });
-
   const orderXeroPushMutation = useMutation({
     mutationKey: ["sales-order-action", currentOrderId ?? "draft", "order-xero-push"],
     mutationFn: async () => {
@@ -563,33 +514,10 @@ export function OrderCard({
           }
         />
 
-        <ShipmentsTable
+        <ShippingFeeSection
           order={order}
           editable={isEditable}
-          addDisabledReason={
-            isDraft
-              ? "Choose a customer first."
-              : order.shipments.length > 0
-                ? "Create a separate sales order for another shipment."
-                : null
-          }
-          onNewShipment={
-            isEditable
-              ? () => {
-                  if (isDraft) return;
-                  setShipmentDialogTarget("new");
-                }
-              : undefined
-          }
-          onEditShipment={
-            isEditable && !isDraft ? (shipment) => setShipmentDialogTarget(shipment) : undefined
-          }
-          onMarkShipped={isEditable && !isDraft ? (shipment) => setShipTarget(shipment) : undefined}
-          onEditCosts={!isDraft ? (shipment) => setCostsTarget(shipment) : undefined}
-          onPushXero={!isDraft ? (shipment) => shipmentXeroPushMutation.mutate(shipment) : undefined}
-          onDeleteShipment={
-            isEditable && !isDraft ? (shipment) => setDeleteShipmentTarget(shipment) : undefined
-          }
+          draft={isDraft ? draftController : undefined}
         />
 
         <TotalsStrip
@@ -601,22 +529,6 @@ export function OrderCard({
 
       {isDraft ? null : (
         <>
-          <PlanShipmentDialog
-            order={order}
-            target={shipmentDialogTarget}
-            onClose={() => setShipmentDialogTarget(null)}
-          />
-          <MarkShippedDialog
-            order={order}
-            shipment={shipTarget}
-            xeroReady={xeroInvoiceSetupStatus === "ready"}
-            onClose={() => setShipTarget(null)}
-          />
-          <ShipmentCostsDialog
-            order={order}
-            shipment={costsTarget}
-            onClose={() => setCostsTarget(null)}
-          />
           <CreateManufacturingOrdersDialog
             salesOrderId={order.id}
             open={makeToOrderOpen}
@@ -636,37 +548,6 @@ export function OrderCard({
                 status: linkedOrder.status,
               }))}
           />
-          <AlertDialog
-            open={deleteShipmentTarget != null}
-            onOpenChange={(next) => {
-              if (!next) setDeleteShipmentTarget(null);
-            }}
-          >
-            <AlertDialogContent size="sm">
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete shipment?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {deleteShipmentTarget
-                    ? `${deleteShipmentTarget.shipmentNumber} will be removed and its planned allocations released. This cannot be undone.`
-                    : ""}
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={(event) => {
-                    event.preventDefault();
-                    if (deleteShipmentTarget) {
-                      deleteShipmentMutation.mutate(deleteShipmentTarget);
-                    }
-                  }}
-                  disabled={deleteShipmentMutation.isPending}
-                >
-                  {deleteShipmentMutation.isPending ? "Deleting…" : "Delete shipment"}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
         </>
       )}
 
@@ -756,6 +637,9 @@ function persistedOrderHeaderPatch(order: SalesOrderDetail): PersistedHeaderPatc
     billingRegion: order.billingRegion,
     billingPostcode: order.billingPostcode,
     billingCountry: order.billingCountry,
+    shippingFeeDescription: order.shippingFeeDescription,
+    shippingFeeAmount: order.shippingFeeAmount,
+    shippingFeeTaxAmount: order.shippingFeeTaxAmount,
   };
 }
 

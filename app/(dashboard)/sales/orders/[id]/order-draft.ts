@@ -68,6 +68,9 @@ export function makeDraftOrder(timeZone: string): SalesOrderDetail {
     billingRegion: null,
     billingPostcode: null,
     billingCountry: null,
+    shippingFeeDescription: null,
+    shippingFeeAmount: "0",
+    shippingFeeTaxAmount: "0",
     xeroInvoiceId: null,
     xeroInvoiceNumber: null,
     xeroPushStatus: null,
@@ -179,16 +182,14 @@ export function makeDraftLine(input: {
  * Serialize a live order into the full update (PUT) payload. Used for line
  * add/remove on a saved order: this reuses the canonical updateSalesOrder DAL
  * (correct reservation release + re-reserve) instead of hand-rolling kernel
- * logic. Only planned shipments are serialized — the DAL deletes + recreates
- * planned shipments and leaves shipped ones untouched, so including shipped
- * shipments here would duplicate them.
+ * logic. Shipment rows are legacy history and are never re-created from order
+ * edits.
  */
 export function orderToUpdatePayload(
   order: SalesOrderDetail,
   mutate?: (lines: SalesOrderDetail["lines"]) => SalesOrderDetail["lines"],
 ): InsertSalesOrder {
   const lines = mutate ? mutate(order.lines) : order.lines;
-  const lineItemIds = new Set(lines.map((line) => line.itemId));
   return {
     orderNumber: order.orderNumber,
     customerId: order.customerId,
@@ -210,30 +211,15 @@ export function orderToUpdatePayload(
     billingRegion: order.billingRegion,
     billingPostcode: order.billingPostcode,
     billingCountry: order.billingCountry,
+    shippingFeeDescription: order.shippingFeeDescription,
+    shippingFeeAmount: order.shippingFeeAmount,
+    shippingFeeTaxAmount: order.shippingFeeTaxAmount,
     lines: lines.map((line) => ({
       itemId: line.itemId,
       quantity: line.quantity,
       unitPrice: line.unitPrice,
     })),
-    shipments: order.shipments
-      .filter((shipment) => shipment.status === "planned")
-      .map((shipment) => {
-        const shipmentLines = shipment.lines
-          .filter((line) => lineItemIds.has(line.itemId))
-          .map((line) => ({
-            itemId: line.itemId,
-            quantity: line.quantity,
-          }));
-
-        return {
-          fulfillmentType: shipment.fulfillmentType,
-          scheduledDate: shipment.scheduledDate,
-          deliveryDate: shipment.deliveryDate,
-          notes: shipment.notes,
-          lines: shipmentLines,
-        };
-      })
-      .filter((shipment) => shipment.lines.length > 0),
+    shipments: [],
   } as InsertSalesOrder;
 }
 
@@ -260,6 +246,9 @@ export function draftToInsertPayload(draft: SalesOrderDetail): InsertSalesOrder 
     billingRegion: draft.billingRegion,
     billingPostcode: draft.billingPostcode,
     billingCountry: draft.billingCountry,
+    shippingFeeDescription: draft.shippingFeeDescription,
+    shippingFeeAmount: draft.shippingFeeAmount,
+    shippingFeeTaxAmount: draft.shippingFeeTaxAmount,
     lines: draft.lines.map((line) => ({
       itemId: line.itemId,
       quantity: line.quantity,

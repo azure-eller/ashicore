@@ -35,12 +35,6 @@ function parseQuantity(value: string | null | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function latestPlannedShipment(order: SalesOrderListRow | SalesOrderDetail) {
-  return [...order.shipments]
-    .filter((shipment) => shipment.status === "planned")
-    .sort((left, right) => right.sequence - left.sequence)[0];
-}
-
 function hasFullyGroundAllocatedStock(order: SalesOrderListRow | SalesOrderDetail) {
   return (
     parseQuantity(order.fulfillmentSummary.remainingQty) > 0 &&
@@ -178,9 +172,6 @@ export function DeliveryActionCell({
     enabled: menuOpen,
   });
   const detail = detailQuery.data ?? null;
-  const activePlannedShipment =
-    (detail ? latestPlannedShipment(detail) : latestPlannedShipment(order)) ?? null;
-
   const resetAfterMutation = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
@@ -189,25 +180,6 @@ export function DeliveryActionCell({
     ]);
     router.refresh();
   };
-
-  const requireDetail = () => {
-    if (!detail) {
-      throw new Error("Delivery details are still loading.");
-    }
-
-    return detail;
-  };
-
-  const shipShipmentMutation = useMutation({
-    mutationFn: async (shipmentId: string) =>
-      apiJson(`/api/sales-orders/${order.id}/shipments/${shipmentId}/ship`, {
-        method: "POST",
-        headers: createIdempotencyHeaders("sales-shipment-table-ship"),
-        body: {},
-        fallbackError: "Failed to mark shipment shipped.",
-      }),
-    onSuccess: resetAfterMutation,
-  });
 
   const shipOrderMutation = useMutation({
     mutationFn: async () =>
@@ -220,12 +192,8 @@ export function DeliveryActionCell({
     onSuccess: resetAfterMutation,
   });
 
-  const activeError =
-    shipShipmentMutation.error ??
-    shipOrderMutation.error;
-  const isMutating =
-    shipShipmentMutation.isPending ||
-    shipOrderMutation.isPending;
+  const activeError = shipOrderMutation.error;
+  const isMutating = shipOrderMutation.isPending;
   const canOpen = order.status === "open" || order.status === "done";
   const hasGroundAllocation = detail
     ? hasFullyGroundAllocatedStock(detail)
@@ -233,8 +201,8 @@ export function DeliveryActionCell({
   const canMarkShipped =
     detail != null &&
     detail.status === "open" &&
-    (activePlannedShipment != null ||
-      (detail.shippingReadiness.state === "ready" && hasGroundAllocation));
+    detail.shippingReadiness.state === "ready" &&
+    hasGroundAllocation;
 
   if (!canOpen) {
     return <OperationalStateCell state={state} />;
@@ -285,12 +253,6 @@ export function DeliveryActionCell({
                 tone="success"
                 disabled={!canMarkShipped || isMutating}
                 onSelect={() => {
-                  if (activePlannedShipment) {
-                    shipShipmentMutation.mutate(activePlannedShipment.id);
-                    return;
-                  }
-
-                  requireDetail();
                   shipOrderMutation.mutate();
                 }}
               />

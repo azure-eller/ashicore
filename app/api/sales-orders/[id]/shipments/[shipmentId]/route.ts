@@ -1,49 +1,20 @@
 import { NextResponse } from "next/server";
-import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
+import { apiHandler } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import { salesShipmentInputSchema } from "@/lib/schemas/sales-orders";
-import {
-  deleteSalesShipment,
-  SalesError,
-  updateSalesShipment,
-} from "@/app/(dashboard)/sales/queries";
 
-type ShipmentRouteContext = { params: Promise<{ id: string; shipmentId: string }> };
-
-export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
-  const { id, shipmentId } = await (ctx as ShipmentRouteContext).params;
+export const PATCH = apiHandler(async (request: Request) => {
   await assertModuleWriteAccess("sales", request.headers);
-  const idempotencyKey = requireIdempotencyKey(request, "updateSalesShipment");
-  const body = await request.json();
-  const data = salesShipmentInputSchema.parse(body);
-
-  try {
-    const shipment = await updateSalesShipment(id, shipmentId, data, {
-      idempotencyKey,
-    });
-    if (!shipment) {
-      return NextResponse.json({ error: "Shipment not found" }, { status: 404 });
-    }
-    return NextResponse.json(shipment);
-  } catch (error) {
-    if (error instanceof SalesError) return error.toResponse();
-    throw error;
-  }
+  return deprecatedShipmentResponse();
 });
 
-export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {
-  const { id, shipmentId } = await (ctx as ShipmentRouteContext).params;
+export const DELETE = apiHandler(async (request: Request) => {
   await assertModuleWriteAccess("sales", request.headers);
-  const idempotencyKey = requireIdempotencyKey(request, "deleteSalesShipment");
-
-  try {
-    const shipment = await deleteSalesShipment(id, shipmentId, { idempotencyKey });
-    if (!shipment) {
-      return NextResponse.json({ error: "Shipment not found" }, { status: 404 });
-    }
-    return NextResponse.json(shipment);
-  } catch (error) {
-    if (error instanceof SalesError) return error.toResponse();
-    throw error;
-  }
+  return deprecatedShipmentResponse();
 });
+
+function deprecatedShipmentResponse() {
+  return NextResponse.json(
+    { error: "Shipment records are deprecated. Edit or delete the sales order instead." },
+    { status: 410 }
+  );
+}

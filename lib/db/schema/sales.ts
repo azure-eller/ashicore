@@ -432,6 +432,19 @@ export const salesOrders = salesSchema
       billingRegion: varchar("billing_region", { length: 120 }),
       billingPostcode: varchar("billing_postcode", { length: 30 }),
       billingCountry: varchar("billing_country", { length: 120 }),
+      shippingFeeDescription: varchar("shipping_fee_description", { length: 255 }),
+      shippingFeeAmount: numeric("shipping_fee_amount", {
+        precision: 12,
+        scale: 2,
+      })
+        .notNull()
+        .default("0"),
+      shippingFeeTaxAmount: numeric("shipping_fee_tax_amount", {
+        precision: 12,
+        scale: 2,
+      })
+        .notNull()
+        .default("0"),
       totalAmount: numeric("total_amount", { precision: 12, scale: 2 })
         .notNull()
         .default("0"),

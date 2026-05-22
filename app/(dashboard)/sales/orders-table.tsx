@@ -145,24 +145,11 @@ function shippedSalesQuantity(order: SalesOrderListRow) {
 }
 
 function getOrderShipmentSchedule(order: SalesOrderListRow) {
-  const openShipments = order.shipments.filter(
-    (shipment) => shipment.status === "planned"
-  );
-  const datedShipments = (openShipments.length > 0 ? openShipments : order.shipments)
-    .filter((shipment) => shipment.scheduledDate)
-    .sort((left, right) =>
-      String(left.scheduledDate).localeCompare(String(right.scheduledDate))
-    );
-  const firstDate = datedShipments[0]?.scheduledDate ?? null;
-  const uniqueDates = new Set(
-    datedShipments.map((shipment) => shipment.scheduledDate).filter(Boolean)
-  );
+  const date = order.shipDate ?? null;
 
   return {
-    date: firstDate,
-    label: firstDate
-      ? `${formatDate(firstDate)}${uniqueDates.size > 1 ? ` +${uniqueDates.size - 1}` : ""}`
-      : "—",
+    date,
+    label: date ? formatDate(date) : "—",
   };
 }
 
@@ -884,8 +871,8 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
             </AlertDialogTitle>
             <AlertDialogDescription>
               Open manufacturing orders created for the selected order
-              {selectedCount !== 1 ? "s" : ""}, planned shipments and their draft
-              costs, and reservations will also be deleted or released. Shipped,
+              {selectedCount !== 1 ? "s" : ""} and reservations will also be
+              deleted or released. Shipped,
               inventory-consumed, or accounting-pushed orders cannot be deleted.
               This action cannot be undone.
             </AlertDialogDescription>

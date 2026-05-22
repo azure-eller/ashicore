@@ -1321,6 +1321,9 @@ async function getLockedSalesOrderInTx(tx: Tx, id: string) {
       billingRegion: salesOrders.billingRegion,
       billingPostcode: salesOrders.billingPostcode,
       billingCountry: salesOrders.billingCountry,
+      shippingFeeDescription: salesOrders.shippingFeeDescription,
+      shippingFeeAmount: trimScale(salesOrders.shippingFeeAmount).as("shippingFeeAmount"),
+      shippingFeeTaxAmount: trimScale(salesOrders.shippingFeeTaxAmount).as("shippingFeeTaxAmount"),
     })
     .from(salesOrders)
     .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)))
@@ -2032,22 +2035,6 @@ async function upsertPlannedShipmentForFulfillmentPlanInTx(
   return shipment.id;
 }
 
-type AutoPlannedShipmentOrderSnapshot = {
-  id: string;
-  orderNumber: string;
-  customerId: string;
-  customerName: string;
-  status?: string;
-  shipDate: string | null;
-  requestedDate: string | null;
-  shipLine1: string | null;
-  shipLine2: string | null;
-  shipCity: string | null;
-  shipRegion: string | null;
-  shipPostcode: string | null;
-  shipCountry: string | null;
-};
-
 async function syncSalesOrderShipDateFromShipmentsInTx(tx: Tx, orderId: string) {
   const [row] = await tx
     .select({
@@ -2327,115 +2314,6 @@ async function deleteSalesLinkedManufacturingOrdersInTx(
   return deleted.error ?? null;
 }
 
-async function createPlannedShipmentsFromOrderPayloadInTx(
-  tx: Tx,
-  orgId: string,
-  order: AutoPlannedShipmentOrderSnapshot & { status: string },
-  shipments: InsertSalesOrder["shipments"],
-  insertedLines: Array<{ salesOrderLineId: string; itemId: string; quantity: string }>,
-  actorUserId?: string | null,
-  options: { createDefaultFromOrderDates?: boolean } = {}
-) {
-  if (shipments.length > 1) {
-    throw new SalesError(
-      "A sales order can only have one planned shipment. Create separate sales orders for separate ship dates.",
-      400
-    );
-  }
-
-  if (shipments.length === 0) {
-    const scheduledDate = order.shipDate ?? order.requestedDate;
-    const deliveryDate = order.requestedDate ?? order.shipDate;
-
-    if (
-      options.createDefaultFromOrderDates &&
-      scheduledDate &&
-      deliveryDate &&
-      insertedLines.length > 0
-    ) {
-      await upsertPlannedShipmentForFulfillmentPlanInTx(
-        tx,
-        orgId,
-        order,
-        {
-          fulfillmentType: "delivery",
-          shipDate: scheduledDate,
-          deliveryDate,
-          shipmentNotes: null,
-          shipmentLines: insertedLines.map((line) => ({
-            salesOrderLineId: line.salesOrderLineId,
-            quantity: line.quantity,
-          })),
-        },
-        actorUserId,
-        { createNew: true }
-      );
-    }
-
-    await syncSalesOrderShipDateFromShipmentsInTx(tx, order.id);
-    return;
-  }
-
-  const lineIdByItemId = new Map(
-    insertedLines.map((line) => [line.itemId, line.salesOrderLineId])
-  );
-
-  for (const [shipmentIndex, shipment] of shipments.entries()) {
-    if (!shipment.scheduledDate || !shipment.deliveryDate) {
-      const errors: Record<string, string[]> = {};
-      if (!shipment.scheduledDate) {
-        errors[`shipments.${shipmentIndex}.scheduledDate`] = [
-          "Ship date is required",
-        ];
-      }
-      if (!shipment.deliveryDate) {
-        errors[`shipments.${shipmentIndex}.deliveryDate`] = [
-          "Delivery date is required",
-        ];
-      }
-
-      throw new SalesError("Shipment dates are required.", 400, {
-        errors,
-      });
-    }
-
-    const shipmentLines = shipment.lines.map((line, lineIndex) => {
-      const salesOrderLineId = lineIdByItemId.get(line.itemId);
-      if (!salesOrderLineId) {
-        throw new SalesError("Shipment item must be on the order.", 400, {
-          errors: {
-            [`shipments.${shipmentIndex}.lines.${lineIndex}.quantity`]: [
-              "Shipment item must be on the order",
-            ],
-          },
-        });
-      }
-
-      return {
-        salesOrderLineId,
-        quantity: line.quantity,
-      };
-    });
-
-    await upsertPlannedShipmentForFulfillmentPlanInTx(
-      tx,
-      orgId,
-      order,
-      {
-        fulfillmentType: shipment.fulfillmentType,
-        shipDate: shipment.scheduledDate,
-        deliveryDate: shipment.deliveryDate,
-        shipmentNotes: shipment.notes,
-        shipmentLines,
-      },
-      actorUserId,
-      { createNew: true }
-    );
-  }
-
-  await syncSalesOrderShipDateFromShipmentsInTx(tx, order.id);
-}
-
 async function getNextShipmentSequenceInTx(tx: Tx, salesOrderId: string) {
   const result = await tx.execute(
     sql`SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
@@ -2592,6 +2470,9 @@ async function prepareOrderPayload(
   billingRegion: string | null;
   billingPostcode: string | null;
   billingCountry: string | null;
+  shippingFeeDescription: string | null;
+  shippingFeeAmount: string;
+  shippingFeeTaxAmount: string;
   totalAmount: string;
   preparedLines: PreparedOrderLine[];
   affectedItemIds: string[];
@@ -2658,10 +2539,12 @@ async function prepareOrderPayload(
     } satisfies PreparedOrderLine;
   });
 
+  const shippingFeeAmount = normalizeMoney(Number(payload.shippingFeeAmount ?? 0));
+  const shippingFeeTaxAmount = normalizeMoney(Number(payload.shippingFeeTaxAmount ?? 0));
   const totalAmount = preparedLines.reduce(
     (sum, line) => sum + parseFloat(line.lineTotal),
     0
-  );
+  ) + parseFloat(shippingFeeAmount) + parseFloat(shippingFeeTaxAmount);
 
   return {
     customerId: customer.id,
@@ -2683,6 +2566,9 @@ async function prepareOrderPayload(
     billingRegion: payload.billingRegion ?? null,
     billingPostcode: payload.billingPostcode ?? null,
     billingCountry: payload.billingCountry ?? null,
+    shippingFeeDescription: payload.shippingFeeDescription ?? null,
+    shippingFeeAmount,
+    shippingFeeTaxAmount,
     totalAmount: normalizeMoney(totalAmount),
     preparedLines,
     affectedItemIds: preparedLines.map((line) => line.itemId),
@@ -5136,6 +5022,9 @@ export async function getSalesOrder(
         billingRegion: salesOrders.billingRegion,
         billingPostcode: salesOrders.billingPostcode,
         billingCountry: salesOrders.billingCountry,
+        shippingFeeDescription: salesOrders.shippingFeeDescription,
+        shippingFeeAmount: trimScale(salesOrders.shippingFeeAmount).as("shippingFeeAmount"),
+        shippingFeeTaxAmount: trimScale(salesOrders.shippingFeeTaxAmount).as("shippingFeeTaxAmount"),
         xeroInvoiceId: accountingDocumentSyncs.externalDocumentId,
         xeroInvoiceNumber: accountingDocumentSyncs.externalDocumentNumber,
         xeroPushStatus: accountingDocumentSyncs.pushStatus,
@@ -5498,10 +5387,7 @@ export async function getSalesOrder(
 
     const activeShipmentSummaries = shipments
       .map((shipment) => shipment.marginSummary);
-    const orderFreightRecovery = activeShipmentSummaries.reduce(
-      (sum, summary) => sum + parseMoneyValue(summary.freightRecovery),
-      0
-    );
+    const orderFreightRecovery = parseMoneyValue(order.shippingFeeAmount);
     const orderShipmentCosts = activeShipmentSummaries.reduce(
       (sum, summary) => sum + parseMoneyValue(summary.shipmentCosts),
       0
@@ -5885,6 +5771,9 @@ export async function createSalesOrder(
         billingRegion: prepared.billingRegion,
         billingPostcode: prepared.billingPostcode,
         billingCountry: prepared.billingCountry,
+        shippingFeeDescription: prepared.shippingFeeDescription,
+        shippingFeeAmount: prepared.shippingFeeAmount,
+        shippingFeeTaxAmount: prepared.shippingFeeTaxAmount,
         totalAmount: prepared.totalAmount,
       })
       .returning({ id: salesOrders.id });
@@ -5917,30 +5806,6 @@ export async function createSalesOrder(
         quantity: parseFloat(line.quantity),
       })),
     });
-
-    await createPlannedShipmentsFromOrderPayloadInTx(
-      tx,
-      orgId,
-      {
-        id: order.id,
-        orderNumber,
-        customerId: prepared.customerId,
-        customerName: prepared.customerName,
-        status: "open",
-        shipDate: prepared.shipDate,
-        requestedDate: prepared.requestedDate,
-        shipLine1: prepared.shipLine1,
-        shipLine2: prepared.shipLine2,
-        shipCity: prepared.shipCity,
-        shipRegion: prepared.shipRegion,
-        shipPostcode: prepared.shipPostcode,
-        shipCountry: prepared.shipCountry,
-      },
-      data.shipments,
-      insertedLines,
-      userId,
-      { createDefaultFromOrderDates: true }
-    );
 
     if (isOpenSalesOrderStatus(data.status)) {
       await rerankOpenSalesOrdersInTx(tx, orgId);
@@ -5988,6 +5853,9 @@ export async function duplicateSalesOrder(
       billingRegion: order.billingRegion,
       billingPostcode: order.billingPostcode,
       billingCountry: order.billingCountry,
+      shippingFeeDescription: order.shippingFeeDescription,
+      shippingFeeAmount: order.shippingFeeAmount,
+      shippingFeeTaxAmount: order.shippingFeeTaxAmount,
       lines: order.lines.map((line) => ({
         itemId: line.itemId,
         quantity: line.quantity,
@@ -6173,6 +6041,15 @@ export async function updateSalesOrder(
         shipRegion: prepared.shipRegion,
         shipPostcode: prepared.shipPostcode,
         shipCountry: prepared.shipCountry,
+        billingLine1: prepared.billingLine1,
+        billingLine2: prepared.billingLine2,
+        billingCity: prepared.billingCity,
+        billingRegion: prepared.billingRegion,
+        billingPostcode: prepared.billingPostcode,
+        billingCountry: prepared.billingCountry,
+        shippingFeeDescription: prepared.shippingFeeDescription,
+        shippingFeeAmount: prepared.shippingFeeAmount,
+        shippingFeeTaxAmount: prepared.shippingFeeTaxAmount,
         totalAmount: prepared.totalAmount,
         updatedAt: new Date(),
       })
@@ -6192,29 +6069,6 @@ export async function updateSalesOrder(
         quantity: parseFloat(line.quantity),
       })),
     });
-
-    await createPlannedShipmentsFromOrderPayloadInTx(
-      tx,
-      orgId,
-      {
-        id,
-        orderNumber,
-        customerId: prepared.customerId,
-        customerName: prepared.customerName,
-        status: "open",
-        shipDate: prepared.shipDate,
-        requestedDate: prepared.requestedDate,
-        shipLine1: prepared.shipLine1,
-        shipLine2: prepared.shipLine2,
-        shipCity: prepared.shipCity,
-        shipRegion: prepared.shipRegion,
-        shipPostcode: prepared.shipPostcode,
-        shipCountry: prepared.shipCountry,
-      },
-      data.shipments,
-      insertedLines,
-      userId
-    );
 
     const result = { id };
 
@@ -7553,6 +7407,37 @@ export async function patchSalesOrderHeader(
       updates.billingPostcode = patch.billingPostcode;
     }
     if (patch.billingCountry !== undefined) updates.billingCountry = patch.billingCountry;
+    if (patch.shippingFeeDescription !== undefined) {
+      updates.shippingFeeDescription = patch.shippingFeeDescription;
+    }
+    if (patch.shippingFeeAmount !== undefined) {
+      updates.shippingFeeAmount = patch.shippingFeeAmount ?? "0";
+    }
+    if (patch.shippingFeeTaxAmount !== undefined) {
+      updates.shippingFeeTaxAmount = patch.shippingFeeTaxAmount ?? "0";
+    }
+    if (
+      patch.shippingFeeAmount !== undefined ||
+      patch.shippingFeeTaxAmount !== undefined
+    ) {
+      const lineTotal = await tx
+        .select({
+          total: sql<string>`COALESCE(SUM(${salesOrderLines.lineTotal}), 0)`,
+        })
+        .from(salesOrderLines)
+        .where(eq(salesOrderLines.salesOrderId, id));
+      const nextShippingFee =
+        patch.shippingFeeAmount !== undefined
+          ? Number(patch.shippingFeeAmount ?? 0)
+          : Number(existingOrder.shippingFeeAmount ?? 0);
+      const nextShippingTax =
+        patch.shippingFeeTaxAmount !== undefined
+          ? Number(patch.shippingFeeTaxAmount ?? 0)
+          : Number(existingOrder.shippingFeeTaxAmount ?? 0);
+      updates.totalAmount = normalizeMoney(
+        Number(lineTotal[0]?.total ?? 0) + nextShippingFee + nextShippingTax
+      );
+    }
 
     if (Object.keys(updates).length > 0) {
       updates.updatedAt = new Date();
@@ -7771,7 +7656,14 @@ export async function patchSalesOrderLine(
     );
     await tx
       .update(salesOrders)
-      .set({ totalAmount: total.toFixed(2), updatedAt: new Date() })
+      .set({
+        totalAmount: normalizeMoney(
+          total +
+            Number(existingOrder.shippingFeeAmount ?? 0) +
+            Number(existingOrder.shippingFeeTaxAmount ?? 0)
+        ),
+        updatedAt: new Date(),
+      })
       .where(eq(salesOrders.id, orderId));
 
     await finishInventoryOperationInTx(tx, {

@@ -827,6 +827,13 @@
       "when": 1779300000007,
       "tag": "0117_unit_batch_recipe_basis",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1779469000000,
+      "tag": "0118_sales_order_shipping_fee",
+      "breakpoints": true
     }
   ]
 }
