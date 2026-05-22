@@ -621,8 +621,9 @@ export function OrdersTable({
             </AlertDialogTitle>
             <AlertDialogDescription>
               Selected manufacturing orders will be removed from normal views.
-              Picked or reserved inventory will be released. Orders with
-              production output cannot be deleted.
+              Picked or reserved inventory will be released. Batch orders with
+              completed batches keep completed output and consumed ingredients
+              as production history while remaining work is cancelled.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

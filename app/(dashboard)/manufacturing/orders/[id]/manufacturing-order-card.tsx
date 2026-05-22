@@ -360,8 +360,10 @@ export function ManufacturingOrderCard({
             <AlertDialogTitle>Delete this order?</AlertDialogTitle>
             <AlertDialogDescription>
               Open orders are removed from normal views and reversible picked or
-              reserved inventory is released. Production output blocks deletion.
-              This action cannot be undone.
+              reserved inventory is released. For batch orders with completed
+              batches, completed output and consumed ingredients are kept as
+              production history while remaining work is cancelled. This action
+              cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

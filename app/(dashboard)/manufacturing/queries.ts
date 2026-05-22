@@ -470,9 +470,15 @@ function deriveScalingPlan(
     Number.isFinite(outputQuantity) &&
     outputQuantity > 0
   ) {
+    const numberOfBatches = deriveBatchCount({
+      recipeBasis: "batch",
+      recipeOutputQuantity: batchYield,
+      outputQuantity,
+    });
+
     return {
       manufacturingMode: "batch",
-      numberOfBatches: Math.ceil(outputQuantity / batchYield),
+      numberOfBatches,
       expectedBatchYield: normalizeNumeric(batchYield),
     };
   }
@@ -961,7 +967,7 @@ async function prepareCreateIngredientsInTx(
         );
       }
 
-      const quantityPerUnit = normalizeNumeric(Number(submitted.quantityPerUnit));
+      const quantityPerUnit = normalizeNumeric(Number(selected.quantityPerUnit));
       const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
 
       return {
@@ -6315,7 +6321,14 @@ async function completeBatchModeManufacturingOrder(
     );
   }
 
+  const requestedBatchCount = payload.batchCount ?? null;
+  let completedBatchCount = 0;
+
   for (let iteration = 0; iteration < 1000; iteration += 1) {
+    if (requestedBatchCount != null && completedBatchCount >= requestedBatchCount) {
+      return { id };
+    }
+
     const execution = await getManufacturingExecutionDetail(id);
 
     if (!execution) {
@@ -6327,6 +6340,9 @@ async function completeBatchModeManufacturingOrder(
     }
 
     if (execution.status === "done") {
+      if (requestedBatchCount != null && completedBatchCount < requestedBatchCount) {
+        throw new ManufacturingError("There are fewer remaining batches than requested.", 400);
+      }
       return { id };
     }
 
@@ -6339,6 +6355,9 @@ async function completeBatchModeManufacturingOrder(
       execution.batches.find((currentBatch) => currentBatch.status !== "completed");
 
     if (!batch) {
+      if (requestedBatchCount != null && completedBatchCount < requestedBatchCount) {
+        throw new ManufacturingError("There are fewer remaining batches than requested.", 400);
+      }
       return { id };
     }
 
@@ -6387,6 +6406,7 @@ async function completeBatchModeManufacturingOrder(
         ) ?? undefined,
       }
     );
+    completedBatchCount += 1;
   }
 
   throw new ManufacturingError("Too many batches to complete in one request.", 400);
@@ -7610,7 +7630,7 @@ export async function deleteManufacturingOrdersInTx(
     (order) =>
       order.status !== "open" ||
       order.completedAt != null ||
-      parseFloat(order.actualQuantity ?? "0") > 0
+      (order.manufacturingMode !== "batch" && parseFloat(order.actualQuantity ?? "0") > 0)
   );
 
   if (finalizedOrder) {
@@ -7620,7 +7640,7 @@ export async function deleteManufacturingOrdersInTx(
     };
   }
 
-  const [completedBatch] = await tx
+  const [completedDiscreteBatch] = await tx
     .select({
       orderNumber: manufacturingOrders.orderNumber,
     })
@@ -7632,6 +7652,7 @@ export async function deleteManufacturingOrdersInTx(
     .where(
       and(
         inArray(manufacturingOrderBatches.manufacturingOrderId, orderIds),
+        ne(manufacturingOrders.manufacturingMode, "batch"),
         or(
           eq(manufacturingOrderBatches.status, "completed"),
           isNotNull(manufacturingOrderBatches.completedAt),
@@ -7642,14 +7663,14 @@ export async function deleteManufacturingOrdersInTx(
     )
     .limit(1);
 
-  if (completedBatch) {
+  if (completedDiscreteBatch) {
     return {
       deletedIds: [],
-      error: `Cannot delete manufacturing order ${completedBatch.orderNumber} because production output has already been recorded. Production history must be preserved.`,
+      error: `Cannot delete manufacturing order ${completedDiscreteBatch.orderNumber} because production output has already been recorded. Production history must be preserved.`,
     };
   }
 
-  const [finalizedEvent] = await tx
+  const [finalizedDiscreteEvent] = await tx
     .select({
       orderNumber: manufacturingOrders.orderNumber,
     })
@@ -7678,15 +7699,16 @@ export async function deleteManufacturingOrdersInTx(
     .where(
       and(
         inArray(manufacturingOrders.id, orderIds),
+        ne(manufacturingOrders.manufacturingMode, "batch"),
         eq(inventoryEvents.eventType, "manufacturing_output")
       )
     )
     .limit(1);
 
-  if (finalizedEvent) {
+  if (finalizedDiscreteEvent) {
     return {
       deletedIds: [],
-      error: `Cannot delete manufacturing order ${finalizedEvent.orderNumber} because production output has already been recorded. Production history must be preserved.`,
+      error: `Cannot delete manufacturing order ${finalizedDiscreteEvent.orderNumber} because production output has already been recorded. Production history must be preserved.`,
     };
   }
 
@@ -7705,12 +7727,17 @@ export async function deleteManufacturingOrdersInTx(
 
     if (order.manufacturingMode === "batch") {
       const batches = await getLockedBatchStateRowsInTx(tx, order.id);
-      const deletableBatchIds = batches.map((batch) => batch.id);
-      reservationRows = await getManufacturingIngredientReservationRowsForBatchesInTx(
-        tx,
-        order.id,
-        deletableBatchIds
-      );
+      const deletableBatchIds = batches
+        .filter((batch) => batch.status !== "completed")
+        .map((batch) => batch.id);
+      reservationRows =
+        deletableBatchIds.length > 0
+          ? await getManufacturingIngredientReservationRowsForBatchesInTx(
+              tx,
+              order.id,
+              deletableBatchIds
+            )
+          : [];
     } else {
       reservationRows = await getManufacturingIngredientReservationRowsInTx(tx, order.id);
     }

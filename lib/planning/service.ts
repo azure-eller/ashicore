@@ -1841,6 +1841,20 @@ function computeBomBatchMetadata(
   };
 }
 
+function computeManufacturingOrderQuantity(
+  bom: CurrentBomRecord | undefined,
+  shortageQuantity: string | number
+) {
+  const requestedQuantity =
+    typeof shortageQuantity === "number" ? shortageQuantity : toQuantity(shortageQuantity);
+  const batchMetadata = computeBomBatchMetadata(bom, requestedQuantity);
+  if (!batchMetadata) return normalizeQuantity(requestedQuantity);
+
+  return normalizeQuantity(
+    batchMetadata.plannedBatchCount * Number(batchMetadata.expectedBatchYield)
+  );
+}
+
 function computeBomComponentQuantity(
   bom: CurrentBomRecord,
   component: BomComponentRecord,
@@ -2593,6 +2607,9 @@ function buildRecommendations(args: {
       const bom = args.bomByProductId.get(item.id);
       const hasBom = Boolean(bom && bom.components.length > 0);
       const canDraftManufacturingOrder = hasBom;
+      const manufacturingOrderQuantity = hasBom
+        ? computeManufacturingOrderQuantity(bom, row.shortageQuantity)
+        : row.shortageQuantity;
       const recommendationType = canDraftManufacturingOrder
         ? "create_manufacturing_order"
         : "review_item_setup";
@@ -2618,7 +2635,7 @@ function buildRecommendations(args: {
         id: recommendationId,
         recommendationType,
         itemId: item.id,
-        quantity: row.shortageQuantity,
+        quantity: manufacturingOrderQuantity,
         requiredDate: row.earliestRequiredDate,
         suggestedSupplierId: null,
         suggestedSupplierName: null,
@@ -2637,7 +2654,7 @@ function buildRecommendations(args: {
                 inputHash: args.inputHash,
                 recommendationId,
                 itemId: item.id,
-                quantity: row.shortageQuantity,
+                quantity: manufacturingOrderQuantity,
                 requiredDate: row.earliestRequiredDate,
                 latestStartDate: row.latestStartDate,
                 bomRevisionId: bom.revisionId,
@@ -2650,7 +2667,7 @@ function buildRecommendations(args: {
             : null,
         explanation:
           recommendationType === "create_manufacturing_order"
-            ? `Draft a manufacturing order for ${row.shortageQuantity} ${item.name}.`
+            ? `Draft a manufacturing order for ${manufacturingOrderQuantity} ${item.name}.`
             : `Review manufacturing setup for ${item.name}.`,
       });
       continue;
@@ -2784,6 +2801,9 @@ function addConstrainedComponentRecommendations(args: {
 
     const bom = args.bomByProductId.get(componentItemId);
     const hasBom = Boolean(bom && bom.components.length > 0);
+    const manufacturingOrderQuantity = hasBom
+      ? computeManufacturingOrderQuantity(bom, quantity)
+      : quantity;
     const recommendationType = hasBom
       ? "create_manufacturing_order"
       : "review_item_setup";
@@ -2816,7 +2836,7 @@ function addConstrainedComponentRecommendations(args: {
       id: recommendationId,
       recommendationType,
       itemId: componentItemId,
-      quantity,
+      quantity: manufacturingOrderQuantity,
       requiredDate,
       suggestedSupplierId: null,
       suggestedSupplierName: null,
@@ -2837,7 +2857,7 @@ function addConstrainedComponentRecommendations(args: {
               inputHash: args.inputHash,
               recommendationId,
               itemId: componentItemId,
-              quantity,
+              quantity: manufacturingOrderQuantity,
               requiredDate,
               latestStartDate: requiredDate,
               bomRevisionId: bom.revisionId,
@@ -2850,7 +2870,7 @@ function addConstrainedComponentRecommendations(args: {
           : null,
       explanation:
         recommendationType === "create_manufacturing_order"
-          ? `Draft a manufacturing order for ${quantity} ${item.name}.`
+          ? `Draft a manufacturing order for ${manufacturingOrderQuantity} ${item.name}.`
           : `Review manufacturing setup for ${item.name}.`,
     });
   }

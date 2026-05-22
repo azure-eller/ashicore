@@ -310,6 +310,7 @@ const ingredientActualSchema = z.object({
 
 export const completeManufacturingOrderSchema = z.object({
   actualQuantity: positiveDecimalString("Actual quantity").optional(),
+  batchCount: z.number().int("Batches must be a whole number").positive("Batches must be positive").optional(),
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
   ingredientActuals: z.array(ingredientActualSchema).default([]),
   confirmNegativeStock: z.boolean().optional(),

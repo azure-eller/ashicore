@@ -88,14 +88,18 @@ function CompletionDialogForm({
 }) {
   const unitName = order.unitName;
   const completesBatchOrder = mode === "complete" && order.manufacturingMode === "batch";
+  const completesPartialBatchOrder = mode === "output" && order.manufacturingMode === "batch";
   const hasRecordedOutput = Number(order.actualQuantity ?? "0") > 0;
+  const remainingBatchCount = order.batches.filter((batch) => batch.status !== "completed").length;
 
   const defaultQuantity =
     mode === "complete" && !hasRecordedOutput && !completesBatchOrder
       ? order.plannedQuantity
       : "";
+  const defaultBatchCount = completesPartialBatchOrder ? "1" : "";
 
   const [rawQuantity, setRawQuantity] = useState(defaultQuantity);
+  const [rawBatchCount, setRawBatchCount] = useState(defaultBatchCount);
   const [disposition, setDisposition] = useState<OutputDisposition>("available");
   const [shortage, setShortage] = useState<ManufacturingReleaseWarningPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -105,7 +109,15 @@ function CompletionDialogForm({
   }, [rawQuantity]);
 
   const quantityNumber = Number(quantity);
-  const quantityRequired = mode !== "complete" || (!hasRecordedOutput && !completesBatchOrder);
+  const batchCount = Number(rawBatchCount);
+  const batchCountValid =
+    !completesPartialBatchOrder ||
+    (Number.isInteger(batchCount) &&
+      batchCount > 0 &&
+      batchCount <= remainingBatchCount);
+  const quantityRequired =
+    !completesPartialBatchOrder &&
+    (mode !== "complete" || (!hasRecordedOutput && !completesBatchOrder));
   const quantityValid =
     !quantityRequired || (Number.isFinite(quantityNumber) && quantityNumber > 0);
 
@@ -117,6 +129,12 @@ function CompletionDialogForm({
             outputDisposition: disposition,
             confirmNegativeStock,
           })
+        : completesPartialBatchOrder
+          ? completeManufacturingOrder(order.id, {
+              batchCount,
+              outputDisposition: disposition,
+              confirmNegativeStock,
+            })
         : recordManufacturingOutput(order.id, {
             quantity,
             outputDisposition: disposition,
@@ -141,6 +159,8 @@ function CompletionDialogForm({
       : "Record anyway"
     : mode === "complete"
       ? "Complete"
+      : completesPartialBatchOrder
+        ? "Complete batches"
       : "Record output";
 
   return (
@@ -153,6 +173,8 @@ function CompletionDialogForm({
           <DialogDescription>
             {completesBatchOrder
               ? "This will produce the remaining planned batch output, close all remaining batches, and move the order to Done."
+              : completesPartialBatchOrder
+                ? "Complete whole batches. The order stays open for the remaining batches."
               : mode === "complete"
                 ? "This will pick all materials and produce the output, then close the order."
                 : "Record completed output. The order stays open for the remaining quantity."}
@@ -160,7 +182,23 @@ function CompletionDialogForm({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          {hasRecordedOutput && mode === "complete" && !completesBatchOrder ? (
+          {completesPartialBatchOrder ? (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium" htmlFor="mo-batch-count">
+                Batches to complete
+              </label>
+              <Input
+                id="mo-batch-count"
+                inputMode="numeric"
+                value={rawBatchCount}
+                onChange={(event) => setRawBatchCount(event.target.value)}
+                autoFocus
+              />
+              <p className="text-xs text-muted-foreground">
+                {remainingBatchCount} remaining · {order.expectedBatchYield ?? "—"} {unitName} each
+              </p>
+            </div>
+          ) : hasRecordedOutput && mode === "complete" && !completesBatchOrder ? (
             <p className="text-sm text-muted-foreground">
               {formatQuantity(order.actualQuantity ?? "0")} {unitName} has already been
               recorded. Completing closes the order without producing another lot.
@@ -228,7 +266,7 @@ function CompletionDialogForm({
           </Button>
           <Button
             onClick={() => submit.mutate(shortage != null)}
-            disabled={submit.isPending || !quantityValid}
+            disabled={submit.isPending || !quantityValid || !batchCountValid}
           >
             {submit.isPending ? "Working…" : confirmLabel}
           </Button>

@@ -52,6 +52,7 @@ export async function completeManufacturingOrder(
   orderId: string,
   input: {
     actualQuantity?: string;
+    batchCount?: number;
     outputDisposition: OutputDisposition;
     confirmNegativeStock?: boolean;
   },
@@ -63,6 +64,7 @@ export async function completeManufacturingOrder(
     }),
     body: JSON.stringify({
       actualQuantity: input.actualQuantity,
+      batchCount: input.batchCount,
       outputDisposition: input.outputDisposition,
       ingredientActuals: [],
       confirmNegativeStock: input.confirmNegativeStock ?? false,
