@@ -96,6 +96,21 @@ export async function getBomRevisionHistoryInTx(tx: Tx, productId: string) {
 }
 
 export async function getBomRevisionComponentsInTx(tx: Tx, bomRevisionId: string) {
+  return (await getBomRevisionComponentsByRevisionIdInTx(tx, [bomRevisionId])).get(
+    bomRevisionId
+  ) ?? [];
+}
+
+export async function getBomRevisionComponentsByRevisionIdInTx(
+  tx: Tx,
+  bomRevisionIds: string[]
+) {
+  const uniqueRevisionIds = [...new Set(bomRevisionIds)];
+  const empty = new Map<string, BomRevisionComponentSnapshot[]>();
+  if (uniqueRevisionIds.length === 0) {
+    return empty;
+  }
+
   const components = await tx
     .select({
       id: bomRevisionComponents.id,
@@ -109,11 +124,11 @@ export async function getBomRevisionComponentsInTx(tx: Tx, bomRevisionId: string
       sortOrder: bomRevisionComponents.sortOrder,
     })
     .from(bomRevisionComponents)
-    .where(eq(bomRevisionComponents.bomRevisionId, bomRevisionId))
+    .where(inArray(bomRevisionComponents.bomRevisionId, uniqueRevisionIds))
     .orderBy(asc(bomRevisionComponents.sortOrder), asc(bomRevisionComponents.createdAt));
 
   if (components.length === 0) {
-    return [];
+    return empty;
   }
 
   const componentIds = components.map((component) => component.id);
@@ -186,11 +201,18 @@ export async function getBomRevisionComponentsInTx(tx: Tx, bomRevisionId: string
     alternatesByComponentId.set(alternate.bomRevisionComponentId, bucket);
   }
 
-  return components.map((component) => ({
-    ...component,
-    constraints: constraintsByComponentId.get(component.id) ?? [],
-    alternates: alternatesByComponentId.get(component.id) ?? [],
-  }));
+  const componentsByRevisionId = new Map<string, BomRevisionComponentSnapshot[]>();
+  for (const component of components) {
+    const bucket = componentsByRevisionId.get(component.bomRevisionId) ?? [];
+    bucket.push({
+      ...component,
+      constraints: constraintsByComponentId.get(component.id) ?? [],
+      alternates: alternatesByComponentId.get(component.id) ?? [],
+    });
+    componentsByRevisionId.set(component.bomRevisionId, bucket);
+  }
+
+  return componentsByRevisionId;
 }
 
 export async function getCurrentBomComponentsInTx(tx: Tx, productId: string) {
