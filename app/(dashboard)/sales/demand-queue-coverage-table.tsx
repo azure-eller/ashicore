@@ -128,11 +128,11 @@ export function DemandQueueCoverageTable({
                       {formatQuantity(demand.inStockQty)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {formatQuantity(demand.expectedQty)}
+                      <div>{formatQuantity(demand.expectedQty)}</div>
                       {demand.earliestExpectedDate ? (
-                        <span className="ml-(--space-1) text-muted-foreground">
-                          {formatDate(demand.earliestExpectedDate)}
-                        </span>
+                        <div className="text-[length:var(--text-xs)] text-muted-foreground">
+                          Expected {formatDate(demand.earliestExpectedDate)}
+                        </div>
                       ) : null}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">

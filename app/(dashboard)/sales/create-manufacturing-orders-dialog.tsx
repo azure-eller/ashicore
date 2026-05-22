@@ -328,7 +328,7 @@ export function CreateManufacturingOrdersDialog({
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
                 <label className="text-sm font-medium" htmlFor="mo-planned-date">
-                  Planned Date
+                  Production deadline
                 </label>
                 <DatePicker
                   id="mo-planned-date"
@@ -501,7 +501,7 @@ export function CreateManufacturingOrdersDialog({
                         <TableHead>Order</TableHead>
                         <TableHead>Item</TableHead>
                         <TableHead className="w-28 text-right">Qty</TableHead>
-                        <TableHead className="w-32">Date</TableHead>
+                        <TableHead className="w-32">Production deadline</TableHead>
                         <TableHead className="w-24">Priority</TableHead>
                       </TableRow>
                     </TableHeader>

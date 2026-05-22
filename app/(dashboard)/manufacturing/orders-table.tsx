@@ -466,7 +466,7 @@ export function OrdersTable({
       },
       {
         field: "plannedDate",
-        headerName: "Planned Date",
+        headerName: "Production deadline",
         width: 150,
         valueFormatter: ({ value }) => formatDate(value as string | null),
       },

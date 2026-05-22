@@ -287,7 +287,8 @@ test("demand queue: manufacturing ingredient demand claims component stock befor
     confirmShortage: true,
   });
 
-  // The sales line is now covered by expected production (no longer short).
+  // The sales line is now covered by expected production (no longer short),
+  // surfaced as "Expected <date>" for the producing MO's deadline (tomorrow).
   await page.reload();
   await expect(page.getByText("Allocation · Demand queue")).toBeVisible();
   const coveredSummary = page
@@ -295,6 +296,7 @@ test("demand queue: manufacturing ingredient demand claims component stock befor
     .filter({ hasText: "DQ Tote" })
     .first();
   await expect(coveredSummary).toBeVisible();
+  await expect(page.getByText("Expected 5/23/2026").first()).toBeVisible();
 
   // Sanity: the org has no active allocations while in demand_queue mode.
   const activeForTote = await db
