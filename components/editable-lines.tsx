@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   CellClassParams,
   ColDef,
@@ -344,8 +344,17 @@ export function InventoryItemLineCellEditor<
   TOption extends InventoryItemComboboxOption,
 >(props: InventoryItemLineCellEditorProps<TData, TOption>) {
   const editorRef = useRef<HTMLDivElement>(null);
+  const stopEditingFrameRef = useRef<number | null>(null);
   const valueRef = useRef<string | null>(props.value ?? null);
   const [value, setValue] = useState(props.value ?? "");
+
+  useEffect(() => {
+    return () => {
+      if (stopEditingFrameRef.current != null) {
+        window.cancelAnimationFrame(stopEditingFrameRef.current);
+      }
+    };
+  }, []);
 
   useGridCellEditor({
     getValidationElement: () => editorRef.current ?? props.eGridCell,
@@ -368,7 +377,15 @@ export function InventoryItemLineCellEditor<
           valueRef.current = next;
           setValue(next);
           props.onValueChange(next);
-          if (next) props.stopEditing();
+          if (next && stopEditingFrameRef.current == null) {
+            // Popup selection can blur the grid before AG Grid's edit stop commits.
+            // Write through the column valueSetter immediately so every wrapper sees the same committed row.
+            props.node.setDataValue(props.column, next, "data");
+            stopEditingFrameRef.current = window.requestAnimationFrame(() => {
+              stopEditingFrameRef.current = null;
+              props.stopEditing(true);
+            });
+          }
         }}
         inputAriaInvalid={false}
         inputClassName="h-full w-full min-w-0 border-0 bg-transparent shadow-none"

@@ -621,6 +621,90 @@ test.describe("Sales write-path smoke", () => {
     await expect(dialogShipmentQuantityInput).toHaveValue("2");
   });
 
+  test("sales order item picker fills the blank line and saves it", async ({ page, db }) => {
+    const pickerCustomerName = `Fast Picker Customer ${ts}`;
+    const pickerProductName = `Fast Picker Product ${ts}`;
+    const pickerSku = `FAST-PICKER-${ts}`;
+
+    const customerResult = await createCustomer({
+      name: pickerCustomerName,
+      email: `fast-picker-${ts}@example.com`,
+      shipLine1: "12 Picker Lane",
+      shipCity: "Denver",
+      shipRegion: "CO",
+      shipPostcode: "80202",
+      shipCountry: "US",
+    });
+    expect(customerResult.status).toBe(201);
+
+    const componentResult = await createItem({
+      name: `Fast Picker Component ${ts}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-PICKER-COMP-${ts}`,
+      category: `Fast Sales Picker ${ts}`,
+      description: "Component for sales order picker regression product",
+      defaultPurchasePrice: "4.00",
+      defaultSellingPrice: null,
+      stock: "5",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(componentResult.status).toBe(201);
+
+    const productResult = await createItem({
+      name: pickerProductName,
+      itemType: "product",
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: pickerSku,
+      category: `Fast Sales Picker ${ts}`,
+      description: "Product for sales order picker regression",
+      defaultPurchasePrice: "4.00",
+      defaultSellingPrice: "12.50",
+      stock: "5",
+      safetyStock: "0",
+      bom: [{ componentId: componentResult.body.id, quantity: "1" }],
+    });
+    expect(productResult.status).toBe(201);
+
+    await page.goto(`/sales/order?customerId=${customerResult.body.id}`);
+    await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
+    const pickerOrderId = getIdFromUrl(page.url());
+
+    const lineGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
+    await expect(lineGrid).toContainText("Search items...");
+
+    await lineGrid.locator('.ag-row [col-id="itemId"]').first().click();
+    const itemInput = page.getByPlaceholder("Search items...").first();
+    await expect(itemInput).toBeVisible();
+    await itemInput.fill(pickerProductName);
+    await page.getByRole("option", { name: new RegExp(pickerProductName) }).click();
+
+    await expect(lineGrid.locator(".ag-row").filter({ hasText: pickerProductName }).first())
+      .toContainText(pickerSku);
+    await expect(lineGrid).toContainText("$12.50");
+
+    await expect
+      .poll(async () => {
+        return db
+          .select({
+            itemId: salesOrderLines.itemId,
+            quantity: salesOrderLines.quantity,
+            unitPrice: salesOrderLines.unitPrice,
+          })
+          .from(salesOrderLines)
+          .where(eq(salesOrderLines.salesOrderId, pickerOrderId));
+      })
+      .toEqual([
+        {
+          itemId: productResult.body.id,
+          quantity: "1.0000",
+          unitPrice: "12.50",
+        },
+      ]);
+  });
+
   test("auto-generates numbers and rejects duplicate custom sales order numbers", async () => {
     const autoOrderResult = await createSalesOrder({
       customerId,
