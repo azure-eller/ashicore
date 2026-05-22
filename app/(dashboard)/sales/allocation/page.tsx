@@ -44,12 +44,19 @@ async function SalesAllocationData() {
     "read"
   );
 
-  const [initialPools, manufacturingDemandRows] = await Promise.all([
-    getInitialAllocationPools(salesProductIds, canReadManufacturing),
+  const manufacturingDemandRows = canReadManufacturing
+    ? await getInitialManufacturingDemandRows()
+    : [];
+  const allocationItemIds = [
+    ...salesProductIds,
+    ...manufacturingDemandRows.flatMap((row) =>
+      row.ingredients.map((ingredient) => ingredient.itemId)
+    ),
+  ];
+  const initialPools = await getInitialAllocationPools(
+    allocationItemIds,
     canReadManufacturing
-      ? getInitialManufacturingDemandRows(salesProductIds)
-      : Promise.resolve([] as ManufacturingAllocationDemandRow[]),
-  ]);
+  );
   return (
     <SalesAllocationTable
       initialData={orders}
@@ -132,13 +139,10 @@ async function getInitialAllocationPools(
   });
 }
 
-async function getInitialManufacturingDemandRows(
-  itemIds: string[]
-): Promise<ManufacturingAllocationDemandRow[]> {
-  const uniqueItemIds = [...new Set(itemIds)];
-  if (uniqueItemIds.length === 0) return [];
-
+async function getInitialManufacturingDemandRows(): Promise<
+  ManufacturingAllocationDemandRow[]
+> {
   return withAuthedOrgContext((tx, orgId) =>
-    getManufacturingAllocationDemandRowsInTx(tx, orgId, uniqueItemIds)
+    getManufacturingAllocationDemandRowsInTx(tx, orgId)
   );
 }

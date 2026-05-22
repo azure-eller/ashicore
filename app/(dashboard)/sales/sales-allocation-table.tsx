@@ -251,7 +251,7 @@ function flattenProducts(items: ItemRow[]) {
 }
 
 function getInventoryProducts(inventory: ItemRow[]) {
-  return inventory.flatMap((item): AllocationProduct[] => {
+  return flattenProducts(inventory).flatMap((item): AllocationProduct[] => {
     const toStandaloneProduct = (row: ItemRow): AllocationProduct => ({
       itemId: row.id,
       label: row.displayName || row.name,
@@ -282,7 +282,8 @@ function getInventoryById(items: ItemRow[]) {
 
 function getAllocatorProducts(
   orders: SalesOrderListRow[],
-  inventory: ItemRow[]
+  inventory: ItemRow[],
+  manufacturingDemandRows: ManufacturingAllocationDemandRow[]
 ) {
   const productsById = new Map(
     getInventoryProducts(inventory).map((product) => [product.itemId, product])
@@ -314,6 +315,17 @@ function getAllocatorProducts(
         totalDemandQty: existing?.totalDemandQty ?? 0,
         reservationSummaries: [],
         isStandalone,
+        hasActiveDemand: true,
+      });
+    });
+  });
+
+  manufacturingDemandRows.forEach((row) => {
+    row.ingredients.forEach((ingredient) => {
+      const existing = productsById.get(ingredient.itemId);
+      if (!existing) return;
+      productsById.set(ingredient.itemId, {
+        ...existing,
         hasActiveDemand: true,
       });
     });
@@ -1615,22 +1627,31 @@ export function SalesAllocationTable({
     },
   });
 
+  const { data: manufacturingDemandRows = initialManufacturingDemandRows } = useQuery({
+    queryKey: ["allocation-manufacturing-demands"],
+    queryFn: () =>
+      apiJson<ManufacturingAllocationDemandRow[]>(
+        "/api/allocation/manufacturing-demands",
+        {
+          fallbackError: "Failed to fetch manufacturing demand.",
+        }
+      ),
+    initialData: initialManufacturingDemandRows,
+  });
   const allProducts = useMemo(
-    () => getAllocatorProducts(orders, inventory),
-    [orders, inventory]
+    () => getAllocatorProducts(orders, inventory, manufacturingDemandRows),
+    [orders, inventory, manufacturingDemandRows]
   );
   const poolParams = useMemo(() => {
     const params = new URLSearchParams();
-    allProducts.forEach((product) => params.append("itemId", product.itemId));
-    return params.toString();
-  }, [allProducts]);
-  const salesDemandParams = useMemo(() => {
-    const params = new URLSearchParams();
     allProducts
-      .filter((product) => product.hasActiveDemand)
+      .filter(
+        (product) =>
+          product.hasActiveDemand || shownExtraProductIds.has(product.itemId)
+      )
       .forEach((product) => params.append("itemId", product.itemId));
     return params.toString();
-  }, [allProducts]);
+  }, [allProducts, shownExtraProductIds]);
   const { data: allocationPools = [], dataUpdatedAt: poolsUpdatedAt } = useQuery({
     queryKey: ["allocation-pools", poolParams],
     enabled: poolParams.length > 0,
@@ -1639,18 +1660,6 @@ export function SalesAllocationTable({
         fallbackError: "Failed to fetch allocation pools.",
       }),
     initialData: initialPools,
-  });
-  const { data: manufacturingDemandRows = initialManufacturingDemandRows } = useQuery({
-    queryKey: ["allocation-manufacturing-demands", salesDemandParams],
-    enabled: salesDemandParams.length > 0,
-    queryFn: () =>
-      apiJson<ManufacturingAllocationDemandRow[]>(
-        `/api/allocation/manufacturing-demands?${salesDemandParams}`,
-        {
-          fallbackError: "Failed to fetch manufacturing demand.",
-        }
-      ),
-    initialData: initialManufacturingDemandRows,
   });
 
   useEffect(() => {
