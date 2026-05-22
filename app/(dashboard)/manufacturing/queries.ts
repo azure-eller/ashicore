@@ -6285,7 +6285,114 @@ export async function saveManufacturingOutputAllocation(
   });
 }
 
-export async function completeManufacturingOrder(
+async function getManufacturingOrderCompletionTarget(id: string) {
+  return withAuthedOrgContext(async (tx) => {
+    const [order] = await tx
+      .select({
+        id: manufacturingOrders.id,
+        manufacturingMode: manufacturingOrders.manufacturingMode,
+      })
+      .from(manufacturingOrders)
+      .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)));
+
+    if (!order) {
+      throw new ManufacturingError("Order not found", 404);
+    }
+
+    return order;
+  });
+}
+
+async function completeBatchModeManufacturingOrder(
+  id: string,
+  payload: CompleteManufacturingOrder,
+  options?: { idempotencyKey?: string }
+): Promise<{ id: string }> {
+  if (payload.actualQuantity != null) {
+    throw new ManufacturingError(
+      "Batch-mode order completion uses each remaining batch's planned quantity.",
+      400
+    );
+  }
+
+  for (let iteration = 0; iteration < 1000; iteration += 1) {
+    const execution = await getManufacturingExecutionDetail(id);
+
+    if (!execution) {
+      throw new ManufacturingError("Order not found", 404);
+    }
+
+    if (execution.manufacturingMode !== "batch") {
+      throw new ManufacturingError("Only batch-mode orders can be batch completed.", 400);
+    }
+
+    if (execution.status === "done") {
+      return { id };
+    }
+
+    if (execution.status !== "open") {
+      throw new ManufacturingError("Only open orders can be completed", 400);
+    }
+
+    const batch =
+      execution.currentBatch ??
+      execution.batches.find((currentBatch) => currentBatch.status !== "completed");
+
+    if (!batch) {
+      return { id };
+    }
+
+    const plannedQuantity = Number(batch.plannedQuantity);
+    if (!Number.isFinite(plannedQuantity) || plannedQuantity <= 0) {
+      throw new ManufacturingError("Planned batch quantity is invalid.", 400);
+    }
+
+    const existingOutputQuantity = Number(batch.actualQuantity ?? "0");
+    const remainingOutputQuantity = normalizeQuantityNumber(
+      plannedQuantity - existingOutputQuantity
+    );
+
+    if (remainingOutputQuantity > 0) {
+      await recordManufacturingOutput(
+        id,
+        {
+          quantity: normalizeNumeric(remainingOutputQuantity),
+          outputDisposition: payload.outputDisposition,
+          notes: null,
+          confirmNegativeStock: payload.confirmNegativeStock,
+        },
+        {
+          batchId: batch.id,
+          idempotencyKey: deriveInventoryIdempotencyKey(
+            options?.idempotencyKey,
+            `batch-output:${batch.id}`
+          ) ?? undefined,
+        }
+      );
+    }
+
+    await completeManufacturingBatch(
+      id,
+      batch.id,
+      {
+        actualQuantity: undefined,
+        outputDisposition: payload.outputDisposition,
+        ingredientActuals: [],
+        confirmNegativeStock: payload.confirmNegativeStock,
+      },
+      {
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          `batch-complete:${batch.id}`
+        ) ?? undefined,
+      }
+    );
+  }
+
+  throw new ManufacturingError("Too many batches to complete in one request.", 400);
+}
+
+async function completeDiscreteManufacturingOrder(
   id: string,
   payload: CompleteManufacturingOrder,
   options?: { idempotencyKey?: string }
@@ -6310,13 +6417,6 @@ export async function completeManufacturingOrder(
 
     if (!isOpenManufacturingOrder(order)) {
       throw new ManufacturingError("Only open orders can be completed", 400);
-    }
-
-    if (order.manufacturingMode === "batch") {
-      throw new ManufacturingError(
-        "Batch-mode orders must be completed one batch at a time.",
-        400
-      );
     }
 
     const outputQuantity = await getOutputQuantityInTx(tx, {
@@ -6575,6 +6675,20 @@ export async function completeManufacturingOrder(
 
     return completed;
   });
+}
+
+export async function completeManufacturingOrder(
+  id: string,
+  payload: CompleteManufacturingOrder,
+  options?: { idempotencyKey?: string }
+): Promise<{ id: string }> {
+  const order = await getManufacturingOrderCompletionTarget(id);
+
+  if (order.manufacturingMode === "batch") {
+    return completeBatchModeManufacturingOrder(id, payload, options);
+  }
+
+  return completeDiscreteManufacturingOrder(id, payload, options);
 }
 
 export async function startManufacturingBatch(

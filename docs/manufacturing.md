@@ -78,8 +78,8 @@ Use:
 - `/api/manufacturing-orders/[id]/execution` and related execution endpoints as the mobile/API contract
 
 The web app must not expose a `/manufacturing/orders/[id]/execute` workflow. Web detail/list
-surfaces can change simple status metadata and record discrete output through the shared
-status control, but field execution belongs to mobile/API clients.
+surfaces can change simple status metadata and complete output through the shared status
+control, but guided field execution belongs to mobile/API clients.
 
 ## Snapshot Model
 
@@ -246,7 +246,7 @@ Discrete completion should hard-block with a domain error if any ingredient rema
 
 ### Batch Orders
 
-Batch-mode orders complete one batch at a time:
+Batch-mode orders may be executed one batch at a time:
 
 - worker starts the next pending batch
 - picks the current batch’s ingredients
@@ -263,11 +263,13 @@ Each completed batch:
 
 The parent order:
 
-- stays `released` while any batch is `pending` or `in_progress`
+- stays `open` while any batch is `pending` or `in_progress`
 - accumulates total `actualQuantity` and cost across completed batches
-- becomes `completed` automatically when the final batch completes
+- becomes `done` automatically when the final batch completes
 
-Direct parent completion is invalid for batch-mode orders.
+Direct parent completion is valid for batch-mode orders. It completes every remaining
+batch at its planned remaining output in one API request, using the same output and
+batch-completion paths as sequential execution.
 
 ## Quantity and Cost Rules
 
