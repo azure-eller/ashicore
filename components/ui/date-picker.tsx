@@ -85,7 +85,6 @@ function DatePicker({
   function handleSelect(date?: Date) {
     onChange?.(date ? toDateString(date) : "")
     setOpen(false)
-    onBlur?.()
   }
 
   return (

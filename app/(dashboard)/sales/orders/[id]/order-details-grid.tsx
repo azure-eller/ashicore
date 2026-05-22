@@ -6,6 +6,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Controller, useForm } from "react-hook-form";
 import type { z } from "zod";
 import { AddressFields } from "@/components/address-fields";
+import { CommitInput } from "@/components/card-page/commit-input";
 import {
   DeliveryAddressInput,
   makeDeliveryAddressOption,
@@ -109,7 +110,14 @@ export function OrderDetailsGrid({
   return (
     <DetailsContext.Provider value={{ orderId: order.id, draft }}>
       <CardSection title="Order details">
-        <div className={`${cardStyles.formRow} ${cardStyles.formRowFour}`}>
+        <div className={`${cardStyles.formRow} ${cardStyles.formRowFive}`}>
+          <TextCell
+            label="Sales order"
+            field="orderNumber"
+            value={order.orderNumber}
+            editable={editable}
+            placeholder="Auto"
+          />
           <CustomerCell
             order={order}
             editable={editable}
@@ -139,6 +147,55 @@ export function OrderDetailsGrid({
         </div>
       </CardSection>
     </DetailsContext.Provider>
+  );
+}
+
+function TextCell<Field extends keyof PatchSalesOrderHeader>({
+  label,
+  field,
+  value,
+  editable,
+  required,
+  placeholder,
+}: {
+  label: string;
+  field: Field;
+  value: string | null;
+  editable: boolean;
+  required?: boolean;
+  placeholder?: string;
+}) {
+  const { draft } = useContext(DetailsContext);
+  const commit = useFieldCommit(field);
+
+  return (
+    <CellShell label={label} required={required}>
+      {editable ? (
+        <CommitInput
+          label={label}
+          value={value}
+          required={required}
+          placeholder={placeholder}
+          onDraftChange={(next) => {
+            if (draft) {
+              draft.patchHeader({ [field]: next || null } as PatchSalesOrderHeader);
+            }
+          }}
+          onCommit={(next) => {
+            if (next === (value ?? null)) return;
+            if (draft) {
+              draft.patchHeader({ [field]: next } as PatchSalesOrderHeader);
+              return;
+            }
+            commit(next as PatchSalesOrderHeader[Field]);
+          }}
+        />
+      ) : (
+        <div className={`${cardStyles.readOnlyFieldValue} ${cardStyles.mono}`}>
+          {value || "—"}
+        </div>
+      )}
+    </CellShell>
   );
 }
 

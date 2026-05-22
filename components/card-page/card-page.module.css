@@ -376,6 +376,10 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.formRowFive {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .sectionRowTwo {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -561,7 +565,8 @@
   .formRow,
   .formRowPo,
   .formRowThree,
-  .formRowFour {
+  .formRowFour,
+  .formRowFive {
     grid-template-columns: 1fr;
   }
 

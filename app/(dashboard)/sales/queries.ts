@@ -7672,6 +7672,14 @@ export async function patchSalesOrderHeader(
     }
 
     const updates: Record<string, unknown> = {};
+    if (patch.orderNumber !== undefined) {
+      updates.orderNumber = await resolveSalesOrderNumberInTx(
+        tx,
+        orgId,
+        patch.orderNumber,
+        { excludeId: id }
+      );
+    }
     if (patch.customerId != null) {
       updates.customerId = customer.id;
       updates.customerName = customer.name;
