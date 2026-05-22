@@ -38,6 +38,36 @@ function quantityString(value: number) {
   return normalizeNumeric(roundQuantity(Math.max(0, value)));
 }
 
+function aggregateSourceClaims(claims: AllocationSourceClaim[]) {
+  const claimsByKey = new Map<string, AllocationSourceClaim>();
+
+  for (const claim of claims) {
+    const demandIdentity =
+      claim.demandType === "manufacturing_order_ingredient"
+        ? claim.href ?? claim.demandLabel
+        : claim.demandId;
+    const key = [
+      claim.demandType,
+      demandIdentity,
+      claim.sourceType,
+      claim.sourceId,
+      claim.itemId,
+    ].join(":");
+    const existing = claimsByKey.get(key);
+    if (!existing) {
+      claimsByKey.set(key, claim);
+      continue;
+    }
+
+    claimsByKey.set(key, {
+      ...existing,
+      quantity: quantityString(toQuantity(existing.quantity) + toQuantity(claim.quantity)),
+    });
+  }
+
+  return [...claimsByKey.values()];
+}
+
 async function loadItemInTx(tx: Tx, itemId: string) {
   const [row] = await tx
     .select({
@@ -370,20 +400,10 @@ export async function getAllocationWorkspaceInTx(
           : assignment.href,
     };
   });
-  const sourceClaimsByKey = new Map<string, AllocationSourceClaim>();
-  [...assignmentClaims, ...productionClaims].forEach((claim) => {
-    const key = [
-      claim.demandType,
-      claim.demandId,
-      claim.sourceType,
-      claim.sourceId,
-      claim.itemId,
-    ].join(":");
-    if (!sourceClaimsByKey.has(key)) {
-      sourceClaimsByKey.set(key, claim);
-    }
-  });
-  const sourceClaims = [...sourceClaimsByKey.values()];
+  const sourceClaims = aggregateSourceClaims([
+    ...assignmentClaims,
+    ...productionClaims,
+  ]);
 
   const assignmentsByDemand = new Map<string, AllocationAssignment[]>();
   for (const assignment of assignments) {
