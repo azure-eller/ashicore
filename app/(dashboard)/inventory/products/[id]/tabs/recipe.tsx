@@ -144,18 +144,30 @@ export function ProductRecipeTab({
     <section className={styles.section}>
       <h2 className={styles.sectionHeading}>
         Recipe / Bill of Materials
-        <span className={styles.hint}>
-          {recipeBasis === "batch" ? "per 1 production batch" : "per 1 unit of product"}
-        </span>
       </h2>
 
       <div className="flex flex-col gap-(--space-3) md:flex-row md:items-end md:justify-between">
-        <ActiveVariantSelect
-          variants={visibleVariants}
-          value={focusItemId}
-          onChange={handleVariantChange}
-          hideWhenSingle={false}
-        />
+        <div className="flex flex-col gap-(--space-3) md:flex-row md:items-end md:gap-(--space-6)">
+          <ActiveVariantSelect
+            variants={visibleVariants}
+            value={focusItemId}
+            onChange={handleVariantChange}
+            hideWhenSingle={false}
+          />
+          <div className="flex items-center gap-(--space-2) md:pb-(--space-3)">
+            <Checkbox
+              id="recipe-basis-batch"
+              checked={recipeBasis === "batch"}
+              disabled={!canEditProduct}
+              onCheckedChange={(checked) => {
+                if (!canEditProduct) return;
+                setRecipeBasis(checked === true ? "batch" : "unit");
+                setDirty(true);
+              }}
+            />
+            <Label htmlFor="recipe-basis-batch">This product is produced in batches</Label>
+          </div>
+        </div>
         {canEditProduct ? (
           <div className="flex shrink-0 flex-nowrap items-center justify-end gap-(--space-1) overflow-x-auto">
             <Button
@@ -220,47 +232,30 @@ export function ProductRecipeTab({
       </p>
 
       <div className="mb-(--space-4) space-y-(--space-3)">
-        <div className="flex items-start gap-(--space-3)">
-          <Checkbox
-            id="recipe-basis-batch"
-            checked={recipeBasis === "batch"}
-            onCheckedChange={(checked) => {
-              if (!canEditProduct) return;
-              setRecipeBasis(checked === true ? "batch" : "unit");
-              setDirty(true);
-            }}
-          />
-          <div className="min-w-0 space-y-(--space-1)">
-            <Label htmlFor="recipe-basis-batch">
-              This product is produced in batches
-            </Label>
-            <p className="text-[length:var(--text-sm)] text-muted-foreground">
-              {recipeBasis === "batch"
-                ? "Use the recipe to define what is added for 1 production batch, such as one mixer run. You'll also enter the expected output from that batch."
-                : "Use the recipe to define what is needed for 1 unit of finished product."}
-            </p>
-          </div>
-        </div>
-
         <div className="text-[length:var(--text-sm)] font-medium">
           Recipe basis: {recipeBasis === "batch" ? "Per 1 batch" : "Per 1 unit"}
         </div>
 
         {recipeBasis === "batch" ? (
-          <div className="grid max-w-sm grid-cols-[1fr_auto] items-center gap-(--space-2)">
-            <Input
-              aria-label="Expected output per batch"
-              inputMode="decimal"
-              value={expectedBatchYield}
-              onChange={(event) => {
-                setExpectedBatchYield(event.target.value);
-                setDirty(true);
-              }}
-              disabled={!canEditProduct}
-            />
-            <span className="text-[length:var(--text-sm)] text-muted-foreground">
-              {card.family.unitName ?? "units"}
-            </span>
+          <div className="max-w-sm space-y-(--space-1)">
+            <Label htmlFor="expected-output-per-batch">Output Per Batch:</Label>
+            <div className="relative">
+              <Input
+                id="expected-output-per-batch"
+                aria-label="Output per batch"
+                inputMode="decimal"
+                value={expectedBatchYield}
+                onChange={(event) => {
+                  setExpectedBatchYield(event.target.value);
+                  setDirty(true);
+                }}
+                disabled={!canEditProduct}
+                className="pr-(--space-16)"
+              />
+              <span className="pointer-events-none absolute inset-y-0 right-(--space-3) flex items-center text-[length:var(--text-sm)] text-muted-foreground">
+                {card.family.unitName ?? "units"}
+              </span>
+            </div>
           </div>
         ) : null}
       </div>
