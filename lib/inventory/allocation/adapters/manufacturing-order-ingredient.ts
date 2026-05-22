@@ -33,6 +33,7 @@ function mapManufacturingIngredientDemandRow(row: {
   pickedQuantity: string;
   sortOrder: number;
   createdAt: Date;
+  priorityRank: number | null;
 }): AllocationDemandAdapterRow {
   const plannedQty = toQuantity(row.plannedQuantity);
   const pickedQty = toQuantity(row.pickedQuantity);
@@ -54,6 +55,9 @@ function mapManufacturingIngredientDemandRow(row: {
     href: `/manufacturing/orders/${row.manufacturingOrderId}`,
     sortDate: row.plannedDate,
     sortLabel: `${row.orderNumber}:${row.sortOrder}:${row.createdAt.toISOString()}`,
+    priorityRank: row.priorityRank,
+    priorityDate: row.plannedDate,
+    priorityLabel: row.orderNumber,
   };
 }
 
@@ -79,6 +83,7 @@ async function loadManufacturingIngredientRowsInTx(
       ).as("pickedQuantity"),
       sortOrder: manufacturingOrderIngredients.sortOrder,
       createdAt: manufacturingOrderIngredients.createdAt,
+      priorityRank: manufacturingOrders.priorityRank,
     })
     .from(manufacturingOrderIngredients)
     .innerJoin(

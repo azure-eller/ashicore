@@ -20,6 +20,10 @@ export function getSettingsSections({
     sections.push({ id: "team", title: "Team" });
   }
 
+  if (showTeam) {
+    sections.push({ id: "allocation", title: "Allocation" });
+  }
+
   if (showReports) {
     sections.push({ id: "reports", title: "Reports" });
   }

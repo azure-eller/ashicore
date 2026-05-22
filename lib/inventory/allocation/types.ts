@@ -118,6 +118,11 @@ export type AllocationDemandAdapterRow = {
   href?: string | null;
   sortDate: string | null;
   sortLabel: string;
+  // Ranking from the parent document (SO/MO), used by demand-queue mode so the
+  // queue engine never has to know about SO/MO schemas.
+  priorityRank: number | null;
+  priorityDate: string | null;
+  priorityLabel: string;
 };
 
 export type AllocationDemandAdapter = {

@@ -37,6 +37,7 @@ function mapShipmentDemandRow(row: {
   sequence: number;
   sortOrder: number;
   createdAt: Date;
+  priorityRank: number | null;
 }): AllocationDemandAdapterRow {
   return {
     demandType: "sales_shipment_line",
@@ -52,6 +53,9 @@ function mapShipmentDemandRow(row: {
     openQty: quantityString(toQuantity(row.quantity)),
     sortDate: row.scheduledDate,
     sortLabel: `${row.orderNumber}:${row.sequence}:${row.sortOrder}:${row.createdAt.toISOString()}`,
+    priorityRank: row.priorityRank,
+    priorityDate: row.scheduledDate,
+    priorityLabel: row.shipmentNumber,
   };
 }
 
@@ -75,6 +79,7 @@ async function loadShipmentRowsInTx(
       sequence: salesShipments.sequence,
       sortOrder: salesShipmentLines.sortOrder,
       createdAt: salesShipmentLines.createdAt,
+      priorityRank: salesOrders.priorityRank,
     })
     .from(salesShipmentLines)
     .innerJoin(salesShipments, eq(salesShipmentLines.salesShipmentId, salesShipments.id))
