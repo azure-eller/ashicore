@@ -527,16 +527,77 @@ function AlternatesCell({
   );
 }
 
-function UnitCell({
+function getComponentUnit(
+  row: BomGridRow | undefined,
+  componentMap: Map<string, AvailableComponent>
+) {
+  return row?.componentId ? (componentMap.get(row.componentId)?.unit ?? null) : null;
+}
+
+function QuantityCell({
   data,
   componentMap,
 }: ICellRendererParams<BomGridRow> & {
   componentMap: Map<string, AvailableComponent>;
 }) {
+  const unit = getComponentUnit(data, componentMap);
+
   return (
-    <span className="text-muted-foreground">
-      {data?.componentId ? (componentMap.get(data.componentId)?.unit ?? "—") : "—"}
+    <span className="flex min-w-0 items-center gap-(--space-3)">
+      <span className="min-w-0 truncate">{data?.quantity ?? ""}</span>
+      {unit ? (
+        <span className="ml-auto truncate text-muted-foreground">{unit}</span>
+      ) : null}
     </span>
+  );
+}
+
+function QuantityCellEditor(
+  props: CustomCellEditorProps<BomGridRow, string | null> & {
+    componentMap: Map<string, AvailableComponent>;
+  }
+) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const valueRef = useRef<string | null>(props.value ?? null);
+  const [value, setValue] = useState(props.value ?? "");
+  const unit = getComponentUnit(props.data, props.componentMap);
+
+  useGridCellEditor({
+    getValidationElement: () => editorRef.current ?? props.eGridCell,
+    getValidationErrors: () => {
+      const row = {
+        ...props.data,
+        quantity: normalizeTextCell(valueRef.current),
+      };
+      if (isBlankBomRow(row)) {
+        return null;
+      }
+
+      const parsed = Number(row.quantity);
+      return Number.isFinite(parsed) && parsed > 0
+        ? null
+        : ["Quantity must be greater than 0"];
+    },
+  });
+
+  return (
+    <div ref={editorRef} className="flex h-full w-full items-center gap-(--space-3)">
+      <Input
+        value={value}
+        onChange={(event) => {
+          const nextValue = event.target.value;
+          valueRef.current = nextValue;
+          setValue(nextValue);
+          props.onValueChange(nextValue);
+        }}
+        className="h-full min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:shadow-none"
+      />
+      {unit ? (
+        <span className="shrink-0 truncate text-[length:var(--text-sm)] text-muted-foreground">
+          {unit}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -686,36 +747,20 @@ export function BomEditor({
       {
         field: "quantity",
         headerName: "Qty used",
-        minWidth: 104,
-        flex: 0.55,
+        minWidth: 156,
+        flex: 0.7,
         editable: true,
-        cellEditor: "agTextCellEditor",
+        cellEditor: QuantityCellEditor,
+        cellEditorParams: {
+          componentMap,
+        },
         valueSetter: (params: ValueSetterParams<BomGridRow, string | null>) => {
           params.data.quantity = normalizeTextCell(params.newValue);
           return true;
         },
-        cellEditorParams: {
-          getValidationErrors: ({
-            value,
-            cellEditorParams,
-          }: {
-            value: string | null | undefined;
-            cellEditorParams: ICellEditorParams<BomGridRow>;
-          }) => {
-            const row = {
-              ...cellEditorParams.data,
-              quantity: normalizeTextCell(value),
-            };
-            if (isBlankBomRow(row)) {
-              return null;
-            }
-
-            const parsed = Number(row.quantity);
-            return Number.isFinite(parsed) && parsed > 0
-              ? null
-              : ["Quantity must be greater than 0"];
-          },
-        },
+        cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
+          <QuantityCell {...params} componentMap={componentMap} />
+        ),
         cellClass: "num",
         cellClassRules: {
           "erp-editable-grid-cell-error": hasError("quantity"),
@@ -792,15 +837,6 @@ export function BomEditor({
         },
         tooltipValueGetter: errorTooltip("alternates"),
       },
-      {
-        colId: "unit",
-        headerName: "Unit",
-        minWidth: 92,
-        flex: 0.45,
-        cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
-          <UnitCell {...params} componentMap={componentMap} />
-        ),
-        },
       ];
 
       return nextColumns;
