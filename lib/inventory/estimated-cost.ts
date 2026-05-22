@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   bomRevisionComponents,
   bomRevisionOperationCosts,
@@ -19,21 +19,92 @@ export type EstimatedRecipeCostSummary = {
   totalCost: string | null;
 };
 
-export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[]) {
-  const uniqueIds = [...new Set(itemIds)];
-  const cache = new Map<string, string | null>();
+type CostItemRow = {
+  id: string;
+  itemType: string;
+  currentStockUnitCost: string | null;
+  defaultPurchasePrice: string | null;
+  purchaseToStockFactor: string | null;
+  expectedBatchYield: string | null;
+  typicalBatchSize: string | null;
+  standardCostQuantity: string | null;
+  deletedAt: Date | null;
+};
 
-  async function resolve(itemId: string, visited = new Set<string>()): Promise<string | null> {
-    if (cache.has(itemId)) {
-      return cache.get(itemId) ?? null;
+type CurrentRevisionRow = {
+  id: string;
+  productId: string;
+  recipeBasis: string;
+  outputQuantity: string;
+};
+
+type ComponentRow = {
+  bomRevisionId: string;
+  componentId: string;
+  quantity: string;
+};
+
+type OperationRow = {
+  bomRevisionId: string;
+  costScalingMode: "per_output_unit" | "fixed_per_mo";
+  crewSize: string;
+  plannedMinutes: string;
+  loadedCostPerHour: string;
+  plannedCostTotal: string;
+};
+
+type EstimatedCostGraph = {
+  itemsById: Map<string, CostItemRow>;
+  lotUnitCostByItemId: Map<string, string | null>;
+  currentRevisionByProductId: Map<string, CurrentRevisionRow>;
+  componentsByRevisionId: Map<string, ComponentRow[]>;
+  operationsByRevisionId: Map<string, OperationRow[]>;
+};
+
+function nullSummary(): EstimatedRecipeCostSummary {
+  return {
+    ingredientsCost: null,
+    operationsCost: null,
+    totalCost: null,
+  };
+}
+
+function stockUnitCostForMaterial(item: CostItemRow) {
+  return (
+    item.currentStockUnitCost ??
+    resolveStockUnitCostFromDefaultPurchasePrice({
+      defaultPurchasePrice: item.defaultPurchasePrice,
+      purchaseToStockFactor: item.purchaseToStockFactor,
+    })
+  );
+}
+
+async function loadEstimatedCostGraphInTx(
+  tx: Tx,
+  rootItemIds: string[],
+  options: { includeLotCosts: boolean }
+): Promise<EstimatedCostGraph> {
+  const uniqueIds = [...new Set(rootItemIds)];
+  const itemsById = new Map<string, CostItemRow>();
+  const loadedItemIds = new Set<string>();
+  const lotUnitCostByItemId = new Map<string, string | null>();
+  const currentRevisionByProductId = new Map<string, CurrentRevisionRow>();
+  const componentsByRevisionId = new Map<string, ComponentRow[]>();
+  const operationsByRevisionId = new Map<string, OperationRow[]>();
+  let pendingItemIds = uniqueIds;
+
+  while (pendingItemIds.length > 0) {
+    const batchIds = [...new Set(pendingItemIds)].filter(
+      (itemId) => !loadedItemIds.has(itemId)
+    );
+    pendingItemIds = [];
+    if (batchIds.length === 0) {
+      continue;
     }
 
-    if (visited.has(itemId)) {
-      cache.set(itemId, null);
-      return null;
-    }
+    batchIds.forEach((itemId) => loadedItemIds.add(itemId));
 
-    const [item] = await tx
+    const itemRows = await tx
       .select({
         id: items.id,
         itemType: items.itemType,
@@ -46,75 +117,94 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
         deletedAt: items.deletedAt,
       })
       .from(items)
-      .where(eq(items.id, itemId));
+      .where(inArray(items.id, batchIds));
 
-    if (!item || item.deletedAt != null) {
-      cache.set(itemId, null);
-      return null;
+    itemRows.forEach((item) => {
+      itemsById.set(item.id, item);
+    });
+
+    const activeProductIds = itemRows
+      .filter((item) => item.deletedAt == null && item.itemType === "product")
+      .map((item) => item.id);
+    if (activeProductIds.length === 0) {
+      continue;
     }
 
-    if (item.itemType === "material") {
-      const stockUnitCost =
-        item.currentStockUnitCost ??
-        resolveStockUnitCostFromDefaultPurchasePrice({
-          defaultPurchasePrice: item.defaultPurchasePrice,
-          purchaseToStockFactor: item.purchaseToStockFactor,
-        });
-      cache.set(itemId, stockUnitCost);
-      return stockUnitCost;
-    }
-
-    const [lotCost] = await tx
-      .select({
-        unitCost: trimScaleNullable(sql`
-          CASE
-            WHEN COALESCE(SUM(${inventoryLotBalances.quantity}), 0) > 0
-              AND COUNT(*) FILTER (WHERE ${inventoryLotBalances.unitCost} IS NULL) = 0
-            THEN SUM(${inventoryLotBalances.quantity} * ${inventoryLotBalances.unitCost})
-              / SUM(${inventoryLotBalances.quantity})
-            ELSE NULL
-          END
-        `).as("unitCost"),
-      })
-      .from(inventoryLotBalances)
-      .where(
-        and(
-          eq(inventoryLotBalances.itemId, itemId),
-          eq(inventoryLotBalances.disposition, "available"),
-          sql`${inventoryLotBalances.quantity} > 0`
+    if (options.includeLotCosts) {
+      const lotRows = await tx
+        .select({
+          itemId: inventoryLotBalances.itemId,
+          unitCost: trimScaleNullable(sql`
+            CASE
+              WHEN COALESCE(SUM(${inventoryLotBalances.quantity}), 0) > 0
+                AND COUNT(*) FILTER (WHERE ${inventoryLotBalances.unitCost} IS NULL) = 0
+              THEN SUM(${inventoryLotBalances.quantity} * ${inventoryLotBalances.unitCost})
+                / SUM(${inventoryLotBalances.quantity})
+              ELSE NULL
+            END
+          `).as("unitCost"),
+        })
+        .from(inventoryLotBalances)
+        .where(
+          and(
+            inArray(inventoryLotBalances.itemId, activeProductIds),
+            eq(inventoryLotBalances.disposition, "available"),
+            sql`${inventoryLotBalances.quantity} > 0`
+          )
         )
-      );
+        .groupBy(inventoryLotBalances.itemId);
 
-    if (lotCost?.unitCost != null) {
-      cache.set(itemId, lotCost.unitCost);
-      return lotCost.unitCost;
+      lotRows.forEach((row) => {
+        lotUnitCostByItemId.set(row.itemId, row.unitCost);
+      });
     }
 
-    const [currentRevision] = await tx
+    const revisionRows = await tx
       .select({
         id: bomRevisions.id,
+        productId: bomRevisions.productId,
         recipeBasis: bomRevisions.recipeBasis,
         outputQuantity: bomRevisions.outputQuantity,
       })
       .from(bomRevisions)
-      .where(and(eq(bomRevisions.productId, itemId), eq(bomRevisions.isCurrent, true)));
+      .where(
+        and(
+          inArray(bomRevisions.productId, activeProductIds),
+          eq(bomRevisions.isCurrent, true)
+        )
+      );
 
-    if (!currentRevision) {
-      cache.set(itemId, null);
-      return null;
+    revisionRows.forEach((revision) => {
+      currentRevisionByProductId.set(revision.productId, revision);
+    });
+
+    const revisionIds = revisionRows.map((revision) => revision.id);
+    if (revisionIds.length === 0) {
+      continue;
     }
 
-    const components = await tx
+    const componentRows = await tx
       .select({
+        bomRevisionId: bomRevisionComponents.bomRevisionId,
         componentId: bomRevisionComponents.componentId,
         quantity: bomRevisionComponents.quantity,
       })
       .from(bomRevisionComponents)
-      .innerJoin(bomRevisions, eq(bomRevisionComponents.bomRevisionId, bomRevisions.id))
-      .where(eq(bomRevisionComponents.bomRevisionId, currentRevision.id));
+      .where(inArray(bomRevisionComponents.bomRevisionId, revisionIds));
+
+    componentRows.forEach((component) => {
+      const rows = componentsByRevisionId.get(component.bomRevisionId) ?? [];
+      rows.push(component);
+      componentsByRevisionId.set(component.bomRevisionId, rows);
+
+      if (!loadedItemIds.has(component.componentId)) {
+        pendingItemIds.push(component.componentId);
+      }
+    });
 
     const operationRows = await tx
       .select({
+        bomRevisionId: bomRevisionOperationCosts.bomRevisionId,
         costScalingMode: bomRevisionOperationCosts.costScalingMode,
         crewSize: bomRevisionOperationCosts.crewSize,
         plannedMinutes: bomRevisionOperationCosts.plannedMinutes,
@@ -122,7 +212,72 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
         plannedCostTotal: bomRevisionOperationCosts.plannedCostTotal,
       })
       .from(bomRevisionOperationCosts)
-      .where(eq(bomRevisionOperationCosts.bomRevisionId, currentRevision.id));
+      .where(inArray(bomRevisionOperationCosts.bomRevisionId, revisionIds));
+
+    operationRows.forEach((operation) => {
+      const rows = operationsByRevisionId.get(operation.bomRevisionId) ?? [];
+      rows.push(operation);
+      operationsByRevisionId.set(operation.bomRevisionId, rows);
+    });
+  }
+
+  return {
+    itemsById,
+    lotUnitCostByItemId,
+    currentRevisionByProductId,
+    componentsByRevisionId,
+    operationsByRevisionId,
+  };
+}
+
+export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[]) {
+  const uniqueIds = [...new Set(itemIds)];
+  const cache = new Map<string, string | null>();
+
+  if (uniqueIds.length === 0) {
+    return cache;
+  }
+
+  const graph = await loadEstimatedCostGraphInTx(tx, uniqueIds, {
+    includeLotCosts: true,
+  });
+
+  function resolve(itemId: string, visited = new Set<string>()): string | null {
+    if (cache.has(itemId)) {
+      return cache.get(itemId) ?? null;
+    }
+
+    if (visited.has(itemId)) {
+      cache.set(itemId, null);
+      return null;
+    }
+
+    const item = graph.itemsById.get(itemId);
+    if (!item || item.deletedAt != null) {
+      cache.set(itemId, null);
+      return null;
+    }
+
+    if (item.itemType === "material") {
+      const stockUnitCost = stockUnitCostForMaterial(item);
+      cache.set(itemId, stockUnitCost);
+      return stockUnitCost;
+    }
+
+    const lotUnitCost = graph.lotUnitCostByItemId.get(itemId);
+    if (lotUnitCost != null) {
+      cache.set(itemId, lotUnitCost);
+      return lotUnitCost;
+    }
+
+    const currentRevision = graph.currentRevisionByProductId.get(itemId);
+    if (!currentRevision) {
+      cache.set(itemId, null);
+      return null;
+    }
+
+    const components = graph.componentsByRevisionId.get(currentRevision.id) ?? [];
+    const operationRows = graph.operationsByRevisionId.get(currentRevision.id) ?? [];
 
     if (components.length === 0 && operationRows.length === 0) {
       cache.set(itemId, null);
@@ -134,7 +289,7 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
     nextVisited.add(itemId);
 
     for (const component of components) {
-      const componentCost = await resolve(component.componentId, nextVisited);
+      const componentCost = resolve(component.componentId, nextVisited);
       const averageUnitQuantity = calculateAverageUnitConsumptionQuantity({
         quantity: component.quantity,
         recipeBasis: currentRevision.recipeBasis,
@@ -180,7 +335,7 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
     return normalized;
   }
 
-  await Promise.all(uniqueIds.map((itemId) => resolve(itemId)));
+  uniqueIds.forEach((itemId) => resolve(itemId));
   return cache;
 }
 
@@ -191,16 +346,18 @@ export async function getEstimatedRecipeCostSummariesByItemIdInTx(
   const uniqueIds = [...new Set(itemIds)];
   const cache = new Map<string, EstimatedRecipeCostSummary>();
 
-  const nullSummary = (): EstimatedRecipeCostSummary => ({
-    ingredientsCost: null,
-    operationsCost: null,
-    totalCost: null,
+  if (uniqueIds.length === 0) {
+    return cache;
+  }
+
+  const graph = await loadEstimatedCostGraphInTx(tx, uniqueIds, {
+    includeLotCosts: false,
   });
 
-  async function resolve(
+  function resolve(
     itemId: string,
     visited = new Set<string>()
-  ): Promise<EstimatedRecipeCostSummary> {
+  ): EstimatedRecipeCostSummary {
     const cached = cache.get(itemId);
     if (cached) {
       return cached;
@@ -212,21 +369,7 @@ export async function getEstimatedRecipeCostSummariesByItemIdInTx(
       return summary;
     }
 
-    const [item] = await tx
-      .select({
-        id: items.id,
-        itemType: items.itemType,
-        currentStockUnitCost: items.currentStockUnitCost,
-        defaultPurchasePrice: items.defaultPurchasePrice,
-        purchaseToStockFactor: items.purchaseToStockFactor,
-        expectedBatchYield: items.expectedBatchYield,
-        typicalBatchSize: items.typicalBatchSize,
-        standardCostQuantity: items.standardCostQuantity,
-        deletedAt: items.deletedAt,
-      })
-      .from(items)
-      .where(eq(items.id, itemId));
-
+    const item = graph.itemsById.get(itemId);
     if (!item || item.deletedAt != null) {
       const summary = nullSummary();
       cache.set(itemId, summary);
@@ -234,12 +377,7 @@ export async function getEstimatedRecipeCostSummariesByItemIdInTx(
     }
 
     if (item.itemType === "material") {
-      const stockUnitCost =
-        item.currentStockUnitCost ??
-        resolveStockUnitCostFromDefaultPurchasePrice({
-          defaultPurchasePrice: item.defaultPurchasePrice,
-          purchaseToStockFactor: item.purchaseToStockFactor,
-        });
+      const stockUnitCost = stockUnitCostForMaterial(item);
       const summary = {
         ingredientsCost: stockUnitCost,
         operationsCost: null,
@@ -249,40 +387,15 @@ export async function getEstimatedRecipeCostSummariesByItemIdInTx(
       return summary;
     }
 
-    const [currentRevision] = await tx
-      .select({
-        id: bomRevisions.id,
-        recipeBasis: bomRevisions.recipeBasis,
-        outputQuantity: bomRevisions.outputQuantity,
-      })
-      .from(bomRevisions)
-      .where(and(eq(bomRevisions.productId, itemId), eq(bomRevisions.isCurrent, true)));
-
+    const currentRevision = graph.currentRevisionByProductId.get(itemId);
     if (!currentRevision) {
       const summary = nullSummary();
       cache.set(itemId, summary);
       return summary;
     }
 
-    const components = await tx
-      .select({
-        componentId: bomRevisionComponents.componentId,
-        quantity: bomRevisionComponents.quantity,
-      })
-      .from(bomRevisionComponents)
-      .innerJoin(bomRevisions, eq(bomRevisionComponents.bomRevisionId, bomRevisions.id))
-      .where(eq(bomRevisionComponents.bomRevisionId, currentRevision.id));
-
-    const operationRows = await tx
-      .select({
-        costScalingMode: bomRevisionOperationCosts.costScalingMode,
-        crewSize: bomRevisionOperationCosts.crewSize,
-        plannedMinutes: bomRevisionOperationCosts.plannedMinutes,
-        loadedCostPerHour: bomRevisionOperationCosts.loadedCostPerHour,
-        plannedCostTotal: bomRevisionOperationCosts.plannedCostTotal,
-      })
-      .from(bomRevisionOperationCosts)
-      .where(eq(bomRevisionOperationCosts.bomRevisionId, currentRevision.id));
+    const components = graph.componentsByRevisionId.get(currentRevision.id) ?? [];
+    const operationRows = graph.operationsByRevisionId.get(currentRevision.id) ?? [];
 
     if (components.length === 0 && operationRows.length === 0) {
       const summary = nullSummary();
@@ -298,7 +411,7 @@ export async function getEstimatedRecipeCostSummariesByItemIdInTx(
     let ingredientsComplete = true;
 
     for (const component of components) {
-      const componentSummary = await resolve(component.componentId, nextVisited);
+      const componentSummary = resolve(component.componentId, nextVisited);
       const componentCost =
         componentSummary.totalCost == null
           ? Number.NaN
@@ -372,6 +485,6 @@ export async function getEstimatedRecipeCostSummariesByItemIdInTx(
     return summary;
   }
 
-  await Promise.all(uniqueIds.map((itemId) => resolve(itemId)));
+  uniqueIds.forEach((itemId) => resolve(itemId));
   return cache;
 }
