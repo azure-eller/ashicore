@@ -1,22 +1,71 @@
 ---
 title: Allocation Rules
-description: The rules that govern reserving, moving, and releasing stock commitments.
+description: Precise demand, supply, movement, and cleanup rules for sales and manufacturing allocations.
 section: Reference
-order: 320
+order: 310
 ---
 
-## Guarantee
+Use this page when deciding whether stock can be reserved, moved, released, or consumed.
 
-Allocation must never promise more stock than is available for that demand path.
+## Active demand
 
-## Rules
+Sales allocation demand includes only non-deleted lines on confirmed or partially shipped sales orders.
 
-Allocations reduce availability but do not reduce on-hand quantity. A demand document owns its reservations until they are consumed, moved, or released. Deleted or reduced demand should release dependent allocation.
+Draft, shipped, cancelled, and deleted sales orders do not create active allocation demand.
 
-## Blocked transitions
+Sales order line demand represents the unplanned remainder:
 
-Do not allocate blocked stock as normal available inventory. Do not allocate more than the remaining demand. Do not leave allocation attached to a deleted demand record.
+```text
+remaining_to_ship - planned_shipment_quantity
+```
 
-## Examples
+Sales shipment line demand represents planned fulfillment demand.
 
-A sales order for 10 units can be allocated 6 units now and left short 4 units. Shipping 6 units consumes the shipped stock. If the order is reduced to 4 units before shipment, the extra 2 allocated units should be released.
+## Eligible supply
+
+Eligible supply can be:
+
+- available inventory lots
+- released manufacturing-order output supply
+
+Draft manufacturing orders are excluded. They are planning work, not supply.
+
+Blocked and rejected lots are excluded from normal allocation.
+
+## Movement rules
+
+Creating or increasing a planned shipment should move matching active allocations from order-line demand to shipment-line demand when possible.
+
+Decreasing or deleting a planned shipment should move excess allocation back to order-line demand when the underlying order demand still exists.
+
+Shipping consumes stock. It should release or satisfy the corresponding reservation in the same transaction as the shipment inventory event.
+
+Deleting demand must release dependent allocations. Do not leave orphaned allocation rows attached to deleted sales orders, shipments, manufacturing orders, or lines.
+
+## Quantity rules
+
+Allocation cannot exceed eligible supply.
+
+Allocation cannot exceed open demand for the target bucket.
+
+Allocation should not make on-hand stock change. It changes availability and commitment, not physical quantity.
+
+Reservations and availability should be updated through the inventory kernel. No feature should mutate committed or available quantity directly.
+
+## Planning relationship
+
+Planning uses confirmed sales demand, released manufacturing component demand, safety stock, on-hand stock, open purchase supply, and released manufacturing supply.
+
+Allocation is a priority decision inside that world. It does not remove the need to buy, make, receive, pick, complete, or ship.
+
+## Troubleshooting
+
+If an item looks short after allocation, check whether stock is blocked, already reserved, or only expected from a draft manufacturing order.
+
+If a shipment has no supply but the order line does, check whether allocation was moved from order-line demand to shipment-line demand when the shipment was created.
+
+If available quantity seems too low, look for active reservations on confirmed sales orders, planned shipments, or released manufacturing ingredient demand.
+
+## Related docs
+
+Read [Allocations](/docs/concepts/allocations), [Planned vs Unplanned Demand](/docs/concepts/planned-vs-unplanned-demand), and [First Sales Workflow](/docs/start-here/first-sales-workflow).

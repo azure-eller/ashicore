@@ -1,31 +1,66 @@
 ---
 title: First Inventory Workflow
-description: Create items, enter opening stock, review lots, and use the ledger to verify what changed.
+description: Set up items, opening lots, dispositions, and cost so the rest of the ERP has a trustworthy base.
 section: Start here
 order: 20
 ---
 
-This workflow proves that Ashicore can represent what is physically on the shelf before you add purchasing, manufacturing, or sales pressure.
+Run this workflow before building serious purchasing, manufacturing, or sales data. The goal is not to enter every item in the company. The goal is to prove that one real operating flow has correct stock, unit, lot, and cost behavior.
 
-## User problem
+## Choose the first slice
 
-The team needs a trusted starting point: what items exist, which units they use, how much stock is on hand, and what that stock is worth.
+Pick one finished product and the materials needed to make it, or pick one resale item that will be bought and shipped.
 
-## Workflow
+Avoid starting with the full catalog. A small, real slice exposes unit, cost, and workflow issues faster than a giant import.
 
-1. Create the materials and products you need for the first real flow.
-2. Use stable names, SKUs, and stock units.
-3. Enter opening stock with quantity, lot, disposition, and stock-unit cost.
-4. Review item balances.
-5. Open the lot view to confirm the physical stock layers.
-6. Open the ledger to confirm the inventory history.
+## Create items
 
-## System behavior
+Create materials for purchased inputs. Create products for manufactured outputs.
 
-Opening stock is recorded as inventory history. It should create traceable stock rather than silently overwriting a quantity. Future receipts, consumption, stocktakes, and shipments build on this initial state.
+Use the stock unit that operators use when counting physical inventory. If a supplier sells a tote but the shop measures gallons, stock the item in gallons and set purchase conversion separately.
 
-## Checks
+Use stable SKUs. Renaming is survivable because documents snapshot names, but SKUs become operational references across labels, reports, imports, and conversations.
 
-The item balance should match the physical count. The lot list should explain where the quantity lives. The ledger should explain why the quantity changed.
+## Enter opening stock
 
-If any of those are not true, fix the item before building manufacturing or sales workflows on top of it.
+Opening stock should create traceable inventory history.
+
+For each item that physically exists:
+
+1. Enter quantity in the stock unit.
+2. Enter or confirm stock-unit cost.
+3. Choose disposition.
+4. Create the opening lot or adjustment.
+5. Review the item balance, lot balance, and ledger.
+
+If cost is unknown, stop and decide on a defensible starting cost. Null-cost inventory creates bad margin and manufacturing cost later.
+
+## Check lot truth
+
+The item balance should answer "how much do we have?" The lot list should answer "where did that quantity come from?" The ledger should answer "why did it change?"
+
+If those three answers do not agree, fix the item before using it in purchasing, manufacturing, sales, or stocktakes.
+
+## Add pressure
+
+After the first item has trustworthy stock, add one workflow that changes it:
+
+- receive a purchase order for material
+- pick material into a manufacturing order
+- complete product output
+- ship a sales order
+- complete a stocktake
+
+Then check the same three places again: item balance, lot list, ledger.
+
+## Common mistakes
+
+Using the supplier purchase unit as the stock unit makes physical counts painful. Stock units should match how the shop counts and consumes.
+
+Entering opening stock without cost pushes the problem into manufacturing and sales margin.
+
+Treating blocked material as available will cause false promises.
+
+## Related docs
+
+Read [Inventory](/docs/concepts/inventory), [Receive Inventory](/docs/how-to/receive-inventory), and [Inventory Statuses](/docs/reference/inventory-statuses).
