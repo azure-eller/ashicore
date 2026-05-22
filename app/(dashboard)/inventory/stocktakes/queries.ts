@@ -26,6 +26,7 @@ import {
   DomainError,
   type DomainFieldErrors,
 } from "@/lib/errors/domain-error";
+import { measureObservedOperation } from "@/lib/observability/request-log";
 import type {
   CompleteStocktake,
   InsertStocktake,
@@ -440,77 +441,87 @@ export async function getStocktakeScopeOptions(): Promise<StocktakeScopeOptionGr
 }
 
 export async function getStocktakes(): Promise<StocktakeListRow[]> {
-  return withAuthedOrgContext(async (tx) => {
-    const rows = await tx
-      .select({
-        id: stocktakes.id,
-        name: stocktakes.name,
-        scope: stocktakes.scope,
-        status: stocktakes.status,
-        notes: stocktakes.notes,
-        completedAt: stocktakes.completedAt,
-        cancelledAt: stocktakes.cancelledAt,
-        createdAt: stocktakes.createdAt,
-        updatedAt: stocktakes.updatedAt,
-      })
-      .from(stocktakes)
-      .where(sql`${stocktakes.status} NOT IN ('cancelled', 'deleted')`)
-      .orderBy(desc(stocktakes.createdAt), asc(stocktakes.name), asc(stocktakes.id));
+  return measureObservedOperation(
+    "inventory.get_stocktakes",
+    async () => {
+      return withAuthedOrgContext(async (tx) => {
+        const rows = await tx
+          .select({
+            id: stocktakes.id,
+            name: stocktakes.name,
+            scope: stocktakes.scope,
+            status: stocktakes.status,
+            notes: stocktakes.notes,
+            completedAt: stocktakes.completedAt,
+            cancelledAt: stocktakes.cancelledAt,
+            createdAt: stocktakes.createdAt,
+            updatedAt: stocktakes.updatedAt,
+          })
+          .from(stocktakes)
+          .where(sql`${stocktakes.status} NOT IN ('cancelled', 'deleted')`)
+          .orderBy(desc(stocktakes.createdAt), asc(stocktakes.name), asc(stocktakes.id));
 
-    if (rows.length === 0) {
-      return [];
+        if (rows.length === 0) {
+          return [];
+        }
+
+        const ids = rows.map((row) => row.id);
+        const lineRows = await tx
+          .select({
+            stocktakeId: stocktakeItems.stocktakeId,
+            countedQty: stocktakeItems.countedQty,
+            varianceQty: stocktakeItems.varianceQty,
+          })
+          .from(stocktakeItems)
+          .where(inArray(stocktakeItems.stocktakeId, ids));
+
+        const counts = new Map<
+          string,
+          { itemCount: number; countedCount: number; varianceCount: number }
+        >();
+
+        lineRows.forEach((line) => {
+          const bucket = counts.get(line.stocktakeId) ?? {
+            itemCount: 0,
+            countedCount: 0,
+            varianceCount: 0,
+          };
+
+          bucket.itemCount += 1;
+
+          if (line.countedQty != null) {
+            bucket.countedCount += 1;
+          }
+
+          if (line.varianceQty != null && parseFloat(line.varianceQty) !== 0) {
+            bucket.varianceCount += 1;
+          }
+
+          counts.set(line.stocktakeId, bucket);
+        });
+
+        return rows.map((row) => {
+          const bucket = counts.get(row.id) ?? {
+            itemCount: 0,
+            countedCount: 0,
+            varianceCount: 0,
+          };
+
+          return {
+            ...row,
+            scope: row.scope as StocktakeScope,
+            status: row.status as StocktakeListRow["status"],
+            ...bucket,
+          };
+        });
+      });
+    },
+    {
+      successData: (rows) => ({
+        rowCount: rows.length,
+      }),
     }
-
-    const ids = rows.map((row) => row.id);
-    const lineRows = await tx
-      .select({
-        stocktakeId: stocktakeItems.stocktakeId,
-        countedQty: stocktakeItems.countedQty,
-        varianceQty: stocktakeItems.varianceQty,
-      })
-      .from(stocktakeItems)
-      .where(inArray(stocktakeItems.stocktakeId, ids));
-
-    const counts = new Map<
-      string,
-      { itemCount: number; countedCount: number; varianceCount: number }
-    >();
-
-    lineRows.forEach((line) => {
-      const bucket = counts.get(line.stocktakeId) ?? {
-        itemCount: 0,
-        countedCount: 0,
-        varianceCount: 0,
-      };
-
-      bucket.itemCount += 1;
-
-      if (line.countedQty != null) {
-        bucket.countedCount += 1;
-      }
-
-      if (line.varianceQty != null && parseFloat(line.varianceQty) !== 0) {
-        bucket.varianceCount += 1;
-      }
-
-      counts.set(line.stocktakeId, bucket);
-    });
-
-    return rows.map((row) => {
-      const bucket = counts.get(row.id) ?? {
-        itemCount: 0,
-        countedCount: 0,
-        varianceCount: 0,
-      };
-
-      return {
-        ...row,
-        scope: row.scope as StocktakeScope,
-        status: row.status as StocktakeListRow["status"],
-        ...bucket,
-      };
-    });
-  });
+  );
 }
 
 export async function getStocktake(id: string): Promise<StocktakeDetail | null> {

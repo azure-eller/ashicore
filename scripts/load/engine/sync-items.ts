@@ -501,7 +501,6 @@ export async function loadExistingItemsInTx(tx: Tx): Promise<ExistingItem[]> {
       manufacturingMode: items.manufacturingMode,
       expectedBatchYield: items.expectedBatchYield,
       typicalBatchSize: items.typicalBatchSize,
-      typicalGroupSize: items.typicalGroupSize,
       bomLocked: items.bomLocked,
       safetyStock: items.safetyStock,
       sellable: items.sellable,
@@ -578,8 +577,6 @@ export function planItemsSync(
         !numericStringEquals(existing.expectedBatchYield, seed.expectedBatchYield)) ||
       (seed.typicalBatchSize !== undefined &&
         !numericStringEquals(existing.typicalBatchSize, seed.typicalBatchSize)) ||
-      (seed.typicalGroupSize !== undefined &&
-        !numericStringEquals(existing.typicalGroupSize, seed.typicalGroupSize)) ||
       (seed.bomLocked !== undefined && existing.bomLocked !== seed.bomLocked) ||
       (seed.safetyStock !== undefined &&
         !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0"))
@@ -652,7 +649,6 @@ export async function applyItemsSyncInTx(
           manufacturingMode: seed.manufacturingMode ?? "discrete",
           expectedBatchYield: seed.expectedBatchYield ?? null,
           typicalBatchSize: seed.typicalBatchSize ?? null,
-          typicalGroupSize: seed.typicalGroupSize ?? null,
           bomLocked: seed.bomLocked ?? false,
           familyId: variantAssignment?.familyId ?? null,
           optionCombinationKey: variantAssignment?.optionCombinationKey ?? "",
@@ -701,9 +697,6 @@ export async function applyItemsSyncInTx(
       if (seed.typicalBatchSize !== undefined) {
         nextValues.typicalBatchSize = seed.typicalBatchSize;
       }
-      if (seed.typicalGroupSize !== undefined) {
-        nextValues.typicalGroupSize = seed.typicalGroupSize;
-      }
       if (seed.bomLocked !== undefined) {
         nextValues.bomLocked = seed.bomLocked;
       }
@@ -735,8 +728,6 @@ export async function applyItemsSyncInTx(
           !numericStringEquals(existing.expectedBatchYield, seed.expectedBatchYield)) ||
         (seed.typicalBatchSize !== undefined &&
           !numericStringEquals(existing.typicalBatchSize, seed.typicalBatchSize)) ||
-        (seed.typicalGroupSize !== undefined &&
-          !numericStringEquals(existing.typicalGroupSize, seed.typicalGroupSize)) ||
         (seed.bomLocked !== undefined && existing.bomLocked !== seed.bomLocked) ||
         (seed.safetyStock !== undefined &&
           !numericStringEquals(existing.safetyStock, seed.safetyStock ?? "0")) ||

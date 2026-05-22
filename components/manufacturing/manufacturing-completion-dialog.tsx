@@ -26,7 +26,6 @@ import {
   ManufacturingOrderApiError,
   type OutputDisposition,
 } from "@/lib/api/clients/manufacturing-orders";
-import { largestGroupSize } from "@/lib/manufacturing/group-size";
 import type {
   ManufacturingOrderDetail,
   ManufacturingReleaseWarningPayload,
@@ -87,36 +86,22 @@ function CompletionDialogForm({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const groupSize = largestGroupSize(order);
   const unitName = order.unitName;
   const hasRecordedOutput = Number(order.actualQuantity ?? "0") > 0;
 
-  const plannedNumber = Number(order.plannedQuantity) || 0;
   const defaultQuantity =
     mode === "complete" && !hasRecordedOutput
       ? order.plannedQuantity
-      : groupSize
-        ? ""
-        : "0";
-  const defaultGroups =
-    groupSize && mode === "complete" && plannedNumber > 0
-      ? String(Math.round(plannedNumber / groupSize))
       : "";
 
-  const [groups, setGroups] = useState(defaultGroups);
   const [rawQuantity, setRawQuantity] = useState(defaultQuantity);
   const [disposition, setDisposition] = useState<OutputDisposition>("available");
   const [shortage, setShortage] = useState<ManufacturingReleaseWarningPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const quantity = useMemo(() => {
-    if (groupSize) {
-      const count = Number(groups);
-      if (!Number.isFinite(count) || count <= 0) return "0";
-      return String(count * groupSize);
-    }
     return rawQuantity.trim();
-  }, [groupSize, groups, rawQuantity]);
+  }, [rawQuantity]);
 
   const quantityNumber = Number(quantity);
   const quantityRequired = mode !== "complete" || !hasRecordedOutput;
@@ -177,22 +162,6 @@ function CompletionDialogForm({
               {formatQuantity(order.actualQuantity ?? "0")} {unitName} has already been
               recorded. Completing closes the order without producing another lot.
             </p>
-          ) : groupSize ? (
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium" htmlFor="mo-groups">
-                How many groups of {formatQuantity(String(groupSize))} did you complete?
-              </label>
-              <Input
-                id="mo-groups"
-                inputMode="numeric"
-                value={groups}
-                onChange={(event) => setGroups(event.target.value)}
-                autoFocus
-              />
-              <p className="text-xs text-muted-foreground">
-                = {quantityValid ? formatQuantity(quantity) : "0"} {unitName} output
-              </p>
-            </div>
           ) : (
             <div className="space-y-1.5">
               <label className="text-sm font-medium" htmlFor="mo-quantity">

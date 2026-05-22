@@ -3,7 +3,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type {
   CellClassParams,
-  ICellEditorParams,
   ICellRendererParams,
   ValueSetterParams,
 } from "ag-grid-community";
@@ -48,11 +47,6 @@ type AvailableComponent = {
 type BomPayloadRow = {
   componentId: string | null;
   quantity: string | null;
-  everyQuantity?: string | null;
-  consumptionMode?: "per_output_unit" | "per_batch" | "per_group" | null;
-  basisOutputQuantity?: string | null;
-  batchScalingMode?: "proportional" | "full_batches_only" | null;
-  groupRemainderPolicy?: "ask" | "leave_loose" | "create_partial_group" | null;
   minimumLotAgeDays?: string | number | null;
   alternates?: Array<{ itemId: string }>;
 };
@@ -64,7 +58,6 @@ type BomGridRow = BomPayloadRow & {
 type BomColumnKey =
   | "componentId"
   | "quantity"
-  | "everyQuantity"
   | "minimumLotAgeDays"
   | "alternates";
 
@@ -81,11 +74,6 @@ type BomEditorChangeMeta = {
 const blankBomLine = {
   componentId: "",
   quantity: null,
-  everyQuantity: null,
-  consumptionMode: "per_output_unit" as const,
-  basisOutputQuantity: null,
-  batchScalingMode: null,
-  groupRemainderPolicy: null,
   minimumLotAgeDays: null,
   alternates: [],
 };
@@ -116,42 +104,30 @@ function normalizeMinimumLotAge(value: unknown) {
   return nextValue === "" ? null : nextValue;
 }
 
-function createBlankGridRow(defaultEveryQuantity?: string | null): BomGridRow {
+function createBlankGridRow(): BomGridRow {
   return {
     ...blankBomLine,
-    everyQuantity: defaultEveryQuantity ?? null,
     clientRowId: createClientRowId(),
   };
 }
 
-function toGridRows(
-  rows: BomPayloadRow[] | undefined,
-  defaultEveryQuantity?: string | null
-): BomGridRow[] {
+function toGridRows(rows: BomPayloadRow[] | undefined): BomGridRow[] {
   const gridRows =
     rows?.map((row) => ({
       ...blankBomLine,
       ...row,
       componentId: row.componentId ?? "",
-      everyQuantity:
-        row.everyQuantity ?? row.basisOutputQuantity ?? defaultEveryQuantity ?? null,
-      consumptionMode: row.consumptionMode ?? "per_output_unit",
       alternates: row.alternates ?? [],
       clientRowId: createClientRowId(),
     })) ?? [];
 
-  return gridRows.length > 0 ? gridRows : [createBlankGridRow(defaultEveryQuantity)];
+  return gridRows.length > 0 ? gridRows : [createBlankGridRow()];
 }
 
 function toPayloadRows(rows: BomGridRow[]): BomPayloadRow[] {
   return rows.map((row) => ({
     componentId: row.componentId ?? "",
     quantity: normalizeTextCell(row.quantity),
-    everyQuantity: normalizeTextCell(row.everyQuantity),
-    consumptionMode: row.consumptionMode ?? "per_output_unit",
-    basisOutputQuantity: normalizeTextCell(row.basisOutputQuantity),
-    batchScalingMode: row.batchScalingMode ?? null,
-    groupRemainderPolicy: row.groupRemainderPolicy ?? null,
     minimumLotAgeDays: normalizeMinimumLotAge(row.minimumLotAgeDays),
     alternates: row.alternates ?? [],
   }));
@@ -173,11 +149,6 @@ function comparablePayload(rows: BomGridRow[]) {
       .map((row) => ({
         componentId: row.componentId ?? "",
         quantity: row.quantity ?? null,
-        everyQuantity: row.everyQuantity ?? null,
-        consumptionMode: row.consumptionMode ?? "per_output_unit",
-        basisOutputQuantity: row.basisOutputQuantity ?? null,
-        batchScalingMode: row.batchScalingMode ?? null,
-        groupRemainderPolicy: row.groupRemainderPolicy ?? null,
         minimumLotAgeDays: row.minimumLotAgeDays ?? null,
         alternates: row.alternates ?? [],
       }))
@@ -218,7 +189,6 @@ function buildErrorState(error: unknown, rows: BomGridRow[]): BomErrorState {
     const keys: BomColumnKey[] = [
       "componentId",
       "quantity",
-      "everyQuantity",
       "minimumLotAgeDays",
       "alternates",
     ];
@@ -662,8 +632,7 @@ function ComponentCellEditor(
 interface BomEditorProps {
   initialRows?: BomPayloadRow[];
   availableComponents: AvailableComponent[];
-  outputQuantity?: string | null;
-  outputUnitName?: string | null;
+  quantityHeader?: string;
   error?: unknown;
   onRowsChange?: (rows: BomPayloadRow[], meta: BomEditorChangeMeta) => void;
 }
@@ -671,14 +640,13 @@ interface BomEditorProps {
 export function BomEditor({
   initialRows,
   availableComponents,
-  outputQuantity,
-  outputUnitName,
+  quantityHeader = "Qty used",
   error,
   onRowsChange,
 }: BomEditorProps) {
-  const [initialGridRows] = useState(() => toGridRows(initialRows, outputQuantity));
+  const [initialGridRows] = useState(() => toGridRows(initialRows));
   const [initialComparable] = useState(() =>
-    comparablePayload(toGridRows(initialRows, outputQuantity))
+    comparablePayload(toGridRows(initialRows))
   );
   const [rows, setRows] = useState<BomGridRow[]>(initialGridRows);
   const componentMap = useMemo(
@@ -746,7 +714,7 @@ export function BomEditor({
       },
       {
         field: "quantity",
-        headerName: "Qty used",
+        headerName: quantityHeader,
         minWidth: 156,
         flex: 0.7,
         editable: true,
@@ -766,46 +734,6 @@ export function BomEditor({
           "erp-editable-grid-cell-error": hasError("quantity"),
         },
         tooltipValueGetter: errorTooltip("quantity"),
-      },
-      {
-        field: "everyQuantity",
-        headerName: "Every",
-        minWidth: 112,
-        flex: 0.55,
-        editable: true,
-        cellEditor: "agTextCellEditor",
-        valueSetter: (params: ValueSetterParams<BomGridRow, string | null>) => {
-          params.data.everyQuantity = normalizeTextCell(params.newValue);
-          return true;
-        },
-        valueFormatter: ({ value }) =>
-          value && outputUnitName ? `${value} ${outputUnitName}` : (value ?? ""),
-        cellEditorParams: {
-          getValidationErrors: ({
-            value,
-            cellEditorParams,
-          }: {
-            value: string | null | undefined;
-            cellEditorParams: ICellEditorParams<BomGridRow>;
-          }) => {
-            const row = {
-              ...cellEditorParams.data,
-              everyQuantity: normalizeTextCell(value),
-            };
-            if (isBlankBomRow(row)) {
-              return null;
-            }
-
-            const parsed = Number(row.everyQuantity);
-            return Number.isFinite(parsed) && parsed > 0
-              ? null
-              : ["Every must be greater than 0"];
-          },
-        },
-        cellClassRules: {
-          "erp-editable-grid-cell-error": hasError("everyQuantity"),
-        },
-        tooltipValueGetter: errorTooltip("everyQuantity"),
       },
       {
         field: "minimumLotAgeDays",
@@ -846,7 +774,7 @@ export function BomEditor({
       componentOptions,
       errorTooltip,
       hasError,
-      outputUnitName,
+      quantityHeader,
     ]
   );
 
@@ -855,7 +783,7 @@ export function BomEditor({
       rows={rows}
       columns={columns}
       getRowId={getRowId}
-      createRow={() => createBlankGridRow(outputQuantity)}
+      createRow={() => createBlankGridRow()}
       onRowsChange={emitRowsChange}
       addLabel="Add ingredient"
       emptyMessage="No ingredients yet."

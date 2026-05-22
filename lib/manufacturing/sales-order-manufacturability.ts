@@ -11,7 +11,7 @@ import {
   variantOptions,
   variantOptionValues,
 } from "@/lib/db/schema";
-import { trimScale } from "@/lib/db/numeric";
+import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { getCurrentBomCoverageInTx } from "@/lib/bom/revisions";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -38,13 +38,11 @@ export type SalesOrderManufacturingLineSummary = {
   itemSku: string | null;
   quantity: string;
   unitName: string;
+  manufacturingMode: string;
+  expectedBatchYield: string | null;
   status: "will_create" | "skipped";
   skipReason: SalesOrderManufacturingSkipReason | null;
   skipMessage: string | null;
-  groupRemainderRows: Array<{
-    basisOutputQuantity: string | null;
-    groupRemainderPolicy: string | null;
-  }>;
 };
 
 export type SalesOrderManufacturingSummary = {
@@ -192,6 +190,10 @@ export async function getSalesOrderManufacturingSummariesInTx(
       deletedAt: items.deletedAt,
       name: items.name,
       familyName: itemFamilies.name,
+      manufacturingMode: items.manufacturingMode,
+      expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
+        "expectedBatchYield"
+      ),
     })
     .from(items)
     .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
@@ -344,15 +346,11 @@ export async function getSalesOrderManufacturingSummariesInTx(
       itemSku: line.itemSku,
       quantity: manufacturingQuantity,
       unitName: line.unitName,
+      manufacturingMode: item?.manufacturingMode ?? "discrete",
+      expectedBatchYield: item?.expectedBatchYield ?? null,
       status: skipReason == null ? "will_create" : "skipped",
       skipReason,
       skipMessage: skipReason == null ? null : getSkipMessage(skipReason),
-      groupRemainderRows: (bomCoverage.get(line.itemId) ?? [])
-        .filter((component) => component.consumptionMode === "per_group")
-        .map((component) => ({
-          basisOutputQuantity: component.basisOutputQuantity,
-          groupRemainderPolicy: component.groupRemainderPolicy,
-        })),
     });
   });
 

@@ -33,7 +33,7 @@ import {
 } from "@/lib/inventory/kernel";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
-import { calculateConsumptionRequirement } from "@/lib/manufacturing/consumption";
+import { calculateIngredientPlannedQuantity, normalizeRecipeBasis } from "@/lib/manufacturing/consumption";
 import {
   LOT_AGE_MIN_DAYS_CONSTRAINT,
   toPlanningComponentRequirement,
@@ -119,11 +119,6 @@ type BomComponentRecord = {
   componentItemType: string;
   unitName: string;
   quantity: string;
-  everyQuantity: string;
-  consumptionMode: string;
-  basisOutputQuantity: string | null;
-  batchScalingMode: string | null;
-  groupRemainderPolicy: string | null;
   sortOrder: number;
   requirements: BomComponentRequirement[];
 };
@@ -131,6 +126,7 @@ type BomComponentRecord = {
 type CurrentBomRecord = {
   revisionId: string;
   revisionNumber: number;
+  recipeBasis: "unit" | "batch";
   outputQuantity: string;
   components: BomComponentRecord[];
 };
@@ -814,6 +810,7 @@ function buildSalesOrderProductionDemandPaths(args: {
         }
 
         const componentQuantity = computeBomComponentQuantity(
+          bom,
           component,
           slice.quantity
         );
@@ -1411,6 +1408,7 @@ async function getCurrentBomsInTx(
       id: bomRevisions.id,
       productId: bomRevisions.productId,
       revisionNumber: bomRevisions.revisionNumber,
+      recipeBasis: bomRevisions.recipeBasis,
       outputQuantity: trimScale(bomRevisions.outputQuantity).as("outputQuantity"),
     })
     .from(bomRevisions)
@@ -1436,15 +1434,6 @@ async function getCurrentBomsInTx(
       componentItemType: items.itemType,
       unitName: unitDefinitions.name,
       quantity: trimScale(bomRevisionComponents.quantity).as("quantity"),
-      everyQuantity: trimScale(bomRevisionComponents.everyQuantity).as(
-        "everyQuantity"
-      ),
-      consumptionMode: bomRevisionComponents.consumptionMode,
-      basisOutputQuantity: trimScaleNullable(
-        bomRevisionComponents.basisOutputQuantity
-      ).as("basisOutputQuantity"),
-      batchScalingMode: bomRevisionComponents.batchScalingMode,
-      groupRemainderPolicy: bomRevisionComponents.groupRemainderPolicy,
       sortOrder: bomRevisionComponents.sortOrder,
     })
     .from(bomRevisionComponents)
@@ -1508,11 +1497,6 @@ async function getCurrentBomsInTx(
       componentItemType: component.componentItemType,
       unitName: component.unitName,
       quantity: component.quantity,
-      everyQuantity: component.everyQuantity,
-      consumptionMode: component.consumptionMode,
-      basisOutputQuantity: component.basisOutputQuantity,
-      batchScalingMode: component.batchScalingMode,
-      groupRemainderPolicy: component.groupRemainderPolicy,
       sortOrder: component.sortOrder,
       requirements: requirementsByComponentId.get(component.id) ?? [],
     });
@@ -1525,6 +1509,7 @@ async function getCurrentBomsInTx(
       {
         revisionId: revision.id,
         revisionNumber: revision.revisionNumber,
+        recipeBasis: normalizeRecipeBasis(revision.recipeBasis),
         outputQuantity: revision.outputQuantity,
         components: componentsByRevision.get(revision.id) ?? [],
       },
@@ -1846,23 +1831,35 @@ function computeBomBatchMetadata(
   expectedBatchYield: string;
   plannedBatchCount: number;
 } | null {
-  void bom;
-  void quantity;
-  return null;
+  if (!bom || normalizeRecipeBasis(bom.recipeBasis) !== "batch") return null;
+  const expectedBatchYield = Number(bom.outputQuantity);
+  if (!Number.isFinite(expectedBatchYield) || expectedBatchYield <= 0) return null;
+  return {
+    manufacturingMode: "batch",
+    expectedBatchYield: normalizeQuantity(expectedBatchYield),
+    plannedBatchCount: Math.max(1, Math.ceil(quantity / expectedBatchYield)),
+  };
 }
 
-function computeBomComponentQuantity(component: BomComponentRecord, outputQuantity: number) {
-  const calculation = calculateConsumptionRequirement({
-    quantity: component.quantity,
+function computeBomComponentQuantity(
+  bom: CurrentBomRecord,
+  component: BomComponentRecord,
+  outputQuantity: number
+) {
+  const recipeBasis = normalizeRecipeBasis(bom.recipeBasis);
+  const recipeOutputQuantity = Number(bom.outputQuantity);
+  const numberOfBatches =
+    recipeBasis === "batch" && Number.isFinite(recipeOutputQuantity) && recipeOutputQuantity > 0
+      ? Math.ceil(outputQuantity / recipeOutputQuantity)
+      : null;
+  const plannedQuantity = calculateIngredientPlannedQuantity({
+    recipeBasis,
+    quantityPerRecipeBasis: component.quantity,
     outputQuantity,
-    everyQuantity: component.everyQuantity,
-    consumptionMode: component.consumptionMode as never,
-    basisOutputQuantity: component.basisOutputQuantity,
-    batchScalingMode: component.batchScalingMode as never,
-    groupRemainderPolicy: component.groupRemainderPolicy as never,
+    numberOfBatches,
   });
 
-  return roundQuantity(toQuantity(calculation.plannedQuantity));
+  return roundQuantity(toQuantity(plannedQuantity));
 }
 
 function computeProductionMetadata(args: {
@@ -2093,6 +2090,7 @@ function addBomExplosionDemand(args: {
 
   for (const component of bom.components) {
     const componentQuantity = computeBomComponentQuantity(
+      bom,
       component,
       args.componentMultiplier
     );

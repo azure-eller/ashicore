@@ -68,9 +68,6 @@ async function createProduct(
   bom: Array<{
     componentId: string;
     quantity: string;
-    consumptionMode?: "per_output_unit" | "per_batch" | "per_group";
-    basisOutputQuantity?: string;
-    batchScalingMode?: "proportional" | "full_batches_only";
   }>,
   options: { stock?: string; sellable?: boolean } = {}
 ): Promise<string> {
@@ -374,9 +371,6 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
         {
           componentId: materialB,
           quantity: "9",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "9",
-          batchScalingMode: "proportional",
         },
       ]);
 
@@ -403,7 +397,6 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
           salesOrderLineIds: [soLine.id],
           priorityRank: null,
           lineQuantities: [{ salesOrderLineId: soLine.id, quantity: "4" }],
-          groupRemainderChoices: [],
           notes: null,
         }),
       });
@@ -640,7 +633,6 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
           notes: moBody.notes ?? null,
           priorityRank: moBody.priorityRank ?? null,
           ingredients: [{ itemId: material, quantityPerUnit: "1" }],
-          groupRemainderChoices: [],
         },
         `s03-${ts}`
       );
@@ -1129,7 +1121,6 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
           notes: "NOTES_NEW",
           priorityRank: null,
           ingredients: [{ itemId: material, quantityPerUnit: "1" }],
-          groupRemainderChoices: [],
         }),
       });
       const putBody = await putRes.json().catch(() => null);
@@ -1719,7 +1710,6 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
         notes: NOTES_NEW,
         priorityRank: null,
         ingredients: [{ itemId: mat, quantityPerUnit: "1" }],
-        groupRemainderChoices: [],
       });
 
       const [putRes, delRes] = await Promise.allSettled([
@@ -1963,7 +1953,6 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
         notes: `S27 retry ${ts}`,
         priorityRank: null,
         ingredients: [{ itemId: mat, quantityPerUnit: "1" }],
-        groupRemainderChoices: [],
       });
 
       const putA = await testFetch(`/api/manufacturing-orders/${moId}`, {
@@ -2134,7 +2123,6 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
           notes: null,
           priorityRank: null,
           ingredients: [{ itemId: mat, quantityPerUnit: "1" }],
-          groupRemainderChoices: [],
         }),
       });
       const putBody = await putRes.json().catch(() => null);

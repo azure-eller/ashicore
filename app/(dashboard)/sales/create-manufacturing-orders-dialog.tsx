@@ -63,6 +63,40 @@ function orderLabel(count: number) {
   return `${count} order${count === 1 ? "" : "s"}`;
 }
 
+function normalizeDecimal(value: number) {
+  return value.toFixed(4).replace(/\.?0+$/, "");
+}
+
+function isBatchLine(line: ManufacturingSalesOrderPreview["lines"][number]) {
+  return line.manufacturingMode === "batch" && Number(line.expectedBatchYield) > 0;
+}
+
+function defaultLineInputQuantity(
+  line: ManufacturingSalesOrderPreview["lines"][number],
+  initialQuantity: string | undefined
+) {
+  const quantity = Number(initialQuantity ?? line.quantity);
+  if (!isBatchLine(line)) return initialQuantity ?? line.quantity;
+  const expectedBatchYield = Number(line.expectedBatchYield);
+  if (!Number.isFinite(quantity) || !Number.isFinite(expectedBatchYield) || expectedBatchYield <= 0) {
+    return "1";
+  }
+  return String(Math.max(1, Math.ceil(quantity / expectedBatchYield)));
+}
+
+function resolveLinePlannedOutput(
+  line: ManufacturingSalesOrderPreview["lines"][number],
+  inputQuantity: string
+) {
+  const quantity = Number(inputQuantity);
+  if (!Number.isFinite(quantity) || quantity <= 0) return null;
+  if (!isBatchLine(line)) return normalizeDecimal(quantity);
+
+  const batchCount = Math.round(quantity);
+  if (Math.abs(quantity - batchCount) > 0.0001) return null;
+  return normalizeDecimal(batchCount * Number(line.expectedBatchYield));
+}
+
 function formatOpenManufacturingOrders(
   orders: SalesOrderDetail["linkedManufacturingOrders"]
 ): NonNullable<Props["openManufacturingOrders"]> {
@@ -180,12 +214,14 @@ export function CreateManufacturingOrdersDialog({
           priorityRank: null,
           lineQuantities: effectiveSelectedLineIds.map((lineId) => ({
             salesOrderLineId: lineId,
-            quantity:
-              lineQuantities[lineId] ??
-              initialLineQuantityMap.get(lineId) ??
-              creatableLines.find((line) => line.salesOrderLineId === lineId)
-                ?.quantity ??
-              "0",
+            quantity: (() => {
+              const line = creatableLines.find((candidate) => candidate.salesOrderLineId === lineId);
+              if (!line) return "0";
+              const inputQuantity =
+                lineQuantities[lineId] ??
+                defaultLineInputQuantity(line, initialLineQuantityMap.get(lineId));
+              return resolveLinePlannedOutput(line, inputQuantity) ?? "0";
+            })(),
           })),
           notes: null,
         },
@@ -239,13 +275,12 @@ export function CreateManufacturingOrdersDialog({
   const canSubmit =
     effectiveSelectedLineIds.length > 0 &&
     effectiveSelectedLineIds.every((lineId) => {
+      const line = creatableLines.find((candidate) => candidate.salesOrderLineId === lineId);
+      if (!line) return false;
       const value =
         lineQuantities[lineId] ??
-        initialLineQuantityMap.get(lineId) ??
-        creatableLines.find((line) => line.salesOrderLineId === lineId)?.quantity ??
-        "";
-      const parsed = Number(value);
-      return Number.isFinite(parsed) && parsed > 0;
+        defaultLineInputQuantity(line, initialLineQuantityMap.get(lineId));
+      return resolveLinePlannedOutput(line, value) != null;
     }) &&
     !mutation.isPending &&
     !orderQuery.isLoading &&
@@ -344,7 +379,7 @@ export function CreateManufacturingOrdersDialog({
                           </TableHead>
                         ) : null}
                         <TableHead>Product</TableHead>
-                        <TableHead className="w-32 text-right">Qty</TableHead>
+                        <TableHead className="w-32 text-right">Make</TableHead>
                         <TableHead className="w-36">Unit</TableHead>
                         {showStatusColumns ? (
                           <>
@@ -357,6 +392,13 @@ export function CreateManufacturingOrdersDialog({
                     <TableBody>
                       {previewQuery.data.lines.map((line) => {
                         const isCreatable = line.status === "will_create";
+                        const lineIsBatch = isBatchLine(line);
+                        const inputQuantity =
+                          lineQuantities[line.salesOrderLineId] ??
+                          defaultLineInputQuantity(
+                            line,
+                            initialLineQuantityMap.get(line.salesOrderLineId)
+                          );
                         return (
                           <TableRow key={line.salesOrderLineId}>
                             {!isSingleLineMode ? (
@@ -385,14 +427,8 @@ export function CreateManufacturingOrdersDialog({
                             <TableCell>
                               {isCreatable ? (
                                 <Input
-                                  inputMode="decimal"
-                                  value={
-                                    lineQuantities[line.salesOrderLineId] ??
-                                    initialLineQuantityMap.get(
-                                      line.salesOrderLineId
-                                    ) ??
-                                    line.quantity
-                                  }
+                                  inputMode={lineIsBatch ? "numeric" : "decimal"}
+                                  value={inputQuantity}
                                   onChange={(event) =>
                                     setLineQuantities((current) => ({
                                       ...current,
@@ -400,7 +436,7 @@ export function CreateManufacturingOrdersDialog({
                                     }))
                                   }
                                   className="text-right"
-                                  aria-label={`Quantity for ${line.itemName}`}
+                                  aria-label={`${lineIsBatch ? "Batches" : "Quantity"} for ${line.itemName}`}
                                   disabled={
                                     !selectedLineIdSet.has(line.salesOrderLineId) ||
                                     mutation.isPending
@@ -408,11 +444,27 @@ export function CreateManufacturingOrdersDialog({
                                 />
                               ) : (
                                 <span className="block text-right">
-                                  {line.quantity}
+                                  {lineIsBatch
+                                    ? defaultLineInputQuantity(
+                                        line,
+                                        initialLineQuantityMap.get(line.salesOrderLineId)
+                                      )
+                                    : line.quantity}
                                 </span>
                               )}
                             </TableCell>
-                            <TableCell>{line.unitName}</TableCell>
+                            <TableCell>
+                              {lineIsBatch ? (
+                                <div>
+                                  <div>batches</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {line.expectedBatchYield} {line.unitName} each
+                                  </div>
+                                </div>
+                              ) : (
+                                line.unitName
+                              )}
+                            </TableCell>
                             {showStatusColumns ? (
                               <>
                                 <TableCell>

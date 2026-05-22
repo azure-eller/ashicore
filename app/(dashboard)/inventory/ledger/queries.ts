@@ -38,6 +38,7 @@ import {
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import { measureObservedOperation } from "@/lib/observability/request-log";
 import {
   ON_HAND_EVENT_TYPES,
   ledgerOnHandDeltaExpr,
@@ -541,7 +542,9 @@ async function resolveDocumentFilterLabel(
 export async function getInventoryLedger(
   filters: InventoryLedgerFilters
 ): Promise<InventoryLedgerPageData> {
-  return withAuthedOrgContext(async (tx, orgId) => {
+  return measureObservedOperation(
+    "inventory.get_ledger",
+    async () => withAuthedOrgContext(async (tx, orgId) => {
     const where = buildLedgerWhere(filters, orgId);
     const offset = (filters.page - 1) * filters.pageSize;
     const countSelection = {
@@ -941,76 +944,110 @@ export async function getInventoryLedger(
         documentLabel: await resolveDocumentFilterLabel(tx, filters),
       },
     };
-  });
+    }),
+    {
+      extra: {
+        page: filters.page,
+        pageSize: filters.pageSize,
+        hasItemFilter: Boolean(filters.itemId),
+        hasDocumentFilter: Boolean(filters.documentType),
+        hasSearch: Boolean(filters.q),
+      },
+      successData: (data) => ({
+        rowCount: data.rows.length,
+        totalCount: data.totalCount,
+      }),
+    }
+  );
 }
 
 export async function getInventoryLedgerActorOptions(): Promise<
   InventoryLedgerActorOption[]
 > {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    const rows = await tx
-      .selectDistinct({
-        id: inventoryEvents.actorUserId,
-        name: actorUsers.name,
-        email: actorUsers.email,
-      })
-      .from(inventoryEvents)
-      .leftJoin(actorUsers, eq(inventoryEvents.actorUserId, actorUsers.id))
-      .where(
-        and(
-          eq(inventoryEvents.organizationId, orgId),
-          isNotNull(inventoryEvents.actorUserId)
-        )
-      )
-      .orderBy(asc(actorUsers.name), asc(actorUsers.email));
+  return measureObservedOperation(
+    "inventory.get_ledger_actor_options",
+    async () => {
+      return withAuthedOrgContext(async (tx, orgId) => {
+        const rows = await tx
+          .selectDistinct({
+            id: inventoryEvents.actorUserId,
+            name: actorUsers.name,
+            email: actorUsers.email,
+          })
+          .from(inventoryEvents)
+          .leftJoin(actorUsers, eq(inventoryEvents.actorUserId, actorUsers.id))
+          .where(
+            and(
+              eq(inventoryEvents.organizationId, orgId),
+              isNotNull(inventoryEvents.actorUserId)
+            )
+          )
+          .orderBy(asc(actorUsers.name), asc(actorUsers.email));
 
-    return rows
-      .filter((row): row is { id: string; name: string | null; email: string | null } => row.id != null)
-      .map((row) => ({
-        id: row.id,
-        name: row.name ?? row.email ?? row.id,
-        email: row.email ?? "",
-      }));
-  });
+        return rows
+          .filter((row): row is { id: string; name: string | null; email: string | null } => row.id != null)
+          .map((row) => ({
+            id: row.id,
+            name: row.name ?? row.email ?? row.id,
+            email: row.email ?? "",
+          }));
+      });
+    },
+    {
+      successData: (rows) => ({
+        rowCount: rows.length,
+      }),
+    }
+  );
 }
 
 export async function getInventoryLedgerItemOptions(): Promise<
   InventoryLedgerItemOption[]
 > {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    const rows = await tx
-      .selectDistinct({
-        id: items.id,
-        itemName: items.name,
-        sku: items.sku,
-        itemType: items.itemType,
-        familyName: itemFamilies.name,
-      })
-      .from(inventoryEvents)
-      .innerJoin(items, eq(inventoryEvents.itemId, items.id))
-      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
-      .where(
-        and(
-          eq(inventoryEvents.organizationId, orgId),
-          eq(items.organizationId, orgId),
-          isNull(items.deletedAt)
-        )
-      )
-      .orderBy(asc(items.name), asc(items.sku), asc(items.id));
+  return measureObservedOperation(
+    "inventory.get_ledger_item_options",
+    async () => {
+      return withAuthedOrgContext(async (tx, orgId) => {
+        const rows = await tx
+          .selectDistinct({
+            id: items.id,
+            itemName: items.name,
+            sku: items.sku,
+            itemType: items.itemType,
+            familyName: itemFamilies.name,
+          })
+          .from(inventoryEvents)
+          .innerJoin(items, eq(inventoryEvents.itemId, items.id))
+          .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
+          .where(
+            and(
+              eq(inventoryEvents.organizationId, orgId),
+              eq(items.organizationId, orgId),
+              isNull(items.deletedAt)
+            )
+          )
+          .orderBy(asc(items.name), asc(items.sku), asc(items.id));
 
-    const optionValuesByItemId = await getLedgerOptionValuesByItemIdInTx(
-      tx,
-      rows.map((row) => row.id),
-    );
+        const optionValuesByItemId = await getLedgerOptionValuesByItemIdInTx(
+          tx,
+          rows.map((row) => row.id),
+        );
 
-    return rows.map((row) => ({
-      id: row.id,
-      displayName: resolveItemDisplayName({
-        ...row,
-        optionValues: optionValuesByItemId.get(row.id) ?? [],
+        return rows.map((row) => ({
+          id: row.id,
+          displayName: resolveItemDisplayName({
+            ...row,
+            optionValues: optionValuesByItemId.get(row.id) ?? [],
+          }),
+          sku: row.sku,
+          itemType: row.itemType as ItemType,
+        }));
+      });
+    },
+    {
+      successData: (rows) => ({
+        rowCount: rows.length,
       }),
-      sku: row.sku,
-      itemType: row.itemType as ItemType,
-    }));
-  });
+    }
+  );
 }

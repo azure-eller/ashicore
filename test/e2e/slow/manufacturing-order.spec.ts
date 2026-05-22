@@ -570,7 +570,6 @@ test.describe("Manufacturing order flow", () => {
           { itemId: sandId, quantityPerUnit: "2" },
           { itemId: compostId, quantityPerUnit: "1" },
         ],
-        groupRemainderChoices: [],
         lotAllocations: [],
         autoAllocateIngredientLots: false,
       }),
@@ -879,7 +878,6 @@ test.describe("Manufacturing order flow", () => {
           { itemId: sandId, quantityPerUnit: "3.5" },
           { itemId: compostId, quantityPerUnit: "1" },
         ],
-        groupRemainderChoices: [],
         lotAllocations: [],
         autoAllocateIngredientLots: false,
       }),
@@ -1137,9 +1135,6 @@ test.describe("Manufacturing order flow", () => {
         {
           componentId: batchMaterialId,
           quantity: "1",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "1",
-          batchScalingMode: "full_batches_only",
         },
       ],
     });
@@ -1296,16 +1291,10 @@ test.describe("Manufacturing order flow", () => {
         {
           componentId: baseId,
           quantity: "3",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "100",
-          batchScalingMode: "full_batches_only",
         },
         {
           componentId: packagingId,
           quantity: "1",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "100",
-          batchScalingMode: "full_batches_only",
         },
       ],
     });

@@ -3,11 +3,6 @@ import { z } from "zod";
 import { items } from "@/lib/db/schema";
 import { normalizeMinimumLotAgeDays } from "@/lib/bom/constraints";
 import { normalizeNumeric, normalizeNumericScale } from "@/lib/format";
-import {
-  BATCH_SCALING_MODES,
-  CONSUMPTION_MODES,
-  GROUP_REMAINDER_POLICIES,
-} from "@/lib/manufacturing/consumption";
 import { OPERATION_COST_SCALING_MODES } from "@/lib/manufacturing/operation-costs";
 import {
   isNonNegativeNumberString,
@@ -36,21 +31,16 @@ const minimumLotAgeDaysSchema = z
 const bomRowSchema = z.object({
   componentId: z.string().min(1, "Component is required"),
   quantity: bomQuantitySchema,
-  everyQuantity: bomQuantitySchema.optional(),
-  consumptionMode: z.enum(CONSUMPTION_MODES).default("per_output_unit"),
-  basisOutputQuantity: nullableStringOptional,
-  batchScalingMode: z.enum(BATCH_SCALING_MODES).nullable().optional(),
-  groupRemainderPolicy: z.enum(GROUP_REMAINDER_POLICIES).nullable().optional(),
   minimumLotAgeDays: minimumLotAgeDaysSchema,
   alternates: z
     .array(
       z.object({
         itemId: z.string().min(1, "Alternate is required"),
-      })
+      }).strict()
     )
     .optional()
     .default([]),
-});
+}).strict();
 
 const operationCostQuantitySchema = nullableString
   .refine((value) => value != null, "Value is required")
@@ -87,21 +77,16 @@ const rawOperationCostRowSchema = z.object({
 const rawBomRowSchema = z.object({
   componentId: z.string().nullable().optional(),
   quantity: z.string().nullable().optional(),
-  everyQuantity: z.string().nullable().optional(),
-  consumptionMode: z.enum(CONSUMPTION_MODES).nullable().optional(),
-  basisOutputQuantity: z.string().nullable().optional(),
-  batchScalingMode: z.enum(BATCH_SCALING_MODES).nullable().optional(),
-  groupRemainderPolicy: z.enum(GROUP_REMAINDER_POLICIES).nullable().optional(),
   minimumLotAgeDays: z.union([z.string(), z.number()]).nullable().optional(),
   alternates: z
     .array(
       z.object({
         itemId: z.string().min(1, "Alternate is required"),
-      })
+      }).strict()
     )
     .optional()
     .default([]),
-});
+}).strict();
 
 function isBlankBomRow(row: z.input<typeof rawBomRowSchema>) {
   const componentId = row.componentId?.trim() ?? "";
@@ -134,11 +119,6 @@ const cleanedBomRowsSchema = z
       const parsed = bomRowSchema.safeParse({
         componentId: row.componentId ?? "",
         quantity: row.quantity ?? null,
-        everyQuantity: row.everyQuantity ?? row.basisOutputQuantity ?? undefined,
-        consumptionMode: row.consumptionMode ?? "per_output_unit",
-        basisOutputQuantity: row.basisOutputQuantity ?? null,
-        batchScalingMode: row.batchScalingMode ?? null,
-        groupRemainderPolicy: row.groupRemainderPolicy ?? null,
         minimumLotAgeDays: row.minimumLotAgeDays,
         alternates: row.alternates,
       });
@@ -225,7 +205,6 @@ const rawBaseItemSchema = createInsertSchema(items, {
   manufacturingMode: z.enum(["discrete", "batch"]).default("discrete"),
   expectedBatchYield: nullableStringOptional,
   typicalBatchSize: nullableStringOptional,
-  typicalGroupSize: nullableStringOptional,
   standardCostQuantity: nullableStringOptional,
   safetyStock: z.string().transform((v) => (v.trim() === "" ? "0" : v)),
   registeredBarcode: nullableStringOptional,
@@ -317,15 +296,25 @@ function positiveOptionalRefine(
   }
 }
 
+function batchModeRefine(
+  data: { manufacturingMode?: "discrete" | "batch"; expectedBatchYield?: string | null },
+  ctx: z.RefinementCtx
+) {
+  if (data.manufacturingMode !== "batch") return;
+  const parsed = Number(data.expectedBatchYield);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Expected batch yield is required for batch products",
+      path: ["expectedBatchYield"],
+    });
+  }
+}
+
 function bomRefine(
   data: {
     bom?: Array<{
       componentId: string;
-      consumptionMode?: string;
-      basisOutputQuantity?: string | null;
-      everyQuantity?: string | null;
-      batchScalingMode?: string | null;
-      groupRemainderPolicy?: string | null;
       alternates?: Array<{ itemId: string }>;
     }>;
   },
@@ -342,19 +331,6 @@ function bomRefine(
       });
     }
     seen.add(data.bom[i].componentId);
-
-    const row = data.bom[i];
-    const everyQuantity = row.everyQuantity?.trim() ?? row.basisOutputQuantity?.trim() ?? "";
-    if (everyQuantity !== "") {
-      const parsed = Number(everyQuantity);
-      if (!Number.isFinite(parsed) || parsed <= 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Every must be greater than 0",
-          path: ["bom", i, "everyQuantity"],
-        });
-      }
-    }
 
     const alternatesSeen = new Set<string>();
     for (let j = 0; j < (data.bom[i].alternates ?? []).length; j++) {
@@ -412,10 +388,10 @@ export const insertItemSchema = rawBaseItemSchema.superRefine((data, ctx) => {
   purchaseUnitRefine(data, ctx);
   bomRefine(data, ctx);
   operationCostsRefine(data, ctx);
+  batchModeRefine(data, ctx);
   positiveOptionalRefine(data.outputQuantity, "Recipe output", "outputQuantity", ctx);
   positiveOptionalRefine(data.expectedBatchYield, "Expected batch yield", "expectedBatchYield", ctx);
   positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
-  positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);
   positiveOptionalRefine(data.standardCostQuantity, "Standard costing quantity", "standardCostQuantity", ctx);
   positiveOptionalRefine(data.minimumOrderQuantity, "Minimum order quantity", "minimumOrderQuantity", ctx);
 });
@@ -442,10 +418,10 @@ export const updateItemSchema = rawBaseItemSchema.omit({
   purchaseUnitRefine(data, ctx);
   bomRefine(data, ctx);
   operationCostsRefine(data, ctx);
+  batchModeRefine(data, ctx);
   positiveOptionalRefine(data.outputQuantity, "Recipe output", "outputQuantity", ctx);
   positiveOptionalRefine(data.expectedBatchYield, "Expected batch yield", "expectedBatchYield", ctx);
   positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
-  positiveOptionalRefine(data.typicalGroupSize, "Typical group size", "typicalGroupSize", ctx);
   positiveOptionalRefine(data.standardCostQuantity, "Standard costing quantity", "standardCostQuantity", ctx);
   positiveOptionalRefine(data.minimumOrderQuantity, "Minimum order quantity", "minimumOrderQuantity", ctx);
 });

@@ -8,7 +8,7 @@ import {
   bomRevisions,
   user,
 } from "@/lib/db/schema";
-import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
+import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
 import type { BomComponentConstraint } from "./constraints";
 export { getCurrentActiveBomIngredientsInTx } from "./active-ingredients";
@@ -22,12 +22,6 @@ export type BomRevisionComponentSnapshot = {
   componentItemType: string;
   unitName: string;
   quantity: string;
-  everyQuantity: string;
-  consumptionMode: string;
-  basisOutputQuantity: string | null;
-  batchScalingMode: string | null;
-  groupRemainderPolicy: string | null;
-  scalingReviewRecommended: boolean;
   sortOrder: number;
   constraints: BomComponentConstraint[];
   alternates: BomRevisionComponentAlternateSnapshot[];
@@ -49,6 +43,7 @@ export type BomRevisionWithMeta = {
   productId: string;
   revisionNumber: number;
   outputQuantity: string;
+  recipeBasis: string;
   isCurrent: boolean;
   note: string | null;
   createdBy: string;
@@ -64,6 +59,7 @@ export async function getCurrentBomRevisionInTx(tx: Tx, productId: string) {
       productId: bomRevisions.productId,
       revisionNumber: bomRevisions.revisionNumber,
       outputQuantity: trimScale(bomRevisions.outputQuantity).as("outputQuantity"),
+      recipeBasis: bomRevisions.recipeBasis,
       isCurrent: bomRevisions.isCurrent,
       note: bomRevisions.note,
       createdBy: bomRevisions.createdBy,
@@ -85,6 +81,7 @@ export async function getBomRevisionHistoryInTx(tx: Tx, productId: string) {
       productId: bomRevisions.productId,
       revisionNumber: bomRevisions.revisionNumber,
       outputQuantity: trimScale(bomRevisions.outputQuantity).as("outputQuantity"),
+      recipeBasis: bomRevisions.recipeBasis,
       isCurrent: bomRevisions.isCurrent,
       note: bomRevisions.note,
       createdBy: bomRevisions.createdBy,
@@ -109,17 +106,6 @@ export async function getBomRevisionComponentsInTx(tx: Tx, bomRevisionId: string
       componentItemType: bomRevisionComponents.componentItemType,
       unitName: bomRevisionComponents.unitName,
       quantity: trimScale(bomRevisionComponents.quantity).as("quantity"),
-      everyQuantity: trimScale(bomRevisionComponents.everyQuantity).as(
-        "everyQuantity"
-      ),
-      consumptionMode: bomRevisionComponents.consumptionMode,
-      basisOutputQuantity: trimScaleNullable(
-        bomRevisionComponents.basisOutputQuantity
-      ).as("basisOutputQuantity"),
-      batchScalingMode: bomRevisionComponents.batchScalingMode,
-      groupRemainderPolicy: bomRevisionComponents.groupRemainderPolicy,
-      scalingReviewRecommended:
-        bomRevisionComponents.scalingReviewRecommended,
       sortOrder: bomRevisionComponents.sortOrder,
     })
     .from(bomRevisionComponents)
@@ -255,17 +241,6 @@ export async function getCurrentBomCoverageInTx(tx: Tx, productIds: string[]) {
       componentItemType: bomRevisionComponents.componentItemType,
       unitName: bomRevisionComponents.unitName,
       quantity: trimScale(bomRevisionComponents.quantity).as("quantity"),
-      everyQuantity: trimScale(bomRevisionComponents.everyQuantity).as(
-        "everyQuantity"
-      ),
-      consumptionMode: bomRevisionComponents.consumptionMode,
-      basisOutputQuantity: trimScaleNullable(
-        bomRevisionComponents.basisOutputQuantity
-      ).as("basisOutputQuantity"),
-      batchScalingMode: bomRevisionComponents.batchScalingMode,
-      groupRemainderPolicy: bomRevisionComponents.groupRemainderPolicy,
-      scalingReviewRecommended:
-        bomRevisionComponents.scalingReviewRecommended,
       sortOrder: bomRevisionComponents.sortOrder,
     })
     .from(bomRevisionComponents)

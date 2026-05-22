@@ -82,9 +82,6 @@ async function createProduct(opts: {
   bom: Array<{
     componentId: string;
     quantity: string;
-    consumptionMode?: "per_output_unit" | "per_batch" | "per_group";
-    basisOutputQuantity?: string;
-    batchScalingMode?: "proportional" | "full_batches_only";
   }>;
   manufacturingMode?: "discrete" | "batch";
   expectedBatchYield?: string | null;
@@ -464,9 +461,6 @@ test.describe("MO execute and fulfill", () => {
           {
             componentId: materialId,
             quantity: "1",
-            consumptionMode: "per_batch",
-            basisOutputQuantity: "50",
-            batchScalingMode: "full_batches_only",
           },
         ],
       });

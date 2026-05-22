@@ -1467,7 +1467,6 @@ export async function generateVariants(
           manufacturingMode: source.manufacturingMode,
           expectedBatchYield: source.expectedBatchYield,
           typicalBatchSize: source.typicalBatchSize,
-          typicalGroupSize: source.typicalGroupSize,
           sortOrder: nextSortOrder++,
           registeredBarcode: null,
           internalBarcode: null,

@@ -479,6 +479,7 @@ export async function createBomRevisionInTx(
     productId: string;
     note?: string | null;
     outputQuantity?: string | null;
+    recipeBasis?: "unit" | "batch";
     bom: BomInputRow[];
     operationCosts?: BomOperationCostInputRow[];
   }
@@ -504,6 +505,7 @@ export async function createBomRevisionInTx(
       productId: params.productId,
       revisionNumber: (currentRevision?.revisionNumber ?? 0) + 1,
       outputQuantity: params.outputQuantity ?? "1",
+      recipeBasis: params.recipeBasis ?? "unit",
       isCurrent: true,
       note: params.note ?? null,
       createdBy: params.userId,
@@ -538,13 +540,6 @@ export async function createBomRevisionInTx(
         throw new Error("BOM component not found");
       }
 
-      const consumptionMode = row.consumptionMode ?? "per_output_unit";
-      const everyQuantity =
-        row.everyQuantity ??
-        row.basisOutputQuantity ??
-        params.outputQuantity ??
-        "1";
-
       return {
         bomRevisionId: revision.id,
         componentId: row.componentId,
@@ -553,21 +548,6 @@ export async function createBomRevisionInTx(
         componentItemType: component.itemType,
         unitName: component.unitName,
         quantity: row.quantity,
-        everyQuantity,
-        consumptionMode,
-        basisOutputQuantity:
-          consumptionMode === "per_batch" || consumptionMode === "per_group"
-            ? row.basisOutputQuantity ?? null
-            : null,
-        batchScalingMode:
-          consumptionMode === "per_batch"
-            ? row.batchScalingMode ?? "full_batches_only"
-            : null,
-        groupRemainderPolicy:
-          consumptionMode === "per_group"
-            ? row.groupRemainderPolicy ?? "ask"
-            : null,
-        scalingReviewRecommended: row.consumptionMode == null && consumptionMode === "per_batch",
         sortOrder: index,
       };
     });
@@ -730,131 +710,189 @@ export async function getItems(filters?: {
       const bomViewPermissions = getBomViewPermissions(context.assignedRoles);
 
       return withAuthedOrgContext<ItemRow[]>(async (tx) => {
-        const rows = await tx
-          .select({
-            id: items.id,
-            familyId: items.familyId,
-            familyName: itemFamilies.name,
-            name: items.name,
-            sku: items.sku,
-            itemType: items.itemType,
-            optionCombinationKey: items.optionCombinationKey,
-            stock: stockSubquery,
-            committedQty: committedQtySubquery,
-            demandQty: demandQtySubquery,
-            shortageQty: shortageQtySubquery,
-            availableQty: availableQtySubquery,
-            expectedQty: expectedQtySubquery,
-            safetyStock: trimScale(items.safetyStock).as("safetyStock"),
-            defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
-            currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
-              "currentStockUnitCost"
-            ),
-            unit: unitDefinitions.name,
-            unitSize: unitDefinitions.size,
-            unitUom: unitDefinitions.uom,
-            category: items.category,
-            familyCategory: itemFamilies.category,
-            potential: potentialSubquery,
-            sellable: items.sellable,
-            createdAt: items.createdAt,
-          })
-          .from(items)
-          .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
-          .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-          .where(
-            and(
-              isNull(items.deletedAt),
-              isNotNull(items.familyId),
-              ...(filters?.itemType ? [eq(items.itemType, filters.itemType)] : []),
-            ),
-          );
+        const rows = await measureObservedOperation(
+          "inventory.get_items.base_query",
+          () =>
+            tx
+              .select({
+                id: items.id,
+                familyId: items.familyId,
+                familyName: itemFamilies.name,
+                name: items.name,
+                sku: items.sku,
+                itemType: items.itemType,
+                optionCombinationKey: items.optionCombinationKey,
+                stock: stockSubquery,
+                committedQty: committedQtySubquery,
+                demandQty: demandQtySubquery,
+                shortageQty: shortageQtySubquery,
+                availableQty: availableQtySubquery,
+                expectedQty: expectedQtySubquery,
+                safetyStock: trimScale(items.safetyStock).as("safetyStock"),
+                defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
+                currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
+                  "currentStockUnitCost"
+                ),
+                unit: unitDefinitions.name,
+                unitSize: unitDefinitions.size,
+                unitUom: unitDefinitions.uom,
+                category: items.category,
+                familyCategory: itemFamilies.category,
+                potential: potentialSubquery,
+                sellable: items.sellable,
+                createdAt: items.createdAt,
+              })
+              .from(items)
+              .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
+              .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+              .where(
+                and(
+                  isNull(items.deletedAt),
+                  isNotNull(items.familyId),
+                  ...(filters?.itemType ? [eq(items.itemType, filters.itemType)] : []),
+                ),
+              ),
+          {
+            extra: {
+              itemType: filters?.itemType ?? "all",
+            },
+            successData: (baseRows) => ({
+              rowCount: baseRows.length,
+            }),
+          }
+        );
 
         const leafIds = rows.map((row) => row.id);
         const [hasBomSet, usedInCounts, revenueByItemId, estimatedCostSummariesByItemId] = await Promise.all([
-          getCurrentBomProductIdSetInTx(tx, leafIds),
-          getUsedInCountsInTx(tx, leafIds, bomViewPermissions),
-          getRevenue30dByItemIdInTx(tx, leafIds),
-          getEstimatedRecipeCostSummariesByItemIdInTx(tx, leafIds),
-        ]);
-        const optionValuesByItemId = await getVariantOptionValuesByItemIdInTx(tx, leafIds);
-        const duplicateWarningsByItemId = buildDuplicateCombinationWarnings(rows);
-
-        const results: ItemRow[] = rows
-          .map<ItemRow>((row) => {
-            const usedInCount = usedInCounts.get(row.id) ?? 0;
-            const estimatedUnitCost =
-              estimatedCostSummariesByItemId.get(row.id)?.totalCost ?? null;
-            const optionValues = optionValuesByItemId.get(row.id) ?? [];
-            const displayName =
-              optionValues.length > 0
-                ? formatNormalizedVariantDisplay(row.familyName, row.name, optionValues)
-                : row.familyName ?? row.name;
-
-            return {
-              id: row.id,
-              familyId: row.familyId,
-              familyName: row.familyName,
-              name: row.name,
-              displayName,
-              sku: row.sku,
-              itemType: row.itemType as ItemType,
-              stock: row.stock,
-              committedQty: row.committedQty,
-              demandQty: row.demandQty,
-              shortageQty: row.shortageQty,
-              availableQty: row.availableQty,
-              expectedQty: row.expectedQty,
-              safetyStock: row.safetyStock,
-              currentStockUnitCost:
-                row.itemType === "material" ? row.currentStockUnitCost : null,
-              unit: row.unit ?? null,
-              unitSize: row.unitSize ?? null,
-              unitUom: row.unitUom ?? null,
-              category: row.familyCategory ?? row.category,
-              optionCombinationKey: row.optionCombinationKey,
-              optionValues,
-              duplicateCombinationWarnings:
-                duplicateWarningsByItemId.get(row.id) ?? [],
-              potential: row.potential,
-              estimatedUnitCost,
-              marginPercent: calculateMarginPercent(
-                row.defaultSellingPrice,
-                estimatedUnitCost,
-              ),
-              marginTier: null,
-              variantCount: 0,
-              priceRange: null,
-              sellable: row.sellable,
-              hasBom: hasBomSet.has(row.id),
-              usedInBom: usedInCount > 0,
-              usedInCount,
-              revenue30d: revenueByItemId.get(row.id) ?? null,
-              createdAt: row.createdAt,
-            };
-          })
-          .sort((a, b) => {
-            if (a.sellable !== b.sellable) {
-              return a.sellable === true ? -1 : 1;
+          measureObservedOperation(
+            "inventory.get_items.current_bom_set",
+            () => getCurrentBomProductIdSetInTx(tx, leafIds),
+            {
+              extra: { rowCount: leafIds.length },
+              successData: (set) => ({ resultCount: set.size }),
             }
+          ),
+          measureObservedOperation(
+            "inventory.get_items.used_in_counts",
+            () => getUsedInCountsInTx(tx, leafIds, bomViewPermissions),
+            {
+              extra: { rowCount: leafIds.length },
+              successData: (counts) => ({ resultCount: counts.size }),
+            }
+          ),
+          measureObservedOperation(
+            "inventory.get_items.revenue_30d",
+            () => getRevenue30dByItemIdInTx(tx, leafIds),
+            {
+              extra: { rowCount: leafIds.length },
+              successData: (revenueRows) => ({ resultCount: revenueRows.size }),
+            }
+          ),
+          measureObservedOperation(
+            "inventory.get_items.estimated_recipe_costs",
+            () => getEstimatedRecipeCostSummariesByItemIdInTx(tx, leafIds),
+            {
+              extra: { rowCount: leafIds.length },
+              successData: (summaries) => ({ resultCount: summaries.size }),
+            }
+          ),
+        ]);
+        const optionValuesByItemId = await measureObservedOperation(
+          "inventory.get_items.variant_option_values",
+          () => getVariantOptionValuesByItemIdInTx(tx, leafIds),
+          {
+            extra: { rowCount: leafIds.length },
+            successData: (optionRows) => ({ resultCount: optionRows.size }),
+          }
+        );
 
-            const displayNameDiff = a.displayName.localeCompare(
-              b.displayName,
-              undefined,
-              { numeric: true, sensitivity: "base" },
-            );
-            if (displayNameDiff !== 0) return displayNameDiff;
+        const results = await measureObservedOperation(
+          "inventory.get_items.map_sort",
+          async () => {
+            const duplicateWarningsByItemId = buildDuplicateCombinationWarnings(rows);
+            const mappedRows: ItemRow[] = rows
+              .map<ItemRow>((row) => {
+                const usedInCount = usedInCounts.get(row.id) ?? 0;
+                const estimatedUnitCost =
+                  estimatedCostSummariesByItemId.get(row.id)?.totalCost ?? null;
+                const optionValues = optionValuesByItemId.get(row.id) ?? [];
+                const displayName =
+                  optionValues.length > 0
+                    ? formatNormalizedVariantDisplay(row.familyName, row.name, optionValues)
+                    : row.familyName ?? row.name;
 
-            const skuDiff = (a.sku ?? "").localeCompare(b.sku ?? "", undefined, {
-              numeric: true,
-              sensitivity: "base",
-            });
-            if (skuDiff !== 0) return skuDiff;
+                return {
+                  id: row.id,
+                  familyId: row.familyId,
+                  familyName: row.familyName,
+                  name: row.name,
+                  displayName,
+                  sku: row.sku,
+                  itemType: row.itemType as ItemType,
+                  stock: row.stock,
+                  committedQty: row.committedQty,
+                  demandQty: row.demandQty,
+                  shortageQty: row.shortageQty,
+                  availableQty: row.availableQty,
+                  expectedQty: row.expectedQty,
+                  safetyStock: row.safetyStock,
+                  currentStockUnitCost:
+                    row.itemType === "material" ? row.currentStockUnitCost : null,
+                  unit: row.unit ?? null,
+                  unitSize: row.unitSize ?? null,
+                  unitUom: row.unitUom ?? null,
+                  category: row.familyCategory ?? row.category,
+                  optionCombinationKey: row.optionCombinationKey,
+                  optionValues,
+                  duplicateCombinationWarnings:
+                    duplicateWarningsByItemId.get(row.id) ?? [],
+                  potential: row.potential,
+                  estimatedUnitCost,
+                  marginPercent: calculateMarginPercent(
+                    row.defaultSellingPrice,
+                    estimatedUnitCost,
+                  ),
+                  marginTier: null,
+                  variantCount: 0,
+                  priceRange: null,
+                  sellable: row.sellable,
+                  hasBom: hasBomSet.has(row.id),
+                  usedInBom: usedInCount > 0,
+                  usedInCount,
+                  revenue30d: revenueByItemId.get(row.id) ?? null,
+                  createdAt: row.createdAt,
+                };
+              })
+              .sort((a, b) => {
+                if (a.sellable !== b.sellable) {
+                  return a.sellable === true ? -1 : 1;
+                }
 
-            return a.id.localeCompare(b.id);
-          });
+                const displayNameDiff = a.displayName.localeCompare(
+                  b.displayName,
+                  undefined,
+                  { numeric: true, sensitivity: "base" },
+                );
+                if (displayNameDiff !== 0) return displayNameDiff;
 
-        return applyMarginTiers(results);
+                const skuDiff = (a.sku ?? "").localeCompare(b.sku ?? "", undefined, {
+                  numeric: true,
+                  sensitivity: "base",
+                });
+                if (skuDiff !== 0) return skuDiff;
+
+                return a.id.localeCompare(b.id);
+              });
+
+            return applyMarginTiers(mappedRows);
+          },
+          {
+            extra: { rowCount: rows.length },
+            successData: (mappedRows) => ({ resultCount: mappedRows.length }),
+          }
+        );
+
+        return results;
       });
     },
     {
@@ -900,9 +938,6 @@ export async function getItem(id: string) {
         ),
         typicalBatchSize: trimScaleNullable(items.typicalBatchSize).as(
           "typicalBatchSize"
-        ),
-        typicalGroupSize: trimScaleNullable(items.typicalGroupSize).as(
-          "typicalGroupSize"
         ),
         standardCostQuantity: trimScaleNullable(items.standardCostQuantity).as(
           "standardCostQuantity"
@@ -2004,15 +2039,17 @@ export async function updateItem(
     }
 
     if (bom !== undefined || operationCosts !== undefined) {
+      const [currentRevisionMeta] = await tx
+        .select({
+          outputQuantity: bomRevisions.outputQuantity,
+          recipeBasis: bomRevisions.recipeBasis,
+        })
+        .from(bomRevisions)
+        .where(and(eq(bomRevisions.productId, id), eq(bomRevisions.isCurrent, true)))
+        .limit(1);
       const nextBom = bom ?? currentBom.map((row) => ({
         componentId: row.componentId,
         quantity: row.quantity,
-        everyQuantity: row.everyQuantity,
-        consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
-        basisOutputQuantity: row.basisOutputQuantity,
-        batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
-        groupRemainderPolicy:
-          row.groupRemainderPolicy as BomInputRow["groupRemainderPolicy"],
         minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
         alternates: row.alternates.map((alternate) => ({
           itemId: alternate.alternateItemId,
@@ -2031,12 +2068,6 @@ export async function updateItem(
           currentBom.map((row) => ({
             componentId: row.componentId,
             quantity: row.quantity,
-            everyQuantity: row.everyQuantity,
-            consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
-            basisOutputQuantity: row.basisOutputQuantity,
-            batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
-            groupRemainderPolicy:
-              row.groupRemainderPolicy as BomInputRow["groupRemainderPolicy"],
             minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
             alternates: row.alternates.map((alternate) => ({
               itemId: alternate.alternateItemId,
@@ -2063,6 +2094,8 @@ export async function updateItem(
           userId,
           productId: id,
           note: revisionNote,
+          outputQuantity: currentRevisionMeta?.outputQuantity ?? "1",
+          recipeBasis: currentRevisionMeta?.recipeBasis === "batch" ? "batch" : "unit",
           bom: nextBom,
           operationCosts: nextOperationCosts,
         });
@@ -2255,12 +2288,19 @@ export async function createItemWithLot(
       .returning({ id: items.id });
 
     if ((bom && bom.length > 0) || (operationCosts && operationCosts.length > 0)) {
+      const recipeBasis = data.manufacturingMode === "batch" ? "batch" : "unit";
+      const recipeOutputQuantity =
+        recipeBasis === "batch"
+          ? data.expectedBatchYield ?? data.typicalBatchSize ?? outputQuantity ?? "1"
+          : "1";
+
       await createBomRevisionInTx(tx, {
         orgId,
         userId,
         productId: item.id,
         note: revisionNote,
-        outputQuantity,
+        outputQuantity: recipeOutputQuantity,
+        recipeBasis,
         bom: bom ?? [],
         operationCosts: operationCosts ?? [],
       });
@@ -2493,12 +2533,6 @@ export async function getBomComponents(itemId: string) {
       id: row.id,
       componentId: row.componentId,
       quantity: row.quantity,
-      everyQuantity: row.everyQuantity,
-      consumptionMode: row.consumptionMode,
-      basisOutputQuantity: row.basisOutputQuantity,
-      batchScalingMode: row.batchScalingMode,
-      groupRemainderPolicy: row.groupRemainderPolicy,
-      scalingReviewRecommended: row.scalingReviewRecommended,
       minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
       constraints: row.constraints,
       componentName: row.componentName,
@@ -2583,11 +2617,6 @@ export async function copyCurrentBomToVariants(
     const bom: BomInputRow[] = sourceBom.map((row) => ({
       componentId: row.componentId,
       quantity: row.quantity,
-      everyQuantity: row.everyQuantity,
-      consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
-      basisOutputQuantity: row.basisOutputQuantity,
-      batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
-      groupRemainderPolicy: row.groupRemainderPolicy as BomInputRow["groupRemainderPolicy"],
       minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
       alternates: row.alternates.map((alternate) => ({
         itemId: alternate.alternateItemId,
@@ -2610,6 +2639,7 @@ export async function copyCurrentBomToVariants(
         productId,
         note: note ?? `Copied from ${sourceItemId}`,
         outputQuantity: sourceRevision?.outputQuantity ?? null,
+        recipeBasis: sourceRevision?.recipeBasis === "batch" ? "batch" : "unit",
         bom,
         operationCosts,
       });
@@ -2699,11 +2729,6 @@ export async function copyCurrentOperationsToVariants(
       const bom: BomInputRow[] = targetBom.map((row) => ({
         componentId: row.componentId,
         quantity: row.quantity,
-        everyQuantity: row.everyQuantity,
-        consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
-        basisOutputQuantity: row.basisOutputQuantity,
-        batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
-        groupRemainderPolicy: row.groupRemainderPolicy as BomInputRow["groupRemainderPolicy"],
         minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
         alternates: row.alternates.map((alternate) => ({
           itemId: alternate.alternateItemId,
@@ -2716,6 +2741,7 @@ export async function copyCurrentOperationsToVariants(
         productId,
         note: note ?? `Copied operations from ${sourceItemId}`,
         outputQuantity: targetRevision?.outputQuantity ?? null,
+        recipeBasis: targetRevision?.recipeBasis === "batch" ? "batch" : "unit",
         bom,
         operationCosts,
       });

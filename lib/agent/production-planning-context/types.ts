@@ -310,6 +310,8 @@ export type AgentTopLevelBomContext = {
   unitName: string | null;
   revisionId: string;
   revisionNumber: number;
+  recipeBasis: "unit" | "batch";
+  outputQuantity: string;
   components: Array<{
     bomRevisionComponentId: string;
     componentItemId: string;
@@ -317,10 +319,6 @@ export type AgentTopLevelBomContext = {
     componentItemType: string;
     unitName: string | null;
     quantity: string;
-    consumptionMode: string;
-    basisOutputQuantity: string | null;
-    batchScalingMode: string | null;
-    groupRemainderPolicy: string | null;
     minimumLotAgeDays: number | null;
     constraints: Array<{
       type: string;
@@ -465,10 +463,6 @@ export type AgentProductionRawContext = {
       componentItemType: string;
       componentUnitName: string | null;
       quantity: string;
-      consumptionMode: string;
-      basisOutputQuantity: string | null;
-      batchScalingMode: string | null;
-      groupRemainderPolicy: string | null;
       quantityMeaning: string;
       requirements: Array<
         | {

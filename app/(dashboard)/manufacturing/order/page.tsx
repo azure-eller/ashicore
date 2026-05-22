@@ -22,6 +22,8 @@ export default async function ManufacturingOrderDraftPage() {
         displayName: template.displayName,
         sku: template.sku,
         unitName: template.unitName,
+        manufacturingMode: template.manufacturingMode,
+        expectedBatchYield: template.expectedBatchYield,
         bom: template.bom.map((row) => ({
           itemId: row.itemId,
           quantityPerUnit: row.quantityPerUnit,

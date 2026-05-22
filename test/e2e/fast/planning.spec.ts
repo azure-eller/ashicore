@@ -215,10 +215,6 @@ test.describe("Planning workspace", () => {
     bom: Array<{
       componentId: string;
       quantity: string;
-      consumptionMode?: "per_output_unit" | "per_batch" | "per_group";
-      basisOutputQuantity?: string | null;
-      batchScalingMode?: "proportional" | "full_batches_only" | null;
-      groupRemainderPolicy?: "ask" | "leave_loose" | "create_partial_group" | null;
       minimumLotAgeDays?: number | null;
     }>
   ) {
@@ -652,7 +648,7 @@ test.describe("Planning workspace", () => {
     expect(line.unitCost).toBe("2.5000");
   });
 
-  test("production planning uses every quantity without batch metadata", async () => {
+  test("production planning uses unit recipes without batch metadata", async () => {
     const productName = `Production Every Blend ${runToken}`;
     const componentId = await createMaterial("Production Batch Component", {
       stock: "100",
@@ -675,7 +671,6 @@ test.describe("Planning workspace", () => {
         {
           componentId,
           quantity: "2",
-          everyQuantity: "4",
         },
       ],
     });
@@ -698,17 +693,17 @@ test.describe("Planning workspace", () => {
     ).toBe(false);
   });
 
-  test("production planning ignores product compatibility batch mode without BOM batch lines", async () => {
-    const productName = `Production Legacy Compat Blend ${runToken}`;
-    const componentId = await createMaterial("Production Legacy Compat Component", {
+  test("production planning carries batch metadata from batch recipe basis", async () => {
+    const productName = `Production Batch Basis Blend ${runToken}`;
+    const componentId = await createMaterial("Production Batch Basis Component", {
       stock: "100",
-      skuKey: "PROD-COMPAT-COMP",
+      skuKey: "PROD-BASIS-COMP",
     });
     const product = await createItem({
       name: productName,
       itemType: "product",
       unitDefinitionId: unitId,
-      sku: buildItemSku("PLAN-P", "PROD-COMPAT-BLEND"),
+      sku: buildItemSku("PLAN-P", "PROD-BASIS-BLEND"),
       category,
       description: null,
       defaultPurchasePrice: null,
@@ -727,9 +722,9 @@ test.describe("Planning workspace", () => {
     const planning = await snapshot();
     const row = rowFor(planning, productId);
 
-    expect(row.manufacturingMode).toBe("discrete");
-    expect(row.expectedBatchYield).toBeNull();
-    expect(row.plannedBatchCount).toBeNull();
+    expect(row.manufacturingMode).toBe("batch");
+    expect(row.expectedBatchYield).toBe("4");
+    expect(row.plannedBatchCount).toBe(3);
   });
 
   test("component shortage references parent demand and BOM revision", async () => {

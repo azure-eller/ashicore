@@ -219,9 +219,6 @@ test.describe("MO execute and fulfill — fast write-path smoke", () => {
         {
           componentId: material.body.id,
           quantity: "1",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "50",
-          batchScalingMode: "full_batches_only",
         },
       ],
     });

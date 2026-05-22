@@ -1,6 +1,8 @@
 import "server-only";
 
+import { eq } from "drizzle-orm";
 import { z } from "zod";
+import { items } from "@/lib/db/schema";
 import { withAuthedOrgContext, getAuthedMemberContext } from "@/lib/dal/auth";
 import { createBomRevisionInTx } from "@/app/(dashboard)/inventory/queries/internal";
 import type {
@@ -17,28 +19,6 @@ const bomRowSchema = z.object({
     },
     "Quantity must be a positive number",
   ),
-  everyQuantity: z
-    .string()
-    .nullable()
-    .optional()
-    .refine((value) => {
-      if (value == null) return true;
-      const parsed = Number(value);
-      return Number.isFinite(parsed) && parsed > 0;
-    }, "Every must be greater than 0"),
-  consumptionMode: z
-    .enum(["per_output_unit", "per_batch", "per_group"])
-    .nullable()
-    .optional(),
-  basisOutputQuantity: z.string().nullable().optional(),
-  batchScalingMode: z
-    .enum(["proportional", "full_batches_only"])
-    .nullable()
-    .optional(),
-  groupRemainderPolicy: z
-    .enum(["ask", "leave_loose", "create_partial_group"])
-    .nullable()
-    .optional(),
   minimumLotAgeDays: z
     .union([z.string(), z.number()])
     .nullable()
@@ -52,7 +32,7 @@ const bomRowSchema = z.object({
     .array(z.object({ itemId: z.string().uuid() }))
     .optional()
     .default([]),
-});
+}).strict();
 
 const operationCostRowSchema = z.object({
   operationName: z.string().trim().min(1, "Operation name is required"),
@@ -64,22 +44,36 @@ const operationCostRowSchema = z.object({
 });
 
 export const createBomRevisionSchema = z.object({
-  outputQuantity: z
-    .string()
-    .nullable()
-    .optional()
-    .refine((value) => {
-      if (value == null) return true;
-      const parsed = Number(value);
-      return Number.isFinite(parsed) && parsed > 0;
-    }, "Recipe output must be greater than 0"),
-  bom: z.array(bomRowSchema).default([]),
-  operationCosts: z.array(operationCostRowSchema).optional(),
-  note: z
-    .string()
-    .nullable()
-    .optional()
-    .transform((value) => (value ?? null) || null),
+    recipeBasis: z.enum(["unit", "batch"]).default("unit"),
+    expectedBatchYield: z.string().nullable().optional(),
+    outputQuantity: z
+      .string()
+      .nullable()
+      .optional()
+      .refine((value) => {
+        if (value == null) return true;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && parsed > 0;
+      }, "Recipe output must be greater than 0"),
+    bom: z.array(bomRowSchema).default([]),
+    operationCosts: z.array(operationCostRowSchema).optional(),
+    note: z
+      .string()
+      .nullable()
+      .optional()
+      .transform((value) => (value ?? null) || null),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+  if (value.recipeBasis !== "batch") return;
+  const parsed = Number(value.expectedBatchYield ?? value.outputQuantity);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Expected output per batch must be greater than 0",
+      path: ["expectedBatchYield"],
+    });
+  }
 });
 
 export type CreateBomRevisionInput = z.infer<typeof createBomRevisionSchema>;
@@ -96,12 +90,29 @@ export async function createBomRevision(
 ) {
   const { userId } = await getAuthedMemberContext();
   return withAuthedOrgContext(async (tx, orgId) => {
+    const recipeBasis = data.recipeBasis ?? "unit";
+    const expectedBatchYield =
+      recipeBasis === "batch"
+        ? data.expectedBatchYield ?? data.outputQuantity ?? null
+        : null;
+    const outputQuantity = recipeBasis === "batch" ? expectedBatchYield : "1";
+
+    await tx
+      .update(items)
+      .set({
+        manufacturingMode: recipeBasis === "batch" ? "batch" : "discrete",
+        expectedBatchYield,
+        updatedAt: new Date(),
+      })
+      .where(eq(items.id, productId));
+
     const result = await createBomRevisionInTx(tx, {
       orgId,
       userId,
       productId,
       note: data.note ?? null,
-      outputQuantity: data.outputQuantity ?? null,
+      outputQuantity,
+      recipeBasis,
       bom: data.bom as BomInputRow[],
       operationCosts: data.operationCosts as BomOperationCostInputRow[] | undefined,
     });

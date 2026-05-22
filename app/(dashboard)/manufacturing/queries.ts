@@ -19,6 +19,7 @@ import {
   inventoryLotBalances,
   type InventoryDisposition,
   inventoryReservationsSummary,
+  bomRevisions,
   itemFamilies,
   itemVariantValues,
   items,
@@ -90,16 +91,9 @@ import {
   type BomComponentConstraint,
 } from "@/lib/bom/constraints";
 import {
-  calculateConsumptionRequirement,
-  makeGroupChoiceKey,
-  normalizeBatchScalingMode,
-  normalizeConsumptionMode,
-  normalizeGroupRemainderHandling,
-  normalizeGroupRemainderPolicy,
-  type BatchScalingMode,
-  type ConsumptionMode,
-  type GroupRemainderHandling,
-  type GroupRemainderPolicy,
+  calculateIngredientPlannedQuantity,
+  normalizeRecipeBasis,
+  type RecipeBasis,
 } from "@/lib/manufacturing/consumption";
 import { getBomRevisionOperationCostsInTx } from "@/lib/bom/operation-costs";
 import { calculatePlannedOperationCost } from "@/lib/manufacturing/operation-costs";
@@ -243,15 +237,8 @@ type ValidatedIngredient = {
   itemType: string;
   unitName: string;
   quantityPerUnit: string;
-  bomOutputQuantity: string | null;
-  everyQuantity: string;
-  consumptionMode: ConsumptionMode;
-  basisOutputQuantity: string | null;
-  batchScalingMode: BatchScalingMode | null;
-  groupRemainderPolicy: GroupRemainderPolicy | null;
-  chosenGroupRemainderHandling: GroupRemainderHandling | null;
-  calculatedBatchCount: string | null;
-  calculatedGroupCount: string | null;
+  recipeBasis: RecipeBasis;
+  recipeOutputQuantity: string;
   plannedQuantity: string;
   sortOrder: number;
   constraints: BomComponentConstraint[];
@@ -277,15 +264,6 @@ type ExecutionIngredientRow = {
   itemType: string;
   unitName: string;
   quantityPerUnit: string;
-  bomOutputQuantity: string | null;
-  everyQuantity: string;
-  consumptionMode: string;
-  basisOutputQuantity: string | null;
-  batchScalingMode: string | null;
-  groupRemainderPolicy: string | null;
-  chosenGroupRemainderHandling: string | null;
-  calculatedBatchCount: string | null;
-  calculatedGroupCount: string | null;
   plannedQuantity: string;
   lotStrategy: ManufacturingLotStrategy;
   pickedQuantity: string;
@@ -308,15 +286,6 @@ type EditableManufacturingIngredientSnapshotRow = {
   itemType: string;
   unitName: string;
   quantityPerUnit: string;
-  bomOutputQuantity: string | null;
-  everyQuantity: string;
-  consumptionMode: string;
-  basisOutputQuantity: string | null;
-  batchScalingMode: string | null;
-  groupRemainderPolicy: string | null;
-  chosenGroupRemainderHandling: string | null;
-  calculatedBatchCount: string | null;
-  calculatedGroupCount: string | null;
   plannedQuantity: string;
   pickedQuantity: string;
   pickStatus: ManufacturingPickStatus;
@@ -490,11 +459,8 @@ function deriveScalingPlan(
   outputQuantity: number,
   ingredients: ValidatedIngredient[]
 ): ManufacturingScalingPlan {
-  const batchIngredient = ingredients.find(
-    (ingredient) => ingredient.consumptionMode === "per_batch"
-  );
-  const expectedBatchYield =
-    batchIngredient?.everyQuantity ?? batchIngredient?.basisOutputQuantity ?? null;
+  const batchIngredient = ingredients.find((ingredient) => ingredient.recipeBasis === "batch");
+  const expectedBatchYield = batchIngredient?.recipeOutputQuantity ?? null;
   const batchYield = expectedBatchYield == null ? NaN : Number(expectedBatchYield);
 
   if (
@@ -518,56 +484,46 @@ function deriveScalingPlan(
   };
 }
 
-function applyConsumptionCalculation(params: {
+function deriveBatchCount(params: {
+  recipeBasis: RecipeBasis;
+  recipeOutputQuantity: string | number;
+  outputQuantity: string | number;
+}) {
+  if (params.recipeBasis !== "batch") return null;
+  const outputQuantity = Number(params.outputQuantity);
+  const recipeOutputQuantity = Number(params.recipeOutputQuantity);
+  if (
+    !Number.isFinite(outputQuantity) ||
+    !Number.isFinite(recipeOutputQuantity) ||
+    outputQuantity <= 0 ||
+    recipeOutputQuantity <= 0
+  ) {
+    throw new ManufacturingError("Batch products need an expected batch output.", 400);
+  }
+  const rawBatchCount = outputQuantity / recipeOutputQuantity;
+  const batchCount = Math.round(rawBatchCount);
+  if (batchCount <= 0 || Math.abs(rawBatchCount - batchCount) > 0.0001) {
+    throw new ManufacturingError("Enter a whole number of batches.", 400);
+  }
+  return batchCount;
+}
+
+function calculatePlannedIngredientQuantity(params: {
+  recipeBasis: RecipeBasis;
   quantityPerUnit: string;
   outputQuantity: number;
-  everyQuantity: string | null | undefined;
-  consumptionMode: string | null | undefined;
-  basisOutputQuantity: string | null | undefined;
-  batchScalingMode: string | null | undefined;
-  groupRemainderPolicy: string | null | undefined;
-  choices: Map<string, GroupRemainderHandling>;
+  recipeOutputQuantity: string | number;
 }) {
-  const consumptionMode = normalizeConsumptionMode(params.consumptionMode);
-  const basisOutputQuantity =
-    consumptionMode === "per_batch" || consumptionMode === "per_group"
-      ? params.basisOutputQuantity ?? null
-      : null;
-  const batchScalingMode =
-    consumptionMode === "per_batch"
-      ? normalizeBatchScalingMode(params.batchScalingMode)
-      : null;
-  const groupRemainderPolicy =
-    consumptionMode === "per_group"
-      ? normalizeGroupRemainderPolicy(params.groupRemainderPolicy)
-      : null;
-  const chosenGroupRemainderHandling =
-    consumptionMode === "per_group" && basisOutputQuantity != null
-      ? normalizeGroupRemainderHandling(
-          params.choices.get(makeGroupChoiceKey(basisOutputQuantity))
-        )
-      : null;
-  const calculation = calculateConsumptionRequirement({
-    quantity: params.quantityPerUnit,
+  return calculateIngredientPlannedQuantity({
+    recipeBasis: params.recipeBasis,
+    quantityPerRecipeBasis: params.quantityPerUnit,
     outputQuantity: params.outputQuantity,
-    everyQuantity: params.everyQuantity,
-    consumptionMode,
-    basisOutputQuantity,
-    batchScalingMode,
-    groupRemainderPolicy,
-    chosenGroupRemainderHandling,
+    numberOfBatches: deriveBatchCount({
+      recipeBasis: params.recipeBasis,
+      recipeOutputQuantity: params.recipeOutputQuantity,
+      outputQuantity: params.outputQuantity,
+    }),
   });
-
-  return {
-    consumptionMode,
-    basisOutputQuantity,
-    batchScalingMode,
-    groupRemainderPolicy,
-    chosenGroupRemainderHandling: calculation.chosenGroupRemainderHandling,
-    calculatedBatchCount: calculation.calculatedBatchCount,
-    calculatedGroupCount: calculation.calculatedGroupCount,
-    plannedQuantity: calculation.plannedQuantity,
-  };
 }
 
 
@@ -955,7 +911,6 @@ async function prepareCreateIngredientsInTx(
   submittedIngredients: InsertManufacturingOrder["ingredients"]
 ): Promise<{ bomRevisionId: string; ingredients: ValidatedIngredient[] }> {
   const bomRows = await getCurrentBomIngredientsInTx(tx, productId);
-  const choices = new Map<string, GroupRemainderHandling>();
 
   if (bomRows.length === 0) {
     throw new ManufacturingError(
@@ -1007,16 +962,7 @@ async function prepareCreateIngredientsInTx(
       }
 
       const quantityPerUnit = normalizeNumeric(Number(submitted.quantityPerUnit));
-      const calculation = applyConsumptionCalculation({
-        quantityPerUnit,
-        outputQuantity,
-        consumptionMode: row.consumptionMode,
-        everyQuantity: row.everyQuantity,
-        basisOutputQuantity: row.basisOutputQuantity,
-        batchScalingMode: row.batchScalingMode,
-        groupRemainderPolicy: row.groupRemainderPolicy,
-        choices,
-      });
+      const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
 
       return {
         itemId: selected.itemId,
@@ -1025,9 +971,14 @@ async function prepareCreateIngredientsInTx(
         itemType: selected.itemType,
         unitName: selected.unitName,
         quantityPerUnit,
-        bomOutputQuantity: row.bomOutputQuantity,
-        everyQuantity: row.everyQuantity,
-        ...calculation,
+        recipeBasis,
+        recipeOutputQuantity: row.bomOutputQuantity,
+        plannedQuantity: calculatePlannedIngredientQuantity({
+          recipeBasis,
+          quantityPerUnit,
+          outputQuantity,
+          recipeOutputQuantity: row.bomOutputQuantity,
+        }),
         sortOrder: index,
         constraints: row.constraints,
       };
@@ -1077,7 +1028,6 @@ async function prepareCreateIngredientsFromBomInTx(
   outputQuantity: number
 ): Promise<{ bomRevisionId: string; ingredients: ValidatedIngredient[] }> {
   const bomRows = await getCurrentBomIngredientsInTx(tx, productId);
-  const choices = new Map<string, GroupRemainderHandling>();
 
   if (bomRows.length === 0) {
     throw new ManufacturingError(
@@ -1089,16 +1039,7 @@ async function prepareCreateIngredientsFromBomInTx(
   return {
     bomRevisionId: bomRows[0].bomRevisionId,
     ingredients: bomRows.map((row, index) => {
-      const calculation = applyConsumptionCalculation({
-        quantityPerUnit: row.quantityPerUnit,
-        outputQuantity,
-        consumptionMode: row.consumptionMode,
-        everyQuantity: row.everyQuantity,
-        basisOutputQuantity: row.basisOutputQuantity,
-        batchScalingMode: row.batchScalingMode,
-        groupRemainderPolicy: row.groupRemainderPolicy,
-        choices,
-      });
+      const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
 
       return {
         itemId: row.itemId,
@@ -1107,9 +1048,14 @@ async function prepareCreateIngredientsFromBomInTx(
         itemType: row.itemType,
         unitName: row.unitName,
         quantityPerUnit: row.quantityPerUnit,
-        bomOutputQuantity: row.bomOutputQuantity,
-        everyQuantity: row.everyQuantity,
-        ...calculation,
+        recipeBasis,
+        recipeOutputQuantity: row.bomOutputQuantity,
+        plannedQuantity: calculatePlannedIngredientQuantity({
+          recipeBasis,
+          quantityPerUnit: row.quantityPerUnit,
+          outputQuantity,
+          recipeOutputQuantity: row.bomOutputQuantity,
+        }),
         sortOrder: index,
         constraints: row.constraints,
       };
@@ -1137,15 +1083,6 @@ async function insertManufacturingIngredientsInTx(
         itemType: ingredient.itemType,
         unitName: ingredient.unitName,
         quantityPerUnit: ingredient.quantityPerUnit,
-        bomOutputQuantity: ingredient.bomOutputQuantity,
-        everyQuantity: ingredient.everyQuantity,
-        consumptionMode: ingredient.consumptionMode,
-        basisOutputQuantity: ingredient.basisOutputQuantity,
-        batchScalingMode: ingredient.batchScalingMode,
-        groupRemainderPolicy: ingredient.groupRemainderPolicy,
-        chosenGroupRemainderHandling: ingredient.chosenGroupRemainderHandling,
-        calculatedBatchCount: ingredient.calculatedBatchCount,
-        calculatedGroupCount: ingredient.calculatedGroupCount,
         plannedQuantity: ingredient.plannedQuantity,
         sortOrder: ingredient.sortOrder,
       }))
@@ -1761,6 +1698,13 @@ async function prepareUpdatedIngredientsInTx(
   }
 
   const bomRows = await getBomRevisionComponentsInTx(tx, bomRevisionId);
+  const [bomRevision] = await tx
+    .select({
+      recipeBasis: bomRevisions.recipeBasis,
+      outputQuantity: trimScale(bomRevisions.outputQuantity).as("outputQuantity"),
+    })
+    .from(bomRevisions)
+    .where(eq(bomRevisions.id, bomRevisionId));
   const editableRows = await getEditableManufacturingIngredientSnapshotInTx(
     tx,
     manufacturingOrderId
@@ -1777,7 +1721,8 @@ async function prepareUpdatedIngredientsInTx(
   }
 
   const bomBySortOrder = new Map(bomRows.map((row) => [row.sortOrder, row]));
-  const choices = new Map<string, GroupRemainderHandling>();
+  const recipeBasis = normalizeRecipeBasis(bomRevision?.recipeBasis);
+  const recipeOutputQuantity = bomRevision?.outputQuantity ?? "1";
 
   return editableRows.map((existingRow, index) => {
     const row = bomBySortOrder.get(existingRow.sortOrder);
@@ -1788,16 +1733,6 @@ async function prepareUpdatedIngredientsInTx(
     const submitted = submittedIngredients[index];
     const selected = getApprovedBomMaterialOption(row, submitted.itemId);
     const quantityPerUnit = normalizeNumeric(Number(submitted.quantityPerUnit));
-    const calculation = applyConsumptionCalculation({
-      quantityPerUnit,
-      outputQuantity,
-      everyQuantity: row.everyQuantity,
-      consumptionMode: row.consumptionMode,
-      basisOutputQuantity: row.basisOutputQuantity,
-      batchScalingMode: row.batchScalingMode,
-      groupRemainderPolicy: row.groupRemainderPolicy,
-      choices,
-    });
 
     return {
       itemId: selected.itemId,
@@ -1806,9 +1741,14 @@ async function prepareUpdatedIngredientsInTx(
       itemType: selected.itemType,
       unitName: selected.unitName,
       quantityPerUnit,
-      bomOutputQuantity: null,
-      everyQuantity: row.everyQuantity,
-      ...calculation,
+      recipeBasis,
+      recipeOutputQuantity,
+      plannedQuantity: calculatePlannedIngredientQuantity({
+        recipeBasis,
+        quantityPerUnit,
+        outputQuantity,
+        recipeOutputQuantity,
+      }),
       sortOrder: existingRow.sortOrder,
       constraints: row.constraints,
     };
@@ -1837,7 +1777,6 @@ async function prepareLegacyUpdatedIngredientsInTx(
     tx,
     existingRows.map((row) => row.id)
   );
-  const choices = new Map<string, GroupRemainderHandling>();
 
   return existingRows.map((row, index) => {
     const submitted = submittedIngredients[index];
@@ -1849,16 +1788,6 @@ async function prepareLegacyUpdatedIngredientsInTx(
     }
 
     const quantityPerUnit = normalizeNumeric(Number(submitted.quantityPerUnit));
-    const calculation = applyConsumptionCalculation({
-      quantityPerUnit,
-      outputQuantity,
-      everyQuantity: row.everyQuantity,
-      consumptionMode: row.consumptionMode,
-      basisOutputQuantity: row.basisOutputQuantity,
-      batchScalingMode: row.batchScalingMode,
-      groupRemainderPolicy: row.groupRemainderPolicy,
-      choices,
-    });
 
     return {
       itemId: row.itemId,
@@ -1867,9 +1796,14 @@ async function prepareLegacyUpdatedIngredientsInTx(
       itemType: row.itemType,
       unitName: row.unitName,
       quantityPerUnit,
-      bomOutputQuantity: row.bomOutputQuantity,
-      everyQuantity: row.everyQuantity,
-      ...calculation,
+      recipeBasis: "unit",
+      recipeOutputQuantity: "1",
+      plannedQuantity: calculatePlannedIngredientQuantity({
+        recipeBasis: "unit",
+        quantityPerUnit,
+        outputQuantity,
+        recipeOutputQuantity: "1",
+      }),
       sortOrder: row.sortOrder,
       constraints: constraintsById.get(row.id) ?? [],
     };
@@ -2030,26 +1964,6 @@ async function getEditableManufacturingIngredientSnapshotInTx(
       quantityPerUnit: trimScale(manufacturingOrderIngredients.quantityPerUnit).as(
         "quantityPerUnit"
       ),
-      bomOutputQuantity: trimScaleNullable(
-        manufacturingOrderIngredients.bomOutputQuantity
-      ).as("bomOutputQuantity"),
-      everyQuantity: trimScale(manufacturingOrderIngredients.everyQuantity).as(
-        "everyQuantity"
-      ),
-      consumptionMode: manufacturingOrderIngredients.consumptionMode,
-      basisOutputQuantity: trimScaleNullable(
-        manufacturingOrderIngredients.basisOutputQuantity
-      ).as("basisOutputQuantity"),
-      batchScalingMode: manufacturingOrderIngredients.batchScalingMode,
-      groupRemainderPolicy: manufacturingOrderIngredients.groupRemainderPolicy,
-      chosenGroupRemainderHandling:
-        manufacturingOrderIngredients.chosenGroupRemainderHandling,
-      calculatedBatchCount: trimScaleNullable(
-        manufacturingOrderIngredients.calculatedBatchCount
-      ).as("calculatedBatchCount"),
-      calculatedGroupCount: trimScaleNullable(
-        manufacturingOrderIngredients.calculatedGroupCount
-      ).as("calculatedGroupCount"),
       plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
         "plannedQuantity"
       ),
@@ -2079,7 +1993,7 @@ async function getEditableManufacturingIngredientSnapshotInTx(
     return templateRows.map((row) => ({
       ...row,
       pickStatus: row.pickStatus as ManufacturingPickStatus,
-    lotStrategy: row.lotStrategy as ManufacturingLotStrategy,
+      lotStrategy: row.lotStrategy as ManufacturingLotStrategy,
     }));
   }
 
@@ -2094,26 +2008,6 @@ async function getEditableManufacturingIngredientSnapshotInTx(
       quantityPerUnit: trimScale(manufacturingOrderIngredients.quantityPerUnit).as(
         "quantityPerUnit"
       ),
-      bomOutputQuantity: trimScaleNullable(
-        manufacturingOrderIngredients.bomOutputQuantity
-      ).as("bomOutputQuantity"),
-      everyQuantity: trimScale(manufacturingOrderIngredients.everyQuantity).as(
-        "everyQuantity"
-      ),
-      consumptionMode: manufacturingOrderIngredients.consumptionMode,
-      basisOutputQuantity: trimScaleNullable(
-        manufacturingOrderIngredients.basisOutputQuantity
-      ).as("basisOutputQuantity"),
-      batchScalingMode: manufacturingOrderIngredients.batchScalingMode,
-      groupRemainderPolicy: manufacturingOrderIngredients.groupRemainderPolicy,
-      chosenGroupRemainderHandling:
-        manufacturingOrderIngredients.chosenGroupRemainderHandling,
-      calculatedBatchCount: trimScaleNullable(
-        manufacturingOrderIngredients.calculatedBatchCount
-      ).as("calculatedBatchCount"),
-      calculatedGroupCount: trimScaleNullable(
-        manufacturingOrderIngredients.calculatedGroupCount
-      ).as("calculatedGroupCount"),
       plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
         "plannedQuantity"
       ),
@@ -2160,15 +2054,6 @@ async function getEditableManufacturingIngredientSnapshotInTx(
       itemType: row.itemType,
       unitName: row.unitName,
       quantityPerUnit: row.quantityPerUnit,
-      bomOutputQuantity: row.bomOutputQuantity,
-      everyQuantity: row.everyQuantity,
-      consumptionMode: row.consumptionMode,
-      basisOutputQuantity: row.basisOutputQuantity,
-      batchScalingMode: row.batchScalingMode,
-      groupRemainderPolicy: row.groupRemainderPolicy,
-      chosenGroupRemainderHandling: row.chosenGroupRemainderHandling,
-      calculatedBatchCount: row.calculatedBatchCount,
-      calculatedGroupCount: row.calculatedGroupCount,
       plannedQuantity: row.plannedQuantity,
       pickedQuantity: row.pickedQuantity,
       pickStatus: row.pickStatus as ManufacturingPickStatus,
@@ -2194,26 +2079,6 @@ async function getTemplateIngredientsInTx(tx: Tx, orderId: string) {
       quantityPerUnit: trimScale(manufacturingOrderIngredients.quantityPerUnit).as(
         "quantityPerUnit"
       ),
-      bomOutputQuantity: trimScaleNullable(
-        manufacturingOrderIngredients.bomOutputQuantity
-      ).as("bomOutputQuantity"),
-      everyQuantity: trimScale(manufacturingOrderIngredients.everyQuantity).as(
-        "everyQuantity"
-      ),
-      consumptionMode: manufacturingOrderIngredients.consumptionMode,
-      basisOutputQuantity: trimScaleNullable(
-        manufacturingOrderIngredients.basisOutputQuantity
-      ).as("basisOutputQuantity"),
-      batchScalingMode: manufacturingOrderIngredients.batchScalingMode,
-      groupRemainderPolicy: manufacturingOrderIngredients.groupRemainderPolicy,
-      chosenGroupRemainderHandling:
-        manufacturingOrderIngredients.chosenGroupRemainderHandling,
-      calculatedBatchCount: trimScaleNullable(
-        manufacturingOrderIngredients.calculatedBatchCount
-      ).as("calculatedBatchCount"),
-      calculatedGroupCount: trimScaleNullable(
-        manufacturingOrderIngredients.calculatedGroupCount
-      ).as("calculatedGroupCount"),
       plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
         "plannedQuantity"
       ),
@@ -2265,26 +2130,6 @@ async function getBatchIngredientsInTx(tx: Tx, batchId: string) {
       quantityPerUnit: trimScale(manufacturingOrderIngredients.quantityPerUnit).as(
         "quantityPerUnit"
       ),
-      bomOutputQuantity: trimScaleNullable(
-        manufacturingOrderIngredients.bomOutputQuantity
-      ).as("bomOutputQuantity"),
-      everyQuantity: trimScale(manufacturingOrderIngredients.everyQuantity).as(
-        "everyQuantity"
-      ),
-      consumptionMode: manufacturingOrderIngredients.consumptionMode,
-      basisOutputQuantity: trimScaleNullable(
-        manufacturingOrderIngredients.basisOutputQuantity
-      ).as("basisOutputQuantity"),
-      batchScalingMode: manufacturingOrderIngredients.batchScalingMode,
-      groupRemainderPolicy: manufacturingOrderIngredients.groupRemainderPolicy,
-      chosenGroupRemainderHandling:
-        manufacturingOrderIngredients.chosenGroupRemainderHandling,
-      calculatedBatchCount: trimScaleNullable(
-        manufacturingOrderIngredients.calculatedBatchCount
-      ).as("calculatedBatchCount"),
-      calculatedGroupCount: trimScaleNullable(
-        manufacturingOrderIngredients.calculatedGroupCount
-      ).as("calculatedGroupCount"),
       plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
         "plannedQuantity"
       ),
@@ -2440,28 +2285,6 @@ async function ensureBatchExecutionRowsInTx(
 
   const batchIngredientInputs = insertedBatches.flatMap((batch) =>
     templateIngredients.map((ingredient) => {
-      const batchGroupChoices =
-        ingredient.consumptionMode === "per_group" &&
-        ingredient.basisOutputQuantity != null &&
-        ingredient.chosenGroupRemainderHandling != null
-          ? new Map([
-              [
-                makeGroupChoiceKey(ingredient.basisOutputQuantity),
-                ingredient.chosenGroupRemainderHandling as GroupRemainderHandling,
-              ],
-            ])
-          : new Map<string, GroupRemainderHandling>();
-      const batchCalculation = applyConsumptionCalculation({
-        quantityPerUnit: ingredient.quantityPerUnit,
-        outputQuantity: Number(batch.plannedQuantity),
-        everyQuantity: ingredient.everyQuantity,
-        consumptionMode: ingredient.consumptionMode,
-        basisOutputQuantity: ingredient.basisOutputQuantity,
-        batchScalingMode: ingredient.batchScalingMode,
-        groupRemainderPolicy: ingredient.groupRemainderPolicy,
-        choices: batchGroupChoices,
-      });
-
       return {
         constraints: ingredient.constraints,
         values: {
@@ -2473,17 +2296,7 @@ async function ensureBatchExecutionRowsInTx(
           itemType: ingredient.itemType,
           unitName: ingredient.unitName,
           quantityPerUnit: ingredient.quantityPerUnit,
-          bomOutputQuantity: ingredient.bomOutputQuantity,
-          everyQuantity: ingredient.everyQuantity,
-          consumptionMode: ingredient.consumptionMode,
-          basisOutputQuantity: ingredient.basisOutputQuantity,
-          batchScalingMode: ingredient.batchScalingMode,
-          groupRemainderPolicy: ingredient.groupRemainderPolicy,
-          chosenGroupRemainderHandling:
-            batchCalculation.chosenGroupRemainderHandling,
-          calculatedBatchCount: batchCalculation.calculatedBatchCount,
-          calculatedGroupCount: batchCalculation.calculatedGroupCount,
-          plannedQuantity: batchCalculation.plannedQuantity,
+          plannedQuantity: ingredient.quantityPerUnit,
           sortOrder: ingredient.sortOrder,
         },
       };
@@ -3281,15 +3094,6 @@ function aggregateBatchIngredients(
         itemType: row.itemType,
         unitName: row.unitName,
         quantityPerUnit: row.quantityPerUnit,
-        bomOutputQuantity: row.bomOutputQuantity,
-        everyQuantity: row.everyQuantity,
-        consumptionMode: row.consumptionMode,
-        basisOutputQuantity: row.basisOutputQuantity,
-        batchScalingMode: row.batchScalingMode,
-        groupRemainderPolicy: row.groupRemainderPolicy,
-        chosenGroupRemainderHandling: row.chosenGroupRemainderHandling,
-        calculatedBatchCount: row.calculatedBatchCount,
-        calculatedGroupCount: row.calculatedGroupCount,
         plannedQuantity: row.plannedQuantity,
         lotStrategy: row.lotStrategy,
         pickedQuantity: row.pickedQuantity,
@@ -3316,20 +3120,8 @@ function aggregateBatchIngredients(
     const pickedQuantity = sumNumericStrings([existing.pickedQuantity, row.pickedQuantity]);
     const actualQuantity = sumNumericStrings([existing.actualQuantity, row.actualQuantity]);
     const actualCostTotal = sumNumericStrings([existing.actualCostTotal, row.actualCostTotal]);
-    const calculatedBatchCount = sumNumericStrings([
-      existing.calculatedBatchCount,
-      row.calculatedBatchCount,
-    ]);
-    const calculatedGroupCount = sumNumericStrings([
-      existing.calculatedGroupCount,
-      row.calculatedGroupCount,
-    ]);
 
     existing.plannedQuantity = normalizeNumeric(plannedQuantity);
-    existing.calculatedBatchCount =
-      calculatedBatchCount > 0 ? normalizeNumeric(calculatedBatchCount) : null;
-    existing.calculatedGroupCount =
-      calculatedGroupCount > 0 ? normalizeNumeric(calculatedGroupCount) : null;
     existing.pickedQuantity = normalizeNumeric(pickedQuantity);
     existing.remainingQuantity = getRemainingQuantityString(
       existing.plannedQuantity,
@@ -3749,12 +3541,6 @@ export async function getManufacturingProductTemplates(): Promise<
         itemType: string;
         unitName: string;
         quantityPerUnit: string;
-        everyQuantity: string;
-        consumptionMode: string;
-        basisOutputQuantity: string | null;
-        batchScalingMode: string | null;
-        groupRemainderPolicy: string | null;
-        scalingReviewRecommended: boolean;
         defaultQuantityPerUnit: string;
         alternates: Array<{
           itemId: string;
@@ -3777,11 +3563,12 @@ export async function getManufacturingProductTemplates(): Promise<
         familyName: itemFamilies.name,
         sku: items.sku,
         unitName: unitDefinitions.name,
+        manufacturingMode: items.manufacturingMode,
+        expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
+          "expectedBatchYield"
+        ),
         typicalBatchSize: trimScaleNullable(items.typicalBatchSize).as(
           "typicalBatchSize"
-        ),
-        typicalGroupSize: trimScaleNullable(items.typicalGroupSize).as(
-          "typicalGroupSize"
         ),
       })
       .from(items)
@@ -3818,9 +3605,8 @@ export async function getManufacturingProductTemplates(): Promise<
           sku: product.sku,
           unitName: product.unitName,
           typicalBatchSize: product.typicalBatchSize,
-          typicalGroupSize: product.typicalGroupSize,
-          manufacturingMode: "discrete",
-          expectedBatchYield: null,
+          manufacturingMode: product.manufacturingMode,
+          expectedBatchYield: product.expectedBatchYield,
           bom: bomRows.map((row) => ({
             itemId: row.componentId,
             itemName: row.componentName,
@@ -3828,12 +3614,6 @@ export async function getManufacturingProductTemplates(): Promise<
             itemType: row.componentItemType,
             unitName: row.unitName,
             quantityPerUnit: row.quantity ?? "0",
-            everyQuantity: row.everyQuantity,
-            consumptionMode: row.consumptionMode,
-            basisOutputQuantity: row.basisOutputQuantity,
-            batchScalingMode: row.batchScalingMode,
-            groupRemainderPolicy: row.groupRemainderPolicy,
-            scalingReviewRecommended: row.scalingReviewRecommended,
             defaultQuantityPerUnit: row.quantity ?? "0",
             alternates: row.alternates.map((alternate) => ({
               itemId: alternate.alternateItemId,
@@ -3969,10 +3749,15 @@ export async function getManufacturingSalesLineOptions(
         itemSku: salesOrderLines.itemSku,
         quantity: trimScale(salesOrderLines.quantity).as("quantity"),
         unitName: salesOrderLines.unitName,
+        manufacturingMode: items.manufacturingMode,
+        expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
+          "expectedBatchYield"
+        ),
         status: salesOrders.status,
       })
       .from(salesOrderLines)
       .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+      .innerJoin(items, eq(salesOrderLines.itemId, items.id))
       .where(and(...conditions))
       .orderBy(desc(salesOrders.createdAt), asc(salesOrderLines.sortOrder)) as Promise<
         ManufacturingSalesLineOption[]
@@ -4055,21 +3840,6 @@ export async function getManufacturingOrder(
               quantityPerUnit: trimScale(manufacturingOrderIngredients.quantityPerUnit).as(
                 "quantityPerUnit"
               ),
-              consumptionMode: manufacturingOrderIngredients.consumptionMode,
-              basisOutputQuantity: trimScaleNullable(
-                manufacturingOrderIngredients.basisOutputQuantity
-              ).as("basisOutputQuantity"),
-              batchScalingMode: manufacturingOrderIngredients.batchScalingMode,
-              groupRemainderPolicy:
-                manufacturingOrderIngredients.groupRemainderPolicy,
-              chosenGroupRemainderHandling:
-                manufacturingOrderIngredients.chosenGroupRemainderHandling,
-              calculatedBatchCount: trimScaleNullable(
-                manufacturingOrderIngredients.calculatedBatchCount
-              ).as("calculatedBatchCount"),
-              calculatedGroupCount: trimScaleNullable(
-                manufacturingOrderIngredients.calculatedGroupCount
-              ).as("calculatedGroupCount"),
               plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
                 "plannedQuantity"
               ),
@@ -4340,15 +4110,6 @@ export async function getManufacturingOrderEditData(
           itemType: ingredient.itemType,
           unitName: ingredient.unitName,
           quantityPerUnit: ingredient.quantityPerUnit,
-          bomOutputQuantity: ingredient.bomOutputQuantity,
-          everyQuantity: ingredient.everyQuantity,
-          consumptionMode: ingredient.consumptionMode,
-          basisOutputQuantity: ingredient.basisOutputQuantity,
-          batchScalingMode: ingredient.batchScalingMode,
-          groupRemainderPolicy: ingredient.groupRemainderPolicy,
-          chosenGroupRemainderHandling: ingredient.chosenGroupRemainderHandling,
-          calculatedBatchCount: ingredient.calculatedBatchCount,
-          calculatedGroupCount: ingredient.calculatedGroupCount,
           defaultItemId: bomRow?.componentId ?? ingredient.itemId,
           defaultItemName: bomRow?.componentName ?? ingredient.itemName,
           defaultItemSku: bomRow?.componentSku ?? ingredient.itemSku,

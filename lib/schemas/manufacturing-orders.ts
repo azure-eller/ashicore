@@ -34,12 +34,12 @@ export type ManufacturingBatchStatus =
 const ingredientRowSchema = z.object({
   itemId: z.string().min(1, "Ingredient is required"),
   quantityPerUnit: positiveDecimalString("Quantity per unit"),
-});
+}).strict();
 
 const rawIngredientRowSchema = z.object({
   itemId: z.string().nullable().optional(),
   quantityPerUnit: z.string().nullable().optional(),
-});
+}).strict();
 
 function isBlankIngredientRow(row: z.input<typeof rawIngredientRowSchema>) {
   const itemId = row.itemId?.trim() ?? "";
@@ -161,7 +161,8 @@ const baseManufacturingOrderSchema = createInsertSchema(manufacturingOrders, {
       .default([]),
     autoAllocateIngredientLots: z.boolean().optional().default(false),
     confirmShortage: z.boolean().optional(),
-  });
+  })
+  .strict();
 
 export const insertManufacturingOrderSchema = baseManufacturingOrderSchema;
 export type InsertManufacturingOrder = z.input<
@@ -446,11 +447,11 @@ export const createManufacturingOrdersFromSalesOrderSchema = z.object({
       z.object({
         salesOrderLineId: z.string().uuid("Sales order line is required"),
         quantity: positiveDecimalString("Quantity"),
-      })
+      }).strict()
     )
     .optional(),
   notes: nullableString,
-});
+}).strict();
 export type CreateManufacturingOrdersFromSalesOrder = z.infer<
   typeof createManufacturingOrdersFromSalesOrderSchema
 >;

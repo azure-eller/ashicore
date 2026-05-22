@@ -136,17 +136,11 @@ function resolveSeedAverageComponentQuantity(
     return null;
   }
 
-  const consumptionMode =
-    component.consumptionMode ??
-    (seed.manufacturingMode === "batch" ? "per_batch" : "per_output_unit");
-
-  if (consumptionMode === "per_output_unit") {
+  if (seed.manufacturingMode !== "batch") {
     return quantity;
   }
 
-  const basis = Number.parseFloat(
-    component.basisOutputQuantity ?? seed.expectedBatchYield ?? ""
-  );
+  const basis = Number.parseFloat(seed.expectedBatchYield ?? seed.typicalBatchSize ?? "");
   if (!Number.isFinite(basis) || basis <= 0) {
     return null;
   }

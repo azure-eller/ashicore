@@ -48,7 +48,6 @@ import {
   saveManufacturingOrderIngredients,
 } from "@/lib/api/clients/manufacturing-orders";
 import { ManufacturingStatusControl } from "@/components/manufacturing/manufacturing-status-control";
-import { largestGroupSize } from "@/lib/manufacturing/group-size";
 import {
   LotStrategyChip,
   type PickedLotSummary,
@@ -77,6 +76,8 @@ export type ManufacturingProductOption = {
   displayName?: string;
   sku: string | null;
   unitName: string;
+  manufacturingMode: string;
+  expectedBatchYield: string | null;
   bom: Array<{ itemId: string; quantityPerUnit: string }>;
 };
 
@@ -135,7 +136,12 @@ export function ManufacturingOrderCard({
     const product = productOptions.find((option) => option.id === productId);
     if (!product) return;
     setDraftProductId(productId);
-    const plannedQuantity = draftPlannedQuantity.trim() || "1";
+    const plannedQuantity = resolvePlannedOutputQuantity({
+      inputQuantity: draftPlannedQuantity.trim() || "1",
+      manufacturingMode: product.manufacturingMode,
+      expectedBatchYield: product.expectedBatchYield,
+    });
+    if (!plannedQuantity) return;
     createMutation.mutate({
       productId,
       plannedQuantity,
@@ -452,11 +458,6 @@ function OrderDetailsSection({
 }) {
   const queryClient = useQueryClient();
   const unitName = order?.unitName ?? "";
-  const groupSize = largestGroupSize(order);
-  const groupCount =
-    order && groupSize != null
-      ? formatDecimal((Number(order.plannedQuantity) || 0) / groupSize)
-      : null;
   const salesLineOptionsQuery = useQuery({
     queryKey: ["manufacturing-sales-line-options", order?.productId ?? "__draft__"],
     queryFn: () => fetchManufacturingSalesLineOptions(order!.productId),
@@ -475,8 +476,14 @@ function OrderDetailsSection({
   });
   const savePlannedQuantity = useMutation({
     mutationKey: cardSaveMutationKey("manufacturing-order", order?.id ?? "__draft__", "planned-quantity"),
-    mutationFn: (plannedQuantity: string) =>
-      saveManufacturingOrderIngredients(
+    mutationFn: (inputQuantity: string) => {
+      const plannedQuantity = resolvePlannedOutputQuantity({
+        inputQuantity,
+        manufacturingMode: order!.manufacturingMode,
+        expectedBatchYield: order!.expectedBatchYield,
+      });
+      if (!plannedQuantity) throw new Error("Enter a whole number of batches.");
+      return saveManufacturingOrderIngredients(
         order!.id,
         {
           plannedQuantity,
@@ -489,7 +496,8 @@ function OrderDetailsSection({
           itemId: ingredient.itemId,
           quantityPerUnit: ingredient.quantityPerUnit,
         })),
-      ),
+      );
+    },
     onSuccess: () => {
       onPatched();
       void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
@@ -528,6 +536,17 @@ function OrderDetailsSection({
 
   const selectedProductId = order?.productId ?? draftProductId;
   const selectedProduct = productOptions.find((option) => option.id === selectedProductId);
+  const isBatchProduct =
+    order?.manufacturingMode === "batch" || selectedProduct?.manufacturingMode === "batch";
+  const expectedBatchYield = order?.expectedBatchYield ?? selectedProduct?.expectedBatchYield ?? null;
+  const plannedInputValue =
+    order?.manufacturingMode === "batch" && order.numberOfBatches != null
+      ? String(order.numberOfBatches)
+      : order
+        ? order.plannedQuantity
+        : draftPlannedQuantity;
+  const plannedFieldLabel = isBatchProduct ? "Batches" : "Planned quantity";
+  const plannedFieldSuffix = isBatchProduct ? "batches" : unitName;
   const productSelectDisabled =
     saveOrderSnapshot.isPending || productOptions.length === 0;
 
@@ -542,9 +561,21 @@ function OrderDetailsSection({
 
     if (productId === order.productId || !canEditPlanning) return;
 
+    const plannedQuantity = resolvePlannedOutputQuantity({
+      inputQuantity:
+        product.manufacturingMode === "batch"
+          ? "1"
+          : order.manufacturingMode === "batch" && order.numberOfBatches != null
+            ? String(order.numberOfBatches)
+            : order.plannedQuantity,
+      manufacturingMode: product.manufacturingMode,
+      expectedBatchYield: product.expectedBatchYield,
+    });
+    if (!plannedQuantity) return;
+
     saveOrderSnapshot.mutate({
       productId,
-      plannedQuantity: order.plannedQuantity,
+      plannedQuantity,
       plannedDate: order.plannedDate,
       salesOrderId: null,
       salesOrderLineId: null,
@@ -565,9 +596,18 @@ function OrderDetailsSection({
 
     const line = salesLineOptions.find((option) => option.salesOrderLineId === value);
     if (!line || line.salesOrderLineId === order.salesOrderLineId) return;
+    const plannedQuantity = resolvePlannedOutputQuantity({
+      inputQuantity:
+        order.manufacturingMode === "batch"
+          ? String(Math.ceil(Number(line.quantity) / Number(order.expectedBatchYield)))
+          : line.quantity,
+      manufacturingMode: order.manufacturingMode,
+      expectedBatchYield: order.expectedBatchYield,
+    });
+    if (!plannedQuantity) return;
 
     saveOrderSnapshot.mutate({
-      plannedQuantity: line.quantity,
+      plannedQuantity,
       plannedDate: line.shipDate ?? line.requestedDate ?? order.plannedDate,
       salesOrderId: line.salesOrderId,
       salesOrderLineId: line.salesOrderLineId,
@@ -646,34 +686,28 @@ function OrderDetailsSection({
         </FormField>
       </div>
       <div className={styles.formRow}>
-        <FormField label={groupSize != null ? "Groups" : "Planned quantity"} required>
+        <FormField label={plannedFieldLabel} required>
           {canEditPlanning ? (
             <div className={styles.suffixField}>
               <Input
-                key={`${order?.plannedQuantity ?? "draft"}-${groupSize ?? "output"}`}
-                defaultValue={groupCount ?? (order ? order.plannedQuantity : draftPlannedQuantity)}
+                key={order ? plannedInputValue : `draft-${selectedProductId}`}
+                defaultValue={plannedInputValue}
                 onBlur={(event) => {
                   const next = event.target.value.trim();
                   if (!next) return;
-                  const savedQuantity =
-                    groupSize != null
-                      ? formatDecimal((Number(next) || 0) * groupSize)
-                      : next;
                   if (order) {
-                    if (savedQuantity !== order.plannedQuantity) {
-                      savePlannedQuantity.mutate(savedQuantity);
+                    if (next !== plannedInputValue) {
+                      savePlannedQuantity.mutate(next);
                     }
                   } else {
-                    onDraftPlannedQuantity(savedQuantity);
+                    onDraftPlannedQuantity(next);
                   }
                 }}
-                inputMode="decimal"
+                inputMode={isBatchProduct ? "numeric" : "decimal"}
                 className={`${styles.underlineInput} ${styles.mono} text-right`}
-                aria-label={groupSize != null ? "Groups" : "Planned quantity"}
+                aria-label={plannedFieldLabel}
               />
-              <span className={styles.fieldSuffix}>
-                {groupSize != null ? "groups" : unitName}
-              </span>
+              <span className={styles.fieldSuffix}>{plannedFieldSuffix}</span>
             </div>
           ) : (
             <div
@@ -681,30 +715,17 @@ function OrderDetailsSection({
               title={planningLockedReason ?? undefined}
             >
               <span className={`${styles.underlineInput} ${styles.mono} text-right`}>
-                {groupCount ?? (order ? formatQuantity(order.plannedQuantity) : "—")}
+                {order ? formatQuantity(plannedInputValue) : "—"}
               </span>
-              <span className={styles.fieldSuffix}>
-                {groupSize != null ? "groups" : unitName}
-              </span>
+              <span className={styles.fieldSuffix}>{plannedFieldSuffix}</span>
             </div>
           )}
-          {groupSize != null ? (
+          {isBatchProduct ? (
             <div className={styles.fieldHint}>
-              {formatQuantity(formatDecimal(groupSize))} {unitName} per group ·{" "}
-              {order ? formatQuantity(order.plannedQuantity) : "—"} {unitName} planned
+              Expected output: {expectedBatchYield ?? "—"}{" "}
+              {unitName || selectedProduct?.unitName || "unit"} per batch.
             </div>
           ) : null}
-        </FormField>
-        <FormField label="Group size">
-          <div className={`${styles.suffixField} ${styles.suffixFieldReadOnly}`}>
-            <span className={`${styles.underlineInput} ${styles.mono} text-right`}>
-              {groupSize != null ? formatQuantity(formatDecimal(groupSize)) : "—"}
-            </span>
-            {unitName ? <span className={styles.fieldSuffix}>{unitName}</span> : null}
-          </div>
-          <div className={styles.fieldHint}>
-            {groupSize != null ? "Largest group from product recipe." : "No grouped recipe rows."}
-          </div>
         </FormField>
         <FormField label="Sales order">
           {order && canEditPlanning ? (
@@ -748,6 +769,25 @@ function productLabel(option: ManufacturingProductOption) {
     : option.name;
 }
 
+function resolvePlannedOutputQuantity({
+  inputQuantity,
+  manufacturingMode,
+  expectedBatchYield,
+}: {
+  inputQuantity: string;
+  manufacturingMode?: string | null;
+  expectedBatchYield?: string | null;
+}) {
+  const quantity = Number(inputQuantity);
+  if (!Number.isFinite(quantity) || quantity <= 0) return null;
+  if (manufacturingMode !== "batch") return formatDecimal(quantity);
+
+  const batchCount = Math.round(quantity);
+  if (Math.abs(quantity - batchCount) > 0.0001) return null;
+  const batchYield = Number(expectedBatchYield);
+  if (!Number.isFinite(batchYield) || batchYield <= 0) return null;
+  return formatDecimal(batchCount * batchYield);
+}
 
 function formatDecimal(value: number) {
   if (!Number.isFinite(value)) return "";

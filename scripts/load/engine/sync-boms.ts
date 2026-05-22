@@ -23,28 +23,20 @@ export function getManagedProductSeedsWithBom(seeds: ItemSeed[]): ItemSeed[] {
   return seeds.filter((seed) => seed.bom && seed.bom.length > 0);
 }
 
-function normalizeOptionalNumeric(value: string | null | undefined) {
-  return value == null ? "" : normalizeNumeric(Number(value));
+export function resolveSeedBomOutputQuantity(seed: ItemSeed) {
+  return seed.manufacturingMode === "batch"
+    ? (seed.expectedBatchYield ?? seed.typicalBatchSize ?? "1")
+    : "1";
 }
 
-export function resolveSeedBomOutputQuantity(seed: ItemSeed) {
-  return (
-    seed.expectedBatchYield ??
-    seed.typicalBatchSize ??
-    seed.typicalGroupSize ??
-    "1"
-  );
+export function resolveSeedRecipeBasis(seed: ItemSeed) {
+  return seed.manufacturingMode === "batch" ? "batch" : "unit";
 }
 
 export function buildBomSignature(
   rows: Array<{
     componentId: string;
     quantity: string;
-    everyQuantity?: string | null;
-    consumptionMode?: string | null;
-    basisOutputQuantity?: string | null;
-    batchScalingMode?: string | null;
-    groupRemainderPolicy?: string | null;
     minimumLotAgeDays?: number | null;
     alternateItemIds?: string[];
   }>
@@ -53,75 +45,11 @@ export function buildBomSignature(
     .map(
       (row) =>
         `${row.componentId}:${normalizeNumeric(Number(row.quantity))}:${
-          normalizeOptionalNumeric(row.everyQuantity)
-        }:${
-          row.consumptionMode ?? "per_output_unit"
-        }:${normalizeOptionalNumeric(row.basisOutputQuantity)}:${row.batchScalingMode ?? ""}:${
-          row.groupRemainderPolicy ?? ""
-        }:${
           row.minimumLotAgeDays ?? ""
         }:${[...(row.alternateItemIds ?? [])].sort().join(",")}`
     )
     .sort()
     .join("|");
-}
-
-export function resolveSeedBomConsumption(
-  seed: ItemSeed,
-  row: NonNullable<ItemSeed["bom"]>[number]
-): Pick<
-  BomSeedRow,
-  | "consumptionMode"
-  | "everyQuantity"
-  | "basisOutputQuantity"
-  | "batchScalingMode"
-  | "groupRemainderPolicy"
-  | "scalingReviewRecommended"
-> {
-  const consumptionMode =
-    row.consumptionMode ??
-    (seed.manufacturingMode === "batch" ? "per_batch" : "per_output_unit");
-
-  if (consumptionMode === "per_batch") {
-    const basisOutputQuantity = row.basisOutputQuantity ?? seed.expectedBatchYield ?? null;
-    if (basisOutputQuantity == null) {
-      throw new Error(`${seed.name} has a per-batch BOM row without a batch basis.`);
-    }
-
-    return {
-      consumptionMode,
-      everyQuantity: row.everyQuantity ?? basisOutputQuantity,
-      basisOutputQuantity,
-      batchScalingMode: row.batchScalingMode ?? "full_batches_only",
-      groupRemainderPolicy: null,
-      scalingReviewRecommended: row.consumptionMode == null && seed.manufacturingMode === "batch",
-    };
-  }
-
-  if (consumptionMode === "per_group") {
-    const basisOutputQuantity = row.basisOutputQuantity ?? null;
-    if (basisOutputQuantity == null) {
-      throw new Error(`${seed.name} has a per-group BOM row without a group basis.`);
-    }
-
-    return {
-      consumptionMode,
-      everyQuantity: row.everyQuantity ?? basisOutputQuantity,
-      basisOutputQuantity,
-      batchScalingMode: null,
-      groupRemainderPolicy: row.groupRemainderPolicy ?? "ask",
-      scalingReviewRecommended: false,
-    };
-  }
-
-  return {
-    consumptionMode: "per_output_unit",
-    everyQuantity: row.everyQuantity ?? "1",
-    basisOutputQuantity: null,
-    batchScalingMode: null,
-    groupRemainderPolicy: null,
-    scalingReviewRecommended: false,
-  };
 }
 
 export async function loadCurrentBomRowsInTx(tx: Tx, productIds: string[]) {
@@ -135,11 +63,6 @@ export async function loadCurrentBomRowsInTx(tx: Tx, productIds: string[]) {
       bomRevisionComponentId: bomRevisionComponents.id,
       componentId: bomRevisionComponents.componentId,
       quantity: bomRevisionComponents.quantity,
-      everyQuantity: bomRevisionComponents.everyQuantity,
-      consumptionMode: bomRevisionComponents.consumptionMode,
-      basisOutputQuantity: bomRevisionComponents.basisOutputQuantity,
-      batchScalingMode: bomRevisionComponents.batchScalingMode,
-      groupRemainderPolicy: bomRevisionComponents.groupRemainderPolicy,
     })
     .from(bomRevisionComponents)
     .innerJoin(bomRevisions, eq(bomRevisionComponents.bomRevisionId, bomRevisions.id))
@@ -198,11 +121,6 @@ export async function loadCurrentBomRowsInTx(tx: Tx, productIds: string[]) {
     itemId: row.itemId,
     componentId: row.componentId,
     quantity: row.quantity,
-    everyQuantity: row.everyQuantity,
-    consumptionMode: row.consumptionMode,
-    basisOutputQuantity: row.basisOutputQuantity,
-    batchScalingMode: row.batchScalingMode,
-    groupRemainderPolicy: row.groupRemainderPolicy,
     minimumLotAgeDays:
       minimumLotAgeDaysByComponentId.get(row.bomRevisionComponentId) ?? null,
     alternateItemIds:
@@ -215,6 +133,7 @@ export async function createLoaderBomRevisionInTx(
   params: {
     orgId: string;
     productId: string;
+    recipeBasis: "unit" | "batch";
     outputQuantity: string;
     bom: BomSeedRow[];
     createdBy: string;
@@ -245,6 +164,7 @@ export async function createLoaderBomRevisionInTx(
       organizationId: params.orgId,
       productId: params.productId,
       revisionNumber: (currentRevision?.revisionNumber ?? 0) + 1,
+      recipeBasis: params.recipeBasis,
       outputQuantity: params.outputQuantity,
       isCurrent: true,
       note: params.note,
@@ -285,12 +205,6 @@ export async function createLoaderBomRevisionInTx(
         componentItemType: component.itemType,
         unitName: component.unitName,
         quantity: row.quantity,
-        everyQuantity: row.everyQuantity,
-        consumptionMode: row.consumptionMode,
-        basisOutputQuantity: row.basisOutputQuantity,
-        batchScalingMode: row.batchScalingMode,
-        groupRemainderPolicy: row.groupRemainderPolicy,
-        scalingReviewRecommended: row.scalingReviewRecommended,
         sortOrder: index,
       };
     }))
@@ -412,7 +326,6 @@ export function planBomsSync(
         ? {
             componentId: existingComponent.id,
             quantity: normalizeNumeric(Number(row.quantity)),
-            ...resolveSeedBomConsumption(product, row),
             minimumLotAgeDays: row.minimumLotAgeDays ?? null,
             alternateItemIds: (row.alternates ?? [])
               .map((alternate) => {
@@ -435,10 +348,6 @@ export function planBomsSync(
       nextRows as Array<{
         componentId: string;
         quantity: string;
-        consumptionMode: string;
-        basisOutputQuantity: string | null;
-        batchScalingMode: string | null;
-        groupRemainderPolicy: string | null;
         minimumLotAgeDays: number | null;
         alternateItemIds: string[];
       }>
@@ -498,7 +407,6 @@ export async function applyBomsSyncInTx(
       return {
         componentId,
         quantity: normalizeNumeric(Number(row.quantity)),
-        ...resolveSeedBomConsumption(seed, row),
         minimumLotAgeDays: row.minimumLotAgeDays ?? null,
         alternateItemIds: (row.alternates ?? []).map((alternate) => {
           const alternateItemId = itemIdByKey.get(alternate.itemKey);
@@ -533,6 +441,7 @@ export async function applyBomsSyncInTx(
     await createLoaderBomRevisionInTx(tx, {
       orgId,
       productId: itemId,
+      recipeBasis: resolveSeedRecipeBasis(seed),
       outputQuantity: resolveSeedBomOutputQuantity(seed),
       bom: nextRows,
       createdBy,

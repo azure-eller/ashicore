@@ -471,7 +471,7 @@
           "201 {created, skipped} on success → each created MO transitions a line CLAIM_UNCLAIMED→CLAIM_ACTIVE_MO",
           "400 'Only open sales orders can create manufacturing orders' (queries.ts:3680-3685)",
           "400 disabledReason string when no manufacturable lines remain",
-          "409 'Selected manufacturing orders changed. Refresh and try again.' (queries.ts:3725-3730) when stale will_create / stale quantity / stale group-remainder",
+          "409 'Selected manufacturing orders changed. Refresh and try again.' (queries.ts:3725-3730) when stale will_create",
           "Skipped reasons echoed in response when concurrent claimant already won"
         ]
       },
@@ -718,7 +718,7 @@
           "manufacturingOrderIngredients rows inserted",
           "items.expectedQty recomputed for product items",
           "Anti-duplication: under N concurrent bulkCreateMOsFromSO calls against the same SO, the count of non-deleted manufacturingOrders rows for each salesOrderLineId is exactly 1. The FOR UPDATE on the salesOrders row at queries.ts:3674 serializes callers; on lock release, the second caller's getSalesOrderManufacturingSummariesInTx recompute (queries.ts:3697-3719) sees the first caller's MO and emits the mismatched_sales_order_lines / disabled_or_completed_changes refresh payload at queries.ts:3720-3752, returning 409 'Selected manufacturing orders changed. Refresh and try again.' before any second MO row is inserted",
-          "Second concurrent caller observes either 409 with mismatched_sales_order_lines / disabled_or_completed_changes / group_remainder_changed payload (queries.ts:3725-3752) OR 201 {created:[], skipped:[...]} with the contested line echoed in skipped[] reason='existing_active_mo' — never 201 {created:[<duplicate row>]}",
+          "Second concurrent caller observes either 409 with mismatched_sales_order_lines / disabled_or_completed_changes payload (queries.ts:3725-3752) OR 201 {created:[], skipped:[...]} with the contested line echoed in skipped[] reason='existing_active_mo' — never 201 {created:[<duplicate row>]}",
           "Absence of MO row creation in the 409 refresh_required branch: SELECT COUNT(*) FROM manufacturingOrders WHERE salesOrderLineId=$line AND deletedAt IS NULL stays at 1 after both callers settle"
         ],
         "side_effects": [

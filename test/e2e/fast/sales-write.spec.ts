@@ -62,6 +62,21 @@ function salesOrderCard(page: Page, orderNumber: string) {
   return salesOrderRow(page, orderNumber);
 }
 
+function sumPlannedQuantityByItemId(
+  rows: Array<{ itemId: string; plannedQuantity: string }>
+) {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    totals.set(row.itemId, (totals.get(row.itemId) ?? 0) + Number(row.plannedQuantity));
+  }
+  return new Map(
+    [...totals.entries()].map(([itemId, quantity]) => [
+      itemId,
+      quantity.toFixed(4),
+    ])
+  );
+}
+
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -3294,13 +3309,12 @@ test.describe("Sales write-path smoke", () => {
       defaultSellingPrice: "10",
       stock: "0",
       safetyStock: "0",
+      manufacturingMode: "batch",
+      expectedBatchYield: "9",
       bom: [
         {
           componentId: batchMaterialId,
           quantity: "3",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "9",
-          batchScalingMode: "proportional",
         },
       ],
     });
@@ -3566,12 +3580,12 @@ test.describe("Sales write-path smoke", () => {
       defaultSellingPrice: "15",
       stock: "0",
       safetyStock: "0",
-      outputQuantity: "4",
+      manufacturingMode: "batch",
+      expectedBatchYield: "4",
       bom: [
         {
           componentId: materialId,
           quantity: "2",
-          everyQuantity: "4",
         },
       ],
     });
@@ -3604,7 +3618,7 @@ test.describe("Sales write-path smoke", () => {
     });
   });
 
-  test("spreads grouped packaging across estimated product unit cost", async () => {
+  test("spreads batch packaging across estimated product unit cost", async () => {
     const suffix = `${ts}-GROUP-MARGIN`;
     const materialResult = await createItem({
       name: `Fast Group Margin Material ${suffix}`,
@@ -3612,7 +3626,7 @@ test.describe("Sales write-path smoke", () => {
       unitDefinitionId: unitId,
       sku: `FGM-MAT-${suffix}`,
       category: `Fast Group Margin ${suffix}`,
-      description: "Material for grouped estimated margin",
+      description: "Material for batch estimated margin",
       defaultPurchasePrice: "2",
       defaultSellingPrice: null,
       stock: "1",
@@ -3628,7 +3642,7 @@ test.describe("Sales write-path smoke", () => {
       unitDefinitionId: unitId,
       sku: `FGM-PAL-${suffix}`,
       category: `Fast Group Margin ${suffix}`,
-      description: "Grouped packaging for estimated margin",
+      description: "Batch packaging for estimated margin",
       defaultPurchasePrice: "50",
       defaultSellingPrice: null,
       stock: "1",
@@ -3645,21 +3659,18 @@ test.describe("Sales write-path smoke", () => {
       unitDefinitionId: unitId,
       sku: `FGM-PROD-${suffix}`,
       category: `Fast Group Margin ${suffix}`,
-      description: "Grouped product for estimated margin",
+      description: "Batch product for estimated margin",
       defaultPurchasePrice: null,
       defaultSellingPrice: "20",
       stock: "0",
       safetyStock: "0",
-      outputQuantity: "50",
+      manufacturingMode: "batch",
+      expectedBatchYield: "50",
       bom: [
-        { componentId: materialId, quantity: "100", everyQuantity: "50" },
+        { componentId: materialId, quantity: "100" },
         {
           componentId: palletId,
           quantity: "1",
-          everyQuantity: "50",
-          consumptionMode: "per_group",
-          basisOutputQuantity: "50",
-          groupRemainderPolicy: "ask",
         },
       ],
     });
@@ -3743,7 +3754,7 @@ test.describe("Sales write-path smoke", () => {
     expect(pricing.estimatedUnitCost).toBe("10");
   });
 
-  test("creates sales-linked MOs with every-quantity rounding and no remainder choices", async ({
+  test("creates sales-linked MOs for whole batch output", async ({
     db,
   }) => {
     const suffix = `${ts}-SALES-GROUP-MO`;
@@ -3791,18 +3802,16 @@ test.describe("Sales write-path smoke", () => {
       defaultSellingPrice: "12",
       stock: "0",
       safetyStock: "0",
+      manufacturingMode: "batch",
+      expectedBatchYield: "50",
       bom: [
         {
           componentId: materialId,
           quantity: "1",
-          consumptionMode: "per_output_unit",
         },
         {
           componentId: palletId,
           quantity: "1",
-          consumptionMode: "per_group",
-          basisOutputQuantity: "50",
-          groupRemainderPolicy: "ask",
         },
       ],
     });
@@ -3837,7 +3846,7 @@ test.describe("Sales write-path smoke", () => {
           salesOrderLineIds: [line.salesOrderLineId],
           priorityRank: null,
           lineQuantities: [
-            { salesOrderLineId: line.salesOrderLineId, quantity: "52" },
+            { salesOrderLineId: line.salesOrderLineId, quantity: "100" },
           ],
           notes: null,
         }),
@@ -3850,12 +3859,9 @@ test.describe("Sales write-path smoke", () => {
       .select()
       .from(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, fallbackMoId));
-    const fallbackByItemId = new Map(
-      fallbackIngredientRows.map((row) => [row.itemId, row])
-    );
-    expect(fallbackByItemId.get(palletId)?.plannedQuantity).toBe("2.0000");
-    expect(fallbackByItemId.get(palletId)?.everyQuantity).toBe("50.0000");
-    expect(fallbackByItemId.get(palletId)?.chosenGroupRemainderHandling).toBeNull();
+    const fallbackTotalByItemId = sumPlannedQuantityByItemId(fallbackIngredientRows);
+    expect(fallbackTotalByItemId.get(materialId)).toBe("2.0000");
+    expect(fallbackTotalByItemId.get(palletId)).toBe("2.0000");
 
     const secondOrderResult = await createSalesOrder({
       customerId,
@@ -3886,7 +3892,7 @@ test.describe("Sales write-path smoke", () => {
           salesOrderLineIds: [secondLine.salesOrderLineId],
           priorityRank: null,
           lineQuantities: [
-            { salesOrderLineId: secondLine.salesOrderLineId, quantity: "52" },
+            { salesOrderLineId: secondLine.salesOrderLineId, quantity: "100" },
           ],
           notes: null,
         }),
@@ -3904,10 +3910,11 @@ test.describe("Sales write-path smoke", () => {
       .select()
       .from(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, createdMo.id));
-    const byItemId = new Map(ingredientRows.map((row) => [row.itemId, row]));
-    expect(byItemId.get(materialId)?.plannedQuantity).toBe("52.0000");
-    expect(byItemId.get(palletId)?.plannedQuantity).toBe("2.0000");
-    expect(byItemId.get(palletId)?.chosenGroupRemainderHandling).toBeNull();
+    const totalByItemId = sumPlannedQuantityByItemId(ingredientRows);
+    expect(createdMo.plannedQuantity).toBe("100.0000");
+    expect(createdMo.numberOfBatches).toBe(2);
+    expect(totalByItemId.get(materialId)).toBe("2.0000");
+    expect(totalByItemId.get(palletId)).toBe("2.0000");
   });
 
   test("keeps Create MOs available when another line is already in production", async ({

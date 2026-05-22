@@ -433,15 +433,12 @@ export async function copyBomFromVariant(
  * Recipe tab when the user clicks Save.
  */
 export type SaveBomRevisionInput = {
+  recipeBasis?: "unit" | "batch";
+  expectedBatchYield?: string | null;
   outputQuantity?: string | null;
   bom: Array<{
     componentId: string;
     quantity: string;
-    everyQuantity?: string | null;
-    consumptionMode?: "per_output_unit" | "per_batch" | "per_group" | null;
-    basisOutputQuantity?: string | null;
-    batchScalingMode?: "proportional" | "full_batches_only" | null;
-    groupRemainderPolicy?: "ask" | "leave_loose" | "create_partial_group" | null;
     minimumLotAgeDays?: string | number | null;
     alternates?: Array<{ itemId: string }>;
   }>;

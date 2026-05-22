@@ -194,7 +194,7 @@
         "symbol": "createManufacturingOrdersFromSalesOrderSchema",
         "file": "lib/schemas/manufacturing-orders.ts",
         "lines": "358-386",
-        "note": "POST /api/sales-orders/[id]/manufacturing-orders body shape: plannedDate (nullable iso date), salesOrderLineIds (array<uuid> min 1), priorityRank, lineQuantities (optional array of {salesOrderLineId, quantity}), groupRemainderChoices (array per line), notes."
+        "note": "POST /api/sales-orders/[id]/manufacturing-orders body shape: plannedDate (nullable iso date), salesOrderLineIds (array<uuid> min 1), priorityRank, lineQuantities (optional array of {salesOrderLineId, quantity}), notes."
       },
       {
         "symbol": "insertSalesOrderSchema",
@@ -218,7 +218,7 @@
         "symbol": "ManufacturingSalesOrderPreviewLine",
         "file": "app/(dashboard)/manufacturing/types.ts",
         "lines": "43-63",
-        "note": "Per-line: {salesOrderLineId, itemId, itemName, itemSku, quantity, unitName, status ('will_create'|'skipped'), skipReason ('non_product'|'inactive_product'|'no_active_bom'|'stock_on_hand'|'existing_active_mo'|null), skipMessage, groupRemainderRows}"
+        "note": "Per-line: {salesOrderLineId, itemId, itemName, itemSku, quantity, unitName, status ('will_create'|'skipped'), skipReason ('non_product'|'inactive_product'|'no_active_bom'|'stock_on_hand'|'existing_active_mo'|null), skipMessage, batchRows}"
       },
       {
         "symbol": "ManufacturingSalesLineOption",
@@ -362,7 +362,7 @@
         "symbol": "handleSalesLineChange",
         "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx",
         "lines": "721-762",
-        "note": "When a sales line is picked: sets salesOrderId, salesOrderLineId, productId (from line.itemId), plannedQuantity (from line.quantity), clears groupRemainderChoices, and populates ingredients from productMap.get(line.itemId).bom (BUG FIX 948c155e — pre-fix this branch did not load ingredients from the product template, leaving the form blank)."
+        "note": "When a sales line is picked: sets salesOrderId, salesOrderLineId, productId (from line.itemId), plannedQuantity (from line.quantity), and populates ingredients from productMap.get(line.itemId).bom (BUG FIX 948c155e — pre-fix this branch did not load ingredients from the product template, leaving the form blank)."
       },
       {
         "symbol": "ingredientOptions computation",
@@ -434,7 +434,7 @@
         "symbol": "test/helpers/api.ts createManufacturingOrder helper",
         "file": "test/helpers/api.ts",
         "lines": "607-637",
-        "note": "POSTs to /api/manufacturing-orders with productId, salesOrderId, salesOrderLineId, plannedQuantity, plannedDate, notes, ingredients, groupRemainderChoices, confirmShortage."
+        "note": "POSTs to /api/manufacturing-orders with productId, salesOrderId, salesOrderLineId, plannedQuantity, plannedDate, notes, ingredients, confirmShortage."
       },
       {
         "symbol": "test/helpers/api.ts createSalesOrder helper",
@@ -621,7 +621,7 @@
       "file": "lib/schemas/manufacturing-orders.ts",
       "symbol": "createManufacturingOrdersFromSalesOrderSchema",
       "lines": "358-386",
-      "claim": "salesOrderLineIds is array<uuid>().min(1, 'Select at least one manufacturing order to create'). plannedDate is nullable iso date. lineQuantities/groupRemainderChoices optional, both keyed by salesOrderLineId."
+      "claim": "salesOrderLineIds is array<uuid>().min(1, 'Select at least one manufacturing order to create'). plannedDate is nullable iso date. lineQuantities optional, both keyed by salesOrderLineId."
     },
     {
       "file": "lib/schemas/sales-orders.ts",
@@ -669,7 +669,7 @@
       "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx",
       "symbol": "handleSalesLineChange",
       "lines": "721-762",
-      "claim": "Picking a sales line forces salesOrderId, salesOrderLineId, productId (line.itemId), plannedQuantity (line.quantity), clears groupRemainderChoices, and ingredients are seeded from productMap.get(line.itemId).bom. If productMap has no entry (e.g. line product missing or no BOM), ingredients are seeded from []."
+      "claim": "Picking a sales line forces salesOrderId, salesOrderLineId, productId (line.itemId), plannedQuantity (line.quantity), and ingredients are seeded from productMap.get(line.itemId).bom. If productMap has no entry (e.g. line product missing or no BOM), ingredients are seeded from []."
     },
     {
       "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx",
@@ -681,7 +681,7 @@
       "file": "app/(dashboard)/sales/create-manufacturing-orders-dialog.tsx",
       "symbol": "Create MOs dialog",
       "lines": "95-345",
-      "claim": "Dialog component used from sales order detail. Submits to /api/sales-orders/:salesOrderId/manufacturing-orders with plannedDate, salesOrderLineIds, priorityRank, lineQuantities, groupRemainderChoices, notes."
+      "claim": "Dialog component used from sales order detail. Submits to /api/sales-orders/:salesOrderId/manufacturing-orders with plannedDate, salesOrderLineIds, priorityRank, lineQuantities, notes."
     },
     {
       "file": "test/e2e/slow/manufacturing-order.spec.ts",

@@ -28,7 +28,7 @@ import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { type Tx, withOrgContext } from "@/lib/db/with-org-context";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { normalizeNumeric, roundQuantity, todayInTimeZone } from "@/lib/format";
-import { calculateConsumptionRequirement } from "@/lib/manufacturing/consumption";
+import { calculateIngredientPlannedQuantity, normalizeRecipeBasis } from "@/lib/manufacturing/consumption";
 import { buildPlanningSnapshotInTx } from "@/lib/planning/service";
 import type { PlanningSnapshot } from "@/lib/planning/types";
 import type {
@@ -864,6 +864,8 @@ async function loadTopLevelBomContextInTx(
       revisionId: bomRevisions.id,
       productId: bomRevisions.productId,
       revisionNumber: bomRevisions.revisionNumber,
+      recipeBasis: bomRevisions.recipeBasis,
+      outputQuantity: trimScale(bomRevisions.outputQuantity).as("outputQuantity"),
     })
     .from(bomRevisions)
     .where(and(inArray(bomRevisions.productId, productIds), eq(bomRevisions.isCurrent, true)))
@@ -880,12 +882,6 @@ async function loadTopLevelBomContextInTx(
       componentItemType: bomRevisionComponents.componentItemType,
       unitName: bomRevisionComponents.unitName,
       quantity: trimScale(bomRevisionComponents.quantity).as("quantity"),
-      consumptionMode: bomRevisionComponents.consumptionMode,
-      basisOutputQuantity: trimScaleNullable(
-        bomRevisionComponents.basisOutputQuantity
-      ).as("basisOutputQuantity"),
-      batchScalingMode: bomRevisionComponents.batchScalingMode,
-      groupRemainderPolicy: bomRevisionComponents.groupRemainderPolicy,
       sortOrder: bomRevisionComponents.sortOrder,
       createdAt: bomRevisionComponents.createdAt,
     })
@@ -959,10 +955,6 @@ async function loadTopLevelBomContextInTx(
       componentItemType: component.componentItemType,
       unitName: component.unitName,
       quantity: component.quantity,
-      consumptionMode: component.consumptionMode,
-      basisOutputQuantity: component.basisOutputQuantity,
-      batchScalingMode: component.batchScalingMode,
-      groupRemainderPolicy: component.groupRemainderPolicy,
       minimumLotAgeDays:
         constraints.find((constraint) => constraint.minimumLotAgeDays != null)
           ?.minimumLotAgeDays ?? null,
@@ -981,6 +973,8 @@ async function loadTopLevelBomContextInTx(
         unitName: product.unitName,
         revisionId: revision.revisionId,
         revisionNumber: revision.revisionNumber,
+        recipeBasis: normalizeRecipeBasis(revision.recipeBasis),
+        outputQuantity: revision.outputQuantity,
         components: componentsByRevisionId.get(revision.revisionId) ?? [],
       } satisfies AgentTopLevelBomContext;
     })
@@ -1753,15 +1747,21 @@ function buildMarkdownTargets(context: AgentProductionPlanningContext) {
 
       for (const component of bom.components) {
         if (!component.minimumLotAgeDays) continue;
+        const recipeBasis = normalizeRecipeBasis(bom.recipeBasis);
+        const recipeOutputQuantity = Number(bom.outputQuantity);
+        const numberOfBatches =
+          recipeBasis === "batch" &&
+          Number.isFinite(recipeOutputQuantity) &&
+          recipeOutputQuantity > 0
+            ? Math.ceil(buildDemandQty / recipeOutputQuantity)
+            : null;
         const componentQuantity = toQuantity(
-          calculateConsumptionRequirement({
-            quantity: component.quantity,
+          calculateIngredientPlannedQuantity({
+            recipeBasis,
+            quantityPerRecipeBasis: component.quantity,
             outputQuantity: buildDemandQty,
-            consumptionMode: component.consumptionMode as never,
-            basisOutputQuantity: component.basisOutputQuantity,
-            batchScalingMode: component.batchScalingMode as never,
-            groupRemainderPolicy: component.groupRemainderPolicy as never,
-          }).plannedQuantity
+            numberOfBatches,
+          })
         );
         if (componentQuantity <= 0) continue;
 
@@ -1978,14 +1978,10 @@ function buildRawProductionContext(
             componentItemType: component.componentItemType,
             componentUnitName: component.unitName,
             quantity: component.quantity,
-            consumptionMode: component.consumptionMode,
-            basisOutputQuantity: component.basisOutputQuantity,
-            batchScalingMode: component.batchScalingMode,
-            groupRemainderPolicy: component.groupRemainderPolicy,
             quantityMeaning:
-              component.basisOutputQuantity == null
-                ? `${component.quantity} ${component.unitName ?? "units"} of ${component.componentName} per output of ${bom.productName}`
-                : `${component.quantity} ${component.unitName ?? "units"} of ${component.componentName} per ${component.basisOutputQuantity} ${bom.unitName ?? "units"} of ${bom.productName}`,
+              bom.recipeBasis === "batch"
+                ? `${component.quantity} ${component.unitName ?? "units"} of ${component.componentName} per production batch of ${bom.productName}`
+                : `${component.quantity} ${component.unitName ?? "units"} of ${component.componentName} per output of ${bom.productName}`,
             requirements: component.constraints.map((constraint) => {
               if (constraint.minimumLotAgeDays != null) {
                 return {
@@ -2085,7 +2081,7 @@ export function buildAgentProductionPlanningMarkdown(
       bom.productName,
       component.componentName,
       compactQty(component.quantity, component.unitName),
-      component.consumptionMode,
+      bom.recipeBasis,
       component.constraints.map((constraint) => constraint.label).join(", ") || "-",
     ])
     .slice(0, MAX_MARKDOWN_TOP_LEVEL_BOMS);

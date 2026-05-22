@@ -225,7 +225,7 @@
         "evidence": [
           { "file": "lib/inventory/kernel/operations/stock-core.ts", "symbol": "resolvePositiveStockUnitCostInTx (product branch)", "reason": "Lines 323-349 walk active BOM with cycle detection 260-267." },
           { "file": "lib/inventory/kernel/operations/manufacturing.ts", "symbol": "produceManufacturedStockInTx", "reason": "Line 651-652: unitCost = normalizeNumericScale(totalCost / params.quantity, 6). Lot creation always passes a unitCost." },
-          { "file": "lib/manufacturing/consumption.ts", "symbol": "calculateAverageUnitConsumptionQuantity", "reason": "Per-output average for per_batch / per_group consumption modes." }
+          { "file": "lib/manufacturing/consumption.ts", "symbol": "calculateAverageUnitConsumptionQuantity", "reason": "Per-output average for unit and batch recipe bases." }
         ],
         "confidence": "high",
         "tag": "fact"
