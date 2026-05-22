@@ -17,9 +17,13 @@ import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import {
   createSalesOrder,
   fetchSalesOrderDetail,
+  patchSalesOrderHeader,
   updateSalesOrderFull,
 } from "@/lib/api/clients/sales-orders";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
+import { useSmartBack } from "@/lib/hooks/use-smart-back";
+import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
+import { formatDate, formatPrice, toDateOnlyString } from "@/lib/format";
 import type {
   CustomerOption,
   SalesAddressOption,
@@ -28,7 +32,6 @@ import type {
   SalesOrderItemOption,
   SalesShipmentRow,
 } from "@/app/(dashboard)/sales/types";
-import { OrderCardHeader } from "./order-card-header";
 import { SalesStatusControl } from "@/components/sales/sales-status-control";
 import { OrderDetailsGrid } from "./order-details-grid";
 import { LineItemsTable } from "./line-items-table";
@@ -39,7 +42,15 @@ import { MarkShippedDialog } from "./mark-shipped-dialog";
 import { ShipmentCostsDialog } from "./shipment-costs-dialog";
 import { CreateManufacturingOrdersDialog } from "../../create-manufacturing-orders-dialog";
 import { CardPage, CardPageBody } from "@/components/card-page/card-page";
-import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
+import { CardPageHeader } from "@/components/card-page/card-page-header";
+import { DetailHeaderTitle } from "@/components/card-page/detail-header-title";
+import { CardMetaStrip, CardMetaValue } from "@/components/card-page/card-meta-strip";
+import {
+  cardSaveMutationKey,
+  saveStateFromEntityStatus,
+  useEntitySaveStatus,
+  type CardSaveState,
+} from "@/components/card-page/card-save-status";
 import {
   draftToInsertPayload,
   makeDraftLine,
@@ -78,6 +89,7 @@ export function OrderCard({
   const router = useRouter();
   const queryClient = useQueryClient();
   const timeZone = useOrganizationTimeZone();
+  const handleClose = useSmartBack("/sales/orders");
 
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(
     initialOrder?.id ?? null,
@@ -88,8 +100,11 @@ export function OrderCard({
       projectId: initialDraftProjectId ?? null,
     }),
   );
+  const startsAsNewOrder = initialOrder == null;
   const autoCreateStartedRef = useRef(false);
-  const isDraft = currentOrderId == null;
+  const latestDraftOrderRef = useRef(draftOrder);
+  const hasPersistedOrder = currentOrderId != null;
+  const isDraft = !hasPersistedOrder;
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -106,14 +121,22 @@ export function OrderCard({
     queryKey: ["sales-order", currentOrderId ?? "__draft__"],
     queryFn: () => fetchSalesOrderDetail(currentOrderId as string),
     initialData: initialOrder ?? undefined,
-    enabled: !isDraft,
+    enabled: hasPersistedOrder,
     refetchOnWindowFocus: false,
   });
   const order = isDraft ? draftOrder : orderQuery.data ?? draftOrder;
+  const liveSaveStatus = useEntitySaveStatus(
+    "sales-order",
+    currentOrderId ?? "__draft__",
+  );
 
   const isEditable =
     isDraft ||
     (order.status !== "done" && order.shippingReadiness.state !== "shipped");
+
+  useEffect(() => {
+    latestDraftOrderRef.current = draftOrder;
+  }, [draftOrder]);
 
   // ---- Draft controller (local writes before the order exists) ----------
   const recomputeTotals = useCallback((next: SalesOrderDetail): SalesOrderDetail => {
@@ -131,10 +154,35 @@ export function OrderCard({
     };
   }, []);
 
+  const draftHeaderMutation = useMutation({
+    mutationKey: cardSaveMutationKey(
+      "sales-order",
+      currentOrderId ?? "__draft__",
+      "header",
+      "new-card",
+    ),
+    mutationFn: (patch: Parameters<typeof patchSalesOrderHeader>[1]) =>
+      patchSalesOrderHeader(currentOrderId as string, patch),
+    onSuccess: (next) => {
+      queryClient.setQueryData(["sales-order", next.id], next);
+    },
+    onError: (error) => setActionError((error as Error).message),
+  });
+
+  const persistDraftHeaderPatch = useCallback(
+    (patch: Parameters<typeof patchSalesOrderHeader>[1]) => {
+      if (!currentOrderId) return;
+      draftHeaderMutation.mutate(patch);
+    },
+    [currentOrderId, draftHeaderMutation],
+  );
+
   const draftController = useMemo<OrderDraftController>(
     () => ({
-      patchHeader: (patch) =>
-        setDraftOrder((prev) => ({ ...prev, ...patch }) as SalesOrderDetail),
+      patchHeader: (patch) => {
+        setDraftOrder((prev) => ({ ...prev, ...patch }) as SalesOrderDetail);
+        persistDraftHeaderPatch(persistedDraftHeaderPatch(patch));
+      },
       addLine: (line) =>
         setDraftOrder((prev) => recomputeTotals({ ...prev, lines: [...prev.lines, line] })),
       updateLine: (lineId, patch) =>
@@ -165,34 +213,54 @@ export function OrderCard({
             .filter((line): line is SalesOrderDetailLine => line != null),
         })),
     }),
-    [recomputeTotals],
+    [persistDraftHeaderPatch, recomputeTotals],
   );
 
   const createMutation = useMutation({
     mutationKey: cardSaveMutationKey("sales-order", "__draft__", "create"),
     mutationFn: async () => {
       const created = await createSalesOrder(draftToInsertPayload(draftOrder));
-      const detail = await fetchSalesOrderDetail(created.id);
-      return detail;
+      return created;
     },
     onMutate: () => setActionError(null),
-    onSuccess: (detail) => {
-      setCurrentOrderId(detail.id);
-      queryClient.setQueryData(["sales-order", detail.id], detail);
+    onSuccess: (created) => {
+      const latestDraft = latestDraftOrderRef.current;
+      setCurrentOrderId(created.id);
+      setDraftOrder((current) => {
+        const next = ({ ...current, id: created.id }) as SalesOrderDetail;
+        latestDraftOrderRef.current = next;
+        return next;
+      });
+      queryClient.setQueryData(["sales-order", created.id], {
+        ...latestDraft,
+        id: created.id,
+      });
+      void patchSalesOrderHeader(created.id, persistedOrderHeaderPatch(latestDraft))
+        .then((next) => {
+          queryClient.setQueryData(["sales-order", created.id], next);
+        })
+        .catch((error) => setActionError((error as Error).message));
       void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
-      router.replace(`/sales/orders/${detail.id}`);
+      window.history.replaceState(null, "", `/sales/orders/${created.id}`);
     },
     onError: (error) => setActionError((error as Error).message),
   });
 
   const canCreate = draftOrder.customerId.trim().length > 0;
+  const saveState: CardSaveState = isDraft
+    ? createMutation.isPending || draftHeaderMutation.isPending
+      ? "saving"
+      : createMutation.isError || draftHeaderMutation.isError
+        ? "failed"
+        : "not_saved"
+    : saveStateFromEntityStatus(liveSaveStatus.status);
 
   useEffect(() => {
-    if (!isDraft || !canCreate || autoCreateStartedRef.current) return;
-    if (createMutation.isPending || createMutation.isSuccess) return;
+    if (!startsAsNewOrder || hasPersistedOrder || !canCreate) return;
+    if (autoCreateStartedRef.current || createMutation.isPending) return;
     autoCreateStartedRef.current = true;
     createMutation.mutate();
-  }, [canCreate, createMutation, isDraft]);
+  }, [canCreate, createMutation, hasPersistedOrder, startsAsNewOrder]);
 
   // ---- Live mutations ----------------------------------------------------
   const deleteMutation = useMutation({
@@ -390,13 +458,20 @@ export function OrderCard({
 
   return (
     <CardPage>
-      <OrderCardHeader
-        order={isDraft ? null : order}
-        mode={isDraft ? "draft" : "edit"}
-        draftCustomerName={draftOrder.customerName || null}
-        draftIsDirty={isDraft}
-        draftSaving={createMutation.isPending}
-        draftHasError={createMutation.isError}
+      <CardPageHeader
+        eyebrow="Sales order"
+        title={
+          isDraft ? (
+            "New sales order"
+          ) : (
+            <DetailHeaderTitle
+              recordNumber={order.orderNumber}
+              name={order.customerName}
+            />
+          )
+        }
+        meta={<SalesOrderMeta order={order} />}
+        saveState={saveState}
         statusControl={
           !isDraft ? (
             <SalesStatusControl
@@ -408,27 +483,53 @@ export function OrderCard({
             />
           ) : undefined
         }
-        onCreate={isDraft ? () => createMutation.mutate() : undefined}
-        onCreateDisabled={!canCreate || createMutation.isPending}
-        onDuplicate={!isDraft ? () => duplicateMutation.mutate() : undefined}
-        onPushXero={
-          !isDraft && xeroInvoiceSetupStatus === "ready"
-            ? () => orderXeroPushMutation.mutate()
-            : undefined
-        }
-        onPushXeroDisabled={orderXeroPushMutation.isPending}
-        onPushXeroLabel={
-          orderXeroPushMutation.isPending ? "Sending invoice..." : "Send invoice to Xero"
-        }
-        onCreateMo={
-          !isDraft && order.hasManufacturableLines
-            ? () => setMakeToOrderOpen(true)
-            : undefined
-        }
-        onCreateMoDisabled={!order.hasManufacturableLines}
-        onCreateMoDisabledReason={order.manufacturableDisabledReason ?? undefined}
-        onDelete={!isDraft ? () => setConfirmDelete(true) : undefined}
-        canViewLedger={canViewLedger}
+        primaryAction={undefined}
+        menuActions={[
+          ...(!isDraft ? [{ label: "Duplicate", onClick: () => duplicateMutation.mutate() }] : []),
+          ...(!isDraft && xeroInvoiceSetupStatus === "ready"
+            ? [
+                {
+                  label: orderXeroPushMutation.isPending
+                    ? "Sending invoice..."
+                    : "Send invoice to Xero",
+                  onClick: () => orderXeroPushMutation.mutate(),
+                  disabled: orderXeroPushMutation.isPending,
+                },
+              ]
+            : []),
+          ...(!isDraft && canViewLedger
+            ? [
+                {
+                  label: "View inventory activity",
+                  href: buildInventoryLedgerHref({
+                    documentType: "sales_order",
+                    documentId: order.id,
+                  }),
+                },
+              ]
+            : []),
+          ...(!isDraft && order.hasManufacturableLines
+            ? [
+                {
+                  label: "Create manufacturing order(s)",
+                  onClick: () => setMakeToOrderOpen(true),
+                  disabled: !order.hasManufacturableLines,
+                  tooltip: order.manufacturableDisabledReason ?? undefined,
+                },
+              ]
+            : []),
+          ...(!isDraft
+            ? [
+                {
+                  label: "Delete order",
+                  onClick: () => setConfirmDelete(true),
+                  destructive: true,
+                },
+              ]
+            : []),
+        ]}
+        onClose={handleClose}
+        fallbackHref="/sales/orders"
       />
 
       {actionError ? (
@@ -462,22 +563,28 @@ export function OrderCard({
           }
         />
 
-        {isDraft ? null : (
-          <ShipmentsTable
-            order={order}
-            editable={isEditable}
-            onNewShipment={isEditable ? () => setShipmentDialogTarget("new") : undefined}
-            onEditShipment={
-              isEditable ? (shipment) => setShipmentDialogTarget(shipment) : undefined
-            }
-            onMarkShipped={isEditable ? (shipment) => setShipTarget(shipment) : undefined}
-            onEditCosts={(shipment) => setCostsTarget(shipment)}
-            onPushXero={(shipment) => shipmentXeroPushMutation.mutate(shipment)}
-            onDeleteShipment={
-              isEditable ? (shipment) => setDeleteShipmentTarget(shipment) : undefined
-            }
-          />
-        )}
+        <ShipmentsTable
+          order={order}
+          editable={isEditable}
+          addDisabledReason={isDraft ? "Choose a customer first." : null}
+          onNewShipment={
+            isEditable
+              ? () => {
+                  if (isDraft) return;
+                  setShipmentDialogTarget("new");
+                }
+              : undefined
+          }
+          onEditShipment={
+            isEditable && !isDraft ? (shipment) => setShipmentDialogTarget(shipment) : undefined
+          }
+          onMarkShipped={isEditable && !isDraft ? (shipment) => setShipTarget(shipment) : undefined}
+          onEditCosts={!isDraft ? (shipment) => setCostsTarget(shipment) : undefined}
+          onPushXero={!isDraft ? (shipment) => shipmentXeroPushMutation.mutate(shipment) : undefined}
+          onDeleteShipment={
+            isEditable && !isDraft ? (shipment) => setDeleteShipmentTarget(shipment) : undefined
+          }
+        />
 
         <TotalsStrip
           order={order}
@@ -583,6 +690,67 @@ export function OrderCard({
       </AlertDialog>
     </CardPage>
   );
+}
+
+function SalesOrderMeta({ order }: { order: SalesOrderDetail }) {
+  return (
+    <CardMetaStrip>
+      {[
+        <CardMetaValue
+          key="created"
+          label="Created"
+          value={formatDate(toDateOnlyString(order.createdAt))}
+          mono
+        />,
+        <CardMetaValue
+          key="shipping"
+          label="Shipping"
+          value={order.shipDate ? formatDate(order.shipDate) : "—"}
+          mono
+        />,
+        <CardMetaValue
+          key="total"
+          label="Order total"
+          value={`${formatPrice(order.totalAmount) ?? "$0.00"} USD`}
+          mono
+        />,
+      ]}
+    </CardMetaStrip>
+  );
+}
+
+type DraftHeaderPatch = Parameters<OrderDraftController["patchHeader"]>[0];
+type PersistedHeaderPatch = Parameters<typeof patchSalesOrderHeader>[1];
+
+function persistedDraftHeaderPatch(patch: DraftHeaderPatch): PersistedHeaderPatch {
+  const { customerName, customerEmail, customerProjectName, ...persisted } = patch;
+  void customerName;
+  void customerEmail;
+  void customerProjectName;
+  return persisted;
+}
+
+function persistedOrderHeaderPatch(order: SalesOrderDetail): PersistedHeaderPatch {
+  return {
+    customerId: order.customerId,
+    customerProjectId: order.customerProjectId,
+    orderDate: order.orderDate,
+    shipDate: order.shipDate,
+    requestedDate: order.requestedDate,
+    notes: order.notes,
+    shipLine1: order.shipLine1,
+    shipLine2: order.shipLine2,
+    shipCity: order.shipCity,
+    shipRegion: order.shipRegion,
+    shipPostcode: order.shipPostcode,
+    shipCountry: order.shipCountry,
+    billingLine1: order.billingLine1,
+    billingLine2: order.billingLine2,
+    billingCity: order.billingCity,
+    billingRegion: order.billingRegion,
+    billingPostcode: order.billingPostcode,
+    billingCountry: order.billingCountry,
+  };
 }
 
 function makeInitialDraftOrder(

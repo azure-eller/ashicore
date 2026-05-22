@@ -110,16 +110,6 @@ export function ProductRecipeTab({
     );
   }
 
-  if (!activeVariant) {
-    return (
-      <section className={styles.section}>
-        <p className={styles.helper}>
-          Generate at least one variant from the Variant configuration dialog before editing a recipe.
-        </p>
-      </section>
-    );
-  }
-
   const handleVariantChange = (nextVariantId: string) => {
     if (nextVariantId === focusItemId) return;
     if (dirty) {
@@ -133,7 +123,7 @@ export function ProductRecipeTab({
   };
 
   const handleRowsChange = (next: BomPayloadRow[]) => {
-    if (!canEditProduct) return;
+    if (!canEditProduct || !activeVariant) return;
     setRows(next);
     setDirty(true);
   };
@@ -176,7 +166,7 @@ export function ProductRecipeTab({
               size="sm"
               className="px-(--space-4)"
               onClick={() => setCopyToOpen(true)}
-              disabled={visibleVariants.length < 2}
+              disabled={!activeVariant || visibleVariants.length < 2}
             >
               <HugeiconsIcon icon={Upload01Icon} data-icon="inline-start" />
               Copy to…
@@ -187,7 +177,7 @@ export function ProductRecipeTab({
               size="sm"
               className="px-(--space-4)"
               onClick={() => setCopyFromOpen(true)}
-              disabled={visibleVariants.length < 2}
+              disabled={!activeVariant || visibleVariants.length < 2}
             >
               <HugeiconsIcon icon={Download01Icon} data-icon="inline-start" />
               Copy from…
@@ -215,7 +205,7 @@ export function ProductRecipeTab({
               size="sm"
               className="px-(--space-4)"
               onClick={() => saveMutation.mutate()}
-              disabled={!dirty || saveMutation.isPending}
+              disabled={!activeVariant || !dirty || saveMutation.isPending}
             >
               <HugeiconsIcon icon={CheckmarkCircle02Icon} data-icon="inline-start" />
               {saveMutation.isPending ? "Saving…" : "Save recipe"}
@@ -228,7 +218,13 @@ export function ProductRecipeTab({
         className={styles.helper}
         style={{ marginTop: "var(--space-2)", marginBottom: "var(--space-3)" }}
       >
-        Any changes made here only affect <strong>{activeVariant.displayName}</strong>.
+        {activeVariant ? (
+          <>
+            Any changes made here only affect <strong>{activeVariant.displayName}</strong>.
+          </>
+        ) : (
+          "No variants yet. Recipe editing will be available after the first variant exists."
+        )}
       </p>
 
       <div className="mb-(--space-4) space-y-(--space-3)">
@@ -274,7 +270,7 @@ export function ProductRecipeTab({
         <span className={styles.lab}>Total cost</span>
         <span>
           <span className={styles.val}>
-            {activeVariant.ingredientsCost == null
+            {activeVariant?.ingredientsCost == null
               ? "—"
               : Number(activeVariant.ingredientsCost).toFixed(5)}
           </span>
@@ -282,24 +278,28 @@ export function ProductRecipeTab({
         </span>
       </div>
 
-      <CopyDialog
-        open={copyToOpen}
-        onOpenChange={setCopyToOpen}
-        cardItemId={focusItemId}
-        scope="bom"
-        direction="to"
-        activeVariant={activeVariant}
-        siblings={visibleVariants}
-      />
-      <CopyDialog
-        open={copyFromOpen}
-        onOpenChange={setCopyFromOpen}
-        cardItemId={focusItemId}
-        scope="bom"
-        direction="from"
-        activeVariant={activeVariant}
-        siblings={visibleVariants}
-      />
+      {activeVariant ? (
+        <>
+          <CopyDialog
+            open={copyToOpen}
+            onOpenChange={setCopyToOpen}
+            cardItemId={focusItemId}
+            scope="bom"
+            direction="to"
+            activeVariant={activeVariant}
+            siblings={visibleVariants}
+          />
+          <CopyDialog
+            open={copyFromOpen}
+            onOpenChange={setCopyFromOpen}
+            cardItemId={focusItemId}
+            scope="bom"
+            direction="from"
+            activeVariant={activeVariant}
+            siblings={visibleVariants}
+          />
+        </>
+      ) : null}
     </section>
   );
 }

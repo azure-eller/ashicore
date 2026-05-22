@@ -4,7 +4,6 @@ import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type {
   CellClassParams,
-  ICellEditorParams,
   ICellRendererParams,
   ValueFormatterParams,
   ValueSetterParams,
@@ -12,10 +11,10 @@ import type {
 import { apiJson } from "@/lib/client/api";
 import { formatPrice } from "@/lib/format";
 import {
-  EditableLineDataGrid,
-  type ColDef,
+  MutableLines,
   type EditableLineDataGridChange,
-} from "@/components/editable-line-data-grid";
+  type LineField,
+} from "@/components/editable-lines";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -562,34 +561,26 @@ export function OperationCostEditor({
     [emitRowsChange, pendingResourceRowId, rows],
   );
 
-  const columns = useMemo<ColDef<OperationCostGridRow>[]>(
+  const columns = useMemo<LineField<OperationCostGridRow>[]>(
     () => [
       {
         field: "operationName",
+        kind: "text",
         headerName: "Operation",
         minWidth: 180,
         flex: 1.2,
         editable: true,
-        cellEditor: "agTextCellEditor",
         valueSetter: (params: ValueSetterParams<OperationCostGridRow, string | null>) => {
           params.data.operationName = normalizeTextCell(params.newValue) ?? "";
           return true;
         },
-        cellEditorParams: {
-          getValidationErrors: ({
-            value,
-            cellEditorParams,
-          }: {
-            value: string | null | undefined;
-            cellEditorParams: ICellEditorParams<OperationCostGridRow>;
-          }) => {
-            const row = {
-              ...cellEditorParams.data,
-              operationName: normalizeTextCell(value) ?? "",
-            };
-            if (isBlankOperationCostGridRow(row)) return null;
-            return row.operationName ? null : ["Name is required"];
-          },
+        getValidationErrors: (value, row) => {
+          const nextRow = {
+            ...row,
+            operationName: normalizeTextCell(value) ?? "",
+          };
+          if (isBlankOperationCostGridRow(nextRow)) return null;
+          return nextRow.operationName ? null : ["Name is required"];
         },
         cellClassRules: {
           "erp-editable-grid-cell-error": hasError("operationName"),
@@ -598,33 +589,24 @@ export function OperationCostEditor({
       },
       {
         field: "resourceId",
+        kind: "select",
         headerName: "Resource",
         minWidth: 172,
         flex: 1,
         editable: true,
-        cellEditor: "agSelectCellEditor",
-        cellEditorParams: {
-          values: [
-            "",
-            ...localResources.map((resource) => resource.id),
-            CREATE_NEW_RESOURCE,
-          ],
-          openEditorOnStart: true,
-          getValidationErrors: ({
-            value,
-            cellEditorParams,
-          }: {
-            value: string | null | undefined;
-            cellEditorParams: ICellEditorParams<OperationCostGridRow>;
-          }) => {
-            const row = {
-              ...cellEditorParams.data,
-              resourceId:
-                value === CREATE_NEW_RESOURCE ? "" : normalizeTextCell(value) ?? "",
-            };
-            if (isBlankOperationCostGridRow(row)) return null;
-            return row.resourceId ? null : ["Resource is required"];
-          },
+        values: [
+          "",
+          ...localResources.map((resource) => resource.id),
+          CREATE_NEW_RESOURCE,
+        ],
+        getValidationErrors: (value, row) => {
+          const nextRow = {
+            ...row,
+            resourceId:
+              value === CREATE_NEW_RESOURCE ? "" : normalizeTextCell(value) ?? "",
+          };
+          if (isBlankOperationCostGridRow(nextRow)) return null;
+          return nextRow.resourceId ? null : ["Resource is required"];
         },
         valueFormatter: ({ value }) => {
           if (value === CREATE_NEW_RESOURCE) return "+ Create resource";
@@ -653,14 +635,12 @@ export function OperationCostEditor({
       },
       {
         field: "costScalingMode",
+        kind: "select",
         headerName: "Mode",
         minWidth: 116,
         flex: 0.7,
         editable: true,
-        cellEditor: "agSelectCellEditor",
-        cellEditorParams: {
-          values: ["per_output_unit", "fixed_per_mo"],
-        },
+        values: ["per_output_unit", "fixed_per_mo"],
         valueFormatter: ({
           value,
         }: ValueFormatterParams<
@@ -674,20 +654,18 @@ export function OperationCostEditor({
       },
       {
         field: "crewSize",
+        kind: "number",
         headerName: "Crew",
         minWidth: 108,
         flex: 0.6,
         editable: true,
-        cellEditor: "agTextCellEditor",
         valueSetter: (params: ValueSetterParams<OperationCostGridRow, string | null>) => {
           params.data.crewSize = normalizeTextCell(params.newValue);
           return true;
         },
-        cellEditorParams: {
-          getValidationErrors: ({ value }: { value: string | null | undefined }) =>
-            validatePositiveCell(value, "Crew size must be greater than 0"),
-        },
-        cellClass: "num",
+        getValidationErrors: (value) =>
+          validatePositiveCell(value, "Crew size must be greater than 0"),
+        rightAligned: true,
         cellClassRules: {
           "erp-editable-grid-cell-error": hasError("crewSize"),
         },
@@ -695,20 +673,18 @@ export function OperationCostEditor({
       },
       {
         field: "plannedMinutes",
+        kind: "number",
         headerName: "Minutes",
         minWidth: 128,
         flex: 0.7,
         editable: true,
-        cellEditor: "agTextCellEditor",
         valueSetter: (params: ValueSetterParams<OperationCostGridRow, string | null>) => {
           params.data.plannedMinutes = normalizeTextCell(params.newValue);
           return true;
         },
-        cellEditorParams: {
-          getValidationErrors: ({ value }: { value: string | null | undefined }) =>
-            validatePositiveCell(value, "Minutes must be greater than 0"),
-        },
-        cellClass: "num",
+        getValidationErrors: (value) =>
+          validatePositiveCell(value, "Minutes must be greater than 0"),
+        rightAligned: true,
         cellClassRules: {
           "erp-editable-grid-cell-error": hasError("plannedMinutes"),
         },
@@ -716,6 +692,7 @@ export function OperationCostEditor({
       },
       {
         colId: "cost",
+        kind: "display",
         headerName: "Cost",
         minWidth: 136,
         flex: 0.8,
@@ -743,9 +720,9 @@ export function OperationCostEditor({
 
   return (
     <>
-      <EditableLineDataGrid
+      <MutableLines
         rows={rows}
-        columns={columns}
+        fields={columns}
         getRowId={getRowId}
         createRow={createBlankOperationCostGridRow}
         onRowsChange={emitRowsChange}

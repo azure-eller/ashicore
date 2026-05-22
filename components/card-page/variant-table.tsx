@@ -122,6 +122,32 @@ function NumericMoneyCell({
   );
 }
 
+function makeEmptyVariant(card: ItemCardDto): ItemCardVariantDto {
+  return {
+    id: "__empty__",
+    familyId: card.family.id,
+    name: "",
+    displayName: "",
+    sku: null,
+    itemType: card.family.itemType,
+    optionCombinationKey: "",
+    optionValues: [],
+    duplicateCombinationWarnings: [],
+    deletedAt: null,
+    registeredBarcode: null,
+    internalBarcode: null,
+    supplierItemCode: null,
+    defaultLeadTimeDays: null,
+    minimumOrderQuantity: null,
+    defaultSellingPrice: null,
+    inStockQty: "0",
+    ingredientsCost: null,
+    operationsCost: null,
+    sortOrder: 0,
+    sellable: card.family.itemType === "product",
+  };
+}
+
 function StockQuantityAdjustmentDialog({
   adjustment,
   unitLabel,
@@ -866,26 +892,20 @@ export function VariantTable({
             ? "All configured variant combinations already exist."
             : null;
 
-  if (visibleVariants.length === 0) {
-    return (
-      <p className="text-[length:var(--text-sm)] text-muted-foreground py-(--space-4)">
-        No variants yet. Open configuration to add some.
-      </p>
-    );
-  }
-
   return (
     <>
       <EditableLineDataGrid<ItemCardVariantDto>
         rows={rows}
         columns={columns}
         getRowId={(row) => row.id}
-        createRow={() => ({ ...visibleVariants[0]! })}
+        createRow={() => ({ ...(visibleVariants[0] ?? makeEmptyVariant(card)) })}
         onRowsChange={handleRowsChange}
         addLabel="Add row"
         enableAddRow
         enableReorder
         enableDelete={activeOptions.length > 0}
+        initializeBlankRow={false}
+        emptyMessage="No variants yet. Open configuration to add some."
         canDeleteRow={(_row, currentRows) => currentRows.length > 1}
         getDeleteDisabledReason={(_row, currentRows) =>
           currentRows.length <= 1 ? "At least one variant is required." : null

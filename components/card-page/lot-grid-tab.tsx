@@ -327,14 +327,6 @@ export function LotGridTab({
     router.refresh();
   };
 
-  if (!activeVariant) {
-    return (
-      <section className={styles.section}>
-        <p className={styles.helper}>No variants available.</p>
-      </section>
-    );
-  }
-
   return (
     <section className={styles.section}>
       <h2 className={styles.sectionHeading}>
@@ -360,7 +352,7 @@ export function LotGridTab({
         createRow={() => visibleLots[0] ?? rows[0]}
         onRowsChange={handleRowsChange}
         addLabel=""
-        emptyMessage=""
+        emptyMessage="No lots yet."
         minHeight={rows.length === 0 ? 72 : undefined}
         enableAddRow={false}
         enableDelete={false}

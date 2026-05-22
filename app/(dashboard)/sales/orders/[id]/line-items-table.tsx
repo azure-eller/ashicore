@@ -1,14 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type {
-  ColDef,
   ICellRendererParams,
   ValueSetterParams,
 } from "ag-grid-community";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon } from "@hugeicons/core-free-icons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,12 +16,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
 import {
-  EditableLineDataGrid,
+  MutableLines,
   type EditableLineDataGridChange,
-} from "@/components/editable-line-data-grid";
+  type LineField,
+} from "@/components/editable-lines";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { patchSalesOrderLine } from "@/lib/api/clients/sales-orders";
 import { cn } from "@/lib/utils";
@@ -66,14 +62,22 @@ export function LineItemsTable({
 }: LineItemsTableProps) {
   const queryClient = useQueryClient();
   const [confirmDelete, setConfirmDelete] = useState<SalesOrderDetailLine | null>(null);
-  const [addingItem, setAddingItem] = useState(false);
+  const [rows, setRows] = useState(order.lines);
 
-  const totalQuantity = sumNumeric(order.lines.map((line) => line.quantity));
-  const totalLineAmount = sumNumeric(order.lines.map((line) => line.lineTotal));
+  useEffect(() => {
+    setRows(order.lines);
+  }, [order.lines]);
+
+  const totalQuantity = sumNumeric(rows.map((line) => line.quantity));
+  const totalLineAmount = sumNumeric(rows.map((line) => line.lineTotal));
   const canAddLine = editable && (draft != null || onAddLineItem != null) && itemOptions != null;
   const existingItemIds = useMemo(
-    () => new Set(order.lines.map((line) => line.itemId)),
-    [order.lines],
+    () => new Set(rows.filter((line) => !isBlankSalesOrderLine(line)).map((line) => line.itemId)),
+    [rows],
+  );
+  const itemMap = useMemo(
+    () => new Map((itemOptions ?? []).map((option) => [option.id, option])),
+    [itemOptions],
   );
 
   // Live per-cell PATCH (draft mode short-circuits to onPatchLine).
@@ -86,11 +90,21 @@ export function LineItemsTable({
       lineId: string;
       patch: { quantity?: string; unitPrice?: string };
     }) => patchSalesOrderLine(order.id, lineId, patch),
+    onMutate: async ({ lineId, patch }) => {
+      const queryKey = ["sales-order", order.id] as const;
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<SalesOrderDetail>(queryKey);
+      if (previous) {
+        queryClient.setQueryData(queryKey, optimisticLinePatch(previous, lineId, patch));
+      }
+      return { previous, queryKey };
+    },
+    onError: (_error, _variables, context) => {
+      if (!context) return;
+      queryClient.setQueryData(context.queryKey, context.previous);
+    },
     onSuccess: (next) => {
       queryClient.setQueryData(["sales-order", order.id], next);
-    },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["sales-order", order.id] });
     },
   });
 
@@ -102,18 +116,40 @@ export function LineItemsTable({
     patchMutation.mutate({ lineId, patch });
   };
 
-  const columns = useMemo<ColDef<SalesOrderDetailLine>[]>(
+  const fields = useMemo<LineField<SalesOrderDetailLine>[]>(
     () => [
       {
-        field: "itemName",
+        field: "itemId",
         headerName: "Item",
         flex: 1,
         minWidth: 240,
-        editable: false,
+        editable: (data) => editable && !isPersistedLine(data),
+        kind: "inventory-item",
+        options: (itemOptions ?? []).filter((option) => !existingItemIds.has(option.id)),
+        placeholder: "Search items...",
+        emptyMessage: "No items found",
+        requiredMessage: "Item is required",
+        createLinks: [
+          { href: "/inventory/product", label: "Create product" },
+          { href: "/inventory/material", label: "Create material" },
+        ],
+        getSecondaryText: (current) =>
+          [current.sku, current.unitName]
+            .filter((part): part is string => part != null && part !== "")
+            .join(" · "),
+        valueSetter: (params: ValueSetterParams<SalesOrderDetailLine, string | null>) => {
+          const itemId = String(params.newValue ?? "");
+          const item = itemMap.get(itemId);
+          if (!item) return false;
+          Object.assign(params.data, lineFromItem(item, params.data.id));
+          return true;
+        },
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) =>
           data ? (
             <div className="flex flex-col justify-center leading-tight py-(--space-1)">
-              <span className="font-medium">{data.itemName}</span>
+              <span className="font-medium">
+                {data.itemName || <span className="text-muted-foreground">Search items...</span>}
+              </span>
               <span className="text-[length:var(--text-xs)] text-muted-foreground">
                 {data.unitName}
               </span>
@@ -122,31 +158,34 @@ export function LineItemsTable({
       },
       {
         field: "itemSku",
+        kind: "display",
         headerName: "SKU",
         width: 120,
-        editable: false,
-        cellClass: "font-mono text-[length:var(--text-xs)] text-muted-foreground",
+        cellClass: "text-[length:var(--text-xs)]",
+        mono: true,
+        muted: true,
         valueFormatter: ({ value }) => (value ? String(value) : "—"),
       },
       {
         field: "quantity",
+        kind: "number",
         headerName: "Qty",
-        type: "rightAligned",
+        rightAligned: true,
         width: 90,
         editable,
-        cellEditor: "agTextCellEditor",
-        cellClass: "font-mono tabular-nums",
+        mono: true,
         tooltipValueGetter: ({ data }) => data ? quantityLockReason(data) : null,
         valueFormatter: ({ value }) => formatQuantity(String(value ?? "0")) ?? "0",
         valueSetter: numericSetter("quantity", (value, line) => value >= minimumLineQuantity(line)),
       },
       {
         field: "estimatedUnitCost",
+        kind: "display",
         headerName: "Unit cost",
-        type: "rightAligned",
+        rightAligned: true,
         width: 110,
-        editable: false,
-        cellClass: "font-mono tabular-nums text-muted-foreground",
+        mono: true,
+        muted: true,
         valueGetter: ({ data }) =>
           data ? (data.actualUnitCost ?? data.estimatedUnitCost) : null,
         valueFormatter: ({ value }) =>
@@ -154,21 +193,21 @@ export function LineItemsTable({
       },
       {
         field: "unitPrice",
+        kind: "number",
         headerName: "Unit price",
-        type: "rightAligned",
+        rightAligned: true,
         width: 110,
         editable,
-        cellEditor: "agTextCellEditor",
-        cellClass: "font-mono tabular-nums",
+        mono: true,
         valueFormatter: ({ value }) => formatPrice(String(value ?? "0")) ?? "—",
         valueSetter: numericSetter("unitPrice", (value) => value >= 0),
       },
       {
         colId: "unitMargin",
+        kind: "display",
         headerName: "Unit margin",
-        type: "rightAligned",
+        rightAligned: true,
         width: 130,
-        editable: false,
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) => {
           if (!data) return null;
           const margin = lineMarginParts(data, order.status);
@@ -186,26 +225,43 @@ export function LineItemsTable({
       },
       {
         field: "lineTotal",
+        kind: "display",
         headerName: "Line total",
-        type: "rightAligned",
+        rightAligned: true,
         width: 120,
-        editable: false,
-        cellClass: "font-mono tabular-nums font-semibold",
+        mono: true,
+        strong: true,
         valueFormatter: ({ value }) => formatPrice(String(value ?? "0")) ?? "—",
       },
     ],
-    [editable, order.status],
+    [editable, existingItemIds, itemMap, itemOptions, order.status],
   );
 
   const handleRowsChange = (
-    _rows: SalesOrderDetailLine[],
+    nextRows: SalesOrderDetailLine[],
     change: EditableLineDataGridChange<SalesOrderDetailLine>,
   ) => {
+    setRows(nextRows);
     if (change.type === "row_reordered") {
-      onReorderLines?.(_rows.map((row) => row.id));
+      onReorderLines?.(nextRows.filter((row) => !isBlankSalesOrderLine(row)).map((row) => row.id));
       return;
     }
-    if (change.type === "cell_edit_committed" && change.row && change.field) {
+    if (
+      (change.type === "cell_edit_committed" || change.type === "blank_row_committed") &&
+      change.row &&
+      change.field === "itemId" &&
+      !isPersistedLine(change.row)
+    ) {
+      const picked = itemMap.get(change.row.itemId);
+      if (!picked) return;
+      if (draft) {
+        draft.addLine(lineFromItem(picked));
+      } else {
+        onAddLineItem?.(picked);
+      }
+      return;
+    }
+    if (change.type === "cell_edit_committed" && change.row && change.field && isPersistedLine(change.row)) {
       if (change.field === "quantity") {
         applyPatch(change.row.id, { quantity: change.row.quantity });
       } else if (change.field === "unitPrice") {
@@ -228,89 +284,47 @@ export function LineItemsTable({
         <h2 className={cardStyles.sectionHeading} style={{ margin: 0 }}>
           Line items
           <span className={cardStyles.count}>
-            {order.lines.length} {order.lines.length === 1 ? "line" : "lines"} ·{" "}
+            {rows.filter((line) => !isBlankSalesOrderLine(line)).length}{" "}
+            {rows.filter((line) => !isBlankSalesOrderLine(line)).length === 1 ? "line" : "lines"} ·{" "}
             {formatQuantity(String(totalQuantity))} units
           </span>
         </h2>
-        {canAddLine ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setAddingItem((prev) => !prev)}
-            disabled={addingLine}
-            className="ml-auto"
-          >
-            <HugeiconsIcon icon={Add01Icon} size={14} className="mr-1" />
-            Add line
-          </Button>
-        ) : null}
       </div>
 
-      {canAddLine && addingItem && itemOptions ? (
-        <div className="mb-2 max-w-md">
-          <InventoryItemCombobox
-            options={itemOptions.filter((option) => !existingItemIds.has(option.id))}
-            value=""
-            onValueChange={(itemId) => {
-              if (!itemId) return;
-              const picked = itemOptions.find((o) => o.id === itemId);
-              if (!picked) return;
-              if (draft) {
-                draft.addLine(
-                  makeDraftLine({
-                    itemId: picked.id,
-                    itemName: picked.displayName || picked.name,
-                    itemSku: picked.sku,
-                    unitName: picked.unitName,
-                    quantity: "1",
-                    unitPrice: picked.defaultSellingPrice ?? "0",
-                    estimatedUnitCost: picked.estimatedUnitCost,
-                  }),
-                );
-              } else {
-                onAddLineItem?.(picked);
-              }
-              setAddingItem(false);
-            }}
-            placeholder="Search items…"
-            emptyMessage="No items found"
-          />
-        </div>
-      ) : null}
-
-      <EditableLineDataGrid<SalesOrderDetailLine>
-        rows={order.lines}
-        columns={columns}
+      <MutableLines<SalesOrderDetailLine>
+        rows={rows}
+        fields={fields}
         getRowId={(row) => row.id}
-        createRow={() => makeDraftLine({
-          itemId: "",
-          itemName: "",
-          itemSku: null,
-          unitName: "",
-          quantity: "1",
-          unitPrice: "0",
-          estimatedUnitCost: null,
-        })}
+        createRow={() => makeBlankLine()}
         onRowsChange={handleRowsChange}
         addLabel="Add line"
-        emptyMessage="No line items yet. Use Add line to start."
-        enableAddRow={false}
-        enableReorder={editable}
-        enableDelete={editable}
+        readOnly={!canAddLine}
+        addDisabledReason={addingLine ? "Adding line..." : null}
+        emptyMessage="No line items yet."
         canDeleteRow={(row, rows) =>
-          draft != null || (rows.length > 1 && deleteLineLockedReason(row) == null)
+          isBlankSalesOrderLine(row) ||
+          draft != null ||
+          (rows.filter((line) => !isBlankSalesOrderLine(line)).length > 1 &&
+            deleteLineLockedReason(row) == null)
         }
         getDeleteDisabledReason={(row, rows) =>
-          draft == null && rows.length <= 1
+          isBlankSalesOrderLine(row)
+            ? null
+            : draft == null && rows.filter((line) => !isBlankSalesOrderLine(line)).length <= 1
             ? "Order needs at least one line"
             : deleteLineLockedReason(row)
         }
-        onDeleteRow={(row) => requestDelete(row)}
-        minHeight={120}
+        onDeleteRow={(row) => {
+          if (isBlankSalesOrderLine(row)) {
+            setRows((current) => current.filter((line) => line.id !== row.id));
+            return;
+          }
+          requestDelete(row);
+        }}
+        isBlankRow={isBlankSalesOrderLine}
       />
 
-      {order.lines.length > 0 ? (
+      {rows.some((line) => !isBlankSalesOrderLine(line)) ? (
         <div className="flex justify-end gap-(--space-8) px-(--space-3) pt-(--space-2) text-[length:var(--text-sm)]">
           <span className="text-muted-foreground uppercase tracking-wide text-[length:var(--text-xs)] font-medium">
             Total
@@ -371,6 +385,70 @@ export function LineItemsTable({
   }
 }
 
+function makeBlankLine() {
+  return makeDraftLine({
+    itemId: "",
+    itemName: "",
+    itemSku: null,
+    unitName: "",
+    quantity: "1",
+    unitPrice: "0",
+    estimatedUnitCost: null,
+  });
+}
+
+function lineFromItem(item: SalesOrderItemOption, id?: string) {
+  const line = makeDraftLine({
+    itemId: item.id,
+    itemName: item.displayName || item.name,
+    itemSku: item.sku,
+    unitName: item.unitName,
+    quantity: "1",
+    unitPrice: item.defaultSellingPrice ?? "0",
+    estimatedUnitCost: item.estimatedUnitCost,
+  });
+  return id ? { ...line, id } : line;
+}
+
+function isBlankSalesOrderLine(line: SalesOrderDetailLine | undefined) {
+  return !line?.itemId;
+}
+
+function isPersistedLine(line: SalesOrderDetailLine | undefined) {
+  return Boolean(line?.id && !line.id.startsWith("draft-") && line.itemId);
+}
+
+function optimisticLinePatch(
+  order: SalesOrderDetail,
+  lineId: string,
+  patch: { quantity?: string; unitPrice?: string },
+): SalesOrderDetail {
+  const lines = order.lines.map((line) => {
+    if (line.id !== lineId) return line;
+    const quantity = patch.quantity ?? line.quantity;
+    const unitPrice = patch.unitPrice ?? line.unitPrice;
+    return {
+      ...line,
+      quantity,
+      unitPrice,
+      lineTotal: (Number(quantity || 0) * Number(unitPrice || 0)).toFixed(2),
+    };
+  });
+  const productRevenue = lines
+    .reduce((sum, line) => sum + Number(line.lineTotal || 0), 0)
+    .toFixed(2);
+
+  return {
+    ...order,
+    lines,
+    totalAmount: productRevenue,
+    marginSummary: {
+      ...order.marginSummary,
+      productRevenue,
+    },
+  };
+}
+
 function minimumLineQuantity(line: SalesOrderDetailLine) {
   return (
     Number(line.plannedQuantity) +
@@ -399,6 +477,7 @@ function deleteLineLockedReason(line: SalesOrderDetailLine) {
 }
 
 function money(value: string | null | undefined): string {
+  if (value == null || value === "") return "—";
   return formatPrice(String(value ?? "")) ?? "—";
 }
 

@@ -9,13 +9,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import type {
   CellClassParams,
-  ICellEditorParams,
   ICellRendererParams,
   ValueFormatterParams,
   ValueSetterParams,
 } from "ag-grid-community";
-import type { CustomCellEditorProps } from "ag-grid-react";
-import { useGridCellEditor } from "ag-grid-react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Attachment01Icon,
@@ -54,11 +51,10 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
-import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
 import {
-  EditableLineDataGrid,
-  type ColDef,
-} from "@/components/editable-line-data-grid";
+  MutableLines,
+  type LineField,
+} from "@/components/editable-lines";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import {
@@ -84,6 +80,8 @@ import { useAutosaveForm } from "@/lib/hooks/use-autosave-form";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
+import { DetailHeaderTitle } from "@/components/card-page/detail-header-title";
+import { CardMetaStrip, CardMetaValue } from "@/components/card-page/card-meta-strip";
 import {
   cardSaveMutationKey,
   type CardSaveState,
@@ -685,71 +683,11 @@ function PurchaseLineTotalCell({
   );
 }
 
-function PurchaseMaterialCellEditor(
-  props: CustomCellEditorProps<PurchaseOrderLineGridRow, string | null> & {
-    options: Array<
-      PurchaseOrderMaterialOption & {
-        displayName: string;
-        itemType: "material";
-        unitName: string;
-      }
-    >;
-  },
-) {
-  const editorRef = useRef<HTMLDivElement>(null);
-  const valueRef = useRef<string | null>(props.value ?? null);
-
-  useGridCellEditor({
-    getValidationElement: () => editorRef.current ?? props.eGridCell,
-    getValidationErrors: () => {
-      const row = {
-        ...props.data,
-        itemId: valueRef.current ?? "",
-      };
-      if (isBlankPurchaseOrderLine(row)) return null;
-      return valueRef.current ? null : ["Material is required"];
-    },
-  });
-
-  return (
-    <div ref={editorRef} className="flex h-full w-full items-center">
-      <InventoryItemCombobox
-        options={props.options}
-        value={props.value ?? ""}
-        defaultOpen
-        onValueChange={(id) => {
-          valueRef.current = id ?? "";
-          props.onValueChange(id ?? "");
-          if (id) {
-            props.stopEditing(true);
-          }
-        }}
-        inputAriaInvalid={false}
-        inputClassName="h-full w-full min-w-0 border-0 bg-transparent shadow-none"
-        placeholder="Search materials..."
-        emptyMessage="No materials found"
-        contentClassName="w-[min(32rem,calc(100vw-2rem))]"
-        createLinks={[
-          {
-            href: "/inventory/material",
-            label: "Create material",
-          },
-        ]}
-        getSecondaryText={(current) =>
-          [current.sku, current.stockingUnitName]
-            .filter((part): part is string => part != null && part !== "")
-            .join(" · ")
-        }
-      />
-    </div>
-  );
-}
-
 function hasAutosaveMinimum(values: PurchaseOrderFormValues) {
   return Boolean(values.supplierId?.trim());
 }
 
-export function PurchaseOrderForm({
+export function PurchaseOrderCard({
   suppliers,
   materials,
   addresses,
@@ -770,7 +708,6 @@ export function PurchaseOrderForm({
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const isEditing = Boolean(initialData);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const fallbackPath = initialData
     ? `/purchasing/orders/${initialData.id}`
@@ -973,7 +910,7 @@ export function PurchaseOrderForm({
     () => new Map(xeroAccounts.map((account) => [account.code, account])),
     [xeroAccounts],
   );
-  const lineColumns = useMemo<ColDef<PurchaseOrderLineGridRow>[]>(() => {
+  const lineColumns = useMemo<LineField<PurchaseOrderLineGridRow>[]>(() => {
     const nonBlankRows = lineGridRows.filter(
       (row) => !isBlankPurchaseOrderLine(row),
     );
@@ -1016,15 +953,31 @@ export function PurchaseOrderForm({
     return [
       {
         field: "itemId",
+        kind: "inventory-item",
         headerName: "Material",
         headerTooltip: PURCHASE_MATERIAL_TOOLTIP,
         minWidth: 220,
         flex: 1.55,
-        editable: ({ data }) => !readOnly && !receivedMaterialIds.has(data?.itemId ?? ""),
-        cellEditor: PurchaseMaterialCellEditor,
-        cellEditorParams: {
-          options: materialOptions,
-        },
+        editable: (data) => !readOnly && !receivedMaterialIds.has(data?.itemId ?? ""),
+        options: materialOptions,
+        placeholder: "Search materials...",
+        emptyMessage: "No materials found",
+        requiredMessage: "Material is required",
+        isRowBlank: isBlankPurchaseOrderLine,
+        getDraftRow: (row: PurchaseOrderLineGridRow, itemId: string) => ({
+          ...row,
+          itemId,
+        }),
+        createLinks: [
+          {
+            href: "/inventory/material",
+            label: "Create material",
+          },
+        ],
+        getSecondaryText: (current) =>
+          [current.sku, (current as PurchaseOrderMaterialOption).stockingUnitName]
+            .filter((part): part is string => part != null && part !== "")
+            .join(" · "),
         valueSetter: (
           params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
         ) => {
@@ -1046,12 +999,12 @@ export function PurchaseOrderForm({
       },
       {
         field: "quantityOrdered",
+        kind: "number",
         headerName: "Ordered Qty",
         headerTooltip: PO_ORDERED_QTY_TOOLTIP,
         minWidth: 116,
         flex: 0.5,
         editable: !readOnly,
-        cellEditor: "agTextCellEditor",
         valueSetter: (
           params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
         ) => {
@@ -1060,26 +1013,18 @@ export function PurchaseOrderForm({
           );
           return true;
         },
-        cellEditorParams: {
-          getValidationErrors: ({
-            value,
-            cellEditorParams,
-          }: {
-            value: string | null | undefined;
-            cellEditorParams: ICellEditorParams<PurchaseOrderLineGridRow>;
-          }) => {
-            const row = {
-              ...cellEditorParams.data,
-              quantityOrdered: normalizeNullableGridText(value),
-            };
-            if (isBlankPurchaseOrderLine(row)) return null;
-            const parsed = Number(row.quantityOrdered);
-            return Number.isFinite(parsed) && parsed > 0
-              ? null
-              : ["Quantity must be greater than 0"];
-          },
+        getValidationErrors: (value, row) => {
+          const nextRow = {
+            ...row,
+            quantityOrdered: normalizeNullableGridText(value),
+          };
+          if (isBlankPurchaseOrderLine(nextRow)) return null;
+          const parsed = Number(nextRow.quantityOrdered);
+          return Number.isFinite(parsed) && parsed > 0
+            ? null
+            : ["Quantity must be greater than 0"];
         },
-        cellClass: "num",
+        rightAligned: true,
         cellClassRules: {
           "erp-editable-grid-cell-error": hasCellError("quantityOrdered"),
         },
@@ -1087,6 +1032,7 @@ export function PurchaseOrderForm({
       },
       {
         colId: "purchaseUnit",
+        kind: "display",
         headerName: "UoM",
         headerTooltip: PURCHASE_UNIT_TOOLTIP,
         minWidth: 118,
@@ -1097,42 +1043,34 @@ export function PurchaseOrderForm({
       },
       {
         field: "unitCost",
+        kind: "number",
         headerName: "Unit Cost",
         headerTooltip: PURCHASE_UNIT_COST_TOOLTIP,
         minWidth: 128,
         flex: 0.55,
         editable: !readOnly,
-        cellEditor: "agTextCellEditor",
         valueSetter: (
           params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
         ) => {
           params.data.unitCost = normalizeNullableGridText(params.newValue);
           return true;
         },
-        cellEditorParams: {
-          getValidationErrors: ({
-            value,
-            cellEditorParams,
-          }: {
-            value: string | null | undefined;
-            cellEditorParams: ICellEditorParams<PurchaseOrderLineGridRow>;
-          }) => {
-            const row = {
-              ...cellEditorParams.data,
-              unitCost: normalizeNullableGridText(value),
-            };
-            if (isBlankPurchaseOrderLine(row)) return null;
-            const text = row.unitCost?.trim() ?? "";
-            if (!text) return ["Unit cost is required"];
-            const parsed = Number(text);
-            return Number.isFinite(parsed) && parsed >= 0
-              ? null
-              : ["Unit cost must be 0 or greater"];
-          },
+        getValidationErrors: (value, row) => {
+          const nextRow = {
+            ...row,
+            unitCost: normalizeNullableGridText(value),
+          };
+          if (isBlankPurchaseOrderLine(nextRow)) return null;
+          const text = nextRow.unitCost?.trim() ?? "";
+          if (!text) return ["Unit cost is required"];
+          const parsed = Number(text);
+          return Number.isFinite(parsed) && parsed >= 0
+            ? null
+            : ["Unit cost must be 0 or greater"];
         },
         valueFormatter: ({ value }) =>
           value == null || value === "" ? "" : (formatPrice(value) ?? value),
-        cellClass: "num",
+        rightAligned: true,
         cellClassRules: {
           "erp-editable-grid-cell-error": hasCellError("unitCost"),
         },
@@ -1140,6 +1078,7 @@ export function PurchaseOrderForm({
       },
       {
         colId: "landedUnit",
+        kind: "display",
         headerName: "Landed/Unit",
         headerTooltip: PURCHASE_LANDED_UNIT_TOOLTIP,
         minWidth: 136,
@@ -1156,16 +1095,13 @@ export function PurchaseOrderForm({
       },
       {
         field: "accountingPurchaseAccountCode",
+        kind: "select",
         headerName: "Account",
         headerTooltip: PURCHASE_ACCOUNT_TOOLTIP,
         minWidth: 132,
         flex: 0.55,
         editable: !readOnly,
-        cellEditor: "agSelectCellEditor",
-        cellEditorParams: {
-          values: ["", ...xeroAccounts.map((account) => account.code)],
-          openEditorOnStart: true,
-        },
+        values: ["", ...xeroAccounts.map((account) => account.code)],
         valueFormatter: ({ value }) => {
           if (!value) return "";
           const account = xeroAccountsByCode.get(value);
@@ -1188,6 +1124,7 @@ export function PurchaseOrderForm({
       },
       {
         colId: "lineTotal",
+        kind: "display",
         headerName: "Line Total",
         headerTooltip: PO_LINE_TOTAL_TOOLTIP,
         minWidth: 128,
@@ -1225,7 +1162,7 @@ export function PurchaseOrderForm({
     [],
   );
   const additionalCostColumns = useMemo<
-    ColDef<PurchaseOrderAdditionalCostGridRow>[]
+    LineField<PurchaseOrderAdditionalCostGridRow>[]
   >(() => {
     const nonBlankRows = additionalCostGridRows.filter(
       (row) => !isBlankPurchaseOrderAdditionalCost(row),
@@ -1266,16 +1203,13 @@ export function PurchaseOrderForm({
     return [
       {
         field: "costType",
+        kind: "select",
         headerName: "Cost",
         headerTooltip: PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP,
         minWidth: 128,
         flex: 0.75,
         editable: !readOnly,
-        cellEditor: "agSelectCellEditor",
-        cellEditorParams: {
-          values: Object.keys(ADDITIONAL_COST_TYPE_LABELS),
-          openEditorOnStart: true,
-        },
+        values: Object.keys(ADDITIONAL_COST_TYPE_LABELS),
         valueFormatter: ({
           value,
         }: ValueFormatterParams<
@@ -1294,12 +1228,12 @@ export function PurchaseOrderForm({
       },
       {
         field: "reference",
+        kind: "text",
         headerName: "Reference",
         headerTooltip: PURCHASE_COST_REFERENCE_TOOLTIP,
         minWidth: 172,
         flex: 1.25,
         editable: !readOnly,
-        cellEditor: "agTextCellEditor",
         valueSetter: (
           params: ValueSetterParams<
             PurchaseOrderAdditionalCostGridRow,
@@ -1313,16 +1247,13 @@ export function PurchaseOrderForm({
       },
       {
         field: "distributionMethod",
+        kind: "select",
         headerName: "Distribution",
         headerTooltip: PURCHASE_COST_DISTRIBUTION_TOOLTIP,
         minWidth: 148,
         flex: 0.8,
         editable: !readOnly,
-        cellEditor: "agSelectCellEditor",
-        cellEditorParams: {
-          values: Object.keys(ADDITIONAL_COST_DISTRIBUTION_LABELS),
-          openEditorOnStart: true,
-        },
+        values: Object.keys(ADDITIONAL_COST_DISTRIBUTION_LABELS),
         valueFormatter: ({
           value,
         }: ValueFormatterParams<
@@ -1341,16 +1272,13 @@ export function PurchaseOrderForm({
       },
       {
         field: "accountingPurchaseAccountCode",
+        kind: "select",
         headerName: "Accounting Account",
         headerTooltip: PURCHASE_ACCOUNT_TOOLTIP,
         minWidth: 164,
         flex: 0.95,
         editable: !readOnly,
-        cellEditor: "agSelectCellEditor",
-        cellEditorParams: {
-          values: ["", ...xeroAccounts.map((account) => account.code)],
-          openEditorOnStart: true,
-        },
+        values: ["", ...xeroAccounts.map((account) => account.code)],
         valueFormatter: ({ value }) => {
           if (!value) return "";
           const account = xeroAccountsByCode.get(value);
@@ -1370,12 +1298,12 @@ export function PurchaseOrderForm({
       },
       {
         field: "amount",
+        kind: "number",
         headerName: "Amount",
         headerTooltip: PURCHASE_COST_AMOUNT_TOOLTIP,
         minWidth: 128,
         flex: 0.65,
         editable: !readOnly,
-        cellEditor: "agTextCellEditor",
         valueSetter: (
           params: ValueSetterParams<
             PurchaseOrderAdditionalCostGridRow,
@@ -1389,24 +1317,16 @@ export function PurchaseOrderForm({
               : normalizeMoney(parsed);
           return true;
         },
-        cellEditorParams: {
-          getValidationErrors: ({
+        getValidationErrors: (value, row) => {
+          const nextRow = {
+            ...row,
+            amount: normalizeNullableGridText(value),
+          };
+          if (isBlankPurchaseOrderAdditionalCost(nextRow)) return null;
+          return validateNonNegativeMoneyCell(
             value,
-            cellEditorParams,
-          }: {
-            value: string | null | undefined;
-            cellEditorParams: ICellEditorParams<PurchaseOrderAdditionalCostGridRow>;
-          }) => {
-            const row = {
-              ...cellEditorParams.data,
-              amount: normalizeNullableGridText(value),
-            };
-            if (isBlankPurchaseOrderAdditionalCost(row)) return null;
-            return validateNonNegativeMoneyCell(
-              value,
-              row.amount ? "Amount must be 0 or greater" : "Amount is required",
-            );
-          },
+            nextRow.amount ? "Amount must be 0 or greater" : "Amount is required",
+          );
         },
         valueFormatter: ({ value }) =>
           value == null || value === "" ? "" : (formatPrice(value) ?? value),
@@ -1841,22 +1761,37 @@ export function PurchaseOrderForm({
       : cardSaveState === "failed"
         ? autosaveMessage
         : null;
-  const displayTitle =
-    orderTitle ??
-    selectedSupplier?.name ??
-    (isEditing
-      ? `Purchase Order ${savedOrderId?.slice(0, 8) ?? ""}`
-      : "New purchase order");
+  const displayTitle = savedOrderId ? (
+    <DetailHeaderTitle
+      recordNumber={orderTitle ?? `PO-${savedOrderId.slice(0, 8)}`}
+      name={selectedSupplier?.name ?? null}
+    />
+  ) : (
+    "New purchase order"
+  );
   const headerMeta = (
-    <>
-      <span>Supplier {selectedSupplier?.code ?? "not selected"}</span>
-      <span className={styles.metaDot} />
-      <span>Expected {form.getValues("expectedDate") ?? "not set"}</span>
-      <span className={styles.metaDot} />
-      <span className={styles.mono}>
-        Total {formatPrice(orderTotal.toFixed(4)) ?? "$0.00"}
-      </span>
-    </>
+    <CardMetaStrip>
+      {[
+        <CardMetaValue
+          key="supplier"
+          label="Supplier"
+          value={selectedSupplier?.code ?? "not selected"}
+          mono={Boolean(selectedSupplier?.code)}
+        />,
+        <CardMetaValue
+          key="expected"
+          label="Expected"
+          value={form.getValues("expectedDate") ?? "not set"}
+          mono
+        />,
+        <CardMetaValue
+          key="total"
+          label="Order total"
+          value={`${formatPrice(orderTotal.toFixed(4)) ?? "$0.00"} USD`}
+          mono
+        />,
+      ]}
+    </CardMetaStrip>
   );
   const materialColumns = lineColumns.map((column) => {
     if (column.field === "itemId") return { ...column, headerName: "Item" };
@@ -1879,6 +1814,7 @@ export function PurchaseOrderForm({
     <>
       <CardPage>
         <CardPageHeader
+          eyebrow="Purchase order"
           title={displayTitle}
           meta={headerMeta}
           statusControl={
@@ -2023,16 +1959,14 @@ export function PurchaseOrderForm({
             </CardSection>
 
             <CardSection title="Materials" count={`· ${lineCount}`}>
-              <EditableLineDataGrid
+              <MutableLines
                 rows={lineGridRows}
-                columns={materialColumns}
+                fields={materialColumns}
                 getRowId={getLineRowId}
                 createRow={createLineRow}
                 onRowsChange={handleLineRowsChange}
                 addLabel="Add material"
-                rowHeight={42}
-                enableAddRow={!readOnly}
-                enableDelete={!readOnly}
+                readOnly={readOnly}
                 canDeleteRow={(row) => !receivedMaterialIds.has(row.itemId ?? "")}
                 getDeleteDisabledReason={(row) =>
                   receivedMaterialIds.has(row.itemId ?? "")
@@ -2046,16 +1980,14 @@ export function PurchaseOrderForm({
             </CardSection>
 
             <CardSection title="Additional costs" count={`· ${additionalCostCount}`}>
-              <EditableLineDataGrid
+              <MutableLines
                 rows={additionalCostGridRows}
-                columns={additionalCostColumns}
+                fields={additionalCostColumns}
                 getRowId={getAdditionalCostRowId}
                 createRow={createAdditionalCostRow}
                 onRowsChange={handleAdditionalCostRowsChange}
                 addLabel="Add cost"
-                rowHeight={42}
-                enableAddRow={!readOnly}
-                enableDelete={!readOnly}
+                readOnly={readOnly}
                 emptyMessage="No additional costs yet."
                 isBlankRow={isBlankPurchaseOrderAdditionalCost}
                 error={additionalCostsError}

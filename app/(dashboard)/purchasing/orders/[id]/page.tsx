@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { PurchaseOrderForm } from "@/app/(dashboard)/purchasing/purchase-order-form";
+import { PurchaseOrderCard } from "@/app/(dashboard)/purchasing/purchase-order-form";
 import {
   getEditablePurchaseOrder,
   getPurchaseOrderMaterialOptions,
@@ -59,7 +59,7 @@ export default async function PurchaseOrderDetailPage({
   }
 
   return (
-    <PurchaseOrderForm
+    <PurchaseOrderCard
       initialData={order}
       suppliers={suppliers.map((supplier) => ({
         id: supplier.id,

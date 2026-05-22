@@ -46,6 +46,20 @@ export function formatDate(value: string | null | undefined): string {
 }
 
 /**
+ * Convert an exact timestamp or already-date-only value into a YYYY-MM-DD business
+ * date string for display helpers that intentionally avoid timezone conversion.
+ */
+export function toDateOnlyString(
+  value: Date | string | null | undefined,
+): string | null {
+  if (value == null) return null;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+/**
  * Formats an exact instant, e.g. createdAt/shippedAt/occurredAt.
  *
  * Requires an explicit IANA timezone. Use organizationTimeZone for

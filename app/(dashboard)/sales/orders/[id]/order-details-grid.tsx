@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Controller, useForm } from "react-hook-form";
 import type { z } from "zod";
 import { AddressFields } from "@/components/address-fields";
@@ -16,6 +16,7 @@ import {
 import { EntityCombobox } from "@/components/entity-combobox";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { CellShell } from "@/components/card-page/form-cell";
+import { useEntityFieldCommit } from "@/components/card-page/use-entity-field-commit";
 import {
   Select,
   SelectContent,
@@ -24,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -80,6 +82,10 @@ const EMPTY_ADDRESS_DIALOG_VALUES: AddressDialogValues = {
 
 type GridCtx = { orderId: string; draft?: OrderDraftController };
 const DetailsContext = createContext<GridCtx>({ orderId: "" });
+type HeaderOptimisticPatch = PatchSalesOrderHeader &
+  Partial<
+    Pick<SalesOrderDetail, "customerName" | "customerEmail" | "customerProjectName">
+  >;
 type AddressTarget = "shipping" | "billing";
 type AddressDialogValues = z.input<typeof createAddressEntrySchema>;
 type AddressDialogState = {
@@ -110,6 +116,22 @@ export function OrderDetailsGrid({
             customerOptions={customerOptions}
           />
           <ProjectCell order={order} editable={editable} projects={customerProjects} />
+          <DateCell
+            label="Order date"
+            field="orderDate"
+            value={order.orderDate}
+            editable={editable}
+            required
+          />
+          <DateCell
+            label="Delivery deadline"
+            field="requestedDate"
+            value={order.requestedDate}
+            editable={editable}
+            hint="Pickup/delivery date promised to customer."
+          />
+        </div>
+        <div className={`${cardStyles.formRow} ${cardStyles.formRowFour}`}>
           <AddressCell
             order={order}
             editable={editable}
@@ -118,6 +140,51 @@ export function OrderDetailsGrid({
         </div>
       </section>
     </DetailsContext.Provider>
+  );
+}
+
+function DateCell({
+  label,
+  field,
+  value,
+  editable,
+  required,
+  hint,
+}: {
+  label: string;
+  field: "orderDate" | "shipDate" | "requestedDate";
+  value: string | null;
+  editable: boolean;
+  required?: boolean;
+  hint?: string;
+}) {
+  const { draft } = useContext(DetailsContext);
+  const commit = useFieldCommit(field);
+
+  return (
+    <CellShell label={label} required={required}>
+      {editable ? (
+        <DatePicker
+          aria-label={label}
+          value={value ?? ""}
+          className={cardStyles.underlineControl}
+          onChange={(next) => {
+            const normalized = next || null;
+            if (normalized === value) return;
+            if (draft) {
+              draft.patchHeader({ [field]: normalized } as PatchSalesOrderHeader);
+              return;
+            }
+            commit(normalized as PatchSalesOrderHeader[typeof field]);
+          }}
+        />
+      ) : (
+        <div className={`${cardStyles.readOnlyFieldValue} ${cardStyles.mono}`}>
+          {value || "—"}
+        </div>
+      )}
+      {hint ? <div className={cardStyles.fieldHint}>{hint}</div> : null}
+    </CellShell>
   );
 }
 
@@ -758,34 +825,35 @@ function AddressBookDialog({
 
 function useHeaderPatchCommit(scope: string) {
   const { orderId } = useContext(DetailsContext);
-  const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationKey: cardSaveMutationKey("sales-order", orderId, "header", scope),
-    mutationFn: (patch: PatchSalesOrderHeader) =>
-      patchSalesOrderHeader(orderId, patch),
-    onSuccess: (next) => {
-      queryClient.setQueryData(["sales-order", orderId], next);
-    },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["sales-order", orderId] });
-    },
+  return useEntityFieldCommit<HeaderOptimisticPatch, SalesOrderDetail>({
+    entityKey: "sales-order",
+    entityId: orderId,
+    scope,
+    mutationFn: (patch) => patchSalesOrderHeader(orderId, persistedHeaderPatch(patch)),
+    setQueryDataKey: ["sales-order", orderId],
+    optimisticUpdate: (current, patch) =>
+      current ? ({ ...current, ...patch } as SalesOrderDetail) : current,
   });
-  return (patch: PatchSalesOrderHeader) => mutation.mutate(patch);
 }
 
 function useFieldCommit<Field extends keyof PatchSalesOrderHeader>(field: Field) {
   const { orderId } = useContext(DetailsContext);
-  const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationKey: cardSaveMutationKey("sales-order", orderId, "header", field),
-    mutationFn: (value: PatchSalesOrderHeader[Field]) =>
+  return useEntityFieldCommit<PatchSalesOrderHeader[Field], SalesOrderDetail>({
+    entityKey: "sales-order",
+    entityId: orderId,
+    scope: String(field),
+    mutationFn: (value) =>
       patchSalesOrderHeader(orderId, { [field]: value } as PatchSalesOrderHeader),
-    onSuccess: (next) => {
-      queryClient.setQueryData(["sales-order", orderId], next);
-    },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["sales-order", orderId] });
-    },
+    setQueryDataKey: ["sales-order", orderId],
+    optimisticUpdate: (current, value) =>
+      current ? ({ ...current, [field]: value } as SalesOrderDetail) : current,
   });
-  return (value: PatchSalesOrderHeader[Field]) => mutation.mutate(value);
+}
+
+function persistedHeaderPatch(patch: HeaderOptimisticPatch): PatchSalesOrderHeader {
+  const { customerName, customerEmail, customerProjectName, ...persisted } = patch;
+  void customerName;
+  void customerEmail;
+  void customerProjectName;
+  return persisted;
 }

@@ -2,9 +2,9 @@
 
 import { useMemo } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { ColDef, ICellRendererParams, ValueSetterParams } from "ag-grid-community";
+import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, MoreVerticalIcon } from "@hugeicons/core-free-icons";
+import { MoreVerticalIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { StatusLabel, type StatusTone } from "@/components/ui/status-label";
 import {
@@ -15,21 +15,21 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  EditableLineDataGrid,
+  MutableLines,
   type EditableLineDataGridChange,
-} from "@/components/editable-line-data-grid";
+  type LineField,
+} from "@/components/editable-lines";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
-import { AgGridDateCellEditor } from "@/components/ag-grid-date-cell-editor";
 import { patchSalesShipment } from "@/lib/api/clients/sales-orders";
 import { formatDate, formatPrice, formatQuantity } from "@/lib/format";
 import { isValidIsoDate } from "@/lib/schemas/shared";
 import type { SalesOrderDetail, SalesShipmentRow } from "@/app/(dashboard)/sales/types";
 import cardStyles from "@/components/card-page/card-page.module.css";
-import styles from "./order-card.module.css";
 
 export type ShipmentsTableProps = {
   order: SalesOrderDetail;
   editable: boolean;
+  addDisabledReason?: string | null;
   onNewShipment?: () => void;
   onEditShipment?: (shipment: SalesShipmentRow) => void;
   onMarkShipped?: (shipment: SalesShipmentRow) => void;
@@ -68,6 +68,7 @@ function shipmentToPayload(
 export function ShipmentsTable({
   order,
   editable,
+  addDisabledReason,
   onNewShipment,
   onEditShipment,
   onMarkShipped,
@@ -95,21 +96,22 @@ export function ShipmentsTable({
   });
 
   // Only planned shipments are inline-editable; shipped ones are locked.
-  const columns = useMemo<ColDef<SalesShipmentRow>[]>(
+  const fields = useMemo<LineField<SalesShipmentRow>[]>(
     () => [
       {
         field: "shipmentNumber",
+        kind: "display",
         headerName: "Shipment",
         flex: 1,
         minWidth: 200,
-        editable: false,
-        cellClass: "font-mono text-[length:var(--text-xs)]",
+        mono: true,
+        cellClass: "text-[length:var(--text-xs)]",
       },
       {
         field: "status",
+        kind: "display",
         headerName: "Status",
         width: 130,
-        editable: false,
         cellRenderer: ({ data }: ICellRendererParams<SalesShipmentRow>) =>
           data ? (
             <StatusLabel tone={shipmentStatusTone[data.status]}>
@@ -119,11 +121,11 @@ export function ShipmentsTable({
       },
       {
         field: "fulfillmentType",
+        kind: "select",
         headerName: "Fulfillment",
         width: 130,
-        editable: (params) => (params.data ? editable && params.data.status === "planned" : false),
-        cellEditor: "agSelectCellEditor",
-        cellEditorParams: { values: ["delivery", "pickup"] },
+        editable: (data) => Boolean(data && editable && data.status === "planned"),
+        values: ["delivery", "pickup"],
         valueFormatter: ({ value }) => (value === "pickup" ? "Pickup" : "Delivery"),
         valueSetter: (params: ValueSetterParams<SalesShipmentRow>) => {
           const next = params.newValue === "pickup" ? "pickup" : "delivery";
@@ -134,62 +136,60 @@ export function ShipmentsTable({
       },
       {
         field: "scheduledDate",
+        kind: "date",
         headerName: "Ship date",
         width: 130,
-        editable: (params) => (params.data ? editable && params.data.status === "planned" : false),
-        cellEditor: AgGridDateCellEditor,
-        cellEditorPopup: true,
-        cellClass: "font-mono tabular-nums",
+        editable: (data) => Boolean(data && editable && data.status === "planned"),
+        mono: true,
         valueFormatter: ({ value }) => (value ? (formatDate(String(value)) ?? "—") : "—"),
         valueSetter: dateSetter("scheduledDate"),
       },
       {
         field: "deliveryDate",
+        kind: "date",
         headerName: "Deliver date",
         width: 130,
-        editable: (params) => (params.data ? editable && params.data.status === "planned" : false),
-        cellEditor: AgGridDateCellEditor,
-        cellEditorPopup: true,
-        cellClass: "font-mono tabular-nums",
+        editable: (data) => Boolean(data && editable && data.status === "planned"),
+        mono: true,
         valueFormatter: ({ value }) => (value ? (formatDate(String(value)) ?? "—") : "—"),
         valueSetter: dateSetter("deliveryDate"),
       },
       {
         colId: "lines",
+        kind: "display",
         headerName: "Lines",
         flex: 1,
         minWidth: 220,
-        editable: false,
         autoHeight: true,
         cellRenderer: ({ data }: ICellRendererParams<SalesShipmentRow>) =>
           data ? <ShipmentLinesList shipment={data} /> : null,
       },
       {
         colId: "revenue",
+        kind: "display",
         headerName: "Revenue",
-        type: "rightAligned",
+        rightAligned: true,
         width: 120,
-        editable: false,
-        cellClass: "font-mono tabular-nums",
+        mono: true,
         valueGetter: ({ data }) => data?.marginSummary.productRevenue ?? null,
         valueFormatter: ({ value }) => (value == null ? "—" : (formatPrice(String(value)) ?? "—")),
       },
       {
         colId: "shipCost",
+        kind: "display",
         headerName: "Ship cost",
-        type: "rightAligned",
+        rightAligned: true,
         width: 110,
-        editable: false,
-        cellClass: "font-mono tabular-nums",
+        mono: true,
         valueGetter: ({ data }) => data?.marginSummary.shipmentCosts ?? null,
         valueFormatter: ({ value }) => (value == null ? "—" : (formatPrice(String(value)) ?? "—")),
       },
       {
         colId: "margin",
+        kind: "display",
         headerName: "Margin",
-        type: "rightAligned",
+        rightAligned: true,
         width: 120,
-        editable: false,
         cellRenderer: ({ data }: ICellRendererParams<SalesShipmentRow>) => {
           if (!data) return null;
           const m = data.marginSummary;
@@ -205,71 +205,62 @@ export function ShipmentsTable({
           );
         },
       },
+      {
+        colId: "actions",
+        kind: "display",
+        headerName: "",
+        width: 56,
+        sortable: false,
+        cellRenderer: ({ data }: ICellRendererParams<SalesShipmentRow>) =>
+          data && editable ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Actions for ${data.shipmentNumber}`}
+                >
+                  <HugeiconsIcon icon={MoreVerticalIcon} size={14} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {onEditShipment ? (
+                  <DropdownMenuItem onSelect={() => onEditShipment(data)}>
+                    Edit shipment
+                  </DropdownMenuItem>
+                ) : null}
+                {onMarkShipped && data.status === "planned" ? (
+                  <DropdownMenuItem onSelect={() => onMarkShipped(data)}>
+                    Mark as shipped
+                  </DropdownMenuItem>
+                ) : null}
+                {onEditCosts ? (
+                  <DropdownMenuItem onSelect={() => onEditCosts(data)}>
+                    Edit costs
+                  </DropdownMenuItem>
+                ) : null}
+                {onPushXero ? (
+                  <DropdownMenuItem onSelect={() => onPushXero(data)}>
+                    Push invoice to Xero
+                  </DropdownMenuItem>
+                ) : null}
+                {onDeleteShipment && data.status === "planned" ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={() => onDeleteShipment(data)}
+                      variant="destructive"
+                    >
+                      Delete shipment
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null,
+      },
     ],
-    [editable],
-  );
-
-  const actionsColumn = useMemo<ColDef<SalesShipmentRow>[]>(
-    () =>
-      editable
-        ? [
-            {
-              colId: "actions",
-              headerName: "",
-              width: 56,
-              editable: false,
-              sortable: false,
-              cellRenderer: ({ data }: ICellRendererParams<SalesShipmentRow>) =>
-                data ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Actions for ${data.shipmentNumber}`}
-                      >
-                        <HugeiconsIcon icon={MoreVerticalIcon} size={14} />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {onEditShipment ? (
-                        <DropdownMenuItem onSelect={() => onEditShipment(data)}>
-                          Edit shipment
-                        </DropdownMenuItem>
-                      ) : null}
-                      {onMarkShipped && data.status === "planned" ? (
-                        <DropdownMenuItem onSelect={() => onMarkShipped(data)}>
-                          Mark as shipped
-                        </DropdownMenuItem>
-                      ) : null}
-                      {onEditCosts ? (
-                        <DropdownMenuItem onSelect={() => onEditCosts(data)}>
-                          Edit costs
-                        </DropdownMenuItem>
-                      ) : null}
-                      {onPushXero ? (
-                        <DropdownMenuItem onSelect={() => onPushXero(data)}>
-                          Push invoice to Xero
-                        </DropdownMenuItem>
-                      ) : null}
-                      {onDeleteShipment && data.status === "planned" ? (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onSelect={() => onDeleteShipment(data)}
-                            variant="destructive"
-                          >
-                            Delete shipment
-                          </DropdownMenuItem>
-                        </>
-                      ) : null}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                ) : null,
-            },
-          ]
-        : [],
     [editable, onEditShipment, onMarkShipped, onEditCosts, onPushXero, onDeleteShipment],
   );
 
@@ -306,42 +297,28 @@ export function ShipmentsTable({
             {shipped} of {total} shipped · {planned} planned
           </span>
         </h2>
-        {editable && onNewShipment ? (
-          <Button
-            type="button"
-            variant="default"
-            size="sm"
-            onClick={onNewShipment}
-            className="ml-auto"
-          >
-            <HugeiconsIcon icon={Add01Icon} size={14} className="mr-1" />
-            New shipment
-          </Button>
-        ) : null}
       </div>
 
-      {order.shipments.length === 0 ? (
-        <div className={styles.emptyState}>
-          No shipments planned. Click{" "}
-          <span className={styles.emptyStateStrong}>New shipment</span> to allocate inventory
-          and plan fulfillment.
-        </div>
-      ) : (
-        <EditableLineDataGrid<SalesShipmentRow>
-          rows={order.shipments}
-          columns={columns}
-          getRowId={(row) => row.id}
-          createRow={() => order.shipments[0]}
-          onRowsChange={handleRowsChange}
-          addLabel="New shipment"
-          enableAddRow={false}
-          enableReorder={false}
-          enableDelete={false}
-          extraEndColumns={actionsColumn}
-          rowHeight={64}
-          minHeight={120}
-        />
-      )}
+      <MutableLines<SalesShipmentRow>
+        rows={order.shipments}
+        fields={fields}
+        getRowId={(row) => row.id}
+        createRow={() => order.shipments[0] as SalesShipmentRow}
+        onRowsChange={handleRowsChange}
+        addLabel="New shipment"
+        readOnly={!editable || !onNewShipment}
+        addDisabledReason={addDisabledReason}
+        emptyMessage="No shipments planned."
+        canDeleteRow={(row) => row.status === "planned"}
+        getDeleteDisabledReason={(row) =>
+          row.status === "planned" ? null : "Shipped shipments cannot be removed."
+        }
+        onDeleteRow={(row) => onDeleteShipment?.(row)}
+        onAddRow={() => {
+          onNewShipment?.();
+          return null;
+        }}
+      />
     </section>
   );
 }

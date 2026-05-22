@@ -1,21 +1,19 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type {
   CellClassParams,
   ICellRendererParams,
   ValueSetterParams,
 } from "ag-grid-community";
-import type { CustomCellEditorProps } from "ag-grid-react";
-import { useGridCellEditor } from "ag-grid-react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 import {
-  EditableLineDataGrid,
-  type ColDef,
+  MutableLines,
   type EditableLineDataGridChange,
-} from "@/components/editable-line-data-grid";
+  type LineField,
+} from "@/components/editable-lines";
 import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -522,113 +520,6 @@ function QuantityCell({
   );
 }
 
-function QuantityCellEditor(
-  props: CustomCellEditorProps<BomGridRow, string | null> & {
-    componentMap: Map<string, AvailableComponent>;
-  }
-) {
-  const editorRef = useRef<HTMLDivElement>(null);
-  const valueRef = useRef<string | null>(props.value ?? null);
-  const [value, setValue] = useState(props.value ?? "");
-  const unit = getComponentUnit(props.data, props.componentMap);
-
-  useGridCellEditor({
-    getValidationElement: () => editorRef.current ?? props.eGridCell,
-    getValidationErrors: () => {
-      const row = {
-        ...props.data,
-        quantity: normalizeTextCell(valueRef.current),
-      };
-      if (isBlankBomRow(row)) {
-        return null;
-      }
-
-      const parsed = Number(row.quantity);
-      return Number.isFinite(parsed) && parsed > 0
-        ? null
-        : ["Quantity must be greater than 0"];
-    },
-  });
-
-  return (
-    <div ref={editorRef} className="flex h-full w-full items-center gap-(--space-3)">
-      <Input
-        value={value}
-        onChange={(event) => {
-          const nextValue = event.target.value;
-          valueRef.current = nextValue;
-          setValue(nextValue);
-          props.onValueChange(nextValue);
-        }}
-        className="h-full min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:shadow-none"
-      />
-      {unit ? (
-        <span className="shrink-0 truncate text-[length:var(--text-sm)] text-muted-foreground">
-          {unit}
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
-function ComponentCellEditor(
-  props: CustomCellEditorProps<BomGridRow, string | null> & {
-    options: Array<AvailableComponent & { unitName: string }>;
-  }
-) {
-  const editorRef = useRef<HTMLDivElement>(null);
-  const valueRef = useRef<string | null>(props.value ?? null);
-
-  useGridCellEditor({
-    getValidationElement: () => editorRef.current ?? props.eGridCell,
-    getValidationErrors: () => {
-      const row = {
-        ...props.data,
-        componentId: valueRef.current ?? "",
-      };
-      if (isBlankBomRow(row)) {
-        return null;
-      }
-
-      return valueRef.current ? null : ["Component is required"];
-    },
-  });
-
-  return (
-    <div ref={editorRef} className="flex h-full w-full items-center">
-      <InventoryItemCombobox
-        options={props.options}
-        value={props.value ?? ""}
-        defaultOpen
-        onValueChange={(id) => {
-          valueRef.current = id ?? "";
-          props.onValueChange(id ?? "");
-          if (id) {
-            props.stopEditing(true);
-          }
-        }}
-        inputAriaInvalid={false}
-        inputClassName="h-full w-full min-w-0 border-0 bg-transparent shadow-none"
-        placeholder="Search items..."
-        emptyMessage="No items found"
-        contentClassName="w-[min(32rem,calc(100vw-2rem))]"
-        showTypeBadge
-        createLinks={[
-          {
-            href: "/inventory/product",
-            label: "Create product",
-          },
-          {
-            href: "/inventory/material",
-            label: "Create material",
-          },
-        ]}
-        getSecondaryText={(component) => component.unit}
-      />
-    </div>
-  );
-}
-
 interface BomEditorProps {
   initialRows?: BomPayloadRow[];
   availableComponents: AvailableComponent[];
@@ -691,19 +582,38 @@ export function BomEditor({
     [errorState]
   );
 
-  const columns = useMemo<ColDef<BomGridRow>[]>(
+  const columns = useMemo<LineField<BomGridRow>[]>(
     () => {
-      const nextColumns: ColDef<BomGridRow>[] = [
+      const nextColumns: LineField<BomGridRow>[] = [
         {
         field: "componentId",
+        kind: "inventory-item",
         headerName: "Component",
         minWidth: 240,
         flex: 1.4,
         editable: true,
-        cellEditor: ComponentCellEditor,
-        cellEditorParams: {
-          options: componentOptions,
-        },
+        options: componentOptions,
+        placeholder: "Search items...",
+        emptyMessage: "No items found",
+        requiredMessage: "Component is required",
+        isRowBlank: isBlankBomRow,
+        getDraftRow: (row: BomGridRow, componentId: string) => ({
+          ...row,
+          componentId,
+        }),
+        showTypeBadge: true,
+        createLinks: [
+          {
+            href: "/inventory/product",
+            label: "Create product",
+          },
+          {
+            href: "/inventory/material",
+            label: "Create material",
+          },
+        ],
+        getSecondaryText: (component) =>
+          (component as AvailableComponent).unit,
         cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
           <ComponentCell {...params} componentMap={componentMap} />
         ),
@@ -714,13 +624,24 @@ export function BomEditor({
       },
       {
         field: "quantity",
+        kind: "number",
         headerName: quantityHeader,
         minWidth: 156,
         flex: 0.7,
         editable: true,
-        cellEditor: QuantityCellEditor,
-        cellEditorParams: {
-          componentMap,
+        getSuffix: (row) => getComponentUnit(row, componentMap),
+        getValidationErrors: (value, row) => {
+          const nextRow = {
+            ...row,
+            quantity: normalizeTextCell(value),
+          };
+          if (isBlankBomRow(nextRow)) {
+            return null;
+          }
+          const parsed = Number(nextRow.quantity);
+          return Number.isFinite(parsed) && parsed > 0
+            ? null
+            : ["Quantity must be greater than 0"];
         },
         valueSetter: (params: ValueSetterParams<BomGridRow, string | null>) => {
           params.data.quantity = normalizeTextCell(params.newValue);
@@ -729,7 +650,7 @@ export function BomEditor({
         cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
           <QuantityCell {...params} componentMap={componentMap} />
         ),
-        cellClass: "num",
+        rightAligned: true,
         cellClassRules: {
           "erp-editable-grid-cell-error": hasError("quantity"),
         },
@@ -737,10 +658,10 @@ export function BomEditor({
       },
       {
         field: "minimumLotAgeDays",
+        kind: "display",
         headerName: "Requirements",
         minWidth: 136,
         flex: 0.65,
-        editable: false,
         cellRenderer: RequirementsCell,
         cellClassRules: {
           "erp-editable-grid-cell-error": hasError("minimumLotAgeDays"),
@@ -749,10 +670,10 @@ export function BomEditor({
       },
       {
         field: "alternates",
+        kind: "display",
         headerName: "Alternates",
         minWidth: 116,
         flex: 0.55,
-        editable: false,
         cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
           <AlternatesCell
             {...params}
@@ -779,9 +700,9 @@ export function BomEditor({
   );
 
   return (
-    <EditableLineDataGrid
+    <MutableLines
       rows={rows}
-      columns={columns}
+      fields={columns}
       getRowId={getRowId}
       createRow={() => createBlankGridRow()}
       onRowsChange={emitRowsChange}

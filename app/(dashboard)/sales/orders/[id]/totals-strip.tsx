@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { HelpCircleIcon } from "@hugeicons/core-free-icons";
-import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
+import { useEntityFieldCommit } from "@/components/card-page/use-entity-field-commit";
 import { formatPrice } from "@/lib/format";
 import { patchSalesOrderHeader } from "@/lib/api/clients/sales-orders";
 import type { SalesOrderDetail } from "@/app/(dashboard)/sales/types";
@@ -136,16 +135,14 @@ function NotesEditor({
   draft?: OrderDraftController;
 }) {
   const [value, setValue] = useState(initial);
-  const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationKey: cardSaveMutationKey("sales-order", orderId, "notes"),
+  const commit = useEntityFieldCommit<string | null, SalesOrderDetail>({
+    entityKey: "sales-order",
+    entityId: orderId,
+    scope: "notes",
     mutationFn: (notes: string | null) => patchSalesOrderHeader(orderId, { notes }),
-    onSuccess: (next) => {
-      queryClient.setQueryData(["sales-order", orderId], next);
-    },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["sales-order", orderId] });
-    },
+    setQueryDataKey: ["sales-order", orderId],
+    optimisticUpdate: (current, notes) =>
+      current ? ({ ...current, notes } as SalesOrderDetail) : current,
   });
 
   return (
@@ -160,12 +157,11 @@ function NotesEditor({
           draft.patchHeader({ notes: next });
           return;
         }
-        mutation.mutate(next);
+        commit(next);
       }}
       rows={3}
       className="resize-y min-h-[48px]"
       placeholder="Add notes for the warehouse or customer."
-      aria-invalid={mutation.isError || undefined}
     />
   );
 }

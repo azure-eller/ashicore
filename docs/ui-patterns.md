@@ -157,6 +157,10 @@ For create/edit routes that share the same form, reuse one route-level loading c
 
 For detail routes, add a local `[id]/loading.tsx` per item type and point it at a shared detail loader. Do not let `/products/[id]` or `/materials/[id]` inherit the parent list/table skeleton from the segment above.
 
+## Card Page Bodies
+
+Card body structure is static. Do not conditionally mount or unmount normal sections, tables, tabs, notes, or totals because a record is new, draft, empty, persisted, locked, or missing related data. Keep the section mounted and change only field values, disabled/read-only state, empty rows/messages, and save status. Dialogs, destructive confirmations, and transient error banners may still be conditional because they are overlays or feedback, not the card's structural body.
+
 **Button/form loading**: use `mutation.isPending`.
 
 ```tsx
@@ -201,9 +205,25 @@ For standard dashboard list pages, use the shared AG Grid list shell instead of 
 
 ## Editable Line Items
 
-Dense spreadsheet-style ERP editors should use `EditableLineDataGrid` from `components/editable-line-data-grid.tsx`. It wraps AG Grid's native editing model: row data lives in React state, columns use `field` / `valueSetter` / custom cell editors, and committed edit events update the row array. Do not register grid cells with React Hook Form. Use Zod/API schemas as the final save contract, and keep sorting/filtering off unless row-order semantics are explicit.
+Dense spreadsheet-style ERP line sections should use the named wrappers from `components/editable-lines.tsx`, not raw `EditableLineDataGrid`, unless the grid is a custom workflow surface.
 
-`EditableLineItems` and `EditableLineGrid` are legacy staging components. Do not add new use sites. Existing mutable repeated rows such as PO lines, sales lines, MO ingredients, stocktake preview rows, and simple cost rows should migrate to `EditableLineDataGrid`.
+- `MutableLines`: add, edit, delete, and reorder rows. Use for normal repeated business lines such as PO materials, PO costs, BOM ingredients, operation costs, and contacts.
+- `ManagedEditableLines`: edit, delete, and reorder source-backed rows, but no add row. Use when another entity generates the rows, such as MO ingredients populated from a BOM.
+- `FixedEditableLines`: edit existing rows only. No add, delete, or reorder.
+- `ReadOnlyLines`: dense read-only row display with the same grid visual.
+
+Named line wrappers accept `fields`, not raw AG Grid column definitions. Pages choose a field kind (`text`, `number`, `select`, `date`, `inventory-item`, or `display`) and the shared wrapper maps that to AG Grid. Do not define page-local AG Grid cell editor components or pass `cellEditor` / `cellEditorParams` from app code. If a line needs a new field type, promote that field editor into the shared line toolbox first, then use it from the page. `pnpm lint` runs `verify:editable-lines` and fails normal app code that imports raw `EditableLineDataGrid`, defines local `*CellEditor`, or configures AG Grid editors directly.
+
+Current shared line field editors:
+
+- `InventoryItemLineCellEditor`: item/material/product combobox editor.
+- `TextLineCellEditor`: text or numeric text editor, with optional suffix and validation.
+- Shared select/date mapping inside `LineField`.
+- `AgGridDateCellEditor` for date cells.
+
+`EditableLineDataGrid` is the low-level AG Grid engine under those wrappers. Use it directly only for custom workflow grids whose behavior does not match the named wrappers, such as variants, lots, and stocktakes. It wraps AG Grid's native editing model: row data lives in React state, columns use `field` / `valueSetter` / custom cell editors, and committed edit events update the row array. Do not register grid cells with React Hook Form. Use Zod/API schemas as the final save contract, and keep sorting/filtering off unless row-order semantics are explicit.
+
+`EditableLineItems` and `EditableLineGrid` are legacy staging components. Do not add new use sites. Existing mutable repeated rows should migrate to one of the named `*Lines` wrappers first; only drop to `EditableLineDataGrid` when the wrapper names do not describe the workflow.
 
 - Define explicit flexible grid tracks for every column, e.g. `minmax(14rem, 1.7fr) minmax(5rem, 0.45fr) minmax(7rem, 0.7fr) minmax(7rem, 0.7fr)`.
 - Give numeric inputs stable but compact columns; use `fr` tracks so empty cells do not force a small horizontal scroll.

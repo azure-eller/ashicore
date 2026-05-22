@@ -8,7 +8,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import type {
   CellClassParams,
-  ICellEditorParams,
   ValueSetterParams,
 } from "ag-grid-community";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
@@ -61,9 +60,9 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
-  EditableLineDataGrid,
-  type ColDef,
-} from "@/components/editable-line-data-grid";
+  MutableLines,
+  type LineField,
+} from "@/components/editable-lines";
 import {
   DISCOUNT_PERCENT_TOOLTIP,
   MAX_QTY_TOOLTIP,
@@ -359,7 +358,7 @@ export function PricingScheduleForm({
   };
   const breaksError = getFieldArrayError(form.formState.errors.breaks);
   const basePreview = Number(previewBasePrice);
-  const breakColumns = useMemo<ColDef<PricingBreakGridRow>[]>(
+  const breakColumns = useMemo<LineField<PricingBreakGridRow>[]>(
     () => {
       const hasCellError =
         (key: PricingBreakColumnKey) =>
@@ -388,21 +387,19 @@ export function PricingScheduleForm({
       return [
         {
           field: "minQuantity",
+          kind: "number",
           headerName: "Min Qty",
           headerTooltip: MIN_QTY_TOOLTIP,
           minWidth: 132,
           flex: 1,
-          editable: (params) => params.node.rowIndex === 0,
-          cellEditor: "agTextCellEditor",
+          editableParams: (params) => params.node.rowIndex === 0,
           valueSetter: (params: ValueSetterParams<PricingBreakGridRow, string | null>) => {
             params.data.minQuantity = normalizeGridText(params.newValue);
             return true;
           },
-          cellEditorParams: {
-            getValidationErrors: ({ value }: { value: string | null | undefined }) =>
-              validatePositiveGridNumber(value, "Minimum quantity must be greater than 0"),
-          },
-          cellClass: "num",
+          getValidationErrors: (value) =>
+            validatePositiveGridNumber(value, "Minimum quantity must be greater than 0"),
+          rightAligned: true,
           cellClassRules: {
             "erp-editable-grid-cell-error": hasCellError("minQuantity"),
           },
@@ -410,38 +407,30 @@ export function PricingScheduleForm({
         },
         {
           field: "maxQuantity",
+          kind: "number",
           headerName: "Max Qty",
           headerTooltip: MAX_QTY_TOOLTIP,
           minWidth: 132,
           flex: 1,
           editable: true,
-          cellEditor: "agTextCellEditor",
           valueSetter: (params: ValueSetterParams<PricingBreakGridRow, string | null>) => {
             params.data.maxQuantity = normalizeNullableGridText(params.newValue);
             return true;
           },
-          cellEditorParams: {
-            getValidationErrors: ({
-              value,
-              cellEditorParams,
-            }: {
-              value: string | null | undefined;
-              cellEditorParams: ICellEditorParams<PricingBreakGridRow>;
-            }) => {
-              const text = normalizeNullableGridText(value);
-              if (text == null) return null;
-              const positiveError = validatePositiveGridNumber(
-                text,
-                "Maximum quantity must be greater than 0"
-              );
-              if (positiveError) return positiveError;
-              return Number(text) >= Number(cellEditorParams.data.minQuantity)
-                ? null
-                : ["Maximum quantity must be greater than or equal to the minimum quantity"];
-            },
+          getValidationErrors: (value, row) => {
+            const text = normalizeNullableGridText(value);
+            if (text == null) return null;
+            const positiveError = validatePositiveGridNumber(
+              text,
+              "Maximum quantity must be greater than 0"
+            );
+            if (positiveError) return positiveError;
+            return Number(text) >= Number(row.minQuantity)
+              ? null
+              : ["Maximum quantity must be greater than or equal to the minimum quantity"];
           },
           valueFormatter: ({ value }) => value ?? "",
-          cellClass: "num",
+          rightAligned: true,
           cellClassRules: {
             "erp-editable-grid-cell-error": hasCellError("maxQuantity"),
           },
@@ -449,21 +438,18 @@ export function PricingScheduleForm({
         },
         {
           field: "discountPercent",
+          kind: "number",
           headerName: "Discount %",
           headerTooltip: DISCOUNT_PERCENT_TOOLTIP,
           minWidth: 144,
           flex: 1,
           editable: true,
-          cellEditor: "agTextCellEditor",
           valueSetter: (params: ValueSetterParams<PricingBreakGridRow, string | null>) => {
             params.data.discountPercent = normalizeGridText(params.newValue);
             return true;
           },
-          cellEditorParams: {
-            getValidationErrors: ({ value }: { value: string | null | undefined }) =>
-              validateDiscountPercent(value),
-          },
-          cellClass: "num",
+          getValidationErrors: (value) => validateDiscountPercent(value),
+          rightAligned: true,
           cellClassRules: {
             "erp-editable-grid-cell-error": hasCellError("discountPercent"),
           },
@@ -720,15 +706,14 @@ export function PricingScheduleForm({
               </span>
             }
           >
-            <EditableLineDataGrid
+            <MutableLines
               rows={breakRows}
-              columns={breakColumns}
+              fields={breakColumns}
               getRowId={getBreakRowId}
               createRow={createBreakRow}
               onRowsChange={handleBreakRowsChange}
               addLabel="Add break"
               emptyMessage="No quantity breaks yet."
-              enableReorder={false}
               error={breaksError}
             />
           </CreateSection>

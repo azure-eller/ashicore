@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -45,6 +45,8 @@ import {
 } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CellShell } from "@/components/card-page/form-cell";
+import { CommitInput } from "@/components/card-page/commit-input";
+import { NotesField } from "@/components/card-page/notes-field";
 import {
   cardSaveMutationKey,
   saveStateFromEntityStatus,
@@ -358,7 +360,7 @@ export function SupplierCard({
         <CardSection title="Supplier at a glance">
           <div className={`${styles.formRow} ${styles.formRowThree}`}>
             <CellShell label="Name" required>
-              <UnderlineCommitInput
+              <CommitInput
                 label="Name"
                 value={display.name}
                 disabled={readOnly || createMutation.isPending}
@@ -370,7 +372,7 @@ export function SupplierCard({
               />
             </CellShell>
             <CellShell label={<TooltipHeader label="Code" tooltip={SUPPLIER_CODE_TOOLTIP} />}>
-              <UnderlineCommitInput
+              <CommitInput
                 label="Code"
                 value={display.code ?? ""}
                 disabled={readOnly || createMutation.isPending}
@@ -378,7 +380,7 @@ export function SupplierCard({
               />
             </CellShell>
             <CellShell label="Contact name">
-              <UnderlineCommitInput
+              <CommitInput
                 label="Contact name"
                 value={display.contactName ?? ""}
                 disabled={readOnly || createMutation.isPending}
@@ -386,7 +388,7 @@ export function SupplierCard({
               />
             </CellShell>
             <CellShell label="Email">
-              <UnderlineCommitInput
+              <CommitInput
                 label="Email"
                 type="email"
                 value={display.email ?? ""}
@@ -395,7 +397,7 @@ export function SupplierCard({
               />
             </CellShell>
             <CellShell label="Phone">
-              <UnderlineCommitInput
+              <CommitInput
                 label="Phone"
                 value={display.phone ?? ""}
                 disabled={readOnly || createMutation.isPending}
@@ -403,7 +405,7 @@ export function SupplierCard({
               />
             </CellShell>
             <CellShell label={<TooltipHeader label="Payment terms" tooltip={PAYMENT_TERMS_TOOLTIP} />}>
-              <UnderlineCommitInput
+              <CommitInput
                 label="Payment terms"
                 value={display.paymentTerms ?? ""}
                 disabled={readOnly || createMutation.isPending}
@@ -425,7 +427,7 @@ export function SupplierCard({
         </CardSection>
 
         <CardSection title="Notes">
-          <InlineTextareaField
+          <NotesField
             label="Notes"
             value={display.notes ?? ""}
             disabled={readOnly || createMutation.isPending}
@@ -644,52 +646,6 @@ function SupplierMeta({
   );
 }
 
-function UnderlineCommitInput({
-  label,
-  type,
-  value,
-  disabled,
-  required,
-  autoFocus,
-  onCommit,
-}: {
-  label: string;
-  type?: string;
-  value: string;
-  disabled?: boolean;
-  required?: boolean;
-  autoFocus?: boolean;
-  onCommit: (value: string | null) => void;
-}) {
-  const id = useId();
-  const [draft, setDraft] = useState(value ?? "");
-  if (draft !== (value ?? "") && disabled) setDraft(value ?? "");
-  return (
-    <Input
-      id={id}
-      type={type}
-      aria-label={label}
-      className={styles.underlineControl}
-      value={draft}
-      autoFocus={autoFocus}
-      disabled={disabled}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => {
-        const next = draft.trim() || null;
-        if (required && next == null) {
-          setDraft(value ?? "");
-          return;
-        }
-        if (next === (value || null)) return;
-        onCommit(next);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur();
-      }}
-    />
-  );
-}
-
 function SupplierAddressInput({
   id,
   value,
@@ -785,53 +741,6 @@ function SupplierAddressInput({
         {optionIds.length > 0 ? <ComboboxSeparator /> : null}
       </ComboboxContent>
     </Combobox>
-  );
-}
-
-function InlineTextareaField({
-  label,
-  value,
-  disabled,
-  readOnlyValue,
-  onDraftChange,
-  onCommit,
-}: {
-  label: string;
-  value: string;
-  disabled?: boolean;
-  readOnlyValue?: boolean;
-  onDraftChange?: (value: string) => void;
-  onCommit: (value: string | null) => void;
-}) {
-  const id = useId();
-  const [draft, setDraft] = useState(value ?? "");
-  if (draft !== (value ?? "") && disabled) setDraft(value ?? "");
-
-  return (
-    <Field>
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
-      {readOnlyValue ? (
-        <div className="min-h-36 border border-border p-(--space-4) text-[length:var(--text-sm)]">
-          {value || "-"}
-        </div>
-      ) : (
-        <Textarea
-          id={id}
-          className="min-h-36"
-          value={draft}
-          disabled={disabled}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            onDraftChange?.(event.target.value);
-          }}
-          onBlur={() => {
-            const next = draft.trim() || null;
-            if (next === (value || null)) return;
-            onCommit(next);
-          }}
-        />
-      )}
-    </Field>
   );
 }
 

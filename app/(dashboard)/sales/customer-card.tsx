@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -50,10 +50,10 @@ import {
 import { StatusLabel, type StatusTone } from "@/components/ui/status-label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  EditableLineDataGrid,
-  type ColDef,
+  MutableLines,
   type EditableLineDataGridChange,
-} from "@/components/editable-line-data-grid";
+  type LineField,
+} from "@/components/editable-lines";
 import {
   CardPage,
   CardPageBody,
@@ -61,6 +61,8 @@ import {
 } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CellShell } from "@/components/card-page/form-cell";
+import { CommitInput } from "@/components/card-page/commit-input";
+import { NotesField } from "@/components/card-page/notes-field";
 import {
   cardSaveMutationKey,
   saveStateFromEntityStatus,
@@ -84,7 +86,13 @@ import {
   updateCustomerProject,
 } from "@/lib/api/clients/customers";
 import type { AddressEntry } from "@/lib/dal/addresses";
-import { formatAddressLines, formatDate, formatPrice, normalizeAddressFields } from "@/lib/format";
+import {
+  formatAddressLines,
+  formatDate,
+  formatPrice,
+  normalizeAddressFields,
+  toDateOnlyString,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { createAddressEntrySchema } from "@/lib/schemas/addresses";
 import {
@@ -229,12 +237,26 @@ export function CustomerCard({
     mutationKey: cardSaveMutationKey("customer", currentCustomerId ?? "__draft__", "patch"),
     mutationFn: (input: PatchCustomer) =>
       patchCustomer(currentCustomerId as string, input),
-    onSettled: async () => {
+    onMutate: async (input) => {
+      if (!currentCustomerId) return undefined;
+      const queryKey = ["customer-card", currentCustomerId] as const;
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<CustomerDetailData>(queryKey);
+      if (previous) {
+        queryClient.setQueryData(queryKey, {
+          ...previous,
+          ...input,
+        } as CustomerDetailData);
+      }
+      return { previous, queryKey };
+    },
+    onError: (_error, _input, context) => {
+      if (!context) return;
+      queryClient.setQueryData(context.queryKey, context.previous);
+    },
+    onSuccess: async () => {
       if (!currentCustomerId) return;
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["customer-card", currentCustomerId] }),
-        queryClient.invalidateQueries({ queryKey: ["customers"] }),
-      ]);
+      await queryClient.invalidateQueries({ queryKey: ["customers"] });
     },
   });
 
@@ -402,7 +424,7 @@ export function CustomerCard({
         title={display.name.trim() || "New customer"}
         meta={
           display.createdAt ? (
-            <span>Customer since {formatDate(dateOnly(display.createdAt))}</span>
+            <span>Customer since {formatDate(toDateOnlyString(display.createdAt))}</span>
           ) : null
         }
         saveState={cardSaveState}
@@ -424,7 +446,7 @@ export function CustomerCard({
         <CardSection title="Customer at a glance">
           <div className={`${styles.formRow} ${styles.formRowThree}`}>
             <CellShell label="Customer name" required>
-              <UnderlineCommitInput
+              <CommitInput
                 label="Customer name"
                 value={display.name}
                 disabled={readOnly || createMutation.isPending}
@@ -436,7 +458,7 @@ export function CustomerCard({
               />
             </CellShell>
             <CellShell label="Email">
-              <UnderlineCommitInput
+              <CommitInput
                 label="Email"
                 type="email"
                 value={display.email ?? ""}
@@ -445,7 +467,7 @@ export function CustomerCard({
               />
             </CellShell>
             <CellShell label="Phone">
-              <UnderlineCommitInput
+              <CommitInput
                 label="Phone"
                 value={display.phone ?? ""}
                 disabled={readOnly || createMutation.isPending}
@@ -480,7 +502,7 @@ export function CustomerCard({
             </CellShell>
             <CellShell label="Customer since">
               <div className={styles.readOnlyFieldValue}>
-                {display.createdAt ? formatDate(dateOnly(display.createdAt)) : "-"}
+                {display.createdAt ? formatDate(toDateOnlyString(display.createdAt)) : "-"}
               </div>
             </CellShell>
           </div>
@@ -505,7 +527,7 @@ export function CustomerCard({
             rows={openOrders}
           />
           <CardSection title="Notes">
-            <InlineTextareaField
+            <NotesField
               label="Notes"
               value={display.notes ?? ""}
               disabled={readOnly || createMutation.isPending}
@@ -727,10 +749,11 @@ function ContactsSection({
     },
   });
 
-  const columns = useMemo<ColDef<ContactGridRow>[]>(
+  const columns = useMemo<LineField<ContactGridRow>[]>(
     () => [
       {
         colId: "primary",
+        kind: "display",
         headerName: "Primary",
         width: 92,
         minWidth: 92,
@@ -799,16 +822,14 @@ function ContactsSection({
         Contacts
         <span className={styles.count}>· {sourceRows.length}</span>
       </h2>
-      <EditableLineDataGrid
+      <MutableLines
         rows={rows}
-        columns={columns}
+        fields={columns}
         getRowId={(row) => row.id}
         createRow={newContactRow}
         onRowsChange={onRowsChange}
         addLabel="Add contact"
-        rowHeight={42}
-        enableAddRow={!readOnly}
-        enableDelete={!readOnly}
+        readOnly={readOnly}
         emptyMessage="No contacts yet."
       />
     </section>
@@ -1296,52 +1317,6 @@ function OpenOrdersSection({
   );
 }
 
-function UnderlineCommitInput({
-  label,
-  type,
-  value,
-  disabled,
-  required,
-  autoFocus,
-  onCommit,
-}: {
-  label: string;
-  type?: string;
-  value: string;
-  disabled?: boolean;
-  required?: boolean;
-  autoFocus?: boolean;
-  onCommit: (value: string | null) => void;
-}) {
-  const id = useId();
-  const [draft, setDraft] = useState(value ?? "");
-  if (draft !== (value ?? "") && disabled) setDraft(value ?? "");
-  return (
-    <Input
-      id={id}
-      type={type}
-      aria-label={label}
-      className={styles.underlineControl}
-      value={draft}
-      autoFocus={autoFocus}
-      disabled={disabled}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => {
-        const next = draft.trim() || null;
-        if (required && next == null) {
-          setDraft(value ?? "");
-          return;
-        }
-        if (next === (value || null)) return;
-        onCommit(next);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur();
-      }}
-    />
-  );
-}
-
 function CustomerAddressInput({
   id,
   target,
@@ -1474,64 +1449,17 @@ function CustomerAddressInput({
   );
 }
 
-function InlineTextareaField({
-  label,
-  value,
-  disabled,
-  readOnlyValue,
-  onDraftChange,
-  onCommit,
-}: {
-  label: string;
-  value: string;
-  disabled?: boolean;
-  readOnlyValue?: boolean;
-  onDraftChange?: (value: string) => void;
-  onCommit: (value: string | null) => void;
-}) {
-  const id = useId();
-  const [draft, setDraft] = useState(value ?? "");
-  if (draft !== (value ?? "") && disabled) setDraft(value ?? "");
-
-  return (
-    <Field>
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
-      {readOnlyValue ? (
-        <div className="min-h-36 border border-border p-(--space-4) text-[length:var(--text-sm)]">
-          {value || "-"}
-        </div>
-      ) : (
-        <Textarea
-          id={id}
-          className="min-h-36"
-          value={draft}
-          disabled={disabled}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            onDraftChange?.(event.target.value);
-          }}
-          onBlur={() => {
-            const next = draft.trim() || null;
-            if (next === (value || null)) return;
-            onCommit(next);
-          }}
-        />
-      )}
-    </Field>
-  );
-}
-
 function textColumn<TData>(
   field: keyof TData & string,
   headerName: string,
   editable: boolean,
   flex = 1
-): ColDef<TData> {
+): LineField<TData> {
   return {
-    field: field as unknown as ColDef<TData>["field"],
+    field,
+    kind: "text",
     headerName,
     editable,
-    cellEditor: "agTextCellEditor",
     flex,
     minWidth: 120,
     valueSetter: (params: ValueSetterParams<TData>) => {
@@ -1639,10 +1567,6 @@ function useSyncedRows<TRow extends { id: string }>(sourceRows: TRow[]) {
 
 function replaceRow<TRow extends { id: string }>(rows: TRow[], next: TRow) {
   return rows.map((row) => (row.id === next.id ? next : row));
-}
-
-function dateOnly(value: Date | string) {
-  return new Date(value).toISOString().slice(0, 10);
 }
 
 function formatProjectDateRange(project: CustomerProjectRow) {

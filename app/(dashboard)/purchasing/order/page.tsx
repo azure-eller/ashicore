@@ -1,5 +1,5 @@
 import { requireModuleWriteAccess } from "@/lib/dal/auth";
-import { PurchaseOrderForm } from "@/app/(dashboard)/purchasing/purchase-order-form";
+import { PurchaseOrderCard } from "@/app/(dashboard)/purchasing/purchase-order-form";
 import { purchaseOrderDefaultValues } from "@/lib/schemas/purchase-orders";
 import { getAddressEntries } from "@/lib/dal/addresses";
 import {
@@ -62,7 +62,7 @@ export default async function PurchaseOrderDraftPage({
       : undefined;
 
   return (
-    <PurchaseOrderForm
+    <PurchaseOrderCard
       suppliers={supplierRows.map((supplier) => ({
         id: supplier.id,
         name: supplier.name,

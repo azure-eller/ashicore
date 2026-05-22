@@ -15,10 +15,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  EditableLineDataGrid,
-  type ColDef,
+  FixedEditableLines,
   type EditableLineDataGridChange,
-} from "@/components/editable-line-data-grid";
+  type LineField,
+} from "@/components/editable-lines";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { setItemCardFamilyQueryData } from "@/components/card-page/item-card-cache";
 import {
@@ -236,10 +236,11 @@ function SupplyVariantsGrid({
     [cellMutation],
   );
 
-  const columns = useMemo<ColDef<ItemCardVariantDto>[]>(
+  const columns = useMemo<LineField<ItemCardVariantDto>[]>(
     () => [
       {
         colId: "variant",
+        kind: "display",
         headerName: "Variant",
         flex: 1.4,
         minWidth: 200,
@@ -249,9 +250,9 @@ function SupplyVariantsGrid({
       },
       {
         field: "supplierItemCode",
+        kind: "text",
         headerName: "Supplier item code",
         editable: true,
-        cellEditor: "agTextCellEditor",
         cellClass: styles.mono,
         flex: 1,
         minWidth: 140,
@@ -267,10 +268,10 @@ function SupplyVariantsGrid({
       },
       {
         field: "defaultLeadTimeDays",
+        kind: "number",
         headerName: "Lead time (days)",
-        type: "rightAligned",
+        rightAligned: true,
         editable: true,
-        cellEditor: "agNumberCellEditor",
         cellClass: styles.mono,
         flex: 0.7,
         minWidth: 120,
@@ -291,10 +292,10 @@ function SupplyVariantsGrid({
       },
       {
         field: "minimumOrderQuantity",
+        kind: "number",
         headerName: "MOQ",
-        type: "rightAligned",
+        rightAligned: true,
         editable: true,
-        cellEditor: "agTextCellEditor",
         cellClass: styles.mono,
         flex: 0.6,
         minWidth: 100,
@@ -315,8 +316,9 @@ function SupplyVariantsGrid({
       },
       {
         colId: "defaultPurchasePrice",
+        kind: "display",
         headerName: "Default purchase price (USD)",
-        type: "rightAligned",
+        rightAligned: true,
         flex: 0.9,
         minWidth: 160,
         cellRenderer: () => <span className={styles.placeholder}>—</span>,
@@ -325,25 +327,14 @@ function SupplyVariantsGrid({
     [],
   );
 
-  if (rows.length === 0) {
-    return (
-      <p className={styles.helper}>No variants yet.</p>
-    );
-  }
-
   return (
-    <EditableLineDataGrid<ItemCardVariantDto>
+    <FixedEditableLines<ItemCardVariantDto>
       rows={rows}
-      columns={columns}
+      fields={columns}
       getRowId={(row) => row.id}
       createRow={() => ({ ...rows[0]! })}
       onRowsChange={handleRowsChange}
-      addLabel=""
-      enableAddRow={false}
-      enableReorder={false}
-      enableDelete={false}
-      headerHeight={30}
-      rowHeight={34}
+      emptyMessage="No variants yet."
     />
   );
 }

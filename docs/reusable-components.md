@@ -11,7 +11,7 @@ read_when:
 - `MaterialCard` — `app/(dashboard)/inventory/materials/[id]/material-card.tsx`
 - `OrderCard` — `app/(dashboard)/sales/orders/[id]/order-card.tsx`
 - `CustomerCard` — `app/(dashboard)/sales/customer-card.tsx`
-- `PurchaseOrderForm` — `app/(dashboard)/purchasing/purchase-order-form.tsx`
+- `PurchaseOrderCard` — `app/(dashboard)/purchasing/purchase-order-form.tsx`
 - `ManufacturingOrderCard` — `app/(dashboard)/manufacturing/orders/[id]/manufacturing-order-card.tsx`
 
 ## Card Building Blocks
@@ -32,7 +32,8 @@ read_when:
 
 - `ERPDataGrid` — `components/erp-data-grid.tsx`
 - `ERPDataGridList` — `components/erp-data-grid-list.tsx`
-- `EditableLineDataGrid` — `components/editable-line-data-grid.tsx`
+- `MutableLines` / `ManagedEditableLines` / `FixedEditableLines` / `ReadOnlyLines` — `components/editable-lines.tsx`
+- `EditableLineDataGrid` — `components/editable-line-data-grid.tsx` (low-level engine; prefer the named `*Lines` wrappers)
 - `EditableInfoGrid` — `components/editable-info-grid.tsx`
 - `AgGridDateCellEditor` — `components/ag-grid-date-cell-editor.tsx`
 

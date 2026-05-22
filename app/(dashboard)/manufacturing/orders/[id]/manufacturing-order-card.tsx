@@ -21,12 +21,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  EditableLineDataGrid,
-  type ColDef,
+  FixedEditableLines,
+  ManagedEditableLines,
   type EditableLineDataGridChange,
-} from "@/components/editable-line-data-grid";
-import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
+  type LineField,
+} from "@/components/editable-lines";
 import { DatePicker } from "@/components/ui/date-picker";
 import {
   Select,
@@ -37,7 +36,12 @@ import {
 } from "@/components/ui/select";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
-import { formatDate, formatPrice, formatQuantity } from "@/lib/format";
+import {
+  formatDate,
+  formatPrice,
+  formatQuantity,
+  toDateOnlyString,
+} from "@/lib/format";
 import {
   createManufacturingOrder,
   fetchManufacturingSalesLineOptions,
@@ -55,6 +59,10 @@ import {
 import { ManufacturingIngredientLotCard } from "@/components/manufacturing/ingredient-lot-card";
 import { CardPage, CardPageBody } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
+import { CellShell } from "@/components/card-page/form-cell";
+import { CommitInput } from "@/components/card-page/commit-input";
+import { NotesField } from "@/components/card-page/notes-field";
+import { DetailHeaderTitle } from "@/components/card-page/detail-header-title";
 import {
   cardSaveMutationKey,
   saveStateFromEntityStatus,
@@ -67,7 +75,6 @@ import type {
   ManufacturingOrderOperationCostDetail,
 } from "@/app/(dashboard)/manufacturing/types";
 import type { ManufacturingLotStrategy } from "@/lib/schemas/manufacturing-orders";
-import { cn } from "@/lib/utils";
 import styles from "@/components/card-page/card-page.module.css";
 
 export type ManufacturingProductOption = {
@@ -226,26 +233,14 @@ export function ManufacturingOrderCard({
   return (
     <CardPage>
       <CardPageHeader
+        eyebrow="Manufacturing order"
         title={
           order ? (
-            <>
-              <span>
-                <span className={styles.mono}>{order.orderNumber}</span>
-                {" "}
-                <span className="ml-3">{order.productName}</span>
-                {order.productSku ? (
-                  <span
-                    className={cn(
-                      styles.mono,
-                      "ml-2 text-[14px] font-medium text-[var(--color-muted)]",
-                    )}
-                  >
-                    {" "}
-                    / {order.productSku}
-                  </span>
-                ) : null}
-              </span>
-            </>
+            <DetailHeaderTitle
+              recordNumber={order.orderNumber}
+              name={order.productName}
+              subId={order.productSku}
+            />
           ) : (
             "New manufacturing order"
           )
@@ -321,7 +316,6 @@ export function ManufacturingOrderCard({
         <NotesSection
           order={order}
           canEdit={editState.canEditMetadata}
-          lockedReason={editState.metadataLockedReason}
           onPatched={refreshOrder}
         />
       </CardPageBody>
@@ -403,7 +397,7 @@ function MoDescription({ order }: { order: ManufacturingOrderDetail }) {
       <span>
         Created{" "}
         <span className={styles.mono}>
-          {formatDate(new Date(order.createdAt).toISOString().slice(0, 10))}
+          {formatDate(toDateOnlyString(order.createdAt))}
         </span>
       </span>
       <span className={styles.metaDot} />
@@ -622,7 +616,7 @@ function OrderDetailsSection({
     <section className={styles.section}>
       <h2 className={styles.sectionHeading}>Order details</h2>
       <div className={styles.formRow}>
-        <FormField label="Product" required>
+        <CellShell label="Product" required>
           {canEditPlanning ? (
             <Select
               value={selectedProductId}
@@ -654,8 +648,8 @@ function OrderDetailsSection({
               {unitName || selectedProduct?.unitName || "unit"}
             </div>
           ) : null}
-        </FormField>
-        <FormField label="Production deadline" required>
+        </CellShell>
+        <CellShell label="Production deadline" required>
           {canEditMetadata ? (
             <DatePicker
               aria-label="Planned date"
@@ -679,21 +673,24 @@ function OrderDetailsSection({
             </div>
           )}
           <div className={styles.fieldHint}>Target completion date.</div>
-        </FormField>
-        <FormField label="Manufacturing location">
+        </CellShell>
+        <CellShell label="Manufacturing location">
           <div className={styles.readOnlyFieldValue}>Default location</div>
           <div className={styles.fieldHint}>Floor / yard where this order runs.</div>
-        </FormField>
+        </CellShell>
       </div>
       <div className={styles.formRow}>
-        <FormField label={plannedFieldLabel} required>
+        <CellShell label={plannedFieldLabel} required>
           {canEditPlanning ? (
             <div className={styles.suffixField}>
-              <Input
+              <CommitInput
                 key={order ? plannedInputValue : `draft-${selectedProductId}`}
-                defaultValue={plannedInputValue}
-                onBlur={(event) => {
-                  const next = event.target.value.trim();
+                label={plannedFieldLabel}
+                value={plannedInputValue}
+                required
+                inputMode={isBatchProduct ? "numeric" : "decimal"}
+                className={`${styles.underlineInput} ${styles.mono} text-right`}
+                onCommit={(next) => {
                   if (!next) return;
                   if (order) {
                     if (next !== plannedInputValue) {
@@ -703,9 +700,6 @@ function OrderDetailsSection({
                     onDraftPlannedQuantity(next);
                   }
                 }}
-                inputMode={isBatchProduct ? "numeric" : "decimal"}
-                className={`${styles.underlineInput} ${styles.mono} text-right`}
-                aria-label={plannedFieldLabel}
               />
               <span className={styles.fieldSuffix}>{plannedFieldSuffix}</span>
             </div>
@@ -726,8 +720,19 @@ function OrderDetailsSection({
               {unitName || selectedProduct?.unitName || "unit"} per batch.
             </div>
           ) : null}
-        </FormField>
-        <FormField label="Sales order">
+        </CellShell>
+        <CellShell label="Batch yield">
+          <div className={`${styles.suffixField} ${styles.suffixFieldReadOnly}`}>
+            <span className={`${styles.underlineInput} ${styles.mono} text-right`}>
+              {expectedBatchYield != null ? formatQuantity(expectedBatchYield) : "—"}
+            </span>
+            {unitName ? <span className={styles.fieldSuffix}>{unitName}</span> : null}
+          </div>
+          <div className={styles.fieldHint}>
+            {expectedBatchYield != null ? "From the product recipe." : "No batch yield set."}
+          </div>
+        </CellShell>
+        <CellShell label="Sales order">
           {order && canEditPlanning ? (
             <Select
               value={order.salesOrderLineId ?? MAKE_TO_STOCK_VALUE}
@@ -757,7 +762,7 @@ function OrderDetailsSection({
                 : "Make to stock"}
             </div>
           )}
-        </FormField>
+        </CellShell>
       </div>
     </section>
   );
@@ -845,26 +850,6 @@ function getManufacturingExecutionStartedReason(order: ManufacturingOrderDetail 
   return null;
 }
 
-function FormField({
-  label,
-  required,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={styles.formField}>
-      <label className={styles.formLabel}>
-        {label}
-        {required ? <span className={styles.requiredMark}> *</span> : null}
-      </label>
-      {children}
-    </div>
-  );
-}
-
 function IngredientsSection({
   order,
   canEditPlanning,
@@ -938,7 +923,7 @@ function IngredientsSection({
     [order, reorderMutation],
   );
 
-  const columns = useMemo<ColDef<ManufacturingOrderIngredientDetail>[]>(
+  const columns = useMemo<LineField<ManufacturingOrderIngredientDetail>[]>(
     () => [
       {
         colId: "ingredient",
@@ -1047,17 +1032,14 @@ function IngredientsSection({
           {materialCost > 0 ? ` · ${formatPrice(String(materialCost))} material cost` : ""}
         </span>
       </h2>
-      <EditableLineDataGrid<ManufacturingOrderIngredientDetail>
+      <ManagedEditableLines<ManufacturingOrderIngredientDetail>
         rows={rows}
-        columns={columns}
+        fields={columns}
         getRowId={(row) => row.id}
         createRow={() => rows[0]!}
         onRowsChange={handleRowsChange}
-        addLabel="Add ingredient"
         emptyMessage="No ingredients yet. Pick a product to populate the bill of materials."
-        enableAddRow={false}
-        enableReorder={canEditPlanning && order != null}
-        enableDelete={canEditPlanning && order != null}
+        editable={canEditPlanning && order != null}
         canDeleteRow={(_row, current) => current.length > 1}
         getDeleteDisabledReason={(_row, current) =>
           !canEditPlanning
@@ -1067,9 +1049,6 @@ function IngredientsSection({
               : null
         }
         onDeleteRow={(row) => setConfirmDelete(row)}
-        headerHeight={36}
-        rowHeight={46}
-        minHeight={110}
       />
 
       <AlertDialog
@@ -1123,7 +1102,7 @@ function OperationsSection({ order }: { order: ManufacturingOrderDetail | null }
     setRows(operations);
   }
 
-  const columns = useMemo<ColDef<ManufacturingOrderOperationCostDetail>[]>(
+  const columns = useMemo<LineField<ManufacturingOrderOperationCostDetail>[]>(
     () => [
       { field: "operationName", headerName: "Operation step", flex: 1.4, minWidth: 200 },
       { field: "resourceName", headerName: "Resource", flex: 1, minWidth: 160 },
@@ -1164,20 +1143,13 @@ function OperationsSection({ order }: { order: ManufacturingOrderDetail | null }
           {operations.length} step{operations.length === 1 ? "" : "s"}
         </span>
       </h2>
-      <EditableLineDataGrid<ManufacturingOrderOperationCostDetail>
+      <FixedEditableLines<ManufacturingOrderOperationCostDetail>
         rows={rows}
-        columns={columns}
+        fields={columns}
         getRowId={(row) => row.id}
         createRow={() => rows[0]!}
         onRowsChange={setRows}
-        addLabel="Add operation"
         emptyMessage="No operations for this product."
-        enableAddRow={false}
-        enableReorder={false}
-        enableDelete={false}
-        headerHeight={36}
-        rowHeight={42}
-        minHeight={96}
       />
     </section>
   );
@@ -1186,12 +1158,10 @@ function OperationsSection({ order }: { order: ManufacturingOrderDetail | null }
 function NotesSection({
   order,
   canEdit,
-  lockedReason,
   onPatched,
 }: {
   order: ManufacturingOrderDetail | null;
   canEdit: boolean;
-  lockedReason: string | null;
   onPatched: () => void;
 }) {
   const patchNotes = useMutation({
@@ -1206,29 +1176,19 @@ function NotesSection({
         Notes
         <span className="hint">internal only</span>
       </h2>
-      {canEdit ? (
-        <Textarea
-          key={order?.id ?? "draft"}
-          aria-label="Notes"
-          defaultValue={order?.notes ?? ""}
-          onBlur={(event) => {
-            if (!order) return;
-            const next = event.target.value.trim() || null;
-            if (next !== order.notes) patchNotes.mutate(next);
-          }}
-          rows={3}
-          disabled={!order}
-          className="min-h-20 border-[var(--color-line)] focus-visible:ring-[var(--color-accent)]"
-          placeholder="Notes for this order…"
-        />
-      ) : (
-        <div
-          className="min-h-20 border border-[var(--color-line)] bg-[var(--color-surface-alt)] p-3 text-[13px] text-[var(--color-ink)] whitespace-pre-wrap"
-          title={lockedReason ?? undefined}
-        >
-          {order?.notes ?? <span className="text-[var(--color-muted)]">No notes.</span>}
-        </div>
-      )}
+      <NotesField
+        value={order?.notes ?? ""}
+        disabled={!order || !canEdit}
+        readOnlyValue={!canEdit}
+        rows={3}
+        className="min-h-20"
+        readOnlyClassName="min-h-20 bg-[var(--color-surface-alt)] text-[13px] text-[var(--color-ink)]"
+        placeholder="Notes for this order…"
+        onCommit={(next) => {
+          if (!order) return;
+          if (next !== order.notes) patchNotes.mutate(next);
+        }}
+      />
     </section>
   );
 }

@@ -126,16 +126,6 @@ export function ProductOperationsTab({
     router.push(`/inventory/products/${nextVariantId}/production`);
   };
 
-  if (!activeVariant) {
-    return (
-      <section className={styles.section}>
-        <p className={styles.helper}>
-          Generate at least one variant before editing production operations.
-        </p>
-      </section>
-    );
-  }
-
   return (
     <section className={styles.section}>
       <h2 className={styles.sectionHeading}>Production</h2>
@@ -153,7 +143,7 @@ export function ProductOperationsTab({
             size="sm"
             className="px-(--space-4)"
             onClick={() => setCopyToOpen(true)}
-            disabled={visibleVariants.length < 2}
+            disabled={!activeVariant || visibleVariants.length < 2}
           >
             <HugeiconsIcon icon={Upload01Icon} data-icon="inline-start" />
             Copy to…
@@ -164,6 +154,7 @@ export function ProductOperationsTab({
             size="sm"
             className="px-(--space-4)"
             onClick={() => setCopyFromOpen(true)}
+            disabled={!activeVariant}
           >
             <HugeiconsIcon icon={Download01Icon} data-icon="inline-start" />
             Copy from…
@@ -189,7 +180,7 @@ export function ProductOperationsTab({
             size="sm"
             className="px-(--space-4)"
             onClick={() => saveMutation.mutate()}
-            disabled={!dirty || saveMutation.isPending}
+            disabled={!activeVariant || !dirty || saveMutation.isPending}
           >
             <HugeiconsIcon icon={CheckmarkCircle02Icon} data-icon="inline-start" />
             {saveMutation.isPending ? "Saving…" : "Save production"}
@@ -201,7 +192,13 @@ export function ProductOperationsTab({
         className={styles.helper}
         style={{ marginTop: "var(--space-2)", marginBottom: "var(--space-3)" }}
       >
-        Any changes made here only affect <strong>{activeVariant.displayName}</strong>.
+        {activeVariant ? (
+          <>
+            Any changes made here only affect <strong>{activeVariant.displayName}</strong>.
+          </>
+        ) : (
+          "No variants yet. Production operations will be available after the first variant exists."
+        )}
       </p>
 
       <OperationCostEditor
@@ -212,29 +209,34 @@ export function ProductOperationsTab({
         standardCostQuantity={standardCostQuantity}
         error={saveMutation.error}
         onRowsChange={(nextRows, meta) => {
+          if (!activeVariant) return;
           setRows(nextRows);
           setDirty(meta.dirty);
         }}
       />
 
-      <CopyDialog
-        open={copyToOpen}
-        onOpenChange={setCopyToOpen}
-        cardItemId={focusItemId}
-        scope="operations"
-        direction="to"
-        activeVariant={activeVariant}
-        siblings={visibleVariants}
-      />
-      <CopyDialog
-        open={copyFromOpen}
-        onOpenChange={setCopyFromOpen}
-        cardItemId={focusItemId}
-        scope="operations"
-        direction="from"
-        activeVariant={activeVariant}
-        siblings={visibleVariants}
-      />
+      {activeVariant ? (
+        <>
+          <CopyDialog
+            open={copyToOpen}
+            onOpenChange={setCopyToOpen}
+            cardItemId={focusItemId}
+            scope="operations"
+            direction="to"
+            activeVariant={activeVariant}
+            siblings={visibleVariants}
+          />
+          <CopyDialog
+            open={copyFromOpen}
+            onOpenChange={setCopyFromOpen}
+            cardItemId={focusItemId}
+            scope="operations"
+            direction="from"
+            activeVariant={activeVariant}
+            siblings={visibleVariants}
+          />
+        </>
+      ) : null}
     </section>
   );
 }
