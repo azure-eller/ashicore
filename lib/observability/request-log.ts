@@ -1,5 +1,6 @@
 import "server-only";
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { cache } from "react";
 import { headers } from "next/headers";
 import {
@@ -18,6 +19,20 @@ type RequestLogContext = {
   isPrefetch: boolean;
   proxyStartedAtMs: number | null;
 };
+
+export type ObservedOperationEvent = {
+  event: string;
+  requestId: string;
+  path: string;
+  method: string;
+  accept: string | null;
+  isPrefetch: boolean;
+  sinceProxyMs: number | null;
+  processUptimeMs: number;
+  [key: string]: unknown;
+};
+
+const observedOperationEvents = new AsyncLocalStorage<ObservedOperationEvent[]>();
 
 function toHeaders(requestHeaders: HeadersInit | undefined) {
   return requestHeaders instanceof Headers ? requestHeaders : new Headers(requestHeaders);
@@ -70,20 +85,23 @@ export function logObservedEvent(
 ) {
   const sinceProxyMs =
     context.proxyStartedAtMs == null ? null : Math.max(0, Date.now() - context.proxyStartedAtMs);
+  const payload: ObservedOperationEvent = {
+    event,
+    requestId: context.requestId,
+    path: context.pathname,
+    method: context.method,
+    accept: context.accept,
+    isPrefetch: context.isPrefetch,
+    sinceProxyMs,
+    processUptimeMs: formatMs(process.uptime() * 1000),
+    ...data,
+  };
+
+  observedOperationEvents.getStore()?.push(payload);
 
   console.info(
     "[perf]",
-    JSON.stringify({
-      event,
-      requestId: context.requestId,
-      path: context.pathname,
-      method: context.method,
-      accept: context.accept,
-      isPrefetch: context.isPrefetch,
-      sinceProxyMs,
-      processUptimeMs: formatMs(process.uptime() * 1000),
-      ...data,
-    })
+    JSON.stringify(payload)
   );
 }
 
@@ -127,4 +145,20 @@ export async function measureObservedOperation<T>(
     });
     throw error;
   }
+}
+
+export async function collectObservedOperations<T>(fn: () => Promise<T>): Promise<{
+  result: T;
+  events: ObservedOperationEvent[];
+  durationMs: number;
+}> {
+  const events: ObservedOperationEvent[] = [];
+  const startedAt = performance.now();
+  const result = await observedOperationEvents.run(events, fn);
+
+  return {
+    result,
+    events,
+    durationMs: formatMs(performance.now() - startedAt),
+  };
 }
