@@ -391,6 +391,27 @@ function buildRows(
       const demand = parseQuantity(ingredient.openQty);
       if (demand <= 0) return;
       const alloc = parseQuantity(ingredient.allocatedQty);
+      const existingCell = cells.get(product.itemId);
+
+      if (existingCell) {
+        const nextDemand = existingCell.demand + demand;
+        const nextAlloc = existingCell.alloc + alloc;
+        const pickedQty =
+          parseQuantity(existingCell.line.pickedQty) +
+          parseQuantity(ingredient.pickedQty);
+        const shortQty =
+          parseQuantity(existingCell.line.shortQty) +
+          parseQuantity(ingredient.shortQty);
+        existingCell.demand = nextDemand;
+        existingCell.alloc = nextAlloc;
+        existingCell.line.quantity = quantityString(nextDemand);
+        existingCell.line.remainingQty = quantityString(nextDemand);
+        existingCell.line.allocatedQty = quantityString(nextAlloc);
+        existingCell.line.shortQty = quantityString(shortQty);
+        existingCell.line.pickedQty = quantityString(pickedQty);
+        return;
+      }
+
       const demandLine: SalesOrderListLine & { id: string } = {
         id: ingredient.id,
         allocationDemandType: "manufacturing_order_ingredient",
