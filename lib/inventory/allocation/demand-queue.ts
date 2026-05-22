@@ -262,7 +262,12 @@ export async function getDemandQueueCoverageForItemInTx(
     .filter((row) => row.demandType === "manufacturing_order_ingredient")
     .reduce((sum, row) => sum + row.claimedQty, 0);
   const totalSupply = onHandQty + expectedSupplyQty;
-  const shortTotal = coverage.reduce((sum, row) => sum + row.shortQty, 0);
+  const visibleCoverage = coverage.filter(
+    (row) =>
+      params.includeManufacturingDetail ||
+      row.demandType !== "manufacturing_order_ingredient"
+  );
+  const visibleShortTotal = visibleCoverage.reduce((sum, row) => sum + row.shortQty, 0);
 
   const first = demandRows[0];
   return {
@@ -273,14 +278,8 @@ export async function getDemandQueueCoverageForItemInTx(
     expectedQty: quantityString(expectedSupplyQty),
     claimedByManufacturingQty: quantityString(claimedByManufacturing),
     sellableQty: quantityString(Math.max(0, totalSupply - claimedByManufacturing)),
-    shortQty: quantityString(shortTotal),
-    demands: coverage
-      .filter(
-        (row) =>
-          params.includeManufacturingDetail ||
-          row.demandType !== "manufacturing_order_ingredient"
-      )
-      .map((row) => ({
+    shortQty: quantityString(visibleShortTotal),
+    demands: visibleCoverage.map((row) => ({
       demandType: row.demandType,
       demandId: row.demandId,
       typeLabel: DEMAND_TYPE_LABELS[row.demandType],

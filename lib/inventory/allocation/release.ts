@@ -1,7 +1,12 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
-import { salesShipmentLines, stockAllocations } from "@/lib/db/schema";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
+import {
+  salesOrderLines,
+  salesOrders,
+  salesShipmentLines,
+  stockAllocations,
+} from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { cancelActiveStockAllocationsInTx } from "@/lib/inventory/kernel";
 import { syncSalesLineAllocationReservationInTx } from "./adapters/sales-order-line";
@@ -68,4 +73,25 @@ export async function releaseAllActiveAllocationsForOrgInTx(
       actorUserId: params.actorUserId ?? null,
     });
   }
+
+  await tx
+    .update(salesOrderLines)
+    .set({
+      allocationManagedAt: null,
+      allocationManagedBy: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        isNotNull(salesOrderLines.allocationManagedAt),
+        sql`EXISTS (
+          SELECT 1
+          FROM ${salesOrders}
+          WHERE ${salesOrders.id} = ${salesOrderLines.salesOrderId}
+            AND ${salesOrders.organizationId} = ${params.organizationId}
+            AND ${salesOrders.status} = 'open'
+            AND ${salesOrders.deletedAt} IS NULL
+        )`
+      )
+    );
 }

@@ -48,6 +48,15 @@ async function createSellableProduct(
   } = {}
 ): Promise<string> {
   const ts = Date.now() + Math.floor(Math.random() * 1000);
+  const bom =
+    options.bom && options.bom.length > 0
+      ? options.bom
+      : [
+          {
+            componentId: await createMaterial(`${name} Component`, unitId, "100"),
+            quantity: "1",
+          },
+        ];
   const res = await createItem({
     name: `${name} ${ts}`,
     itemType: "product",
@@ -60,7 +69,7 @@ async function createSellableProduct(
     defaultSellingPrice: "10.00",
     stock: options.stock ?? "0",
     safetyStock: "0",
-    bom: options.bom ?? [],
+    bom,
   });
   expect(res.status, JSON.stringify(res.body)).toBe(201);
   return res.body.id as string;
@@ -203,6 +212,11 @@ test("switching to demand queue releases active allocations and reservations, an
   await setAllocationMode("demand_queue");
   expect(await readActiveAllocations(db, [salesOrderLineId])).toHaveLength(0);
   expect(await readSalesLineReservationQty(db, salesOrderLineId)).toBe(0);
+  const [releasedLine] = await db
+    .select({ allocationManagedAt: salesOrderLines.allocationManagedAt })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.id, salesOrderLineId));
+  expect(releasedLine?.allocationManagedAt).toBeNull();
 
   // Manual allocation writes are hard-rejected in demand_queue mode (guarded in
   // the command path), so no stale caller can recreate active allocations.
@@ -246,7 +260,11 @@ test("demand queue: manufacturing ingredient demand claims component stock befor
   const customerId = await createCustomerLocal("Demand Queue Tote Co");
 
   // Tote is a sellable product, also consumed as a component of "bagged".
-  const toteId = await createSellableProduct("DQ Tote", unitId, { stock: "10" });
+  const toteComponentId = await createMaterial("DQ Tote Component", unitId, "100");
+  const toteId = await createSellableProduct("DQ Tote", unitId, {
+    stock: "10",
+    bom: [{ componentId: toteComponentId, quantity: "1" }],
+  });
   const baggedId = await createSellableProduct("DQ Bagged", unitId, {
     stock: "0",
     bom: [{ componentId: toteId, quantity: "1" }],
@@ -290,12 +308,11 @@ test("demand queue: manufacturing ingredient demand claims component stock befor
 
   // Now add expected supply: a second open MO that PRODUCES 10 totes tomorrow
   // with no tote ingredient demand of its own.
-  const filler = await createMaterial("DQ Filler", unitId, "100");
   const producingMoRes = await apiCreateManufacturingOrder({
     productId: toteId,
     plannedQuantity: "10",
     plannedDate: "2026-05-23",
-    ingredients: [{ itemId: filler, quantityPerUnit: "1" }],
+    ingredients: [{ itemId: toteComponentId, quantityPerUnit: "1" }],
     confirmShortage: true,
   });
   expect(producingMoRes.status, JSON.stringify(producingMoRes.body)).toBe(201);
