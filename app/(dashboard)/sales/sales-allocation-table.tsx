@@ -271,7 +271,7 @@ function getInventoryProducts(inventory: ItemRow[]) {
       hasActiveDemand: false,
     });
 
-    if (item.sellable !== true) return [];
+    if (item.itemType !== "product" || item.sellable !== true) return [];
     return [toStandaloneProduct(item)];
   });
 }
@@ -298,7 +298,9 @@ function getAllocatorProducts(
 
       const existing = productsById.get(line.itemId);
       const inventoryItem = inventoryById.get(line.itemId);
-      if (inventoryItem?.sellable !== true) return;
+      if (inventoryItem?.itemType !== "product" || inventoryItem.sellable !== true) {
+        return;
+      }
       const isStandalone = line.attrs.length === 0;
 
       productsById.set(line.itemId, {
@@ -1362,6 +1364,7 @@ function AllocationToolbar({
   onRestoreColumn: (productId: string) => void;
   onShowAllColumns: () => void;
 }) {
+  const [columnsSearch, setColumnsSearch] = useState("");
   const refreshedLabel = formatRefreshedAgo(refreshedAgoMs);
   const staleness = refreshedStaleness(refreshedAgoMs);
   const hiddenFamilyCount = hiddenFamilies.size;
@@ -1379,6 +1382,36 @@ function AllocationToolbar({
     groups.set(product.familyLabel, bucket);
     return groups;
   }, new Map<string, AllocationProduct[]>());
+  const normalizedColumnsSearch = columnsSearch.trim().toLocaleLowerCase();
+  const familyMatchesSearch = (family: string) =>
+    family.toLocaleLowerCase().includes(normalizedColumnsSearch);
+  const productMatchesSearch = (product: AllocationProduct) =>
+    familyMatchesSearch(product.familyLabel) ||
+    product.label.toLocaleLowerCase().includes(normalizedColumnsSearch) ||
+    product.variantLabel.toLocaleLowerCase().includes(normalizedColumnsSearch) ||
+    (product.sku ?? "").toLocaleLowerCase().includes(normalizedColumnsSearch);
+  const filteredFamilies =
+    normalizedColumnsSearch.length === 0
+      ? families
+      : families.filter((family) => familyMatchesSearch(family));
+  const filteredHiddenProductsByFamily =
+    normalizedColumnsSearch.length === 0
+      ? hiddenProductsByFamily
+      : new Map(
+          [...hiddenProductsByFamily.entries()]
+            .map(
+              ([family, products]) =>
+                [
+                  family,
+                  products.filter((product) => productMatchesSearch(product)),
+                ] as const
+            )
+            .filter(([, products]) => products.length > 0)
+        );
+  const hiddenProductsMatchCount = [...filteredHiddenProductsByFamily.values()].reduce(
+    (total, products) => total + products.length,
+    0
+  );
 
   return (
     <div className={styles.toolbar}>
@@ -1459,7 +1492,23 @@ function AllocationToolbar({
             <HugeiconsIcon icon={ArrowDown01Icon} className="size-3" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuContent align="end" className="max-h-[min(560px,calc(100vh-8rem))] w-80 overflow-y-auto">
+          <div className="px-2 py-1.5">
+            <label className="flex h-8 items-center gap-2 border border-border bg-background px-2 text-sm">
+              <HugeiconsIcon
+                icon={Search01Icon}
+                className="size-3.5 text-muted-foreground"
+              />
+              <input
+                value={columnsSearch}
+                onChange={(event) => setColumnsSearch(event.target.value)}
+                onKeyDown={(event) => event.stopPropagation()}
+                placeholder="Search families, variants, SKU..."
+                aria-label="Search allocation columns"
+                className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+              />
+            </label>
+          </div>
           <div className="flex items-center justify-between px-2 py-1">
             <DropdownMenuLabel className="p-0">Visible families</DropdownMenuLabel>
             <Button
@@ -1473,16 +1522,21 @@ function AllocationToolbar({
             </Button>
           </div>
           <DropdownMenuSeparator />
-          {families.map((family) => (
+          {filteredFamilies.map((family) => (
             <DropdownMenuCheckboxItem
               key={family}
               checked={!hiddenFamilies.has(family)}
               onCheckedChange={() => onToggleFamily(family)}
               onSelect={(event) => event.preventDefault()}
-            >
+          >
               {family}
             </DropdownMenuCheckboxItem>
           ))}
+          {filteredFamilies.length === 0 ? (
+            <div className="px-2 py-3 text-sm text-muted-foreground">
+              No visible families match.
+            </div>
+          ) : null}
           {hiddenProductCount > 0 ? (
             <>
               <DropdownMenuSeparator />
@@ -1499,7 +1553,7 @@ function AllocationToolbar({
                   Show all
                 </Button>
               </div>
-              {[...hiddenProductsByFamily.entries()].map(([family, products]) => (
+              {[...filteredHiddenProductsByFamily.entries()].map(([family, products]) => (
                 <div key={`hidden:${family}`}>
                   <DropdownMenuLabel className="text-xs text-muted-foreground">
                     {family}
@@ -1515,6 +1569,11 @@ function AllocationToolbar({
                   ))}
                 </div>
               ))}
+              {hiddenProductsMatchCount === 0 ? (
+                <div className="px-2 py-3 text-sm text-muted-foreground">
+                  No hidden columns match.
+                </div>
+              ) : null}
             </>
           ) : null}
         </DropdownMenuContent>
