@@ -60,6 +60,18 @@ export type DashboardRouteShell = {
   kind: "list" | "create" | "detail" | "settings" | "generic";
 };
 
+type DashboardNavigationOptions = {
+  salesAllocationMode?: "manual" | "demand_queue";
+};
+
+function filterNavItemsForOptions(
+  items: DashboardNavItem[],
+  options?: DashboardNavigationOptions
+) {
+  if (options?.salesAllocationMode !== "demand_queue") return items;
+  return items.filter((item) => item.href !== "/sales/allocation");
+}
+
 const dashboardNavModules: DashboardNavModule[] = [
   {
     title: "Sales",
@@ -142,10 +154,16 @@ const dashboardCreateActions: DashboardCreateAction[] = [
   },
 ];
 
-export function getDashboardNavModules(assignedRoles: string[]) {
-  return dashboardNavModules.filter((module) =>
-    canReadModule(assignedRoles, module.module)
-  );
+export function getDashboardNavModules(
+  assignedRoles: string[],
+  options?: DashboardNavigationOptions
+) {
+  return dashboardNavModules
+    .filter((module) => canReadModule(assignedRoles, module.module))
+    .map((module) => ({
+      ...module,
+      items: filterNavItemsForOptions(module.items, options),
+    }));
 }
 
 export function getDashboardCreateActions(assignedRoles: string[]) {
@@ -155,7 +173,8 @@ export function getDashboardCreateActions(assignedRoles: string[]) {
 }
 
 export function getDashboardSearchActions(
-  assignedRoles: string[]
+  assignedRoles: string[],
+  options?: DashboardNavigationOptions
 ): DashboardSearchAction[] {
   const actions: DashboardSearchAction[] = [];
 
@@ -182,13 +201,17 @@ export function getDashboardSearchActions(
         icon: Invoice01Icon,
         group: "Sales",
       },
-      {
-        title: "Allocation",
-        description: "View open sales order allocations",
-        href: "/sales/allocation",
-        icon: GridTableIcon,
-        group: "Sales",
-      },
+      ...(options?.salesAllocationMode === "demand_queue"
+        ? []
+        : [
+            {
+              title: "Allocation",
+              description: "View open sales order allocations",
+              href: "/sales/allocation",
+              icon: GridTableIcon,
+              group: "Sales",
+            },
+          ]),
       {
         title: "Customers",
         description: "View customers",
