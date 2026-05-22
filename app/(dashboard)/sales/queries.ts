@@ -3137,99 +3137,109 @@ export async function deleteCustomerCategories(ids: string[]) {
 }
 
 export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
-  return withAuthedOrgContext(async (tx) => {
-    const rows = await tx
-      .select({
-        id: pricingSchedules.id,
-        name: pricingSchedules.name,
-        customerCategoryId: pricingSchedules.customerCategoryId,
-        customerCategoryName: customerCategories.name,
-        unitDefinitionId: unitDefinitions.id,
-        unitName: unitDefinitions.name,
-        unitSize: trimScale(unitDefinitions.size).as("unitSize"),
-        unitUom: unitDefinitions.uom,
-        notes: pricingSchedules.notes,
-        updatedAt: pricingSchedules.updatedAt,
-      })
-      .from(pricingSchedules)
-      .leftJoin(
-        customerCategories,
-        eq(pricingSchedules.customerCategoryId, customerCategories.id)
-      )
-      .innerJoin(
-        unitDefinitions,
-        eq(pricingSchedules.unitDefinitionId, unitDefinitions.id)
-      )
-      .where(isNull(pricingSchedules.deletedAt))
-      .orderBy(
-        asc(customerCategories.name),
-        asc(unitDefinitions.name),
-        asc(pricingSchedules.name)
-      );
+  return measureObservedOperation(
+    "sales.get_pricing_schedules",
+    async () => {
+      return withAuthedOrgContext(async (tx) => {
+        const rows = await tx
+          .select({
+            id: pricingSchedules.id,
+            name: pricingSchedules.name,
+            customerCategoryId: pricingSchedules.customerCategoryId,
+            customerCategoryName: customerCategories.name,
+            unitDefinitionId: unitDefinitions.id,
+            unitName: unitDefinitions.name,
+            unitSize: trimScale(unitDefinitions.size).as("unitSize"),
+            unitUom: unitDefinitions.uom,
+            notes: pricingSchedules.notes,
+            updatedAt: pricingSchedules.updatedAt,
+          })
+          .from(pricingSchedules)
+          .leftJoin(
+            customerCategories,
+            eq(pricingSchedules.customerCategoryId, customerCategories.id)
+          )
+          .innerJoin(
+            unitDefinitions,
+            eq(pricingSchedules.unitDefinitionId, unitDefinitions.id)
+          )
+          .where(isNull(pricingSchedules.deletedAt))
+          .orderBy(
+            asc(customerCategories.name),
+            asc(unitDefinitions.name),
+            asc(pricingSchedules.name)
+          );
 
-    if (rows.length === 0) {
-      return [];
-    }
+        if (rows.length === 0) {
+          return [];
+        }
 
-    const scheduleIds = rows.map((row) => row.id);
-    const breaks = await tx
-      .select({
-        pricingScheduleId: pricingScheduleBreaks.pricingScheduleId,
-        minQuantity: trimScale(pricingScheduleBreaks.minQuantity).as("minQuantity"),
-        maxQuantity: trimScaleNullable(pricingScheduleBreaks.maxQuantity).as("maxQuantity"),
-        discountPercent: trimScale(pricingScheduleBreaks.discountPercent).as(
-          "discountPercent"
-        ),
-        sortOrder: pricingScheduleBreaks.sortOrder,
-      })
-      .from(pricingScheduleBreaks)
-      .where(inArray(pricingScheduleBreaks.pricingScheduleId, scheduleIds))
-      .orderBy(
-        asc(pricingScheduleBreaks.sortOrder),
-        asc(pricingScheduleBreaks.minQuantity)
-      );
+        const scheduleIds = rows.map((row) => row.id);
+        const breaks = await tx
+          .select({
+            pricingScheduleId: pricingScheduleBreaks.pricingScheduleId,
+            minQuantity: trimScale(pricingScheduleBreaks.minQuantity).as("minQuantity"),
+            maxQuantity: trimScaleNullable(pricingScheduleBreaks.maxQuantity).as("maxQuantity"),
+            discountPercent: trimScale(pricingScheduleBreaks.discountPercent).as(
+              "discountPercent"
+            ),
+            sortOrder: pricingScheduleBreaks.sortOrder,
+          })
+          .from(pricingScheduleBreaks)
+          .where(inArray(pricingScheduleBreaks.pricingScheduleId, scheduleIds))
+          .orderBy(
+            asc(pricingScheduleBreaks.sortOrder),
+            asc(pricingScheduleBreaks.minQuantity)
+          );
 
-    const breaksByScheduleId = new Map<
-      string,
-      Array<{
-        minQuantity: string;
-        maxQuantity: string | null;
-        discountPercent: string;
-      }>
-    >();
+        const breaksByScheduleId = new Map<
+          string,
+          Array<{
+            minQuantity: string;
+            maxQuantity: string | null;
+            discountPercent: string;
+          }>
+        >();
 
-    for (const pricingBreak of breaks) {
-      const bucket =
-        breaksByScheduleId.get(pricingBreak.pricingScheduleId) ?? [];
-      bucket.push({
-        minQuantity: pricingBreak.minQuantity,
-        maxQuantity: pricingBreak.maxQuantity,
-        discountPercent: pricingBreak.discountPercent,
+        for (const pricingBreak of breaks) {
+          const bucket =
+            breaksByScheduleId.get(pricingBreak.pricingScheduleId) ?? [];
+          bucket.push({
+            minQuantity: pricingBreak.minQuantity,
+            maxQuantity: pricingBreak.maxQuantity,
+            discountPercent: pricingBreak.discountPercent,
+          });
+          breaksByScheduleId.set(pricingBreak.pricingScheduleId, bucket);
+        }
+
+        return rows.map((row) => {
+          const scheduleBreaks = breaksByScheduleId.get(row.id) ?? [];
+          return {
+            id: row.id,
+            name: row.name,
+            customerCategoryId: row.customerCategoryId,
+            customerScopeLabel: row.customerCategoryName ?? "Everyone",
+            unitDefinitionId: row.unitDefinitionId,
+            unitName: row.unitName,
+            unitLabel: formatPricingUnitLabel({
+              name: row.unitName,
+              size: row.unitSize,
+              uom: row.unitUom,
+            }),
+            notes: row.notes,
+            breakCount: scheduleBreaks.length,
+            breakSummary: summarizePricingBreaks(scheduleBreaks),
+            updatedAt: row.updatedAt,
+          };
+        });
       });
-      breaksByScheduleId.set(pricingBreak.pricingScheduleId, bucket);
+    },
+    {
+      successData: (schedules) => ({
+        rowCount: schedules.length,
+      }),
     }
-
-    return rows.map((row) => {
-      const scheduleBreaks = breaksByScheduleId.get(row.id) ?? [];
-      return {
-        id: row.id,
-        name: row.name,
-        customerCategoryId: row.customerCategoryId,
-        customerScopeLabel: row.customerCategoryName ?? "Everyone",
-        unitDefinitionId: row.unitDefinitionId,
-        unitName: row.unitName,
-        unitLabel: formatPricingUnitLabel({
-          name: row.unitName,
-          size: row.unitSize,
-          uom: row.unitUom,
-        }),
-        notes: row.notes,
-        breakCount: scheduleBreaks.length,
-        breakSummary: summarizePricingBreaks(scheduleBreaks),
-        updatedAt: row.updatedAt,
-      };
-    });
-  });
+  );
 }
 
 export async function getPricingSchedule(
@@ -3517,19 +3527,29 @@ async function getCustomerInTx(
 }
 
 export async function getCustomers(): Promise<CustomerRow[]> {
-  return withAuthedOrgContext(async (tx) => {
-    const rows = await tx
-      .select(customerRowSelect)
-      .from(customers)
-      .leftJoin(
-        customerCategories,
-        eq(customers.customerCategoryId, customerCategories.id)
-      )
-      .where(isNull(customers.deletedAt))
-      .orderBy(asc(customers.name));
+  return measureObservedOperation(
+    "sales.get_customers",
+    async () => {
+      return withAuthedOrgContext(async (tx) => {
+        const rows = await tx
+          .select(customerRowSelect)
+          .from(customers)
+          .leftJoin(
+            customerCategories,
+            eq(customers.customerCategoryId, customerCategories.id)
+          )
+          .where(isNull(customers.deletedAt))
+          .orderBy(asc(customers.name));
 
-    return rows.map(mapCustomerRow);
-  });
+        return rows.map(mapCustomerRow);
+      });
+    },
+    {
+      successData: (rows) => ({
+        rowCount: rows.length,
+      }),
+    }
+  );
 }
 
 export async function getSalesOrderCustomerOptions(): Promise<CustomerOption[]> {

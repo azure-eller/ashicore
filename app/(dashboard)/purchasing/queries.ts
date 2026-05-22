@@ -761,13 +761,23 @@ const supplierRowSelect = {
 } as const;
 
 export async function getSuppliers(): Promise<SupplierRow[]> {
-  return withAuthedOrgContext(async (tx) => {
-    return tx
-      .select(supplierRowSelect)
-      .from(suppliers)
-      .where(isNull(suppliers.deletedAt))
-      .orderBy(asc(suppliers.name));
-  });
+  return measureObservedOperation(
+    "purchasing.get_suppliers",
+    async () => {
+      return withAuthedOrgContext(async (tx) => {
+        return tx
+          .select(supplierRowSelect)
+          .from(suppliers)
+          .where(isNull(suppliers.deletedAt))
+          .orderBy(asc(suppliers.name));
+      });
+    },
+    {
+      successData: (rows) => ({
+        rowCount: rows.length,
+      }),
+    }
+  );
 }
 
 export async function getSupplier(

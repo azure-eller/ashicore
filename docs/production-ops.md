@@ -132,7 +132,30 @@ Perf logs are emitted as `[perf]` JSON lines. Key events:
 - `auth.get_session`: Better Auth session lookup
 - `auth.load_membership`: active-org membership lookup
 - `db.set_org_context`: RLS org context setup
-- `inventory.get_items`, `sales.get_orders`, `purchasing.get_orders`, `manufacturing.get_orders`: landing-page data loads
+- landing-page data loads:
+  - `inventory.get_items`
+  - `inventory.get_stocktakes`
+  - `inventory.get_ledger`
+  - `inventory.get_ledger_actor_options`
+  - `inventory.get_ledger_item_options`
+  - `sales.get_orders`
+  - `sales.get_customers`
+  - `sales.get_pricing_schedules`
+  - `purchasing.get_orders`
+  - `purchasing.get_suppliers`
+  - `manufacturing.get_orders`
+- inventory list substeps:
+  - `inventory.get_items.base_query`
+  - `inventory.get_items.current_bom_set`
+  - `inventory.get_items.used_in_counts`
+  - `inventory.get_items.revenue_30d`
+  - `inventory.get_items.estimated_recipe_costs`
+  - `inventory.get_items.variant_option_values`
+  - `inventory.get_items.map_sort`
+
+Temporarily set this sample rate to `1` while debugging slow route navigation:
+
+- `NEXT_PUBLIC_NAVIGATION_TELEMETRY_SAMPLE_RATE`
 
 API routes also emit:
 
