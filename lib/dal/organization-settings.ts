@@ -1,3 +1,6 @@
+import { eq } from "drizzle-orm";
+import { organization } from "@/lib/db/schema";
+import type { Tx } from "@/lib/db/with-org-context";
 import { ALLOCATION_MODES, type AllocationMode } from "@/lib/schemas/organization";
 
 // `organization.metadata` is a TEXT column holding a JSON object (Better Auth
@@ -32,4 +35,15 @@ export function mergeOrganizationAllocationMode(
   mode: AllocationMode
 ): string {
   return JSON.stringify({ ...parseMetadata(metadata), allocationMode: mode });
+}
+
+export async function getOrganizationAllocationModeInTx(
+  tx: Tx,
+  organizationId: string
+): Promise<AllocationMode> {
+  const [org] = await tx
+    .select({ metadata: organization.metadata })
+    .from(organization)
+    .where(eq(organization.id, organizationId));
+  return getOrganizationAllocationMode(org?.metadata);
 }

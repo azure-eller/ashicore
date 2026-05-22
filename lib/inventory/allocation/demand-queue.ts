@@ -192,7 +192,15 @@ export type DemandQueueItemCoverage = {
 
 export async function getDemandQueueCoverageForItemInTx(
   tx: Tx,
-  params: { organizationId: string; itemId: string }
+  params: {
+    organizationId: string;
+    itemId: string;
+    // Manufacturing demand always participates in the queue computation (it
+    // claims supply and reduces sellable). This flag only controls whether
+    // identifying MO detail rows (order numbers, products, dates, links) are
+    // returned — gated by the viewer's manufacturing read access.
+    includeManufacturingDetail: boolean;
+  }
 ): Promise<DemandQueueItemCoverage | null> {
   const demandRows = (
     await Promise.all(
@@ -266,7 +274,13 @@ export async function getDemandQueueCoverageForItemInTx(
     claimedByManufacturingQty: quantityString(claimedByManufacturing),
     sellableQty: quantityString(Math.max(0, totalSupply - claimedByManufacturing)),
     shortQty: quantityString(shortTotal),
-    demands: coverage.map((row) => ({
+    demands: coverage
+      .filter(
+        (row) =>
+          params.includeManufacturingDetail ||
+          row.demandType !== "manufacturing_order_ingredient"
+      )
+      .map((row) => ({
       demandType: row.demandType,
       demandId: row.demandId,
       typeLabel: DEMAND_TYPE_LABELS[row.demandType],

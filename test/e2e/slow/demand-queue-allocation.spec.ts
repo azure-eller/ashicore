@@ -204,6 +204,22 @@ test("switching to demand queue releases active allocations and reservations, an
   expect(await readActiveAllocations(db, [salesOrderLineId])).toHaveLength(0);
   expect(await readSalesLineReservationQty(db, salesOrderLineId)).toBe(0);
 
+  // Manual allocation writes are hard-rejected in demand_queue mode (guarded in
+  // the command path), so no stale caller can recreate active allocations.
+  const blockedSave = await testFetch("/api/allocation/save", {
+    method: "POST",
+    body: JSON.stringify({
+      demandType: "sales_order_line",
+      demandId: salesOrderLineId,
+      itemId: productId,
+      allocations: [
+        { sourceType: "inventory_lot", sourceId: lot!.lotId, quantity: "10" },
+      ],
+    }),
+  });
+  expect(blockedSave.status).toBe(409);
+  expect(await readActiveAllocations(db, [salesOrderLineId])).toHaveLength(0);
+
   // The cancelled history is preserved for audit.
   const cancelled = await db
     .select({ id: stockAllocations.id })
