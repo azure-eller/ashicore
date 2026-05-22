@@ -267,7 +267,6 @@ export function ERPDataGrid<TData extends { id: string }>({
     getRowId,
     onManagedRowDragReorder,
     rows,
-    searchValue,
   });
   const managedRowDragTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
@@ -354,9 +353,8 @@ export function ERPDataGrid<TData extends { id: string }>({
       getRowId,
       onManagedRowDragReorder,
       rows,
-      searchValue,
     };
-  }, [enableManagedRowDrag, getRowId, onManagedRowDragReorder, rows, searchValue]);
+  }, [enableManagedRowDrag, getRowId, onManagedRowDragReorder, rows]);
 
   useEffect(() => {
     applyPersistedGridState(persistedGridState);
@@ -400,16 +398,8 @@ export function ERPDataGrid<TData extends { id: string }>({
       );
       if (
         !latestState.enableManagedRowDrag ||
-        !arraysEqual(latestSourceIds, sourceIds) ||
-        latestState.searchValue?.trim()
+        !arraysEqual(latestSourceIds, sourceIds)
       ) {
-        return;
-      }
-
-      const hasActiveSort = event.api
-        .getColumnState()
-        .some((column) => column.sort != null);
-      if (hasActiveSort || event.api.isAnyFilterPresent()) {
         return;
       }
 

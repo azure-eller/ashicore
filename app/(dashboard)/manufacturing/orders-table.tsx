@@ -8,7 +8,11 @@ import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { apiJson } from "@/lib/client/api";
 import { usePersistentViewState } from "@/lib/client/use-persistent-view-state";
-import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
+import {
+  ERPDataGrid,
+  type ColDef,
+  type ERPGridPersistentState,
+} from "@/components/erp-data-grid";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { type OperationalState } from "@/components/operational-state-cell";
 import { DateTimeText } from "@/components/date-time-text";
@@ -44,6 +48,24 @@ const DEFAULT_MANUFACTURING_ORDERS_PREFERENCE: ManufacturingOrdersPreference = {
   version: 1,
 };
 type ManufacturingWorkflowFilterValue = "open" | "done";
+
+function keepManufacturingRankDraggable(
+  grid: ERPGridPersistentState | undefined
+): ERPGridPersistentState | undefined {
+  if (!grid) return undefined;
+
+  return {
+    ...grid,
+    sort: undefined,
+    columnVisibility: {
+      ...grid.columnVisibility,
+      hiddenColIds:
+        grid.columnVisibility?.hiddenColIds?.filter(
+          (colId) => colId !== "priorityRank"
+        ) ?? [],
+    },
+  };
+}
 
 function AttributeBadges({ attrs }: { attrs: string[] }) {
   return attrs.map((attr, index) => (
@@ -299,7 +321,6 @@ export function OrdersTable({
   const [searchValue, setSearchValue] = useState("");
   const [selectedOrders, setSelectedOrders] = useState<ManufacturingOrderListRow[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [hasActiveSort, setHasActiveSort] = useState(false);
   const [ordersPreference, setOrdersPreference] = usePersistentViewState({
     viewKey: MANUFACTURING_ORDERS_VIEW_KEY,
     defaultValue: DEFAULT_MANUFACTURING_ORDERS_PREFERENCE,
@@ -338,8 +359,11 @@ export function OrdersTable({
 
     return [...filteredOrders].sort(compareManufacturingRank);
   }, [orders, searchValue, statusFilter]);
-  const reorderEnabled =
-    statusFilter === "open" && searchValue.trim() === "" && !hasActiveSort;
+  const reorderEnabled = statusFilter === "open";
+  const persistedGridState = useMemo(
+    () => keepManufacturingRankDraggable(ordersPreference.grid),
+    [ordersPreference.grid]
+  );
   const gridColumns = useMemo<ColDef<ManufacturingOrderListRow>[]>(
     () => [
       {
@@ -556,12 +580,11 @@ export function OrdersTable({
         enableManagedRowDrag={reorderEnabled}
         suppressMoveWhenRowDragging
         resetRowDataOnUpdate
-        onSortChange={setHasActiveSort}
-        persistedGridState={ordersPreference.grid}
+        persistedGridState={persistedGridState}
         onPersistedGridStateChange={(grid) => {
           setOrdersPreference((current) => ({
             ...current,
-            grid,
+            grid: keepManufacturingRankDraggable(grid),
           }));
         }}
         onManagedRowDragReorder={(orderedRows) => {

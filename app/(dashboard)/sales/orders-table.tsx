@@ -466,8 +466,7 @@ function OrdersTableContent({
 
     return [...filteredOrders].sort(compareSalesOrderRank);
   }, [allocationFilter, allocationMode, orders, searchValue, statusFilter]);
-  const reorderEnabled =
-    statusFilter === "open" && searchValue.trim() === "" && !hasActiveSort;
+  const reorderEnabled = statusFilter === "open";
   const filterSummary =
     statusFilter === "done"
       ? "Done"
