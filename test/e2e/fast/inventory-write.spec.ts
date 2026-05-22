@@ -100,10 +100,39 @@ test.describe("Inventory write-path smoke (card UI)", () => {
 
     await page.waitForURL(`**/inventory/materials/${materialId}*`);
     await expect(page.getByRole("heading", { name: materialName })).toBeVisible();
+    await expect(page.getByText("No variants yet. Open configuration to add some.")).toBeVisible();
+    await expect(page.locator('[data-slot="editable-line-data-grid"]')).toHaveCount(0);
 
     const [material] = await db.select().from(items).where(eq(items.id, materialId));
     expect(material.itemType).toBe("material");
     expect(material.name).toBe(materialName);
+
+    const cardReadsAfterNameEdit: string[] = [];
+    page.on("response", (response) => {
+      if (
+        response.request().method() === "GET" &&
+        response.url().includes(`/api/item-cards/${materialId}`)
+      ) {
+        cardReadsAfterNameEdit.push(response.url());
+      }
+    });
+
+    materialName = `${materialName} renamed`;
+    await nameInput.click();
+    await nameInput.clear();
+    await nameInput.fill(materialName);
+    const [nameResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "PATCH" &&
+          response.url().includes(`/api/item-cards/${materialId}`),
+      ),
+      nameInput.blur(),
+    ]);
+    expect(nameResponse.status()).toBe(200);
+    expect(cardReadsAfterNameEdit).toHaveLength(0);
+    await expect(page.getByRole("heading", { name: materialName })).toBeVisible();
+    await expect(page.locator('[data-slot="editable-line-data-grid"]')).toHaveCount(0);
 
     // Inline-edit the description on the saved card — autosaves on blur.
     await page.getByRole("button", { name: "General info" }).click();
@@ -227,6 +256,8 @@ test.describe("Inventory write-path smoke (card UI)", () => {
 
     await page.waitForURL(`**/inventory/products/${productId}*`);
     await expect(page.getByRole("heading", { name: productName })).toBeVisible();
+    await expect(page.getByText("No variants yet. Open configuration to add some.")).toBeVisible();
+    await expect(page.locator('[data-slot="editable-line-data-grid"]')).toHaveCount(0);
 
     await page.getByRole("link", { name: "Recipe" }).click();
     await page.waitForURL(`**/inventory/products/${productId}/recipe`);

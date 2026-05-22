@@ -19,6 +19,7 @@ import { VariantTable } from "@/components/card-page/variant-table";
 import { GenerateBarcodesButton } from "@/components/card-page/generate-barcodes-button";
 import { CategoryComboboxField } from "@/components/card-page/category-combobox-field";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
+import { setItemCardFamilyQueryData } from "@/components/card-page/item-card-cache";
 import styles from "@/components/card-page/card-page.module.css";
 import {
   updateItemCard,
@@ -183,8 +184,8 @@ function EditableFieldText({
     mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "patch", field),
     mutationFn: (next: string | null) =>
       updateItemCard(focusItemId as string, { [field]: next } as UpdateItemCardInput),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card", focusItemId] });
+    onSuccess: (nextCard) => {
+      setItemCardFamilyQueryData(queryClient, focusItemId as string, nextCard);
     },
   });
   const showRequiredError =
@@ -255,8 +256,8 @@ function EditableFieldTextarea({
     mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "patch", field),
     mutationFn: (next: string | null) =>
       updateItemCard(focusItemId as string, { [field]: next } as UpdateItemCardInput),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card", focusItemId] });
+    onSuccess: (nextCard) => {
+      setItemCardFamilyQueryData(queryClient, focusItemId as string, nextCard);
     },
   });
 
@@ -314,8 +315,8 @@ function MaterialUnitSelectField({
     mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "patch", "unitDefinitionId"),
     mutationFn: (next: string) =>
       updateItemCard(focusItemId as string, { unitDefinitionId: next }),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card", focusItemId] });
+    onSuccess: (nextCard) => {
+      setItemCardFamilyQueryData(queryClient, focusItemId as string, nextCard);
     },
   });
 

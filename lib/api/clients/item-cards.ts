@@ -219,7 +219,7 @@ export async function createItemCard(input: CreateItemCardInput): Promise<Create
 export async function updateItemCard(
   itemId: string,
   input: UpdateItemCardInput
-): Promise<{ id: string }> {
+): Promise<ItemCardDto> {
   const path = `/api/item-cards/${itemId}`;
   const response = await fetch(path, {
     method: "PATCH",
@@ -229,7 +229,7 @@ export async function updateItemCard(
     body: JSON.stringify(input),
   });
   if (!response.ok) return parseError(response, path);
-  return (await response.json()) as { id: string };
+  return (await response.json()) as ItemCardDto;
 }
 
 /**

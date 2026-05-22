@@ -8,6 +8,7 @@ import {
   purchaseOrderLines,
   purchaseOrders,
   stocktakeItems,
+  stocktakeLotItems,
 } from "../../../lib/db/schema";
 import {
   createItem,
@@ -37,6 +38,33 @@ test.describe("Material current stock unit cost story", () => {
   let weightedMaterialName = "";
   let fallbackMaterialId = "";
   let fallbackMaterialName = "";
+
+  function buildCountPayload(
+    lineId: string,
+    lotLines: Array<{ id: string; expectedQty: string }>,
+    countedQty: string,
+  ) {
+    if (lotLines.length === 0) {
+      return {
+        lines: [{ lineId, countedQty }],
+        lotLines: [],
+      };
+    }
+
+    let remaining = Number(countedQty);
+    return {
+      lines: [],
+      lotLines: lotLines.map((line, index) => {
+        const isLast = index === lotLines.length - 1;
+        const lineCount = isLast ? remaining : Number(line.expectedQty);
+        remaining -= lineCount;
+        return {
+          lotLineId: line.id,
+          countedQty: String(lineCount),
+        };
+      }),
+    };
+  }
 
   test("creates a material with an explicit current stock unit cost via API", async ({
     db,
@@ -473,17 +501,18 @@ test.describe("Material current stock unit cost story", () => {
       .select()
       .from(stocktakeItems)
       .where(eq(stocktakeItems.stocktakeId, gainStocktakeBody.id));
+    const gainLotLines = await db
+      .select({
+        id: stocktakeLotItems.id,
+        expectedQty: stocktakeLotItems.expectedQty,
+      })
+      .from(stocktakeLotItems)
+      .where(eq(stocktakeLotItems.stocktakeItemId, gainLine.id))
+      .orderBy(asc(stocktakeLotItems.sortOrder));
 
     const saveGain = await testFetch(`/api/stocktakes/${gainStocktakeBody.id}`, {
       method: "PUT",
-      body: JSON.stringify({
-        lines: [
-          {
-            lineId: gainLine.id,
-            countedQty: "5",
-          },
-        ],
-      }),
+      body: JSON.stringify(buildCountPayload(gainLine.id, gainLotLines, "5")),
     });
     expect(saveGain.status).toBe(200);
 
@@ -518,17 +547,18 @@ test.describe("Material current stock unit cost story", () => {
       .select()
       .from(stocktakeItems)
       .where(eq(stocktakeItems.stocktakeId, lossStocktakeBody.id));
+    const lossLotLines = await db
+      .select({
+        id: stocktakeLotItems.id,
+        expectedQty: stocktakeLotItems.expectedQty,
+      })
+      .from(stocktakeLotItems)
+      .where(eq(stocktakeLotItems.stocktakeItemId, lossLine.id))
+      .orderBy(asc(stocktakeLotItems.sortOrder));
 
     const saveLoss = await testFetch(`/api/stocktakes/${lossStocktakeBody.id}`, {
       method: "PUT",
-      body: JSON.stringify({
-        lines: [
-          {
-            lineId: lossLine.id,
-            countedQty: "4",
-          },
-        ],
-      }),
+      body: JSON.stringify(buildCountPayload(lossLine.id, lossLotLines, "4")),
     });
     expect(saveLoss.status).toBe(200);
 
