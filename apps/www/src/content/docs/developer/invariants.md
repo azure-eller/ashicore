@@ -1,22 +1,68 @@
 ---
-title: Inventory Invariants
-description: Internal rules that must remain true across inventory, sales, purchasing, manufacturing, and stocktakes.
+title: Invariants
+description: Non-negotiable system rules for inventory, purchasing, manufacturing, sales, deletes, and planning.
 section: Developer
-order: 620
+order: 720
 ---
 
-## Guarantee
+These are the rules that keep Ashicore from drifting into spreadsheet behavior.
 
-Inventory history, balances, lots, commitments, and expected supply must agree after each successful mutation.
+## Inventory
 
-## Invariants
+Inventory is ledger-driven. On-hand, available, committed, expected, and lot balances are projections of controlled events.
 
-On-hand stock changes only through inventory movements. Available stock must account for commitments and unavailable stock. Expected supply must be released when the real receipt or completion occurs. Deletes must release dependent planning effects. Allocation must not exceed available stock.
+Never directly update quantity to make a page look right. Stock, lots, costs, commitments, expected supply, dispositions, and allocations must go through the inventory/domain paths.
 
-## Transaction behavior
+Positive stock writes must have a cost basis. Negative stock writes must preserve consumption history.
 
-Business mutations that affect stock, commitments, expected supply, or document state should update their dependent projections in the same transaction.
+## Purchasing
 
-## Failure behavior
+Ordered and partially received purchase orders contribute expected material supply.
 
-If a mutation cannot preserve these invariants, it should fail before committing partial state.
+Receiving creates lots, writes purchase receipt events, and releases the received expected supply.
+
+Already received quantity and receipt-time lot cost are historical. Later purchase-order edits affect future receipts only.
+
+## Manufacturing
+
+Draft manufacturing orders are planning records. Released manufacturing orders create expected finished-good supply and ingredient demand.
+
+Picking consumes ingredient stock. Completion creates finished-product stock. Completion must not consume the same picked ingredients again.
+
+Manufacturing order snapshots are historical execution truth. Later recipe edits must not rewrite open or completed order snapshots unless the user explicitly edits the draft order before release.
+
+## Sales
+
+Confirmed and partially shipped orders create active sales demand. Draft, shipped, cancelled, and deleted orders do not.
+
+Sales allocation reserves supply but does not change on-hand stock.
+
+Shipping is the sales stock event. Shipped shipments preserve physical history and should not be edited as if they were draft plans.
+
+## Deletes
+
+Delete mistakes when dependent effects can be cleaned up atomically.
+
+Block deletion when inventory receipt history, shipped fulfillment, produced output, stocktake completion, finalized invoice history, or accounting push history exists.
+
+Soft-deleted master data must remain readable through snapshots on historical documents.
+
+## Planning
+
+Planning is deterministic and read-first. It should consume structured planning snapshots, not scrape raw module tables from UI code.
+
+Draft recommendations create drafts only. The server must recompute the snapshot before acting and reject stale or changed recommendations.
+
+## API and DAL boundaries
+
+Pages and components call API routes through query/mutation hooks.
+
+API routes call domain/DAL functions.
+
+DAL functions use authenticated org context and database transactions.
+
+Pages, components, and API routes must not import the database client directly.
+
+## Related docs
+
+Read [Architecture](/docs/developer/architecture), [Inventory](/docs/concepts/inventory), [Delete Rules](/docs/reference/delete-rules), and [API Reference](/docs/reference/api-reference).

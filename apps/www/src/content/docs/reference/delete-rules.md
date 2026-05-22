@@ -1,26 +1,93 @@
 ---
 title: Delete Rules
-description: How Ashicore should treat deletion when dependent operational history exists.
+description: When Ashicore deletes mistakes, when it releases dependent state, and when it preserves operational history.
 section: Reference
 order: 340
 ---
 
-## Purpose
+Deletion is for mistakes and reversible operational work. It is not a way to erase receipts, shipments, production output, stocktake adjustments, accounting pushes, or other history that already changed the business record.
 
-Deletion should remove mistakes without erasing real operational history.
+## Global rule
 
-## Rules
+Delete only when dependent effects can be removed or reversed safely in the same transaction.
 
-Draft records are usually safe to delete. Submitted records may require cleanup of expected supply, demand, or allocation. Records with inventory history, shipment history, receipt history, or completed production history should be protected.
+If a record has produced durable inventory, fulfillment, accounting, or audit history, block deletion and preserve the record for traceability.
 
-## User-facing behavior
+## Purchasing
 
-Confirmations should name the object, explain dependent effects, and block deletion when history must be preserved.
+Draft purchase orders can be deleted.
 
-## System behavior
+Ordered purchase orders can be deleted before receipt. Deleting an ordered purchase order must release expected supply in the same transaction.
 
-Deletes must run through domain logic. They should release dependent reservations or expected projections in the same transaction as the deletion.
+Partially received and received purchase orders should block deletion because purchase receipt inventory history and lot cost history must remain intact.
+
+Received purchase order lines cannot be removed. Ordered quantity cannot be reduced below already received quantity.
+
+## Sales
+
+Open, unshipped sales orders can be deleted when there is no finalized fulfillment or accounting history.
+
+Deleting an eligible sales order should:
+
+- soft-delete the order
+- remove planned shipments
+- release active allocations and reservations
+- release committed demand
+- remove linked open manufacturing orders created specifically for that sales order when safe
+
+Deletion should be blocked by shipped fulfillment, finalized invoices, accounting push history, completed manufacturing output, or finalized inventory consumption.
+
+## Manufacturing
+
+Open manufacturing orders can be deleted only while inventory effects can be cleaned up.
+
+Deleting an eligible manufacturing order should:
+
+- release expected finished-good supply
+- release ingredient demand and reservations
+- clear active allocations
+- reverse picked ingredient state back to the original lots when applicable
+
+Completed output blocks deletion. Produced lots are inventory history.
+
+## Stocktakes
+
+Draft stocktakes can be deleted because they have not changed inventory.
+
+Completed stocktakes cannot be deleted. Completion writes gain, loss, or verification events that explain why inventory changed or was physically verified.
+
+## Master data
+
+Customers, suppliers, materials, products, and variants are usually soft-deleted instead of erased.
+
+Active operational references block deletion. Examples:
+
+- material on active draft, ordered, or partial purchase orders
+- product on active sales orders
+- finished product or ingredient on active manufacturing orders
+- item inside a draft stocktake
+
+Completed history should rely on snapshots so old documents stay readable after master data is retired.
+
+## Confirmation copy
+
+A destructive confirmation should name the object, state what dependent records will be removed or released, and explain why the action is blocked when history exists.
+
+Good confirmation copy is specific:
+
+```text
+Delete PO-1042?
+This will remove the ordered purchase order and release 325 gallons of expected binder supply.
+No received lots exist yet.
+```
+
+Blocked copy should be equally specific:
+
+```text
+PO-1042 cannot be deleted because 100 gallons have already been received.
+Received lots are inventory history. Close or archive the order instead.
+```
 
 ## Related docs
 
-Read [Why Delete Instead of Cancel](/docs/design-decisions/why-delete-instead-of-cancel).
+Read [Why Delete Instead of Cancel](/docs/design-decisions/why-delete-instead-of-cancel), [Inventory](/docs/concepts/inventory), and [Manufacturing Orders](/docs/concepts/manufacturing-orders).
