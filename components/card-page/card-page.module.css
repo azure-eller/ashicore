@@ -351,44 +351,6 @@
   gap: var(--space-2);
 }
 
-.detailsGrid {
-  --card-details-columns: 3;
-  display: grid;
-  grid-template-columns: repeat(var(--card-details-columns), minmax(0, 1fr));
-  border-left: 1px solid var(--color-line);
-  border-top: 1px solid var(--color-line);
-}
-
-.detailsCell {
-  min-width: 0;
-  min-height: 52px;
-  padding: var(--space-4) var(--space-5);
-  border-right: 1px solid var(--color-line-2);
-  border-bottom: 1px solid var(--color-line-2);
-  background: var(--color-surface);
-}
-
-.detailsCellEditable:hover,
-.detailsCellEditable:focus-within {
-  background: var(--color-accent-soft);
-}
-
-.detailsCellLabel {
-  margin-bottom: var(--space-2);
-  color: var(--color-muted);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-  line-height: var(--leading-xs);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-}
-
-@media (max-width: 900px) {
-  .detailsGrid {
-    grid-template-columns: 1fr;
-  }
-}
-
 /* ---------- Detail form rows ---------- */
 
 .formRow {

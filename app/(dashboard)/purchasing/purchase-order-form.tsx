@@ -82,10 +82,8 @@ import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { DetailHeaderTitle } from "@/components/card-page/detail-header-title";
 import { CardMetaStrip, CardMetaValue } from "@/components/card-page/card-meta-strip";
-import {
-  cardSaveMutationKey,
-  type CardSaveState,
-} from "@/components/card-page/card-save-status";
+import { NotesField } from "@/components/card-page/notes-field";
+import { type CardSaveState } from "@/components/card-page/card-save-status";
 import {
   PO_LINE_TOTAL_TOOLTIP,
   PURCHASE_ACCOUNT_TOOLTIP,
@@ -864,6 +862,10 @@ export function PurchaseOrderCard({
     control: form.control,
     name: "additionalCosts",
   });
+  const watchedNotes = useWatch({
+    control: form.control,
+    name: "notes",
+  });
   const watchedDeliveryAddress = useWatch({
     control: form.control,
     name: [
@@ -1401,36 +1403,6 @@ export function PurchaseOrderCard({
     [queryClient],
   );
 
-  const mutation = useMutation({
-    mutationKey: cardSaveMutationKey(
-      "purchase-order",
-      savedOrderId ?? "__draft__",
-      "submit-form",
-    ),
-    mutationFn: savePurchaseOrder,
-    onMutate: () => {
-      setFormError(null);
-      form.clearErrors();
-    },
-    onSuccess: (result) => {
-      router.push(`/purchasing/orders/${result.id}`);
-    },
-    onError: (error: ApiError) => {
-      if (error.errors) {
-        setFormError(error.error ?? "Fix the highlighted fields.");
-        Object.entries(error.errors).forEach(([field, messages]) => {
-          form.setError(field as never, {
-            type: "server",
-            message: messages[0],
-          });
-        });
-        return;
-      }
-
-      setFormError(error.error ?? "Failed to save purchase order.");
-    },
-  });
-
   const autosave = useAutosaveForm<
     PurchaseOrderFormValues,
     PurchaseOrderFormValues
@@ -1637,12 +1609,6 @@ export function PurchaseOrderCard({
   });
 
   const handleCancel = useSmartBack(fallbackPath);
-  const handleInvalidSubmit = (errors: typeof form.formState.errors) => {
-    setFormError(
-      getFirstFormErrorMessage(errors) ?? "Fix the highlighted fields.",
-    );
-  };
-
   const applyDeliveryAddress = (address: DeliveryAddressFields | null) => {
     const nextAddress = address
       ? normalizeDeliveryAddress(address)
@@ -1748,8 +1714,8 @@ export function PurchaseOrderCard({
     : "All changes saved";
   const cardSaveState: CardSaveState = (() => {
     if (readOnly) return "readonly";
-    if (mutation.isPending || autosaveState === "saving") return "saving";
-    if (mutation.isError || autosaveState === "error") return "failed";
+    if (autosaveState === "saving") return "saving";
+    if (autosaveState === "error") return "failed";
     if (!savedOrderId || autosaveState === "dirty" || autosaveState === "blocked") {
       return "not_saved";
     }
@@ -1874,13 +1840,7 @@ export function PurchaseOrderCard({
             </CardSection>
           )}
 
-          <form
-            id="purchase-order-form"
-            onSubmit={form.handleSubmit(
-              (values) => mutation.mutate(values),
-              handleInvalidSubmit,
-            )}
-          >
+          <>
             <CardSection title="Order details">
               <div className={`${styles.formRow} ${styles.formRowPo}`}>
                 <div className={styles.formField}>
@@ -1994,52 +1954,40 @@ export function PurchaseOrderCard({
               />
             </CardSection>
 
-            <CardSection>
-              <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <h2 className={styles.sectionHeading}>Notes</h2>
-                    <button
-                      type="button"
-                      className={styles.iconBtn}
-                      aria-label="Attachments"
-                      title="Attachments"
-                      onClick={() => setAttachmentsOpen(true)}
-                    >
-                      <HugeiconsIcon icon={Attachment01Icon} size={14} />
-                    </button>
-                  </div>
-                  <Controller
-                    control={form.control}
-                    name="notes"
-                    render={({ field, fieldState }) => (
-                      <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel
-                          className={styles.compactLabel}
-                          htmlFor={field.name}
-                        >
-                          Notes
-                        </FieldLabel>
-                        <Textarea
-                          {...field}
-                          id={field.name}
-                          value={field.value ?? ""}
-                          onChange={(event) =>
-                            field.onChange(event.target.value || null)
-                          }
-                          disabled={readOnly}
-                          aria-invalid={fieldState.invalid}
-                          rows={6}
-                        />
-                        {fieldState.invalid && (
-                          <FieldError errors={[fieldState.error]} />
-                        )}
-                      </Field>
-                    )}
-                  />
-                </div>
-                <div className="border-l border-border pl-6">
-                  <h2 className={styles.sectionHeading}>Totals</h2>
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <CardSection
+                title="Notes"
+                actions={
+                  <button
+                    type="button"
+                    className={styles.iconBtn}
+                    aria-label="Attachments"
+                    title="Attachments"
+                    onClick={() => setAttachmentsOpen(true)}
+                  >
+                    <HugeiconsIcon icon={Attachment01Icon} size={14} />
+                  </button>
+                }
+              >
+                <NotesField
+                  label="Notes"
+                  value={watchedNotes ?? ""}
+                  disabled={readOnly}
+                  readOnlyValue={readOnly}
+                  rows={6}
+                  onCommit={(next) => {
+                    form.setValue("notes", next, {
+                      shouldDirty: true,
+                      shouldValidate: true,
+                    });
+                  }}
+                />
+                {form.formState.errors.notes ? (
+                  <FieldError errors={[form.formState.errors.notes]} />
+                ) : null}
+              </CardSection>
+
+              <CardSection title="Totals">
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between gap-4">
                       <span className="text-muted-foreground">Total units</span>
@@ -2075,10 +2023,9 @@ export function PurchaseOrderCard({
                       </span>
                     </div>
                   </div>
-                </div>
-              </div>
-            </CardSection>
-          </form>
+              </CardSection>
+            </div>
+          </>
         </CardPageBody>
       </CardPage>
       <Dialog open={attachmentsOpen} onOpenChange={setAttachmentsOpen}>

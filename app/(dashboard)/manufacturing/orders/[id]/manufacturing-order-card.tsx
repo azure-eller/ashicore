@@ -57,7 +57,7 @@ import {
   type PickedLotSummary,
 } from "@/components/manufacturing/lot-strategy-chip";
 import { ManufacturingIngredientLotCard } from "@/components/manufacturing/ingredient-lot-card";
-import { CardPage, CardPageBody } from "@/components/card-page/card-page";
+import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CellShell } from "@/components/card-page/form-cell";
 import { CommitInput } from "@/components/card-page/commit-input";
@@ -615,8 +615,7 @@ function OrderDetailsSection({
   };
 
   return (
-    <section className={styles.section}>
-      <h2 className={styles.sectionHeading}>Order details</h2>
+    <CardSection title="Order details">
       <div className={styles.formRow}>
         <CellShell label="Product" required>
           {canEditPlanning ? (
@@ -766,7 +765,7 @@ function OrderDetailsSection({
           )}
         </CellShell>
       </div>
-    </section>
+    </CardSection>
   );
 }
 
@@ -1026,14 +1025,12 @@ function IngredientsSection({
   );
 
   return (
-    <section className={styles.section}>
-      <h2 className={styles.sectionHeading}>
-        Ingredients
-        <span className="count">
-          {ingredients.length} item{ingredients.length === 1 ? "" : "s"}
-          {materialCost > 0 ? ` · ${formatPrice(String(materialCost))} material cost` : ""}
-        </span>
-      </h2>
+    <CardSection
+      title="Ingredients"
+      count={`· ${ingredients.length} item${ingredients.length === 1 ? "" : "s"}${
+        materialCost > 0 ? ` · ${formatPrice(String(materialCost))} material cost` : ""
+      }`}
+    >
       <ManagedEditableLines<ManufacturingOrderIngredientDetail>
         rows={rows}
         fields={columns}
@@ -1091,7 +1088,7 @@ function IngredientsSection({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </CardSection>
   );
 }
 
@@ -1138,13 +1135,10 @@ function OperationsSection({ order }: { order: ManufacturingOrderDetail | null }
   );
 
   return (
-    <section className={styles.section}>
-      <h2 className={styles.sectionHeading}>
-        Operations
-        <span className="count">
-          {operations.length} step{operations.length === 1 ? "" : "s"}
-        </span>
-      </h2>
+    <CardSection
+      title="Operations"
+      count={`· ${operations.length} step${operations.length === 1 ? "" : "s"}`}
+    >
       <FixedEditableLines<ManufacturingOrderOperationCostDetail>
         rows={rows}
         fields={columns}
@@ -1153,7 +1147,7 @@ function OperationsSection({ order }: { order: ManufacturingOrderDetail | null }
         onRowsChange={setRows}
         emptyMessage="No operations for this product."
       />
-    </section>
+    </CardSection>
   );
 }
 
@@ -1173,11 +1167,7 @@ function NotesSection({
   });
 
   return (
-    <section className={styles.section}>
-      <h2 className={styles.sectionHeading}>
-        Notes
-        <span className="hint">internal only</span>
-      </h2>
+    <CardSection title="Notes" hint="internal only">
       <NotesField
         value={order?.notes ?? ""}
         disabled={!order || !canEdit}
@@ -1191,6 +1181,6 @@ function NotesSection({
           if (next !== order.notes) patchNotes.mutate(next);
         }}
       />
-    </section>
+    </CardSection>
   );
 }

@@ -817,11 +817,7 @@ function ContactsSection({
   );
 
   return (
-    <section className={styles.section}>
-      <h2 className={styles.sectionHeading}>
-        Contacts
-        <span className={styles.count}>· {sourceRows.length}</span>
-      </h2>
+    <CardSection title="Contacts" count={`· ${sourceRows.length}`}>
       <MutableLines
         rows={rows}
         fields={columns}
@@ -832,7 +828,7 @@ function ContactsSection({
         readOnly={readOnly}
         emptyMessage="No contacts yet."
       />
-    </section>
+    </CardSection>
   );
 }
 

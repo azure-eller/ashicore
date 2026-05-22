@@ -34,7 +34,6 @@ read_when:
 - `ERPDataGridList` — `components/erp-data-grid-list.tsx`
 - `MutableLines` / `ManagedEditableLines` / `FixedEditableLines` / `ReadOnlyLines` — `components/editable-lines.tsx`
 - `EditableLineDataGrid` — `components/editable-line-data-grid.tsx` (low-level engine; prefer the named `*Lines` wrappers)
-- `EditableInfoGrid` — `components/editable-info-grid.tsx`
 - `AgGridDateCellEditor` — `components/ag-grid-date-cell-editor.tsx`
 
 ## Core Feedback
