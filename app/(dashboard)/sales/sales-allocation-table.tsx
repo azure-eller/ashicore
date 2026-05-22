@@ -863,12 +863,10 @@ function buildGridRows({
 function getRowsInScope(
   rows: AllocationRow[],
   collapsedWeeks: Set<string>,
-  unplannedOpen: boolean,
   manufacturingOpen: boolean
 ) {
   return rows.filter((row) => {
     if (row.demandSource === "manufacturing") return manufacturingOpen;
-    if (row.demandTypeLabel === "Sales order") return unplannedOpen;
     if (!row.shipDate) return !collapsedWeeks.has("no-date");
     return !collapsedWeeks.has(isoWeekMondayOf(row.shipDate));
   });
@@ -1696,10 +1694,9 @@ export function SalesAllocationTable({
       getRowsInScope(
         searchedRows,
         collapsedWeeks,
-        unplannedOpen,
         manufacturingOpen
       ),
-    [collapsedWeeks, manufacturingOpen, searchedRows, unplannedOpen]
+    [collapsedWeeks, manufacturingOpen, searchedRows]
   );
   const coverageById = useMemo(
     () => getCoverage(visibleProducts, searchedRowsInScope),
@@ -1723,10 +1720,9 @@ export function SalesAllocationTable({
       getRowsInScope(
         filteredRows,
         collapsedWeeks,
-        unplannedOpen,
         manufacturingOpen
       ),
-    [collapsedWeeks, filteredRows, manufacturingOpen, unplannedOpen]
+    [collapsedWeeks, filteredRows, manufacturingOpen]
   );
 
   const familiesAll = useMemo(() => {
