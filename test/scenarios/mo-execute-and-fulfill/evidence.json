@@ -182,7 +182,7 @@
         "file": "/home/aeller/Projects/erp/.worktrees/erp-mo-execute-and-fulfill/lib/inventory/kernel/operations/stock-core.ts",
         "location": "lines 247-364",
         "kind": "function",
-        "why": "Cost basis policy for positive stock events. Materials: explicitUnitCost → items.currentStockUnitCost → resolveStockUnitCostFromDefaultPurchasePrice; otherwise throws MissingCostBasisError. Products: walks the active BOM recursively (getCurrentActiveBomIngredientsInTx) and sums child cost × calculateAverageUnitConsumptionQuantity (handles per_output_unit / per_batch / per_group). Detects BOM cycles and throws MissingCostBasisError with reason='product_bom_cost'. Used by the negative-stock fallback path during shipping/picking."
+        "why": "Cost basis policy for positive stock events. Materials: explicitUnitCost → items.currentStockUnitCost → resolveStockUnitCostFromDefaultPurchasePrice; otherwise throws MissingCostBasisError. Products: walks the active BOM recursively (getCurrentActiveBomIngredientsInTx) and sums child cost × calculateAverageUnitConsumptionQuantity (handles unit and batch recipe bases). Detects BOM cycles and throws MissingCostBasisError with reason='product_bom_cost'. Used by the negative-stock fallback path during shipping/picking."
       },
       {
         "name": "consumeLotAllocationsForDemandInTx",
@@ -614,7 +614,7 @@
       "type": "fact"
     },
     {
-      "claim": "Product cost is derived from active BOM ingredients; getCurrentActiveBomIngredientsInTx returns the components and calculateAverageUnitConsumptionQuantity computes per-output average for per_batch/per_group consumption modes.",
+      "claim": "Product cost is derived from active BOM ingredients; getCurrentActiveBomIngredientsInTx returns the components and calculateAverageUnitConsumptionQuantity computes per-output average for unit and batch recipe bases.",
       "file": "lib/inventory/kernel/operations/stock-core.ts; lib/manufacturing/consumption.ts",
       "location": "stock-core.ts lines 323-349; consumption.ts lines 181-200 (calculateAverageUnitConsumptionQuantity)",
       "type": "fact"

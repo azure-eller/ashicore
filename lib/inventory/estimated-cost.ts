@@ -91,7 +91,11 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
     }
 
     const [currentRevision] = await tx
-      .select({ id: bomRevisions.id })
+      .select({
+        id: bomRevisions.id,
+        recipeBasis: bomRevisions.recipeBasis,
+        outputQuantity: bomRevisions.outputQuantity,
+      })
       .from(bomRevisions)
       .where(and(eq(bomRevisions.productId, itemId), eq(bomRevisions.isCurrent, true)));
 
@@ -104,12 +108,6 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
       .select({
         componentId: bomRevisionComponents.componentId,
         quantity: bomRevisionComponents.quantity,
-        everyQuantity: bomRevisionComponents.everyQuantity,
-        outputQuantity: bomRevisions.outputQuantity,
-        consumptionMode: bomRevisionComponents.consumptionMode,
-        basisOutputQuantity: bomRevisionComponents.basisOutputQuantity,
-        batchScalingMode: bomRevisionComponents.batchScalingMode,
-        groupRemainderPolicy: bomRevisionComponents.groupRemainderPolicy,
       })
       .from(bomRevisionComponents)
       .innerJoin(bomRevisions, eq(bomRevisionComponents.bomRevisionId, bomRevisions.id))
@@ -139,9 +137,8 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
       const componentCost = await resolve(component.componentId, nextVisited);
       const averageUnitQuantity = calculateAverageUnitConsumptionQuantity({
         quantity: component.quantity,
-        everyQuantity: component.everyQuantity,
-        basisOutputQuantity: component.basisOutputQuantity,
-        outputQuantity: component.outputQuantity,
+        recipeBasis: currentRevision.recipeBasis,
+        outputQuantity: currentRevision.outputQuantity,
       });
       const componentQuantity = Number.parseFloat(averageUnitQuantity);
 
@@ -253,7 +250,11 @@ export async function getEstimatedRecipeCostSummariesByItemIdInTx(
     }
 
     const [currentRevision] = await tx
-      .select({ id: bomRevisions.id })
+      .select({
+        id: bomRevisions.id,
+        recipeBasis: bomRevisions.recipeBasis,
+        outputQuantity: bomRevisions.outputQuantity,
+      })
       .from(bomRevisions)
       .where(and(eq(bomRevisions.productId, itemId), eq(bomRevisions.isCurrent, true)));
 
@@ -267,9 +268,6 @@ export async function getEstimatedRecipeCostSummariesByItemIdInTx(
       .select({
         componentId: bomRevisionComponents.componentId,
         quantity: bomRevisionComponents.quantity,
-        everyQuantity: bomRevisionComponents.everyQuantity,
-        outputQuantity: bomRevisions.outputQuantity,
-        basisOutputQuantity: bomRevisionComponents.basisOutputQuantity,
       })
       .from(bomRevisionComponents)
       .innerJoin(bomRevisions, eq(bomRevisionComponents.bomRevisionId, bomRevisions.id))
@@ -307,9 +305,8 @@ export async function getEstimatedRecipeCostSummariesByItemIdInTx(
           : Number.parseFloat(componentSummary.totalCost);
       const averageUnitQuantity = calculateAverageUnitConsumptionQuantity({
         quantity: component.quantity,
-        everyQuantity: component.everyQuantity,
-        basisOutputQuantity: component.basisOutputQuantity,
-        outputQuantity: component.outputQuantity,
+        recipeBasis: currentRevision.recipeBasis,
+        outputQuantity: currentRevision.outputQuantity,
       });
       const componentQuantity = Number.parseFloat(averageUnitQuantity);
 

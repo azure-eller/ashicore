@@ -86,7 +86,7 @@
           {
             "id": "S01",
             "title": "Direct sales-linked single MO create attaches both ids, seeds ingredients with correct quantities, and increments items.expectedQty by exactly plannedQuantity",
-            "narrative": "From /manufacturing/order, with the user picking a sales order then a specific sales-order line, the form must submit to POST /api/manufacturing-orders with both salesOrderId AND salesOrderLineId set. The created MO row must persist (a) salesOrderId, (b) salesOrderLineId, (c) salesOrderNumber + salesCustomerName snapshots, AND (d) manufacturingOrderIngredients rows seeded from the product's active BOM with QUANTITIES matching the BOM components' consumption mode and basisOutputQuantity (per multiplyQuantity scaling). Pre-948c155e the form silently nulled both ids and left ingredients empty — this is the exact regression class to lock in. The expectedQty assertion uses an exact delta (before vs after equals plannedQuantity), not a vague 'reflects' check.",
+            "narrative": "From /manufacturing/order, with the user picking a sales order then a specific sales-order line, the form must submit to POST /api/manufacturing-orders with both salesOrderId AND salesOrderLineId set. The created MO row must persist (a) salesOrderId, (b) salesOrderLineId, (c) salesOrderNumber + salesCustomerName snapshots, AND (d) manufacturingOrderIngredients rows seeded from the product's active BOM with QUANTITIES matching the BOM components' recipe basis and outputQuantity. Pre-948c155e the form silently nulled both ids and left ingredients empty — this is the exact regression class to lock in. The expectedQty assertion uses an exact delta (before vs after equals plannedQuantity), not a vague 'reflects' check.",
             "lane": "slow",
             "setup": [
               "Create a customer via /api/customers.",
@@ -108,7 +108,7 @@
             ],
             "expected_side_effects": [
               "manufacturingOrders row exists with salesOrderId = SO id, salesOrderLineId = picked line id, salesOrderNumber/salesCustomerName populated, productId = line.itemId, plannedQuantity = line.quantity",
-              "manufacturingOrderIngredients rows count equals the product's active BOM ingredient count (>=2), AND each row's quantityToConsume equals multiplyQuantity(bomComponent.quantityPerOutputUnit, plannedQuantity) for per_output_unit, or the basisOutputQuantity-scaled value for per_batch/per_group",
+              "manufacturingOrderIngredients rows count equals the product's active BOM ingredient count (>=2), AND each row's quantityToConsume equals multiplyQuantity(bomComponent.quantityPerOutputUnit, plannedQuantity)",
               "Subsequent GET /api/sales-orders/[id]/manufacturing-orders returns the line with status='skipped' skipReason='existing_active_mo'",
               "items.expectedQty for the product equals Q0 + plannedQuantity (exact delta, trimmed to 4-decimal precision)"
             ],

@@ -163,7 +163,7 @@
           ],
           "seed_data": [
             "Material: stock='200', defaultPurchasePrice='10.00'",
-            "Product: bom=[{componentId: materialId, quantity: '1', consumptionMode: 'per_batch', basisOutputQuantity: '50', batchScalingMode: 'full_batches_only'}]",
+            "Product: bom=[{componentId: materialId, quantity: '1', recipeBasis: 'batch', outputQuantity: '50'}]",
             "MO: plannedQuantity='100' (2 batches of 50)"
           ],
           "route": null

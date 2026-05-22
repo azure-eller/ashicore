@@ -7,7 +7,7 @@ import {
   items,
   unitDefinitions,
 } from "@/lib/db/schema";
-import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
+import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
   LOT_AGE_MIN_DAYS_CONSTRAINT,
@@ -31,23 +31,13 @@ export async function getCurrentActiveBomIngredientsInTx(tx: Tx, productId: stri
       bomOutputQuantity: trimScale(bomRevisions.outputQuantity).as(
         "bomOutputQuantity"
       ),
+      recipeBasis: bomRevisions.recipeBasis,
       itemId: bomRevisionComponents.componentId,
       itemName: items.name,
       itemSku: items.sku,
       itemType: items.itemType,
       unitName: unitDefinitions.name,
       quantityPerUnit: trimScale(bomRevisionComponents.quantity).as("quantityPerUnit"),
-      everyQuantity: trimScale(bomRevisionComponents.everyQuantity).as(
-        "everyQuantity"
-      ),
-      consumptionMode: bomRevisionComponents.consumptionMode,
-      basisOutputQuantity: trimScaleNullable(
-        bomRevisionComponents.basisOutputQuantity
-      ).as("basisOutputQuantity"),
-      batchScalingMode: bomRevisionComponents.batchScalingMode,
-      groupRemainderPolicy: bomRevisionComponents.groupRemainderPolicy,
-      scalingReviewRecommended:
-        bomRevisionComponents.scalingReviewRecommended,
       sortOrder: bomRevisionComponents.sortOrder,
     })
     .from(bomRevisionComponents)

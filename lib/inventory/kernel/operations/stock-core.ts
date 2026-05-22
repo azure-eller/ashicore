@@ -339,8 +339,7 @@ export async function resolvePositiveStockUnitCostInTx(
       );
       const averageUnitQuantity = calculateAverageUnitConsumptionQuantity({
         quantity: component.quantityPerUnit ?? "0",
-        everyQuantity: component.everyQuantity,
-        basisOutputQuantity: component.basisOutputQuantity,
+        recipeBasis: component.recipeBasis,
         outputQuantity: component.bomOutputQuantity,
       });
       total += parseFloat(averageUnitQuantity) * componentUnitCost;

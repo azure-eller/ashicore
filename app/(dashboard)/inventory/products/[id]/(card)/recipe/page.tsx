@@ -50,31 +50,14 @@ export default async function ProductRecipePage({
       initialBomRows={bomRows.map((row) => ({
         componentId: row.componentId,
         quantity: row.quantity,
-        everyQuantity: row.everyQuantity ?? row.basisOutputQuantity ?? null,
-        consumptionMode:
-          (row.consumptionMode as
-            | "per_output_unit"
-            | "per_batch"
-            | "per_group"
-            | null) ?? null,
-        basisOutputQuantity: row.basisOutputQuantity ?? null,
-        batchScalingMode:
-          (row.batchScalingMode as
-            | "proportional"
-            | "full_batches_only"
-            | null) ?? null,
-        groupRemainderPolicy:
-          (row.groupRemainderPolicy as
-            | "ask"
-            | "leave_loose"
-            | "create_partial_group"
-            | null) ?? null,
         minimumLotAgeDays: row.minimumLotAgeDays ?? null,
         alternates: row.alternates.map((alternate) => ({
           itemId: alternate.itemId,
         })),
       }))}
       initialOutputQuantity={currentRevision?.outputQuantity ?? "1"}
+      initialRecipeBasis={currentRevision?.recipeBasis === "batch" ? "batch" : "unit"}
+      initialExpectedBatchYield={item.expectedBatchYield}
       availableComponents={availableComponents.map((component) => ({
         id: component.id,
         name: component.name,

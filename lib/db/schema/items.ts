@@ -171,7 +171,6 @@ export const items = inventorySchema
       manufacturingMode: varchar("manufacturing_mode", { length: 20 }).notNull().default("discrete"),
       expectedBatchYield: numeric("expected_batch_yield", { precision: 12, scale: 4 }),
       typicalBatchSize: numeric("typical_batch_size", { precision: 12, scale: 4 }),
-      typicalGroupSize: numeric("typical_group_size", { precision: 12, scale: 4 }),
       standardCostQuantity: numeric("standard_cost_quantity", {
         precision: 12,
         scale: 4,
@@ -248,10 +247,6 @@ export const items = inventorySchema
       check(
         "items_typical_batch_size_positive",
         sql`typical_batch_size IS NULL OR typical_batch_size > 0`
-      ),
-      check(
-        "items_typical_group_size_positive",
-        sql`typical_group_size IS NULL OR typical_group_size > 0`
       ),
       check(
         "items_standard_cost_quantity_positive",

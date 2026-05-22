@@ -467,12 +467,7 @@ async function buildDailyManufacturingReportPayloadInTx(
       and(
         windowWhere,
         sql`${manufacturingOrderOutputs.manufacturingOrderBatchId} IS NOT NULL`,
-        sql`EXISTS (
-          SELECT 1
-          FROM ${manufacturingOrderIngredients} batch_ingredients
-          WHERE batch_ingredients.manufacturing_order_id = ${manufacturingOrders.id}
-            AND batch_ingredients.consumption_mode = 'per_batch'
-        )`
+        eq(manufacturingOrders.manufacturingMode, "batch")
       )
     )
     .groupBy(

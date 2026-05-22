@@ -64,9 +64,6 @@ test.describe("Manufacturing batch ingredient actuals", () => {
         {
           componentId: soilId,
           quantity: "1",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "50",
-          batchScalingMode: "full_batches_only",
         },
       ],
     });
@@ -403,9 +400,6 @@ test.describe("Manufacturing batch ingredient actuals", () => {
         {
           componentId: soilId,
           quantity: "1",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "50",
-          batchScalingMode: "full_batches_only",
         },
       ],
     });

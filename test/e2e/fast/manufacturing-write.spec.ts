@@ -229,119 +229,46 @@ test.describe("Manufacturing write-path smoke", () => {
       .toBe("Fast manufacturing updated");
   });
 
-  test("rounds every-quantity BOM requirements up without remainder choices", async ({ db }) => {
+  test("rejects legacy group BOM fields", async () => {
     const groupTs = Date.now();
-    const materialPayloads = [
-      ["soil", "1.00", "500"],
-      ["pallet", "5.00", "50"],
-      ["wrap", "2.00", "50"],
-      ["labels", "0.25", "200"],
-    ] as const;
-    const createdMaterials = await Promise.all(
-      materialPayloads.map(([key, price, stock]) =>
-        createItem({
-          name: `Fast Group ${key} ${groupTs}`,
-          itemType: "material",
-          unitDefinitionId: unitId,
-          sku: `FAST-GROUP-${key.toUpperCase()}-${groupTs}`,
-          category: `Fast Group ${groupTs}`,
-          description: null,
-          defaultPurchasePrice: price,
-          defaultSellingPrice: null,
-          stock,
-          safetyStock: "0",
-          bom: [],
-        })
-      )
-    );
-    createdMaterials.forEach((result) => expect(result.status).toBe(201));
-    const [soilId, palletId, wrapId, labelId] = createdMaterials.map(
-      (result) => result.body.id as string
-    );
+    const legacyModeField = "consumption" + "Mode";
+    const legacyBasisField = "basis" + "OutputQuantity";
+    const materialResult = await createItem({
+      name: `Fast Legacy Group Material ${groupTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-LEGACY-GROUP-MAT-${groupTs}`,
+      category: `Fast Legacy Group ${groupTs}`,
+      description: null,
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "50",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialResult.status).toBe(201);
 
     const productCreate = await createItem({
-      name: `Fast Group Bag ${groupTs}`,
+      name: `Fast Legacy Group Product ${groupTs}`,
       itemType: "product",
       unitDefinitionId: unitId,
-      sku: `FAST-GROUP-BAG-${groupTs}`,
-      category: `Fast Group ${groupTs}`,
+      sku: `FAST-LEGACY-GROUP-PROD-${groupTs}`,
+      category: `Fast Legacy Group ${groupTs}`,
       description: null,
       defaultPurchasePrice: null,
       defaultSellingPrice: "12.00",
       stock: "0",
       safetyStock: "0",
-      typicalGroupSize: "50",
       bom: [
-        { componentId: soilId, quantity: "2", consumptionMode: "per_output_unit" },
         {
-          componentId: palletId,
+          componentId: materialResult.body.id as string,
           quantity: "1",
-          consumptionMode: "per_group",
-          basisOutputQuantity: "50",
-          groupRemainderPolicy: "ask",
-        },
-        {
-          componentId: wrapId,
-          quantity: "1",
-          consumptionMode: "per_group",
-          basisOutputQuantity: "50",
-          groupRemainderPolicy: "ask",
-        },
-        {
-          componentId: labelId,
-          quantity: "4",
-          consumptionMode: "per_group",
-          basisOutputQuantity: "50",
-          groupRemainderPolicy: "ask",
+          [legacyModeField]: "per_" + "group",
+          [legacyBasisField]: "50",
         },
       ],
     });
-    expect(productCreate.status).toBe(201);
-    const productIdForGroup = productCreate.body.id as string;
-    const ingredients = [
-      { itemId: soilId, quantityPerUnit: "2" },
-      { itemId: palletId, quantityPerUnit: "1" },
-      { itemId: wrapId, quantityPerUnit: "1" },
-      { itemId: labelId, quantityPerUnit: "4" },
-    ];
-
-    const roundedOrder = await createManufacturingOrder({
-      productId: productIdForGroup,
-      plannedQuantity: "52",
-      ingredients,
-    });
-    expect(roundedOrder.status).toBe(201);
-
-    const roundedRows = await db
-      .select()
-      .from(manufacturingOrderIngredients)
-      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, roundedOrder.body.id));
-    const roundedByItem = new Map(roundedRows.map((row) => [row.itemId, row]));
-    expect(roundedByItem.get(soilId)?.plannedQuantity).toBe("104.0000");
-    expect(roundedByItem.get(palletId)?.plannedQuantity).toBe("2.0000");
-    expect(roundedByItem.get(wrapId)?.plannedQuantity).toBe("2.0000");
-    expect(roundedByItem.get(labelId)?.plannedQuantity).toBe("8.0000");
-    expect(roundedByItem.get(palletId)?.everyQuantity).toBe("50.0000");
-    expect(roundedByItem.get(palletId)?.chosenGroupRemainderHandling).toBeNull();
-    expect(roundedByItem.get(wrapId)?.chosenGroupRemainderHandling).toBeNull();
-    expect(roundedByItem.get(labelId)?.calculatedGroupCount).toBe("2.0000");
-
-    const duplicateResponse = await testFetch(
-      `/api/manufacturing-orders/${roundedOrder.body.id}/duplicate`,
-      { method: "POST" }
-    );
-    expect(duplicateResponse.status).toBe(201);
-    const duplicateBody = await duplicateResponse.json();
-    const duplicatedRows = await db
-      .select()
-      .from(manufacturingOrderIngredients)
-      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, duplicateBody.id));
-    const duplicatedByItem = new Map(
-      duplicatedRows.map((row) => [row.itemId, row])
-    );
-    expect(duplicatedByItem.get(palletId)?.plannedQuantity).toBe("2.0000");
-    expect(duplicatedByItem.get(wrapId)?.plannedQuantity).toBe("2.0000");
-    expect(duplicatedByItem.get(labelId)?.chosenGroupRemainderHandling).toBeNull();
+    expect(productCreate.status).toBe(400);
   });
 
   test("keeps batch order readiness based on execution ingredient rows", async () => {
@@ -373,14 +300,13 @@ test.describe("Manufacturing write-path smoke", () => {
       defaultSellingPrice: "10",
       stock: "0",
       safetyStock: "0",
+      manufacturingMode: "batch",
+      expectedBatchYield: "10",
       typicalBatchSize: "10",
       bom: [
         {
           componentId: materialId,
           quantity: "3",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "10",
-          batchScalingMode: "full_batches_only",
         },
       ],
     });
@@ -392,7 +318,7 @@ test.describe("Manufacturing write-path smoke", () => {
 
     const orderResult = await createManufacturingOrder({
       productId: batchProductId,
-      plannedQuantity: "12",
+      plannedQuantity: "20",
       ingredients: [{ itemId: materialId, quantityPerUnit: "3" }],
     });
     expect(orderResult.status).toBe(201);
@@ -409,7 +335,7 @@ test.describe("Manufacturing write-path smoke", () => {
     });
   });
 
-  test("spreads grouped materials across batch execution rows", async ({ db }) => {
+  test("spreads per-batch materials across batch execution rows", async ({ db }) => {
     const groupBatchTs = Date.now();
     const processMaterialResult = await createItem({
       name: `Fast Group Batch Process ${groupBatchTs}`,
@@ -453,21 +379,17 @@ test.describe("Manufacturing write-path smoke", () => {
       defaultSellingPrice: "10",
       stock: "0",
       safetyStock: "0",
+      manufacturingMode: "batch",
+      expectedBatchYield: "8.75",
       typicalBatchSize: "8.75",
       bom: [
         {
           componentId: processMaterialId,
           quantity: "1",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "8.75",
-          batchScalingMode: "full_batches_only",
         },
         {
           componentId: groupedMaterialId,
-          quantity: "1",
-          consumptionMode: "per_group",
-          basisOutputQuantity: "3",
-          groupRemainderPolicy: "create_partial_group",
+          quantity: "3",
         },
       ],
     });
@@ -478,7 +400,7 @@ test.describe("Manufacturing write-path smoke", () => {
       plannedQuantity: "26.25",
       ingredients: [
         { itemId: processMaterialId, quantityPerUnit: "1" },
-        { itemId: groupedMaterialId, quantityPerUnit: "1" },
+        { itemId: groupedMaterialId, quantityPerUnit: "3" },
       ],
     });
     expect(orderResult.status).toBe(201);
@@ -494,7 +416,6 @@ test.describe("Manufacturing write-path smoke", () => {
       .select({
         batchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
         plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
-        calculatedGroupCount: manufacturingOrderIngredients.calculatedGroupCount,
       })
       .from(manufacturingOrderIngredients)
       .where(
@@ -514,14 +435,9 @@ test.describe("Manufacturing write-path smoke", () => {
       "3.0000",
       "3.0000",
     ]);
-    expect(groupedRows.map((row) => row.calculatedGroupCount)).toEqual([
-      "3.0000",
-      "3.0000",
-      "3.0000",
-    ]);
   });
 
-  test("ignores product compatibility mode when BOM has no batch lines", async ({ db }) => {
+  test("uses product recipe basis when creating batch templates", async ({ db }) => {
     const compatTs = Date.now();
     const materialResult = await createItem({
       name: `Fast Compat Material ${compatTs}`,
@@ -564,13 +480,13 @@ test.describe("Manufacturing write-path smoke", () => {
       (candidate: { id: string }) => candidate.id === productId
     );
     expect(template).toMatchObject({
-      manufacturingMode: "discrete",
-      expectedBatchYield: null,
+      manufacturingMode: "batch",
+      expectedBatchYield: "10",
     });
 
     const orderResult = await createManufacturingOrder({
       productId,
-      plannedQuantity: "4",
+      plannedQuantity: "10",
       ingredients: [{ itemId: materialId, quantityPerUnit: "1" }],
     });
     expect(orderResult.status).toBe(201);
@@ -579,9 +495,9 @@ test.describe("Manufacturing write-path smoke", () => {
       .select()
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, orderResult.body.id as string));
-    expect(order.manufacturingMode).toBe("discrete");
-    expect(order.numberOfBatches).toBeNull();
-    expect(order.expectedBatchYield).toBeNull();
+    expect(order.manufacturingMode).toBe("batch");
+    expect(order.numberOfBatches).toBe(1);
+    expect(order.expectedBatchYield).toBe("10.0000");
   });
 
   test("duplicates a manufacturing order from the detail actions", async ({
@@ -1341,7 +1257,6 @@ test.describe("Manufacturing write-path smoke", () => {
       manufacturingMode: "discrete",
       expectedBatchYield: null,
       typicalBatchSize: null,
-      typicalGroupSize: null,
       standardCostQuantity: null,
       bom: [{ componentId: materialBId, quantity: "1" }],
       operationCosts: [
@@ -1441,20 +1356,16 @@ test.describe("Manufacturing write-path smoke", () => {
       defaultSellingPrice: "60.00",
       stock: "0",
       safetyStock: "0",
+      manufacturingMode: "batch",
+      expectedBatchYield: "2",
       bom: [
         {
           componentId: batchSandId,
           quantity: "3",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "2",
-          batchScalingMode: "full_batches_only",
         },
         {
           componentId: batchCompostId,
           quantity: "1",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "2",
-          batchScalingMode: "full_batches_only",
         },
       ],
     });
@@ -1462,9 +1373,9 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(batchProductCreate.status).toBe(201);
     const batchProductId = batchProductCreate.body.id as string;
 
-    // Unified sheet uses output quantity; a yield-2 product at qty 6 → 3 batches.
+    // Batch-mode sheet uses batch count; a yield-2 product at 3 batches → 6 output.
     await page.goto("/manufacturing/order");
-    await page.getByLabel("Planned quantity").fill("6");
+    await page.getByLabel("Planned quantity").fill("3");
     const productSelect = page.getByLabel("Product");
     await productSelect.click();
     await page.getByRole("option", { name: new RegExp(batchProductName) }).click();
@@ -1811,20 +1722,16 @@ test.describe("Manufacturing write-path smoke", () => {
       sellable: true,
       stock: "0",
       safetyStock: "0",
+      manufacturingMode: "batch",
+      expectedBatchYield: "2",
       bom: [
         {
           componentId: legacySandCreate.body.id as string,
           quantity: "3",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "2",
-          batchScalingMode: "full_batches_only",
         },
         {
           componentId: legacyCompostCreate.body.id as string,
           quantity: "1",
-          consumptionMode: "per_batch",
-          basisOutputQuantity: "2",
-          batchScalingMode: "full_batches_only",
         },
       ],
     });
@@ -1835,7 +1742,7 @@ test.describe("Manufacturing write-path smoke", () => {
       method: "POST",
       body: JSON.stringify({
         productId: legacyProductCreate.body.id,
-        plannedQuantity: "5",
+        plannedQuantity: "6",
         plannedDate: null,
         notes: "Open batch read regression",
         ingredients: [
@@ -1925,7 +1832,7 @@ test.describe("Manufacturing write-path smoke", () => {
       body: JSON.stringify({
         salesOrderId: salesOrderBody.id,
         salesOrderLineId: salesOrderLine.id,
-        plannedQuantity: "5",
+        plannedQuantity: "6",
         plannedDate: null,
         notes: "Open batch linked from edit",
         ingredients: [firstEditableIngredient, secondEditableIngredient].map((ingredient) => ({

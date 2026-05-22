@@ -18,7 +18,6 @@ export type ManufacturingProductOption = {
   manufacturingMode: string;
   expectedBatchYield: string | null;
   typicalBatchSize: string | null;
-  typicalGroupSize: string | null;
 };
 
 export type ManufacturingSalesLineOption = {
@@ -33,6 +32,8 @@ export type ManufacturingSalesLineOption = {
   itemSku: string | null;
   quantity: string;
   unitName: string;
+  manufacturingMode: string;
+  expectedBatchYield: string | null;
   status: "open";
 };
 
@@ -54,6 +55,8 @@ export type ManufacturingSalesOrderPreviewLine = {
   itemSku: string | null;
   quantity: string;
   unitName: string;
+  manufacturingMode: string;
+  expectedBatchYield: string | null;
   status: "will_create" | "skipped";
   skipReason:
     | "non_product"
@@ -63,10 +66,6 @@ export type ManufacturingSalesOrderPreviewLine = {
     | "existing_active_mo"
     | null;
   skipMessage: string | null;
-  groupRemainderRows: Array<{
-    basisOutputQuantity: string | null;
-    groupRemainderPolicy: string | null;
-  }>;
 };
 
 export type ManufacturingSalesOrderPreview = {
@@ -190,15 +189,6 @@ export type ManufacturingOrderIngredientDetail = {
   itemType: string;
   unitName: string;
   quantityPerUnit: string;
-  bomOutputQuantity: string | null;
-  everyQuantity: string;
-  consumptionMode: string;
-  basisOutputQuantity: string | null;
-  batchScalingMode: string | null;
-  groupRemainderPolicy: string | null;
-  chosenGroupRemainderHandling: string | null;
-  calculatedBatchCount: string | null;
-  calculatedGroupCount: string | null;
   plannedQuantity: string;
   lotStrategy: ManufacturingLotStrategy;
   pickedQuantity: string;
@@ -373,15 +363,6 @@ export type ManufacturingOrderEditData = {
     itemType: string;
     unitName: string;
     quantityPerUnit: string;
-    bomOutputQuantity: string | null;
-    everyQuantity: string;
-    consumptionMode: string;
-    basisOutputQuantity: string | null;
-    batchScalingMode: string | null;
-    groupRemainderPolicy: string | null;
-    chosenGroupRemainderHandling: string | null;
-    calculatedBatchCount: string | null;
-    calculatedGroupCount: string | null;
     defaultItemId: string | null;
     defaultItemName: string | null;
     defaultItemSku: string | null;

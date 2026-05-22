@@ -143,8 +143,7 @@ Size: 1473 LOC, 11 `test()` blocks.
 
 - **What it asserts well**
   - Browser MO create + edit roundtrip with DB write verification (37–170).
-  - Per-group remainder choices (172–312) — both `leave_loose` and `create_partial_group`, including duplicated copies on `/duplicate`.
-  - Batch readiness rollups via `/api/manufacturing-orders` list (314–385).
+  -   - Batch readiness rollups via `/api/manufacturing-orders` list (314–385).
   - Manufacturing-mode compatibility: product set to `batch` but BOM has no batch lines → falls back to `discrete` (387–448) — directly relevant to ingredient-binding regressions.
   - Out-of-order batch execution rejection on `/start`, `/pick`, `/complete` (929–967).
   - Approved alternate ingredient consumption + 4-decimal demand value (1309–1471).

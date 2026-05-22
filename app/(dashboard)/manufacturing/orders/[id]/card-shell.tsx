@@ -23,6 +23,8 @@ export async function ManufacturingOrderCardShell({ orderId }: { orderId: string
         displayName: template.displayName,
         sku: template.sku,
         unitName: template.unitName,
+        manufacturingMode: template.manufacturingMode,
+        expectedBatchYield: template.expectedBatchYield,
         bom: template.bom.map((row) => ({
           itemId: row.itemId,
           quantityPerUnit: row.quantityPerUnit,

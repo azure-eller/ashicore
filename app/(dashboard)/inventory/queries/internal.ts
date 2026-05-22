@@ -479,6 +479,7 @@ export async function createBomRevisionInTx(
     productId: string;
     note?: string | null;
     outputQuantity?: string | null;
+    recipeBasis?: "unit" | "batch";
     bom: BomInputRow[];
     operationCosts?: BomOperationCostInputRow[];
   }
@@ -504,6 +505,7 @@ export async function createBomRevisionInTx(
       productId: params.productId,
       revisionNumber: (currentRevision?.revisionNumber ?? 0) + 1,
       outputQuantity: params.outputQuantity ?? "1",
+      recipeBasis: params.recipeBasis ?? "unit",
       isCurrent: true,
       note: params.note ?? null,
       createdBy: params.userId,
@@ -538,13 +540,6 @@ export async function createBomRevisionInTx(
         throw new Error("BOM component not found");
       }
 
-      const consumptionMode = row.consumptionMode ?? "per_output_unit";
-      const everyQuantity =
-        row.everyQuantity ??
-        row.basisOutputQuantity ??
-        params.outputQuantity ??
-        "1";
-
       return {
         bomRevisionId: revision.id,
         componentId: row.componentId,
@@ -553,21 +548,6 @@ export async function createBomRevisionInTx(
         componentItemType: component.itemType,
         unitName: component.unitName,
         quantity: row.quantity,
-        everyQuantity,
-        consumptionMode,
-        basisOutputQuantity:
-          consumptionMode === "per_batch" || consumptionMode === "per_group"
-            ? row.basisOutputQuantity ?? null
-            : null,
-        batchScalingMode:
-          consumptionMode === "per_batch"
-            ? row.batchScalingMode ?? "full_batches_only"
-            : null,
-        groupRemainderPolicy:
-          consumptionMode === "per_group"
-            ? row.groupRemainderPolicy ?? "ask"
-            : null,
-        scalingReviewRecommended: row.consumptionMode == null && consumptionMode === "per_batch",
         sortOrder: index,
       };
     });
@@ -900,9 +880,6 @@ export async function getItem(id: string) {
         ),
         typicalBatchSize: trimScaleNullable(items.typicalBatchSize).as(
           "typicalBatchSize"
-        ),
-        typicalGroupSize: trimScaleNullable(items.typicalGroupSize).as(
-          "typicalGroupSize"
         ),
         standardCostQuantity: trimScaleNullable(items.standardCostQuantity).as(
           "standardCostQuantity"
@@ -2004,15 +1981,17 @@ export async function updateItem(
     }
 
     if (bom !== undefined || operationCosts !== undefined) {
+      const [currentRevisionMeta] = await tx
+        .select({
+          outputQuantity: bomRevisions.outputQuantity,
+          recipeBasis: bomRevisions.recipeBasis,
+        })
+        .from(bomRevisions)
+        .where(and(eq(bomRevisions.productId, id), eq(bomRevisions.isCurrent, true)))
+        .limit(1);
       const nextBom = bom ?? currentBom.map((row) => ({
         componentId: row.componentId,
         quantity: row.quantity,
-        everyQuantity: row.everyQuantity,
-        consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
-        basisOutputQuantity: row.basisOutputQuantity,
-        batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
-        groupRemainderPolicy:
-          row.groupRemainderPolicy as BomInputRow["groupRemainderPolicy"],
         minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
         alternates: row.alternates.map((alternate) => ({
           itemId: alternate.alternateItemId,
@@ -2031,12 +2010,6 @@ export async function updateItem(
           currentBom.map((row) => ({
             componentId: row.componentId,
             quantity: row.quantity,
-            everyQuantity: row.everyQuantity,
-            consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
-            basisOutputQuantity: row.basisOutputQuantity,
-            batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
-            groupRemainderPolicy:
-              row.groupRemainderPolicy as BomInputRow["groupRemainderPolicy"],
             minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
             alternates: row.alternates.map((alternate) => ({
               itemId: alternate.alternateItemId,
@@ -2063,6 +2036,8 @@ export async function updateItem(
           userId,
           productId: id,
           note: revisionNote,
+          outputQuantity: currentRevisionMeta?.outputQuantity ?? "1",
+          recipeBasis: currentRevisionMeta?.recipeBasis === "batch" ? "batch" : "unit",
           bom: nextBom,
           operationCosts: nextOperationCosts,
         });
@@ -2255,12 +2230,19 @@ export async function createItemWithLot(
       .returning({ id: items.id });
 
     if ((bom && bom.length > 0) || (operationCosts && operationCosts.length > 0)) {
+      const recipeBasis = data.manufacturingMode === "batch" ? "batch" : "unit";
+      const recipeOutputQuantity =
+        recipeBasis === "batch"
+          ? data.expectedBatchYield ?? data.typicalBatchSize ?? outputQuantity ?? "1"
+          : "1";
+
       await createBomRevisionInTx(tx, {
         orgId,
         userId,
         productId: item.id,
         note: revisionNote,
-        outputQuantity,
+        outputQuantity: recipeOutputQuantity,
+        recipeBasis,
         bom: bom ?? [],
         operationCosts: operationCosts ?? [],
       });
@@ -2493,12 +2475,6 @@ export async function getBomComponents(itemId: string) {
       id: row.id,
       componentId: row.componentId,
       quantity: row.quantity,
-      everyQuantity: row.everyQuantity,
-      consumptionMode: row.consumptionMode,
-      basisOutputQuantity: row.basisOutputQuantity,
-      batchScalingMode: row.batchScalingMode,
-      groupRemainderPolicy: row.groupRemainderPolicy,
-      scalingReviewRecommended: row.scalingReviewRecommended,
       minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
       constraints: row.constraints,
       componentName: row.componentName,
@@ -2583,11 +2559,6 @@ export async function copyCurrentBomToVariants(
     const bom: BomInputRow[] = sourceBom.map((row) => ({
       componentId: row.componentId,
       quantity: row.quantity,
-      everyQuantity: row.everyQuantity,
-      consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
-      basisOutputQuantity: row.basisOutputQuantity,
-      batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
-      groupRemainderPolicy: row.groupRemainderPolicy as BomInputRow["groupRemainderPolicy"],
       minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
       alternates: row.alternates.map((alternate) => ({
         itemId: alternate.alternateItemId,
@@ -2610,6 +2581,7 @@ export async function copyCurrentBomToVariants(
         productId,
         note: note ?? `Copied from ${sourceItemId}`,
         outputQuantity: sourceRevision?.outputQuantity ?? null,
+        recipeBasis: sourceRevision?.recipeBasis === "batch" ? "batch" : "unit",
         bom,
         operationCosts,
       });
@@ -2699,11 +2671,6 @@ export async function copyCurrentOperationsToVariants(
       const bom: BomInputRow[] = targetBom.map((row) => ({
         componentId: row.componentId,
         quantity: row.quantity,
-        everyQuantity: row.everyQuantity,
-        consumptionMode: row.consumptionMode as BomInputRow["consumptionMode"],
-        basisOutputQuantity: row.basisOutputQuantity,
-        batchScalingMode: row.batchScalingMode as BomInputRow["batchScalingMode"],
-        groupRemainderPolicy: row.groupRemainderPolicy as BomInputRow["groupRemainderPolicy"],
         minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
         alternates: row.alternates.map((alternate) => ({
           itemId: alternate.alternateItemId,
@@ -2716,6 +2683,7 @@ export async function copyCurrentOperationsToVariants(
         productId,
         note: note ?? `Copied operations from ${sourceItemId}`,
         outputQuantity: targetRevision?.outputQuantity ?? null,
+        recipeBasis: targetRevision?.recipeBasis === "batch" ? "batch" : "unit",
         bom,
         operationCosts,
       });

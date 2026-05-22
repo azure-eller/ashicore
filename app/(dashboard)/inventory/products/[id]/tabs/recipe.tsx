@@ -11,7 +11,9 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
@@ -32,6 +34,8 @@ export type ProductRecipeTabProps = {
   focusItemId: string;
   initialBomRows: BomPayloadRow[];
   initialOutputQuantity: string;
+  initialRecipeBasis: "unit" | "batch";
+  initialExpectedBatchYield: string | null;
   availableComponents: AvailableComponent[];
   canViewBom: boolean;
   canEditProduct: boolean;
@@ -42,6 +46,8 @@ export function ProductRecipeTab({
   focusItemId,
   initialBomRows,
   initialOutputQuantity,
+  initialRecipeBasis,
+  initialExpectedBatchYield,
   availableComponents,
   canViewBom,
   canEditProduct,
@@ -53,7 +59,12 @@ export function ProductRecipeTab({
     visibleVariants.find((variant) => variant.id === focusItemId) ?? visibleVariants[0];
 
   const [rows, setRows] = useState<BomPayloadRow[]>(initialBomRows);
-  const [outputQuantity, setOutputQuantity] = useState(initialOutputQuantity);
+  const [recipeBasis, setRecipeBasis] = useState<"unit" | "batch">(
+    initialRecipeBasis,
+  );
+  const [expectedBatchYield, setExpectedBatchYield] = useState(
+    initialExpectedBatchYield ?? initialOutputQuantity,
+  );
   const [dirty, setDirty] = useState(false);
   const [copyToOpen, setCopyToOpen] = useState(false);
   const [copyFromOpen, setCopyFromOpen] = useState(false);
@@ -62,7 +73,9 @@ export function ProductRecipeTab({
     mutationKey: cardSaveMutationKey("item-card", focusItemId, "bom-revision"),
     mutationFn: () =>
       saveBomRevision(focusItemId, {
-        outputQuantity,
+        recipeBasis,
+        expectedBatchYield: recipeBasis === "batch" ? expectedBatchYield : null,
+        outputQuantity: recipeBasis === "batch" ? expectedBatchYield : "1",
         bom: rows
           .filter(
             (row) =>
@@ -74,11 +87,6 @@ export function ProductRecipeTab({
           .map((row) => ({
             componentId: row.componentId!,
             quantity: row.quantity!,
-            everyQuantity: row.everyQuantity ?? outputQuantity,
-            consumptionMode: row.consumptionMode ?? null,
-            basisOutputQuantity: row.basisOutputQuantity ?? null,
-            batchScalingMode: row.batchScalingMode ?? null,
-            groupRemainderPolicy: row.groupRemainderPolicy ?? null,
             minimumLotAgeDays: row.minimumLotAgeDays ?? null,
             alternates: row.alternates ?? [],
           })),
@@ -136,7 +144,9 @@ export function ProductRecipeTab({
     <section className={styles.section}>
       <h2 className={styles.sectionHeading}>
         Recipe / Bill of Materials
-        <span className={styles.hint}>per 1 unit of product</span>
+        <span className={styles.hint}>
+          {recipeBasis === "batch" ? "per 1 production batch" : "per 1 unit of product"}
+        </span>
       </h2>
 
       <div className="flex flex-col gap-(--space-3) md:flex-row md:items-end md:justify-between">
@@ -178,7 +188,8 @@ export function ProductRecipeTab({
                 className="px-(--space-4)"
                 onClick={() => {
                   setRows(initialBomRows);
-                  setOutputQuantity(initialOutputQuantity);
+                  setRecipeBasis(initialRecipeBasis);
+                  setExpectedBatchYield(initialExpectedBatchYield ?? initialOutputQuantity);
                   setDirty(false);
                 }}
                 disabled={saveMutation.isPending}
@@ -208,26 +219,58 @@ export function ProductRecipeTab({
         Any changes made here only affect <strong>{activeVariant.displayName}</strong>.
       </p>
 
-      <div className="mb-(--space-3) grid max-w-sm grid-cols-[1fr_auto] items-center gap-(--space-2)">
-        <Input
-          aria-label="Recipe output quantity"
-          inputMode="decimal"
-          value={outputQuantity}
-          onChange={(event) => {
-            setOutputQuantity(event.target.value);
-            setDirty(true);
-          }}
-        />
-        <span className="text-[length:var(--text-sm)] text-muted-foreground">
-          {card.family.unitName ?? "units"} output
-        </span>
+      <div className="mb-(--space-4) space-y-(--space-3)">
+        <div className="flex items-start gap-(--space-3)">
+          <Checkbox
+            id="recipe-basis-batch"
+            checked={recipeBasis === "batch"}
+            onCheckedChange={(checked) => {
+              if (!canEditProduct) return;
+              setRecipeBasis(checked === true ? "batch" : "unit");
+              setDirty(true);
+            }}
+          />
+          <div className="min-w-0 space-y-(--space-1)">
+            <Label htmlFor="recipe-basis-batch">
+              This product is produced in batches
+            </Label>
+            <p className="text-[length:var(--text-sm)] text-muted-foreground">
+              {recipeBasis === "batch"
+                ? "Use the recipe to define what is added for 1 production batch, such as one mixer run. You'll also enter the expected output from that batch."
+                : "Use the recipe to define what is needed for 1 unit of finished product."}
+            </p>
+          </div>
+        </div>
+
+        <div className="text-[length:var(--text-sm)] font-medium">
+          Recipe basis: {recipeBasis === "batch" ? "Per 1 batch" : "Per 1 unit"}
+        </div>
+
+        {recipeBasis === "batch" ? (
+          <div className="grid max-w-sm grid-cols-[1fr_auto] items-center gap-(--space-2)">
+            <Input
+              aria-label="Expected output per batch"
+              inputMode="decimal"
+              value={expectedBatchYield}
+              onChange={(event) => {
+                setExpectedBatchYield(event.target.value);
+                setDirty(true);
+              }}
+              disabled={!canEditProduct}
+            />
+            <span className="text-[length:var(--text-sm)] text-muted-foreground">
+              {card.family.unitName ?? "units"}
+            </span>
+          </div>
+        ) : null}
       </div>
 
       <BomEditor
         initialRows={initialBomRows}
         availableComponents={availableComponents}
-        outputQuantity={outputQuantity}
-        outputUnitName={card.family.unitName}
+        quantityHeader={
+          recipeBasis === "batch" ? "Quantity per batch" : "Quantity per unit"
+        }
         onRowsChange={handleRowsChange}
         error={errorMessage}
       />

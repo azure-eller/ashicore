@@ -37,6 +37,7 @@ export type ProductOperationsTabProps = {
   focusItemId: string;
   currentBomRows: BomPayloadRow[];
   currentBomOutputQuantity: string;
+  currentRecipeBasis: "unit" | "batch";
   initialOperationCosts: OperationCostPayloadRow[];
   resources: ManufacturingResourceOption[];
   expectedBatchYield?: string | null;
@@ -57,6 +58,7 @@ export function ProductOperationsTab({
   focusItemId,
   currentBomRows,
   currentBomOutputQuantity,
+  currentRecipeBasis,
   initialOperationCosts,
   resources,
   expectedBatchYield,
@@ -78,6 +80,8 @@ export function ProductOperationsTab({
     mutationFn: () =>
       saveBomRevision(focusItemId, {
         outputQuantity: currentBomOutputQuantity,
+        recipeBasis: currentRecipeBasis,
+        expectedBatchYield: currentRecipeBasis === "batch" ? expectedBatchYield : null,
         bom: currentBomRows
           .filter(
             (row) =>
@@ -89,11 +93,6 @@ export function ProductOperationsTab({
           .map((row) => ({
             componentId: row.componentId!,
             quantity: row.quantity!,
-            everyQuantity: row.everyQuantity ?? row.basisOutputQuantity ?? null,
-            consumptionMode: row.consumptionMode ?? null,
-            basisOutputQuantity: row.basisOutputQuantity ?? null,
-            batchScalingMode: row.batchScalingMode ?? null,
-            groupRemainderPolicy: row.groupRemainderPolicy ?? null,
             minimumLotAgeDays: row.minimumLotAgeDays ?? null,
             alternates: row.alternates ?? [],
           })),

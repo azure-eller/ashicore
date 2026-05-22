@@ -99,34 +99,25 @@ For quantities, store both:
 - `requested_quantity`: what the user or sales line asked for
 - `planned_quantity`: what execution will actually run
 
-Discrete orders keep these values the same. Batch-mode orders may round `planned_quantity` up to full-batch output while preserving `requested_quantity`. Manual batch entry may use decimal batch counts; execution still stores an integer row count and scales the final batch's planned output and ingredients.
+Discrete orders keep these values the same. Batch-mode orders are created from a whole-number batch count; `planned_quantity` is derived as `number_of_batches * expected_batch_yield` while preserving `requested_quantity` when the order came from demand.
 
-## BOM Consumption Modes
+## Recipe Basis
 
-Product rows are not the source of truth for batch vs discrete BOM math. The active BOM revision line defines how each component scales:
+There are only two recipe bases:
 
-- `per_output_unit`: linear finished-output usage, for bags, labels, totes, or measured material that scales with each output unit
-- `per_batch`: process recipe usage, for mixer/load ingredients
-- `per_group`: packaging or logistics groups, for pallets, wrap, toppers, and pallet labels
+- `unit`: ingredient quantities are authored per 1 finished unit
+- `batch`: ingredient quantities are authored per 1 production batch
 
-`per_batch` supports `batchScalingMode`:
+Core invariant:
 
-- `proportional`: `planned = outputQty / basisOutputQuantity * quantity`
-- `full_batches_only`: `planned = ceil(outputQty / basisOutputQuantity) * quantity`
+- Unit recipes scale by finished output quantity.
+- Batch recipes scale by number of batches.
 
-`per_group` uses integer group counts with `groupRemainderPolicy`:
+Batch product setup stores `recipe_basis = 'batch'` on the BOM revision and `output_quantity = expected_batch_yield`. BOM line `quantity` means quantity per batch. Pallets, wrap, labels, and other packaging materials are ordinary ingredient lines. V1 does not model every-N packaging rules or remainder choices.
 
-- `leave_loose`: only full groups consume group materials
-- `create_partial_group`: any leftover output consumes one extra group
-- `ask`: MO creation stores the user's `chosenGroupRemainderHandling`
+MO creation snapshots concrete ingredient quantities on `manufacturing_order_ingredients`. Historical MOs should display and execute from the snapshot, not from the current product BOM.
 
-Ask decisions are per distinct `basisOutputQuantity`, not per ingredient. If pallet, wrap, and labels all share group basis `50`, the MO asks once and applies that choice to all matching group lines.
-
-MO creation snapshots all calculation inputs and outputs on `manufacturing_order_ingredients`: `consumptionMode`, `basisOutputQuantity`, `batchScalingMode`, `groupRemainderPolicy`, `chosenGroupRemainderHandling`, `calculatedBatchCount`, `calculatedGroupCount`, and `plannedQuantity`. Historical MOs should display and execute from the snapshot, not from the current product BOM.
-
-Estimated unit cost uses average per-output consumption for batch and group lines (`quantity / basisOutputQuantity`). Operational MOs still use the explicit batch scaling and group leftover policies.
-
-Legacy product-level `manufacturingMode` and `expectedBatchYield` remain as compatibility fields for execution/mobile contracts. New product authoring should use typical batch/group sizes only as BOM-line prefill helpers.
+Estimated unit cost uses average per-output consumption. For batch recipes this is `line.quantity / bom.output_quantity`.
 
 ## Standard Operation Costs
 

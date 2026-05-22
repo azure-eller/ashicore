@@ -134,34 +134,6 @@ export const manufacturingOrderIngredients = manufacturingSchema
       unitName: varchar("unit_name", { length: 50 }).notNull(),
       quantityPerUnit: numeric("quantity_per_unit", { precision: 12, scale: 4 })
         .notNull(),
-      bomOutputQuantity: numeric("bom_output_quantity", {
-        precision: 12,
-        scale: 4,
-      }),
-      everyQuantity: numeric("every_quantity", {
-        precision: 12,
-        scale: 4,
-      }).notNull().default("1"),
-      consumptionMode: varchar("consumption_mode", { length: 32 })
-        .notNull()
-        .default("per_output_unit"),
-      basisOutputQuantity: numeric("basis_output_quantity", {
-        precision: 12,
-        scale: 4,
-      }),
-      batchScalingMode: varchar("batch_scaling_mode", { length: 32 }),
-      groupRemainderPolicy: varchar("group_remainder_policy", { length: 32 }),
-      chosenGroupRemainderHandling: varchar("chosen_group_remainder_handling", {
-        length: 32,
-      }),
-      calculatedBatchCount: numeric("calculated_batch_count", {
-        precision: 12,
-        scale: 4,
-      }),
-      calculatedGroupCount: numeric("calculated_group_count", {
-        precision: 12,
-        scale: 4,
-      }),
       plannedQuantity: numeric("planned_quantity", { precision: 12, scale: 4 })
         .notNull(),
       lotStrategy: varchar("lot_strategy", { length: 16 })
@@ -196,32 +168,8 @@ export const manufacturingOrderIngredients = manufacturingSchema
         .on(table.manufacturingOrderBatchId, table.itemId)
         .where(sql`${table.manufacturingOrderBatchId} IS NOT NULL`),
       check(
-        "manufacturing_order_ingredients_consumption_mode_check",
-        sql`consumption_mode IN ('per_output_unit', 'per_batch', 'per_group')`
-      ),
-      check(
-        "manufacturing_order_ingredients_batch_scaling_mode_check",
-        sql`batch_scaling_mode IS NULL OR batch_scaling_mode IN ('proportional', 'full_batches_only')`
-      ),
-      check(
-        "manufacturing_order_ingredients_group_remainder_policy_check",
-        sql`group_remainder_policy IS NULL OR group_remainder_policy IN ('ask', 'leave_loose', 'create_partial_group')`
-      ),
-      check(
-        "manufacturing_order_ingredients_group_handling_check",
-        sql`chosen_group_remainder_handling IS NULL OR chosen_group_remainder_handling IN ('leave_loose', 'create_partial_group')`
-      ),
-      check(
         "manufacturing_order_ingredients_lot_strategy_check",
         sql`lot_strategy IN ('fifo', 'custom')`
-      ),
-      check(
-        "manufacturing_order_ingredients_basis_output_quantity_check",
-        sql`basis_output_quantity IS NULL OR basis_output_quantity > 0`
-      ),
-      check(
-        "manufacturing_order_ingredients_every_quantity_check",
-        sql`every_quantity > 0`
       ),
       pgPolicy("manufacturing_order_ingredients_org_isolation", {
         for: "all",

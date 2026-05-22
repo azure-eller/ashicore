@@ -89,7 +89,7 @@
       "file": "app/(dashboard)/manufacturing/queries.ts",
       "symbol": "createManufacturingOrdersFromSalesOrderInTx refresh-conflict guards",
       "lines": "3720-3752",
-      "reason": "Throws 409 'Selected manufacturing orders changed. Refresh and try again.' when any selected lineId is not 'will_create' in the recomputed summary; same shape for stale quantity overrides and stale group-remainder choices."
+      "reason": "Throws 409 'Selected manufacturing orders changed. Refresh and try again.' when any selected lineId is not 'will_create' in the recomputed summary; same shape for stale quantity overrides and stale line quantity overrides."
     },
     {
       "file": "app/(dashboard)/manufacturing/queries.ts",
@@ -191,7 +191,7 @@
       "file": "lib/schemas/manufacturing-orders.ts",
       "symbol": "createManufacturingOrdersFromSalesOrderSchema",
       "lines": "358-386",
-      "reason": "Bulk endpoint body: plannedDate nullable iso, salesOrderLineIds array min 1 (UUID), priorityRank, lineQuantities optional, groupRemainderChoices keyed by salesOrderLineId, notes."
+      "reason": "Bulk endpoint body: plannedDate nullable iso, salesOrderLineIds array min 1 (UUID), priorityRank, lineQuantities optional keyed by salesOrderLineId, notes."
     },
     {
       "file": "lib/schemas/manufacturing-orders.ts",
@@ -311,7 +311,7 @@
       "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx",
       "symbol": "isSalesOrderMode + handleSalesLineChange + mutationFn",
       "lines": "311-313, 384-385, 497-516, 523-606, 721-762",
-      "reason": "isSalesOrderMode is true exactly when !isEditing && salesOrderId is set && salesOrderLineId is null. In that mode the form fetches the preview and on submit POSTs to /api/sales-orders/:id/manufacturing-orders with the will_create line ids. When salesOrderLineId is also set (via handleSalesLineChange picking a specific line), the form is in single-create mode and POSTs to /api/manufacturing-orders with both ids in the payload. handleSalesLineChange forces productId, plannedQuantity, salesOrderId, salesOrderLineId, clears group remainder choices, and seeds ingredients from productMap.get(line.itemId).bom."
+      "reason": "isSalesOrderMode is true exactly when !isEditing && salesOrderId is set && salesOrderLineId is null. In that mode the form fetches the preview and on submit POSTs to /api/sales-orders/:id/manufacturing-orders with the will_create line ids. When salesOrderLineId is also set (via handleSalesLineChange picking a specific line), the form is in single-create mode and POSTs to /api/manufacturing-orders with both ids in the payload. handleSalesLineChange forces productId, plannedQuantity, salesOrderId, salesOrderLineId, and seeds ingredients from productMap.get(line.itemId).bom."
     },
     {
       "file": "app/(dashboard)/manufacturing/manufacturing-order-form.tsx",

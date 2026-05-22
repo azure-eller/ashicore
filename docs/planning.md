@@ -74,14 +74,10 @@ Items with zero safety stock and no shortage are `stocked` so the page does not 
 
 BOM explosion uses current BOM revisions only. It recursively explodes shortages for manufactured products into component demand and carries parent demand source refs plus the BOM revision source ref into component facts.
 
-Component quantities must use the BOM line's consumption mode:
+Component quantities must use the BOM revision's recipe basis:
 
-- `per_output_unit`: `outputQty * quantity`
-- `per_batch` with `proportional`: `outputQty / basisOutputQuantity * quantity`
-- `per_batch` with `full_batches_only`: `ceil(outputQty / basisOutputQuantity) * quantity`
-- `per_group`: full integer groups plus leftover handling from `groupRemainderPolicy`
-
-Planning has no interactive MO remainder choice. Treat `per_group` policy `ask` as `leave_loose` in planning estimates; MO creation stores the actual user choice when a production order is created.
+- `unit`: `outputQty * line.quantity`
+- `batch`: `ceil(outputQty / bom.outputQuantity) * line.quantity`
 
 Limitations:
 

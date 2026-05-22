@@ -52,7 +52,7 @@
           "seed_data": [
             "Material-A: itemType material, unitDefinitionId, stock 100, default purchase price set",
             "Material-B: itemType material, stock 50",
-            "Product-P: itemType product, sellable true, BOM has two rows — Material-A with per_output_unit qty 1, Material-B with per_batch qty 9 / basisOutputQuantity 9 / batchScalingMode proportional",
+            "Product-P: itemType product, sellable true, BOM has two rows — Material-A with unit recipe qty 1, Material-B batch recipe qty 9 with outputQuantity 9",
             "Customer C1 via createCustomer",
             "Sales Order SO1 with one line for Product-P, quantity 4, unitPrice 45"
           ],
@@ -93,7 +93,7 @@
           "await expect.poll for the inventoryItemBalances.expectedQty value when reading immediately after create (recompute is part of the transaction so a single read should suffice, but wrap in expect.poll with 5s timeout for safety)"
         ],
         "flakiness_risks": [
-          "BOM ingredient seeding: per_batch quantities round to BOM basisOutputQuantity, so 4 outputs at basis 9 yields one batch with 9 planned. Phase 5 must compute expected quantities from BOM math, not from raw plannedQuantity × quantityPerUnit.",
+          "BOM ingredient seeding: batch quantities scale by whole batch count, so 9 output units yields one batch with 9 planned. Phase 5 must compute expected quantities from BOM math, not from raw plannedQuantity × quantityPerUnit.",
           "expectedQty recompute timing — wrap the read in expect.poll if a stray read returns 0"
         ],
         "data_isolation_notes": [

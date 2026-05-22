@@ -379,10 +379,8 @@ export function projectedPotentialQtyExpr(
             )
             / NULLIF(
               CASE
-                WHEN brc.consumption_mode IN ('per_batch', 'per_group')
-                  AND brc.basis_output_quantity IS NOT NULL
-                  AND brc.basis_output_quantity > 0
-                THEN brc.quantity / brc.basis_output_quantity
+                WHEN br.recipe_basis = 'batch' AND br.output_quantity > 0
+                THEN brc.quantity / br.output_quantity
                 ELSE brc.quantity
               END,
               0
