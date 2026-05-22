@@ -93,6 +93,7 @@ function mapSalesDemandRow(
     cancelledQty: string;
     sortOrder: number;
     createdAt: Date;
+    priorityRank: number | null;
   },
   shippedQty: number,
   plannedQty: number
@@ -119,6 +120,9 @@ function mapSalesDemandRow(
     openQty: quantityString(openQty),
     sortDate: row.shipDate,
     sortLabel: `${row.orderNumber}:${row.sortOrder}:${row.createdAt.toISOString()}`,
+    priorityRank: row.priorityRank,
+    priorityDate: row.shipDate,
+    priorityLabel: row.orderNumber,
   };
 }
 
@@ -173,6 +177,7 @@ async function loadSalesRowsInTx(
       cancelledQty: trimScale(salesOrderLines.cancelledQuantity).as("cancelledQty"),
       sortOrder: salesOrderLines.sortOrder,
       createdAt: salesOrderLines.createdAt,
+      priorityRank: salesOrders.priorityRank,
     })
     .from(salesOrderLines)
     .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))

@@ -4,8 +4,13 @@ import {
   SalesAllocationTable,
   type AllocationPoolRow,
 } from "@/app/(dashboard)/sales/sales-allocation-table";
+import { DemandQueueCoverageTable } from "@/app/(dashboard)/sales/demand-queue-coverage-table";
 import { getAuthedMemberContext, withAuthedOrgContext } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
+import {
+  getDemandQueueCoverageForItemInTx,
+  type DemandQueueItemCoverage,
+} from "@/lib/inventory/allocation/demand-queue";
 import {
   getManufacturingAllocationDemandRowsInTx,
   type ManufacturingAllocationDemandRow,
@@ -26,11 +31,6 @@ async function SalesAllocationData() {
     getAuthedMemberContext(),
     getSalesOrders(),
   ]);
-  const canReadManufacturing = hasModuleAccess(
-    context.assignedRoles,
-    "manufacturing",
-    "read"
-  );
   const salesProductIds = orders
     .filter((order) => order.status === "open")
     .flatMap((order) =>
@@ -38,6 +38,18 @@ async function SalesAllocationData() {
         .filter((line) => line.itemType === "product")
         .map((line) => line.itemId)
     );
+
+  const canReadManufacturing = hasModuleAccess(
+    context.assignedRoles,
+    "manufacturing",
+    "read"
+  );
+
+  if (context.allocationMode === "demand_queue") {
+    const coverage = await getDemandQueueCoverage(salesProductIds, canReadManufacturing);
+    return <DemandQueueCoverageTable coverage={coverage} />;
+  }
+
   const [initialPools, manufacturingDemandRows] = await Promise.all([
     getInitialAllocationPools(salesProductIds, canReadManufacturing),
     canReadManufacturing
@@ -52,6 +64,45 @@ async function SalesAllocationData() {
       organizationId={context.orgId}
     />
   );
+}
+
+async function getDemandQueueCoverage(
+  salesProductIds: string[],
+  canReadManufacturing: boolean
+): Promise<DemandQueueItemCoverage[]> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    // Manufacturing-only items (no sales demand) are only surfaced to users who
+    // can read manufacturing. Sales-only users see sales-relevant items, where
+    // manufacturing demand still reduces sellable quantity but its identity is
+    // withheld (includeManufacturingDetail = false).
+    let itemIds = [...new Set(salesProductIds)];
+    if (canReadManufacturing) {
+      const manufacturingDemandRows = await getManufacturingAllocationDemandRowsInTx(
+        tx,
+        orgId
+      );
+      const manufacturingItemIds = manufacturingDemandRows.flatMap((row) =>
+        row.ingredients.map((ingredient) => ingredient.itemId)
+      );
+      itemIds = [...new Set([...salesProductIds, ...manufacturingItemIds])];
+    }
+
+    const coverage: DemandQueueItemCoverage[] = [];
+    for (const itemId of itemIds) {
+      const itemCoverage = await getDemandQueueCoverageForItemInTx(tx, {
+        organizationId: orgId,
+        itemId,
+        includeManufacturingDetail: canReadManufacturing,
+      });
+      if (itemCoverage) coverage.push(itemCoverage);
+    }
+
+    return coverage.sort((left, right) => {
+      const shortCompare = Number(right.shortQty) - Number(left.shortQty);
+      if (shortCompare !== 0) return shortCompare;
+      return left.itemName.localeCompare(right.itemName);
+    });
+  });
 }
 
 function toQuantity(value: string | number | null | undefined) {

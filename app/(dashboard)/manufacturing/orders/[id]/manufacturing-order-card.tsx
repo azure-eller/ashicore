@@ -653,7 +653,7 @@ function OrderDetailsSection({
         <CellShell label="Production deadline" required>
           {canEditMetadata ? (
             <DatePicker
-              aria-label="Planned date"
+              aria-label="Production deadline"
               value={order ? order.plannedDate ?? "" : draftPlannedDate}
               className={styles.underlineControl}
               onChange={(next) => {

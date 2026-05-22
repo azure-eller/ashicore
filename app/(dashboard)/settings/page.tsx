@@ -16,6 +16,7 @@ import { getCanonicalAppUrl } from "@/lib/app-url";
 import { getSettingsSections } from "./sections";
 import { SettingsNav } from "./settings-nav";
 import { AccountSection } from "./account-section";
+import { AllocationModeSection } from "./allocation-mode-section";
 import { TeamSection } from "./team-section";
 import { IntegrationsSection } from "./integrations-section";
 import { ReportsSection } from "./reports-section";
@@ -131,6 +132,9 @@ export default async function SettingsPage({
         <div className="flex min-w-0 flex-col gap-(--space-10)">
           <AccountSection initialData={accountData} />
           {teamData ? <TeamSection initialData={teamData} /> : null}
+          {showTeam ? (
+            <AllocationModeSection initialMode={context.allocationMode} />
+          ) : null}
           {reportScheduleData ? (
             <ReportsSection initialData={reportScheduleData} />
           ) : null}
