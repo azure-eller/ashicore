@@ -124,11 +124,10 @@ export function OrderDetailsGrid({
             required
           />
           <DateCell
-            label="Delivery deadline"
-            field="requestedDate"
-            value={order.requestedDate}
+            label="Ship date"
+            field="shipDate"
+            value={order.shipDate}
             editable={editable}
-            hint="Pickup/delivery date promised to customer."
           />
         </div>
         <div className={`${cardStyles.formRow} ${cardStyles.formRowFour}`}>

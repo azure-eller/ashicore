@@ -21,6 +21,7 @@ import {
   accountingDocumentSyncs,
   customers,
   inventoryEvents,
+  inventoryLotBalances,
   integrationExternalRecords,
   itemFamilies,
   itemVariantValues,
@@ -28,6 +29,8 @@ import {
   manufacturingOrders,
   pricingScheduleBreaks,
   pricingSchedules,
+  purchaseOrderLines,
+  purchaseOrders,
   salesOrderLines,
   salesOrders,
   salesShipmentCosts,
@@ -124,6 +127,7 @@ import type {
   PricingSourceType,
   PricingUnitOption,
   SalesAllocationLineSummary,
+  SalesOrderFulfillmentSummary,
   SalesOrderDetail,
   SalesOrderDetailLine,
   SalesOrderEditData,
@@ -1092,6 +1096,234 @@ function buildShippingReadiness({
     message: "Allocated.",
     blockers: [],
   };
+}
+
+type SalesOrderAvailabilityLine = {
+  salesOrderId: string;
+  salesOrderLineId: string;
+  itemId: string;
+  requiredDate: string | null;
+  quantity: number;
+  priorityRank: number | null;
+  orderDate: string;
+  orderNumber: string;
+  sortOrder: number;
+};
+
+type SalesOrderAvailabilitySummary = Pick<
+  SalesOrderFulfillmentSummary,
+  "availabilityState" | "expectedDate"
+>;
+
+type AvailabilitySupplySlice = {
+  itemId: string;
+  quantity: number;
+  expectedDate: string | null;
+};
+
+function compareAvailabilityLines(
+  left: SalesOrderAvailabilityLine,
+  right: SalesOrderAvailabilityLine
+) {
+  const leftRank = left.priorityRank ?? Number.MAX_SAFE_INTEGER;
+  const rightRank = right.priorityRank ?? Number.MAX_SAFE_INTEGER;
+  const rankCompare = leftRank - rightRank;
+  if (rankCompare !== 0) return rankCompare;
+
+  const requiredDateCompare = (left.requiredDate ?? "9999-12-31").localeCompare(
+    right.requiredDate ?? "9999-12-31"
+  );
+  if (requiredDateCompare !== 0) return requiredDateCompare;
+
+  const orderDateCompare = left.orderDate.localeCompare(right.orderDate);
+  if (orderDateCompare !== 0) return orderDateCompare;
+
+  const orderCompare = left.orderNumber.localeCompare(right.orderNumber, undefined, {
+    numeric: true,
+  });
+  if (orderCompare !== 0) return orderCompare;
+
+  return left.sortOrder - right.sortOrder;
+}
+
+function expectedSupplyCanCoverDemand(
+  supply: AvailabilitySupplySlice,
+  demand: SalesOrderAvailabilityLine
+) {
+  if (supply.expectedDate == null) return demand.requiredDate == null;
+  if (demand.requiredDate == null) return true;
+  return supply.expectedDate <= demand.requiredDate;
+}
+
+function applyAvailabilitySupply(
+  demand: SalesOrderAvailabilityLine,
+  supplies: AvailabilitySupplySlice[]
+) {
+  let remaining = demand.quantity;
+  let expectedDate: string | null = null;
+
+  for (const supply of supplies) {
+    if (remaining <= 0) break;
+    if (supply.quantity <= 0) continue;
+    if (supply.expectedDate != null && !expectedSupplyCanCoverDemand(supply, demand)) {
+      continue;
+    }
+
+    const consumed = Math.min(remaining, supply.quantity);
+    supply.quantity = roundQuantity(supply.quantity - consumed);
+    remaining = roundQuantity(remaining - consumed);
+    if (supply.expectedDate != null) {
+      expectedDate = [expectedDate, supply.expectedDate]
+        .filter((date): date is string => date != null)
+        .sort()
+        .at(-1) ?? null;
+    }
+  }
+
+  return { covered: remaining <= 0, expectedDate };
+}
+
+async function getSalesOrderAvailabilitySummariesInTx(
+  tx: Tx,
+  orgId: string,
+  demandLines: SalesOrderAvailabilityLine[]
+): Promise<Map<string, SalesOrderAvailabilitySummary>> {
+  const positiveDemandLines = demandLines.filter((line) => line.quantity > 0);
+  if (positiveDemandLines.length === 0) {
+    return new Map();
+  }
+
+  const itemIds = [...new Set(positiveDemandLines.map((line) => line.itemId))];
+  const currentSupplyRows = await tx
+    .select({
+      itemId: inventoryLotBalances.itemId,
+      quantity: trimScale(sql`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`).as(
+        "quantity"
+      ),
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, orgId),
+        inArray(inventoryLotBalances.itemId, itemIds),
+        eq(inventoryLotBalances.disposition, "available")
+      )
+    )
+    .groupBy(inventoryLotBalances.itemId);
+
+  const purchaseSupplyRows = await tx
+    .select({
+      itemId: purchaseOrderLines.itemId,
+      expectedDate: purchaseOrders.expectedDate,
+      quantity: trimScale(
+        sql`COALESCE(SUM(${purchaseOrderLines.stockQuantityOrdered} - ${purchaseOrderLines.stockQuantityReceived}), 0)`
+      ).as("quantity"),
+    })
+    .from(purchaseOrders)
+    .innerJoin(purchaseOrderLines, eq(purchaseOrderLines.purchaseOrderId, purchaseOrders.id))
+    .where(
+      and(
+        eq(purchaseOrders.organizationId, orgId),
+        inArray(purchaseOrders.status, ["ordered", "partial"]),
+        isNull(purchaseOrders.deletedAt),
+        inArray(purchaseOrderLines.itemId, itemIds)
+      )
+    )
+    .groupBy(purchaseOrderLines.itemId, purchaseOrders.expectedDate);
+
+  const manufacturingSupplyRows = await tx
+    .select({
+      itemId: manufacturingOrders.productId,
+      expectedDate: manufacturingOrders.plannedDate,
+      quantity: trimScale(
+        sql`COALESCE(SUM(${manufacturingOrders.plannedQuantity} - COALESCE(${manufacturingOrders.actualQuantity}, 0)), 0)`
+      ).as("quantity"),
+    })
+    .from(manufacturingOrders)
+    .where(
+      and(
+        eq(manufacturingOrders.organizationId, orgId),
+        eq(manufacturingOrders.status, "open"),
+        isNull(manufacturingOrders.deletedAt),
+        isNull(manufacturingOrders.completedAt),
+        isNull(manufacturingOrders.cancelledAt),
+        inArray(manufacturingOrders.productId, itemIds)
+      )
+    )
+    .groupBy(manufacturingOrders.productId, manufacturingOrders.plannedDate);
+
+  const supplyByItem = new Map<string, AvailabilitySupplySlice[]>();
+  for (const row of currentSupplyRows) {
+    const quantity = Number(row.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    supplyByItem.set(row.itemId, [
+      ...(supplyByItem.get(row.itemId) ?? []),
+      { itemId: row.itemId, quantity, expectedDate: null },
+    ]);
+  }
+
+  for (const row of [...purchaseSupplyRows, ...manufacturingSupplyRows]) {
+    const quantity = Number(row.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    supplyByItem.set(row.itemId, [
+      ...(supplyByItem.get(row.itemId) ?? []),
+      { itemId: row.itemId, quantity, expectedDate: row.expectedDate },
+    ]);
+  }
+
+  for (const supplies of supplyByItem.values()) {
+    supplies.sort((left, right) => {
+      if (left.expectedDate == null && right.expectedDate != null) return -1;
+      if (left.expectedDate != null && right.expectedDate == null) return 1;
+      return (left.expectedDate ?? "9999-12-31").localeCompare(
+        right.expectedDate ?? "9999-12-31"
+      );
+    });
+  }
+
+  const lineResults = new Map<
+    string,
+    { covered: boolean; expectedDate: string | null }
+  >();
+  for (const demand of [...positiveDemandLines].sort(compareAvailabilityLines)) {
+    lineResults.set(
+      demand.salesOrderLineId,
+      applyAvailabilitySupply(demand, supplyByItem.get(demand.itemId) ?? [])
+    );
+  }
+
+  const lineResultsByOrderId = new Map<
+    string,
+    Array<{ covered: boolean; expectedDate: string | null }>
+  >();
+  for (const line of positiveDemandLines) {
+    const result = lineResults.get(line.salesOrderLineId);
+    if (!result) continue;
+    lineResultsByOrderId.set(line.salesOrderId, [
+      ...(lineResultsByOrderId.get(line.salesOrderId) ?? []),
+      result,
+    ]);
+  }
+
+  const summaries = new Map<string, SalesOrderAvailabilitySummary>();
+  for (const [salesOrderId, results] of lineResultsByOrderId) {
+    const coveredResults = results.filter((result) => result.covered);
+    const expectedDates = coveredResults
+      .map((result) => result.expectedDate)
+      .filter((date): date is string => date != null);
+
+    summaries.set(salesOrderId, {
+      availabilityState:
+        coveredResults.length !== results.length
+          ? "not_available"
+          : expectedDates.length > 0
+            ? "expected"
+            : "available",
+      expectedDate: expectedDates.sort().at(-1) ?? null,
+    });
+  }
+
+  return summaries;
 }
 
 const OPEN_SALES_ORDER_STATUSES = [
@@ -4700,9 +4932,54 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           });
         }
 
+        const orderById = new Map(orderRows.map((order) => [order.id, order]));
+        const availabilityLineRows = await tx
+          .select({
+            salesOrderId: salesOrderLines.salesOrderId,
+            salesOrderLineId: salesOrderLines.id,
+            itemId: salesOrderLines.itemId,
+            quantity: trimScale(salesOrderLines.quantity).as("quantity"),
+            sortOrder: salesOrderLines.sortOrder,
+          })
+          .from(salesOrderLines)
+          .where(inArray(salesOrderLines.salesOrderId, orderIds))
+          .orderBy(asc(salesOrderLines.salesOrderId), asc(salesOrderLines.sortOrder));
+        const availabilitySummaries =
+          await getSalesOrderAvailabilitySummariesInTx(
+            tx,
+            orgId,
+            availabilityLineRows.flatMap((line) => {
+              const order = orderById.get(line.salesOrderId);
+              if (!order || order.status !== "open") return [];
+
+              const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
+              const remainingQty = normalizeShipmentQuantity(
+                Number(line.quantity) - shippedQty
+              );
+              if (!Number.isFinite(remainingQty) || remainingQty <= 0) {
+                return [];
+              }
+
+              return [
+                {
+                  salesOrderId: line.salesOrderId,
+                  salesOrderLineId: line.salesOrderLineId,
+                  itemId: line.itemId,
+                  requiredDate: order.shipDate ?? order.requestedDate,
+                  quantity: remainingQty,
+                  priorityRank: order.priorityRank,
+                  orderDate: order.orderDate,
+                  orderNumber: order.orderNumber,
+                  sortOrder: line.sortOrder,
+                } satisfies SalesOrderAvailabilityLine,
+              ];
+            })
+          );
+
         return orderRows.map((order) => {
           const manufacturingSummary = manufacturingSummaries.get(order.id);
           const summaryLines = manufacturingSummary?.lines ?? [];
+          const availabilitySummary = availabilitySummaries.get(order.id);
           const hasManufacturableLines =
             manufacturingSummary?.hasManufacturableLines ?? false;
           const linkedManufacturingOrders =
@@ -4814,6 +5091,10 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
               const allocated = normalizeNumeric(roundQuantity(totals.allocatedQty));
               const remaining = normalizeNumeric(roundQuantity(totals.remainingQty));
               const short = normalizeNumeric(roundQuantity(totals.shortQty));
+              const availabilityState: SalesOrderFulfillmentSummary["availabilityState"] =
+                totals.remainingQty <= 0
+                  ? "complete"
+                  : availabilitySummary?.availabilityState ?? "not_available";
               return {
                 remainingQty: remaining,
                 allocatedQty: allocated,
@@ -4821,12 +5102,19 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 productionAllocatedQty: normalizeNumeric(
                   roundQuantity(totals.productionAllocatedQty)
                 ),
+                availabilityState,
+                expectedDate:
+                  availabilityState === "expected"
+                    ? availabilitySummary?.expectedDate ?? null
+                    : null,
                 label:
                   totals.remainingQty <= 0
                     ? "\u2014"
-                    : totals.shortQty > 0
-                      ? `${allocated}/${remaining} allocated · ${short} short`
-                      : `${allocated}/${remaining} allocated`,
+                    : availabilityState === "available"
+                      ? "Available"
+                      : availabilityState === "expected"
+                        ? `Expected ${availabilitySummary?.expectedDate ?? ""}`.trim()
+                        : "Not available",
               };
             })(),
             hasManufacturableLines,
@@ -5560,12 +5848,16 @@ export async function getSalesOrder(
           : productionAllocatedQty > 0
             ? "Waiting production"
             : "Ready";
+      const availabilityState: SalesOrderFulfillmentSummary["availabilityState"] =
+        remainingQty <= 0 ? "complete" : shortQty > 0 ? "not_available" : "available";
 
       return {
         remainingQty: normalizeNumeric(remainingQty),
         allocatedQty: normalizeNumeric(allocatedQty),
         shortQty: normalizeNumeric(shortQty),
         productionAllocatedQty: normalizeNumeric(productionAllocatedQty),
+        availabilityState,
+        expectedDate: null,
         label,
       };
     })();

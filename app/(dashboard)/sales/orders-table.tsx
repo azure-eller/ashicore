@@ -53,9 +53,10 @@ import {
 } from "@/lib/tooltip-copy";
 import { formatDate, formatPrice } from "@/lib/format";
 import {
-  getAllocationFilterValue,
+  getSalesItemsFilterValue,
   getSalesItemsState,
-  type AllocationFilterValue,
+  type SalesAllocationMode,
+  type SalesItemsFilterValue,
 } from "@/lib/sales/order-display-status";
 import { ProductionActionCell } from "./sales-order-table-action-cells";
 import { SalesStatusControl } from "@/components/sales/sales-status-control";
@@ -79,11 +80,14 @@ const OPEN_SALES_STATUSES = ["open"] as const;
 const DONE_SALES_STATUSES = ["done"] as const;
 type SalesWorkflowFilterValue = "open" | "done";
 
-const allocationToneByLabel: Record<string, StatusTone> = {
+const availabilityToneByLabel: Record<string, StatusTone> = {
   Complete: "success",
   Allocated: "success",
   Partial: "warning",
   "Not allocated": "danger",
+  Available: "success",
+  Expected: "warning",
+  "Not available": "danger",
 };
 
 function isOpenSalesOrder(order: SalesOrderListRow) {
@@ -153,13 +157,25 @@ function getOrderShipmentSchedule(order: SalesOrderListRow) {
   };
 }
 
-function SalesItemsActionCell({ order }: { order: SalesOrderListRow }) {
-  const state = getSalesItemsState(order);
-  const isAllocationLink =
-    state.label === "Not allocated" || state.label === "Partial";
-  const tone = allocationToneByLabel[state.label] ?? "neutral";
+function SalesItemsActionCell({
+  order,
+  allocationMode,
+}: {
+  order: SalesOrderListRow;
+  allocationMode: SalesAllocationMode;
+}) {
+  const state = getSalesItemsState(order, allocationMode);
+  const isActionLink =
+    allocationMode === "manual"
+      ? state.label === "Not allocated" || state.label === "Partial"
+      : order.fulfillmentSummary.availabilityState === "not_available" ||
+        order.fulfillmentSummary.availabilityState === "expected";
+  const tone =
+    availabilityToneByLabel[
+      state.label.startsWith("Expected") ? "Expected" : state.label
+    ] ?? "neutral";
 
-  if (!isAllocationLink) {
+  if (!isActionLink) {
     return <StatusLabel tone={tone}>{state.label}</StatusLabel>;
   }
 
@@ -235,7 +251,11 @@ function compareSalesOrderRank(
   });
 }
 
-function salesOrderMatchesSearch(order: SalesOrderListRow, searchValue: string) {
+function salesOrderMatchesSearch(
+  order: SalesOrderListRow,
+  searchValue: string,
+  allocationMode: SalesAllocationMode
+) {
   const normalizedSearch = searchValue.trim().toLowerCase();
 
   if (!normalizedSearch) {
@@ -249,7 +269,7 @@ function salesOrderMatchesSearch(order: SalesOrderListRow, searchValue: string) 
     order.totalAmount,
     getOrderShipmentSchedule(order).date,
     getOrderShipmentSchedule(order).label,
-    getSalesItemsState(order).label,
+    getSalesItemsState(order, allocationMode).label,
     getProductionState(order).label,
     getDeliveryState(order).label,
   ].some((value) => value?.toLowerCase().includes(normalizedSearch));
@@ -300,8 +320,16 @@ function FilterChip({
   );
 }
 
-export function OrdersTable({ initialData }: { initialData: SalesOrderListRow[] }) {
-  return <OrdersTableContent initialData={initialData} />;
+export function OrdersTable({
+  initialData,
+  allocationMode,
+}: {
+  initialData: SalesOrderListRow[];
+  allocationMode: SalesAllocationMode;
+}) {
+  return (
+    <OrdersTableContent initialData={initialData} allocationMode={allocationMode} />
+  );
 }
 
 function LastSyncStatus({ dataUpdatedAt }: { dataUpdatedAt: number }) {
@@ -317,14 +345,20 @@ function LastSyncStatus({ dataUpdatedAt }: { dataUpdatedAt: number }) {
   return <span>Last sync {seconds < 30 ? "<30" : seconds}s ago</span>;
 }
 
-function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] }) {
+function OrdersTableContent({
+  initialData,
+  allocationMode,
+}: {
+  initialData: SalesOrderListRow[];
+  allocationMode: SalesAllocationMode;
+}) {
   const queryClient = useQueryClient();
   const gridApiRef = useRef<GridApi<SalesOrderListRow> | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [statusFilter, setStatusFilter] =
     useState<SalesWorkflowFilterValue>("open");
   const [allocationFilter, setAllocationFilter] =
-    useState<AllocationFilterValue>("all");
+    useState<SalesItemsFilterValue>("all");
   const [searchValue, setSearchValue] = useState("");
   const [selectedOrders, setSelectedOrders] = useState<SalesOrderListRow[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -387,14 +421,25 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
     (sum, status) => sum + (statusCounts.get(status) ?? 0),
     0
   );
-  const allocatedCount = openOrders.filter(
-    (order) => getAllocationFilterValue(order) === "allocated"
+  const readyFilter: SalesItemsFilterValue =
+    allocationMode === "manual" ? "allocated" : "available";
+  const middleFilter: SalesItemsFilterValue =
+    allocationMode === "manual" ? "partial" : "expected";
+  const shortFilter: SalesItemsFilterValue =
+    allocationMode === "manual" ? "not_allocated" : "not_available";
+  const readyLabel = allocationMode === "manual" ? "allocated" : "available";
+  const middleLabel = allocationMode === "manual" ? "partial" : "expected";
+  const shortLabel =
+    allocationMode === "manual" ? "not allocated" : "not available";
+  const columnHeader = allocationMode === "manual" ? "Allocation" : "Available";
+  const readyCount = openOrders.filter(
+    (order) => getSalesItemsFilterValue(order, allocationMode) === readyFilter
   ).length;
-  const partialCount = openOrders.filter(
-    (order) => getAllocationFilterValue(order) === "partial"
+  const middleCount = openOrders.filter(
+    (order) => getSalesItemsFilterValue(order, allocationMode) === middleFilter
   ).length;
-  const notAllocatedCount = openOrders.filter(
-    (order) => getAllocationFilterValue(order) === "not_allocated"
+  const shortCount = openOrders.filter(
+    (order) => getSalesItemsFilterValue(order, allocationMode) === shortFilter
   ).length;
   const totalOpen = openOrders.reduce(
     (sum, order) => sum + (Number.parseFloat(order.totalAmount) || 0),
@@ -411,8 +456,8 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
         (allowedStatuses as readonly string[]).includes(order.status) &&
         (statusFilter !== "open" ||
           allocationFilter === "all" ||
-          getAllocationFilterValue(order) === allocationFilter) &&
-        salesOrderMatchesSearch(order, searchValue)
+          getSalesItemsFilterValue(order, allocationMode) === allocationFilter) &&
+        salesOrderMatchesSearch(order, searchValue, allocationMode)
     );
 
     if (statusFilter === "done") {
@@ -420,7 +465,7 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
     }
 
     return [...filteredOrders].sort(compareSalesOrderRank);
-  }, [allocationFilter, orders, searchValue, statusFilter]);
+  }, [allocationFilter, allocationMode, orders, searchValue, statusFilter]);
   const reorderEnabled =
     statusFilter === "open" && searchValue.trim() === "" && !hasActiveSort;
   const filterSummary =
@@ -428,11 +473,11 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
       ? "Done"
       : allocationFilter === "all"
         ? "Open"
-        : allocationFilter === "allocated"
-          ? "Allocated"
-          : allocationFilter === "partial"
-            ? "Partial"
-            : "Not allocated";
+        : allocationFilter === readyFilter
+          ? readyLabel
+          : allocationFilter === middleFilter
+            ? middleLabel
+            : shortLabel;
   const gridColumns = useMemo<ColDef<SalesOrderListRow>[]>(
     () => [
       {
@@ -516,13 +561,19 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
       },
       {
         colId: "allocation",
-        headerName: "Allocation",
+        headerName: columnHeader,
         headerTooltip: SALES_ORDER_ITEMS_STATUS_TOOLTIP,
         width: 140,
         minWidth: 140,
-        valueGetter: ({ data }) => (data ? getSalesItemsState(data).label : ""),
+        valueGetter: ({ data }) =>
+          data ? getSalesItemsState(data, allocationMode).label : "",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
-          data ? <SalesItemsActionCell order={data} /> : null,
+          data ? (
+            <SalesItemsActionCell
+              order={data}
+              allocationMode={allocationMode}
+            />
+          ) : null,
         comparator: (_left, _right, leftNode, rightNode) =>
           parseQuantity(leftNode.data?.fulfillmentSummary.shortQty) -
           parseQuantity(rightNode.data?.fulfillmentSummary.shortQty),
@@ -598,7 +649,7 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
         },
       },
     ],
-    [reorderEnabled, statusFilter]
+    [allocationMode, columnHeader, reorderEnabled, statusFilter]
   );
   const reorderMutation = useMutation({
     mutationFn: async (orderedRows: SalesOrderListRow[]) => {
@@ -779,35 +830,35 @@ function OrdersTableContent({ initialData }: { initialData: SalesOrderListRow[] 
           />
           <StatusRibbon.Stat
             tone="success"
-            count={allocatedCount}
-            label="allocated"
-            active={allocationFilter === "allocated"}
-            aria-label={`Filter by allocated (${allocatedCount} orders)`}
+            count={readyCount}
+            label={readyLabel}
+            active={allocationFilter === readyFilter}
+            aria-label={`Filter by ${readyLabel} (${readyCount} orders)`}
             onClick={() => {
               setStatusFilter("open");
-              setAllocationFilter("allocated");
+              setAllocationFilter(readyFilter);
             }}
           />
           <StatusRibbon.Stat
             tone="warning"
-            count={partialCount}
-            label="partial"
-            active={allocationFilter === "partial"}
-            aria-label={`Filter by partial (${partialCount} orders)`}
+            count={middleCount}
+            label={middleLabel}
+            active={allocationFilter === middleFilter}
+            aria-label={`Filter by ${middleLabel} (${middleCount} orders)`}
             onClick={() => {
               setStatusFilter("open");
-              setAllocationFilter("partial");
+              setAllocationFilter(middleFilter);
             }}
           />
           <StatusRibbon.Stat
             tone="danger"
-            count={notAllocatedCount}
-            label="not allocated"
-            active={allocationFilter === "not_allocated"}
-            aria-label={`Filter by not allocated (${notAllocatedCount} orders)`}
+            count={shortCount}
+            label={shortLabel}
+            active={allocationFilter === shortFilter}
+            aria-label={`Filter by ${shortLabel} (${shortCount} orders)`}
             onClick={() => {
               setStatusFilter("open");
-              setAllocationFilter("not_allocated");
+              setAllocationFilter(shortFilter);
             }}
           />
           <StatusRibbon.Spacer />

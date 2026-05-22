@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { OrdersTable } from "@/app/(dashboard)/sales/orders-table";
 import { getSalesOrders } from "@/app/(dashboard)/sales/queries";
+import { getAuthedMemberContext } from "@/lib/dal/auth";
 import OrdersTableLoading from "../orders-table-loading";
 
 export default function OrdersPage() {
@@ -12,6 +13,14 @@ export default function OrdersPage() {
 }
 
 async function SalesOrdersData() {
-  const orders = await getSalesOrders();
-  return <OrdersTable initialData={orders} />;
+  const [orders, context] = await Promise.all([
+    getSalesOrders(),
+    getAuthedMemberContext(),
+  ]);
+  return (
+    <OrdersTable
+      initialData={orders}
+      allocationMode={context.allocationMode}
+    />
+  );
 }

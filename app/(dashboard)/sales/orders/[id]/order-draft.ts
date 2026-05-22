@@ -91,6 +91,8 @@ export function makeDraftOrder(timeZone: string): SalesOrderDetail {
       allocatedQty: "0",
       shortQty: "0",
       productionAllocatedQty: "0",
+      availabilityState: "complete",
+      expectedDate: null,
       label: "",
     },
     shippingReadiness: {

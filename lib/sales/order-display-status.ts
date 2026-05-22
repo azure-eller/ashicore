@@ -3,6 +3,7 @@ import type {
   SalesOrderDetail,
   SalesOrderListRow,
 } from "@/app/(dashboard)/sales/types";
+import { formatDate } from "@/lib/format";
 
 export type OrderDisplayStatusLabel =
   | "NOT SHIPPED"
@@ -49,37 +50,90 @@ export function deriveOrderDisplayStatus(order: OrderForDisplayStatus): OrderDis
   return { label: "NOT SHIPPED", tone: "neutral", dotShape: "square" };
 }
 
-export type AllocationFilterValue = "all" | "allocated" | "partial" | "not_allocated";
+export type SalesAllocationMode = "manual" | "demand_queue";
+
+export type SalesItemsFilterValue =
+  | "all"
+  | "allocated"
+  | "partial"
+  | "not_allocated"
+  | "available"
+  | "expected"
+  | "not_available";
 
 function parseQuantity(value: string | null | undefined) {
   const parsed = Number.parseFloat(value ?? "0");
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function getSalesItemsState(order: SalesOrderListRow): OperationalState {
+export function getSalesItemsState(
+  order: SalesOrderListRow,
+  mode: SalesAllocationMode = "manual"
+): OperationalState {
   if (order.status === "done") {
     return { label: "Complete", tone: "success" };
   }
 
   const remainingQty = parseQuantity(order.fulfillmentSummary.remainingQty);
-  const allocatedQty = parseQuantity(order.fulfillmentSummary.allocatedQty);
-  const shortQty = parseQuantity(order.fulfillmentSummary.shortQty);
 
   if (remainingQty <= 0) {
     return { label: "Complete", tone: "success" };
   }
-  if (shortQty <= 0) {
-    return { label: "Allocated", tone: "success" };
+
+  if (mode === "manual") {
+    const allocatedQty = parseQuantity(order.fulfillmentSummary.allocatedQty);
+    const shortQty = parseQuantity(order.fulfillmentSummary.shortQty);
+
+    if (shortQty <= 0) {
+      return { label: "Allocated", tone: "success" };
+    }
+    if (allocatedQty > 0) {
+      return { label: "Partial", tone: "warning" };
+    }
+    return { label: "Not allocated", tone: "destructive" };
   }
-  if (allocatedQty > 0) {
-    return { label: "Partial", tone: "warning" };
+
+  switch (order.fulfillmentSummary.availabilityState) {
+    case "available":
+      return { label: "Available", tone: "success" };
+    case "expected":
+      return {
+        label: order.fulfillmentSummary.expectedDate
+          ? `Expected ${formatDate(order.fulfillmentSummary.expectedDate)}`
+          : "Expected",
+        tone: "warning",
+      };
+    case "complete":
+      return { label: "Complete", tone: "success" };
+    case "not_available":
+    default:
+      return { label: "Not available", tone: "destructive" };
   }
-  return { label: "Not allocated", tone: "destructive" };
 }
 
-export function getAllocationFilterValue(order: SalesOrderListRow): AllocationFilterValue {
-  const label = getSalesItemsState(order).label;
-  if (label === "Complete" || label === "Allocated") return "allocated";
-  if (label === "Partial") return "partial";
-  return "not_allocated";
+export function getSalesItemsFilterValue(
+  order: SalesOrderListRow,
+  mode: SalesAllocationMode = "manual"
+): SalesItemsFilterValue {
+  if (order.status === "done") {
+    return mode === "manual" ? "allocated" : "available";
+  }
+
+  if (mode === "manual") {
+    const label = getSalesItemsState(order, mode).label;
+    if (label === "Complete" || label === "Allocated") return "allocated";
+    if (label === "Partial") return "partial";
+    return "not_allocated";
+  }
+
+  switch (order.fulfillmentSummary.availabilityState) {
+    case "complete":
+    case "available":
+      return "available";
+    case "expected":
+      return "expected";
+    case "not_available":
+    default:
+      return "not_available";
+  }
 }
