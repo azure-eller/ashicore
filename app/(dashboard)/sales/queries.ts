@@ -2436,52 +2436,6 @@ async function createPlannedShipmentsFromOrderPayloadInTx(
   await syncSalesOrderShipDateFromShipmentsInTx(tx, order.id);
 }
 
-async function upsertUnscheduledRemainderShipmentForOrderInTx(
-  tx: Tx,
-  orgId: string,
-  order: AutoPlannedShipmentOrderSnapshot,
-  actorUserId?: string | null,
-  options?: { excludeShipmentId?: string | null }
-) {
-  const conditions = [
-    eq(salesShipments.salesOrderId, order.id),
-    eq(salesShipments.status, "planned"),
-    sql`${salesShipments.scheduledDate} IS NULL`,
-    eq(salesShipments.notes, "Remaining demand"),
-  ];
-  if (options?.excludeShipmentId) {
-    conditions.push(sql`${salesShipments.id} <> ${options.excludeShipmentId}`);
-  }
-
-  const generatedRemainderShipments = await tx
-    .select({ id: salesShipments.id })
-    .from(salesShipments)
-    .where(and(...conditions))
-    .for("update");
-
-  for (const shipment of generatedRemainderShipments) {
-    const existingLines = await tx
-      .select({ id: salesShipmentLines.id })
-      .from(salesShipmentLines)
-      .where(eq(salesShipmentLines.salesShipmentId, shipment.id))
-      .for("update");
-    await cancelShipmentLineAllocationsInTx(tx, {
-      organizationId: orgId,
-      shipmentLineIds: existingLines.map((line) => line.id),
-      actorUserId: actorUserId ?? null,
-    });
-    await tx
-      .delete(salesShipmentLines)
-      .where(eq(salesShipmentLines.salesShipmentId, shipment.id));
-    await tx
-      .delete(salesShipmentCosts)
-      .where(eq(salesShipmentCosts.salesShipmentId, shipment.id));
-    await tx.delete(salesShipments).where(eq(salesShipments.id, shipment.id));
-  }
-
-  return null;
-}
-
 async function getNextShipmentSequenceInTx(tx: Tx, salesOrderId: string) {
   const result = await tx.execute(
     sql`SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
@@ -6613,18 +6567,16 @@ export async function createSalesShipment(
       throw new SalesError("Split shipments are no longer supported. Create a separate sales order instead.", 400);
     }
 
-    const existingPlannedShipments = await tx
+    const existingShipments = await tx
       .select({ id: salesShipments.id })
       .from(salesShipments)
-      .where(
-        and(
-          eq(salesShipments.salesOrderId, orderId),
-          eq(salesShipments.status, "planned")
-        )
-      )
+      .where(eq(salesShipments.salesOrderId, orderId))
       .for("update");
-    if (existingPlannedShipments.length > 0) {
-      throw new SalesError("A sales order can only have one planned shipment.", 400);
+    if (existingShipments.length > 0) {
+      throw new SalesError(
+        "A sales order can only have one shipment. Create a separate sales order instead.",
+        400
+      );
     }
 
     const states = await getShipmentLineStatesInTx(tx, orderId);
@@ -6761,27 +6713,6 @@ export async function updateSalesShipment(
         updatedAt: new Date(),
       })
       .where(eq(salesShipments.id, shipmentId));
-
-    await upsertUnscheduledRemainderShipmentForOrderInTx(
-      tx,
-      orgId,
-      {
-        id: orderId,
-        orderNumber: shipment.orderNumber,
-        customerId: shipment.customerId,
-        customerName: shipment.customerName,
-        shipDate: shipment.shipDate,
-        requestedDate: shipment.requestedDate,
-        shipLine1: shipment.shipLine1,
-        shipLine2: shipment.shipLine2,
-        shipCity: shipment.shipCity,
-        shipRegion: shipment.shipRegion,
-        shipPostcode: shipment.shipPostcode,
-        shipCountry: shipment.shipCountry,
-      },
-      userId,
-      { excludeShipmentId: shipmentId }
-    );
 
     await syncSalesOrderShipDateFromShipmentsInTx(tx, orderId);
 
@@ -6931,21 +6862,6 @@ export async function deleteSalesShipment(
       .delete(salesShipmentCosts)
       .where(eq(salesShipmentCosts.salesShipmentId, shipmentId));
     await tx.delete(salesShipments).where(eq(salesShipments.id, shipmentId));
-
-    await upsertUnscheduledRemainderShipmentForOrderInTx(tx, orgId, {
-      id: orderId,
-      orderNumber: shipment.orderNumber,
-      customerId: shipment.customerId,
-      customerName: shipment.customerName,
-      shipDate: shipment.shipDate,
-      requestedDate: shipment.requestedDate,
-      shipLine1: shipment.shipLine1,
-      shipLine2: shipment.shipLine2,
-      shipCity: shipment.shipCity,
-      shipRegion: shipment.shipRegion,
-      shipPostcode: shipment.shipPostcode,
-      shipCountry: shipment.shipCountry,
-    }, userId);
 
     await syncSalesOrderShipDateFromShipmentsInTx(tx, orderId);
 
@@ -7118,14 +7034,6 @@ export async function shipSalesShipment(
 
     if (allClosed) {
       await rerankOpenSalesOrdersInTx(tx, orgId);
-    } else {
-      await upsertUnscheduledRemainderShipmentForOrderInTx(
-        tx,
-        orgId,
-        order,
-        userId,
-        { excludeShipmentId: shipmentId }
-      );
     }
 
     const result = {

@@ -566,7 +566,13 @@ export function OrderCard({
         <ShipmentsTable
           order={order}
           editable={isEditable}
-          addDisabledReason={isDraft ? "Choose a customer first." : null}
+          addDisabledReason={
+            isDraft
+              ? "Choose a customer first."
+              : order.shipments.length > 0
+                ? "Create a separate sales order for another shipment."
+                : null
+          }
           onNewShipment={
             isEditable
               ? () => {

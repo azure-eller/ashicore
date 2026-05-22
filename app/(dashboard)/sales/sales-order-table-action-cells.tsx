@@ -30,49 +30,9 @@ type ProductionActionCellProps = {
   state: OperationalState;
 };
 
-type ShipmentFormState = {
-  fulfillmentType: "delivery" | "pickup";
-  scheduledDate: string;
-  notes: string;
-  quantities: Record<string, string>;
-};
-
 function parseQuantity(value: string | null | undefined) {
   const parsed = Number.parseFloat(value ?? "0");
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function buildShipmentFormState(order: SalesOrderDetail): ShipmentFormState {
-  return {
-    fulfillmentType: "delivery",
-    scheduledDate: order.shipDate ?? order.requestedDate ?? "",
-    notes: "",
-    quantities: Object.fromEntries(
-      order.lines.map((line) => [
-        line.id,
-        parseQuantity(line.unplannedRemainingQuantity) > 0
-          ? line.unplannedRemainingQuantity
-          : "",
-      ])
-    ),
-  };
-}
-
-function shipmentPayloadFromState(state: ShipmentFormState) {
-  return {
-    fulfillmentType: state.fulfillmentType,
-    scheduledDate: state.scheduledDate || null,
-    notes: state.notes || null,
-    lines: Object.entries(state.quantities).flatMap(([salesOrderLineId, quantity]) => {
-      const trimmed = quantity.trim();
-      if (!trimmed) return [];
-
-      const parsed = Number.parseFloat(trimmed);
-      if (!Number.isFinite(parsed) || parsed <= 0) return [];
-
-      return [{ salesOrderLineId, quantity: trimmed }];
-    }),
-  };
 }
 
 function latestPlannedShipment(order: SalesOrderListRow | SalesOrderDetail) {
@@ -249,36 +209,23 @@ export function DeliveryActionCell({
     onSuccess: resetAfterMutation,
   });
 
-  const createAndShipMutation = useMutation({
-    mutationFn: async (state: ShipmentFormState) => {
-      const shipment = await apiJson<{ id: string }>(
-        `/api/sales-orders/${order.id}/shipments`,
-        {
-          method: "POST",
-          headers: createIdempotencyHeaders("sales-shipment-table-create", {
-            "Content-Type": "application/json",
-          }),
-          body: shipmentPayloadFromState(state),
-          fallbackError: "Failed to plan shipment.",
-        }
-      );
-
-      await apiJson(`/api/sales-orders/${order.id}/shipments/${shipment.id}/ship`, {
+  const shipOrderMutation = useMutation({
+    mutationFn: async () =>
+      apiJson(`/api/sales-orders/${order.id}/ship`, {
         method: "POST",
-        headers: createIdempotencyHeaders("sales-shipment-table-ship"),
-        body: {},
-        fallbackError: "Failed to mark shipment shipped.",
-      });
-    },
+        headers: createIdempotencyHeaders("sales-order-table-ship"),
+        body: { confirmNegativeStock: false },
+        fallbackError: "Failed to mark order shipped.",
+      }),
     onSuccess: resetAfterMutation,
   });
 
   const activeError =
     shipShipmentMutation.error ??
-    createAndShipMutation.error;
+    shipOrderMutation.error;
   const isMutating =
     shipShipmentMutation.isPending ||
-    createAndShipMutation.isPending;
+    shipOrderMutation.isPending;
   const canOpen = order.status === "open" || order.status === "done";
   const hasGroundAllocation = detail
     ? hasFullyGroundAllocatedStock(detail)
@@ -343,7 +290,8 @@ export function DeliveryActionCell({
                     return;
                   }
 
-                  createAndShipMutation.mutate(buildShipmentFormState(requireDetail()));
+                  requireDetail();
+                  shipOrderMutation.mutate();
                 }}
               />
               {activeError ? (
