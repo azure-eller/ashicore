@@ -4944,6 +4944,9 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           .from(salesOrderLines)
           .where(inArray(salesOrderLines.salesOrderId, orderIds))
           .orderBy(asc(salesOrderLines.salesOrderId), asc(salesOrderLines.sortOrder));
+        const orderedQuantityByLineId = new Map(
+          availabilityLineRows.map((line) => [line.salesOrderLineId, line.quantity])
+        );
         const availabilitySummaries =
           await getSalesOrderAvailabilitySummariesInTx(
             tx,
@@ -4979,6 +4982,10 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
         return orderRows.map((order) => {
           const manufacturingSummary = manufacturingSummaries.get(order.id);
           const summaryLines = manufacturingSummary?.lines ?? [];
+          const salesLines = summaryLines.map((line) => ({
+            ...line,
+            quantity: orderedQuantityByLineId.get(line.salesOrderLineId) ?? line.quantity,
+          }));
           const availabilitySummary = availabilitySummaries.get(order.id);
           const hasManufacturableLines =
             manufacturingSummary?.hasManufacturableLines ?? false;
@@ -4987,7 +4994,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           const openManufacturingOrders = openLinkedManufacturingOrders(
             linkedManufacturingOrders
           ).map(serializeLinkedManufacturingOrder);
-          const stockBlockers = summaryLines.flatMap((line) => {
+          const stockBlockers = salesLines.flatMap((line) => {
             const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
             const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
             const remainingQty = normalizeShipmentQuantity(
@@ -5013,8 +5020,8 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           return {
             ...order,
             status: order.status as SalesOrderListRow["status"],
-            itemSummary: summarizeItems(summaryLines),
-            lines: summaryLines.map((line) => {
+            itemSummary: summarizeItems(salesLines),
+            lines: salesLines.map((line) => {
               const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
               const unplannedAllocation = allocationSummaryByDemandId.get(
                 line.salesOrderLineId
@@ -5065,7 +5072,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             }),
             shipments: shipmentsBySalesOrderId.get(order.id) ?? [],
             fulfillmentSummary: (() => {
-              const totals = summaryLines.reduce(
+              const totals = salesLines.reduce(
                 (acc, line) => {
                   const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
                   const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
