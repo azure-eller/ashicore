@@ -89,7 +89,7 @@ export function CustomersTable({ initialData }: { initialData: CustomerRow[] }) 
         confirmTitle: (count) =>
           `Delete ${count} customer${count !== 1 ? "s" : ""}?`,
         confirmDescription: (count) =>
-          `The selected customer${count !== 1 ? "s" : ""} will be soft-deleted.`,
+          `The selected customer${count !== 1 ? "s" : ""} will be soft-deleted. Existing sales orders keep their customer snapshot.`,
       }}
     />
   );

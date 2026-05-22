@@ -81,7 +81,7 @@ export function CardSaveStatusIndicator({
           ? "Not saved yet"
           : state === "readonly"
             ? "Read-only"
-            : "Save failed");
+            : "Save failed: no error detail returned");
 
   return (
     <span className={className}>

@@ -51,7 +51,6 @@ export type PlanShipmentDialogProps = {
 type FormState = {
   fulfillmentType: "delivery" | "pickup";
   scheduledDate: string;
-  deliveryDate: string;
   notes: string;
   quantities: Record<string, string>;
 };
@@ -61,7 +60,6 @@ function makeFormState(target: "new" | SalesShipmentRow): FormState {
     return {
       fulfillmentType: "delivery",
       scheduledDate: "",
-      deliveryDate: "",
       notes: "",
       quantities: {},
     };
@@ -73,7 +71,6 @@ function makeFormState(target: "new" | SalesShipmentRow): FormState {
   return {
     fulfillmentType: target.fulfillmentType,
     scheduledDate: target.scheduledDate ?? "",
-    deliveryDate: target.deliveryDate ?? "",
     notes: target.notes ?? "",
     quantities,
   };
@@ -135,7 +132,7 @@ function PlanShipmentDialogForm({
       const payload = {
         fulfillmentType: state.fulfillmentType,
         scheduledDate: state.scheduledDate || null,
-        deliveryDate: state.deliveryDate || null,
+        deliveryDate: state.scheduledDate || null,
         notes: state.notes.trim() === "" ? null : state.notes.trim(),
         lines: order.lines
           .map((line) => ({
@@ -224,15 +221,6 @@ function PlanShipmentDialogForm({
                   value={form.scheduledDate}
                   onChange={(value) =>
                     setForm({ ...form, scheduledDate: value ?? "" })
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Delivery date</label>
-                <DatePicker
-                  value={form.deliveryDate}
-                  onChange={(value) =>
-                    setForm({ ...form, deliveryDate: value ?? "" })
                   }
                 />
               </div>

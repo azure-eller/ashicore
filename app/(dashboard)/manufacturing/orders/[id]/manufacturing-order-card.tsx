@@ -604,7 +604,7 @@ function OrderDetailsSection({
 
     saveOrderSnapshot.mutate({
       plannedQuantity,
-      plannedDate: line.shipDate ?? line.requestedDate ?? order.plannedDate,
+      plannedDate: line.shipDate ?? order.plannedDate,
       salesOrderId: line.salesOrderId,
       salesOrderLineId: line.salesOrderLineId,
       ingredients: order.ingredients.map((ingredient) => ({

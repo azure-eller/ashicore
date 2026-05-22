@@ -110,7 +110,7 @@ export function OrderDetailsGrid({
   return (
     <DetailsContext.Provider value={{ orderId: order.id, draft }}>
       <CardSection title="Order details">
-        <div className={`${cardStyles.formRow} ${cardStyles.formRowFive}`}>
+        <div className={`${cardStyles.formRow} ${cardStyles.formRowFour}`}>
           <TextCell
             label="Sales order"
             field="orderNumber"
@@ -124,13 +124,6 @@ export function OrderDetailsGrid({
             customerOptions={customerOptions}
           />
           <ProjectCell order={order} editable={editable} projects={customerProjects} />
-          <DateCell
-            label="Order date"
-            field="orderDate"
-            value={order.orderDate}
-            editable={editable}
-            required
-          />
           <DateCell
             label="Ship date"
             field="shipDate"
@@ -208,7 +201,7 @@ function DateCell({
   hint,
 }: {
   label: string;
-  field: "orderDate" | "shipDate" | "requestedDate";
+  field: "shipDate";
   value: string | null;
   editable: boolean;
   required?: boolean;

@@ -48,15 +48,14 @@ function shipmentToPayload(
   override: Partial<{
     fulfillmentType: "delivery" | "pickup";
     scheduledDate: string | null;
-    deliveryDate: string | null;
   }>,
 ) {
+  const scheduledDate =
+    override.scheduledDate !== undefined ? override.scheduledDate : shipment.scheduledDate;
   return {
     fulfillmentType: override.fulfillmentType ?? shipment.fulfillmentType,
-    scheduledDate:
-      override.scheduledDate !== undefined ? override.scheduledDate : shipment.scheduledDate,
-    deliveryDate:
-      override.deliveryDate !== undefined ? override.deliveryDate : shipment.deliveryDate,
+    scheduledDate,
+    deliveryDate: scheduledDate,
     notes: shipment.notes,
     lines: shipment.lines.map((line) => ({
       salesOrderLineId: line.salesOrderLineId,
@@ -143,16 +142,6 @@ export function ShipmentsTable({
         mono: true,
         valueFormatter: ({ value }) => (value ? (formatDate(String(value)) ?? "—") : "—"),
         valueSetter: dateSetter("scheduledDate"),
-      },
-      {
-        field: "deliveryDate",
-        kind: "date",
-        headerName: "Deliver date",
-        width: 130,
-        editable: (data) => Boolean(data && editable && data.status === "planned"),
-        mono: true,
-        valueFormatter: ({ value }) => (value ? (formatDate(String(value)) ?? "—") : "—"),
-        valueSetter: dateSetter("deliveryDate"),
       },
       {
         colId: "lines",
@@ -280,11 +269,6 @@ export function ShipmentsTable({
         shipment,
         override: { scheduledDate: shipment.scheduledDate },
       });
-    } else if (change.field === "deliveryDate") {
-      patchMutation.mutate({
-        shipment,
-        override: { deliveryDate: shipment.deliveryDate },
-      });
     }
   };
 
@@ -318,7 +302,7 @@ export function ShipmentsTable({
   );
 }
 
-function dateSetter(field: "scheduledDate" | "deliveryDate") {
+function dateSetter(field: "scheduledDate") {
   return (params: ValueSetterParams<SalesShipmentRow>) => {
     const raw = String(params.newValue ?? "").trim();
     const next = raw === "" ? null : raw;

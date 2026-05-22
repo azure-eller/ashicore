@@ -179,7 +179,7 @@ export function CreateManufacturingOrdersDialog({
         ? formatOpenManufacturingOrders(order.linkedManufacturingOrders)
         : [];
   const effectivePlannedDate =
-    plannedDate ?? initialPlannedDate ?? order?.shipDate ?? order?.requestedDate ?? "";
+    plannedDate ?? initialPlannedDate ?? order?.shipDate ?? "";
   const creatableLines = useMemo(
     () => previewQuery.data?.lines.filter((line) => line.status === "will_create") ?? [],
     [previewQuery.data]

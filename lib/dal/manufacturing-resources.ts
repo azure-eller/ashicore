@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import {
   bomRevisionOperationCosts,
   manufacturingOrderOperationCosts,
@@ -13,6 +13,8 @@ import type {
   InsertManufacturingResource,
   UpdateManufacturingResource,
 } from "@/lib/schemas/manufacturing-resources";
+
+type AuthedTx = Parameters<Parameters<typeof withAuthedOrgContext>[0]>[0];
 
 export async function getManufacturingResources() {
   return withAuthedOrgContext(async (tx) =>
@@ -68,35 +70,7 @@ export async function updateManufacturingResource(
 
 export async function deleteManufacturingResource(id: string) {
   return withAuthedOrgContext(async (tx) => {
-    const [usage] = await tx
-      .select({
-        bomOperationCount: sql<number>`COUNT(DISTINCT ${bomRevisionOperationCosts.id})::int`,
-        manufacturingOrderOperationCount: sql<number>`COUNT(DISTINCT ${manufacturingOrderOperationCosts.id})::int`,
-      })
-      .from(manufacturingResources)
-      .leftJoin(
-        bomRevisionOperationCosts,
-        eq(bomRevisionOperationCosts.resourceId, manufacturingResources.id)
-      )
-      .leftJoin(
-        manufacturingOrderOperationCosts,
-        eq(manufacturingOrderOperationCosts.resourceId, manufacturingResources.id)
-      )
-      .where(and(eq(manufacturingResources.id, id), isNull(manufacturingResources.deletedAt)));
-
-    if (
-      usage &&
-      (usage.bomOperationCount > 0 || usage.manufacturingOrderOperationCount > 0)
-    ) {
-      throw new DomainError(
-        `This resource is used by ${usage.bomOperationCount} BOM operation cost line${
-          usage.bomOperationCount === 1 ? "" : "s"
-        } and ${usage.manufacturingOrderOperationCount} manufacturing order snapshot${
-          usage.manufacturingOrderOperationCount === 1 ? "" : "s"
-        }. Remove those references before deleting it.`,
-        409
-      );
-    }
+    await detachManufacturingResourceReferencesInTx(tx, [id]);
 
     const [resource] = await tx
       .update(manufacturingResources)
@@ -116,39 +90,15 @@ export async function deleteManufacturingResources(ids: string[]) {
     const deleted: string[] = [];
 
     for (const id of ids) {
-      const [usage] = await tx
-        .select({
-          bomOperationCount: sql<number>`COUNT(DISTINCT ${bomRevisionOperationCosts.id})::int`,
-          manufacturingOrderOperationCount: sql<number>`COUNT(DISTINCT ${manufacturingOrderOperationCosts.id})::int`,
-        })
+      const [existing] = await tx
+        .select({ id: manufacturingResources.id })
         .from(manufacturingResources)
-        .leftJoin(
-          bomRevisionOperationCosts,
-          eq(bomRevisionOperationCosts.resourceId, manufacturingResources.id)
-        )
-        .leftJoin(
-          manufacturingOrderOperationCosts,
-          eq(manufacturingOrderOperationCosts.resourceId, manufacturingResources.id)
-        )
         .where(and(eq(manufacturingResources.id, id), isNull(manufacturingResources.deletedAt)));
 
-      if (!usage) {
+      if (!existing) {
         throw new DomainError("Resource not found", 404);
       }
-
-      if (
-        usage.bomOperationCount > 0 ||
-        usage.manufacturingOrderOperationCount > 0
-      ) {
-        throw new DomainError(
-          `This resource is used by ${usage.bomOperationCount} BOM operation cost line${
-            usage.bomOperationCount === 1 ? "" : "s"
-          } and ${usage.manufacturingOrderOperationCount} manufacturing order snapshot${
-            usage.manufacturingOrderOperationCount === 1 ? "" : "s"
-          }. Remove those references before deleting it.`,
-          409
-        );
-      }
+      await detachManufacturingResourceReferencesInTx(tx, [id]);
 
       const [resource] = await tx
         .update(manufacturingResources)
@@ -168,4 +118,17 @@ export async function deleteManufacturingResources(ids: string[]) {
 
     return { deleted };
   });
+}
+
+async function detachManufacturingResourceReferencesInTx(tx: AuthedTx, ids: string[]) {
+  if (ids.length === 0) return;
+
+  await tx
+    .delete(bomRevisionOperationCosts)
+    .where(inArray(bomRevisionOperationCosts.resourceId, ids));
+
+  await tx
+    .update(manufacturingOrderOperationCosts)
+    .set({ resourceId: null })
+    .where(inArray(manufacturingOrderOperationCosts.resourceId, ids));
 }

@@ -138,7 +138,7 @@ export function ProductionActionCell({ order, state }: ProductionActionCellProps
         onOpenChange={setMakeToOrderOpen}
         showTrigger={false}
         salesOrderLabel={`${order.orderNumber} - ${order.customerName}`}
-        initialPlannedDate={order.shipDate ?? order.requestedDate ?? undefined}
+        initialPlannedDate={order.shipDate ?? undefined}
         openManufacturingOrders={order.openManufacturingOrders.map((mo) => ({
           id: mo.id,
           orderNumber: mo.orderNumber,

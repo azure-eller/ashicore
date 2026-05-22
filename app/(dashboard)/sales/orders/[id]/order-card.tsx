@@ -549,7 +549,7 @@ export function OrderCard({
             onOpenChange={setMakeToOrderOpen}
             showTrigger={false}
             salesOrderLabel={`${order.orderNumber} - ${order.customerName}`}
-            initialPlannedDate={order.shipDate ?? order.requestedDate ?? undefined}
+            initialPlannedDate={order.shipDate ?? undefined}
             openManufacturingOrders={order.linkedManufacturingOrders
               .filter((linkedOrder) => linkedOrder.status === "open")
               .map((linkedOrder) => ({
@@ -637,7 +637,6 @@ function persistedOrderHeaderPatch(order: SalesOrderDetail): PersistedHeaderPatc
     customerProjectId: order.customerProjectId,
     orderDate: order.orderDate,
     shipDate: order.shipDate,
-    requestedDate: order.requestedDate,
     notes: order.notes,
     shipLine1: order.shipLine1,
     shipLine2: order.shipLine2,

@@ -182,11 +182,6 @@ export function BillOfLadingDocument({
                 Ship date: {new Date(`${order.scheduledDate}T00:00:00`).toLocaleDateString("en-US")}
               </Text>
             )}
-            {order.requestedDate && (
-              <Text style={styles.metaLine}>
-                Delivery date: {new Date(`${order.requestedDate}T00:00:00`).toLocaleDateString("en-US")}
-              </Text>
-            )}
           </View>
         </View>
 

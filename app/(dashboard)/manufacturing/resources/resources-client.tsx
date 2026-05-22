@@ -214,7 +214,7 @@ export function ManufacturingResourcesClient({
           confirmTitle: (count) =>
             `Delete ${count} resource${count === 1 ? "" : "s"}?`,
           confirmDescription: (count) =>
-            `The selected resource${count === 1 ? "" : "s"} will be archived if not referenced by BOM operation costs or manufacturing order snapshots.`,
+            `The selected resource${count === 1 ? "" : "s"} will be archived. BOM operation cost lines using ${count === 1 ? "it" : "them"} will be removed, and manufacturing order snapshots will keep their copied cost details without a resource link.`,
         }}
       />
       <Dialog

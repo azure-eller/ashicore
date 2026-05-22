@@ -547,7 +547,7 @@ export function CustomerCard({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete customer?</AlertDialogTitle>
             <AlertDialogDescription>
-              This customer will be soft-deleted. Customers with active sales orders cannot be deleted.
+              This customer will be soft-deleted. Existing sales orders keep their customer snapshot.
               {deleteMutation.error ? (
                 <span className="mt-(--space-2) block text-destructive">
                   {(deleteMutation.error as Error).message}

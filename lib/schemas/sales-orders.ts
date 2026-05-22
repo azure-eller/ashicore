@@ -160,6 +160,7 @@ const cleanedOrderShipmentsSchema = z
       .filter((shipment) => !isBlankShipment(shipment))
       .map((shipment) => ({
         ...shipment,
+        deliveryDate: shipment.scheduledDate,
         lines: shipment.lines.filter((line) => !isBlankShipmentLine(line)),
       }))
   )
@@ -176,32 +177,6 @@ const cleanedOrderShipmentsSchema = z
           code: z.ZodIssueCode.custom,
           message: "Ship date must be a real date in YYYY-MM-DD format",
           path: [index, "scheduledDate"],
-        });
-      }
-
-      if (!shipment.deliveryDate) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Delivery date is required",
-          path: [index, "deliveryDate"],
-        });
-      } else if (!isValidIsoDate(shipment.deliveryDate)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Delivery date must be a real date in YYYY-MM-DD format",
-          path: [index, "deliveryDate"],
-        });
-      }
-
-      if (
-        shipment.scheduledDate &&
-        shipment.deliveryDate &&
-        shipment.deliveryDate < shipment.scheduledDate
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Delivery date cannot be before ship date",
-          path: [index, "deliveryDate"],
         });
       }
 
@@ -266,10 +241,7 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
     .refine((value) => {
       return isValidIsoDate(value);
     }, "Order date must be a real date in YYYY-MM-DD format"),
-  requestedDate: nullableString.refine((value) => {
-    if (value == null) return true;
-    return isValidIsoDate(value);
-  }, "Delivery date must be a real date in YYYY-MM-DD format"),
+  requestedDate: nullableString,
   shipDate: nullableString.refine((value) => {
     if (value == null) return true;
     return isValidIsoDate(value);
@@ -404,11 +376,7 @@ export const patchSalesOrderHeaderSchema = z
         (value) => value == null || isValidIsoDate(value),
         "Shipping date must be a real date in YYYY-MM-DD format"
       ),
-    requestedDate: patchNullableString
-      .refine(
-        (value) => value == null || isValidIsoDate(value),
-        "Delivery date must be a real date in YYYY-MM-DD format"
-      ),
+    requestedDate: patchNullableString,
     notes: patchNullableString,
     shipLine1: patchNullableString,
     shipLine2: patchNullableString,
@@ -529,10 +497,7 @@ export const salesShipmentInputSchema = z.object({
     if (value == null) return true;
     return isValidIsoDate(value);
   }, "Ship date must be a real date in YYYY-MM-DD format"),
-  deliveryDate: nullableString.refine((value) => {
-    if (value == null) return true;
-    return isValidIsoDate(value);
-  }, "Delivery date must be a real date in YYYY-MM-DD format"),
+  deliveryDate: nullableString,
   notes: nullableString,
   splitFromShipmentId: z.string().uuid().nullable().optional(),
   lines: shipmentLinesSchema,
@@ -544,13 +509,7 @@ export const salesFulfillmentPlanInputSchema = z.object({
     if (value == null) return true;
     return isValidIsoDate(value);
   }, "Ship date must be a real date in YYYY-MM-DD format"),
-  deliveryDate: z
-    .string()
-    .min(1, "Delivery date is required")
-    .refine(
-      (value) => isValidIsoDate(value),
-      "Delivery date must be a real date in YYYY-MM-DD format"
-    ),
+  deliveryDate: nullableString,
   fulfillmentType: z.enum(SALES_SHIPMENT_FULFILLMENT_TYPES).default("delivery"),
   shipmentId: z.string().uuid().nullable().optional(),
   shipmentNotes: nullableString,

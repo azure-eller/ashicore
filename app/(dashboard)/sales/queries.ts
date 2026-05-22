@@ -2183,7 +2183,7 @@ async function upsertPlannedShipmentForFulfillmentPlanInTx(
   const shipmentData: SalesShipmentInput = {
     fulfillmentType: data.fulfillmentType,
     scheduledDate: data.shipDate ?? order.shipDate,
-    deliveryDate: data.deliveryDate,
+    deliveryDate: data.shipDate ?? order.shipDate,
     notes: data.shipmentNotes,
     lines: data.shipmentLines,
   };
@@ -2784,7 +2784,7 @@ async function prepareOrderPayload(
     customerName: customer.name,
     orderDate: payload.orderDate,
     shipDate: payload.shipDate ?? null,
-    requestedDate: payload.requestedDate ?? null,
+    requestedDate: null,
     notes: payload.notes ?? null,
     shipLine1: payload.shipLine1 ?? null,
     shipLine2: payload.shipLine2 ?? null,
@@ -2998,43 +2998,30 @@ async function ensureCustomerCategoriesDeletableInTx(
   categoryIds: string[]
 ) {
   const uniqueCategoryIds = [...new Set(categoryIds)];
+  const now = new Date();
 
-  const [blockingCustomer, blockingSchedule] = await Promise.all([
+  await Promise.all([
     tx
-      .select({ id: customers.id })
-      .from(customers)
+      .update(customers)
+      .set({ customerCategoryId: null, updatedAt: now })
       .where(
         and(
           inArray(customers.customerCategoryId, uniqueCategoryIds),
           isNull(customers.deletedAt)
         )
       )
-      .limit(1),
+      .returning({ id: customers.id }),
     tx
-      .select({ id: pricingSchedules.id })
-      .from(pricingSchedules)
+      .update(pricingSchedules)
+      .set({ deletedAt: now, updatedAt: now })
       .where(
         and(
           inArray(pricingSchedules.customerCategoryId, uniqueCategoryIds),
           isNull(pricingSchedules.deletedAt)
         )
       )
-      .limit(1),
+      .returning({ id: pricingSchedules.id }),
   ]);
-
-  if (blockingCustomer[0]) {
-    throw new SalesError(
-      "Cannot delete a customer category that is still assigned to customers.",
-      400
-    );
-  }
-
-  if (blockingSchedule[0]) {
-    throw new SalesError(
-      "Cannot delete a customer category that is still used by pricing schedules.",
-      400
-    );
-  }
 
   return uniqueCategoryIds;
 }
@@ -4434,28 +4421,8 @@ export async function patchCustomer(id: string, data: PatchCustomer) {
   });
 }
 
-async function ensureCustomersDeletableInTx(tx: Tx, customerIds: string[]) {
+async function ensureCustomersDeletableInTx(customerIds: string[]) {
   const uniqueCustomerIds = [...new Set(customerIds)];
-
-  const [blockingOrder] = await tx
-    .select({ id: salesOrders.id })
-    .from(salesOrders)
-    .where(
-      and(
-        inArray(salesOrders.customerId, uniqueCustomerIds),
-        isNull(salesOrders.deletedAt),
-        eq(salesOrders.status, "open")
-      )
-    )
-    .limit(1);
-
-  if (blockingOrder) {
-    throw new SalesError(
-      "Cannot delete customer with active sales orders.",
-      400
-    );
-  }
-
   return uniqueCustomerIds;
 }
 
@@ -4545,7 +4512,7 @@ async function softDeleteCustomerCrmArtifactsInTx(tx: Tx, customerIds: string[])
 
 export async function deleteCustomer(id: string) {
   return withAuthedOrgContext(async (tx) => {
-    const customerIds = await ensureCustomersDeletableInTx(tx, [id]);
+    const customerIds = await ensureCustomersDeletableInTx([id]);
     const [customer] = await softDeleteCustomersInTx(tx, customerIds);
     const blobUrls =
       customer != null ? await softDeleteCustomerCrmArtifactsInTx(tx, [customer.id]) : [];
@@ -4556,7 +4523,7 @@ export async function deleteCustomer(id: string) {
 
 export async function deleteCustomers(ids: string[]) {
   return withAuthedOrgContext(async (tx) => {
-    const customerIds = await ensureCustomersDeletableInTx(tx, ids);
+    const customerIds = await ensureCustomersDeletableInTx(ids);
     const deletedCustomers = await softDeleteCustomersInTx(tx, customerIds);
     const deletedCustomerIds = deletedCustomers.map((customer) => customer.id);
     const blobUrls = await softDeleteCustomerCrmArtifactsInTx(tx, deletedCustomerIds);
@@ -4968,7 +4935,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                   salesOrderId: line.salesOrderId,
                   salesOrderLineId: line.salesOrderLineId,
                   itemId: line.itemId,
-                  requiredDate: order.shipDate ?? order.requestedDate,
+                  requiredDate: order.shipDate,
                   quantity: remainingQty,
                   priorityRank: order.priorityRank,
                   orderDate: order.orderDate,
@@ -5168,7 +5135,7 @@ export async function reorderSalesOrderPriorityRanks(
       )
       .for("update");
 
-    const openOrders = await tx
+    const rankedOpenOrders = await tx
       .select({
         id: salesOrders.id,
         priorityRank: salesOrders.priorityRank,
@@ -5191,17 +5158,17 @@ export async function reorderSalesOrderPriorityRanks(
     assertSameStringSet(
       orders.map((order) => order.id),
       payload.orderIds,
-      "Sales order ranking does not match open orders."
+      "Sales order ranking does not match active orders."
     );
 
-    const invalidOrder = orders.find((order) => !isOpenSalesOrderStatus(order.status));
-    if (invalidOrder) {
-      throw new SalesError("Only open sales orders can be reordered.", 400);
-    }
+    const submittedOpenIds = payload.orderIds.filter((id) => {
+      const order = orders.find((candidate) => candidate.id === id);
+      return order ? isOpenSalesOrderStatus(order.status) : false;
+    });
 
     const orderedIds = mergeSubmittedOrderIds(
-      openOrders.map((order) => order.id),
-      payload.orderIds
+      rankedOpenOrders.map((order) => order.id),
+      submittedOpenIds
     );
 
     const now = new Date();
@@ -5259,8 +5226,8 @@ export async function getSalesShippingQueue(): Promise<SalesShippingQueueRow[]> 
         orderNumber: order.orderNumber,
         customerName: order.customerName,
         status: order.status,
-        deliveryDate: order.requestedDate,
-        requestedDate: order.requestedDate,
+        deliveryDate: order.shipDate,
+        requestedDate: order.shipDate,
         shipDate: order.shipDate,
         notes: order.notes,
         shipLine1: order.shipLine1,
@@ -6138,7 +6105,7 @@ export async function duplicateSalesOrder(
       status: "open",
       orderDate: order.orderDate,
       shipDate: order.shipDate,
-      requestedDate: order.requestedDate,
+      requestedDate: null,
       notes: order.notes,
       shipLine1: order.shipLine1,
       shipLine2: order.shipLine2,
@@ -6451,7 +6418,7 @@ export async function getSalesOrderForBol(
       orderNumber: order.orderNumber,
       customerName: order.customerName,
       ...contact,
-      requestedDate: order.requestedDate,
+      requestedDate: null,
       shippedAt: order.shippedAt,
       notes: order.notes,
       status: order.status,
@@ -6568,7 +6535,7 @@ export async function getSalesShipmentForBol(
       shipmentNumber: shipment.shipmentNumber,
       customerName: shipment.customerName,
       ...contact,
-      requestedDate: shipment.deliveryDate ?? shipment.requestedDate,
+      requestedDate: null,
       scheduledDate: shipment.scheduledDate,
       shippedAt: shipment.shippedAt,
       notes: shipment.notes,
@@ -6633,13 +6600,6 @@ export async function planSalesOrderFulfillment(
         "Only open orders can be planned for fulfillment.",
         400
       );
-    }
-
-    if (order.requestedDate !== data.deliveryDate) {
-      await tx
-        .update(salesOrders)
-        .set({ requestedDate: data.deliveryDate, updatedAt: new Date() })
-        .where(eq(salesOrders.id, order.id));
     }
 
     const shipmentId = await upsertPlannedShipmentForFulfillmentPlanInTx(
@@ -6749,7 +6709,7 @@ export async function createSalesShipment(
         status: "planned",
         fulfillmentType: data.fulfillmentType,
         scheduledDate: data.scheduledDate,
-        deliveryDate: data.deliveryDate,
+        deliveryDate: data.scheduledDate,
         notes: data.notes,
         orderNumber: order.orderNumber,
         customerName: order.customerName,
@@ -6860,7 +6820,7 @@ export async function updateSalesShipment(
       .set({
         fulfillmentType: data.fulfillmentType,
         scheduledDate: data.scheduledDate,
-        deliveryDate: data.deliveryDate,
+        deliveryDate: data.scheduledDate,
         notes: data.notes,
         ...shipAddress,
         updatedAt: new Date(),
@@ -7640,10 +7600,6 @@ export async function patchSalesOrderHeader(
       });
       return null;
     }
-    if (existingOrder.status === "done") {
-      throw new SalesError("Done orders cannot be changed.", 400);
-    }
-
     const nextCustomerId = patch.customerId ?? existingOrder.customerId;
     const customer = await getValidatedCustomerInTx(tx, nextCustomerId);
     const nextCustomerProjectId =
@@ -7672,9 +7628,6 @@ export async function patchSalesOrderHeader(
     }
     if (patch.orderDate != null) updates.orderDate = patch.orderDate;
     if (patch.shipDate !== undefined) updates.shipDate = patch.shipDate;
-    if (patch.requestedDate !== undefined) {
-      updates.requestedDate = patch.requestedDate;
-    }
     if (patch.notes !== undefined) updates.notes = patch.notes;
     if (patch.shipLine1 !== undefined) updates.shipLine1 = patch.shipLine1;
     if (patch.shipLine2 !== undefined) updates.shipLine2 = patch.shipLine2;

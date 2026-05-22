@@ -4261,7 +4261,7 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
     );
   }
 
-  const plannedDate = payload.plannedDate ?? order.shipDate ?? order.requestedDate ?? null;
+  const plannedDate = payload.plannedDate ?? order.shipDate ?? null;
   const selectedLineIds = new Set(payload.salesOrderLineIds);
   const quantityByLineId = new Map(
     payload.lineQuantities?.map((lineQuantity) => [
@@ -4795,10 +4795,7 @@ export async function updateManufacturingOrderPriority(
     }
 
     if (order.status !== "open") {
-      throw new ManufacturingError(
-        "Only open manufacturing orders can be ranked.",
-        400
-      );
+      return { id: order.id };
     }
 
     await assertPriorityRankAvailableInTx(tx, orgId, payload.priorityRank, id);
@@ -4836,7 +4833,7 @@ export async function reorderManufacturingOrderPriorityRanks(
       )
       .for("update");
 
-    const openOrders = await tx
+    const rankedOpenOrders = await tx
       .select({
         id: manufacturingOrders.id,
         priorityRank: manufacturingOrders.priorityRank,
@@ -4862,21 +4859,14 @@ export async function reorderManufacturingOrderPriorityRanks(
       "Manufacturing order ranking does not match active orders."
     );
 
-    const invalidOrder = orders.find(
-      (order) =>
-        order.status !== "open"
-    );
-
-    if (invalidOrder) {
-      throw new ManufacturingError(
-        "Only open manufacturing orders can be reordered.",
-        400
-      );
-    }
+    const submittedOpenIds = payload.orderIds.filter((id) => {
+      const order = orders.find((candidate) => candidate.id === id);
+      return order?.status === "open";
+    });
 
     const orderedIds = mergeSubmittedOrderIds(
-      openOrders.map((order) => order.id),
-      payload.orderIds
+      rankedOpenOrders.map((order) => order.id),
+      submittedOpenIds
     );
 
     const now = new Date();
