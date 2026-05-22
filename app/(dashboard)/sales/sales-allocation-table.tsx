@@ -297,6 +297,7 @@ function getAllocatorProducts(
 
       const existing = productsById.get(line.itemId);
       const inventoryItem = inventoryById.get(line.itemId);
+      if (inventoryItem?.sellable !== true) return;
       const isStandalone = line.attrs.length === 0;
 
       productsById.set(line.itemId, {
