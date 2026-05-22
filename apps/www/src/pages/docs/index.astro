@@ -1,0 +1,40 @@
+---
+import { getCollection } from "astro:content";
+import DocsLayout from "../../layouts/DocsLayout.astro";
+import { compareDocs, docUrl, groupDocs } from "../../lib/docs";
+
+const allDocs = (await getCollection("docs")).sort(compareDocs);
+const groups = groupDocs(allDocs);
+---
+
+<DocsLayout
+  title="Documentation"
+  description="Guides for running inventory, purchasing, manufacturing, sales, stocktakes, accounting, and team workflows in Ashicore."
+  path="/docs"
+  allDocs={allDocs}
+>
+  <section class="docs-index-intro">
+    <p>
+      Ashicore documentation is workflow-first. Start with real operating flows,
+      then drill into concepts, task guides, reference rules, design decisions,
+      admin setup, and developer internals when you need exact behavior.
+    </p>
+  </section>
+  <div class="docs-index-grid">
+    {
+      groups.map((group) => (
+        <section class="docs-index-section">
+          <h2>{group.section}</h2>
+          <div class="docs-index-links">
+            {group.entries.map((entry) => (
+              <a href={docUrl(entry)}>
+                <strong>{entry.data.title}</strong>
+                <span>{entry.data.description}</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      ))
+    }
+  </div>
+</DocsLayout>

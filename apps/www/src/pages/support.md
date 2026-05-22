@@ -10,6 +10,10 @@ label: Help
 
 Email [support@ashicore.app](mailto:support@ashicore.app) for product support, security questions, account help, app review requests, or data deletion requests.
 
+## Documentation
+
+Use the [Ashicore documentation](/docs) for workflow guides covering inventory, purchasing, manufacturing, sales, stocktakes, integrations, and team settings.
+
 ## Account access
 
 Use [Sign in](/sign-in?next=%2Fsales%2Forders) to access Ashicore. If you are already signed in, Ashicore opens your sales orders. If you were invited by a team, use the invitation link from your email.

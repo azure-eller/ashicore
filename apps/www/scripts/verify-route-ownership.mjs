@@ -41,6 +41,7 @@ const expectedNested = new Set([
 
 const publicAstroRoutes = new Set([
   "/",
+  "/docs",
   "/privacy",
   "/terms",
   "/support",
@@ -53,6 +54,8 @@ const publicAstroRoutes = new Set([
   "/sitemap.xml",
   "/404",
 ]);
+
+const publicAstroPrefixes = new Set(["/docs"]);
 
 const intentionallyNotRewritten = new Set([
   "/dev",
@@ -159,6 +162,12 @@ for (const route of ["/android", "/api", "/.well-known"]) {
 for (const route of publicAstroRoutes) {
   if (rewriteSources.has(route)) {
     failures.push(`Public Astro route is incorrectly rewritten to ERP: ${route}`);
+  }
+}
+
+for (const prefix of publicAstroPrefixes) {
+  if (rewriteSources.has(`${prefix}/:path*`)) {
+    failures.push(`Public Astro route prefix is incorrectly rewritten to ERP: ${prefix}/:path*`);
   }
 }
 
