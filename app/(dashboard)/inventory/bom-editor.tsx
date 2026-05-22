@@ -674,6 +674,7 @@ export function BomEditor({
         headerName: "Alternates",
         minWidth: 116,
         flex: 0.55,
+        valueFormatter: (params) => summarizeAlternates(params.data),
         cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
           <AlternatesCell
             {...params}

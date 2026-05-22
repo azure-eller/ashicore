@@ -34,6 +34,7 @@ export type ProductRecipeTabProps = {
   card: ItemCardDto;
   focusItemId: string;
   initialBomRows: BomPayloadRow[];
+  initialBomRevisionId: string | null;
   initialOutputQuantity: string;
   initialRecipeBasis: "unit" | "batch";
   initialExpectedBatchYield: string | null;
@@ -46,6 +47,7 @@ export function ProductRecipeTab({
   card,
   focusItemId,
   initialBomRows,
+  initialBomRevisionId,
   initialOutputQuantity,
   initialRecipeBasis,
   initialExpectedBatchYield,
@@ -69,6 +71,7 @@ export function ProductRecipeTab({
   const [dirty, setDirty] = useState(false);
   const [copyToOpen, setCopyToOpen] = useState(false);
   const [copyFromOpen, setCopyFromOpen] = useState(false);
+  const editorResetKey = `${focusItemId}:${initialBomRevisionId ?? "none"}`;
 
   const saveMutation = useMutation({
     mutationKey: cardSaveMutationKey("item-card", focusItemId, "bom-revision"),
@@ -225,35 +228,26 @@ export function ProductRecipeTab({
       </p>
 
       <div className="mb-(--space-4) space-y-(--space-3)">
-        <div className="text-[length:var(--text-sm)] font-medium">
-          Recipe basis: {recipeBasis === "batch" ? "Per 1 batch" : "Per 1 unit"}
-        </div>
-
         {recipeBasis === "batch" ? (
           <div className="max-w-sm space-y-(--space-1)">
             <Label htmlFor="expected-output-per-batch">Output Per Batch:</Label>
-            <div className="relative">
-              <Input
-                id="expected-output-per-batch"
-                aria-label="Output per batch"
-                inputMode="decimal"
-                value={expectedBatchYield}
-                onChange={(event) => {
-                  setExpectedBatchYield(event.target.value);
-                  setDirty(true);
-                }}
-                disabled={!canEditProduct}
-                className="pr-(--space-16)"
-              />
-              <span className="pointer-events-none absolute inset-y-0 right-(--space-3) flex items-center text-[length:var(--text-sm)] text-muted-foreground">
-                {card.family.unitName ?? "units"}
-              </span>
-            </div>
+            <Input
+              id="expected-output-per-batch"
+              aria-label="Output per batch"
+              inputMode="decimal"
+              value={expectedBatchYield}
+              onChange={(event) => {
+                setExpectedBatchYield(event.target.value);
+                setDirty(true);
+              }}
+              disabled={!canEditProduct}
+            />
           </div>
         ) : null}
       </div>
 
       <BomEditor
+        key={editorResetKey}
         initialRows={initialBomRows}
         availableComponents={availableComponents}
         quantityHeader={

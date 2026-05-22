@@ -45,6 +45,7 @@ export default async function ProductRecipePage({
 
   return (
     <ProductRecipeTab
+      key={`${id}:${currentRevision?.id ?? "none"}`}
       card={card}
       focusItemId={id}
       initialBomRows={bomRows.map((row) => ({
@@ -55,6 +56,7 @@ export default async function ProductRecipePage({
           itemId: alternate.itemId,
         })),
       }))}
+      initialBomRevisionId={currentRevision?.id ?? null}
       initialOutputQuantity={currentRevision?.outputQuantity ?? "1"}
       initialRecipeBasis={currentRevision?.recipeBasis === "batch" ? "batch" : "unit"}
       initialExpectedBatchYield={item.expectedBatchYield}
