@@ -411,6 +411,18 @@ type PricingScheduleBreakRecord = {
   sortOrder: number;
 };
 
+type PricingScheduleLookup = {
+  schedulesByUnitAndScope: Map<string, PricingScheduleRecord>;
+  breaksByScheduleId: Map<string, PricingScheduleBreakRecord[]>;
+};
+
+function pricingScheduleScopeKey(
+  unitDefinitionId: string,
+  customerCategoryId: string | null
+) {
+  return `${unitDefinitionId}:${customerCategoryId ?? "all"}`;
+}
+
 function formatPricingUnitLabel(unit: {
   name: string;
   size: string;
@@ -557,54 +569,6 @@ async function ensurePricingScheduleScopeAvailableInTx(
   }
 }
 
-async function getPricingScheduleByScopeInTx(
-  tx: Tx,
-  unitDefinitionId: string,
-  customerCategoryId: string | null
-): Promise<PricingScheduleRecord | null> {
-  if (customerCategoryId != null) {
-    const [categorySchedule] = await tx
-      .select({
-        id: pricingSchedules.id,
-        name: pricingSchedules.name,
-        customerCategoryId: pricingSchedules.customerCategoryId,
-        unitDefinitionId: pricingSchedules.unitDefinitionId,
-      })
-      .from(pricingSchedules)
-      .where(
-        and(
-          eq(pricingSchedules.unitDefinitionId, unitDefinitionId),
-          eq(pricingSchedules.customerCategoryId, customerCategoryId),
-          isNull(pricingSchedules.deletedAt)
-        )
-      )
-      .limit(1);
-
-    if (categorySchedule) {
-      return categorySchedule;
-    }
-  }
-
-  const [everyoneSchedule] = await tx
-    .select({
-      id: pricingSchedules.id,
-      name: pricingSchedules.name,
-      customerCategoryId: pricingSchedules.customerCategoryId,
-      unitDefinitionId: pricingSchedules.unitDefinitionId,
-    })
-    .from(pricingSchedules)
-    .where(
-      and(
-        eq(pricingSchedules.unitDefinitionId, unitDefinitionId),
-        isNull(pricingSchedules.customerCategoryId),
-        isNull(pricingSchedules.deletedAt)
-      )
-    )
-    .limit(1);
-
-  return everyoneSchedule ?? null;
-}
-
 async function getPricingScheduleBreaksInTx(
   tx: Tx,
   pricingScheduleId: string
@@ -626,6 +590,87 @@ async function getPricingScheduleBreaksInTx(
       asc(pricingScheduleBreaks.sortOrder),
       asc(pricingScheduleBreaks.minQuantity)
     );
+}
+
+async function getPricingScheduleLookupForProductsInTx(
+  tx: Tx,
+  products: Array<
+    Pick<SalesItemValidationRow, "defaultSellingPrice" | "unitDefinitionId">
+  >,
+  customerCategoryId: string | null
+): Promise<PricingScheduleLookup> {
+  const unitDefinitionIds = [
+    ...new Set(
+      products
+        .filter((product) => product.defaultSellingPrice != null)
+        .map((product) => product.unitDefinitionId)
+    ),
+  ];
+  const schedulesByUnitAndScope = new Map<string, PricingScheduleRecord>();
+  const breaksByScheduleId = new Map<string, PricingScheduleBreakRecord[]>();
+
+  if (unitDefinitionIds.length === 0) {
+    return { schedulesByUnitAndScope, breaksByScheduleId };
+  }
+
+  const scheduleRows = await tx
+    .select({
+      id: pricingSchedules.id,
+      name: pricingSchedules.name,
+      customerCategoryId: pricingSchedules.customerCategoryId,
+      unitDefinitionId: pricingSchedules.unitDefinitionId,
+    })
+    .from(pricingSchedules)
+    .where(
+      and(
+        inArray(pricingSchedules.unitDefinitionId, unitDefinitionIds),
+        customerCategoryId == null
+          ? isNull(pricingSchedules.customerCategoryId)
+          : or(
+              eq(pricingSchedules.customerCategoryId, customerCategoryId),
+              isNull(pricingSchedules.customerCategoryId)
+            ),
+        isNull(pricingSchedules.deletedAt)
+      )
+    );
+
+  for (const schedule of scheduleRows) {
+    schedulesByUnitAndScope.set(
+      pricingScheduleScopeKey(schedule.unitDefinitionId, schedule.customerCategoryId),
+      schedule
+    );
+  }
+
+  const scheduleIds = scheduleRows.map((schedule) => schedule.id);
+  if (scheduleIds.length === 0) {
+    return { schedulesByUnitAndScope, breaksByScheduleId };
+  }
+
+  const breakRows = await tx
+    .select({
+      id: pricingScheduleBreaks.id,
+      pricingScheduleId: pricingScheduleBreaks.pricingScheduleId,
+      minQuantity: trimScale(pricingScheduleBreaks.minQuantity).as("minQuantity"),
+      maxQuantity: trimScaleNullable(pricingScheduleBreaks.maxQuantity).as("maxQuantity"),
+      discountPercent: trimScale(pricingScheduleBreaks.discountPercent).as(
+        "discountPercent"
+      ),
+      sortOrder: pricingScheduleBreaks.sortOrder,
+    })
+    .from(pricingScheduleBreaks)
+    .where(inArray(pricingScheduleBreaks.pricingScheduleId, scheduleIds))
+    .orderBy(
+      asc(pricingScheduleBreaks.sortOrder),
+      asc(pricingScheduleBreaks.minQuantity)
+    );
+
+  for (const pricingBreak of breakRows) {
+    const bucket = breaksByScheduleId.get(pricingBreak.pricingScheduleId) ?? [];
+    bucket.push(pricingBreak);
+    breaksByScheduleId.set(pricingBreak.pricingScheduleId, bucket);
+  }
+
+  return { schedulesByUnitAndScope, breaksByScheduleId };
 }
 
 function findMatchingPricingBreak(
@@ -653,15 +698,15 @@ function findMatchingPricingBreak(
   );
 }
 
-async function resolvePricingForProductInTx(
-  tx: Tx,
+function resolvePricingForProduct(
   values: {
     customerCategoryId: string | null;
     customerCategoryName: string | null;
     product: Pick<SalesItemValidationRow, "defaultSellingPrice" | "unitDefinitionId">;
     quantity: string | null;
-  }
-): Promise<Omit<SalesLinePricingResult, "estimatedUnitCost">> {
+  },
+  lookup: PricingScheduleLookup
+): Omit<SalesLinePricingResult, "estimatedUnitCost"> {
   const baseUnitPrice = values.product.defaultSellingPrice;
 
   if (baseUnitPrice == null) {
@@ -675,11 +720,19 @@ async function resolvePricingForProductInTx(
     };
   }
 
-  const pricingSchedule = await getPricingScheduleByScopeInTx(
-    tx,
-    values.product.unitDefinitionId,
-    values.customerCategoryId
-  );
+  const pricingSchedule =
+    (values.customerCategoryId == null
+      ? null
+      : lookup.schedulesByUnitAndScope.get(
+          pricingScheduleScopeKey(
+            values.product.unitDefinitionId,
+            values.customerCategoryId
+          )
+        )) ??
+    lookup.schedulesByUnitAndScope.get(
+      pricingScheduleScopeKey(values.product.unitDefinitionId, null)
+    ) ??
+    null;
 
   if (!pricingSchedule) {
     return {
@@ -692,7 +745,7 @@ async function resolvePricingForProductInTx(
     };
   }
 
-  const pricingBreaks = await getPricingScheduleBreaksInTx(tx, pricingSchedule.id);
+  const pricingBreaks = lookup.breaksByScheduleId.get(pricingSchedule.id) ?? [];
   const matchingBreak = findMatchingPricingBreak(pricingBreaks, values.quantity);
 
   if (!matchingBreak) {
@@ -722,6 +775,23 @@ async function resolvePricingForProductInTx(
     ),
     customerCategoryName: values.customerCategoryName,
   };
+}
+
+async function resolvePricingForProductInTx(
+  tx: Tx,
+  values: {
+    customerCategoryId: string | null;
+    customerCategoryName: string | null;
+    product: Pick<SalesItemValidationRow, "defaultSellingPrice" | "unitDefinitionId">;
+    quantity: string | null;
+  }
+): Promise<Omit<SalesLinePricingResult, "estimatedUnitCost">> {
+  const lookup = await getPricingScheduleLookupForProductsInTx(
+    tx,
+    [values.product],
+    values.customerCategoryId
+  );
+  return resolvePricingForProduct(values, lookup);
 }
 
 export class SalesError extends DomainError {
@@ -2793,45 +2863,51 @@ async function prepareOrderPayload(
   const itemsById = itemIds.length
     ? await getValidatedSalesItemsInTx(tx, itemIds)
     : new Map<string, SalesItemValidationRow>();
+  const pricingLookup = await getPricingScheduleLookupForProductsInTx(
+    tx,
+    [...itemsById.values()],
+    customer.customerCategoryId
+  );
 
-  const preparedLines = await Promise.all(
-    payload.lines.map(async (line, index) => {
-      const item = itemsById.get(line.itemId);
+  const preparedLines = payload.lines.map((line, index) => {
+    const item = itemsById.get(line.itemId);
 
-      if (!item) {
-        throw new SalesError("Item not found", 404);
-      }
+    if (!item) {
+      throw new SalesError("Item not found", 404);
+    }
 
-      const pricing = await resolvePricingForProductInTx(tx, {
+    const pricing = resolvePricingForProduct(
+      {
         customerCategoryId: customer.customerCategoryId,
         customerCategoryName: customer.customerCategoryName,
         product: item,
         quantity: line.quantity,
-      });
-      const quantity = Number(line.quantity);
-      const unitPrice = Number(line.unitPrice);
-      const normalizedUnitPrice = normalizeMoney(unitPrice);
-      const lineTotal = quantity * unitPrice;
+      },
+      pricingLookup
+    );
+    const quantity = Number(line.quantity);
+    const unitPrice = Number(line.unitPrice);
+    const normalizedUnitPrice = normalizeMoney(unitPrice);
+    const lineTotal = quantity * unitPrice;
 
-      return {
-        itemId: item.id,
-        itemName: item.displayName,
-        itemSku: item.sku,
-        unitName: item.unitName,
-        quantity: normalizeNumeric(quantity),
-        unitPrice: normalizedUnitPrice,
-        suggestedUnitPrice: pricing.suggestedUnitPrice,
-        pricingSourceType: pricing.pricingSourceType,
-        pricingScheduleName: pricing.pricingScheduleName,
-        pricingBreakLabel: pricing.pricingBreakLabel,
-        isPriceOverridden:
-          pricing.suggestedUnitPrice != null &&
-          normalizedUnitPrice !== pricing.suggestedUnitPrice,
-        lineTotal: normalizeMoney(lineTotal),
-        sortOrder: index,
-      } satisfies PreparedOrderLine;
-    })
-  );
+    return {
+      itemId: item.id,
+      itemName: item.displayName,
+      itemSku: item.sku,
+      unitName: item.unitName,
+      quantity: normalizeNumeric(quantity),
+      unitPrice: normalizedUnitPrice,
+      suggestedUnitPrice: pricing.suggestedUnitPrice,
+      pricingSourceType: pricing.pricingSourceType,
+      pricingScheduleName: pricing.pricingScheduleName,
+      pricingBreakLabel: pricing.pricingBreakLabel,
+      isPriceOverridden:
+        pricing.suggestedUnitPrice != null &&
+        normalizedUnitPrice !== pricing.suggestedUnitPrice,
+      lineTotal: normalizeMoney(lineTotal),
+      sortOrder: index,
+    } satisfies PreparedOrderLine;
+  });
 
   const totalAmount = preparedLines.reduce(
     (sum, line) => sum + parseFloat(line.lineTotal),

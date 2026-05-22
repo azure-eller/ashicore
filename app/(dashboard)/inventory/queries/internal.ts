@@ -42,6 +42,7 @@ import { normalizeNumeric, normalizeNumericScale } from "@/lib/format";
 import { canViewLockedBom, canViewUnlockedBom } from "@/lib/authz";
 import {
   getBomRevisionComponentsInTx,
+  getBomRevisionComponentsByRevisionIdInTx,
   getBomRevisionHistoryInTx,
   getCurrentBomComponentsInTx,
   getCurrentBomRevisionInTx,
@@ -2796,13 +2797,15 @@ export async function hasLockedBomCopyTarget(
 export async function getBomRevisionHistory(itemId: string) {
   return withAuthedOrgContext(async (tx) => {
     const revisions = await getBomRevisionHistoryInTx(tx, itemId);
-
-    return Promise.all(
-      revisions.map(async (revision) => ({
-        ...revision,
-        components: await getBomRevisionComponentsInTx(tx, revision.id),
-      }))
+    const componentsByRevisionId = await getBomRevisionComponentsByRevisionIdInTx(
+      tx,
+      revisions.map((revision) => revision.id)
     );
+
+    return revisions.map((revision) => ({
+      ...revision,
+      components: componentsByRevisionId.get(revision.id) ?? [],
+    }));
   });
 }
 
