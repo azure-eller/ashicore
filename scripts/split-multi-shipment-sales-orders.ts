@@ -305,20 +305,20 @@ async function main() {
     }
 
     const orderIds = candidates.rows.map((row) => row.id);
-    const shipped = candidates.rows.filter((row) => row.shipped_count > 0);
-    if (shipped.length > 0) {
-      throw new Error(
-        `Refusing to split orders that already have shipped shipment history: ${shipped
-          .map((row) => row.order_number)
-          .join(", ")}`
-      );
-    }
 
     await client.query(
       `
         CREATE TEMP TABLE split_allocation_demands_to_cancel (
           demand_type text NOT NULL,
           demand_id uuid NOT NULL
+        ) ON COMMIT DROP
+      `
+    );
+    await client.query(
+      `
+        CREATE TEMP TABLE split_moved_line_quantities (
+          sales_order_line_id uuid PRIMARY KEY,
+          quantity numeric NOT NULL
         ) ON COMMIT DROP
       `
     );
@@ -355,27 +355,31 @@ async function main() {
       item_name: string;
       ordered_qty: string;
       planned_qty: string;
+      shipped_qty: string;
     }>(
       `
         SELECT
           so.order_number,
           sol.item_name,
           sol.quantity::text AS ordered_qty,
-          COALESCE(SUM(ssl.quantity), 0)::text AS planned_qty
+          COALESCE(SUM(ssl.quantity) FILTER (WHERE ss.status = 'planned'), 0)::text AS planned_qty,
+          COALESCE(SUM(ssl.quantity) FILTER (WHERE ss.status = 'shipped'), 0)::text AS shipped_qty
         FROM sales.sales_order_lines sol
         JOIN sales.sales_orders so ON so.id = sol.sales_order_id
         LEFT JOIN sales.sales_shipment_lines ssl ON ssl.sales_order_line_id = sol.id
-        LEFT JOIN sales.sales_shipments ss ON ss.id = ssl.sales_shipment_id AND ss.status = 'planned'
+        LEFT JOIN sales.sales_shipments ss ON ss.id = ssl.sales_shipment_id
         WHERE sol.sales_order_id = ANY($1::uuid[])
         GROUP BY so.order_number, sol.id, sol.item_name, sol.quantity
-        HAVING ABS(sol.quantity - COALESCE(SUM(ssl.quantity), 0)) > 0.0001
+        HAVING
+          COALESCE(SUM(ssl.quantity) FILTER (WHERE ss.status IN ('planned', 'shipped')), 0)
+          - sol.quantity > 0.0001
         ORDER BY so.order_number, sol.item_name
       `,
       [orderIds]
     );
     if (mismatches.rows.length > 0) {
       throw new Error(
-        `Refusing to split orders whose planned shipment quantities do not exactly cover order quantities: ${JSON.stringify(
+        `Refusing to split orders whose planned/shipped shipment quantities exceed order quantities: ${JSON.stringify(
           mismatches.rows.slice(0, 20)
         )}`
       );
@@ -477,35 +481,27 @@ async function main() {
                 )
               ).rows[0].id;
 
-        await client.query(
-          `
-            UPDATE sales.sales_shipments
-            SET sales_order_id = $1,
-                order_number = $2::varchar,
-                shipment_number = $2::text || '-S1',
-                sequence = 1,
-                scheduled_date = $3,
-                delivery_date = $4,
-                updated_at = now()
-            WHERE id = $5
-          `,
-          [targetOrderId, targetOrderNumber, shipment.scheduled_date, shipment.delivery_date, shipment.id]
-        );
+        if (shipmentIndex > 0) {
+          await client.query(
+            `
+              UPDATE sales.sales_shipments
+              SET sales_order_id = $1,
+                  order_number = $2::varchar,
+                  shipment_number = $2::text || '-S1',
+                  sequence = 1,
+                  scheduled_date = $3,
+                  delivery_date = $4,
+                  updated_at = now()
+              WHERE id = $5
+            `,
+            [targetOrderId, targetOrderNumber, shipment.scheduled_date, shipment.delivery_date, shipment.id]
+          );
+        }
 
         for (const line of lines.rows) {
           let targetLineId = line.sales_order_line_id;
           if (shipmentIndex === 0) {
-            await client.query(
-              `
-                UPDATE sales.sales_order_lines
-                SET quantity = $1,
-                    cancelled_quantity = 0,
-                    line_total = $2,
-                    updated_at = now()
-                WHERE id = $3
-              `,
-              [quantity(line.quantity), money(line.quantity, line.unit_price), line.sales_order_line_id]
-            );
+            continue;
           } else {
             const insertedLine = await client.query<{ id: string }>(
               `
@@ -546,6 +542,15 @@ async function main() {
               `UPDATE sales.sales_shipment_lines SET sales_order_line_id = $1, updated_at = now() WHERE id = $2`,
               [targetLineId, line.id]
             );
+            await client.query(
+              `
+                INSERT INTO split_moved_line_quantities (sales_order_line_id, quantity)
+                VALUES ($1, $2)
+                ON CONFLICT (sales_order_line_id)
+                DO UPDATE SET quantity = split_moved_line_quantities.quantity + EXCLUDED.quantity
+              `,
+              [line.sales_order_line_id, line.quantity]
+            );
             await moveLineProjection(client, {
               organizationId: order.organization_id,
               locationId,
@@ -555,9 +560,29 @@ async function main() {
               quantity: line.quantity,
             });
           }
-
         }
       }
+
+      await client.query(
+        `
+          WITH moved_line_quantities AS (
+            SELECT
+              sales_order_line_id,
+              quantity
+            FROM split_moved_line_quantities
+          )
+          UPDATE sales.sales_order_lines sol
+          SET quantity = sol.quantity - moved_line_quantities.quantity,
+              cancelled_quantity = 0,
+              line_total = (sol.quantity - moved_line_quantities.quantity) * sol.unit_price,
+              updated_at = now()
+          FROM moved_line_quantities
+          WHERE sol.id = moved_line_quantities.sales_order_line_id
+            AND sol.sales_order_id = $1
+        `,
+        [order.id]
+      );
+      await client.query("TRUNCATE split_moved_line_quantities");
 
       const keepLineIds = await client.query<{ sales_order_line_id: string }>(
         `
@@ -572,6 +597,7 @@ async function main() {
         `
           DELETE FROM sales.sales_order_lines
           WHERE sales_order_id = $1
+            AND quantity <= 0.0001
             AND id <> ALL($2::uuid[])
         `,
         [order.id, keepLineIds.rows.map((row) => row.sales_order_line_id)]
@@ -587,13 +613,19 @@ async function main() {
       await client.query(
         `
           UPDATE sales.sales_orders
-          SET ship_date = ss.scheduled_date,
-              requested_date = ss.delivery_date,
+          SET ship_date = planned.scheduled_date,
+              requested_date = planned.delivery_date,
               total_amount = $2,
               updated_at = now()
-          FROM sales.sales_shipments ss
+          FROM LATERAL (
+            SELECT scheduled_date, delivery_date
+            FROM sales.sales_shipments
+            WHERE sales_order_id = $1
+              AND status = 'planned'
+            ORDER BY sequence, created_at, id
+            LIMIT 1
+          ) planned
           WHERE sales.sales_orders.id = $1
-            AND ss.sales_order_id = sales.sales_orders.id
         `,
         [order.id, originalTotal.rows[0]?.total_amount ?? "0"]
       );
