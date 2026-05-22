@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { test, expect, getIdFromUrl } from "../fixtures";
-import { items, stocktakeItems, stocktakes } from "../../../lib/db/schema";
+import { items, stocktakeItems, stocktakeLotItems, stocktakes } from "../../../lib/db/schema";
 import { createItem, getUnitId } from "../../helpers/api";
 import { buildStocktakeCategoryScope } from "../../../lib/schemas/stocktakes";
 
@@ -66,31 +66,40 @@ test.describe("Stocktake write-path smoke", () => {
     expect(createdItems).toHaveLength(2);
 
     await page.goto("/inventory/stocktakes/new");
-    await expect(page.getByText("New Stocktake")).toBeVisible();
+    await page.waitForURL(/\/inventory\/stocktakes\/[0-9a-f-]+$/);
+    stocktakeId = getIdFromUrl(page.url());
+    await expect(page.getByRole("heading", { name: `all_items_${todayIsoDate()}` })).toBeVisible();
 
-    await expect(page.locator("#name")).toHaveValue(`all_items_${todayIsoDate()}`);
-    await page.locator("#notes").fill("Fast stocktake smoke test");
-    await page.locator("#scope").click();
-    await page.getByRole("option", { name: materialCategory, exact: true }).click();
     const expectedStocktakeName = `materials_${materialCategory
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")}_${todayIsoDate()}`;
-    await expect(page.locator("#name")).toHaveValue(expectedStocktakeName);
-    const [createStocktakeResponse] = await Promise.all([
+
+    const [scopeResponse] = await Promise.all([
       page.waitForResponse(
         (response) =>
-          response.request().method() === "POST" &&
-          response.url().endsWith("/api/stocktakes")
+          response.request().method() === "PUT" &&
+          response.url().endsWith(`/api/stocktakes/${stocktakeId}`)
       ),
-      page.getByRole("button", { name: "Create Stocktake" }).click(),
+      page.getByRole("combobox").click().then(async () => {
+        await page.getByRole("option", { name: materialCategory, exact: true }).click();
+      }),
     ]);
-    expect(createStocktakeResponse.status()).toBe(201);
+    expect(scopeResponse.status()).toBe(200);
+    await expect(page.getByLabel("Name", { exact: true })).toHaveValue(expectedStocktakeName);
 
-    await page.waitForURL(/\/inventory\/stocktakes\/[0-9a-f-]+$/);
-    stocktakeId = getIdFromUrl(page.url());
-    await expect(page.getByText("Changes saved")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByText("Back to Stocktakes")).toBeVisible();
+    const notesField = page.getByLabel("Notes");
+    await notesField.fill("Fast stocktake smoke test");
+    const [notesResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "PUT" &&
+          response.url().endsWith(`/api/stocktakes/${stocktakeId}`)
+      ),
+      notesField.evaluate((node) => (node as HTMLTextAreaElement).blur()),
+    ]);
+    expect(notesResponse.status()).toBe(200);
+    await expect(page.getByText("Saved")).toBeVisible({ timeout: 15_000 });
 
     const [stocktake] = await db
       .select()
@@ -100,6 +109,7 @@ test.describe("Stocktake write-path smoke", () => {
       buildStocktakeCategoryScope("material", materialCategory)
     );
     expect(stocktake.name).toBe(expectedStocktakeName);
+    expect(stocktake.notes).toBe("Fast stocktake smoke test");
     expect(stocktake.status).toBe("draft");
 
     const lines = await db
@@ -109,15 +119,20 @@ test.describe("Stocktake write-path smoke", () => {
       .orderBy(asc(stocktakeItems.sortOrder));
     expect(lines.map((line) => line.itemId)).toEqual([materialId]);
 
-    const materialRow = page.locator("tbody tr").filter({ hasText: materialName });
     const saveResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "PUT" &&
         response.url().endsWith(`/api/stocktakes/${stocktakeId}`)
     );
-    await materialRow.getByPlaceholder("Leave blank").fill("4");
+    const lotCountCell = page
+      .locator(".ag-center-cols-container .ag-row")
+      .filter({ hasText: "LOT-" })
+      .locator('[col-id="countedQty"]');
+    await lotCountCell.dblclick();
+    await page.keyboard.type("4");
+    await page.keyboard.press("Enter");
     expect((await saveResponse).status()).toBe(200);
-    await expect(page.getByText("Changes saved")).toBeVisible();
+    await expect(page.getByText("Saved")).toBeVisible();
 
     const [savedLine] = await db
       .select()
@@ -129,5 +144,11 @@ test.describe("Stocktake write-path smoke", () => {
         )
       );
     expect(savedLine.countedQty).toBe("4.0000");
+
+    const [savedLotLine] = await db
+      .select()
+      .from(stocktakeLotItems)
+      .where(eq(stocktakeLotItems.stocktakeItemId, savedLine.id));
+    expect(savedLotLine.countedQty).toBe("4.0000");
   });
 });

@@ -1,4 +1,5 @@
 import { asc, eq } from "drizzle-orm";
+import type { Page } from "@playwright/test";
 import { test, expect, getIdFromUrl } from "../fixtures";
 import {
   accountingClassifications,
@@ -30,29 +31,19 @@ test.describe("Purchasing write-path smoke", () => {
 
   test("creates and edits a supplier through the browser form", async ({ page, db }) => {
     await page.goto("/purchasing/suppliers/new");
-    await expect(page.getByText("Add Supplier")).toBeVisible();
-
-    await page.locator("#name").fill(supplierName);
-    await page.locator("#code").fill(`FAST-SUP-${ts}`);
-    await page.locator("#contactName").fill("Jordan Mesa");
-    await page.locator("#paymentTerms").fill("Net 15");
-    await page.locator("#email").fill(`fast-purchasing-${ts}@example.com`);
-    await page.locator("#phone").fill("555-0215");
-    await page.locator("#supplier-billing-line1").fill("88 Supply Road");
-    await page.locator("#notes").fill("Fast supplier smoke test");
-
-    const [createSupplierResponse] = await Promise.all([
-      page.waitForResponse(
-        (response) =>
-          response.request().method() === "POST" &&
-          response.url().endsWith("/api/suppliers")
-      ),
-      page.getByRole("button", { name: "Create Supplier" }).click(),
-    ]);
-    expect(createSupplierResponse.status()).toBe(201);
     await page.waitForURL(/\/purchasing\/suppliers\/[0-9a-f-]+$/);
+    await expect(page.getByRole("heading", { name: "New supplier" })).toBeVisible();
     supplierId = getIdFromUrl(page.url());
+
+    await commitSupplierField(page, supplierId, "Name", supplierName);
     await expect(page.getByRole("heading", { name: supplierName })).toBeVisible();
+
+    await commitSupplierField(page, supplierId, "Code", `FAST-SUP-${ts}`);
+    await commitSupplierField(page, supplierId, "Contact name", "Jordan Mesa");
+    await commitSupplierField(page, supplierId, "Payment terms", "Net 15");
+    await commitSupplierField(page, supplierId, "Email", `fast-purchasing-${ts}@example.com`);
+    await commitSupplierField(page, supplierId, "Phone", "555-0215");
+    await commitSupplierField(page, supplierId, "Notes", "Fast supplier smoke test");
 
     const [supplier] = await db
       .select()
@@ -62,18 +53,8 @@ test.describe("Purchasing write-path smoke", () => {
     expect(supplier.contactName).toBe("Jordan Mesa");
     expect(supplier.paymentTerms).toBe("Net 15");
 
-    await page.getByRole("link", { name: "Edit" }).click();
-    await page.waitForURL(`**/purchasing/suppliers/${supplierId}/edit`);
-    await page.locator("#phone").fill("555-0216");
-    await page.locator("#notes").fill("Fast supplier updated");
-    const updateSupplierResponsePromise = page.waitForResponse(
-      (response) =>
-        response.request().method() === "PUT" &&
-        response.url().endsWith(`/api/suppliers/${supplierId}`)
-    );
-    await page.getByRole("button", { name: "Save Changes" }).click();
-    expect((await updateSupplierResponsePromise).status()).toBe(200);
-    await page.waitForURL(`**/purchasing/suppliers/${supplierId}`);
+    await commitSupplierField(page, supplierId, "Phone", "555-0216");
+    await commitSupplierField(page, supplierId, "Notes", "Fast supplier updated");
 
     const [updatedSupplier] = await db
       .select()
@@ -705,3 +686,19 @@ test.describe("Purchasing write-path smoke", () => {
     expect(duplicateCosts[0].accountingPurchaseAccountCode).toBe("400");
   });
 });
+
+async function commitSupplierField(
+  page: Page,
+  supplierId: string,
+  label: string,
+  value: string
+) {
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PUT" &&
+      response.url().endsWith(`/api/suppliers/${supplierId}`)
+  );
+  await page.getByLabel(label, { exact: true }).fill(value);
+  await page.keyboard.press("Tab");
+  expect((await responsePromise).status()).toBe(200);
+}

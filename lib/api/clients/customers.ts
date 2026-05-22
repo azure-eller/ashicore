@@ -1,6 +1,7 @@
 import type {
   CustomerContactRow,
   CustomerDetailData,
+  CustomerProjectFileRow,
   CustomerProjectRow,
 } from "@/app/(dashboard)/sales/types";
 import type { AddressEntry } from "@/lib/dal/addresses";
@@ -158,6 +159,35 @@ export async function deleteCustomerProject(customerId: string, projectId: strin
     `/api/customers/${customerId}/projects/${projectId}`,
     { method: "DELETE" },
     "Failed to delete project."
+  );
+}
+
+export async function uploadCustomerProjectFile(
+  customerId: string,
+  projectId: string,
+  file: File
+) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return json<CustomerProjectFileRow>(
+    `/api/customers/${customerId}/projects/${projectId}/files`,
+    {
+      method: "POST",
+      body: formData,
+    },
+    "Failed to upload file."
+  );
+}
+
+export async function deleteCustomerProjectFile(
+  customerId: string,
+  projectId: string,
+  fileId: string
+) {
+  return json<{ success: boolean }>(
+    `/api/customers/${customerId}/projects/${projectId}/files/${fileId}`,
+    { method: "DELETE" },
+    "Failed to delete file."
   );
 }
 

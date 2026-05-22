@@ -3,7 +3,10 @@ import "server-only";
 import { normalizeNumeric } from "@/lib/format";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import {
+  inventoryLotBalances,
   items,
+  lots,
+  stocktakeLotItems,
   stocktakeItems,
   stocktakes,
   unitDefinitions,
@@ -15,7 +18,6 @@ import {
   beginInventoryOperationInTx,
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
-  getCurrentAvailableOnHandQtyInTx,
   lockItemsInTx,
   projectedReservableOnHandQtyExpr,
   reconcileStocktakeCountInTx,
@@ -59,6 +61,15 @@ type SnapshotItem = {
   currentQty: string;
 };
 
+type CountedStocktakeCompletionLine = {
+  stocktakeLineId: string;
+  stocktakeItemId: string;
+  itemId: string;
+  lotId: string | null;
+  expectedQty: string;
+  countedQty: string;
+};
+
 export class StocktakeError extends DomainError<{
   stale: StocktakeStaleWarningPayload;
 }> {
@@ -95,6 +106,10 @@ function getVariance(expectedQty: string, countedQty: string | null) {
   return normalizeNumeric(Number(countedQty) - parseFloat(expectedQty));
 }
 
+function sumQuantities(values: Array<string | null | undefined>) {
+  return normalizeNumeric(values.reduce((sum, value) => sum + Number(value ?? 0), 0));
+}
+
 async function getLockedStocktakeInTx(tx: Tx, id: string): Promise<LockedStocktake | null> {
   const [stocktake] = await tx
     .select({
@@ -110,8 +125,14 @@ async function getLockedStocktakeInTx(tx: Tx, id: string): Promise<LockedStockta
 
 async function getStocktakeLinesInTx(
   tx: Tx,
-  stocktakeId: string
+  stocktakeId: string,
+  options?: { liveCurrent?: boolean }
 ): Promise<StocktakeDetailLine[]> {
+  const expectedQty = options?.liveCurrent
+    ? trimScale(projectedReservableOnHandQtyExpr(items.organizationId, items.id)).as(
+        "expectedQty"
+      )
+    : trimScale(stocktakeItems.expectedQty).as("expectedQty");
   const rows = await tx
     .select({
       id: stocktakeItems.id,
@@ -120,7 +141,7 @@ async function getStocktakeLinesInTx(
       itemSku: stocktakeItems.itemSku,
       itemType: stocktakeItems.itemType,
       unitName: stocktakeItems.unitName,
-      expectedQty: trimScale(stocktakeItems.expectedQty).as("expectedQty"),
+      expectedQty,
       countedQty: trimScaleNullable(stocktakeItems.countedQty).as("countedQty"),
       varianceQty: trimScaleNullable(stocktakeItems.varianceQty).as("varianceQty"),
       appliedDeltaQty: trimScaleNullable(stocktakeItems.appliedDeltaQty).as("appliedDeltaQty"),
@@ -129,10 +150,92 @@ async function getStocktakeLinesInTx(
       updatedAt: stocktakeItems.updatedAt,
     })
     .from(stocktakeItems)
+    .innerJoin(items, eq(stocktakeItems.itemId, items.id))
     .where(eq(stocktakeItems.stocktakeId, stocktakeId))
     .orderBy(asc(stocktakeItems.sortOrder), asc(stocktakeItems.createdAt));
 
-  return rows as StocktakeDetailLine[];
+  const lineRows = rows as StocktakeDetailLine[];
+  if (lineRows.length === 0) return [];
+  const lotRows = await tx
+    .select({
+      id: stocktakeLotItems.id,
+      stocktakeItemId: stocktakeLotItems.stocktakeItemId,
+      lotId: stocktakeLotItems.lotId,
+      lotNumber: stocktakeLotItems.lotNumber,
+      expectedQty: options?.liveCurrent
+        ? trimScale(sql`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`).as(
+            "expectedQty"
+          )
+        : trimScale(stocktakeLotItems.expectedQty).as("expectedQty"),
+      countedQty: trimScaleNullable(stocktakeLotItems.countedQty).as("countedQty"),
+      varianceQty: trimScaleNullable(stocktakeLotItems.varianceQty).as("varianceQty"),
+      appliedDeltaQty: trimScaleNullable(stocktakeLotItems.appliedDeltaQty).as("appliedDeltaQty"),
+      receivedAt: stocktakeLotItems.receivedAt,
+      sortOrder: stocktakeLotItems.sortOrder,
+      createdAt: stocktakeLotItems.createdAt,
+      updatedAt: stocktakeLotItems.updatedAt,
+    })
+    .from(stocktakeLotItems)
+    .leftJoin(
+      inventoryLotBalances,
+      and(
+        eq(inventoryLotBalances.lotId, stocktakeLotItems.lotId),
+        eq(inventoryLotBalances.disposition, "available")
+      )
+    )
+    .where(inArray(stocktakeLotItems.stocktakeItemId, lineRows.map((line) => line.id)))
+    .groupBy(
+      stocktakeLotItems.id,
+      stocktakeLotItems.stocktakeItemId,
+      stocktakeLotItems.lotId,
+      stocktakeLotItems.lotNumber,
+      stocktakeLotItems.expectedQty,
+      stocktakeLotItems.countedQty,
+      stocktakeLotItems.varianceQty,
+      stocktakeLotItems.appliedDeltaQty,
+      stocktakeLotItems.receivedAt,
+      stocktakeLotItems.sortOrder,
+      stocktakeLotItems.createdAt,
+      stocktakeLotItems.updatedAt
+    )
+    .orderBy(asc(stocktakeLotItems.sortOrder), asc(stocktakeLotItems.receivedAt));
+  const lotsByLineId = new Map<string, StocktakeDetailLine["lots"]>();
+  for (const lot of lotRows) {
+    const current = lotsByLineId.get(lot.stocktakeItemId) ?? [];
+    current.push(lot);
+    lotsByLineId.set(lot.stocktakeItemId, current);
+  }
+  return lineRows.map((line) => ({ ...line, lots: lotsByLineId.get(line.id) ?? [] }));
+}
+
+async function getAvailableLotRowsForItemIdsInTx(tx: Tx, itemIds: string[]) {
+  if (itemIds.length === 0) return [];
+  return tx
+    .select({
+      itemId: inventoryLotBalances.itemId,
+      lotId: inventoryLotBalances.lotId,
+      lotNumber: lots.lotNumber,
+      expectedQty: trimScale(sql`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`).as(
+        "expectedQty"
+      ),
+      receivedAt: inventoryLotBalances.receivedAt,
+    })
+    .from(inventoryLotBalances)
+    .innerJoin(lots, eq(lots.id, inventoryLotBalances.lotId))
+    .where(
+      and(
+        inArray(inventoryLotBalances.itemId, itemIds),
+        eq(inventoryLotBalances.disposition, "available"),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    )
+    .groupBy(
+      inventoryLotBalances.itemId,
+      inventoryLotBalances.lotId,
+      lots.lotNumber,
+      inventoryLotBalances.receivedAt
+    )
+    .orderBy(asc(inventoryLotBalances.receivedAt), asc(inventoryLotBalances.lotId));
 }
 
 async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
@@ -431,7 +534,9 @@ export async function getStocktake(id: string): Promise<StocktakeDetail | null> 
       return null;
     }
 
-    const lines = await getStocktakeLinesInTx(tx, id);
+    const lines = await getStocktakeLinesInTx(tx, id, {
+      liveCurrent: stocktake.status === "draft",
+    });
 
     return {
       ...stocktake,
@@ -467,7 +572,7 @@ export async function createStocktake(data: InsertStocktake) {
       })
       .returning({ id: stocktakes.id });
 
-    await tx.insert(stocktakeItems).values(
+    const stocktakeLines = await tx.insert(stocktakeItems).values(
       snapshotItems.map((item, index) => ({
         stocktakeId: stocktake.id,
         itemId: item.id,
@@ -481,7 +586,31 @@ export async function createStocktake(data: InsertStocktake) {
         appliedDeltaQty: null,
         sortOrder: index,
       }))
+    ).returning({ id: stocktakeItems.id, itemId: stocktakeItems.itemId });
+    const lotRows = await getAvailableLotRowsForItemIdsInTx(
+      tx,
+      stocktakeLines.map((line) => line.itemId)
     );
+    const lineIdByItemId = new Map(stocktakeLines.map((line) => [line.itemId, line.id]));
+    if (lotRows.length > 0) {
+      await tx.insert(stocktakeLotItems).values(
+        lotRows.flatMap((lot, index) => {
+          const stocktakeItemId = lineIdByItemId.get(lot.itemId);
+          if (!stocktakeItemId) return [];
+          return {
+            stocktakeItemId,
+            lotId: lot.lotId,
+            lotNumber: lot.lotNumber,
+            expectedQty: normalizeNumeric(parseFloat(lot.expectedQty)),
+            countedQty: null,
+            varianceQty: null,
+            appliedDeltaQty: null,
+            receivedAt: lot.receivedAt,
+            sortOrder: index,
+          };
+        })
+      );
+    }
 
     return stocktake;
   });
@@ -499,8 +628,83 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
       throw new StocktakeError("Only draft stocktakes can be updated.", 400);
     }
 
-    const existingLines = await getStocktakeLinesInTx(tx, id);
+    const existingLines = await getStocktakeLinesInTx(tx, id, { liveCurrent: true });
     const lineMap = new Map(existingLines.map((line) => [line.id, line]));
+
+    if (data.itemIds) {
+      const uniqueItemIds = Array.from(new Set(data.itemIds));
+      const existingByItemId = new Map(existingLines.map((line) => [line.itemId, line]));
+      const removedLineIds = existingLines
+        .filter((line) => !uniqueItemIds.includes(line.itemId))
+        .map((line) => line.id);
+      const addedItemIds = uniqueItemIds.filter((itemId) => !existingByItemId.has(itemId));
+
+      if (removedLineIds.length > 0) {
+        await tx
+          .delete(stocktakeLotItems)
+          .where(inArray(stocktakeLotItems.stocktakeItemId, removedLineIds));
+        await tx
+          .delete(stocktakeItems)
+          .where(inArray(stocktakeItems.id, removedLineIds));
+      }
+
+      if (addedItemIds.length > 0) {
+        const snapshotItems = await getSnapshotItemsForItemIdsInTx(tx, addedItemIds);
+        if (snapshotItems.length !== addedItemIds.length) {
+          throw new StocktakeError("One or more selected items are no longer active.", 400, {
+            errors: {
+              itemIds: ["Refresh and choose active items."],
+            },
+          });
+        }
+
+        const addedLines = await tx.insert(stocktakeItems).values(
+          snapshotItems.map((item) => ({
+            stocktakeId: id,
+            itemId: item.id,
+            itemName: item.name,
+            itemSku: item.sku,
+            itemType: item.itemType,
+            unitName: item.unitName,
+            expectedQty: normalizeNumeric(parseFloat(item.currentQty)),
+            countedQty: null,
+            varianceQty: null,
+            appliedDeltaQty: null,
+            sortOrder: uniqueItemIds.indexOf(item.id),
+          }))
+        ).returning({ id: stocktakeItems.id, itemId: stocktakeItems.itemId });
+        const lotRows = await getAvailableLotRowsForItemIdsInTx(tx, addedItemIds);
+        const lineIdByItemId = new Map(addedLines.map((line) => [line.itemId, line.id]));
+        if (lotRows.length > 0) {
+          await tx.insert(stocktakeLotItems).values(
+            lotRows.flatMap((lot, index) => {
+              const stocktakeItemId = lineIdByItemId.get(lot.itemId);
+              if (!stocktakeItemId) return [];
+              return {
+                stocktakeItemId,
+                lotId: lot.lotId,
+                lotNumber: lot.lotNumber,
+                expectedQty: normalizeNumeric(parseFloat(lot.expectedQty)),
+                countedQty: null,
+                varianceQty: null,
+                appliedDeltaQty: null,
+                receivedAt: lot.receivedAt,
+                sortOrder: index,
+              };
+            })
+          );
+        }
+      }
+
+      for (const [index, itemId] of uniqueItemIds.entries()) {
+        const existingLine = existingByItemId.get(itemId);
+        if (!existingLine) continue;
+        await tx
+          .update(stocktakeItems)
+          .set({ sortOrder: index, updatedAt: new Date() })
+          .where(eq(stocktakeItems.id, existingLine.id));
+      }
+    }
 
     for (const line of data.lines) {
       const existingLine = lineMap.get(line.lineId);
@@ -519,6 +723,7 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
       await tx
         .update(stocktakeItems)
         .set({
+          expectedQty: existingLine.expectedQty,
           countedQty,
           varianceQty,
           updatedAt: new Date(),
@@ -526,9 +731,70 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
         .where(eq(stocktakeItems.id, existingLine.id));
     }
 
+    const currentLines = existingLines.map((line) => ({ ...line, lots: [...line.lots] }));
+    const lotLineMap = new Map(
+      currentLines.flatMap((line) =>
+        line.lots.map((lot) => [lot.id, { line, lot }] as const)
+      )
+    );
+
+    for (const lotLine of data.lotLines) {
+      const existing = lotLineMap.get(lotLine.lotLineId);
+
+      if (!existing) {
+        throw new StocktakeError("Stocktake lot line not found", 404, {
+          errors: {
+            lotLines: ["Refresh and try again."],
+          },
+        });
+      }
+
+      const countedQty = lotLine.countedQty;
+      const varianceQty = getVariance(existing.lot.expectedQty, countedQty);
+
+      await tx
+        .update(stocktakeLotItems)
+        .set({
+          expectedQty: existing.lot.expectedQty,
+          countedQty,
+          varianceQty,
+          updatedAt: new Date(),
+        })
+        .where(eq(stocktakeLotItems.id, existing.lot.id));
+
+      const lineLots = existing.line.lots.map((candidate) =>
+        candidate.id === existing.lot.id
+          ? { ...candidate, countedQty, varianceQty }
+          : candidate
+      );
+      existing.line.lots = lineLots;
+      const allLotsCounted = lineLots.every((candidate) => candidate.countedQty != null);
+      const lineCountedQty = allLotsCounted
+        ? sumQuantities(lineLots.map((candidate) => candidate.countedQty))
+        : null;
+      const lineVarianceQty = lineCountedQty == null
+        ? null
+        : getVariance(existing.line.expectedQty, lineCountedQty);
+
+      await tx
+        .update(stocktakeItems)
+        .set({
+          expectedQty: existing.line.expectedQty,
+          countedQty: lineCountedQty,
+          varianceQty: lineVarianceQty,
+          updatedAt: new Date(),
+        })
+        .where(eq(stocktakeItems.id, existing.line.id));
+    }
+
     await tx
       .update(stocktakes)
-      .set({ updatedAt: new Date() })
+      .set({
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.scope !== undefined ? { scope: data.scope } : {}),
+        ...(data.notes !== undefined ? { notes: data.notes } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(stocktakes.id, id));
 
     return { id };
@@ -567,8 +833,40 @@ export async function completeStocktake(
       throw new StocktakeError("Only draft stocktakes can be completed.", 400);
     }
 
-    const existingLines = await getStocktakeLinesInTx(tx, id);
-    const countedLines = existingLines.filter((line) => line.countedQty != null);
+    const existingLines = await getStocktakeLinesInTx(tx, id, { liveCurrent: true });
+    const countedLines: CountedStocktakeCompletionLine[] = [];
+    for (const line of existingLines) {
+      if (line.lots.length > 0) {
+        for (const lot of line.lots) {
+          if (lot.countedQty == null) {
+            continue;
+          }
+
+          countedLines.push({
+            stocktakeLineId: lot.id,
+            stocktakeItemId: line.id,
+            itemId: line.itemId,
+            lotId: lot.lotId,
+            expectedQty: lot.expectedQty,
+            countedQty: lot.countedQty,
+          });
+        }
+        continue;
+      }
+
+      if (line.countedQty == null) {
+        continue;
+      }
+
+      countedLines.push({
+        stocktakeLineId: line.id,
+        stocktakeItemId: line.id,
+        itemId: line.itemId,
+        lotId: null,
+        expectedQty: line.expectedQty,
+        countedQty: line.countedQty,
+      });
+    }
 
     if (countedLines.length === 0) {
       throw new StocktakeError("Enter at least one count before completing.", 400);
@@ -579,34 +877,6 @@ export async function completeStocktake(
       countedLines.map((line) => line.itemId)
     );
 
-    const staleItems: StocktakeStaleWarningPayload["items"] = [];
-    const currentQtyByItemId = new Map<string, string>();
-
-    for (const line of countedLines) {
-      const currentQty = normalizeNumeric(
-        await getCurrentAvailableOnHandQtyInTx(tx, line.itemId)
-      );
-      currentQtyByItemId.set(line.itemId, currentQty);
-
-      if (currentQty !== normalizeNumeric(parseFloat(line.expectedQty))) {
-        staleItems.push({
-          lineId: line.id,
-          itemId: line.itemId,
-          itemName: line.itemName,
-          unitName: line.unitName,
-          expectedQty: normalizeNumeric(parseFloat(line.expectedQty)),
-          currentQty,
-          countedQty: line.countedQty ?? "0",
-        });
-      }
-    }
-
-    if (staleItems.length > 0 && !confirmStale) {
-      throw new StocktakeError("Stock changed since this stocktake started.", 409, {
-        stale: { items: staleItems },
-      });
-    }
-
     await reconcileStocktakeCountInTx(tx, {
       organizationId: orgId,
       stocktakeId: id,
@@ -615,30 +885,68 @@ export async function completeStocktake(
         options?.idempotencyKey,
         "complete-stocktake"
       ),
-      lines: countedLines.map((line) => {
-        const currentQty = currentQtyByItemId.get(line.itemId) ?? "0";
-        return {
-          stocktakeLineId: line.id,
-          itemId: line.itemId,
-          variance: Number(line.countedQty) - Number(currentQty),
-        };
-      }),
+      lines: countedLines.map((line) => ({
+        stocktakeLineId: line.stocktakeLineId,
+        itemId: line.itemId,
+        lotId: line.lotId,
+        variance: Number(line.countedQty) - Number(line.expectedQty),
+      })),
     });
 
     for (const line of countedLines) {
-      const currentQty = currentQtyByItemId.get(line.itemId) ?? "0";
-      const delta = Number(line.countedQty) - Number(currentQty);
+      const delta = Number(line.countedQty) - Number(line.expectedQty);
       const normalizedVariance = getVariance(line.expectedQty, line.countedQty);
       const normalizedDelta = normalizeNumeric(delta);
+
+      if (line.lotId) {
+        await tx
+          .update(stocktakeLotItems)
+          .set({
+            expectedQty: line.expectedQty,
+            varianceQty: normalizedVariance,
+            appliedDeltaQty: normalizedDelta,
+            updatedAt: new Date(),
+          })
+          .where(eq(stocktakeLotItems.id, line.stocktakeLineId));
+      } else {
+        await tx
+          .update(stocktakeItems)
+          .set({
+            expectedQty: line.expectedQty,
+            varianceQty: normalizedVariance,
+            appliedDeltaQty: normalizedDelta,
+            updatedAt: new Date(),
+          })
+          .where(eq(stocktakeItems.id, line.stocktakeItemId));
+      }
+    }
+
+    const countedByStocktakeItemId = new Map<string, typeof countedLines>();
+    for (const line of countedLines) {
+      const bucket = countedByStocktakeItemId.get(line.stocktakeItemId) ?? [];
+      bucket.push(line);
+      countedByStocktakeItemId.set(line.stocktakeItemId, bucket);
+    }
+
+    for (const [stocktakeItemId, lines] of countedByStocktakeItemId) {
+      if (lines.some((line) => line.lotId == null)) {
+        continue;
+      }
+
+      const expectedQty = sumQuantities(lines.map((line) => line.expectedQty));
+      const countedQty = sumQuantities(lines.map((line) => line.countedQty));
+      const varianceQty = getVariance(expectedQty, countedQty);
 
       await tx
         .update(stocktakeItems)
         .set({
-          varianceQty: normalizedVariance,
-          appliedDeltaQty: normalizedDelta,
+          expectedQty,
+          countedQty,
+          varianceQty,
+          appliedDeltaQty: varianceQty,
           updatedAt: new Date(),
         })
-        .where(eq(stocktakeItems.id, line.id));
+        .where(eq(stocktakeItems.id, stocktakeItemId));
     }
 
     await tx

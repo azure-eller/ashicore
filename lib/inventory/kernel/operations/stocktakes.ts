@@ -7,8 +7,10 @@ import {
   finishInventoryOperationInTx,
 } from "@/lib/inventory/kernel/operations/common";
 import {
+  appendPositiveStockToExistingLotInTx,
   consumeStockFifoInTx,
   createPositiveStockEventInTx,
+  decrementExistingLotStockInTx,
   resolvePositiveStockUnitCostInTx,
 } from "@/lib/inventory/kernel/operations/stock-core";
 import { applyItemBalanceDeltasInTx } from "@/lib/inventory/kernel/projections";
@@ -23,6 +25,7 @@ export async function reconcileStocktakeCountInTx(
     lines: Array<{
       stocktakeLineId: string;
       itemId: string;
+      lotId?: string | null;
       variance: number;
       countedAt?: Date;
       costPolicy?: "default";
@@ -55,13 +58,13 @@ export async function reconcileStocktakeCountInTx(
         itemId: line.itemId,
         reason: "stocktake_cost_policy",
       });
-      const created = await createPositiveStockEventInTx(tx, {
+      const eventParams = {
         organizationId: params.organizationId,
         locationId: location.id,
         itemId: line.itemId,
         quantity: variance,
         unitCost,
-        eventType: "stocktake_gain",
+        eventType: "stocktake_gain" as const,
         eventSubtype: "stocktake_complete",
         referenceType: "stocktake_line",
         referenceId: line.stocktakeLineId,
@@ -69,15 +72,21 @@ export async function reconcileStocktakeCountInTx(
         idempotencyKey: index === 0 ? params.idempotencyKey ?? null : null,
         occurredAt: line.countedAt,
         metadata: { stocktakeId: params.stocktakeId },
-      });
+      };
+      const created = line.lotId
+        ? await appendPositiveStockToExistingLotInTx(tx, {
+            ...eventParams,
+            lotId: line.lotId,
+          })
+        : await createPositiveStockEventInTx(tx, eventParams);
       eventIds.push(created.eventId);
     } else if (variance < 0) {
-      const consumed = await consumeStockFifoInTx(tx, {
+      const eventParams = {
         organizationId: params.organizationId,
         locationId: location.id,
         itemId: line.itemId,
         quantity: Math.abs(variance),
-        eventType: "stocktake_loss",
+        eventType: "stocktake_loss" as const,
         eventSubtype: "stocktake_complete",
         referenceType: "stocktake_line",
         referenceId: line.stocktakeLineId,
@@ -85,8 +94,17 @@ export async function reconcileStocktakeCountInTx(
         idempotencyKey: index === 0 ? params.idempotencyKey ?? null : null,
         occurredAt: line.countedAt,
         metadata: { stocktakeId: params.stocktakeId },
-      });
-      eventIds.push(...consumed.eventIds);
+      };
+      if (line.lotId) {
+        const consumed = await decrementExistingLotStockInTx(tx, {
+          ...eventParams,
+          lotId: line.lotId,
+        });
+        eventIds.push(consumed.eventId);
+      } else {
+        const consumed = await consumeStockFifoInTx(tx, eventParams);
+        eventIds.push(...consumed.eventIds);
+      }
     } else {
       const [event] = await tx
         .insert(inventoryEvents)

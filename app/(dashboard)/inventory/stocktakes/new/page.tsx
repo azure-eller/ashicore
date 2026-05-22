@@ -1,13 +1,14 @@
+import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/lib/dal/auth";
-import { getStocktakePreviewItems, getStocktakeScopeOptions } from "../queries";
-import { StocktakeForm } from "../stocktake-form";
+import { stocktakeDefaultValues } from "@/lib/schemas/stocktakes";
+import { buildStocktakeName } from "../types";
+import { createStocktake } from "../queries";
 
 export default async function NewStocktakePage() {
   await requireModuleAccess("inventory", "operate");
-  const [scopeGroups, previewItems] = await Promise.all([
-    getStocktakeScopeOptions(),
-    getStocktakePreviewItems(),
-  ]);
-
-  return <StocktakeForm scopeGroups={scopeGroups} previewItems={previewItems} />;
+  const stocktake = await createStocktake({
+    ...stocktakeDefaultValues,
+    name: buildStocktakeName(stocktakeDefaultValues.scope),
+  });
+  redirect(`/inventory/stocktakes/${stocktake.id}`);
 }

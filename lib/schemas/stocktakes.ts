@@ -115,22 +115,23 @@ const rawCountLotLineSchema = z.object({
   countedQty: nullableString,
 });
 
-export const updateStocktakeCountsSchema = z
+export const updateStocktakeSchema = z
   .object({
+    name: z
+      .string()
+      .trim()
+      .min(1, "Name is required")
+      .max(255, "Name must be 255 characters or fewer")
+      .optional(),
+    scope: stocktakeScopeSchema.optional(),
+    notes: nullableString.optional(),
+    itemIds: z.array(z.string().uuid()).optional(),
     lines: z.array(rawCountLineSchema).optional().default([]),
     lotLines: z.array(rawCountLotLineSchema).optional().default([]),
   })
   .superRefine((data, ctx) => {
     const seen = new Set<string>();
     const seenLots = new Set<string>();
-
-    if (data.lines.length === 0 && data.lotLines.length === 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Submit at least one count",
-        path: ["lines"],
-      });
-    }
 
     data.lines.forEach((line, index) => {
       if (seen.has(line.lineId)) {
@@ -184,7 +185,11 @@ export const updateStocktakeCountsSchema = z
       }
     });
   })
-  .transform(({ lines, lotLines }) => ({
+  .transform(({ lines, lotLines, name, scope, notes, itemIds }) => ({
+    name,
+    scope,
+    notes,
+    itemIds,
     lines: lines.map((line) => ({
       lineId: line.lineId,
       countedQty: line.countedQty?.trim() ?? null,
@@ -195,7 +200,8 @@ export const updateStocktakeCountsSchema = z
     })),
   }));
 
-export type UpdateStocktakeCounts = z.infer<typeof updateStocktakeCountsSchema>;
+export const updateStocktakeCountsSchema = updateStocktakeSchema;
+export type UpdateStocktakeCounts = z.infer<typeof updateStocktakeSchema>;
 
 export const completeStocktakeSchema = z.object({
   confirmStale: z.boolean().optional().default(false),

@@ -40,6 +40,13 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { StatusLabel, type StatusTone } from "@/components/ui/status-label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -47,13 +54,13 @@ import {
   type ColDef,
   type EditableLineDataGridChange,
 } from "@/components/editable-line-data-grid";
-import { EditableInfoGrid } from "@/components/editable-info-grid";
 import {
   CardPage,
   CardPageBody,
   CardSection,
 } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
+import { CellShell } from "@/components/card-page/form-cell";
 import {
   cardSaveMutationKey,
   saveStateFromEntityStatus,
@@ -67,9 +74,11 @@ import {
   createCustomerProject,
   deleteCustomer,
   deleteCustomerContact,
+  deleteCustomerProjectFile,
   deleteCustomerProject,
   getCustomerCard,
   patchCustomer,
+  uploadCustomerProjectFile,
   updateAddressEntry,
   updateCustomerContact,
   updateCustomerProject,
@@ -88,6 +97,7 @@ import type {
   CustomerContactRow,
   CustomerDetailData,
   CustomerLinkedSalesOrderRow,
+  CustomerProjectFileRow,
   CustomerProjectRow,
 } from "./types";
 import { SalesOrderStatusBadge } from "./status-badge";
@@ -102,6 +112,19 @@ type CustomerCardProps = {
 type ContactGridRow = CustomerContactRow & { isNew?: boolean };
 type ProjectGridRow = CustomerProjectRow & { isNew?: boolean };
 type OpenOrderGridRow = CustomerLinkedSalesOrderRow;
+type ProjectSaveMutation = {
+  isPending: boolean;
+  mutate: (
+    row: ProjectGridRow,
+    options?: { onSuccess?: (project: CustomerProjectRow | null) => void }
+  ) => void;
+};
+type ProjectDeleteMutation = {
+  isPending: boolean;
+  error: unknown;
+  reset: () => void;
+  mutate: (projectId: string, options?: { onSuccess?: () => void }) => void;
+};
 type AddressTarget = "billing" | "shipping";
 type CustomerAddressFields = {
   line1: string | null;
@@ -399,129 +422,101 @@ export function CustomerCard({
 
       <CardPageBody>
         <CardSection title="Customer at a glance">
-          <EditableInfoGrid
-            fields={[
-              {
-                id: "customer-name",
-                label: "Customer name",
-                editable: !readOnly && !createMutation.isPending,
-                renderEditor: () => (
-                  <CompactTextField
-                    label="Customer name"
-                    value={display.name}
-                    disabled={readOnly || createMutation.isPending}
-                    autoFocus={isDraft}
-                    required
-                    onCommit={(name) => {
-                      if (name) commitCustomerPatch({ name });
-                    }}
-                  />
-                ),
-              },
-              {
-                id: "email",
-                label: "Email",
-                editable: !readOnly && !createMutation.isPending,
-                renderEditor: () => (
-                  <CompactTextField
-                    label="Email"
-                    value={display.email ?? ""}
-                    disabled={readOnly || createMutation.isPending}
-                    onCommit={(email) => commitCustomerPatch({ email })}
-                  />
-                ),
-              },
-              {
-                id: "phone",
-                label: "Phone",
-                editable: !readOnly && !createMutation.isPending,
-                renderEditor: () => (
-                  <CompactTextField
-                    label="Phone"
-                    value={display.phone ?? ""}
-                    disabled={readOnly || createMutation.isPending}
-                    onCommit={(phone) => commitCustomerPatch({ phone })}
-                  />
-                ),
-              },
-              {
-                id: "shipping-address",
-                label: "Shipping address",
-                editable: !readOnly && !createMutation.isPending,
-                renderEditor: () => (
-                  <CustomerAddressInput
-                    id="customer-shipping-address"
-                    target="shipping"
-                    value={shippingAddress}
-                    options={addressOptions}
-                    disabled={readOnly || createMutation.isPending}
-                    onChange={(address) => applyCustomerAddress("shipping", address)}
-                    onAddNew={() => openAddressDialog("shipping")}
-                    onEdit={(option) => openEditAddressDialog("shipping", option)}
-                  />
-                ),
-              },
-              {
-                id: "billing-address",
-                label: "Billing address",
-                editable: !readOnly && !createMutation.isPending,
-                renderEditor: () => (
-                  <CustomerAddressInput
-                    id="customer-billing-address"
-                    target="billing"
-                    value={billingSameAsShipping ? null : billingAddress}
-                    options={addressOptions}
-                    sameAsShipping
-                    disabled={readOnly || createMutation.isPending}
-                    onChange={(address) => applyCustomerAddress("billing", address)}
-                    onAddNew={() => openAddressDialog("billing")}
-                    onEdit={(option) => openEditAddressDialog("billing", option)}
-                  />
-                ),
-              },
-              {
-                id: "customer-since",
-                label: "Customer since",
-                renderValue: () =>
-                  display.createdAt ? formatDate(dateOnly(display.createdAt)) : "-",
-              },
-            ]}
-          />
+          <div className={`${styles.formRow} ${styles.formRowThree}`}>
+            <CellShell label="Customer name" required>
+              <UnderlineCommitInput
+                label="Customer name"
+                value={display.name}
+                disabled={readOnly || createMutation.isPending}
+                autoFocus={isDraft}
+                required
+                onCommit={(name) => {
+                  if (name) commitCustomerPatch({ name });
+                }}
+              />
+            </CellShell>
+            <CellShell label="Email">
+              <UnderlineCommitInput
+                label="Email"
+                type="email"
+                value={display.email ?? ""}
+                disabled={readOnly || createMutation.isPending}
+                onCommit={(email) => commitCustomerPatch({ email })}
+              />
+            </CellShell>
+            <CellShell label="Phone">
+              <UnderlineCommitInput
+                label="Phone"
+                value={display.phone ?? ""}
+                disabled={readOnly || createMutation.isPending}
+                onCommit={(phone) => commitCustomerPatch({ phone })}
+              />
+            </CellShell>
+            <CellShell label="Shipping address">
+              <CustomerAddressInput
+                id="customer-shipping-address"
+                target="shipping"
+                value={shippingAddress}
+                options={addressOptions}
+                disabled={readOnly || createMutation.isPending}
+                onChange={(address) => applyCustomerAddress("shipping", address)}
+                onAddNew={() => openAddressDialog("shipping")}
+                onEdit={(option) => openEditAddressDialog("shipping", option)}
+              />
+            </CellShell>
+            <CellShell label="Billing address">
+              <CustomerAddressInput
+                id="customer-billing-address"
+                target="billing"
+                value={billingSameAsShipping ? null : billingAddress}
+                sameAsShippingLabel={customerAddressLabel(shippingAddress)}
+                options={addressOptions}
+                sameAsShipping
+                disabled={readOnly || createMutation.isPending}
+                onChange={(address) => applyCustomerAddress("billing", address)}
+                onAddNew={() => openAddressDialog("billing")}
+                onEdit={(option) => openEditAddressDialog("billing", option)}
+              />
+            </CellShell>
+            <CellShell label="Customer since">
+              <div className={styles.readOnlyFieldValue}>
+                {display.createdAt ? formatDate(dateOnly(display.createdAt)) : "-"}
+              </div>
+            </CellShell>
+          </div>
         </CardSection>
 
-        <ContactsSection
-          customerId={currentCustomerId}
-          rows={display.contacts}
-          readOnly={readOnly || isDraft}
-        />
+        <div className={styles.sectionRowTwo}>
+          <ContactsSection
+            customerId={currentCustomerId}
+            rows={display.contacts}
+            readOnly={readOnly || isDraft}
+          />
+          <ProjectsSection
+            customerId={currentCustomerId}
+            rows={display.projects}
+            readOnly={readOnly || isDraft}
+          />
+        </div>
 
-        <ProjectsSection
-          customerId={currentCustomerId}
-          rows={display.projects}
-          readOnly={readOnly || isDraft}
-        />
-
-        <section className={styles.section}>
-          <div className="grid gap-(--space-7) xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.8fr)]">
-            <OpenOrdersSection
-              customerId={currentCustomerId}
-              rows={openOrders}
-              readOnly={readOnly || isDraft}
+        <div className={styles.sectionRowTwo}>
+          <OpenOrdersSection
+            customerId={currentCustomerId}
+            rows={openOrders}
+          />
+          <CardSection title="Notes">
+            <InlineTextareaField
+              label="Notes"
+              value={display.notes ?? ""}
+              disabled={readOnly || createMutation.isPending}
+              readOnlyValue={readOnly}
+              onDraftChange={(notes) => {
+                if (isDraft) updateDraft({ notes });
+              }}
+              onCommit={(notes) => commitCustomerPatch({ notes })}
             />
-            <div className="relative xl:pl-(--space-7) xl:before:absolute xl:before:bottom-0 xl:before:left-[calc(var(--space-7)/-2)] xl:before:top-[calc(var(--space-5)*-1)] xl:before:w-px xl:before:bg-border xl:before:content-['']">
-              <InlineTextareaField
-                label="Notes"
-                value={display.notes ?? ""}
-                disabled={readOnly || createMutation.isPending}
-                readOnlyValue={readOnly}
-                onDraftChange={(notes) => {
-                  if (isDraft) updateDraft({ notes });
-                }}
-                onCommit={(notes) => commitCustomerPatch({ notes })}
-              />
-            </div>
-          </div>
-        </section>
+          </CardSection>
+        </div>
       </CardPageBody>
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
@@ -830,9 +825,10 @@ function ProjectsSection({
   readOnly: boolean;
 }) {
   const queryClient = useQueryClient();
-  const [rows, setRows] = useSyncedRows<ProjectGridRow>(sourceRows);
+  const [activeProject, setActiveProject] = useState<CustomerProjectRow | null>(null);
+  const [creatingProject, setCreatingProject] = useState(false);
   const saveMutation = useMutation({
-    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-cell"),
+    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project"),
     mutationFn: async (row: ProjectGridRow) => {
       if (!customerId) return null;
       const payload = projectPayload(row);
@@ -854,200 +850,455 @@ function ProjectsSection({
       }
     },
   });
-  const columns = useMemo<ColDef<ProjectGridRow>[]>(
-    () => [
-      textColumn("name", "Project", !readOnly, 1.4),
-      {
-        field: "status",
-        headerName: "Status",
-        editable: !readOnly,
-        cellEditor: "agSelectCellEditor",
-        cellEditorParams: { values: ["planning", "active", "hold", "done"] },
-        minWidth: 130,
-        cellRenderer: (params: ICellRendererParams<ProjectGridRow>) => {
-          const status = params.data?.status;
-          if (!status) return null;
-          const meta = projectStatusMeta[status];
-          return <StatusLabel tone={meta.tone}>{meta.label}</StatusLabel>;
-        },
-      },
-      textColumn("startDate", "Start date", !readOnly, 0.8),
-      textColumn("targetEndDate", "Target date", !readOnly, 0.8),
-      {
-        colId: "orders",
-        headerName: "Orders",
-        type: "rightAligned",
-        minWidth: 100,
-        valueGetter: (params) => params.data?.orderCount ?? 0,
-      },
-      {
-        colId: "value",
-        headerName: "Value",
-        type: "rightAligned",
-        minWidth: 120,
-        valueGetter: (params) => formatPrice(params.data?.orderValue ?? "0"),
-      },
-    ],
-    [readOnly]
-  );
-  const onRowsChange = useCallback(
-    (nextRows: ProjectGridRow[], change: EditableLineDataGridChange<ProjectGridRow>) => {
-      setRows(nextRows);
-      if (change.type === "row_deleted" && change.row && !change.row.isNew) {
-        deleteMutation.mutate(change.row.id);
-        return;
-      }
-      if (
-        (change.type === "cell_edit_committed" ||
-          change.type === "blank_row_committed") &&
-        change.row?.name.trim()
-      ) {
-        saveMutation.mutate(change.row);
-      }
-    },
-    [deleteMutation, saveMutation, setRows]
-  );
 
   return (
-    <section
-      className={styles.section}
-      role="region"
+    <CardSection
+      title="Projects"
+      count={`· ${sourceRows.length}`}
+      actions={
+        !readOnly ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setCreatingProject(true)}
+            disabled={!customerId}
+          >
+            + Add project
+          </Button>
+        ) : null
+      }
       aria-label={`Projects ${sourceRows.length}`}
     >
-      <h2 className={styles.sectionHeading}>
-        Projects
-        <span className={styles.count}>· {sourceRows.length}</span>
-      </h2>
-      <EditableLineDataGrid
-        rows={rows}
-        columns={columns}
-        getRowId={(row) => row.id}
-        createRow={newProjectRow}
-        onRowsChange={onRowsChange}
-        addLabel="Add project"
-        rowHeight={42}
-        enableAddRow={!readOnly}
-        enableDelete={!readOnly}
-        emptyMessage="No projects yet."
-      />
-    </section>
+      {sourceRows.length > 0 ? (
+        <div className="grid gap-(--space-4)">
+          {sourceRows.map((project) => (
+            <button
+              key={project.id}
+              type="button"
+              className="grid border border-border bg-card p-(--space-5) text-left hover:bg-muted"
+              onClick={() => setActiveProject(project)}
+            >
+              <span className="flex min-w-0 items-center justify-between gap-(--space-4)">
+                <span className="truncate text-[length:var(--text-sm)] font-medium">
+                  {project.name}
+                </span>
+                <StatusLabel tone={projectStatusMeta[project.status].tone}>
+                  {projectStatusMeta[project.status].label}
+                </StatusLabel>
+              </span>
+              <span className="mt-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
+                {formatProjectDateRange(project)} · {project.orderCount} order{project.orderCount === 1 ? "" : "s"} · {formatPrice(project.orderValue) ?? "$0.00"} · {project.files.length} attachment{project.files.length === 1 ? "" : "s"}
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="border border-dashed border-border p-(--space-10) text-center text-[length:var(--text-sm)] text-muted-foreground">
+          No projects yet.
+        </div>
+      )}
+
+      {activeProject ? (
+        <CustomerProjectDialog
+          key={activeProject.id}
+          customerId={customerId}
+          project={activeProject}
+          open
+          readOnly={readOnly}
+          saveMutation={saveMutation}
+          deleteMutation={deleteMutation}
+          onClose={() => setActiveProject(null)}
+        />
+      ) : null}
+      {creatingProject ? (
+        <CustomerProjectDialog
+          key="new-project"
+          customerId={customerId}
+          project={null}
+          open
+          readOnly={readOnly}
+          saveMutation={saveMutation}
+          deleteMutation={deleteMutation}
+          onClose={() => setCreatingProject(false)}
+        />
+      ) : null}
+    </CardSection>
+  );
+}
+
+function CustomerProjectDialog({
+  customerId,
+  project,
+  open,
+  readOnly,
+  saveMutation,
+  deleteMutation,
+  onClose,
+}: {
+  customerId: string | null;
+  project: CustomerProjectRow | null;
+  open: boolean;
+  readOnly: boolean;
+  saveMutation: ProjectSaveMutation;
+  deleteMutation: ProjectDeleteMutation;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState<ProjectGridRow>(() =>
+    project ? { ...project } : newProjectRow()
+  );
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const fileUploadMutation = useMutation({
+    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-file"),
+    mutationFn: ({ projectId, file }: { projectId: string; file: File }) =>
+      uploadCustomerProjectFile(customerId as string, projectId, file),
+    onSuccess: async (file) => {
+      setDraft((current) => ({ ...current, files: [...(current.files ?? []), file] }));
+      if (customerId) {
+        await queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
+      }
+    },
+  });
+  const fileDeleteMutation = useMutation({
+    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-file-delete"),
+    mutationFn: (file: CustomerProjectFileRow) =>
+      deleteCustomerProjectFile(customerId as string, draft.id, file.id),
+    onSuccess: async (_result, file) => {
+      setDraft((current) => ({
+        ...current,
+        files: (current.files ?? []).filter((candidate) => candidate.id !== file.id),
+      }));
+      if (customerId) {
+        await queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
+      }
+    },
+  });
+
+  const linkedOrders = draft.salesOrders ?? [];
+  const files = draft.files ?? [];
+  const canUploadFiles = Boolean(customerId && !draft.isNew && !readOnly);
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          setConfirmDelete(false);
+          onClose();
+        }
+      }}
+    >
+      <DialogContent size="3xl" className="max-h-[calc(100vh-2rem)] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{project ? "Project" : "Add project"}</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-(--space-8)">
+          <div className={`${styles.formRow} ${styles.formRowThree}`}>
+            <CellShell label="Project name" required>
+              <Input
+                className={styles.underlineControl}
+                value={draft.name}
+                disabled={readOnly}
+                onChange={(event) =>
+                  setDraft((current) => ({ ...current, name: event.target.value }))
+                }
+              />
+            </CellShell>
+            <CellShell label="Status">
+              <Select
+                value={draft.status}
+                disabled={readOnly}
+                onValueChange={(status: ProjectGridRow["status"]) =>
+                  setDraft((current) => ({ ...current, status }))
+                }
+              >
+                <SelectTrigger className={styles.underlineControl}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="planning">Planning</SelectItem>
+                  <SelectItem value="active">In Progress</SelectItem>
+                  <SelectItem value="hold">On Hold</SelectItem>
+                  <SelectItem value="done">Done</SelectItem>
+                </SelectContent>
+              </Select>
+            </CellShell>
+          </div>
+
+          <div className={`${styles.formRow} ${styles.formRowThree}`}>
+            <CellShell label="Start date">
+              <Input
+                type="date"
+                className={styles.underlineControl}
+                value={draft.startDate ?? ""}
+                disabled={readOnly}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    startDate: event.target.value || null,
+                  }))
+                }
+              />
+            </CellShell>
+            <CellShell label="Target date">
+              <Input
+                type="date"
+                className={styles.underlineControl}
+                value={draft.targetEndDate ?? ""}
+                disabled={readOnly}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    targetEndDate: event.target.value || null,
+                  }))
+                }
+              />
+            </CellShell>
+          </div>
+
+          <Field>
+            <FieldLabel htmlFor="customer-project-summary">Summary</FieldLabel>
+            <Textarea
+              id="customer-project-summary"
+              value={draft.summary ?? ""}
+              disabled={readOnly}
+              rows={5}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  summary: event.target.value || null,
+                }))
+              }
+            />
+          </Field>
+
+          <div className="grid gap-(--space-4)">
+            <h3 className={styles.sectionHeading}>Linked sales orders</h3>
+            {linkedOrders.length > 0 ? (
+              <div className="overflow-x-auto border border-border">
+                <table className="w-full text-[length:var(--text-sm)]">
+                  <tbody>
+                    {linkedOrders.map((order) => (
+                      <tr key={order.id} className="border-b border-border last:border-b-0">
+                        <td className="p-(--space-4)">
+                          <Link href={`/sales/orders/${order.id}`} className="font-mono font-medium text-primary">
+                            {order.orderNumber}
+                          </Link>
+                        </td>
+                        <td className="p-(--space-4)">
+                          {formatDate(order.shipDate ?? order.orderDate)}
+                        </td>
+                        <td className="p-(--space-4)">
+                          <SalesOrderStatusBadge status={order.status} />
+                        </td>
+                        <td className="p-(--space-4) text-right font-mono tabular-nums">
+                          {formatPrice(order.totalAmount) ?? "$0.00"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="border border-dashed border-border p-(--space-8) text-center text-[length:var(--text-sm)] text-muted-foreground">
+                No linked sales orders.
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-(--space-4)">
+            <div className="flex items-center justify-between gap-(--space-4)">
+              <h3 className={styles.sectionHeading}>Attachments</h3>
+              <Input
+                type="file"
+                className="max-w-72"
+                disabled={!canUploadFiles || fileUploadMutation.isPending}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (!file || !customerId) return;
+                  fileUploadMutation.mutate({ projectId: draft.id, file });
+                }}
+              />
+            </div>
+            {draft.isNew ? (
+              <div className="border border-dashed border-border p-(--space-8) text-center text-[length:var(--text-sm)] text-muted-foreground">
+                Save the project before adding attachments.
+              </div>
+            ) : files.length > 0 ? (
+              <ul className="grid gap-(--space-2)">
+                {files.map((file) => (
+                  <li
+                    key={file.id}
+                    className="flex items-center justify-between gap-(--space-4) border border-border p-(--space-4)"
+                  >
+                    <a
+                      href={`/api/customers/${customerId}/projects/${draft.id}/files/${file.id}`}
+                      className="min-w-0 truncate text-[length:var(--text-sm)] font-medium text-primary"
+                    >
+                      {file.filename}
+                    </a>
+                    <span className="shrink-0 text-[length:var(--text-xs)] text-muted-foreground">
+                      {formatBytes(file.sizeBytes)}
+                    </span>
+                    {!readOnly ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => fileDeleteMutation.mutate(file)}
+                        disabled={fileDeleteMutation.isPending}
+                      >
+                        Delete
+                      </Button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="border border-dashed border-border p-(--space-8) text-center text-[length:var(--text-sm)] text-muted-foreground">
+                No attachments yet.
+              </div>
+            )}
+            {fileUploadMutation.error ? (
+              <FieldError>{(fileUploadMutation.error as Error).message}</FieldError>
+            ) : null}
+            {fileDeleteMutation.error ? (
+              <FieldError>{(fileDeleteMutation.error as Error).message}</FieldError>
+            ) : null}
+          </div>
+        </div>
+
+        <DialogFooter>
+          {project && !readOnly ? (
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => setConfirmDelete(true)}
+              disabled={deleteMutation.isPending}
+            >
+              Delete project
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          {!readOnly ? (
+            <Button
+              type="button"
+              disabled={saveMutation.isPending || !draft.name.trim()}
+              onClick={() => {
+                saveMutation.mutate(draft, {
+                  onSuccess: () => onClose(),
+                });
+              }}
+            >
+              {saveMutation.isPending ? "Saving..." : "Save changes"}
+            </Button>
+          ) : null}
+        </DialogFooter>
+      </DialogContent>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This project will be removed from the customer workspace.
+              {deleteMutation.error ? (
+                <span className="mt-(--space-2) block text-destructive">
+                  {(deleteMutation.error as Error).message}
+                </span>
+              ) : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => deleteMutation.reset()}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                deleteMutation.mutate(draft.id, {
+                  onSuccess: () => {
+                    setConfirmDelete(false);
+                    onClose();
+                  },
+                });
+              }}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Dialog>
   );
 }
 
 function OpenOrdersSection({
   customerId,
   rows: sourceRows,
-  readOnly,
 }: {
   customerId: string | null;
   rows: OpenOrderGridRow[];
-  readOnly: boolean;
 }) {
-  const router = useRouter();
-  const [rows, setRows] = useSyncedRows<OpenOrderGridRow>(sourceRows);
-
-  const columns = useMemo<ColDef<OpenOrderGridRow>[]>(
-    () => [
-      {
-        field: "orderNumber",
-        headerName: "Order #",
-        minWidth: 150,
-        flex: 1,
-        cellRenderer: (params: ICellRendererParams<OpenOrderGridRow>) => {
-          const order = params.data;
-          if (!order) return null;
-          return (
-            <Link
-              href={`/sales/orders/${order.id}`}
-              className="font-medium text-primary hover:text-primary"
-            >
-              {order.orderNumber}
-            </Link>
-          );
-        },
-      },
-      {
-        field: "shipDate",
-        headerName: "Date",
-        minWidth: 120,
-        valueGetter: (params) => params.data?.shipDate ?? params.data?.orderDate ?? "",
-        valueFormatter: (params) => params.value ? formatDate(String(params.value)) : "-",
-      },
-      {
-        field: "status",
-        headerName: "Status",
-        minWidth: 120,
-        cellRenderer: (params: ICellRendererParams<OpenOrderGridRow>) => {
-          const status = params.data?.status;
-          return status ? <SalesOrderStatusBadge status={status} /> : null;
-        },
-      },
-      {
-        field: "totalAmount",
-        headerName: "Total",
-        type: "rightAligned",
-        minWidth: 130,
-        valueFormatter: (params) => formatPrice(String(params.value ?? "0")) ?? "-",
-      },
-    ],
-    []
-  );
-
-  const onRowsChange = useCallback(
-    (nextRows: OpenOrderGridRow[]) => {
-      setRows(nextRows);
-    },
-    [setRows]
-  );
-
-  const createPlaceholderOrder = useCallback(
-    (): OpenOrderGridRow => ({
-      id: "__new_order__",
-      orderNumber: "",
-      status: "open",
-      orderDate: "",
-      shipDate: null,
-      requestedDate: null,
-      totalAmount: "0",
-      customerProjectId: null,
-      customerProjectName: null,
-      deletedAt: null,
-      createdAt: new Date(),
-    }),
-    []
-  );
+  const rows = sourceRows
+    .slice()
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 5);
 
   return (
-    <div>
-      <h2 className={styles.sectionHeading}>
-        Open orders
-        <span className={styles.count}>· {sourceRows.length}</span>
-      </h2>
-      <EditableLineDataGrid
-        rows={rows}
-        columns={columns}
-        getRowId={(row) => row.id}
-        createRow={createPlaceholderOrder}
-        onRowsChange={onRowsChange}
-        addLabel="Add order"
-        rowHeight={42}
-        enableAddRow={!readOnly}
-        initializeBlankRow={false}
-        enableDelete={false}
-        addDisabledReason={!customerId ? "Save the customer before adding orders." : null}
-        onAddRow={() => {
-          if (!customerId) return null;
-          router.push(`/sales/order?customerId=${customerId}`);
-          return null;
-        }}
-        emptyMessage="No open orders."
-      />
-    </div>
+    <CardSection title="Open orders" count={`· ${sourceRows.length}`}>
+      {rows.length > 0 ? (
+        <ul className="grid gap-(--space-3)">
+          {rows.map((order) => (
+            <li key={order.id}>
+              <Link
+                href={`/sales/orders/${order.id}`}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-(--space-4) border border-border p-(--space-4) hover:bg-muted"
+              >
+                <span className="min-w-0">
+                  <span className="flex min-w-0 flex-wrap items-center gap-(--space-3)">
+                    <span className="font-mono text-[length:var(--text-sm)] font-medium tabular-nums">
+                      {order.orderNumber}
+                    </span>
+                    <SalesOrderStatusBadge status={order.status} />
+                    <span className="font-mono text-[length:var(--text-xs)] text-muted-foreground tabular-nums">
+                      {formatDate(order.shipDate ?? order.orderDate)}
+                    </span>
+                  </span>
+                </span>
+                <span className="font-mono text-[length:var(--text-sm)] font-medium tabular-nums">
+                  {formatPrice(order.totalAmount) ?? "$0.00"}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="border border-dashed border-border p-(--space-10) text-center text-[length:var(--text-sm)] text-muted-foreground">
+          No open orders.
+        </div>
+      )}
+      {customerId ? (
+        <Link
+          href={`/sales/orders?customerId=${customerId}`}
+          className="mt-(--space-5) inline-flex text-[length:var(--text-sm)] font-medium text-primary"
+        >
+          View all sales orders for this customer →
+        </Link>
+      ) : null}
+    </CardSection>
   );
 }
 
-function CompactTextField({
+function UnderlineCommitInput({
   label,
+  type,
   value,
   disabled,
   required,
@@ -1055,6 +1306,7 @@ function CompactTextField({
   onCommit,
 }: {
   label: string;
+  type?: string;
   value: string;
   disabled?: boolean;
   required?: boolean;
@@ -1065,29 +1317,28 @@ function CompactTextField({
   const [draft, setDraft] = useState(value ?? "");
   if (draft !== (value ?? "") && disabled) setDraft(value ?? "");
   return (
-    <div className={styles.compactField}>
-      <label className={styles.compactLabel} htmlFor={id}>{label}</label>
-      <Input
-        id={id}
-        className={styles.compactInput}
-        value={draft}
-        autoFocus={autoFocus}
-        disabled={disabled}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => {
-          const next = draft.trim() || null;
-          if (required && next == null) {
-            setDraft(value ?? "");
-            return;
-          }
-          if (next === (value || null)) return;
-          onCommit(next);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") event.currentTarget.blur();
-        }}
-      />
-    </div>
+    <Input
+      id={id}
+      type={type}
+      aria-label={label}
+      className={styles.underlineControl}
+      value={draft}
+      autoFocus={autoFocus}
+      disabled={disabled}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        const next = draft.trim() || null;
+        if (required && next == null) {
+          setDraft(value ?? "");
+          return;
+        }
+        if (next === (value || null)) return;
+        onCommit(next);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+      }}
+    />
   );
 }
 
@@ -1095,6 +1346,7 @@ function CustomerAddressInput({
   id,
   target,
   value,
+  sameAsShippingLabel,
   options,
   sameAsShipping,
   disabled,
@@ -1105,6 +1357,7 @@ function CustomerAddressInput({
   id: string;
   target: AddressTarget;
   value: CustomerAddressFields | null;
+  sameAsShippingLabel?: string;
   options: CustomerAddressOption[];
   sameAsShipping?: boolean;
   disabled?: boolean;
@@ -1152,7 +1405,9 @@ function CustomerAddressInput({
         onChange(optionMap.get(nextValue) ?? null);
       }}
       itemToStringLabel={(itemId) => {
-        if (itemId === sameAsShippingValue) return "Same as shipping address";
+        if (itemId === sameAsShippingValue) {
+          return sameAsShippingLabel || "Same as shipping address";
+        }
         if (itemId === addAddressValue) return "Add new address";
         if (itemId === editAddressValue) return "Edit selected address";
         return optionMap.get(itemId)?.label ?? "";
@@ -1163,7 +1418,7 @@ function CustomerAddressInput({
         placeholder={target === "billing" ? "Billing address" : "Shipping address"}
         disabled={disabled}
         showClear={currentAddressId !== "" && currentAddressId !== sameAsShippingValue}
-        className={styles.addressCombobox}
+        className={styles.underlineControl}
       />
       <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
         <ComboboxEmpty>No addresses found</ComboboxEmpty>
@@ -1172,7 +1427,16 @@ function CustomerAddressInput({
             if (itemId === sameAsShippingValue) {
               return (
                 <ComboboxItem key={itemId} value={itemId}>
-                  Same as shipping address
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate">
+                      {sameAsShippingLabel || "Same as shipping address"}
+                    </span>
+                    {sameAsShippingLabel ? (
+                      <span className="truncate text-xs text-muted-foreground">
+                        Same as shipping address
+                      </span>
+                    ) : null}
+                  </span>
                 </ComboboxItem>
               );
             }
@@ -1379,6 +1643,25 @@ function replaceRow<TRow extends { id: string }>(rows: TRow[], next: TRow) {
 
 function dateOnly(value: Date | string) {
   return new Date(value).toISOString().slice(0, 10);
+}
+
+function formatProjectDateRange(project: CustomerProjectRow) {
+  const start = project.startDate ? formatDate(project.startDate) : "No start";
+  const target = project.targetEndDate ? formatDate(project.targetEndDate) : "No target";
+  return `${start} -> ${target}`;
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }
 
 export function addressEntryLabel(address: AddressEntry) {

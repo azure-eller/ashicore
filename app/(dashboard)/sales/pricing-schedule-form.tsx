@@ -158,6 +158,62 @@ function getPricingBreakCellError(
     : null;
 }
 
+function parsePositiveQuantity(value: string | null | undefined) {
+  if (value == null || value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function formatQuantityInput(value: number) {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)));
+}
+
+function nextBreakStart(value: string | null | undefined) {
+  const parsed = parsePositiveQuantity(value);
+  return parsed == null ? "" : formatQuantityInput(parsed + 1);
+}
+
+function previousBreakEnd(value: string | null | undefined) {
+  const parsed = parsePositiveQuantity(value);
+  if (parsed == null || parsed <= 1) return "1";
+  return formatQuantityInput(parsed - 1);
+}
+
+function normalizePricingBreakSequence(rows: PricingBreakGridRow[]) {
+  const normalized = rows.map((row) => ({ ...row }));
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const row = normalized[index];
+
+    if (index > 0) {
+      const previous = normalized[index - 1];
+
+      if (previous.maxQuantity == null || previous.maxQuantity.trim() === "") {
+        previous.maxQuantity = previousBreakEnd(row.minQuantity);
+      }
+
+      row.minQuantity = nextBreakStart(previous.maxQuantity);
+    }
+
+    if (index === 0 && parsePositiveQuantity(row.minQuantity) == null) {
+      row.minQuantity = "1";
+    }
+
+    const minQuantity = parsePositiveQuantity(row.minQuantity);
+    const maxQuantity = parsePositiveQuantity(row.maxQuantity);
+    if (
+      row.maxQuantity != null &&
+      minQuantity != null &&
+      maxQuantity != null &&
+      maxQuantity < minQuantity
+    ) {
+      row.maxQuantity = formatQuantityInput(minQuantity);
+    }
+  }
+
+  return normalized;
+}
+
 export function PricingScheduleForm({
   customerCategories,
   units,
@@ -194,14 +250,18 @@ export function PricingScheduleForm({
   });
 
   const [initialBreakRows] = useState(() =>
-    normalizePricingBreakRows(
-      initialData?.breaks ?? pricingScheduleDefaultValues.breaks
+    normalizePricingBreakSequence(
+      normalizePricingBreakRows(
+        initialData?.breaks ?? pricingScheduleDefaultValues.breaks
+      )
     )
   );
   const [initialBreakComparable] = useState(() =>
     comparablePricingBreakRows(
-      normalizePricingBreakRows(
-        initialData?.breaks ?? pricingScheduleDefaultValues.breaks
+      normalizePricingBreakSequence(
+        normalizePricingBreakRows(
+          initialData?.breaks ?? pricingScheduleDefaultValues.breaks
+        )
       )
     )
   );
@@ -332,7 +392,7 @@ export function PricingScheduleForm({
           headerTooltip: MIN_QTY_TOOLTIP,
           minWidth: 132,
           flex: 1,
-          editable: true,
+          editable: (params) => params.node.rowIndex === 0,
           cellEditor: "agTextCellEditor",
           valueSetter: (params: ValueSetterParams<PricingBreakGridRow, string | null>) => {
             params.data.minQuantity = normalizeGridText(params.newValue);
@@ -415,9 +475,11 @@ export function PricingScheduleForm({
   );
   const handleBreakRowsChange = useCallback(
     (rows: PricingBreakGridRow[]) => {
-      setBreakRows(rows);
-      const dirty = comparablePricingBreakRows(rows) !== initialBreakComparable;
-      form.setValue("breaks", toPricingBreakPayloadRows(rows), {
+      const normalizedRows = normalizePricingBreakSequence(rows);
+      setBreakRows(normalizedRows);
+      const dirty =
+        comparablePricingBreakRows(normalizedRows) !== initialBreakComparable;
+      form.setValue("breaks", toPricingBreakPayloadRows(normalizedRows), {
         shouldDirty: dirty,
         shouldTouch: false,
         shouldValidate: false,
@@ -428,7 +490,10 @@ export function PricingScheduleForm({
   const createBreakRow = useCallback(() => {
     const lastBreak = breakRows.at(-1);
     return createPricingBreakRow({
-      minQuantity: lastBreak?.maxQuantity ?? "",
+      minQuantity:
+        lastBreak?.maxQuantity != null
+          ? nextBreakStart(lastBreak.maxQuantity)
+          : nextBreakStart(lastBreak?.minQuantity ?? "1"),
       maxQuantity: null,
       discountPercent: "0",
     });
@@ -478,7 +543,7 @@ export function PricingScheduleForm({
                   inputMode="decimal"
                 />
               </Field>
-              <div className="space-y-3">
+              <div className="space-y-(--space-4)">
                 {breakRows.map((row, index) => {
                   const discount = Number(row?.discountPercent ?? 0);
                   const effective =
@@ -492,19 +557,22 @@ export function PricingScheduleForm({
                   return (
                     <div
                       key={index}
-                      className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2 text-sm"
+                      className="grid gap-(--space-3) border border-border bg-muted p-(--space-4)"
                     >
-                      <div>
-                        <div className="font-medium">{range}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {Number.isFinite(discount) ? discount : 0}% discount
-                        </div>
+                      <div className="flex items-center justify-between gap-(--space-4) text-[length:var(--text-xs)] text-muted-foreground">
+                        <span>{range}</span>
+                        <span>{Number.isFinite(discount) ? discount : 0}% discount</span>
                       </div>
-                      <div className="font-mono font-medium tabular-nums">
-                        {effective == null
-                          ? "\u2014"
-                          : formatPrice(effective.toFixed(2)) ?? "\u2014"}
-                      </div>
+                      <AffixedInput
+                        prefix="$"
+                        value={
+                          effective == null
+                            ? ""
+                            : (formatPrice(effective.toFixed(2)) ?? "").replace(/^\$/, "")
+                        }
+                        readOnly
+                        aria-label={`${range} effective price`}
+                      />
                     </div>
                   );
                 })}
@@ -544,7 +612,7 @@ export function PricingScheduleForm({
                 )}
               />
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <FieldGroup className="grid gap-4 md:grid-cols-2">
                 <Controller
                   control={form.control}
                   name="customerCategoryId"
@@ -621,7 +689,7 @@ export function PricingScheduleForm({
                     </Field>
                   )}
                 />
-              </div>
+              </FieldGroup>
 
               <Controller
                 control={form.control}

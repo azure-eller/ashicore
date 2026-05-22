@@ -37,6 +37,9 @@ export type InsertSupplier = z.infer<typeof insertSupplierSchema>;
 export const updateSupplierSchema = baseSupplierSchema;
 export type UpdateSupplier = z.infer<typeof updateSupplierSchema>;
 
+export const patchSupplierSchema = baseSupplierSchema.partial();
+export type PatchSupplier = z.infer<typeof patchSupplierSchema>;
+
 export const supplierDefaultValues: InsertSupplier = {
   name: "",
   code: null,

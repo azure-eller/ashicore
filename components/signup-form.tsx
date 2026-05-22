@@ -12,6 +12,7 @@ import {
 import {
   Field,
   FieldDescription,
+  FieldError,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field"
@@ -95,9 +96,7 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
               />
             </Field>
             {error && (
-              <FieldDescription className="text-destructive">
-                {error}
-              </FieldDescription>
+              <FieldError>{error}</FieldError>
             )}
             <Field>
               <Button type="submit" disabled={loading}>

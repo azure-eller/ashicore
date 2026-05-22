@@ -7,7 +7,7 @@ import styles from "./editable-info-grid.module.css";
 
 export type EditableInfoGridField = {
   id: string;
-  label: string;
+  label: ReactNode;
   editable?: boolean;
   className?: string;
   renderEditor?: () => ReactNode;

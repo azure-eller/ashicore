@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
-import { updateStocktakeCountsSchema } from "@/lib/schemas/stocktakes";
+import { updateStocktakeSchema } from "@/lib/schemas/stocktakes";
 import {
   getStocktake,
   StocktakeError,
@@ -24,7 +24,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   await assertModuleWriteAccess("inventory", request.headers);
   const body = await request.json();
-  const data = updateStocktakeCountsSchema.parse(body);
+  const data = updateStocktakeSchema.parse(body);
 
   try {
     const stocktake = await updateStocktakeCounts(id, data);

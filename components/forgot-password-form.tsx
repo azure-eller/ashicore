@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -50,10 +49,12 @@ export function ForgotPasswordForm({ redirectTo }: { redirectTo: string }) {
       <Card>
         <CardHeader>
           <CardTitle>Check your email</CardTitle>
-          <CardDescription>
-            If an account matches that address, we sent a password reset link.
-          </CardDescription>
         </CardHeader>
+        <CardContent>
+          <FieldDescription>
+            If an account matches that address, we sent a password reset link.
+          </FieldDescription>
+        </CardContent>
       </Card>
     )
   }
@@ -62,9 +63,9 @@ export function ForgotPasswordForm({ redirectTo }: { redirectTo: string }) {
     <Card>
       <CardHeader>
         <CardTitle>Reset your password</CardTitle>
-        <CardDescription>
+        <FieldDescription>
           We&apos;ll send a reset link if the account exists.
-        </CardDescription>
+        </FieldDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit}>

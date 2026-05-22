@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -47,9 +46,9 @@ export function ResetPasswordForm({
       <Card>
         <CardHeader>
           <CardTitle>Reset link unavailable</CardTitle>
-          <CardDescription>{getResetErrorMessage(errorCode)}</CardDescription>
         </CardHeader>
         <CardContent>
+          <FieldDescription>{getResetErrorMessage(errorCode)}</FieldDescription>
           <FieldDescription>
             <a href="/forgot-password">Request a new password reset link.</a>
           </FieldDescription>

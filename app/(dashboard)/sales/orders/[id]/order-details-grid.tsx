@@ -15,6 +15,7 @@ import {
 } from "@/components/delivery-address-input";
 import { EntityCombobox } from "@/components/entity-combobox";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
+import { CellShell } from "@/components/card-page/form-cell";
 import {
   Select,
   SelectContent,
@@ -489,26 +490,6 @@ function ReadOnlyAddressCell({
         <div className={cardStyles.readOnlyAddress}>No address set</div>
       )}
     </CellShell>
-  );
-}
-
-function CellShell({
-  label,
-  required,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className={cardStyles.formField}>
-      <label className={cardStyles.formLabel}>
-        {label}
-        {required ? <span className={cardStyles.requiredMark}> *</span> : null}
-      </label>
-      {children}
-    </div>
   );
 }
 

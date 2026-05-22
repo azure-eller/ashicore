@@ -1,21 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { useRouter } from "next/navigation";
-import { Controller, useForm, useWatch } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { z } from "zod";
+import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
+import type { z } from "zod";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
-import { AutosaveStatus } from "@/components/autosave-status";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { DetailPageActions } from "@/components/detail-page-actions";
-import { QuantityWithUnit } from "@/components/quantity-with-unit";
+import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card-page";
+import { CardPageHeader } from "@/components/card-page/card-page-header";
+import type { CardSaveState } from "@/components/card-page/card-save-status";
+import { CellShell } from "@/components/card-page/form-cell";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,69 +23,71 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   formatDateTime,
   formatQuantity,
-  getFieldArrayError,
-  getFirstFormErrorMessage,
   normalizeNumeric,
 } from "@/lib/format";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import {
-  type UpdateStocktakeCounts,
   updateStocktakeCountsSchema,
+  type StocktakeScope,
+  parseStocktakeScope,
 } from "@/lib/schemas/stocktakes";
 import {
   ITEM_TYPE_TOOLTIP,
   STOCKTAKE_COUNT_QTY_TOOLTIP,
   STOCKTAKE_CURRENT_QTY_TOOLTIP,
-  STOCKTAKE_COUNTED_TOOLTIP,
-  STOCKTAKE_ITEM_COUNT_TOOLTIP,
   STOCKTAKE_LINE_VARIANCE_TOOLTIP,
-  STOCKTAKE_SCOPE_TOOLTIP,
-  STOCKTAKE_SNAPSHOT_QTY_TOOLTIP,
   UNIT_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { TooltipHeader } from "@/components/tooltip-header";
-import { useAutosaveForm } from "@/lib/hooks/use-autosave-form";
+import {
+  EditableLineDataGrid,
+  type ColDef,
+  type EditableLineDataGridChange,
+} from "@/components/editable-line-data-grid";
 import { StocktakeStatusBadge } from "./status-badge";
 import {
+  buildStocktakeName,
   formatScope,
+  type StocktakePreviewItem,
   type StocktakeDetail as StocktakeDetailType,
-  type StocktakeStaleWarningPayload,
+  type StocktakeScopeOptionGroup,
 } from "./types";
+import styles from "@/components/card-page/card-page.module.css";
 
 type ApiError = {
   status?: number;
   error?: string;
   errors?: Record<string, string[]>;
-  stale?: StocktakeStaleWarningPayload;
 };
 
 type CountFilter = "all" | "counted" | "uncounted" | "variance";
-
-type CountFormValues = z.input<typeof updateStocktakeCountsSchema>;
+type StocktakeGridRow = StocktakeDetailType["lines"][number] & { isNew?: boolean };
+type StocktakeLotRow = StocktakeGridRow["lots"][number];
+type StocktakeItemDisplayRow = StocktakeGridRow & { rowKind: "item" };
+type StocktakeLotDisplayRow = Omit<StocktakeGridRow, "lots"> & {
+  rowKind: "lot";
+  parentLineId: string;
+  lot: StocktakeLotRow;
+  lots: [];
+};
+type StocktakeDisplayRow = StocktakeItemDisplayRow | StocktakeLotDisplayRow;
+type StocktakeUpdatePayload = z.input<typeof updateStocktakeCountsSchema>;
 
 function normalizeCountedQtyInput(value: string | null | undefined) {
   if (value == null) {
@@ -99,78 +98,79 @@ function normalizeCountedQtyInput(value: string | null | undefined) {
   return trimmed === "" ? null : trimmed;
 }
 
+function sumQuantities(values: Array<string | null | undefined>) {
+  return normalizeNumeric(values.reduce((sum, value) => sum + Number(value ?? 0), 0));
+}
+
+function getCountedLots(lots: StocktakeLotRow[]) {
+  return lots.filter((lot) => lot.countedQty != null);
+}
+
+function getLotBackedCountedQty(lots: StocktakeLotRow[]) {
+  const countedLots = getCountedLots(lots);
+  if (countedLots.length === 0) {
+    return null;
+  }
+
+  return sumQuantities(countedLots.map((lot) => lot.countedQty));
+}
+
+function getLotBackedVarianceQty(lots: StocktakeLotRow[]) {
+  const countedLots = getCountedLots(lots);
+  if (countedLots.length === 0) {
+    return null;
+  }
+
+  return sumQuantities(
+    countedLots.map((lot) =>
+      normalizeNumeric(Number(lot.countedQty) - Number(lot.expectedQty))
+    )
+  );
+}
+
+function isLotDisplayRow(row: StocktakeDisplayRow): row is StocktakeLotDisplayRow {
+  return row.rowKind === "lot";
+}
+
+function asItemDisplayRow(row: StocktakeGridRow): StocktakeItemDisplayRow {
+  return { ...row, rowKind: "item" };
+}
+
 export function StocktakeDetail({
   stocktake,
+  scopeGroups,
+  previewItems,
   canViewLedger = false,
 }: {
   stocktake: StocktakeDetailType;
+  scopeGroups: StocktakeScopeOptionGroup[];
+  previewItems: StocktakePreviewItem[];
   canViewLedger?: boolean;
 }) {
   const timeZone = useOrganizationTimeZone();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [staleWarning, setStaleWarning] =
-    useState<StocktakeStaleWarningPayload | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [countFilter, setCountFilter] = useState<CountFilter>("all");
   const [lineSearch, setLineSearch] = useState("");
-
-  const form = useForm<CountFormValues>({
-    resolver: zodResolver(updateStocktakeCountsSchema),
-    mode: "onBlur",
-    defaultValues: {
-      lines: stocktake.lines.map((line) => ({
-        lineId: line.id,
-        countedQty: line.countedQty,
-      })),
-    },
-  });
+  const [rows, setRows] = useState<StocktakeGridRow[]>(stocktake.lines);
+  const [stocktakeName, setStocktakeName] = useState(stocktake.name);
+  const [stocktakeScope, setStocktakeScope] = useState<StocktakeScope>(stocktake.scope);
+  const [stocktakeNotes, setStocktakeNotes] = useState(stocktake.notes ?? "");
+  const canEditCounts = stocktake.status === "draft";
 
   useEffect(() => {
-    form.reset({
-      lines: stocktake.lines.map((line) => ({
-        lineId: line.id,
-        countedQty: line.countedQty,
-      })),
-    });
-  }, [form, stocktake.lines]);
-
-  const watchedLines = useWatch({
-    control: form.control,
-    name: "lines",
-  });
-  const canEditCounts = stocktake.status === "draft";
+    if (!canEditCounts) return;
+    const intervalId = window.setInterval(() => router.refresh(), 15000);
+    return () => window.clearInterval(intervalId);
+  }, [canEditCounts, router]);
 
   const refreshStocktakeQueries = async () => {
     await queryClient.invalidateQueries({ queryKey: ["stocktakes"] });
   };
 
-  const buildDirtyCountPayload = (
-    values: CountFormValues
-  ): UpdateStocktakeCounts | null => {
-    const dirtyLines = form.formState.dirtyFields.lines ?? [];
-    const lines = (values.lines ?? []).flatMap((line, index) => {
-      if (!dirtyLines[index]?.countedQty) {
-        return [];
-      }
-
-      return [
-        {
-          lineId: line.lineId,
-          countedQty: normalizeCountedQtyInput(line.countedQty),
-        },
-      ];
-    });
-
-    if (lines.length === 0) {
-      return null;
-    }
-
-    return updateStocktakeCountsSchema.parse({ lines });
-  };
-
-  const saveMutation = useMutation<void, ApiError, UpdateStocktakeCounts>({
+  const saveMutation = useMutation<void, ApiError, StocktakeUpdatePayload>({
     mutationFn: async (payload) => {
       const response = await fetch(`/api/stocktakes/${stocktake.id}`, {
         method: "PUT",
@@ -187,35 +187,13 @@ export function StocktakeDetail({
     },
     onMutate: () => {
       setActionError(null);
-      form.clearErrors();
     },
     onError: (error: ApiError) => {
-      if (error.errors) {
-        setActionError(error.error ?? "Fix the highlighted fields.");
-        Object.entries(error.errors).forEach(([field, messages]) => {
-          form.setError(field as never, {
-            type: "server",
-            message: messages[0],
-          });
-        });
-        return;
-      }
-
       setActionError(error.error ?? "Failed to save counts.");
     },
-  });
-
-  const autosave = useAutosaveForm<CountFormValues, UpdateStocktakeCounts>({
-    form,
-    enabled: canEditCounts,
-    buildPayload: buildDirtyCountPayload,
-    save: async (payload) => {
-      await saveMutation.mutateAsync(payload);
+    onSuccess: async () => {
       await refreshStocktakeQueries();
-      return form.getValues();
-    },
-    onError: (error) => {
-      setActionError(error.error ?? "Failed to save counts.");
+      router.refresh();
     },
   });
 
@@ -234,7 +212,6 @@ export function StocktakeDetail({
         throw {
           status: response.status,
           error: body?.error ?? "Failed to complete stocktake.",
-          stale: body?.stale,
         } satisfies ApiError;
       }
     },
@@ -246,39 +223,20 @@ export function StocktakeDetail({
         refreshStocktakeQueries(),
         queryClient.invalidateQueries({ queryKey: ["items"] }),
       ]);
-      setStaleWarning(null);
       router.refresh();
     },
     onError: (error: ApiError) => {
-      if (error.status === 409 && error.stale) {
-        setStaleWarning(error.stale);
-        return;
-      }
-
       setActionError(error.error ?? "Failed to complete stocktake.");
     },
   });
 
-  const handleInvalidSubmit = (errors: typeof form.formState.errors) => {
-    setActionError(
-      getFirstFormErrorMessage(errors) ?? "Fix the highlighted fields."
-    );
+  const handleComplete = async () => {
+    try {
+      await completeMutation.mutateAsync(false);
+    } catch {
+      return;
+    }
   };
-
-  const handleComplete = form.handleSubmit(
-    async () => {
-      try {
-        if (form.formState.isDirty) {
-          await autosave.saveNow();
-        }
-
-        await completeMutation.mutateAsync(false);
-      } catch {
-        return;
-      }
-    },
-    handleInvalidSubmit
-  );
 
   const deleteMutation = useMutation<void, Error, void>({
     mutationFn: async () => {
@@ -305,102 +263,499 @@ export function StocktakeDetail({
     },
   });
 
+  const previewItemMap = useMemo(
+    () => new Map(previewItems.map((item) => [item.id, item])),
+    [previewItems]
+  );
+
+  const commitStocktakePatch = useCallback(
+    (payload: StocktakeUpdatePayload) => {
+      if (!canEditCounts) return;
+      saveMutation.mutate(updateStocktakeCountsSchema.parse(payload));
+    },
+    [canEditCounts, saveMutation]
+  );
+
+  const commitItemIds = useCallback(
+    (nextRows: StocktakeGridRow[]) => {
+      commitStocktakePatch({
+        itemIds: nextRows
+          .map((row) => row.itemId)
+          .filter((itemId) => itemId.trim() !== ""),
+      });
+    },
+    [commitStocktakePatch]
+  );
+
   const displayLines = useMemo(() => {
-    return stocktake.lines.map((line, index) => {
-      const watchedLine = watchedLines?.[index];
-      const currentCountedQty = normalizeCountedQtyInput(watchedLine?.countedQty);
+    return rows.map((line) => {
+      const currentCountedQty =
+        line.lots.length > 0
+          ? getLotBackedCountedQty(line.lots)
+          : normalizeCountedQtyInput(line.countedQty);
       const currentVarianceQty =
-        currentCountedQty == null
+        line.lots.length > 0
+          ? getLotBackedVarianceQty(line.lots)
+          : currentCountedQty == null
           ? null
-          : normalizeNumeric(
-              Number(currentCountedQty) - parseFloat(line.expectedQty)
-            );
+          : normalizeNumeric(Number(currentCountedQty) - parseFloat(line.expectedQty));
 
       return {
         ...line,
-        formIndex: index,
+        countedQty: currentCountedQty,
+        varianceQty: currentVarianceQty,
         currentCountedQty,
         currentVarianceQty,
       };
     });
-  }, [stocktake.lines, watchedLines]);
+  }, [rows]);
 
-  const filteredLines = displayLines.filter((line) => {
-    const search = lineSearch.trim().toLowerCase();
-    if (search) {
-      const haystack = [
-        line.itemName,
-        line.itemSku,
-        line.itemType,
-        line.unitName,
-      ]
-        .filter((part): part is string => part != null && part !== "")
-        .join(" ")
-        .toLowerCase();
+  const filteredLines = useMemo(
+    () =>
+      displayLines.filter((line) => {
+        const search = lineSearch.trim().toLowerCase();
+        if (search) {
+          const haystack = [
+            line.itemName,
+            line.itemSku,
+            line.itemType,
+            line.unitName,
+          ]
+            .filter((part): part is string => part != null && part !== "")
+            .join(" ")
+            .toLowerCase();
 
-      if (!haystack.includes(search)) {
-        return false;
-      }
-    }
+          if (!haystack.includes(search)) {
+            return false;
+          }
+        }
 
-    if (countFilter === "counted") {
-      return line.currentCountedQty != null;
-    }
+        if (countFilter === "counted") {
+          return line.currentCountedQty != null;
+        }
 
-    if (countFilter === "uncounted") {
-      return line.currentCountedQty == null;
-    }
+        if (countFilter === "uncounted") {
+          return line.currentCountedQty == null;
+        }
 
-    if (countFilter === "variance") {
-      return (
-        line.currentVarianceQty != null && parseFloat(line.currentVarianceQty) !== 0
-      );
-    }
+        if (countFilter === "variance") {
+          return (
+            line.currentVarianceQty != null && parseFloat(line.currentVarianceQty) !== 0
+          );
+        }
 
-    return true;
-  });
+        return true;
+      }),
+    [countFilter, displayLines, lineSearch]
+  );
 
-  const savedCountedCount = stocktake.lines.filter(
-    (line) => line.countedQty != null
+  const savedCountedCount = displayLines.filter(
+    (line) => line.currentCountedQty != null
   ).length;
   const liveCountedCount = displayLines.filter(
     (line) => line.currentCountedQty != null
   ).length;
-  const linesError = getFieldArrayError(form.formState.errors.lines);
+  const displayRows = useMemo<StocktakeDisplayRow[]>(
+    () =>
+      filteredLines.flatMap((line) => {
+        const itemRow = asItemDisplayRow(line);
+        if (line.lots.length === 0) {
+          return [itemRow];
+        }
+
+        return [
+          itemRow,
+          ...line.lots.map((lot): StocktakeLotDisplayRow => ({
+            ...line,
+            rowKind: "lot",
+            id: lot.id,
+            parentLineId: line.id,
+            lot,
+            lots: [],
+            expectedQty: lot.expectedQty,
+            countedQty: lot.countedQty,
+            varianceQty: lot.varianceQty,
+            appliedDeltaQty: lot.appliedDeltaQty,
+            createdAt: lot.createdAt,
+            updatedAt: lot.updatedAt,
+          })),
+        ];
+      }),
+    [filteredLines]
+  );
   const canComplete =
     canEditCounts &&
     liveCountedCount > 0 &&
     !completeMutation.isPending &&
     !saveMutation.isPending;
+  const cardSaveState = cardSaveStateFromMutation(saveMutation.status);
+  const headerMeta = (
+    <>
+      <span>Created {formatDateTime(stocktake.createdAt, timeZone)}</span>
+      <span>Updated {formatDateTime(stocktake.updatedAt, timeZone)}</span>
+      <span>Items {rows.length}</span>
+      <span>
+        {canEditCounts ? liveCountedCount : savedCountedCount}/{rows.length} counted
+      </span>
+    </>
+  );
+  const countActions = (
+    <div className="flex flex-wrap items-center gap-(--space-3)">
+      <Input
+        placeholder="Search..."
+        aria-label="Search stocktake items"
+        value={lineSearch}
+        onChange={(event) => setLineSearch(event.target.value)}
+        className="w-72 max-w-sm"
+      />
+      <ToggleGroup
+        type="single"
+        value={countFilter}
+        onValueChange={(value) => {
+          if (value) {
+            setCountFilter(value as CountFilter);
+          }
+        }}
+        variant="outline"
+        size="sm"
+      >
+        <ToggleGroupItem value="all">All</ToggleGroupItem>
+        <ToggleGroupItem value="counted">Counted</ToggleGroupItem>
+        <ToggleGroupItem value="uncounted">Uncounted</ToggleGroupItem>
+        <ToggleGroupItem value="variance">Variance Only</ToggleGroupItem>
+      </ToggleGroup>
+    </div>
+  );
+  const columns = useMemo<ColDef<StocktakeDisplayRow>[]>(() => {
+    const selectableItemIds = previewItems.map((item) => item.id);
+    return [
+      {
+        field: "itemId",
+        headerName: "Item",
+        minWidth: 220,
+        flex: 1.5,
+        editable: (params) =>
+          canEditCounts && (params.data ? !isLotDisplayRow(params.data) : false),
+        cellEditor: "agSelectCellEditor",
+        cellEditorParams: {
+          values: selectableItemIds,
+        },
+        valueFormatter: ({ value }) =>
+          previewItemMap.get(String(value))?.displayName ?? "",
+        valueSetter: (params: ValueSetterParams<StocktakeDisplayRow, string>) => {
+          if (isLotDisplayRow(params.data)) return false;
+          const item = previewItemMap.get(params.newValue ?? "");
+          if (!item) return false;
+          params.data.itemId = item.id;
+          params.data.itemName = item.name;
+          params.data.itemSku = item.sku;
+          params.data.itemType = item.itemType;
+          params.data.unitName = item.unitName;
+          params.data.expectedQty = item.currentQty;
+          params.data.countedQty = null;
+          params.data.varianceQty = null;
+          params.data.lots = [];
+          return true;
+        },
+        cellRenderer: ({ data }: ICellRendererParams<StocktakeDisplayRow>) => {
+          if (!data?.itemId) {
+            return <span className="text-muted-foreground">Select item</span>;
+          }
+
+          if (isLotDisplayRow(data)) {
+            return (
+              <div className="flex min-w-0 items-center gap-(--space-3) pl-(--space-6)">
+                <span className="font-mono text-[length:var(--text-sm)]">
+                  {data.lot.lotNumber}
+                </span>
+                <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                  {formatDateTime(data.lot.receivedAt, timeZone)}
+                </span>
+              </div>
+            );
+          }
+
+          return (
+            <Link
+              href={itemDetailHref(data.itemType, data.itemId)}
+              className="block min-w-0 hover:underline"
+            >
+              <span className="block truncate">{data.itemName}</span>
+              {data.itemSku ? (
+                <span className="block truncate text-xs text-muted-foreground">
+                  {data.itemSku}
+                </span>
+              ) : null}
+            </Link>
+          );
+        },
+      },
+      {
+        field: "itemType",
+        headerName: "Type",
+        headerComponent: () => <TooltipHeader label="Type" tooltip={ITEM_TYPE_TOOLTIP} />,
+        minWidth: 100,
+        flex: 0.45,
+        cellRenderer: ({ data, value }: ICellRendererParams<StocktakeDisplayRow>) =>
+          data && isLotDisplayRow(data) ? (
+            <span className="text-muted-foreground">Lot</span>
+          ) : value ? (
+            <Badge variant="outline">{value}</Badge>
+          ) : null,
+      },
+      {
+        field: "unitName",
+        headerName: "Unit",
+        headerComponent: () => <TooltipHeader label="Unit" tooltip={UNIT_TOOLTIP} />,
+        minWidth: 92,
+        flex: 0.4,
+      },
+      {
+        field: "expectedQty",
+        headerName: "Current count",
+        headerComponent: () => (
+          <TooltipHeader label="Current count" tooltip={STOCKTAKE_CURRENT_QTY_TOOLTIP} />
+        ),
+        minWidth: 148,
+        flex: 0.55,
+        cellClass: "text-right",
+        valueFormatter: ({ value }) => formatQuantity(value),
+      },
+      {
+        field: "countedQty",
+        headerName: "New count",
+        headerComponent: () => (
+          <TooltipHeader label="New count" tooltip={STOCKTAKE_COUNT_QTY_TOOLTIP} />
+        ),
+        minWidth: 140,
+        flex: 0.55,
+        editable: (params) =>
+          canEditCounts &&
+          (params.data
+            ? isLotDisplayRow(params.data) || params.data.lots.length === 0
+            : false),
+        cellEditor: "agTextCellEditor",
+        cellClass: "text-right",
+        valueSetter: (params: ValueSetterParams<StocktakeDisplayRow, string | null>) => {
+          params.data.countedQty = normalizeCountedQtyInput(params.newValue);
+          return true;
+        },
+        valueGetter: ({ data }) => {
+          if (!data) return null;
+          if (isLotDisplayRow(data)) return data.countedQty;
+          return data.lots.length ? getLotBackedCountedQty(data.lots) : data.countedQty;
+        },
+        valueFormatter: ({ value }) => (value == null ? "" : formatQuantity(value)),
+      },
+      {
+        colId: "variance",
+        headerName: "Variance",
+        headerComponent: () => (
+          <TooltipHeader label="Variance" tooltip={STOCKTAKE_LINE_VARIANCE_TOOLTIP} />
+        ),
+        minWidth: 150,
+        flex: 0.55,
+        cellClass: "text-right",
+        valueGetter: ({ data }) => {
+          if (!data) return null;
+          if (isLotDisplayRow(data)) {
+            if (!data.countedQty) return null;
+            return normalizeNumeric(Number(data.countedQty) - Number(data.expectedQty));
+          }
+          if (data.lots.length > 0) return getLotBackedVarianceQty(data.lots);
+          if (!data.countedQty) return null;
+          return normalizeNumeric(Number(data.countedQty) - parseFloat(data.expectedQty));
+        },
+        valueFormatter: ({ value }) => (value == null ? "" : formatQuantity(value)),
+      },
+    ];
+  }, [canEditCounts, previewItemMap, previewItems, timeZone]);
+
+  const createBlankRow = useCallback((): StocktakeDisplayRow => {
+    const now = new Date();
+    return {
+      id: `new-${crypto.randomUUID()}`,
+      rowKind: "item",
+      isNew: true,
+      itemId: "",
+      itemName: "",
+      itemSku: null,
+      itemType: "material",
+      unitName: "",
+      expectedQty: "0",
+      countedQty: null,
+      varianceQty: null,
+      appliedDeltaQty: null,
+      sortOrder: rows.length,
+      lots: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+  }, [rows.length]);
+
+  const handleLotCountChange = useCallback(
+    (lineId: string, lotLineId: string, value: string | null, commit = false) => {
+      const countedQty = normalizeCountedQtyInput(value);
+      setRows((currentRows) =>
+        currentRows.map((line) => {
+          if (line.id !== lineId) {
+            return line;
+          }
+
+          const lots = line.lots.map((lot) =>
+            lot.id === lotLineId
+              ? {
+                  ...lot,
+                  countedQty,
+                  varianceQty:
+                    countedQty == null
+                      ? null
+                      : normalizeNumeric(Number(countedQty) - Number(lot.expectedQty)),
+                }
+              : lot
+          );
+
+          return {
+            ...line,
+            lots,
+            countedQty: getLotBackedCountedQty(lots),
+            varianceQty: getLotBackedVarianceQty(lots),
+          };
+        })
+      );
+
+      if (commit) {
+        commitStocktakePatch({
+          lotLines: [
+            {
+              lotLineId,
+              countedQty,
+            },
+          ],
+        });
+      }
+    },
+    [commitStocktakePatch]
+  );
+
+  const handleRowsChange = useCallback(
+    (
+      nextRows: StocktakeDisplayRow[],
+      change: EditableLineDataGridChange<StocktakeDisplayRow>
+    ) => {
+      const nextItemRows = nextRows.filter(
+        (row): row is StocktakeItemDisplayRow => !isLotDisplayRow(row)
+      );
+      const visibleIds = new Set(filteredLines.map((line) => line.id));
+      const mergedRows =
+        filteredLines.length === rows.length
+          ? nextItemRows
+          : [
+              ...rows.filter((row) => !visibleIds.has(row.id)),
+              ...nextItemRows,
+            ];
+      setRows(mergedRows);
+
+      if (
+        change.type === "row_deleted" ||
+        change.type === "row_reordered" ||
+        (change.field === "itemId" &&
+          change.row &&
+          !isLotDisplayRow(change.row) &&
+          change.row.itemId)
+      ) {
+        commitItemIds(mergedRows);
+        return;
+      }
+
+      if (
+        change.field === "countedQty" &&
+        change.row &&
+        !change.row.isNew &&
+        (isLotDisplayRow(change.row) || change.row.lots.length === 0)
+      ) {
+        if (isLotDisplayRow(change.row)) {
+          handleLotCountChange(
+            change.row.parentLineId,
+            change.row.lot.id,
+            change.row.countedQty,
+            true
+          );
+          return;
+        }
+
+        commitStocktakePatch({
+          lines: [
+            {
+              lineId: change.row.id,
+              countedQty: normalizeCountedQtyInput(change.row.countedQty),
+            },
+          ],
+        });
+      }
+    },
+    [commitItemIds, commitStocktakePatch, filteredLines, handleLotCountChange, rows]
+  );
+
+  const applyScope = (scope: StocktakeScope) => {
+    const nextName = buildStocktakeName(scope);
+    const nextRows = previewItems
+      .filter((item) => itemMatchesScope(item, scope))
+      .map((item, index) => {
+        const existing = rows.find((row) => row.itemId === item.id);
+        const now = new Date();
+        return {
+          id: existing?.id ?? `new-${item.id}`,
+          isNew: existing == null,
+          itemId: item.id,
+          itemName: item.name,
+          itemSku: item.sku,
+          itemType: item.itemType,
+          unitName: item.unitName,
+          expectedQty: existing?.expectedQty ?? item.currentQty,
+          countedQty: existing?.countedQty ?? null,
+          varianceQty: existing?.varianceQty ?? null,
+          appliedDeltaQty: existing?.appliedDeltaQty ?? null,
+          sortOrder: index,
+          lots: existing?.lots ?? [],
+          createdAt: existing?.createdAt ?? now,
+          updatedAt: existing?.updatedAt ?? now,
+        };
+      });
+    setStocktakeScope(scope);
+    setStocktakeName(nextName);
+    setRows(nextRows);
+    commitStocktakePatch({
+      name: nextName,
+      scope,
+      itemIds: nextRows.map((row) => row.itemId),
+    });
+  };
 
   return (
     <>
-      <div className="space-y-6 p-6">
-        <div className="flex items-center justify-between gap-4">
-          <div className="space-y-1">
-            <Link
-              href="/inventory/stocktakes"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden /> Back to
-              {" "}Stocktakes
-            </Link>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-semibold tracking-tight">
-                {stocktake.name}
-              </h1>
-              <StocktakeStatusBadge status={stocktake.status} />
-            </div>
-          </div>
-
-          {(canEditCounts || canViewLedger) && (
-            <DetailPageActions
-              menu={[
+      <CardPage>
+        <CardPageHeader
+          eyebrow="Inventory · Stocktake"
+          title={stocktakeName}
+          status={<StocktakeStatusBadge status={stocktake.status} />}
+          meta={headerMeta}
+          saveState={cardSaveState}
+          primaryAction={
+            canEditCounts
+              ? {
+                  label: completeMutation.isPending ? "Completing..." : "Complete",
+                  onClick: handleComplete,
+                  disabled: !canComplete,
+                }
+              : undefined
+          }
+          menuActions={[
                 ...(canViewLedger
                   ? [
                       {
                         label: "View inventory activity",
-                        onSelect: () =>
+                        onClick: () =>
                           router.push(
                             buildInventoryLedgerHref({
                               documentType: "stocktake",
@@ -414,228 +769,122 @@ export function StocktakeDetail({
                   ? [
                       {
                         label: "Delete stocktake",
-                        onSelect: () => setDeleteOpen(true),
+                        onClick: () => setDeleteOpen(true),
                         disabled: deleteMutation.isPending,
                         destructive: true,
                       },
                     ]
                   : []),
               ]}
-            >
-              {canEditCounts ? (
-                <>
-                  <AutosaveStatus
-                    state={autosave.state}
-                    message={autosave.message}
-                    className="px-2"
-                  />
-                  <Button
-                    size="sm"
-                    onClick={handleComplete}
-                    disabled={!canComplete}
-                  >
-                    {completeMutation.isPending ? "Completing..." : "Complete"}
-                  </Button>
-                </>
-              ) : null}
-            </DetailPageActions>
-          )}
-        </div>
+          fallbackHref="/inventory/stocktakes"
+        />
 
-        <Separator />
+        <CardPageBody>
+          <CardSection title="Stocktake at a glance">
+            <div className={`${styles.formRow} ${styles.formRowThree}`}>
+              <CellShell label="Name" required>
+                <Input
+                  aria-label="Name"
+                  className={styles.underlineControl}
+                  value={stocktakeName}
+                  disabled={!canEditCounts}
+                  onChange={(event) => setStocktakeName(event.target.value)}
+                  onBlur={(event) => {
+                    const name = event.currentTarget.value.trim();
+                    if (!name) {
+                      setStocktakeName(stocktake.name);
+                      return;
+                    }
+                    if (name !== stocktake.name) commitStocktakePatch({ name });
+                  }}
+                />
+              </CellShell>
+              <CellShell label="Scope">
+                <Select
+                  value={stocktakeScope}
+                  disabled={!canEditCounts}
+                  onValueChange={(value) => applyScope(value as StocktakeScope)}
+                >
+                  <SelectTrigger className={styles.underlineControl}>
+                    <SelectValue placeholder="Select scope" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {scopeGroups.map((group) => (
+                      <SelectGroup key={group.label}>
+                        <SelectLabel>{group.label}</SelectLabel>
+                        {group.options.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </CellShell>
+              <CellShell label="Status">
+                <div className={styles.readOnlyFieldValue}>{formatScope(stocktakeScope)}</div>
+              </CellShell>
+            </div>
+          </CardSection>
 
-        {stocktake.notes && (
-          <p className="max-w-2xl text-sm text-muted-foreground">{stocktake.notes}</p>
-        )}
+          {actionError ? (
+            <CardSection aria-label="Stocktake errors">
+              {actionError ? <FieldError>{actionError}</FieldError> : null}
+            </CardSection>
+          ) : null}
 
-        {actionError && <FieldError>{actionError}</FieldError>}
-        {linesError && <FieldError>{linesError}</FieldError>}
-
-        {canEditCounts && liveCountedCount === 0 && (
-          <p className="text-sm text-muted-foreground">
-            Enter at least one available count before completing this stocktake.
-          </p>
-        )}
-
-        {canEditCounts && liveCountedCount > 0 && form.formState.isDirty && (
-          <p className="text-sm text-muted-foreground">
-            Completing will save your pending count changes first.
-          </p>
-        )}
-
-        <dl className="grid max-w-3xl grid-cols-1 gap-x-8 gap-y-6 sm:grid-cols-2">
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">
-              <TooltipHeader label="Scope" tooltip={STOCKTAKE_SCOPE_TOOLTIP} />
-            </dt>
-            <dd className="mt-1 text-sm">{formatScope(stocktake.scope)}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">Status</dt>
-            <dd className="mt-1 text-sm">
-              <StocktakeStatusBadge status={stocktake.status} />
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">
-              <TooltipHeader label="Items" tooltip={STOCKTAKE_ITEM_COUNT_TOOLTIP} />
-            </dt>
-            <dd className="mt-1 text-sm">{stocktake.lines.length}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">
-              <TooltipHeader label="Available Count" tooltip={STOCKTAKE_COUNTED_TOOLTIP} />
-            </dt>
-            <dd className="mt-1 text-sm">
-              {canEditCounts ? liveCountedCount : savedCountedCount} / {stocktake.lines.length}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">Created</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(stocktake.createdAt, timeZone)}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">Updated</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(stocktake.updatedAt, timeZone)}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-muted-foreground">Completed</dt>
-            <dd className="mt-1 text-sm">{formatDateTime(stocktake.completedAt, timeZone)}</dd>
-          </div>
-        </dl>
-
-        <Separator />
-
-        <div className="space-y-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="space-y-1">
-              <h2 className="text-lg font-semibold tracking-tight">Available Counts</h2>
-              <p className="text-sm text-muted-foreground">
-                Count available stock only. Blocked and rejected stock stay managed
-                from lot disposition actions.
+          {canEditCounts && liveCountedCount === 0 ? (
+            <CardSection aria-label="Stocktake completion guidance">
+              <p className="text-[length:var(--text-sm)] text-muted-foreground">
+                Enter at least one available count before completing this stocktake.
               </p>
-            </div>
+            </CardSection>
+          ) : null}
 
-            <div className="flex flex-wrap items-center gap-3">
-              <Input
-                placeholder="Search..."
-                aria-label="Search stocktake items"
-                value={lineSearch}
-                onChange={(event) => setLineSearch(event.target.value)}
-                className="w-72 max-w-sm"
-              />
-              <ToggleGroup
-                type="single"
-                value={countFilter}
-                onValueChange={(value) => {
-                  if (value) {
-                    setCountFilter(value as CountFilter);
-                  }
-                }}
-                variant="outline"
-                size="sm"
-              >
-                <ToggleGroupItem value="all">All</ToggleGroupItem>
-                <ToggleGroupItem value="counted">Counted</ToggleGroupItem>
-                <ToggleGroupItem value="uncounted">Uncounted</ToggleGroupItem>
-                <ToggleGroupItem value="variance">Variance Only</ToggleGroupItem>
-              </ToggleGroup>
-            </div>
-          </div>
+          <CardSection
+            title="Available counts"
+            hint="Count available stock only. Blocked and rejected stock stay managed from lot disposition actions."
+            actions={countActions}
+          >
+            <EditableLineDataGrid
+              rows={displayRows}
+              columns={columns}
+              getRowId={(row) => row.id}
+              createRow={createBlankRow}
+              onRowsChange={handleRowsChange}
+              addLabel="Add item"
+              emptyMessage="No lines match this filter."
+              enableAddRow={canEditCounts}
+              enableDelete={canEditCounts}
+              enableReorder={false}
+              initializeBlankRow={false}
+              isBlankRow={(row) => row.itemId === ""}
+              canDeleteRow={(row) => !isLotDisplayRow(row)}
+              getDeleteDisabledReason={(row) =>
+                isLotDisplayRow(row) ? "Delete the item row to remove its lots." : null
+              }
+              minHeight={180}
+            />
+          </CardSection>
 
-          <div className="overflow-x-auto border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Item</TableHead>
-                  <TableHead>
-                    <TooltipHeader label="Type" tooltip={ITEM_TYPE_TOOLTIP} />
-                  </TableHead>
-                  <TableHead>
-                    <TooltipHeader label="Unit" tooltip={UNIT_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Available Snapshot" tooltip={STOCKTAKE_SNAPSHOT_QTY_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Available Count" tooltip={STOCKTAKE_COUNT_QTY_TOOLTIP} />
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <TooltipHeader label="Available Variance" tooltip={STOCKTAKE_LINE_VARIANCE_TOOLTIP} />
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredLines.length > 0 ? (
-                  filteredLines.map((line) => (
-                    <TableRow key={line.id}>
-                      <TableCell>
-                        <Link
-                          href={itemDetailHref(line.itemType, line.itemId)}
-                          className="block space-y-0.5 hover:underline"
-                        >
-                          <div>{line.itemName}</div>
-                          {line.itemSku && (
-                            <div className="text-xs text-muted-foreground">
-                              {line.itemSku}
-                            </div>
-                          )}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{line.itemType}</Badge>
-                      </TableCell>
-                      <TableCell>{line.unitName}</TableCell>
-                      <TableCell className="text-right">
-                        {formatQuantity(line.expectedQty)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {canEditCounts ? (
-                          <Controller
-                            name={`lines.${line.formIndex}.countedQty`}
-                            control={form.control}
-                            render={({ field, fieldState }) => (
-                              <div className="ml-auto max-w-32">
-                                <Input
-                                  {...field}
-                                  value={field.value ?? ""}
-                                  aria-invalid={fieldState.invalid}
-                                  inputMode="decimal"
-                                  placeholder="Leave blank"
-                                  className="text-right"
-                                />
-                                {fieldState.invalid && (
-                                  <FieldError className="mt-1" errors={[fieldState.error]} />
-                                )}
-                              </div>
-                            )}
-                          />
-                        ) : (
-                          formatQuantity(line.countedQty)
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatQuantity(
-                          canEditCounts ? line.currentVarianceQty : line.varianceQty
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell
-                      colSpan={6}
-                      className="h-24 text-center text-muted-foreground"
-                    >
-                      No lines match this filter.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-      </div>
+          <CardSection title="Notes">
+            <textarea
+              aria-label="Notes"
+              className="min-h-32 w-full resize-y border-0 bg-transparent p-0 text-[length:var(--text-sm)] outline-none disabled:text-muted-foreground"
+              value={stocktakeNotes}
+              disabled={!canEditCounts}
+              onChange={(event) => setStocktakeNotes(event.target.value)}
+              onBlur={(event) => {
+                const notes = event.currentTarget.value;
+                if (notes !== (stocktake.notes ?? "")) {
+                  commitStocktakePatch({ notes: notes || null });
+                }
+              }}
+            />
+          </CardSection>
+        </CardPageBody>
+      </CardPage>
 
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent className="bg-background text-foreground">
@@ -660,92 +909,23 @@ export function StocktakeDetail({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      <Dialog
-        open={staleWarning != null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setStaleWarning(null);
-          }
-        }}
-      >
-        <DialogContent
-          size="3xl"
-          className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground"
-        >
-          <DialogHeader>
-            <DialogTitle>Complete with changed stock?</DialogTitle>
-            <DialogDescription>
-              Some live available stock changed after this stocktake was created.
-              Completing now will adjust from current available stock to the saved
-              counted totals.
-            </DialogDescription>
-          </DialogHeader>
-
-          {staleWarning && (
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Item</TableHead>
-                    <TableHead className="text-right">
-                      <TooltipHeader label="Available Snapshot" tooltip={STOCKTAKE_SNAPSHOT_QTY_TOOLTIP} />
-                    </TableHead>
-                    <TableHead className="text-right">
-                      <TooltipHeader label="Available Current" tooltip={STOCKTAKE_CURRENT_QTY_TOOLTIP} />
-                    </TableHead>
-                    <TableHead className="text-right">
-                      <TooltipHeader label="Available Count" tooltip={STOCKTAKE_COUNT_QTY_TOOLTIP} />
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {staleWarning.items.map((item) => (
-                    <TableRow key={item.lineId}>
-                      <TableCell>{item.itemName}</TableCell>
-                      <TableCell className="text-right">
-                        <QuantityWithUnit
-                          value={item.expectedQty}
-                          unitName={item.unitName}
-                          className="justify-end"
-                        />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <QuantityWithUnit
-                          value={item.currentQty}
-                          unitName={item.unitName}
-                          className="justify-end"
-                        />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <QuantityWithUnit
-                          value={item.countedQty}
-                          unitName={item.unitName}
-                          className="justify-end"
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setStaleWarning(null)}>
-              Back
-            </Button>
-            <Button
-              onClick={() => completeMutation.mutate(true)}
-              disabled={completeMutation.isPending}
-            >
-              {completeMutation.isPending
-                ? "Completing..."
-                : "Complete With Live Stock"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
+}
+
+function itemMatchesScope(item: StocktakePreviewItem, scope: StocktakeScope) {
+  const parsedScope = parseStocktakeScope(scope);
+
+  if (parsedScope.kind === "all") return true;
+  if (parsedScope.kind === "type") return item.stocktakeType === parsedScope.itemType;
+  return (
+    item.stocktakeType === parsedScope.itemType &&
+    item.category === parsedScope.category
+  );
+}
+
+function cardSaveStateFromMutation(state: "idle" | "pending" | "success" | "error"): CardSaveState {
+  if (state === "pending") return "saving";
+  if (state === "error") return "failed";
+  return "saved";
 }

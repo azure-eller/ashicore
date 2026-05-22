@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
-import { SupplierDetail } from "@/app/(dashboard)/purchasing/supplier-detail";
+import { SupplierCard } from "@/app/(dashboard)/purchasing/supplier-card";
 import { getSupplier } from "@/app/(dashboard)/purchasing/queries";
+import { getAddressEntries } from "@/lib/dal/addresses";
 
 export default async function SupplierDetailPage({
   params,
@@ -8,11 +9,20 @@ export default async function SupplierDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supplier = await getSupplier(id, { includeDeleted: true });
+  const [supplier, addresses] = await Promise.all([
+    getSupplier(id, { includeDeleted: true }),
+    getAddressEntries(),
+  ]);
 
   if (!supplier) {
     redirect("/purchasing/suppliers");
   }
 
-  return <SupplierDetail supplier={supplier} />;
+  return (
+    <SupplierCard
+      initialSupplierId={id}
+      initialSupplier={supplier}
+      addresses={addresses}
+    />
+  );
 }

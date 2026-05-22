@@ -31,7 +31,7 @@ export function SettingsPanelHeader({
   return (
     <div className="flex min-w-0 flex-col gap-(--space-6) border-b bg-muted/20 px-(--space-12) py-(--space-10) sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
-        <h2 className="text-[length:var(--text-base)] leading-[var(--leading-base)] font-semibold tracking-[var(--tracking-tight)] text-foreground">
+        <h2 className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-muted-foreground uppercase">
           {title}
         </h2>
         {meta ? (

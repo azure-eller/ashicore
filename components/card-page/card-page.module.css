@@ -406,8 +406,26 @@
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr);
 }
 
+.formRowThree {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .formRowFour {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.sectionRowTwo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  border-bottom: 1px solid var(--color-line-2);
+}
+
+.sectionRowTwo > .section {
+  border-bottom: 0;
+}
+
+.sectionRowTwo > .section + .section {
+  border-left: 1px solid var(--color-line-2);
 }
 
 .formField {
@@ -580,8 +598,18 @@
 @media (max-width: 900px) {
   .formRow,
   .formRowPo,
+  .formRowThree,
   .formRowFour {
     grid-template-columns: 1fr;
+  }
+
+  .sectionRowTwo {
+    grid-template-columns: 1fr;
+  }
+
+  .sectionRowTwo > .section + .section {
+    border-left: 0;
+    border-top: 1px solid var(--color-line-2);
   }
 }
 

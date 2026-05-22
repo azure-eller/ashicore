@@ -526,8 +526,6 @@ export async function appendPositiveStockToExistingLotInTx(
 
   const disposition = params.disposition ?? DEFAULT_DISPOSITION;
   const quantity = normalizeNumeric(params.quantity);
-  const unitCost = normalizeNumericScale(parseFloat(params.unitCost), 6);
-  const extendedCost = calculateExtendedCost(quantity, unitCost);
   const [lot] = await tx
     .select({
       id: lots.id,
@@ -547,6 +545,9 @@ export async function appendPositiveStockToExistingLotInTx(
   if (!lot) {
     throw new Error(`Lot ${params.lotId} was not found.`);
   }
+
+  const unitCost = normalizeNumericScale(parseFloat(params.unitCost), 6);
+  const extendedCost = calculateExtendedCost(quantity, unitCost);
 
   const [currentBalance] = await tx
     .select({
@@ -665,7 +666,7 @@ export async function decrementExistingLotStockInTx(
     itemId: string;
     lotId: string;
     quantity: number;
-    unitCost: string;
+    unitCost?: string | null;
     eventType: NegativeStockEventType;
     eventSubtype?: string | null;
     referenceType?: string | null;
@@ -681,8 +682,6 @@ export async function decrementExistingLotStockInTx(
 
   const disposition = params.disposition ?? DEFAULT_DISPOSITION;
   const quantity = normalizeNumeric(params.quantity);
-  const unitCost = normalizeNumericScale(parseFloat(params.unitCost), 6);
-  const extendedCost = calculateExtendedCost(quantity, unitCost);
   const [lot] = await tx
     .select({
       id: lots.id,
@@ -701,6 +700,28 @@ export async function decrementExistingLotStockInTx(
   if (!lot) {
     throw new Error(`Lot ${params.lotId} was not found.`);
   }
+
+  const [currentBalance] = await tx
+    .select({
+      unitCost: inventoryLotBalances.unitCost,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.lotId, params.lotId),
+        eq(inventoryLotBalances.disposition, disposition)
+      )
+    )
+    .for("update");
+
+  const unitCost = normalizeNumericScale(
+    parseFloat(params.unitCost ?? currentBalance?.unitCost ?? "0"),
+    6
+  );
+  const extendedCost = calculateExtendedCost(quantity, unitCost);
 
   const [updatedBalance] = await tx
     .update(inventoryLotBalances)
