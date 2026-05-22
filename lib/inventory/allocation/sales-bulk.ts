@@ -123,11 +123,7 @@ async function bulkAllocateOpenSalesOrdersFifoInTx(
       lotSources.map((source) => [source.sourceKey, toQuantity(source.freeQty)])
     );
     const salesDemands = workspace.demands
-      .filter(
-        (demand) =>
-          demand.demandType === "sales_shipment_line" ||
-          demand.demandType === "sales_order_line"
-      )
+      .filter((demand) => demand.demandType === "sales_order_line")
       .sort(compareSalesDemandPriority);
 
     for (const demand of salesDemands) {
@@ -190,8 +186,7 @@ async function bulkUnallocateOpenSalesOrdersInTx(
 
     const salesDemands = workspace.demands.filter(
       (demand) =>
-        (demand.demandType === "sales_shipment_line" ||
-          demand.demandType === "sales_order_line") &&
+        demand.demandType === "sales_order_line" &&
         demand.assignments.length > 0
     );
 

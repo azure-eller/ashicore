@@ -18,11 +18,10 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   shipSalesOrder,
-  shipSalesShipment,
   SalesOrderApiError,
 } from "@/lib/api/clients/sales-orders";
 import { deriveOrderDisplayStatus } from "@/lib/sales/order-display-status";
-import { formatDate, formatQuantity } from "@/lib/format";
+import { formatQuantity } from "@/lib/format";
 import type {
   NegativeStockWarningPayload,
   SalesOrderDetail,
@@ -32,58 +31,25 @@ import type {
 type SalesOrderForStatus = SalesOrderListRow | SalesOrderDetail;
 type Ctx = { order: SalesOrderForStatus };
 
-type ShipmentLike = {
-  id: string;
-  shipmentNumber: string;
-  status: "planned" | "shipped";
-  scheduledDate: string | null;
-  fulfillmentType: "delivery" | "pickup";
-};
-
 const OPTIONS: OrderStatusOption[] = [
-  { value: "OPEN", label: "Open", tone: "info" },
-  { value: "ALLOCATED", label: "Allocated", tone: "success" },
+  { value: "NOT SHIPPED", label: "Not shipped", tone: "neutral" },
   { value: "PARTIALLY SHIPPED", label: "Partially shipped", tone: "warning" },
   { value: "SHIPPED", label: "Shipped", tone: "success" },
-  { value: "CLOSED", label: "Closed", tone: "neutral" },
 ];
-
-function plannedShipments(order: SalesOrderForStatus): ShipmentLike[] {
-  return (order.shipments as ShipmentLike[]).filter(
-    (shipment) => shipment.status === "planned",
-  );
-}
 
 const config: OrderStatusControlConfig<Ctx> = {
   type: "sales",
   options: () => OPTIONS,
   current: ({ order }) => deriveOrderDisplayStatus(order).label,
-  transitionKind: (from, to, { order }) => {
-    if (from === "SHIPPED" || from === "CLOSED") return "disabled";
+  transitionKind: (from, to) => {
+    if (from === "SHIPPED") return "disabled";
     if (to === from) return "noop";
     if (to === "SHIPPED") return "dialog";
-    if (to === "PARTIALLY SHIPPED") {
-      // Only meaningful when there's more than one shipment to ship selectively.
-      return order.shipments.length > 1 && plannedShipments(order).length > 0
-        ? "dialog"
-        : "disabled";
-    }
-    // OPEN / ALLOCATED are derived from allocation, not user-selectable.
     return "disabled";
   },
   renderDialog: ({ to, ctx, onClose, onDone }) => {
     if (to === "SHIPPED") {
       return <ShipOrderDialog orderId={ctx.order.id} onClose={onClose} onDone={onDone} />;
-    }
-    if (to === "PARTIALLY SHIPPED") {
-      return (
-        <PartialShipDialog
-          orderId={ctx.order.id}
-          shipments={plannedShipments(ctx.order)}
-          onClose={onClose}
-          onDone={onDone}
-        />
-      );
     }
     return null;
   },
@@ -164,72 +130,6 @@ function ShipOrderDialog({
   );
 }
 
-function PartialShipDialog({
-  orderId,
-  shipments,
-  onClose,
-  onDone,
-}: {
-  orderId: string;
-  shipments: ShipmentLike[];
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [target, setTarget] = useState<string | null>(null);
-  const { mutation, warning, error } = useShipMutation(
-    (confirm) => shipSalesShipment(orderId, target as string, confirm),
-    onDone,
-  );
-
-  return (
-    <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Ship which shipment?</DialogTitle>
-          <DialogDescription>Mark a planned shipment as shipped.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-2 py-1">
-          {shipments.map((shipment) => {
-            const active = target === shipment.id;
-            return (
-              <button
-                key={shipment.id}
-                type="button"
-                onClick={() => setTarget(shipment.id)}
-                className={
-                  "flex w-full items-center justify-between border px-3 py-2 text-left text-sm " +
-                  (active
-                    ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
-                    : "border-[var(--color-line)] hover:bg-[var(--color-surface-alt)]")
-                }
-              >
-                <span>{shipment.shipmentNumber}</span>
-                <span className="text-xs text-muted-foreground">
-                  {shipment.fulfillmentType === "pickup" ? "Pickup" : "Delivery"}
-                  {shipment.scheduledDate ? ` · ${formatDate(shipment.scheduledDate)}` : ""}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        {warning ? <NegativeStockNotice items={[warning]} /> : null}
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => mutation.mutate(warning != null)}
-            disabled={mutation.isPending || target == null}
-          >
-            {mutation.isPending ? "Shipping…" : warning ? "Ship anyway" : "Mark shipped"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export function SalesStatusControl({
   order,
   size = "md",
@@ -245,7 +145,7 @@ export function SalesStatusControl({
       config={config}
       ctx={{ order }}
       size={size}
-      disabled={current === "SHIPPED" || current === "CLOSED"}
+      disabled={current === "SHIPPED"}
       onChanged={onChanged}
     />
   );

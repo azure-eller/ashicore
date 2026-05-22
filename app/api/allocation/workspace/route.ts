@@ -10,7 +10,6 @@ const querySchema = z
     demandType: z
       .enum([
         "sales_order_line",
-        "sales_shipment_line",
         "manufacturing_order_ingredient",
       ])
       .optional(),

@@ -127,7 +127,7 @@ type AllocationRow = {
   order?: SalesOrderListRow;
   href?: string | null;
   label: string;
-  demandTypeLabel: "Planned shipment" | "Unplanned demand" | "Manufacturing demand";
+  demandTypeLabel: "Sales order" | "Manufacturing demand";
   demandContext: string;
   customerName: string;
   shipDate: string | null;
@@ -191,7 +191,7 @@ type OrderGridRow = {
   order?: SalesOrderListRow;
   href?: string | null;
   label: string;
-  demandTypeLabel: "Planned shipment" | "Unplanned demand" | "Manufacturing demand";
+  demandTypeLabel: "Sales order" | "Manufacturing demand";
   demandContext: string;
   customerName: string;
   shipDate: string | null;
@@ -342,91 +342,21 @@ function buildRows(
     .filter(isOpenSalesOrder)
     .flatMap((order): AllocationRow[] => {
       const rows: AllocationRow[] = [];
-      const orderLineById = new Map(
-        order.lines
-          .filter((line) => line.id)
-          .map((line) => [line.id as string, line])
-      );
-      const plannedByOrderLineId = new Map<string, number>();
-
-      order.shipments
-        .filter((shipment) => shipment.status === "planned")
-        .forEach((shipment) => {
-          const cells = new Map<string, AllocationCell>();
-
-          shipment.lines.forEach((shipmentLine) => {
-            const product = productById.get(shipmentLine.itemId);
-            if (!product) return;
-            const orderLine = orderLineById.get(shipmentLine.salesOrderLineId);
-            plannedByOrderLineId.set(
-              shipmentLine.salesOrderLineId,
-              (plannedByOrderLineId.get(shipmentLine.salesOrderLineId) ?? 0) +
-                parseQuantity(shipmentLine.quantity)
-            );
-            const demandLine: SalesOrderListLine & { id: string } = {
-              id: shipmentLine.id,
-              allocationDemandType: "sales_shipment_line",
-              salesOrderLineId: shipmentLine.salesOrderLineId,
-              salesShipmentLineId: shipmentLine.id,
-              shipmentId: shipment.id,
-              shipmentNumber: shipment.shipmentNumber,
-              itemId: shipmentLine.itemId,
-              itemType: "product",
-              masterName: orderLine?.masterName ?? shipmentLine.itemName,
-              attrs: orderLine?.attrs ?? [],
-              itemSku: shipmentLine.itemSku,
-              quantity: shipmentLine.quantity,
-              remainingQty: shipmentLine.quantity,
-              allocatedQty: shipmentLine.allocatedQty ?? "0",
-              shortQty: shipmentLine.shortQty ?? shipmentLine.quantity,
-              sourceSummary: shipmentLine.sourceSummary ?? "-",
-              allocationStatus: shipmentLine.allocationStatus ?? "short",
-              unitName: shipmentLine.unitName,
-            };
-
-            cells.set(product.itemId, {
-              line: demandLine,
-              product,
-              demand: parseQuantity(demandLine.remainingQty ?? demandLine.quantity),
-              alloc: parseQuantity(demandLine.allocatedQty),
-            });
-          });
-
-          if (cells.size > 0) {
-            rows.push({
-              id: `shipment:${shipment.id}`,
-              demandSource: "sales",
-              order,
-              label: shipment.shipmentNumber,
-              demandTypeLabel: "Planned shipment",
-              demandContext: `Assigned to shipment ${shipment.shipmentNumber}`,
-              customerName: order.customerName,
-              shipDate: shipment.scheduledDate ?? order.shipDate,
-              cells,
-            });
-          }
-        });
 
       const fallbackCells = new Map<string, AllocationCell>();
       order.lines.forEach((line) => {
         if (!line.id) return;
         const remainingQty = parseQuantity(line.remainingQty ?? line.quantity);
-        const unplannedQty =
-          remainingQty - (plannedByOrderLineId.get(line.id) ?? 0);
-        if (unplannedQty <= 0) return;
+        if (remainingQty <= 0) return;
         const product = productById.get(line.itemId);
         if (!product) return;
-        const unplannedQuantity = quantityString(unplannedQty);
+        const demandQuantity = quantityString(remainingQty);
         const demandLine: SalesOrderListLine & { id: string } = {
           ...line,
           id: line.id,
           allocationDemandType: "sales_order_line",
-          quantity: unplannedQuantity,
-          remainingQty: unplannedQuantity,
-          allocatedQty: line.unplannedAllocatedQty ?? "0",
-          shortQty: line.unplannedShortQty ?? unplannedQuantity,
-          sourceSummary: line.unplannedSourceSummary ?? "-",
-          allocationStatus: line.unplannedAllocationStatus ?? "short",
+          quantity: demandQuantity,
+          remainingQty: demandQuantity,
         };
         fallbackCells.set(product.itemId, {
           line: demandLine,
@@ -441,8 +371,8 @@ function buildRows(
           demandSource: "sales",
           order,
           label: order.orderNumber,
-          demandTypeLabel: "Unplanned demand",
-          demandContext: "Not assigned to a shipment yet",
+          demandTypeLabel: "Sales order",
+          demandContext: "Sales order demand",
           customerName: order.customerName,
           shipDate: order.shipDate,
           cells: fallbackCells,
@@ -512,11 +442,6 @@ function buildRows(
     .sort((left, right) => {
       if (left.demandSource !== right.demandSource) {
         return left.demandSource === "sales" ? -1 : 1;
-      }
-      const leftIsUnplanned = left.demandTypeLabel === "Unplanned demand";
-      const rightIsUnplanned = right.demandTypeLabel === "Unplanned demand";
-      if (leftIsUnplanned !== rightIsUnplanned) {
-        return leftIsUnplanned ? 1 : -1;
       }
       const leftDate = left.shipDate ?? "";
       const rightDate = right.shipDate ?? "";
@@ -818,7 +743,7 @@ function buildGridRows({
   ];
 
   const orderRows: OrderGridRow[] = rows.map((row) => {
-    const isUnplanned = row.demandTypeLabel === "Unplanned demand";
+    const isUnplanned = false;
     return {
       id: row.id,
       rowType: "order",
@@ -943,7 +868,7 @@ function getRowsInScope(
 ) {
   return rows.filter((row) => {
     if (row.demandSource === "manufacturing") return manufacturingOpen;
-    if (row.demandTypeLabel === "Unplanned demand") return unplannedOpen;
+    if (row.demandTypeLabel === "Sales order") return unplannedOpen;
     if (!row.shipDate) return !collapsedWeeks.has("no-date");
     return !collapsedWeeks.has(isoWeekMondayOf(row.shipDate));
   });

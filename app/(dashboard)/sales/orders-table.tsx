@@ -144,14 +144,6 @@ function shippedSalesQuantity(order: SalesOrderListRow) {
   );
 }
 
-function shippedShipmentCount(order: SalesOrderListRow) {
-  return order.shipments.filter((shipment) => shipment.status === "shipped").length;
-}
-
-function activeShipmentCount(order: SalesOrderListRow) {
-  return order.shipments.length;
-}
-
 function getOrderShipmentSchedule(order: SalesOrderListRow) {
   const openShipments = order.shipments.filter(
     (shipment) => shipment.status === "planned"
@@ -228,13 +220,7 @@ function getDeliveryState(order: SalesOrderListRow): OperationalState {
   }
 
   if (shippedSalesQuantity(order) > 0) {
-    const shippedCount = shippedShipmentCount(order);
-    const activeCount = activeShipmentCount(order);
-    const label =
-      shippedCount > 0 && activeCount > 1
-        ? `Partially shipped (${shippedCount}/${activeCount})`
-        : "Partially shipped";
-    return { label, tone: "warning" };
+    return { label: "Partially shipped", tone: "warning" };
   }
 
   return { label: "Not shipped", tone: "muted" };

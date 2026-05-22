@@ -5,12 +5,9 @@ import type {
 } from "@/app/(dashboard)/sales/types";
 
 export type OrderDisplayStatusLabel =
-  | "DRAFT"
-  | "OPEN"
-  | "ALLOCATED"
+  | "NOT SHIPPED"
   | "PARTIALLY SHIPPED"
-  | "SHIPPED"
-  | "CLOSED";
+  | "SHIPPED";
 
 export type OrderDisplayStatusTone = "neutral" | "accent" | "warning" | "success";
 
@@ -22,29 +19,34 @@ export type OrderDisplayStatus = {
 
 type OrderForDisplayStatus = Pick<
   SalesOrderListRow | SalesOrderDetail,
-  "status" | "shippingReadiness" | "lines"
+  "status" | "lines"
 >;
 
+function shippedSalesQuantity(order: OrderForDisplayStatus) {
+  return order.lines.reduce(
+    (sum, line) => sum + parseQuantity(line.shippedQuantity),
+    0
+  );
+}
+
+function orderedSalesQuantity(order: OrderForDisplayStatus) {
+  return order.lines.reduce(
+    (sum, line) => sum + parseQuantity(line.quantity),
+    0
+  );
+}
+
 export function deriveOrderDisplayStatus(order: OrderForDisplayStatus): OrderDisplayStatus {
-  if (order.status === "done") {
-    return { label: "CLOSED", tone: "neutral", dotShape: "square" };
+  const shippedQty = shippedSalesQuantity(order);
+  const orderedQty = orderedSalesQuantity(order);
+
+  if (order.status === "done" || (orderedQty > 0 && shippedQty >= orderedQty)) {
+    return { label: "SHIPPED", tone: "success", dotShape: "circle" };
   }
-  if (order.lines.length === 0) {
-    return { label: "DRAFT", tone: "neutral", dotShape: "square" };
+  if (shippedQty > 0) {
+    return { label: "PARTIALLY SHIPPED", tone: "warning", dotShape: "square" };
   }
-  switch (order.shippingReadiness.state) {
-    case "shipped":
-      return { label: "SHIPPED", tone: "success", dotShape: "circle" };
-    case "ready":
-      return { label: "ALLOCATED", tone: "success", dotShape: "circle" };
-    case "in_production":
-    case "needs_manufacturing":
-    case "insufficient_stock":
-      return { label: "PARTIALLY SHIPPED", tone: "warning", dotShape: "square" };
-    case "not_confirmed":
-    default:
-      return { label: "OPEN", tone: "accent", dotShape: "square" };
-  }
+  return { label: "NOT SHIPPED", tone: "neutral", dotShape: "square" };
 }
 
 export type AllocationFilterValue = "all" | "allocated" | "partial" | "not_allocated";

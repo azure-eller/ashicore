@@ -142,7 +142,7 @@ async function getSalesOrderNumber(orderId: string) {
 async function getSalesAllocationWorkspace(
   lineId: string,
   itemId: string,
-  demandType: "sales_order_line" | "sales_shipment_line" = "sales_order_line"
+  demandType: "sales_order_line" = "sales_order_line"
 ) {
   const response = await testFetch(
     `/api/allocation/workspace?demandType=${demandType}&demandId=${lineId}&itemId=${itemId}`
@@ -152,7 +152,7 @@ async function getSalesAllocationWorkspace(
 }
 
 async function saveSalesAllocation(params: {
-  demandType?: "sales_order_line" | "sales_shipment_line";
+  demandType?: "sales_order_line";
   lineId: string;
   itemId: string;
   allocations: Array<{
@@ -1557,12 +1557,6 @@ test.describe("Sales write-path smoke", () => {
     const line = detailBody.lines[0];
     expect(line.allocatedQty).toBe("6");
 
-    const [shipmentLine] = await db
-      .select({ id: salesShipmentLines.id })
-      .from(salesShipmentLines)
-      .where(eq(salesShipmentLines.salesOrderLineId, line.id));
-    expect(shipmentLine).toBeTruthy();
-
     const allocationRows = await db
       .select({
         sourceType: stockAllocations.sourceType,
@@ -1571,8 +1565,8 @@ test.describe("Sales write-path smoke", () => {
       .from(stockAllocations)
       .where(
         and(
-          eq(stockAllocations.demandType, "sales_shipment_line"),
-          eq(stockAllocations.demandId, shipmentLine.id),
+          eq(stockAllocations.demandType, "sales_order_line"),
+          eq(stockAllocations.demandId, line.id),
           eq(stockAllocations.status, "active")
         )
       );
@@ -1907,7 +1901,7 @@ test.describe("Sales write-path smoke", () => {
     expect(overAllocateResponse.status).toBe(409);
   });
 
-  test("lot allocation shipment consumes selected lots before FIFO", async ({
+  test("lot allocation on a sales order line is honored when shipping a planned shipment", async ({
     db,
   }) => {
     const suffix = `${ts}-LOT-SHIP`;
@@ -1944,7 +1938,7 @@ test.describe("Sales write-path smoke", () => {
 
     const [line] = await db
       .select({
-        id: salesShipmentLines.id,
+        salesOrderLineId: salesShipmentLines.salesOrderLineId,
         shipmentId: salesShipmentLines.salesShipmentId,
       })
       .from(salesShipmentLines)
@@ -1956,9 +1950,8 @@ test.describe("Sales write-path smoke", () => {
 
     const { response: allocationResponse, body: allocationModel } =
       await getSalesAllocationWorkspace(
-        line.id,
-        itemResult.body.id as string,
-        "sales_shipment_line"
+        line.salesOrderLineId,
+        itemResult.body.id as string
       );
     expect(allocationResponse.status).toBe(200);
     const lotSource = allocationModel.sources.find(
@@ -1967,8 +1960,7 @@ test.describe("Sales write-path smoke", () => {
     expect(lotSource).toBeTruthy();
 
     const { response: lotAllocationResponse } = await saveSalesAllocation({
-      demandType: "sales_shipment_line",
-      lineId: line.id,
+      lineId: line.salesOrderLineId,
       itemId: itemResult.body.id as string,
       allocations: [
         {
@@ -1993,7 +1985,7 @@ test.describe("Sales write-path smoke", () => {
     expect(order.status).toBe("done");
   });
 
-  test("partial shipment edit exposes unplanned remainder allocation target", async ({
+  test("partial shipment edit keeps sales order line as the allocation target", async ({
     db,
   }) => {
     const suffix = `${ts}-SHIP-FALLBACK-HIDE`;
@@ -2091,20 +2083,14 @@ test.describe("Sales write-path smoke", () => {
     );
 
     expect(orderDemands).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          demandType: "sales_shipment_line",
-          demandId: shipmentLine.id,
-          openQty: "3",
-        }),
+      [
         expect.objectContaining({
           demandType: "sales_order_line",
           demandId: shipmentLine.salesOrderLineId,
-          openQty: "7",
+          openQty: "10",
         }),
-      ])
+      ]
     );
-    expect(orderDemands).toHaveLength(2);
 
     const detailResponse = await testFetch(
       `/api/sales-orders/${orderResult.body.id}`
@@ -2115,7 +2101,7 @@ test.describe("Sales write-path smoke", () => {
     expect(detail.fulfillmentSummary.label).toBe("Short");
   });
 
-  test("creating a planned shipment pulls allocation from unplanned demand", async ({
+  test("creating a planned shipment keeps allocation on the sales order line", async ({
     db,
   }) => {
     const suffix = `${ts}-SHIP-PULL-UNPLANNED`;
@@ -2222,17 +2208,12 @@ test.describe("Sales write-path smoke", () => {
       {
         demandType: "sales_order_line",
         demandId: orderLine.id,
-        quantity: "3.0000",
-      },
-      {
-        demandType: "sales_shipment_line",
-        demandId: shipmentLine.id,
-        quantity: "5.0000",
+        quantity: "8.0000",
       },
     ]);
   });
 
-  test("adding a planned shipment on edit pulls unplanned allocation", async ({
+  test("adding a planned shipment on edit keeps allocation on the sales order line", async ({
     db,
   }) => {
     const suffix = `${ts}-SHIP-DATE-PULL`;
@@ -2351,14 +2332,14 @@ test.describe("Sales write-path smoke", () => {
 
     expect(activeAllocations).toEqual([
       {
-        demandType: "sales_shipment_line",
-        demandId: shipmentLine.id,
+        demandType: "sales_order_line",
+        demandId: shipmentLine.salesOrderLineId,
         quantity: "8.0000",
       },
     ]);
   });
 
-  test("planned shipment edits preserve unchanged shipment-line allocations", async ({
+  test("planned shipment edits preserve unchanged sales order line allocations", async ({
     db,
   }) => {
     const suffix = `${ts}-SHIP-EDIT-PRESERVE`;
@@ -2409,9 +2390,8 @@ test.describe("Sales write-path smoke", () => {
 
     const { response: workspaceResponse, body: allocationModel } =
       await getSalesAllocationWorkspace(
-        shipmentLine.id,
-        itemResult.body.id as string,
-        "sales_shipment_line"
+        shipmentLine.salesOrderLineId,
+        itemResult.body.id as string
       );
     expect(workspaceResponse.status).toBe(200);
     const lotSource = allocationModel.sources.find(
@@ -2420,8 +2400,7 @@ test.describe("Sales write-path smoke", () => {
     expect(lotSource).toBeTruthy();
 
     const { response: saveResponse } = await saveSalesAllocation({
-      demandType: "sales_shipment_line",
-      lineId: shipmentLine.id,
+      lineId: shipmentLine.salesOrderLineId,
       itemId: itemResult.body.id as string,
       allocations: [
         {
@@ -2482,16 +2461,30 @@ test.describe("Sales write-path smoke", () => {
           eq(stockAllocations.demandId, shipmentLine.id)
         )
       );
-    expect(activeAllocations).toEqual([
+    expect(activeAllocations).toEqual([]);
+    const orderLineAllocations = await db
+      .select({
+        demandId: stockAllocations.demandId,
+        quantity: stockAllocations.quantity,
+        status: stockAllocations.status,
+      })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.demandType, "sales_order_line"),
+          eq(stockAllocations.demandId, shipmentLine.salesOrderLineId)
+        )
+      );
+    expect(orderLineAllocations).toEqual([
       {
-        demandId: shipmentLine.id,
+        demandId: shipmentLine.salesOrderLineId,
         quantity: "4.0000",
         status: "active",
       },
     ]);
   });
 
-  test("manufacturing output allocation follows planned shipment demand", async ({
+  test("manufacturing output allocation follows sales order line demand", async ({
     db,
   }) => {
     const suffix = `${ts}-MO-ALLOC`;
@@ -2602,8 +2595,8 @@ test.describe("Sales write-path smoke", () => {
       );
     expect(promiseRows).toEqual([
       {
-        demandType: "sales_shipment_line",
-        demandId: shipmentLine.id,
+        demandType: "sales_order_line",
+        demandId: salesLine.id,
         quantity: "5.0000",
       },
     ]);
@@ -2638,15 +2631,15 @@ test.describe("Sales write-path smoke", () => {
       );
     expect(materializedRows).toEqual([
       {
-        demandType: "sales_shipment_line",
-        demandId: shipmentLine.id,
+        demandType: "sales_order_line",
+        demandId: salesLine.id,
         sourceType: "inventory_lot",
         quantity: "5.0000",
       },
     ]);
   });
 
-  test("decreasing a planned shipment line moves excess allocation to unplanned demand", async ({
+  test("decreasing a planned shipment line leaves sales order allocation unchanged", async ({
     db,
   }) => {
     const suffix = `${ts}-SHIP-EDIT-CLAMP`;
@@ -2697,9 +2690,8 @@ test.describe("Sales write-path smoke", () => {
 
     const { response: workspaceResponse, body: allocationModel } =
       await getSalesAllocationWorkspace(
-        shipmentLine.id,
-        itemResult.body.id as string,
-        "sales_shipment_line"
+        shipmentLine.salesOrderLineId,
+        itemResult.body.id as string
       );
     expect(workspaceResponse.status).toBe(200);
     const lotSource = allocationModel.sources.find(
@@ -2708,8 +2700,7 @@ test.describe("Sales write-path smoke", () => {
     expect(lotSource).toBeTruthy();
 
     const { response: saveResponse } = await saveSalesAllocation({
-      demandType: "sales_shipment_line",
-      lineId: shipmentLine.id,
+      lineId: shipmentLine.salesOrderLineId,
       itemId: itemResult.body.id as string,
       allocations: [
         {
@@ -2770,19 +2761,13 @@ test.describe("Sales write-path smoke", () => {
       {
         demandType: "sales_order_line",
         demandId: shipmentLine.salesOrderLineId,
-        quantity: "2.0000",
-        status: "active",
-      },
-      {
-        demandType: "sales_shipment_line",
-        demandId: shipmentLine.id,
-        quantity: "4.0000",
+        quantity: "6.0000",
         status: "active",
       },
     ]);
   });
 
-  test("shipment-level MO allocation cannot ship from unrelated FIFO stock", async ({
+  test("sales order line MO allocation cannot ship from unrelated FIFO stock", async ({
     db,
   }) => {
     const suffix = `${ts}-SHIP-MO-BLOCK`;
@@ -2853,8 +2838,8 @@ test.describe("Sales write-path smoke", () => {
 
     await db.insert(stockAllocations).values({
       organizationId: getOrgId(),
-      demandType: "sales_shipment_line",
-      demandId: shipmentLine.id,
+      demandType: "sales_order_line",
+      demandId: shipmentLine.salesOrderLineId,
       itemId: itemResult.body.id as string,
       sourceType: "manufacturing_order",
       sourceId: mo.id,
@@ -2863,6 +2848,10 @@ test.describe("Sales write-path smoke", () => {
       demandLabelSnapshot: "Shipment MO allocation",
       sourceLabelSnapshot: "MO waiting on output",
     });
+    await db
+      .update(salesOrderLines)
+      .set({ allocationManagedAt: new Date() })
+      .where(eq(salesOrderLines.id, shipmentLine.salesOrderLineId));
 
     const shipResponse = await testFetch(
       `/api/sales-orders/${orderResult.body.id}/shipments/${shipmentLine.shipmentId}/ship`,
@@ -2871,7 +2860,7 @@ test.describe("Sales write-path smoke", () => {
     expect(shipResponse.status).toBe(409);
   });
 
-  test("shipment-level lot allocation can ship when item is fully committed", async ({
+  test("sales-order lot allocation can ship when item is fully committed", async ({
     db,
   }) => {
     const suffix = `${ts}-SHIP-LOT-HELD`;
@@ -2938,8 +2927,8 @@ test.describe("Sales write-path smoke", () => {
 
     await db.insert(stockAllocations).values({
       organizationId: getOrgId(),
-      demandType: "sales_shipment_line",
-      demandId: shipmentLine.id,
+      demandType: "sales_order_line",
+      demandId: shipmentLine.salesOrderLineId,
       itemId,
       sourceType: "inventory_lot",
       sourceId: lot.id,
@@ -2948,6 +2937,10 @@ test.describe("Sales write-path smoke", () => {
       demandLabelSnapshot: "Shipment held lot allocation",
       sourceLabelSnapshot: "Held inventory lot",
     });
+    await db
+      .update(salesOrderLines)
+      .set({ allocationManagedAt: new Date() })
+      .where(eq(salesOrderLines.id, shipmentLine.salesOrderLineId));
 
     const shipResponse = await testFetch(
       `/api/sales-orders/${orderResult.body.id}/shipments/${shipmentLine.shipmentId}/ship`,
@@ -2964,7 +2957,17 @@ test.describe("Sales write-path smoke", () => {
           eq(stockAllocations.demandId, shipmentLine.id)
         )
       );
-    expect(activeAllocationRows).toEqual([{ status: "consumed" }]);
+    expect(activeAllocationRows).toEqual([]);
+    const orderAllocationRows = await db
+      .select({ status: stockAllocations.status })
+      .from(stockAllocations)
+      .where(
+        and(
+          eq(stockAllocations.demandType, "sales_order_line"),
+          eq(stockAllocations.demandId, shipmentLine.salesOrderLineId)
+        )
+      );
+    expect(orderAllocationRows).toEqual([{ status: "consumed" }]);
   });
 
   test("keeps same-date sales order rows in place after confirming from the list", async ({

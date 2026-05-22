@@ -8,7 +8,6 @@ import { saveAllocationWorkspace } from "@/lib/inventory/allocation/service";
 const saveSchema = z.object({
   demandType: z.enum([
     "sales_order_line",
-    "sales_shipment_line",
     "manufacturing_order_ingredient",
   ]),
   demandId: z.string().uuid(),

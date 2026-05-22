@@ -5,7 +5,6 @@ import {
   items,
   manufacturingOrders,
   salesOrderLines,
-  salesShipmentLines,
   salesOrders,
   stockAllocations,
   variantOptions,
@@ -241,28 +240,6 @@ export async function getSalesOrderManufacturingSummariesInTx(
         )
         .groupBy(stockAllocations.demandId)
     : [];
-  const shipmentLineAllocationRows = salesOrderLineIds.length
-    ? await tx
-        .select({
-          salesOrderLineId: salesShipmentLines.salesOrderLineId,
-          allocatedQty: trimScale(
-            sql`COALESCE(SUM(${stockAllocations.quantity}), 0)`
-          ).as("allocatedQty"),
-        })
-        .from(stockAllocations)
-        .innerJoin(
-          salesShipmentLines,
-          eq(stockAllocations.demandId, salesShipmentLines.id)
-        )
-        .where(
-          and(
-            eq(stockAllocations.demandType, "sales_shipment_line"),
-            inArray(salesShipmentLines.salesOrderLineId, salesOrderLineIds),
-            eq(stockAllocations.status, "active")
-          )
-        )
-        .groupBy(salesShipmentLines.salesOrderLineId)
-    : [];
   const bomBackedProductIds = new Set(
     [...bomCoverage.entries()]
       .filter(([, components]) => components.length > 0)
@@ -277,16 +254,6 @@ export async function getSalesOrderManufacturingSummariesInTx(
   lineAllocationRows.forEach((row) => {
     allocatedBySalesOrderLineId.set(row.salesOrderLineId, Number(row.allocatedQty));
   });
-  shipmentLineAllocationRows.forEach((row) => {
-    allocatedBySalesOrderLineId.set(
-      row.salesOrderLineId,
-      roundQuantity(
-        (allocatedBySalesOrderLineId.get(row.salesOrderLineId) ?? 0) +
-          Number(row.allocatedQty)
-      )
-    );
-  });
-
   lines.forEach((line) => {
     let skipReason: SalesOrderManufacturingSkipReason | null = null;
     let manufacturingQuantity = line.quantity;

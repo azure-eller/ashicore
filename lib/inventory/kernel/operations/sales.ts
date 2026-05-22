@@ -711,7 +711,6 @@ export async function consumeForShipmentInTx(
       activeDemandRef,
       hasShipmentAllocations,
       lineAllocations,
-      shipmentLineAllocations,
     } = getLineAllocationContext(line);
     const allocatedQty = roundQuantity(
       lineAllocations.reduce((sum, allocation) => sum + parseFloat(allocation.quantity), 0)
@@ -755,8 +754,7 @@ export async function consumeForShipmentInTx(
 
     if (remaining > 0) {
       if (
-        hasShipmentAllocations &&
-        shipmentLineAllocations.some(
+        lineAllocations.some(
           (allocation) => allocation.sourceType === "manufacturing_order"
         )
       ) {

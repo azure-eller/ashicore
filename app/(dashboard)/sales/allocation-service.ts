@@ -47,12 +47,9 @@ function sourceStatus(status: string): SalesAllocationSource["status"] {
 function isSalesDemandRow(
   demand: AllocationDemandRow
 ): demand is AllocationDemandRow & {
-  demandType: "sales_order_line" | "sales_shipment_line";
+  demandType: "sales_order_line";
 } {
-  return (
-    demand.demandType === "sales_order_line" ||
-    demand.demandType === "sales_shipment_line"
-  );
+  return demand.demandType === "sales_order_line";
 }
 
 function workspaceToSalesReadModel(workspace: AllocationWorkspace) {
@@ -72,12 +69,8 @@ function workspaceToSalesReadModel(workspace: AllocationWorkspace) {
       const sourceSummary = buildSourceSummary(sources);
       const status = getLineStatus(remainingQty, allocatedQty, sources);
 
-      const salesOrderLineId =
-        demand.demandType === "sales_order_line"
-          ? demand.demandId
-          : demand.parentDemandId ?? "";
-      const salesShipmentLineId =
-        demand.demandType === "sales_shipment_line" ? demand.demandId : null;
+      const salesOrderLineId = demand.demandId;
+      const salesShipmentLineId = null;
 
       lineSummaries.set(demand.demandId, {
         demandType: demand.demandType,
@@ -149,7 +142,7 @@ export async function getSalesAllocationReadModelForItemInTx(
   itemId: string,
   options?: {
     targetLineId?: string | null;
-    targetDemandType?: "sales_order_line" | "sales_shipment_line" | null;
+    targetDemandType?: "sales_order_line" | null;
   }
 ) {
   const workspace = await getAllocationWorkspaceInTx(tx, {

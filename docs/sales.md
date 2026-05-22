@@ -48,15 +48,14 @@ new card folds them into one inline-editable surface. The legacy 4-tab view
 remains accessible at `/sales/orders/[id]?view=legacy` until inline-edit and
 the new plan-shipment dialog finish landing.
 
-### Derived order display status
+### Derived delivery display status
 
-The header status pill is **derived** from
-`SalesOrderDetail.shippingReadiness.state` plus `status` and `lines.length`. See
+The header/list delivery pill is **derived** from actual shipped sales-order
+line quantity plus the order's persisted `status`. See
 `lib/sales/order-display-status.ts#deriveOrderDisplayStatus`. The DB still
-stores only `open` / `done`; the six-state pill (DRAFT / OPEN / ALLOCATED /
-PARTIALLY SHIPPED / SHIPPED / CLOSED) is a UI derivation that both the
-detail page and the orders list page (`orders-table.tsx`) read from the same
-helper, so list filters and detail pill stay in sync.
+stores only `open` / `done`; the delivery pill only shows NOT SHIPPED /
+PARTIALLY SHIPPED / SHIPPED. Allocation readiness belongs in the Allocation
+column and must not influence delivery status.
 
 ### Relocated entry points
 
@@ -132,14 +131,12 @@ The Sales Allocation tab is the authoritative manual allocation surface.
 - allocation demand includes only non-deleted sales order lines on `confirmed` or `partially_shipped` orders
 - `draft`, `shipped`, and `cancelled` orders are excluded from allocation demand
 - draft sales orders must not hold allocation rows or trigger allocation takeover behavior during confirmation
-- sales order line demand is the unplanned residual bucket: `remaining_to_ship - planned shipment qty`
-- sales shipment line demand is the planned shipment bucket
-- creating or increasing planned shipments automatically pulls active allocations from matching unplanned demand
-- decreasing or deleting planned shipments automatically moves excess allocations back to matching unplanned demand
+- sales order line demand is the allocation bucket: `remaining_to_ship`
+- planned shipments do not own allocation demand
 - available inventory-lot sources come from current available lot balances
 - manufacturing-order sources are allocatable only after the MO is `released`
 - draft MOs are planning work only; they are not allocatable supply
-- allocation writes go through `/api/allocation/save` with `demandType = "sales_order_line"` for unplanned demand or `demandType = "sales_shipment_line"` for planned shipment demand
+- allocation writes go through `/api/allocation/save` with `demandType = "sales_order_line"` for sales demand
 - allocation reads go through `/api/allocation/workspace` or the Sales Allocation tab read model
 - do not reintroduce the old allocation sheet, per-line allocation route, item allocation route, or sales-order allocation bulk route
 
@@ -147,10 +144,11 @@ The Sales Allocation tab is the authoritative manual allocation surface.
 
 - a sales order is the commercial object; a sales shipment is the physical fulfillment object
 - confirmed order reservation/demand covers the full ordered quantity
-- draft shipments do not reserve additional inventory; they allocate planned slices of existing order demand
-- sales order create/edit accepts explicit planned shipments; order-level `shipDate` is derived from planned shipments and must not auto-create one from order dates
+- draft shipments do not reserve additional inventory and do not own allocations
+- a sales order can have at most one planned shipment; create separate sales orders for separate planned ship dates
+- sales order create/edit accepts at most one explicit planned shipment; order-level `shipDate` is derived from planned shipments and must not auto-create one from order dates
 - `remaining_to_ship = ordered_qty - shipped_qty - cancelled_qty`
-- `unplanned_remaining = remaining_to_ship - sum(draft shipment planned_qty)`
+- `planned_remaining = remaining_to_ship - sum(draft shipment planned_qty)`
 - backend validation enforces draft planned quantity plus shipped quantity cannot exceed ordered quantity minus cancelled quantity
 - shipment numbers use order suffixes like `SO-2026-0123-S1`; numbers are never reused
 - planned shipments are editable/deletable and automatically expose a shipment BOL before loading

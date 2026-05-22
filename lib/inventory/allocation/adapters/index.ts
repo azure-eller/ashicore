@@ -2,13 +2,11 @@ import { AllocationError } from "../errors";
 import type { AllocationDemandAdapter, AllocationDemandType } from "../types";
 import { manufacturingOrderIngredientAllocationAdapter } from "./manufacturing-order-ingredient";
 import { salesOrderLineAllocationAdapter } from "./sales-order-line";
-import { salesShipmentLineAllocationAdapter } from "./sales-shipment-line";
 
-const adapters = {
+const adapters: Partial<Record<AllocationDemandType, AllocationDemandAdapter>> = {
   sales_order_line: salesOrderLineAllocationAdapter,
-  sales_shipment_line: salesShipmentLineAllocationAdapter,
   manufacturing_order_ingredient: manufacturingOrderIngredientAllocationAdapter,
-} satisfies Record<AllocationDemandType, AllocationDemandAdapter>;
+};
 
 export function getAllocationDemandAdapter(demandType: AllocationDemandType) {
   const adapter = adapters[demandType];

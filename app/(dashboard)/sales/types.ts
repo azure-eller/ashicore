@@ -260,7 +260,6 @@ export type SalesOrderListLine = {
   id?: string;
   allocationDemandType?:
     | "sales_order_line"
-    | "sales_shipment_line"
     | "manufacturing_order_ingredient";
   salesOrderLineId?: string;
   salesShipmentLineId?: string;
@@ -308,7 +307,7 @@ export type SalesAllocationCoverageKind = "explicit";
 export type SalesAllocationSourceType = "inventory_lot" | "manufacturing_order";
 
 export type SalesAllocationLineSummary = {
-  demandType: "sales_order_line" | "sales_shipment_line";
+  demandType: "sales_order_line";
   demandId: string;
   salesOrderLineId: string | null;
   salesShipmentLineId: string | null;
@@ -568,7 +567,7 @@ export type SalesAllocationSource = {
 };
 
 export type SalesAllocationDemandRow = {
-  demandType: "sales_order_line" | "sales_shipment_line";
+  demandType: "sales_order_line";
   demandId: string;
   salesOrderLineId: string;
   salesShipmentLineId: string | null;
