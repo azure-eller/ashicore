@@ -61,11 +61,7 @@ export function TotalsStrip({ order, notesEditable, draft }: TotalsStripProps) {
           value={cogs == null ? "—" : formatMoney(cogs)}
           minusPrefix
         />
-        <TotalsRow
-          label="Shipment costs"
-          value={shipmentCosts == null ? "—" : formatMoney(shipmentCosts)}
-          minusPrefix
-        />
+        <TotalsRow label="Shipping costs" value={formatMoney(shipmentCosts ?? 0)} minusPrefix />
         <div className={`${styles.totalsRow} ${styles.totalsRule}`}>
           <div className={styles.totalsRowLabel}>Total</div>
           <div className={styles.totalsRowValue}>{formatMoney(total)}</div>
@@ -119,7 +115,7 @@ function CostsEstimateMark() {
         </button>
       </TooltipTrigger>
       <TooltipContent side="top">
-        COGS finalizes when each shipment ships and consumes inventory.
+        COGS finalizes when the order ships and consumes inventory.
       </TooltipContent>
     </Tooltip>
   );

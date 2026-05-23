@@ -107,6 +107,7 @@ import type {
   ReorderSalesOrderPriorityRanks,
   SalesShipmentCostsInput,
   SalesShipmentInput,
+  ShipSalesOrder,
   ShipSalesShipment,
   UpdateSalesOrder,
 } from "@/lib/schemas/sales-orders";
@@ -314,6 +315,60 @@ async function getActualSalesLineCostsByLineIdInTx(tx: Tx, salesOrderId: string)
     .groupBy(salesOrderLineIdExpr);
 
   return new Map(rows.map((row) => [row.salesOrderLineId, row]));
+}
+
+async function getActualSalesLineCostsByOrderIdInTx(tx: Tx, salesOrderIds: string[]) {
+  if (salesOrderIds.length === 0) {
+    return new Map<string, Map<string, { quantity: string; cogs: string }>>();
+  }
+
+  const salesOrderIdExpr = sql<string>`COALESCE(
+    NULLIF(${inventoryEvents.metadata}->>'salesOrderId', ''),
+    CASE
+      WHEN ${inventoryEvents.referenceType} = 'sales_order' THEN ${inventoryEvents.referenceId}::text
+      ELSE NULL
+    END
+  )`;
+  const salesOrderLineIdExpr = sql<string>`(${inventoryEvents.metadata}->>'salesOrderLineId')`;
+  const rows = await tx
+    .select({
+      salesOrderId: salesOrderIdExpr.as("salesOrderId"),
+      salesOrderLineId: salesOrderLineIdExpr.as("salesOrderLineId"),
+      quantity: trimScale(sql`COALESCE(SUM(${inventoryEvents.quantity}), 0)`).as(
+        "quantity"
+      ),
+      cogs: trimScale(sql`COALESCE(SUM(${inventoryEvents.extendedCost}), 0)`).as(
+        "cogs"
+      ),
+    })
+    .from(inventoryEvents)
+    .where(
+      and(
+        eq(inventoryEvents.eventType, "sales_consumption"),
+        sql`${inventoryEvents.metadata}->>'salesOrderLineId' IS NOT NULL`,
+        or(
+          and(
+            eq(inventoryEvents.referenceType, "sales_order"),
+            inArray(inventoryEvents.referenceId, salesOrderIds)
+          ),
+          inArray(sql<string>`${inventoryEvents.metadata}->>'salesOrderId'`, salesOrderIds)
+        )
+      )
+    )
+    .groupBy(salesOrderIdExpr, salesOrderLineIdExpr);
+
+  const byOrder = new Map<string, Map<string, { quantity: string; cogs: string }>>();
+  for (const row of rows) {
+    if (!row.salesOrderId || !salesOrderIds.includes(row.salesOrderId)) continue;
+    const orderRows = byOrder.get(row.salesOrderId) ?? new Map();
+    orderRows.set(row.salesOrderLineId, {
+      quantity: row.quantity,
+      cogs: row.cogs,
+    });
+    byOrder.set(row.salesOrderId, orderRows);
+  }
+
+  return byOrder;
 }
 
 async function getActualShipmentCogsByShipmentIdInTx(
@@ -1625,14 +1680,21 @@ async function getShipmentLineStatesInTx(
 
   const shippedByLine = new Map<string, number>();
   const plannedByLine = new Map<string, number>();
+  const actualLineCosts = await getActualSalesLineCostsByLineIdInTx(tx, orderId);
+
+  for (const [lineId, actual] of actualLineCosts.entries()) {
+    shippedByLine.set(lineId, normalizeShipmentQuantity(Number(actual.quantity)));
+  }
 
   shipmentRows.forEach((row) => {
     const quantity = parseFloat(row.quantity);
     if (row.status === "shipped") {
-      shippedByLine.set(
-        row.salesOrderLineId,
-        normalizeShipmentQuantity((shippedByLine.get(row.salesOrderLineId) ?? 0) + quantity)
-      );
+      if (!actualLineCosts.has(row.salesOrderLineId)) {
+        shippedByLine.set(
+          row.salesOrderLineId,
+          normalizeShipmentQuantity((shippedByLine.get(row.salesOrderLineId) ?? 0) + quantity)
+        );
+      }
     } else if (row.status === "planned") {
       plannedByLine.set(
         row.salesOrderLineId,
@@ -4783,6 +4845,10 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                   asc(salesShipmentLines.sortOrder)
                 );
 
+        const actualLineCostsByOrderId = await getActualSalesLineCostsByOrderIdInTx(
+          tx,
+          orderIds
+        );
         const shipmentsById = new Map(
           [...shipmentsBySalesOrderId.values()].flatMap((shipments) =>
             shipments.map((shipment) => [shipment.id, shipment] as const)
@@ -4790,6 +4856,13 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
         );
         const shippedByLine = new Map<string, number>();
         const plannedByLine = new Map<string, number>();
+        const actualLineIds = new Set<string>();
+        for (const lineCosts of actualLineCostsByOrderId.values()) {
+          for (const [lineId, actual] of lineCosts.entries()) {
+            actualLineIds.add(lineId);
+            shippedByLine.set(lineId, normalizeShipmentQuantity(Number(actual.quantity)));
+          }
+        }
         shipmentLineRows.forEach((line) => {
           const shipment = shipmentsById.get(line.salesShipmentId);
           if (!shipment) return;
@@ -4806,12 +4879,14 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           const quantity = Number(line.quantity);
           if (!Number.isFinite(quantity)) return;
           if (shipment.status === "shipped") {
-            shippedByLine.set(
-              line.salesOrderLineId,
-              normalizeShipmentQuantity(
-                (shippedByLine.get(line.salesOrderLineId) ?? 0) + quantity
-              )
-            );
+            if (!actualLineIds.has(line.salesOrderLineId)) {
+              shippedByLine.set(
+                line.salesOrderLineId,
+                normalizeShipmentQuantity(
+                  (shippedByLine.get(line.salesOrderLineId) ?? 0) + quantity
+                )
+              );
+            }
           } else if (shipment.status === "planned") {
             plannedByLine.set(
               line.salesOrderLineId,
@@ -5478,6 +5553,12 @@ export async function getSalesOrder(
     const shipmentsById = new Map<string, SalesShipmentRow>();
     const shippedByLine = new Map<string, number>();
     const plannedByLine = new Map<string, number>();
+    const actualLineIds = new Set<string>();
+
+    for (const [lineId, actual] of actualLineCosts.entries()) {
+      actualLineIds.add(lineId);
+      shippedByLine.set(lineId, normalizeShipmentQuantity(Number(actual.quantity)));
+    }
 
     shipmentRows.forEach((row) => {
       const existing = shipmentsById.get(row.id);
@@ -5525,12 +5606,14 @@ export async function getSalesOrder(
 
         const quantity = parseFloat(row.lineQuantity);
         if (row.status === "shipped") {
-          shippedByLine.set(
-            row.salesOrderLineId,
-            normalizeShipmentQuantity(
-              (shippedByLine.get(row.salesOrderLineId) ?? 0) + quantity
-            )
-          );
+          if (!actualLineIds.has(row.salesOrderLineId)) {
+            shippedByLine.set(
+              row.salesOrderLineId,
+              normalizeShipmentQuantity(
+                (shippedByLine.get(row.salesOrderLineId) ?? 0) + quantity
+              )
+            );
+          }
         } else if (row.status === "planned") {
           plannedByLine.set(
             row.salesOrderLineId,
@@ -7199,22 +7282,24 @@ export async function shipSalesShipment(
 
 export async function shipSalesOrder(
   id: string,
-	  options?: {
-	    idempotencyKey?: string;
-	    syncAccounting?: boolean;
-	    confirmNegativeStock?: boolean;
-	  }
+  options?: {
+    idempotencyKey?: string;
+  } & ShipSalesOrder
 ) {
   const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
+    const replay = await beginInventoryOperationInTx<{
+      id: string;
+      status: string;
+    } | null>(tx, {
       organizationId: orgId,
       operationName: "shipSalesOrder",
       idempotencyKey: options?.idempotencyKey ?? null,
       payload: {
-	        id,
-	        syncAccounting: options?.syncAccounting ?? true,
-	        confirmNegativeStock: options?.confirmNegativeStock ?? false,
-	      },
+        id,
+        syncAccounting: options?.syncAccounting ?? true,
+        confirmNegativeStock: options?.confirmNegativeStock ?? false,
+        lines: options?.lines ?? null,
+      },
     });
 
     if (replay.replayed) {
@@ -7225,9 +7310,9 @@ export async function shipSalesOrder(
       };
     }
 
-	    const order = await getLockedSalesOrderInTx(tx, id);
+    const order = await getLockedSalesOrderInTx(tx, id);
 
-	    if (!order) {
+    if (!order) {
       await finishInventoryOperationInTx(tx, {
         organizationId: orgId,
         idempotencyKey: options?.idempotencyKey ?? null,
@@ -7249,6 +7334,58 @@ export async function shipSalesOrder(
     }
 
     const lines = await getOrderLinesInTx(tx, id);
+    const states = await getShipmentLineStatesInTx(tx, id);
+    const orderLinesById = new Map(lines.map((line) => [line.id, line]));
+    const linesToShip = (() => {
+      if (options?.lines) {
+        return options.lines.map((input) => {
+          const state = states.get(input.salesOrderLineId);
+          const orderLine = orderLinesById.get(input.salesOrderLineId);
+          if (!state || !orderLine) {
+            throw new SalesError("Sales order line not found.", 404, {
+              errors: { lines: ["Sales order line not found."] },
+            });
+          }
+          const quantity = normalizeShipmentQuantity(Number(input.quantity));
+          const remaining = remainingToShip(state);
+          if (!Number.isFinite(quantity) || quantity <= 0) {
+            throw new SalesError("Quantity must be greater than 0.", 400, {
+              errors: { lines: ["Quantity must be greater than 0."] },
+            });
+          }
+          if (quantity > remaining) {
+            throw new SalesError("Cannot ship more than the remaining quantity.", 400, {
+              errors: { lines: ["Cannot ship more than the remaining quantity."] },
+            });
+          }
+          return {
+            salesOrderLineId: state.id,
+            itemId: state.itemId,
+            itemName: state.itemName,
+            quantity,
+          };
+        });
+      }
+
+      return [...states.values()].flatMap((state) => {
+        const quantity = remainingToShip(state);
+        if (quantity <= 0) return [];
+        return [
+          {
+            salesOrderLineId: state.id,
+            itemId: state.itemId,
+            itemName: state.itemName,
+            quantity,
+          },
+        ];
+      });
+    })();
+
+    if (linesToShip.length === 0) {
+      throw new SalesError("No remaining quantity to ship.", 400);
+    }
+
+    const shippedAt = new Date();
 
     try {
       await consumeForShipmentInTx(tx, {
@@ -7259,30 +7396,30 @@ export async function shipSalesOrder(
           options?.idempotencyKey,
           "ship-order"
         ),
-	        shippedAt: new Date(),
-	        allowNegativeStock: options?.confirmNegativeStock === true,
-	        lines: lines.map((line) => ({
-          salesOrderLineId: line.id,
+        shippedAt,
+        allowNegativeStock: options?.confirmNegativeStock === true,
+        lines: linesToShip.map((line) => ({
+          salesOrderLineId: line.salesOrderLineId,
           itemId: line.itemId,
-          quantity: parseFloat(line.quantity),
+          quantity: line.quantity,
         })),
       });
     } catch (error) {
       if (error instanceof InsufficientStockError) {
-        const blockingLine = lines.find((line) => line.itemId === error.itemId);
-	        throw new SalesError(
-	          `Cannot ship order. Insufficient stock for ${blockingLine?.itemName ?? "one item"}.`,
-	          409,
-	          {
-	            negativeStock: {
-	              itemId: error.itemId,
-	              itemName: blockingLine?.itemName ?? "one item",
-	              available: error.available,
-	              requested: error.requested,
-	              shortage: Math.max(0, error.requested - error.available),
-	            },
-	          }
-	        );
+        const blockingLine = linesToShip.find((line) => line.itemId === error.itemId);
+        throw new SalesError(
+          `Cannot ship order. Insufficient stock for ${blockingLine?.itemName ?? "one item"}.`,
+          409,
+          {
+            negativeStock: {
+              itemId: error.itemId,
+              itemName: blockingLine?.itemName ?? "one item",
+              available: error.available,
+              requested: error.requested,
+              shortage: Math.max(0, error.requested - error.available),
+            },
+          }
+        );
       }
 
       throw error;
@@ -7363,13 +7500,16 @@ export async function shipSalesOrder(
       }
     }
 
-    const shippedAt = new Date();
+    const finalStates = await getShipmentLineStatesInTx(tx, id);
+    const allClosed = [...finalStates.values()].every(
+      (line) => remainingToShip(line) <= 0
+    );
     const [shipped] = await tx
       .update(salesOrders)
       .set({
-        status: "done",
-        priorityRank: null,
-        shippedAt,
+        status: allClosed ? "done" : "open",
+        ...(allClosed ? { priorityRank: null } : {}),
+        shippedAt: allClosed ? shippedAt : null,
         shipLine1,
         shipLine2,
         shipCity,
@@ -7379,9 +7519,11 @@ export async function shipSalesOrder(
         updatedAt: shippedAt,
       })
       .where(eq(salesOrders.id, id))
-      .returning({ id: salesOrders.id });
+      .returning({ id: salesOrders.id, status: salesOrders.status });
 
-    await rerankOpenSalesOrdersInTx(tx, orgId);
+    if (allClosed) {
+      await rerankOpenSalesOrdersInTx(tx, orgId);
+    }
 
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
@@ -7404,7 +7546,7 @@ export async function shipSalesOrder(
     return result.shipped;
   }
 
-  if (options?.syncAccounting === false) {
+  if (options?.syncAccounting === false || result.shipped.status !== "done") {
     return result.shipped;
   }
 

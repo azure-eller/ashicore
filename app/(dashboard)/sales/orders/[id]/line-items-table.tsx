@@ -178,6 +178,20 @@ export function LineItemsTable({
         editable,
         mono: true,
         tooltipValueGetter: ({ data }) => data ? quantityLockReason(data) : null,
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) => {
+          if (!data) return null;
+          const shipped = Number(data.shippedQuantity);
+          return (
+            <div className="flex flex-col items-end justify-center leading-tight py-(--space-1) font-mono tabular-nums">
+              <span>{formatQuantity(data.quantity) ?? "0"}</span>
+              {shipped > 0 ? (
+                <span className="text-[length:var(--text-xs)] text-muted-foreground">
+                  {formatQuantity(data.shippedQuantity)} shipped
+                </span>
+              ) : null}
+            </div>
+          );
+        },
         valueFormatter: ({ value }) => formatQuantity(String(value ?? "0")) ?? "0",
         valueSetter: numericSetter("quantity", (value, line) => value >= minimumLineQuantity(line)),
       },
@@ -461,11 +475,16 @@ function optimisticLinePatch(
   const productRevenue = lines
     .reduce((sum, line) => sum + Number(line.lineTotal || 0), 0)
     .toFixed(2);
+  const orderTotal = (
+    Number(productRevenue) +
+    Number(order.shippingFeeAmount || 0) +
+    Number(order.shippingFeeTaxAmount || 0)
+  ).toFixed(2);
 
   return {
     ...order,
     lines,
-    totalAmount: productRevenue,
+    totalAmount: orderTotal,
     marginSummary: {
       ...order.marginSummary,
       productRevenue,
@@ -475,7 +494,6 @@ function optimisticLinePatch(
 
 function minimumLineQuantity(line: SalesOrderDetailLine) {
   return (
-    Number(line.plannedQuantity) +
     Number(line.shippedQuantity) +
     Number(line.cancelledQuantity)
   );
@@ -484,7 +502,7 @@ function minimumLineQuantity(line: SalesOrderDetailLine) {
 function quantityLockReason(line: SalesOrderDetailLine) {
   const minimum = minimumLineQuantity(line);
   if (minimum <= 0) return null;
-  return `Quantity cannot be reduced below ${formatQuantity(String(minimum))} because fulfillment is already planned, shipped, or cancelled.`;
+  return `Quantity cannot be reduced below ${formatQuantity(String(minimum))} because quantity has already shipped or been cancelled.`;
 }
 
 function deleteLineLockedReason(line: SalesOrderDetailLine) {
@@ -493,9 +511,6 @@ function deleteLineLockedReason(line: SalesOrderDetailLine) {
   }
   if (Number(line.cancelledQuantity) > 0) {
     return "This line has cancelled quantity, so it cannot be removed.";
-  }
-  if (Number(line.plannedQuantity) > 0) {
-    return "This line is on a planned shipment. Edit or remove the shipment before removing the line.";
   }
   return null;
 }

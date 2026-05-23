@@ -285,68 +285,6 @@ async function reserveConfirmedImportLinesInTx(
   });
 }
 
-async function createImportDraftShipmentInTx(
-  tx: Tx,
-  orgId: string,
-  order: ReadySalesImportOrder,
-  salesOrderId: string,
-  lineRows: Array<{
-    salesOrderLineId: string;
-    line: PreparedSalesImportLine;
-  }>
-) {
-  const allocatedLineRows = lineRows.filter(({ line }) => line.allocated);
-
-  if (
-    order.status !== "open" ||
-    !order.shipDate ||
-    allocatedLineRows.length === 0
-  ) {
-    return;
-  }
-
-  const existingShipment = await tx
-    .select({ id: salesShipments.id })
-    .from(salesShipments)
-    .where(eq(salesShipments.salesOrderId, salesOrderId))
-    .limit(1);
-  if (existingShipment.length > 0) return;
-
-  const sequence = 1;
-  const shipmentNumber = `${order.existingOrderNumber ?? "SO"}-S${sequence}`;
-  const now = new Date();
-  const [shipment] = await tx
-    .insert(salesShipments)
-    .values({
-      organizationId: orgId,
-      salesOrderId,
-      shipmentNumber,
-      sequence,
-      status: "planned",
-      fulfillmentType: "delivery",
-      scheduledDate: order.shipDate,
-      notes: null,
-      orderNumber: order.existingOrderNumber ?? shipmentNumber.replace(/-S1$/, ""),
-      customerName: order.customerName,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning({ id: salesShipments.id });
-
-  await tx.insert(salesShipmentLines).values(
-    allocatedLineRows.map(({ salesOrderLineId, line }) => ({
-      salesShipmentId: shipment.id,
-      salesOrderLineId,
-      itemId: line.itemId,
-      itemName: line.itemName,
-      itemSku: line.itemSku,
-      unitName: line.unitName,
-      quantity: line.quantity,
-      sortOrder: line.sortOrder,
-    }))
-  );
-}
-
 function buildProvisionalCustomerSeedsByKey(config: SalesImportConfig) {
   return new Map(
     (config.provisionalCustomers ?? []).map((customer) => [
@@ -793,7 +731,7 @@ export async function applySalesImportOrdersInTx(
             label: order.label,
             sourceRows: order.sourceRows,
             issues: [
-              `Existing order ${lockedOrder.orderNumber} has shipment lines; import leaves it untouched.`,
+              `Existing order ${lockedOrder.orderNumber} has historical shipment lines; import leaves it untouched.`,
             ],
           });
           continue;
@@ -849,19 +787,6 @@ export async function applySalesImportOrdersInTx(
           createdLines
         );
 
-        await createImportDraftShipmentInTx(
-          tx,
-          orgId,
-          order,
-          order.existingId,
-          createdLines
-            .map((line, index) => ({
-              salesOrderLineId: line.salesOrderLineId,
-              line: order.lines[index]!,
-            }))
-            .filter(({ line }) => line.allocated)
-        );
-
         report.existingOrders.push(
           `${order.existingOrderNumber ?? order.existingId} - ${order.label}`
         );
@@ -904,21 +829,6 @@ export async function applySalesImportOrdersInTx(
             createdLines
           );
 
-          await createImportDraftShipmentInTx(
-            tx,
-            orgId,
-            {
-              ...order,
-              existingOrderNumber: orderNumber,
-            },
-            createdOrder.id,
-            createdLines
-              .map((line, index) => ({
-                salesOrderLineId: line.salesOrderLineId,
-                line: order.lines[index]!,
-              }))
-              .filter(({ line }) => line.allocated)
-          );
         }
 
         report.createdOrders.push(`${orderNumber} - ${order.label}`);

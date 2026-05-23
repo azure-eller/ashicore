@@ -48,6 +48,7 @@ async function parseError(response: Response, path: string): Promise<never> {
 export async function shipSalesOrder(
   orderId: string,
   confirmNegativeStock: boolean,
+  lines?: Array<{ salesOrderLineId: string; quantity: string }>,
 ): Promise<void> {
   const path = `/api/sales-orders/${orderId}/ship`;
   const response = await fetch(path, {
@@ -55,7 +56,7 @@ export async function shipSalesOrder(
     headers: createIdempotencyHeaders("shipSalesOrder", {
       "Content-Type": "application/json",
     }),
-    body: JSON.stringify({ confirmNegativeStock }),
+    body: JSON.stringify({ confirmNegativeStock, lines }),
   });
   if (!response.ok) await parseError(response, path);
 }

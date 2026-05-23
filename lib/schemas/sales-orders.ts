@@ -525,6 +525,13 @@ export const shipSalesShipmentSchema = z.object({
 });
 export type ShipSalesShipment = z.infer<typeof shipSalesShipmentSchema>;
 
+export const shipSalesOrderSchema = z.object({
+  syncAccounting: z.boolean().optional(),
+  confirmNegativeStock: z.boolean().optional(),
+  lines: shipmentLinesSchema.optional(),
+});
+export type ShipSalesOrder = z.infer<typeof shipSalesOrderSchema>;
+
 export const salesShipmentCostsInputSchema = z.object({
   customerFreightChargeAmount: optionalMoneyString(),
   costs: z.array(

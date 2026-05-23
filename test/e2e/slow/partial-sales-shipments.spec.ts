@@ -7,9 +7,6 @@ import {
   inventoryReservationsSummary,
   salesOrderLines,
   salesOrders,
-  salesShipmentCosts,
-  salesShipmentLines,
-  salesShipments,
 } from "../../../lib/db/schema";
 import {
   confirmSalesOrder,
@@ -66,15 +63,7 @@ async function createDraftSalesOrder(params: {
         unitPrice: "9.00",
       },
     ],
-    shipments: [
-      {
-        fulfillmentType: "delivery",
-        scheduledDate: "2026-04-15",
-        deliveryDate: "2026-04-15",
-        notes: null,
-        lines: [{ itemId: params.itemId, quantity: params.quantity }],
-      },
-    ],
+    shipments: [],
   });
 
   expect(result.status).toBe(201);
@@ -143,7 +132,7 @@ test.describe("Partial sales shipments", () => {
 
     await page.goto(`/sales/orders/${orderId}`);
     await expect(page.getByRole("heading", { name: orderHeader.orderNumber })).toBeVisible();
-    await expect(page.locator("main").getByText(/OPEN|PARTIALLY SHIPPED/).first()).toBeVisible();
+    await expect(page.locator("main").getByText(/Not shipped|Partially shipped/).first()).toBeVisible();
     await expect(page.getByRole("grid").first()).toContainText(itemName);
     await expect(page.getByRole("grid").first()).toContainText("10");
 
@@ -152,51 +141,13 @@ test.describe("Partial sales shipments", () => {
       .from(salesOrderLines)
       .where(eq(salesOrderLines.salesOrderId, orderId));
 
-    const [autoShipment] = await db
-      .select({ id: salesShipments.id })
-      .from(salesShipments)
-      .where(eq(salesShipments.salesOrderId, orderId));
-    expect(autoShipment.id).toBeTruthy();
-
-    const firstShipment = await testFetch(
-      `/api/sales-orders/${orderId}/shipments/${autoShipment.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({
-          fulfillmentType: "pickup",
-          scheduledDate: "2026-04-15",
-          notes: "First partial pickup",
-          lines: [{ salesOrderLineId: line.id, quantity: "4" }],
-        }),
-      }
-    );
-    expect(firstShipment.status).toBe(200);
-    const firstShipmentBody = { id: autoShipment.id };
-
-    const overlappingShipment = await testFetch(`/api/sales-orders/${orderId}/shipments`, {
+    const shipFirst = await testFetch(`/api/sales-orders/${orderId}/ship`, {
       method: "POST",
       body: JSON.stringify({
-        fulfillmentType: "pickup",
-        scheduledDate: "2026-04-15",
-        notes: null,
-        lines: [{ salesOrderLineId: line.id, quantity: "7" }],
+        syncAccounting: false,
+        lines: [{ salesOrderLineId: line.id, quantity: "4" }],
       }),
     });
-    expect(overlappingShipment.status).toBe(400);
-
-    const draftBol = await testFetch(
-      `/api/sales-orders/${orderId}/shipments/${firstShipmentBody.id}/bol`
-    );
-    expect(draftBol.status).toBe(200);
-    expect(draftBol.headers.get("content-type")).toContain("application/pdf");
-
-    const shipFirst = await testFetch(
-      `/api/sales-orders/${orderId}/shipments/${firstShipmentBody.id}/ship`,
-      {
-        method: "POST",
-        body: JSON.stringify({ syncAccounting: false, sendEmail: false }),
-      }
-    );
     expect(shipFirst.status).toBe(200);
 
     const [partialOrder] = await db
@@ -207,9 +158,8 @@ test.describe("Partial sales shipments", () => {
     expect(partialOrder.shippedAt).toBeNull();
 
     await page.goto(`/sales/orders/${orderId}`);
-    await expect(page.locator("main").getByText(/OPEN|PARTIALLY SHIPPED/).first()).toBeVisible();
-    await expect(page.locator("main")).toContainText("1 of 1 shipped");
-    await expect(page.locator("main")).toContainText("SHIPPED");
+    await expect(page.locator("main").getByText("Partially shipped").first()).toBeVisible();
+    await expect(page.getByRole("grid").first()).toContainText("4 shipped");
 
     let balance = await getItemBalance(db, itemId);
     expect(balance.onHandQty).toBe("6.0000");
@@ -228,126 +178,28 @@ test.describe("Partial sales shipments", () => {
       .where(
         and(
           eq(inventoryEvents.eventType, "sales_consumption"),
-          eq(inventoryEvents.referenceId, firstShipmentBody.id)
+          eq(inventoryEvents.referenceId, orderId)
         )
       );
-    expect(firstConsumption.referenceType).toBe("sales_shipment");
+    expect(firstConsumption.referenceType).toBe("sales_order");
     expect(firstConsumption.quantity).toBe("4.0000");
 
-    const [eventCountBeforeCostEdit] = await db
-      .select({ count: sql<string>`COUNT(*)` })
-      .from(inventoryEvents)
-      .where(eq(inventoryEvents.itemId, itemId));
-
-    const costUpdate = await testFetch(
-      `/api/sales-orders/${orderId}/shipments/${firstShipmentBody.id}/costs`,
-      {
-        method: "PUT",
-        body: JSON.stringify({
-          customerFreightChargeAmount: null,
-          costs: [
-            {
-              costType: "freight",
-              costStatus: "estimated",
-              amount: "12.50",
-              vendorName: "Quoted carrier",
-              referenceNumber: null,
-              incurredDate: null,
-              notes: null,
-            },
-            {
-              costType: "freight",
-              costStatus: "actual",
-              amount: "15.00",
-              vendorName: "Actual carrier",
-              referenceNumber: "INV-1",
-              incurredDate: "2026-04-16",
-              notes: "Carrier invoice",
-            },
-          ],
-        }),
-      }
-    );
-    expect(costUpdate.status).toBe(200);
-
-    const [eventCountAfterCostEdit] = await db
-      .select({ count: sql<string>`COUNT(*)` })
-      .from(inventoryEvents)
-      .where(eq(inventoryEvents.itemId, itemId));
-    expect(eventCountAfterCostEdit.count).toBe(eventCountBeforeCostEdit.count);
-
-    const costRows = await db
-      .select({
-        costStatus: salesShipmentCosts.costStatus,
-        amount: salesShipmentCosts.amount,
-      })
-      .from(salesShipmentCosts)
-      .where(eq(salesShipmentCosts.salesShipmentId, firstShipmentBody.id));
-    expect(costRows).toHaveLength(2);
-
-    const orderDetail = await testFetch(`/api/sales-orders/${orderId}`);
-    expect(orderDetail.status).toBe(200);
-    const orderDetailBody = await orderDetail.json();
-    const firstDetailShipment = orderDetailBody.shipments.find(
-      (shipment: { id: string }) => shipment.id === firstShipmentBody.id
-    );
-    expect(firstDetailShipment.marginSummary).toMatchObject({
-      productRevenue: "36",
-      freightRecovery: "0",
-      productCogs: "4",
-      shipmentCosts: "15",
-      contributionMargin: "17",
-      marginPercent: "47.2",
-      costStatus: "actual",
-    });
-
-    const secondShipment = await testFetch(`/api/sales-orders/${orderId}/shipments`, {
+    const overship = await testFetch(`/api/sales-orders/${orderId}/ship`, {
       method: "POST",
       body: JSON.stringify({
-        fulfillmentType: "pickup",
-        scheduledDate: "2026-04-16",
-        notes: "Final pickup",
+        syncAccounting: false,
+        lines: [{ salesOrderLineId: line.id, quantity: "7" }],
+      }),
+    });
+    expect(overship.status).toBe(400);
+
+    const shipSecond = await testFetch(`/api/sales-orders/${orderId}/ship`, {
+      method: "POST",
+      body: JSON.stringify({
+        syncAccounting: false,
         lines: [{ salesOrderLineId: line.id, quantity: "6" }],
       }),
     });
-    const secondShipmentBody =
-      secondShipment.status === 201
-        ? await secondShipment.json()
-        : await db
-            .select({ id: salesShipments.id })
-            .from(salesShipments)
-            .where(
-              and(
-                eq(salesShipments.salesOrderId, orderId),
-                eq(salesShipments.status, "planned")
-              )
-            )
-            .then((rows) => rows[0]);
-    expect(secondShipmentBody?.id).toBeTruthy();
-
-    const [secondHeader] = await db
-      .select({
-        sequence: salesShipments.sequence,
-        shipmentNumber: salesShipments.shipmentNumber,
-      })
-      .from(salesShipments)
-      .where(eq(salesShipments.id, secondShipmentBody.id));
-    expect(secondHeader.sequence).toBe(2);
-    expect(secondHeader.shipmentNumber).toMatch(/-S2$/);
-
-    const [secondLine] = await db
-      .select({ quantity: salesShipmentLines.quantity })
-      .from(salesShipmentLines)
-      .where(eq(salesShipmentLines.salesShipmentId, secondShipmentBody.id));
-    expect(secondLine.quantity).toBe("6.0000");
-
-    const shipSecond = await testFetch(
-      `/api/sales-orders/${orderId}/shipments/${secondShipmentBody.id}/ship`,
-      {
-        method: "POST",
-        body: JSON.stringify({ syncAccounting: false, sendEmail: false }),
-      }
-    );
     expect(shipSecond.status).toBe(200);
 
     const [shippedOrder] = await db
@@ -358,9 +210,8 @@ test.describe("Partial sales shipments", () => {
     expect(shippedOrder.shippedAt).not.toBeNull();
 
     await page.goto(`/sales/orders/${orderId}`);
-    await expect(page.locator("main").getByText("SHIPPED", { exact: true }).first()).toBeVisible();
-    await expect(page.locator("main")).toContainText("2 of 2 shipped");
-    await expect(page.locator("main")).toContainText("SHIPPED");
+    await expect(page.locator("main").getByText("Shipped", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("grid").first()).toContainText("10 shipped");
 
     balance = await getItemBalance(db, itemId);
     expect(balance.onHandQty).toBe("0.0000");

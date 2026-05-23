@@ -8,8 +8,6 @@ import {
   manufacturingOrderOutputs,
   manufacturingOrders,
   manufacturingPickAllocations,
-  salesShipments,
-  salesShipmentLines,
 } from "../../../lib/db/schema";
 import {
   confirmSalesOrder,
@@ -773,42 +771,21 @@ test.describe("MO execute and fulfill — fast write-path smoke", () => {
     });
     expect(confirmResult.status).toBe(200);
 
-    const [shipment] = await db
-      .select({
-        id: salesShipments.id,
-        status: salesShipments.status,
-        shippedAt: salesShipments.shippedAt,
-      })
-      .from(salesShipments)
-      .where(eq(salesShipments.salesOrderId, orderId));
-    expect(shipment).toBeDefined();
-    expect(shipment.status).toBe("planned");
-    const shipmentId = shipment.id;
-
-    const [shipmentLine] = await db
-      .select({ id: salesShipmentLines.id })
-      .from(salesShipmentLines)
-      .where(eq(salesShipmentLines.salesShipmentId, shipmentId));
-    expect(shipmentLine).toBeDefined();
-
     const eventsBefore = await db
       .select({ id: inventoryEvents.id })
       .from(inventoryEvents)
       .where(
         and(
-          eq(inventoryEvents.referenceType, "sales_shipment"),
-          eq(inventoryEvents.referenceId, shipmentId)
+          eq(inventoryEvents.referenceType, "sales_order"),
+          eq(inventoryEvents.referenceId, orderId)
         )
       );
     expect(eventsBefore).toHaveLength(0);
 
-    const shipResponse = await testFetch(
-      `/api/sales-orders/${orderId}/shipments/${shipmentId}/ship`,
-      {
-        method: "POST",
-        body: JSON.stringify({ syncAccounting: false }),
-      }
-    );
+    const shipResponse = await testFetch(`/api/sales-orders/${orderId}/ship`, {
+      method: "POST",
+      body: JSON.stringify({ syncAccounting: false }),
+    });
     expect(shipResponse.status).toBe(409);
     const shipBody = await shipResponse.json();
     expect(shipBody.negativeStock).toBeDefined();
@@ -823,25 +800,14 @@ test.describe("MO execute and fulfill — fast write-path smoke", () => {
     expect(shipBody.negativeStock.requested).toBeDefined();
     expect(shipBody.negativeStock.shortage).toBeDefined();
 
-    // Shipment unchanged.
-    const [shipmentAfter] = await db
-      .select({
-        status: salesShipments.status,
-        shippedAt: salesShipments.shippedAt,
-      })
-      .from(salesShipments)
-      .where(eq(salesShipments.id, shipmentId));
-    expect(shipmentAfter.status).toBe("planned");
-    expect(shipmentAfter.shippedAt).toBeNull();
-
-    // No inventory events for this shipment.
+    // No inventory events for this order.
     const eventsAfter = await db
       .select({ id: inventoryEvents.id })
       .from(inventoryEvents)
       .where(
         and(
-          eq(inventoryEvents.referenceType, "sales_shipment"),
-          eq(inventoryEvents.referenceId, shipmentId)
+          eq(inventoryEvents.referenceType, "sales_order"),
+          eq(inventoryEvents.referenceId, orderId)
         )
       );
     expect(eventsAfter).toHaveLength(0);

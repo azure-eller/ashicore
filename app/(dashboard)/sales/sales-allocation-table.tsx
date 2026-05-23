@@ -1252,7 +1252,7 @@ function SectionBannerRow({
         </button>
         <span className={styles.sectionLabel}>Unplanned demand</span>
         <span className={styles.sectionCounts}>
-          {data.orderCount} orders · not yet on a shipment
+          {data.orderCount} orders
         </span>
       </div>
     );
