@@ -2,6 +2,7 @@ import { expect, test } from "../fixtures";
 import {
   accountingDocumentSyncs,
   customers,
+  integrationAuditEvents,
   integrationConnections,
   salesOrders,
 } from "@/lib/db/schema";
@@ -18,6 +19,9 @@ test("settings renders in the default fast smoke lane", async ({ page }) => {
   await expect(
     page.getByRole("checkbox", { name: "Enable daily manufacturing report" })
   ).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", { name: "Enable demand queue allocation mode" })
+  ).toHaveCount(0);
 
   await page.getByRole("button", { name: "Configure daily manufacturing report" }).click();
   await expect(
@@ -154,6 +158,47 @@ test("xero settings show invoice automation, PO import, and sync history", async
     pushedAt: new Date(),
   });
 
+  await db.insert(integrationAuditEvents).values({
+    organizationId: TEST_ORG_ID,
+    actorType: "process",
+    processName: "accounting_purchase_order_sync",
+    eventType: "accounting_auto_sync",
+    outcome: "failure",
+    source: "GET /api/internal/accounting-purchase-order-sync",
+    provider: "xero",
+    tenantName: "Paonia Soil Co.",
+    localEntityType: "purchase_orders",
+    metadata: {
+      message: "Missing scope: accounting.transactions",
+    },
+  });
+  await db.insert(integrationAuditEvents).values({
+    organizationId: TEST_ORG_ID,
+    actorType: "process",
+    processName: "accounting_purchase_order_sync",
+    eventType: "accounting_auto_sync",
+    outcome: "success",
+    source: "GET /api/internal/accounting-purchase-order-sync",
+    provider: "xero",
+    tenantName: "Paonia Soil Co.",
+    localEntityType: "purchase_orders",
+    metadata: {
+      fetched: 1,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errorCount: 0,
+      autoSkippedCount: 1,
+      autoSkipped: [
+        {
+          externalPurchaseOrderId: `xero-po-review-${run}`,
+          externalPurchaseOrderNumber: `PO-REVIEW-${run}`,
+          reason: "One or more lines would create a new material.",
+        },
+      ],
+    },
+  });
+
   await page.goto("/settings");
 
   await expect(
@@ -183,5 +228,10 @@ test("xero settings show invoice automation, PO import, and sync history", async
   await expect(
     page.getByRole("heading", { name: "Sync history" })
   ).toBeVisible();
+  await expect(page.getByText("Purchase order auto-sync").first()).toBeVisible();
+  await expect(
+    page.getByText("Missing scope: accounting.transactions").first()
+  ).toBeVisible();
+  await expect(page.getByText(`PO-REVIEW-${run}`, { exact: false })).toBeVisible();
   await expect(page.getByText(orderNumber)).toBeVisible();
 });

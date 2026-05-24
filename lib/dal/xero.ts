@@ -7,6 +7,7 @@ import {
   salesOrders,
   salesShipments,
   integrationConnections,
+  integrationAuditEvents,
   integrationImportRuns,
 } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "./auth";
@@ -53,6 +54,25 @@ export type XeroImportRunSummary = {
   errorCount: number;
   createdAt: Date;
   undoneAt: Date | null;
+};
+
+export type XeroSyncEventSummary = {
+  id: string;
+  eventType:
+    | "accounting_auto_sync"
+    | "accounting_import"
+    | "accounting_missing_scope"
+    | "accounting_token_refresh"
+    | "xero_import"
+    | "xero_missing_scope"
+    | "xero_token_refresh";
+  outcome: "success" | "failure";
+  source: string;
+  tenantName: string | null;
+  localEntityType: string | null;
+  localEntityId: string | null;
+  metadata: Record<string, unknown> | null;
+  occurredAt: Date;
 };
 
 export type XeroExportHistoryRow = {
@@ -138,6 +158,48 @@ export async function getRecentXeroImportRuns(
     return rows.map((row) => ({
       ...row,
       entityType: row.entityType as XeroImportRunSummary["entityType"],
+    }));
+  });
+}
+
+export async function getRecentXeroSyncEvents(
+  limit = 12
+): Promise<XeroSyncEventSummary[]> {
+  return withAuthedOrgContext(async (tx) => {
+    const rows = await tx
+      .select({
+        id: integrationAuditEvents.id,
+        eventType: integrationAuditEvents.eventType,
+        outcome: integrationAuditEvents.outcome,
+        source: integrationAuditEvents.source,
+        tenantName: integrationAuditEvents.tenantName,
+        localEntityType: integrationAuditEvents.localEntityType,
+        localEntityId: integrationAuditEvents.localEntityId,
+        metadata: integrationAuditEvents.metadata,
+        occurredAt: integrationAuditEvents.occurredAt,
+      })
+      .from(integrationAuditEvents)
+      .where(
+        and(
+          eq(integrationAuditEvents.provider, XERO_PROVIDER),
+          inArray(integrationAuditEvents.eventType, [
+            "accounting_auto_sync",
+            "accounting_import",
+            "accounting_missing_scope",
+            "accounting_token_refresh",
+            "xero_import",
+            "xero_missing_scope",
+            "xero_token_refresh",
+          ])
+        )
+      )
+      .orderBy(desc(integrationAuditEvents.occurredAt))
+      .limit(limit);
+
+    return rows.map((row) => ({
+      ...row,
+      eventType: row.eventType as XeroSyncEventSummary["eventType"],
+      outcome: row.outcome as XeroSyncEventSummary["outcome"],
     }));
   });
 }

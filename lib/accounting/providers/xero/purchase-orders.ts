@@ -17,10 +17,9 @@ import {
   redactXeroError,
 } from "@/lib/xero/errors";
 
-const DEFAULT_SINCE_DATE = "2024-01-01";
 const PAGE_SIZE = 100;
 const MAX_PAGES = 20;
-const OPEN_XERO_PO_STATUSES = new Set(["SUBMITTED", "AUTHORISED"]);
+const OPEN_XERO_PO_STATUSES = ["SUBMITTED", "AUTHORISED"] as const;
 
 function mapXeroPurchaseOrder(
   raw: Record<string, unknown>
@@ -77,31 +76,34 @@ export const xeroAccountingConnector: AccountingConnector = {
   async fetchOpenPurchaseOrders(orgId) {
     const authed = await getAuthedXeroClient(orgId);
     try {
-      const purchaseOrders: ExternalPurchaseOrderDocument[] = [];
-      for (let page = 1; page <= MAX_PAGES; page += 1) {
-        const response = await authed.client.accountingApi.getPurchaseOrders(
-          authed.tenantId,
-          undefined,
-          undefined,
-          DEFAULT_SINCE_DATE,
-          undefined,
-          "Date DESC",
-          page,
-          PAGE_SIZE
-        );
-        const batch = response.body.purchaseOrders ?? [];
-        purchaseOrders.push(
-          ...batch
-            .map((order) => mapXeroPurchaseOrder(order as Record<string, unknown>))
-            .filter((order): order is ExternalPurchaseOrderDocument => order != null)
-            .filter((order) => OPEN_XERO_PO_STATUSES.has(order.status))
-        );
-        if (batch.length < PAGE_SIZE) break;
+      const purchaseOrdersById = new Map<string, ExternalPurchaseOrderDocument>();
+      for (const status of OPEN_XERO_PO_STATUSES) {
+        for (let page = 1; page <= MAX_PAGES; page += 1) {
+          const response = await authed.client.accountingApi.getPurchaseOrders(
+            authed.tenantId,
+            undefined,
+            status,
+            undefined,
+            undefined,
+            "Date DESC",
+            page,
+            PAGE_SIZE
+          );
+          const batch = response.body.purchaseOrders ?? [];
+          for (const order of batch
+            .map((entry) => mapXeroPurchaseOrder(entry as Record<string, unknown>))
+            .filter((entry): entry is ExternalPurchaseOrderDocument => entry != null)) {
+            purchaseOrdersById.set(order.id, order);
+          }
+          if (batch.length < PAGE_SIZE) break;
+        }
       }
       return {
         tenantId: authed.tenantId,
         tenantName: authed.tenantName,
-        purchaseOrders,
+        purchaseOrders: [...purchaseOrdersById.values()].sort((a, b) =>
+          (b.date ?? "").localeCompare(a.date ?? "")
+        ),
       };
     } catch (error) {
       console.error("Xero purchase order import fetch failed:", redactXeroError(error));

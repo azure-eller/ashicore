@@ -46,6 +46,7 @@ export const POST = apiHandler(async (request: Request) => {
         skipped: result.skipped,
         protected: result.protected,
         errorCount: result.errors.length,
+        errors: result.errors.slice(0, 10),
         createdSuppliers: result.createdSuppliers,
         createdItems: result.createdItems,
       },

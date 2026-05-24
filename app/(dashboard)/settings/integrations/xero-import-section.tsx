@@ -71,6 +71,8 @@ type PurchaseOrderImportCandidate = {
   supplierMatched: boolean;
   createsSupplier: boolean;
   createsMaterials: number;
+  needsPurchaseConversionReview: number;
+  reviewReason: string | null;
   lineCount: number;
   matchedLineCount: number;
   orderDate: string | null;
@@ -345,7 +347,7 @@ function formatMoneyValue(value: string | null) {
 
 function purchaseOrderStatusLabel(status: PurchaseOrderImportCandidateStatus) {
   if (status === "ready") return "Ready";
-  if (status === "creates_records") return "Creates records";
+  if (status === "creates_records") return "Review";
   return "Excluded";
 }
 
@@ -435,7 +437,8 @@ function PurchaseOrderImportDialog({
             <AlertDialogTitle>Bulk import purchase orders</AlertDialogTitle>
             <AlertDialogDescription>
               Imports open accounting purchase orders into ERP for receiving. Checked rows
-              that need records will create missing suppliers or materials.
+              that need review can create missing suppliers or materials or require unit
+              conversion checks.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -455,7 +458,7 @@ function PurchaseOrderImportDialog({
                   <PreviewMetric label="Matched" value={preview.summary.ready} />
                   <PreviewMetric label="Selected" value={selectedIds.size} />
                   <PreviewMetric
-                    label="Can create"
+                    label="Review"
                     value={preview.summary.createsRecords}
                   />
                   <PreviewMetric label="Excluded" value={preview.summary.excluded} />
@@ -496,7 +499,7 @@ function PurchaseOrderImportDialog({
                         });
                       }}
                     />
-                    <span>Select POs that create ERP records</span>
+                    <span>Select POs that need review</span>
                   </label>
                 </div>
                 <div className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-md border bg-background">
@@ -554,6 +557,11 @@ function PurchaseOrderImportDialog({
                                 {candidate.exclusionReason}
                               </div>
                             ) : null}
+                            {candidate.reviewReason ? (
+                              <div className="truncate text-xs text-muted-foreground">
+                                {candidate.reviewReason}
+                              </div>
+                            ) : null}
                           </TableCell>
                           <TableCell>
                             <div className="truncate">
@@ -576,6 +584,11 @@ function PurchaseOrderImportDialog({
                             {candidate.createsMaterials > 0 ? (
                               <div className="truncate text-xs text-muted-foreground">
                                 Creates {candidate.createsMaterials}
+                              </div>
+                            ) : null}
+                            {candidate.needsPurchaseConversionReview > 0 ? (
+                              <div className="truncate text-xs text-muted-foreground">
+                                Units {candidate.needsPurchaseConversionReview}
                               </div>
                             ) : null}
                           </TableCell>

@@ -4,8 +4,8 @@ import type { Tx } from "@/lib/db/with-org-context";
 import { ALLOCATION_MODES, type AllocationMode } from "@/lib/schemas/organization";
 
 // `organization.metadata` is a TEXT column holding a JSON object (Better Auth
-// convention). These are the only helpers that read/write allocation mode from
-// it — nothing else should hand-parse the metadata string.
+// convention). Keep allocation-mode reads centralized; nothing else should
+// hand-parse the metadata string.
 
 const DEFAULT_ALLOCATION_MODE: AllocationMode = "manual";
 
@@ -28,13 +28,6 @@ export function getOrganizationAllocationMode(
   return (ALLOCATION_MODES as readonly string[]).includes(value as string)
     ? (value as AllocationMode)
     : DEFAULT_ALLOCATION_MODE;
-}
-
-export function mergeOrganizationAllocationMode(
-  metadata: string | null | undefined,
-  mode: AllocationMode
-): string {
-  return JSON.stringify({ ...parseMetadata(metadata), allocationMode: mode });
 }
 
 export async function getOrganizationAllocationModeInTx(

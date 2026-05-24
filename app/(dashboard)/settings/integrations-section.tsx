@@ -57,6 +57,7 @@ import type {
   XeroConnectionSummary,
   XeroExportHistoryRow,
   XeroImportRunSummary,
+  XeroSyncEventSummary,
 } from "@/lib/dal/xero";
 import {
   AccountingPurchaseOrderImportButton,
@@ -138,6 +139,90 @@ function importRunTitle(entityType: XeroImportRunSummary["entityType"]) {
   if (entityType === "suppliers") return "Suppliers";
   if (entityType === "purchase_orders") return "Purchase Orders";
   return "Purchasing";
+}
+
+function syncEventTitle(eventType: XeroSyncEventSummary["eventType"]) {
+  if (eventType === "accounting_auto_sync") return "Purchase order auto-sync";
+  if (eventType === "accounting_import" || eventType === "xero_import") {
+    return "Import";
+  }
+  if (
+    eventType === "accounting_missing_scope" ||
+    eventType === "xero_missing_scope"
+  ) {
+    return "Missing Xero scope";
+  }
+  return "Token refresh";
+}
+
+function metadataText(metadata: Record<string, unknown> | null) {
+  if (!metadata) return null;
+  if (typeof metadata.message === "string") return metadata.message;
+  if (Array.isArray(metadata.errors) && metadata.errors.length > 0) {
+    return metadata.errors
+      .filter((entry): entry is string => typeof entry === "string")
+      .slice(0, 3)
+      .join("; ");
+  }
+  if (Array.isArray(metadata.autoSkipped) && metadata.autoSkipped.length > 0) {
+    return metadata.autoSkipped
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const row = entry as {
+          externalPurchaseOrderNumber?: unknown;
+          reason?: unknown;
+        };
+        if (
+          typeof row.externalPurchaseOrderNumber !== "string" ||
+          typeof row.reason !== "string"
+        ) {
+          return null;
+        }
+        return `${row.externalPurchaseOrderNumber}: ${row.reason}`;
+      })
+      .filter((entry): entry is string => entry != null)
+      .slice(0, 3)
+      .join("; ");
+  }
+  if (
+    Array.isArray(metadata.staleOpenPurchaseOrders) &&
+    metadata.staleOpenPurchaseOrders.length > 0
+  ) {
+    return metadata.staleOpenPurchaseOrders
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const row = entry as {
+          purchaseOrderNumber?: unknown;
+          status?: unknown;
+        };
+        if (
+          typeof row.purchaseOrderNumber !== "string" ||
+          typeof row.status !== "string"
+        ) {
+          return null;
+        }
+        return `${row.purchaseOrderNumber}: no longer open in Xero (${row.status})`;
+      })
+      .filter((entry): entry is string => entry != null)
+      .slice(0, 3)
+      .join("; ");
+  }
+
+  const summary = [
+    typeof metadata.fetched === "number" ? `${metadata.fetched} fetched` : null,
+    typeof metadata.created === "number" ? `${metadata.created} created` : null,
+    typeof metadata.updated === "number" ? `${metadata.updated} updated` : null,
+    typeof metadata.skipped === "number" ? `${metadata.skipped} skipped` : null,
+    typeof metadata.errorCount === "number" ? `${metadata.errorCount} errors` : null,
+    typeof metadata.autoSkippedCount === "number"
+      ? `${metadata.autoSkippedCount} need review`
+      : null,
+    typeof metadata.staleOpenPurchaseOrderCount === "number"
+      ? `${metadata.staleOpenPurchaseOrderCount} no longer open`
+      : null,
+  ].filter(Boolean);
+
+  return summary.length > 0 ? summary.join(", ") : null;
 }
 
 function TaxSelect({
@@ -267,6 +352,7 @@ function PostingDefaultsSummary({
   onHistory,
   onToggleAutoPush,
   canManageConnection,
+  purchaseOrderSyncConfigured,
 }: {
   connection: XeroConnectionSummary;
   onEdit: () => void;
@@ -278,9 +364,13 @@ function PostingDefaultsSummary({
     value: boolean
   ) => void;
   canManageConnection: boolean;
+  purchaseOrderSyncConfigured: boolean;
 }) {
   const salesAccount = connection.defaultAccountCode;
   const salesTax = connection.defaultTaxType;
+  const showPoSyncConfigWarning =
+    connection.autoSyncPurchaseOrdersFromAccounting &&
+    !purchaseOrderSyncConfigured;
 
   return (
     <div className="border-t p-5">
@@ -339,9 +429,22 @@ function PostingDefaultsSummary({
           title="Purchase order import"
           meta="Import open Xero purchase orders for receiving."
         >
-            <DefaultChip>Creates missing materials</DefaultChip>
+            <DefaultChip>Reviews new materials</DefaultChip>
             <DefaultChip>Open POs only</DefaultChip>
         </AutomationRow>
+        {showPoSyncConfigWarning ? (
+          <div className="mt-(--space-4) flex gap-(--space-4) border p-(--space-5) text-[length:var(--text-xs)] text-destructive">
+            <HugeiconsIcon
+              icon={Alert02Icon}
+              strokeWidth={2}
+              className="mt-0.5 size-(--space-5) shrink-0"
+            />
+            <p>
+              Purchase order auto-sync is on, but the cron secret is not configured
+              in this deployment.
+            </p>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -376,7 +479,9 @@ function XeroRow({
   canImportCustomers,
   canImportSuppliers,
   importRuns,
+  syncEvents,
   exportRows,
+  purchaseOrderSyncConfigured,
 }: {
   connection: XeroConnectionSummary | null;
   error?: string;
@@ -384,7 +489,9 @@ function XeroRow({
   canImportCustomers: boolean;
   canImportSuppliers: boolean;
   importRuns: XeroImportRunSummary[];
+  syncEvents: XeroSyncEventSummary[];
   exportRows: XeroExportHistoryRow[];
+  purchaseOrderSyncConfigured: boolean;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -533,6 +640,7 @@ function XeroRow({
             canManageConnection={canManageConnection}
             onEdit={() => setOpenDialog("defaults")}
             onHistory={() => setOpenDialog("history")}
+            purchaseOrderSyncConfigured={purchaseOrderSyncConfigured}
             onToggleAutoPush={(key, value) => {
               if (connection[key] === value) return;
               setFormError(null);
@@ -568,6 +676,7 @@ function XeroRow({
       <ExportHistoryDialog
         open={openDialog === "history"}
         importRuns={importRuns}
+        syncEvents={syncEvents}
         rows={exportRows}
         onOpenChange={(open) => setOpenDialog(open ? "history" : null)}
       />
@@ -1223,15 +1332,18 @@ function ConnectDialog({
 function ExportHistoryDialog({
   open,
   importRuns,
+  syncEvents,
   rows,
   onOpenChange,
 }: {
   open: boolean;
   importRuns: XeroImportRunSummary[];
+  syncEvents: XeroSyncEventSummary[];
   rows: XeroExportHistoryRow[];
   onOpenChange: (open: boolean) => void;
 }) {
-  const hasHistory = rows.length > 0 || importRuns.length > 0;
+  const hasHistory =
+    rows.length > 0 || importRuns.length > 0 || syncEvents.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1239,7 +1351,7 @@ function ExportHistoryDialog({
         <DialogHeader>
           <DialogTitle>Sync history</DialogTitle>
           <DialogDescription>
-            Recent Xero imports and sales invoice sends.
+            Recent Xero imports, automation checks, and sales invoice sends.
           </DialogDescription>
         </DialogHeader>
 
@@ -1257,6 +1369,59 @@ function ExportHistoryDialog({
           </div>
         ) : (
           <div className="max-h-[420px] space-y-(--space-8) overflow-auto">
+            {syncEvents.length > 0 ? (
+              <div>
+                <h3 className="mb-(--space-3) text-[length:var(--text-sm)] font-medium text-foreground">
+                  Automation
+                </h3>
+                <div className="border">
+                  {syncEvents.map((event) => {
+                    const detail = metadataText(event.metadata);
+
+                    return (
+                      <div
+                        key={event.id}
+                        className="grid gap-(--space-4) border-t p-(--space-6) first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate text-sm font-medium text-foreground">
+                              {syncEventTitle(event.eventType)}
+                            </p>
+                            <Badge
+                              variant={
+                                event.outcome === "success" ? "success" : "destructive"
+                              }
+                            >
+                              {event.outcome === "success" ? "Success" : "Failed"}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {event.tenantName ?? "Xero"} · {event.source}
+                          </p>
+                          {detail ? (
+                            <p
+                              className={cn(
+                                "mt-1 text-xs",
+                                event.outcome === "failure"
+                                  ? "text-destructive"
+                                  : "text-muted-foreground"
+                              )}
+                            >
+                              {detail}
+                            </p>
+                          ) : null}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(event.occurredAt).toLocaleString()}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
             {importRuns.length > 0 ? (
               <div>
                 <h3 className="mb-(--space-3) text-[length:var(--text-sm)] font-medium text-foreground">
@@ -1276,6 +1441,9 @@ function ExportHistoryDialog({
                           <Badge variant={run.status === "undone" ? "secondary" : "outline"}>
                             {run.status === "undone" ? "Reset" : "Imported"}
                           </Badge>
+                          {run.errorCount > 0 ? (
+                            <Badge variant="destructive">{run.errorCount} errors</Badge>
+                          ) : null}
                         </div>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {run.tenantName} · {run.createdCount} created,{" "}
@@ -1357,7 +1525,9 @@ export function IntegrationsSection({
   canImportCustomers,
   canImportSuppliers,
   importRuns,
+  syncEvents,
   exportRows,
+  purchaseOrderSyncConfigured,
 }: {
   connection: XeroConnectionSummary | null;
   quickBooksConnection: AccountingConnectionSummary | null;
@@ -1366,7 +1536,9 @@ export function IntegrationsSection({
   canImportCustomers: boolean;
   canImportSuppliers: boolean;
   importRuns: XeroImportRunSummary[];
+  syncEvents: XeroSyncEventSummary[];
   exportRows: XeroExportHistoryRow[];
+  purchaseOrderSyncConfigured: boolean;
 }) {
   return (
     <SettingsPanel id="integrations">
@@ -1379,7 +1551,9 @@ export function IntegrationsSection({
           canImportCustomers={canImportCustomers}
           canImportSuppliers={canImportSuppliers}
           importRuns={importRuns}
+          syncEvents={syncEvents}
           exportRows={exportRows}
+          purchaseOrderSyncConfigured={purchaseOrderSyncConfigured}
         />
         <QuickBooksRow
           connection={quickBooksConnection}

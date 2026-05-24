@@ -6,6 +6,7 @@ import { getQuickBooksConnection } from "@/lib/dal/accounting";
 import {
   getRecentXeroExports,
   getRecentXeroImportRuns,
+  getRecentXeroSyncEvents,
   getXeroConnection,
 } from "@/lib/dal/xero";
 import { getAccountPageData, getTeamPageData } from "./queries";
@@ -16,7 +17,6 @@ import { getCanonicalAppUrl } from "@/lib/app-url";
 import { getSettingsSections } from "./sections";
 import { SettingsNav } from "./settings-nav";
 import { AccountSection } from "./account-section";
-import { AllocationModeSection } from "./allocation-mode-section";
 import { TeamSection } from "./team-section";
 import { IntegrationsSection } from "./integrations-section";
 import { ReportsSection } from "./reports-section";
@@ -89,6 +89,11 @@ export default async function SettingsPage({
     showIntegrations,
     showReports,
   });
+  const purchaseOrderSyncConfigured = Boolean(
+    process.env.ACCOUNTING_PURCHASE_ORDER_SYNC_SECRET ??
+      process.env.XERO_RETRY_SECRET ??
+      process.env.CRON_SECRET
+  );
 
   const [
     accountData,
@@ -98,6 +103,7 @@ export default async function SettingsPage({
     xeroConnection,
     quickBooksConnection,
     xeroImportRuns,
+    xeroSyncEvents,
     xeroExports,
     resolvedSearchParams,
   ] = await Promise.all([
@@ -117,6 +123,7 @@ export default async function SettingsPage({
     showIntegrations ? getXeroConnection() : null,
     showIntegrations ? getQuickBooksConnection() : null,
     showIntegrations ? getRecentXeroImportRuns() : [],
+    showIntegrations ? getRecentXeroSyncEvents() : [],
     showIntegrations
       ? getRecentXeroExports({
           includeSales: canManageXero,
@@ -132,9 +139,6 @@ export default async function SettingsPage({
         <div className="flex min-w-0 flex-col gap-(--space-10)">
           <AccountSection initialData={accountData} />
           {teamData ? <TeamSection initialData={teamData} /> : null}
-          {showTeam ? (
-            <AllocationModeSection initialMode={context.allocationMode} />
-          ) : null}
           {reportScheduleData ? (
             <ReportsSection initialData={reportScheduleData} />
           ) : null}
@@ -146,7 +150,9 @@ export default async function SettingsPage({
               connection={xeroConnection}
               quickBooksConnection={quickBooksConnection}
               importRuns={xeroImportRuns}
+              syncEvents={xeroSyncEvents}
               exportRows={xeroExports}
+              purchaseOrderSyncConfigured={purchaseOrderSyncConfigured}
               error={resolvedSearchParams.error}
               canManageConnection={canManageXero}
               canImportCustomers={canManageXero}

@@ -45,7 +45,9 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   open Xero or QuickBooks POs, while routes/UI/orchestration stay under
   `/api/accounting/import/*` so providers plug in without changing the workflow.
   Manual bulk import previews open provider POs with selectable rows; auto-sync
-  imports all open POs when enabled and creates missing suppliers/materials.
+  imports only rows that are safe without human unit review. It skips POs that
+  would create materials, duplicate an ERP material across provider lines, or
+  use a material without an explicit purchase-to-stock conversion.
   Existing received ERP PO lines are protected from re-import changes that would
   rewrite receipt history.
 - **Provider adapters** — `lib/accounting/providers/*`. Keep provider-specific

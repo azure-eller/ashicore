@@ -32,9 +32,12 @@ Purchasing v1 does not include:
 Official supplier-facing purchase orders are accounting-provider-first. ERP imports
 open provider POs for receiving and expected-supply projection.
 
-- auto-sync imports all open provider POs when enabled
+- auto-sync imports open provider POs when enabled, but leaves POs for manual
+  review if a line would create a new ERP material, multiple provider lines map
+  to the same ERP material, or a matched material has no purchase-to-stock
+  conversion set
 - bulk import previews provider POs and applies checked rows
-- unmatched provider suppliers/materials may be created during import
+- unmatched provider suppliers/materials may be created during manual import
 - imported POs update while unreceived, but received line quantities and
   receipt-time costs are protected
 - delivery address is stored on the purchase order header, not per line

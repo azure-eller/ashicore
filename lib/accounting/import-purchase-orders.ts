@@ -2,6 +2,7 @@ import "server-only";
 
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import {
+  accountingDocumentSyncs,
   accountingClassifications,
   integrationConnections,
   integrationExternalRecords,
@@ -10,6 +11,7 @@ import {
   itemFamilies,
   items,
   organization,
+  purchaseOrders,
   suppliers,
   supplierItems,
   unitDefinitions,
@@ -25,6 +27,7 @@ import {
   getAccountingConnector,
   isAccountingProvider,
 } from "@/lib/accounting/providers";
+import { ACCOUNTING_DOCUMENT_PURCHASE_ORDER } from "@/lib/accounting/sync-state";
 import {
   accountingAuditErrorMetadata,
   tryRecordAccountingAuditEvent,
@@ -36,6 +39,7 @@ import {
 import { cleanString } from "@/lib/accounting/providers/common";
 import type {
   ExternalPurchaseOrderDocument,
+  ExternalPurchaseOrderFetchResult,
   ExternalPurchaseOrderLine,
 } from "@/lib/accounting/providers/types";
 import {
@@ -58,6 +62,8 @@ export type AccountingPurchaseOrderImportCandidate = {
   supplierMatched: boolean;
   createsSupplier: boolean;
   createsMaterials: number;
+  needsPurchaseConversionReview: number;
+  reviewReason: string | null;
   lineCount: number;
   matchedLineCount: number;
   orderDate: string | null;
@@ -90,6 +96,20 @@ export type AccountingPurchaseOrderImportResult = {
   errors: string[];
 };
 
+type AutoSyncSkip = {
+  externalPurchaseOrderId: string;
+  externalPurchaseOrderNumber: string;
+  reason: string;
+};
+
+type StaleImportedOpenPurchaseOrder = {
+  purchaseOrderId: string;
+  purchaseOrderNumber: string;
+  externalPurchaseOrderId: string;
+  externalPurchaseOrderNumber: string | null;
+  status: string;
+};
+
 function normalizeKey(value: string | null | undefined) {
   return value?.trim().toLowerCase() || null;
 }
@@ -117,6 +137,7 @@ async function loadLocalMatchesInTx(tx: Tx, provider: AccountingProvider) {
         id: items.id,
         name: sql<string>`COALESCE(${itemFamilies.name}, ${items.name})`,
         sku: items.sku,
+        purchaseToStockFactor: sql<string | null>`COALESCE(${itemFamilies.purchaseToStockFactor}, ${items.purchaseToStockFactor})`,
       })
       .from(items)
       .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
@@ -191,6 +212,43 @@ function findItemId(
   return name ? local.itemByName.get(name)?.id ?? null : null;
 }
 
+function findItem(
+  line: ExternalPurchaseOrderLine,
+  local: Awaited<ReturnType<typeof loadLocalMatchesInTx>>
+) {
+  const itemId = findItemId(line, local);
+  return itemId ? local.items.find((item) => item.id === itemId) ?? null : null;
+}
+
+function lineNeedsPurchaseConversionReview(
+  line: ExternalPurchaseOrderLine,
+  local: Awaited<ReturnType<typeof loadLocalMatchesInTx>>
+) {
+  const item = findItem(line, local);
+  return item != null && item.purchaseToStockFactor == null;
+}
+
+function duplicateMaterialLineReason(
+  materialLines: ExternalPurchaseOrderLine[],
+  local: Awaited<ReturnType<typeof loadLocalMatchesInTx>>
+) {
+  const matchedItemIds = materialLines
+    .map((line) => findItemId(line, local))
+    .filter((id): id is string => id != null);
+  if (new Set(matchedItemIds).size !== matchedItemIds.length) {
+    return "Multiple provider lines map to the same ERP material";
+  }
+
+  const providerKeys = materialLines
+    .map((line) => normalizeKey(line.itemCode) ?? normalizeKey(line.description))
+    .filter((key): key is string => key != null);
+  if (new Set(providerKeys).size !== providerKeys.length) {
+    return "Multiple provider lines use the same item code or description";
+  }
+
+  return null;
+}
+
 function isImportableLine(line: ExternalPurchaseOrderLine) {
   return (
     line.quantity != null &&
@@ -216,13 +274,21 @@ function buildCandidate(
     findItemId(line, local)
   ).length;
   const createsMaterials = materialLines.length - matchedLineCount;
+  const duplicateReason = duplicateMaterialLineReason(materialLines, local);
+  const needsPurchaseConversionReview = materialLines.filter((line) =>
+    lineNeedsPurchaseConversionReview(line, local)
+  ).length;
+  const reviewReason =
+    needsPurchaseConversionReview > 0
+      ? "Set purchase conversion before auto-sync"
+      : null;
   const exclusionReason =
     materialLines.length === 0
       ? "No material lines with quantity and price"
-      : null;
+      : duplicateReason;
   const status = exclusionReason
     ? "excluded"
-    : supplierId && createsMaterials === 0
+    : supplierId && createsMaterials === 0 && needsPurchaseConversionReview === 0
       ? "ready"
       : "creates_records";
 
@@ -239,12 +305,112 @@ function buildCandidate(
     supplierMatched: supplierId != null,
     createsSupplier: supplierId == null,
     createsMaterials,
+    needsPurchaseConversionReview,
+    reviewReason,
     lineCount: importableLines.length,
     matchedLineCount,
     orderDate: order.date,
     deliveryDate: order.deliveryDate,
     total: normalizeMoneyValue(order.total),
   };
+}
+
+function selectAutoSyncOrdersForImport(
+  orders: ExternalPurchaseOrderDocument[],
+  local: Awaited<ReturnType<typeof loadLocalMatchesInTx>>
+) {
+  const selectedIds: string[] = [];
+  const skipped: AutoSyncSkip[] = [];
+
+  for (const order of orders) {
+    const importableLines = order.lines.filter(isImportableLine);
+    const materialLines = importableLines.filter(
+      (line) => !isImportedPurchaseOrderChargeLine(line)
+    );
+
+    if (materialLines.length === 0) {
+      skipped.push({
+        externalPurchaseOrderId: order.id,
+        externalPurchaseOrderNumber: order.number,
+        reason: "No material lines with quantity and price.",
+      });
+      continue;
+    }
+
+    const matchedItemIds = materialLines.map((line) => findItemId(line, local));
+    const duplicateReason = duplicateMaterialLineReason(materialLines, local);
+    if (duplicateReason) {
+      skipped.push({
+        externalPurchaseOrderId: order.id,
+        externalPurchaseOrderNumber: order.number,
+        reason: `${duplicateReason}. Review and import manually after combining the lines in Xero or ERP.`,
+      });
+      continue;
+    }
+
+    if (materialLines.some((line) => lineNeedsPurchaseConversionReview(line, local))) {
+      skipped.push({
+        externalPurchaseOrderId: order.id,
+        externalPurchaseOrderNumber: order.number,
+        reason:
+          "One or more matched materials do not have a purchase-to-stock conversion set. Review manually so provider quantities convert into ERP stocking units correctly.",
+      });
+      continue;
+    }
+
+    if (matchedItemIds.some((id) => id == null)) {
+      skipped.push({
+        externalPurchaseOrderId: order.id,
+        externalPurchaseOrderNumber: order.number,
+        reason:
+          "One or more lines would create a new material. Review and import manually so the stocking unit and purchase conversion are set correctly.",
+      });
+      continue;
+    }
+
+    selectedIds.push(order.id);
+  }
+
+  return { selectedIds, skipped };
+}
+
+async function listImportedOpenPurchaseOrdersMissingFromProviderInTx(
+  tx: Tx,
+  provider: AccountingProvider,
+  openExternalIds: Set<string>
+): Promise<StaleImportedOpenPurchaseOrder[]> {
+  const rows = await tx
+    .select({
+      purchaseOrderId: purchaseOrders.id,
+      purchaseOrderNumber: purchaseOrders.orderNumber,
+      status: purchaseOrders.status,
+      externalPurchaseOrderId: accountingDocumentSyncs.externalDocumentId,
+      externalPurchaseOrderNumber: accountingDocumentSyncs.externalDocumentNumber,
+    })
+    .from(accountingDocumentSyncs)
+    .innerJoin(purchaseOrders, eq(accountingDocumentSyncs.documentId, purchaseOrders.id))
+    .where(
+      and(
+        eq(accountingDocumentSyncs.provider, provider),
+        eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_ORDER),
+        isNull(purchaseOrders.deletedAt)
+      )
+    );
+
+  return rows
+    .filter(
+      (row) =>
+        row.externalPurchaseOrderId != null &&
+        ["draft", "ordered", "partial"].includes(row.status) &&
+        !openExternalIds.has(row.externalPurchaseOrderId)
+    )
+    .map((row) => ({
+      purchaseOrderId: row.purchaseOrderId,
+      purchaseOrderNumber: row.purchaseOrderNumber,
+      externalPurchaseOrderId: row.externalPurchaseOrderId!,
+      externalPurchaseOrderNumber: row.externalPurchaseOrderNumber,
+      status: row.status,
+    }));
 }
 
 export async function previewAccountingPurchaseOrderImport(
@@ -528,11 +694,13 @@ export async function applyAccountingPurchaseOrderImport(
     actorUserId?: string | null;
     auto?: boolean;
     provider?: AccountingProvider;
+    providerData?: ExternalPurchaseOrderFetchResult;
   } = {}
 ): Promise<AccountingPurchaseOrderImportResult> {
   const provider = options.provider ?? ACCOUNTING_PROVIDER_XERO;
   const connector = getAccountingConnector(provider);
-  const providerData = await fetchOpenProviderPurchaseOrders(orgId, provider);
+  const providerData =
+    options.providerData ?? (await fetchOpenProviderPurchaseOrders(orgId, provider));
   const selected = new Set(candidateIds);
   const selectedOrders = providerData.purchaseOrders.filter((order) => selected.has(order.id));
 
@@ -657,22 +825,44 @@ export async function autoSyncAccountingPurchaseOrders() {
     orgId: string;
     provider: AccountingProvider;
     result?: AccountingPurchaseOrderImportResult;
+    skipped?: AutoSyncSkip[];
+    staleOpenPurchaseOrders?: StaleImportedOpenPurchaseOrder[];
     error?: string;
   }> = [];
   for (const { orgId, provider } of targets) {
     try {
       const providerData = await fetchOpenProviderPurchaseOrders(orgId, provider);
+      const autoSelection = await withOrgContext(orgId, async (tx) => {
+        const local = await loadLocalMatchesInTx(tx, provider);
+        const selected = selectAutoSyncOrdersForImport(
+          providerData.purchaseOrders,
+          local
+        );
+        const staleOpenPurchaseOrders =
+          await listImportedOpenPurchaseOrdersMissingFromProviderInTx(
+            tx,
+            provider,
+            new Set(providerData.purchaseOrders.map((order) => order.id))
+          );
+        return { ...selected, staleOpenPurchaseOrders };
+      });
       const result = await applyAccountingPurchaseOrderImport(
         orgId,
-        providerData.purchaseOrders.map((order) => order.id),
-        { auto: true, provider }
+        autoSelection.selectedIds,
+        { auto: true, provider, providerData }
       );
-      results.push({ orgId, provider, result });
+      results.push({
+        orgId,
+        provider,
+        result,
+        skipped: autoSelection.skipped,
+        staleOpenPurchaseOrders: autoSelection.staleOpenPurchaseOrders,
+      });
       await tryRecordAccountingAuditEvent({
         organizationId: orgId,
         actor: { type: "process", processName: "accounting_purchase_order_sync" },
         eventType: "accounting_auto_sync",
-        outcome: "success",
+        outcome: result.errors.length > 0 ? "failure" : "success",
         source: "GET /api/internal/accounting-purchase-order-sync",
         provider,
         localEntityType: "purchase_orders",
@@ -684,6 +874,13 @@ export async function autoSyncAccountingPurchaseOrders() {
           skipped: result.skipped,
           protected: result.protected,
           errorCount: result.errors.length,
+          errors: result.errors.slice(0, 10),
+          autoSkippedCount: autoSelection.skipped.length,
+          autoSkipped: autoSelection.skipped.slice(0, 10),
+          staleOpenPurchaseOrderCount:
+            autoSelection.staleOpenPurchaseOrders.length,
+          staleOpenPurchaseOrders:
+            autoSelection.staleOpenPurchaseOrders.slice(0, 10),
         },
       });
     } catch (error) {
