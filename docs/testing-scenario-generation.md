@@ -9,17 +9,18 @@ read_when:
 
 ## Core split
 
-- `test/e2e/fast/`: browser write-path smoke tests
+- `test/e2e/fast/`: heartbeat mutation-seam tests
 - `test/e2e/slow/`: serial operational stories
 - `test/e2e/auth-security.spec.ts`: focused auth/security regressions
 - `e2e` means Playwright in this repo; `fast` and `slow` are the lanes.
 
 ## Fast lane rules
 
-- Use the real browser form for the write boundary under test.
-- Stop after submit, one success signal, and DB assertions.
-- Use API helpers for setup that is not the subject of the test.
-- Do not spend fast time on list pages, detail rendering breadth, toasts, sorting, or tooltip checks.
+- Fast tests protect core mutation seams, not historical bugs or UI detail.
+- Each fast file must be listed in `test/e2e/fast/FAST_TEST_SEAMS.md`.
+- Use API helpers for setup that is not the subject of the seam.
+- Prove one business invariant with direct DB/domain assertions.
+- Do not spend fast time on list pages, detail rendering breadth, toast copy, menu text, layout, sort order, tab defaults, button wording, CSS state, or tooltip checks unless that UI behavior is the seam.
 - Fast specs may use multiple workers; local default is `PLAYWRIGHT_FAST_WORKERS=2`, CI overrides to 4.
 
 ## Slow lane rules
@@ -66,9 +67,13 @@ read_when:
 
 ## Script aliases
 
-- `pnpm test:fast`: all fast Playwright specs
-- `pnpm test:fast:sales`, `pnpm test:fast:inventory`, `pnpm test:fast:purchasing`, `pnpm test:fast:manufacturing`, `pnpm test:fast:stocktake`: domain fast lanes
+- `pnpm test:fast`: all heartbeat fast Playwright specs
+- `pnpm test:fast:sales`: `test/e2e/fast/sales-demand-and-shipment.spec.ts`
+- `pnpm test:fast:inventory`: `test/e2e/fast/inventory-mutation-kernel.spec.ts`
+- `pnpm test:fast:purchasing`: `test/e2e/fast/purchasing-supply-and-receipt.spec.ts`
+- `pnpm test:fast:manufacturing`: `test/e2e/fast/manufacturing-demand-and-completion.spec.ts`
+- `pnpm test:fast:planning`: `test/e2e/fast/planning-demand-queue.spec.ts`
 - `pnpm test:slow`: all slow Playwright specs
 - `pnpm test:slow:sales`, `pnpm test:slow:inventory`, `pnpm test:slow:purchasing`, `pnpm test:slow:manufacturing`, `pnpm test:slow:stocktake`, `pnpm test:slow:auth`: selected slow lanes
-- Domain slow lanes may include multiple story files. Sales includes order, CRM, and partial-shipment stories; inventory includes item-form, cost-basis, and visibility stories.
+- Domain slow lanes may include multiple story files. Sales includes order and CRM stories; inventory includes item-form, cost-basis, and visibility stories.
 - Existing `test:e2e:*`, `test:inventory`, and `test:sales` aliases remain for compatibility.

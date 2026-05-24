@@ -31,7 +31,7 @@ These are non-negotiable repo rules. They are repeated here because violating th
 - **Inventory kernel.** Stock, lots, costs, commitments, expected supply, dispositions, and allocations must go through canonical inventory/domain paths. Never "just update a quantity."
 - **Icons.** HugeIcons only. Never Lucide.
 - **Design tokens.** shadcn semantic color classes, V2 raw tokens for spacing/sizing/type. Never hardcode Tailwind colors. Sharp corners.
-- **Testing model.** Playwright is the app test path with real DB assertions. Do not add Vitest, unit tests, or mocking frameworks unless explicitly asked.
+- **Testing model.** Playwright is the app test path with real DB assertions. No bug-souvenir tests. Fast tests must protect a listed core mutation seam and avoid incidental UI assertions. Do not add Vitest, unit tests, or mocking frameworks unless explicitly asked.
 - **No `git add .` / `git add -A`.** Stage specific files.
 - **Never `--no-verify`.** Never bypass hooks or safety checks without explicit ask.
 
@@ -40,8 +40,9 @@ These are non-negotiable repo rules. They are repeated here because violating th
 - `pnpm dev` — start dev server
 - `pnpm build` — production build (catch type errors)
 - `pnpm lint` — ESLint
-- `pnpm test` / `pnpm test:fast` — all fast Playwright lanes (dev server must be running)
-- `pnpm test:fast:<domain>` / `pnpm test:slow:<domain>` — single-domain lanes (`sales`, `inventory`, `purchasing`, `manufacturing`, `stocktake`, `auth`)
+- `pnpm test` / `pnpm test:fast` — heartbeat fast Playwright lane (dev server must be running)
+- `pnpm test:fast:<domain>` — heartbeat domain lanes (`sales`, `inventory`, `purchasing`, `manufacturing`, `planning`)
+- `pnpm test:slow:<domain>` — slow domain lanes (`sales`, `inventory`, `purchasing`, `manufacturing`, `stocktake`, `auth`)
 - `pnpm db:local:setup` — set up this worktree's local DB and run migrations
 - `pnpm dev:seed-user` — seed canonical test user and Paonia-style data
 - `pnpm db:generate` — generate migration

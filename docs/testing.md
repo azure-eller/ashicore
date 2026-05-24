@@ -12,13 +12,13 @@ read_when:
 
 **Playwright e2e only** — no Vitest, no unit tests, no mocks. `e2e` means Playwright; `fast` and `slow` are the lanes.
 
-Tests follow **serial domain stories** mirroring real user workflows. Keep each file self-contained so inventory and sales can run together or in isolation.
+Fast tests are heartbeat tests. Slow tests follow **serial domain stories** mirroring real user workflows. Keep each file self-contained so inventory and sales can run together or in isolation.
 
-The `db` fixture uses the app role with RLS — same security path as the real app. After form submission, query the database directly via that fixture to verify the row.
+The `db` fixture uses the app role with RLS — same security path as the real app. After the seam action, query the database directly via that fixture to verify the resulting state.
 
 ## Lanes
 
-- **Fast specs** live in `test/e2e/fast/` and cover browser write paths only: fill form, submit, minimal success UI, DB assertions.
+- **Fast specs** live in `test/e2e/fast/` and protect core mutation seams. Each fast spec must map to `test/e2e/fast/FAST_TEST_SEAMS.md`.
 - **Slow specs** live in `test/e2e/slow/` and stay serial, operational stories: create, edit, transition, reload, and verify UI/API/DB/storage effects where relevant.
 - **Auth regressions** live in `test/e2e/auth-security.spec.ts` and run separately from the fast/slow domain split.
 - Keep slow specs rooted in normal operations. Only include guards/errors when they arise inside a realistic workflow.
@@ -35,13 +35,27 @@ The `db` fixture uses the app role with RLS — same security path as the real a
 | Auth, invites, team access | `pnpm test:slow:auth` (covers `auth-security.spec.ts` + `team-management.spec.ts`) |
 | Stock mutations, reservations, expected supply, inventory projections, inventory-affecting API routes | Affected slow spec(s), then `pnpm verify:inventory` |
 
-Domain slow lanes may include multiple story files: sales includes order and CRM stories; inventory includes item-form, cost-basis, and visibility stories. Stocktake has no separate fast stub; `test:fast:stocktake` runs the canonical stocktake story.
+Domain slow lanes may include multiple story files: sales includes order and CRM stories; inventory includes item-form, cost-basis, and visibility stories. Stocktake is folded into `test:fast:inventory`.
 
 Local fast lanes default to 2 Playwright workers. CI overrides with `PLAYWRIGHT_FAST_WORKERS=4`.
 
 Do not run the whole slow lane locally unless the change is cross-domain or explicitly needs broad workflow verification.
 
 `pnpm verify:inventory` is the standard inventory integrity workflow: kernel grep guards + projection diff for the current Playwright test org.
+
+## Fast Test Guardrails
+
+Fast tests are mutation-seam heartbeats. Each test must prove one business invariant across UI/API/database boundaries. The one exception is `auth-org-context.spec.ts`, which proves authenticated active-org app/API access.
+
+- Maximum fast spec files: 8. Target total `test()` blocks: 10-15.
+- A fast spec file must be listed in `test/e2e/fast/FAST_TEST_SEAMS.md`.
+- If the seam cannot be stated in one sentence, delete the test or move/fold it out of fast.
+- Class-level invariants may survive only inside an existing heartbeat seam; they do not justify new fast files.
+- Fast tests may use API/DB setup to reach the seam quickly. Do not create prerequisites through UI unless prerequisite creation is the seam.
+- Do not assert incidental UI details such as toast copy, menu text, layout, sort order, tab defaults, list breadth, button wording, or CSS state unless that UI behavior is the seam.
+- No bug-souvenir tests. Historical one-off regressions are deleted unless they represent a compact class-level invariant tied to a listed seam.
+
+Not fast in this pass: Xero OAuth/push/retry/email/accounting sync, detailed FEFO/lot-expiry, detailed cost roll-up, catalog/item-card autosave, long manufacturing execution workflows, and full planning/allocation operational stories.
 
 ## Writing tests
 
@@ -85,7 +99,7 @@ Failed scheduled slow runs open/update an investigation PR, comment with run det
 ## Key files
 
 - `test/e2e/fixtures.ts` — custom `test` with `db` fixture (Drizzle + Neon + RLS)
-- `test/e2e/fast/` — fast write-path smoke specs
+- `test/e2e/fast/` — heartbeat mutation-seam specs
 - `test/e2e/slow/` — serial operational stories by domain
 - `test/e2e/auth-security.spec.ts` — auth and permission regressions
 - `test/global-setup.ts` — creates test user/org/unit, writes `.test-env.json`

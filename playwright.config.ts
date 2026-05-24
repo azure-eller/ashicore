@@ -8,7 +8,6 @@ import {
 loadWorktreeEnv();
 
 let baseURL = "http://localhost:3000";
-const includeParkedPlanningTests = process.env.INCLUDE_PARKED_PLANNING === "1";
 try {
   const env = JSON.parse(fs.readFileSync("test/.test-env.json", "utf-8"));
   baseURL = env.TEST_BASE_URL;
@@ -18,7 +17,6 @@ try {
 
 export default defineConfig({
   testDir: "./test/e2e",
-  testIgnore: includeParkedPlanningTests ? [] : ["**/fast/planning.spec.ts"],
   timeout: 90_000,
   retries: process.env.CI ? 1 : 0,
   workers: 1,

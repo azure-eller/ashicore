@@ -11,6 +11,7 @@
   - [ ] `pnpm lint`
   - [ ] Relevant fast/slow Playwright lane(s):
   - [ ] `pnpm verify:inventory` if inventory-affecting
+  - [ ] If touching `test/e2e/fast`, each fast spec maps to `FAST_TEST_SEAMS.md` and asserts one seam invariant without incidental UI assertions
 - Final GitHub verification:
   - [ ] Added the correct `ci:slow:*` or `ci:slow:none` label
   - [ ] Added `ci:ready` last, only after local validation passed
