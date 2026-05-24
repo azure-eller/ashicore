@@ -6,6 +6,7 @@ import {
   buildAgentProductionPlanningRawJson,
   getAgentProductionPlanningContextForOrg,
 } from "@/lib/agent/production-planning-context/service";
+import { getAgentReplenishmentContextForOrg } from "@/lib/agent/replenishment-context/service";
 
 export const runtime = "nodejs";
 
@@ -60,6 +61,75 @@ const handler = createMcpHandler(
             },
           ],
         };
+      }
+    );
+    server.registerTool(
+      "get_replenishment_context",
+      {
+        title: "Get Replenishment Context",
+        description:
+          "Returns neutral purchased-material replenishment facts. Use summary first, then detail for one item. Does not include safety stock, risk labels, or write actions.",
+        inputSchema: {
+          view: z
+            .enum(["summary", "detail"])
+            .optional()
+            .describe("summary returns compact rows; detail returns richer facts for one item. Defaults to summary."),
+          item: z
+            .string()
+            .optional()
+            .describe("Item name, SKU, or item id. Required for detail view."),
+          limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(100)
+            .optional()
+            .describe("Maximum summary rows to return. Defaults to 100."),
+        },
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async (args, extra) => {
+        const orgId = extra.authInfo?.extra?.orgId;
+
+        if (typeof orgId !== "string" || !orgId) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "Missing organization context." }],
+          };
+        }
+
+        try {
+          const context = await getAgentReplenishmentContextForOrg(orgId, {
+            view: args.view,
+            item: args.item,
+            limit: args.limit,
+          });
+
+          return {
+            structuredContent: context,
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(context),
+              },
+            ],
+          };
+        } catch (error) {
+          return {
+            isError: true,
+            content: [
+              {
+                type: "text",
+                text: error instanceof Error ? error.message : "Failed to load replenishment context.",
+              },
+            ],
+          };
+        }
       }
     );
   },
