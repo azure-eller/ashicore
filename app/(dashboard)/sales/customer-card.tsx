@@ -122,19 +122,12 @@ type CustomerCardProps = {
 type ContactGridRow = CustomerContactRow & { isNew?: boolean };
 type ProjectGridRow = CustomerProjectRow & { isNew?: boolean };
 type OpenOrderGridRow = CustomerLinkedSalesOrderRow;
-type ProjectSaveMutation = {
-  isPending: boolean;
-  mutate: (
-    row: ProjectGridRow,
-    options?: { onSuccess?: (project: CustomerProjectRow | null) => void }
-  ) => void;
-};
-type ProjectDeleteMutation = {
-  isPending: boolean;
-  error: unknown;
-  reset: () => void;
-  mutate: (projectId: string, options?: { onSuccess?: () => void }) => void;
-};
+type CustomerDraftOp =
+  | { type: "patch"; patch: PatchCustomer }
+  | { type: "upsertContact"; row: ContactGridRow }
+  | { type: "deleteContact"; contactId: string }
+  | { type: "upsertProject"; row: ProjectGridRow }
+  | { type: "deleteProject"; projectId: string };
 type AddressTarget = "billing" | "shipping";
 type CustomerAddressFields = {
   line1: string | null;
@@ -205,7 +198,7 @@ export function CustomerCard({
     useState<AddressDialogState | null>(null);
   const engine = useDraftSaveEngine<
     CustomerDetailData,
-    { type: "patch"; patch: PatchCustomer },
+    CustomerDraftOp,
     CustomerDetailData
   >({
     initialDraft:
@@ -218,27 +211,14 @@ export function CustomerCard({
     initialServerSnapshot: initialCustomer,
     initialId: initialCustomerId,
     isSaveable: (draft) => Boolean(draft.name.trim()),
-    applyOp: (draft, op) => mergeCustomerPatch(draft, op.patch),
-    coalesceOps: (existing, next) => [
-      {
-        op: {
-          type: "patch",
-          patch: existing.reduce<PatchCustomer>(
-            (patch, queued) => ({ ...patch, ...queued.op.patch }),
-            next.op.patch,
-          ),
-        },
-        revision: next.revision,
-      },
-    ],
+    applyOp: (draft, op) => applyCustomerDraftOp(draft, op),
     create: async (draft) => {
       const created = await createCustomer(customerToInsertInput(draft));
       return getCustomerCard(created.id);
     },
     save: async (customerId, draft, ops) => {
       if (ops.length === 0) return null;
-      await patchCustomer(customerId, customerEditableSnapshot(draft));
-      return getCustomerCard(customerId);
+      return saveCustomerOps(customerId, draft, ops.map(({ op }) => op));
     },
     getResultId: (result) => result.id,
     applyPersistedIdentity: (draft, result) => ({
@@ -272,7 +252,12 @@ export function CustomerCard({
   const display = isDraft
     ? engine.draft
     : serverCustomer
-      ? { ...serverCustomer, ...customerEditableSnapshot(engine.draft) }
+      ? {
+          ...serverCustomer,
+          ...customerEditableSnapshot(engine.draft),
+          contacts: engine.draft.contacts,
+          projects: engine.draft.projects,
+        }
       : engine.draft;
   const readOnly = Boolean(display.deletedAt);
 
@@ -522,14 +507,44 @@ export function CustomerCard({
 
         <div className={styles.sectionRowTwo}>
           <ContactsSection
-            customerId={currentCustomerId}
             rows={display.contacts}
             readOnly={readOnly || isDraft}
+            onSave={(row) => {
+              if (readOnly || isDraft) return;
+              engine.applyLocalOp({ type: "upsertContact", row });
+            }}
+            onDelete={(contactId) => {
+              if (readOnly || isDraft) return;
+              engine.applyLocalOp({ type: "deleteContact", contactId });
+            }}
           />
           <ProjectsSection
             customerId={currentCustomerId}
             rows={display.projects}
             readOnly={readOnly || isDraft}
+            error={engine.error}
+            onSave={(row, options) => {
+              if (readOnly || isDraft) return;
+              engine.applyLocalOp(
+                { type: "upsertProject", row },
+                Number.POSITIVE_INFINITY,
+              );
+              void engine
+                .flush()
+                .then(() => options?.onSuccess?.())
+                .catch(reportCustomerSaveError);
+            }}
+            onDelete={(projectId, options) => {
+              if (readOnly || isDraft) return;
+              engine.applyLocalOp(
+                { type: "deleteProject", projectId },
+                Number.POSITIVE_INFINITY,
+              );
+              void engine
+                .flush()
+                .then(() => options?.onSuccess?.())
+                .catch(reportCustomerSaveError);
+            }}
           />
         </div>
 
@@ -699,40 +714,17 @@ export function CustomerCard({
 }
 
 function ContactsSection({
-  customerId,
   rows: sourceRows,
   readOnly,
+  onSave,
+  onDelete,
 }: {
-  customerId: string | null;
   rows: CustomerContactRow[];
   readOnly: boolean;
+  onSave: (row: ContactGridRow) => void;
+  onDelete: (contactId: string) => void;
 }) {
-  const queryClient = useQueryClient();
   const [rows, setRows] = useSyncedRows<ContactGridRow>(sourceRows);
-
-  const saveMutation = useMutation({
-    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "contact-cell"),
-    mutationFn: async (row: ContactGridRow) => {
-      if (!customerId) return null;
-      const payload = contactPayload(row);
-      if (row.isNew) return createCustomerContact(customerId, payload);
-      return updateCustomerContact(customerId, row.id, payload);
-    },
-    onSettled: () => {
-      if (customerId) {
-        void queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
-      }
-    },
-  });
-  const deleteMutation = useMutation({
-    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "contact-delete"),
-    mutationFn: (contactId: string) => deleteCustomerContact(customerId as string, contactId),
-    onSettled: () => {
-      if (customerId) {
-        void queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
-      }
-    },
-  });
 
   const columns = useMemo<LineField<ContactGridRow>[]>(
     () => [
@@ -764,7 +756,7 @@ function ContactsSection({
                     : [...new Set([...row.roles, "primary"])] as CustomerContactRole[],
                 };
                 setRows((current) => replaceRow(current, next));
-                if (next.name.trim()) saveMutation.mutate(next);
+                if (next.name.trim()) onSave(next);
               }}
             >
               <HugeiconsIcon
@@ -780,24 +772,24 @@ function ContactsSection({
       textColumn("email", "Email", !readOnly),
       textColumn("phone", "Phone", !readOnly),
     ],
-    [readOnly, saveMutation, setRows]
+    [onSave, readOnly, setRows]
   );
 
   const onRowsChange = useCallback(
     (nextRows: ContactGridRow[], change: EditableLineDataGridChange<ContactGridRow>) => {
       setRows(nextRows);
       if (change.type === "row_deleted" && change.row && !change.row.isNew) {
-        deleteMutation.mutate(change.row.id);
+        onDelete(change.row.id);
         return;
       }
       if (
         change.type === "cell_edit_committed" &&
         change.row?.name.trim()
       ) {
-        saveMutation.mutate(change.row);
+        onSave(change.row);
       }
     },
-    [deleteMutation, saveMutation, setRows]
+    [onDelete, onSave, setRows]
   );
 
   return (
@@ -820,37 +812,19 @@ function ProjectsSection({
   customerId,
   rows: sourceRows,
   readOnly,
+  error,
+  onSave,
+  onDelete,
 }: {
   customerId: string | null;
   rows: CustomerProjectRow[];
   readOnly: boolean;
+  error: string | null;
+  onSave: (row: ProjectGridRow, options?: { onSuccess?: () => void }) => void;
+  onDelete: (projectId: string, options?: { onSuccess?: () => void }) => void;
 }) {
-  const queryClient = useQueryClient();
   const [activeProject, setActiveProject] = useState<CustomerProjectRow | null>(null);
   const [creatingProject, setCreatingProject] = useState(false);
-  const saveMutation = useMutation({
-    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project"),
-    mutationFn: async (row: ProjectGridRow) => {
-      if (!customerId) return null;
-      const payload = projectPayload(row);
-      if (row.isNew) return createCustomerProject(customerId, payload);
-      return updateCustomerProject(customerId, row.id, payload);
-    },
-    onSettled: () => {
-      if (customerId) {
-        void queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
-      }
-    },
-  });
-  const deleteMutation = useMutation({
-    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-delete"),
-    mutationFn: (projectId: string) => deleteCustomerProject(customerId as string, projectId),
-    onSettled: () => {
-      if (customerId) {
-        void queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
-      }
-    },
-  });
 
   return (
     <CardSection
@@ -907,8 +881,9 @@ function ProjectsSection({
           project={activeProject}
           open
           readOnly={readOnly}
-          saveMutation={saveMutation}
-          deleteMutation={deleteMutation}
+          saveError={error}
+          onSave={onSave}
+          onDelete={onDelete}
           onClose={() => setActiveProject(null)}
         />
       ) : null}
@@ -919,8 +894,9 @@ function ProjectsSection({
           project={null}
           open
           readOnly={readOnly}
-          saveMutation={saveMutation}
-          deleteMutation={deleteMutation}
+          saveError={error}
+          onSave={onSave}
+          onDelete={onDelete}
           onClose={() => setCreatingProject(false)}
         />
       ) : null}
@@ -933,16 +909,18 @@ function CustomerProjectDialog({
   project,
   open,
   readOnly,
-  saveMutation,
-  deleteMutation,
+  saveError,
+  onSave,
+  onDelete,
   onClose,
 }: {
   customerId: string | null;
   project: CustomerProjectRow | null;
   open: boolean;
   readOnly: boolean;
-  saveMutation: ProjectSaveMutation;
-  deleteMutation: ProjectDeleteMutation;
+  saveError: string | null;
+  onSave: (row: ProjectGridRow, options?: { onSuccess?: () => void }) => void;
+  onDelete: (projectId: string, options?: { onSuccess?: () => void }) => void;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -1183,7 +1161,6 @@ function CustomerProjectDialog({
               type="button"
               variant="destructive"
               onClick={() => setConfirmDelete(true)}
-              disabled={deleteMutation.isPending}
             >
               Delete project
             </Button>
@@ -1194,16 +1171,17 @@ function CustomerProjectDialog({
           {!readOnly ? (
             <Button
               type="button"
-              disabled={saveMutation.isPending || !draft.name.trim()}
+              disabled={!draft.name.trim()}
               onClick={() => {
-                saveMutation.mutate(draft, {
+                onSave(draft, {
                   onSuccess: () => onClose(),
                 });
               }}
             >
-              {saveMutation.isPending ? "Saving..." : "Save changes"}
+              Save changes
             </Button>
           ) : null}
+          {saveError ? <FieldError>{saveError}</FieldError> : null}
         </DialogFooter>
       </DialogContent>
 
@@ -1213,30 +1191,27 @@ function CustomerProjectDialog({
             <AlertDialogTitle>Delete project?</AlertDialogTitle>
             <AlertDialogDescription>
               This project will be removed from the customer workspace.
-              {deleteMutation.error ? (
+              {saveError ? (
                 <span className="mt-(--space-2) block text-destructive">
-                  {(deleteMutation.error as Error).message}
+                  {saveError}
                 </span>
               ) : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => deleteMutation.reset()}>
-              Cancel
-            </AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault();
-                deleteMutation.mutate(draft.id, {
+                onDelete(draft.id, {
                   onSuccess: () => {
                     setConfirmDelete(false);
                     onClose();
                   },
                 });
               }}
-              disabled={deleteMutation.isPending}
             >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1562,6 +1537,77 @@ function mergeCustomerPatch(
   };
 }
 
+function applyCustomerDraftOp(
+  customer: CustomerDetailData,
+  op: CustomerDraftOp
+): CustomerDetailData {
+  if (op.type === "patch") return mergeCustomerPatch(customer, op.patch);
+  if (op.type === "upsertContact") {
+    const contacts = upsertById(customer.contacts, op.row);
+    return { ...customer, contacts, updatedAt: new Date() };
+  }
+  if (op.type === "deleteContact") {
+    return {
+      ...customer,
+      contacts: customer.contacts.filter((contact) => contact.id !== op.contactId),
+      updatedAt: new Date(),
+    };
+  }
+  if (op.type === "upsertProject") {
+    const projects = upsertById(customer.projects, op.row);
+    return { ...customer, projects, updatedAt: new Date() };
+  }
+  return {
+    ...customer,
+    projects: customer.projects.filter((project) => project.id !== op.projectId),
+    updatedAt: new Date(),
+  };
+}
+
+async function saveCustomerOps(
+  customerId: string,
+  draft: CustomerDetailData,
+  ops: CustomerDraftOp[]
+) {
+  let changed = false;
+  const patch = ops.reduce<PatchCustomer>(
+    (next, op) => (op.type === "patch" ? { ...next, ...op.patch } : next),
+    {},
+  );
+  if (Object.keys(patch).length > 0) {
+    await patchCustomer(customerId, customerEditableSnapshot(draft));
+    changed = true;
+  }
+
+  for (const op of ops) {
+    if (op.type === "upsertContact") {
+      if (!op.row.name.trim()) continue;
+      if (op.row.isNew) {
+        await createCustomerContact(customerId, contactPayload(op.row));
+      } else {
+        await updateCustomerContact(customerId, op.row.id, contactPayload(op.row));
+      }
+      changed = true;
+    } else if (op.type === "deleteContact") {
+      await deleteCustomerContact(customerId, op.contactId);
+      changed = true;
+    } else if (op.type === "upsertProject") {
+      if (!op.row.name.trim()) continue;
+      if (op.row.isNew) {
+        await createCustomerProject(customerId, projectPayload(op.row));
+      } else {
+        await updateCustomerProject(customerId, op.row.id, projectPayload(op.row));
+      }
+      changed = true;
+    } else if (op.type === "deleteProject") {
+      await deleteCustomerProject(customerId, op.projectId);
+      changed = true;
+    }
+  }
+
+  return changed ? getCustomerCard(customerId) : null;
+}
+
 function customerToInsertInput(customer: CustomerDetailData): InsertCustomer {
   return normalizeCustomerDraft({
     name: customer.name,
@@ -1620,6 +1666,12 @@ function useSyncedRows<TRow extends { id: string }>(sourceRows: TRow[]) {
   return [rows, setRows] as const;
 }
 
+function upsertById<TRow extends { id: string }>(rows: TRow[], next: TRow) {
+  return rows.some((row) => row.id === next.id)
+    ? replaceRow(rows, next)
+    : [...rows, next];
+}
+
 function replaceRow<TRow extends { id: string }>(rows: TRow[], next: TRow) {
   return rows.map((row) => (row.id === next.id ? next : row));
 }
@@ -1641,6 +1693,10 @@ function formatBytes(bytes: number) {
   }
   const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
   return `${value.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function reportCustomerSaveError(error: unknown) {
+  console.error("Customer save failed:", error);
 }
 
 export function addressEntryLabel(address: AddressEntry) {

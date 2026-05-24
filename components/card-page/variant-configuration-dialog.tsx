@@ -59,12 +59,14 @@ export type VariantConfigurationDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   card: ItemCardDto;
+  onSaved?: (card: ItemCardDto) => void;
 };
 
 export function VariantConfigurationDialog({
   open,
   onOpenChange,
   card,
+  onSaved,
 }: VariantConfigurationDialogProps) {
   // Snapshot the card into the inner component on mount so editing the form
   // doesn't fight with re-renders from background invalidations. Inner remounts
@@ -73,7 +75,7 @@ export function VariantConfigurationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg" className="max-h-[80vh] overflow-y-auto p-0">
         {open ? (
-          <DialogBody card={card} onOpenChange={onOpenChange} />
+          <DialogBody card={card} onOpenChange={onOpenChange} onSaved={onSaved} />
         ) : null}
       </DialogContent>
     </Dialog>
@@ -83,9 +85,11 @@ export function VariantConfigurationDialog({
 function DialogBody({
   card,
   onOpenChange,
+  onSaved,
 }: {
   card: ItemCardDto;
   onOpenChange: (open: boolean) => void;
+  onSaved?: (card: ItemCardDto) => void;
 }) {
   const queryClient = useQueryClient();
   const [options, setOptions] = useState<LocalOption[]>(() =>
@@ -95,6 +99,7 @@ function DialogBody({
   const [sourceItemId, setSourceItemId] = useState("");
   const dirty = !configEqualsCard(options, card);
   const canPreview = options.length > 0 && options.every((option) => option.values.length > 0);
+  const canSave = dirty && (options.length === 0 || canPreview);
 
   // Preview always reads the persisted config; if local edits exist, the
   // user must save first (we sequence the calls below).
@@ -138,6 +143,7 @@ function DialogBody({
         throw new Error("Cannot configure variants on a card with no items.");
       }
 
+      let savedCard: ItemCardDto | null = null;
       if (dirty) {
         const payload: VariantConfigInput = {
           options: options.map((option, optionIndex) => ({
@@ -151,10 +157,10 @@ function DialogBody({
             })),
           })),
         };
-        await updateVariantConfig(focusItemId, payload);
+        savedCard = await updateVariantConfig(focusItemId, payload);
       }
 
-      if (mode === "save-only") return { created: [] };
+      if (mode === "save-only") return { card: savedCard, created: [] };
 
       // Always re-preview after a save so we pick up freshly-inserted ids
       // and the latest "missing" set.
@@ -165,9 +171,10 @@ function DialogBody({
           400,
         );
       }
-      return generateVariants(focusItemId, {});
+      return { card: savedCard, ...(await generateVariants(focusItemId, {})) };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (result.card) onSaved?.(result.card);
       void queryClient.invalidateQueries({ queryKey: ["item-card"] });
       onOpenChange(false);
     },
@@ -332,6 +339,16 @@ function DialogBody({
             disabled={saveAndGenerateMutation.isPending}
           >
             Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              saveAndGenerateMutation.mutate({ mode: "save-only" })
+            }
+            disabled={saveAndGenerateMutation.isPending || !canSave}
+          >
+            {saveAndGenerateMutation.isPending ? "Saving..." : "Save"}
           </Button>
           <Button
             type="button"

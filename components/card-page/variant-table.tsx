@@ -36,8 +36,6 @@ import {
   deleteVariant,
   generateVariants,
   previewVariantGeneration,
-  reorderItemCardVariants,
-  updateItemCardVariant,
   type AddInitialStockInput,
   type ItemCardDto,
   type ItemCardVariantDto,
@@ -48,12 +46,13 @@ import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { formatQuantity } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { CardLotRow } from "./lot-grid-tab";
-import { cardSaveMutationKey } from "./card-save-status";
 import styles from "./card-page.module.css";
 
 export type VariantTableProps = {
   card: ItemCardDto;
   viewMode: "product" | "material";
+  onVariantPatch: (variantId: string, patch: UpdateItemCardVariantInput) => void;
+  onVariantReorder: (orderedVariantIds: string[]) => void;
 };
 
 /**
@@ -529,6 +528,8 @@ function replaceVariantOptionValue(
 export function VariantTable({
   card,
   viewMode,
+  onVariantPatch,
+  onVariantReorder,
 }: VariantTableProps) {
   const activeOptions = useMemo(
     () => card.options.filter((option) => option.disabledAt == null),
@@ -559,32 +560,9 @@ export function VariantTable({
     previousQuantity: string;
   } | null>(null);
 
-  const cellMutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", mutationItemId, "variant-cell"),
-    mutationFn: ({
-      variantId,
-      payload,
-    }: {
-      variantId: string;
-      payload: UpdateItemCardVariantInput;
-    }) => updateItemCardVariant(variantId, payload),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
-    },
-  });
-
   const deleteMutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", mutationItemId, "variant-delete"),
+    mutationKey: ["item-card-action", mutationItemId, "variant-delete"],
     mutationFn: (variantId: string) => deleteVariant(variantId),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
-    },
-  });
-
-  const reorderMutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", mutationItemId, "variant-reorder"),
-    mutationFn: (orderedVariantIds: string[]) =>
-      reorderItemCardVariants(mutationItemId, orderedVariantIds),
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["item-card"] });
     },
@@ -597,7 +575,7 @@ export function VariantTable({
   });
 
   const addVariantMutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", mutationItemId, "variant-add-row"),
+    mutationKey: ["item-card-action", mutationItemId, "variant-add-row"],
     mutationFn: async () => {
       const focusItemId = visibleVariants[0]?.id;
       if (!focusItemId) return null;
@@ -618,7 +596,7 @@ export function VariantTable({
     (next: ItemCardVariantDto[], change: EditableLineDataGridChange<ItemCardVariantDto>) => {
       setRows(next);
       if (change.type === "row_reordered") {
-        reorderMutation.mutate(next.map((row) => row.id));
+        onVariantReorder(next.map((row) => row.id));
         return;
       }
       if (change.type !== "cell_edit_committed" || !change.row) return;
@@ -636,9 +614,9 @@ export function VariantTable({
           ? buildVariantPatch(change.field, change.newValue)
           : null;
       if (!payload) return;
-      cellMutation.mutate({ variantId: change.row.id, payload });
+      onVariantPatch(change.row.id, payload);
     },
-    [activeOptions, cellMutation, reorderMutation],
+    [activeOptions, onVariantPatch, onVariantReorder],
   );
 
   const columns = useMemo<ColDef<ItemCardVariantDto>[]>(() => {

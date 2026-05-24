@@ -16,6 +16,7 @@ export function useCardSaveStatus(itemId: string): {
   status: CardSaveStatus;
   pendingCount: number;
   errorCount: number;
+  errorMessage: string | null;
 } {
   return useEntitySaveStatus("item-card", itemId);
 }

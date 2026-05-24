@@ -220,6 +220,7 @@ type LockedManufacturingOrder = {
   plannedDate: string | null;
   priorityRank: number | null;
   bomRevisionId: string | null;
+  startedAt: Date | null;
 };
 
 function isOpenManufacturingOrder(
@@ -574,6 +575,7 @@ async function getLockedManufacturingOrderInTx(
       plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as("plannedQuantity"),
       plannedDate: manufacturingOrders.plannedDate,
       priorityRank: manufacturingOrders.priorityRank,
+      startedAt: manufacturingOrders.startedAt,
     })
     .from(manufacturingOrders)
     .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)))
@@ -1396,6 +1398,7 @@ async function activateManufacturingOrderInTx(
       plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
         "plannedQuantity"
       ),
+      lotStrategy: manufacturingOrderIngredients.lotStrategy,
     })
     .from(manufacturingOrderIngredients)
     .where(eq(manufacturingOrderIngredients.manufacturingOrderId, order.id));
@@ -1438,6 +1441,7 @@ async function activateManufacturingOrderInTx(
             plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
               "plannedQuantity"
             ),
+            lotStrategy: manufacturingOrderIngredients.lotStrategy,
           })
           .from(manufacturingOrderIngredients)
           .where(eq(manufacturingOrderIngredients.manufacturingOrderId, order.id))
@@ -1477,7 +1481,10 @@ async function activateManufacturingOrderInTx(
     await saveManufacturingIngredientLotAllocationsInTx(tx, {
       organizationId: orgId,
       actorUserId: params.actorUserId ?? null,
-      ingredients: reservationIngredientRows,
+      ingredients: reservationIngredientRows.map((ingredient) => ({
+        ...ingredient,
+        lotStrategy: ingredient.lotStrategy as ManufacturingLotStrategy,
+      })),
       lotAllocations: params.lotAllocations ?? [],
     });
   }
@@ -1560,6 +1567,7 @@ async function saveManufacturingIngredientLotAllocationsInTx(
       ingredientId: string;
       itemId: string;
       plannedQuantity: string;
+      lotStrategy?: ManufacturingLotStrategy;
     }>;
     lotAllocations: ManufacturingIngredientLotAllocationPlan;
   }
@@ -1688,9 +1696,12 @@ async function saveManufacturingIngredientLotAllocationsInTx(
 
     if (remainingNeed <= 0) continue;
 
-    const fifoSources = await loadSourcesForItem(ingredient.itemId);
+    const autoSources = orderLotSourcesForStrategy(
+      await loadSourcesForItem(ingredient.itemId),
+      ingredient.lotStrategy ?? "fifo"
+    );
 
-    for (const source of fifoSources) {
+    for (const source of autoSources) {
       if (remainingNeed <= 0) break;
       if (source.sourceType !== "inventory_lot") continue;
 
@@ -1724,6 +1735,17 @@ async function saveManufacturingIngredientLotAllocationsInTx(
       400
     );
   }
+}
+
+function orderLotSourcesForStrategy(
+  sources: Awaited<ReturnType<typeof loadAllocationSourcesForItemInTx>>,
+  strategy: ManufacturingLotStrategy
+) {
+  const inventoryLots = sources.filter((source) => source.sourceType === "inventory_lot");
+  if (strategy === "lifo") {
+    return [...inventoryLots].reverse();
+  }
+  return inventoryLots;
 }
 
 async function prepareUpdatedIngredientsInTx(
@@ -3270,6 +3292,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             isBlocked: manufacturingOrders.isBlocked,
             manufacturingMode: manufacturingOrders.manufacturingMode,
             numberOfBatches: manufacturingOrders.numberOfBatches,
+            startedAt: manufacturingOrders.startedAt,
             deletedAt: manufacturingOrders.deletedAt,
             createdAt: manufacturingOrders.createdAt,
             updatedAt: manufacturingOrders.updatedAt,
@@ -3819,6 +3842,7 @@ export async function getManufacturingOrder(
         isBlocked: manufacturingOrders.isBlocked,
         manufacturingMode: manufacturingOrders.manufacturingMode,
         numberOfBatches: manufacturingOrders.numberOfBatches,
+        startedAt: manufacturingOrders.startedAt,
         expectedBatchYield: trimScaleNullable(manufacturingOrders.expectedBatchYield).as(
           "expectedBatchYield"
         ),
@@ -4742,6 +4766,7 @@ export async function patchManufacturingOrderIngredient(
           "pickedQuantity"
         ),
         pickStatus: manufacturingOrderIngredients.pickStatus,
+        lotStrategy: manufacturingOrderIngredients.lotStrategy,
       })
       .from(manufacturingOrderIngredients)
       .where(
@@ -4781,7 +4806,11 @@ export async function patchManufacturingOrderIngredient(
       .set(updates)
       .where(eq(manufacturingOrderIngredients.id, ingredientId));
 
-    if (payload.allocations !== undefined) {
+    if (
+      payload.allocations !== undefined ||
+      payload.lotStrategy === "fifo" ||
+      payload.lotStrategy === "lifo"
+    ) {
       await cancelActiveStockAllocationsInTx(tx, {
         organizationId: orgId,
         actorUserId: userId,
@@ -4797,12 +4826,16 @@ export async function patchManufacturingOrderIngredient(
             ingredientId: existing.id,
             itemId: existing.itemId,
             plannedQuantity: existing.plannedQuantity,
+            lotStrategy:
+              payload.lotStrategy === "fifo" || payload.lotStrategy === "lifo"
+                ? payload.lotStrategy
+                : (existing.lotStrategy as ManufacturingLotStrategy),
           },
         ],
         lotAllocations: [
           {
             itemId: existing.itemId,
-            allocations: payload.allocations,
+            allocations: payload.allocations ?? [],
           },
         ],
       });
@@ -6644,6 +6677,55 @@ export async function startManufacturingBatch(
     }
 
     return { id: batchId };
+  });
+}
+
+export async function startManufacturingOrderWork(
+  orderId: string
+): Promise<{ id: string }> {
+  return withAuthedOrgContext(async (tx) => {
+    const order = await getLockedManufacturingOrderInTx(tx, orderId);
+
+    if (!order) {
+      throw new ManufacturingError("Order not found", 404);
+    }
+
+    if (!isOpenManufacturingOrder(order)) {
+      throw new ManufacturingError("Only open orders can start work", 400);
+    }
+
+    const now = new Date();
+    await tx
+      .update(manufacturingOrders)
+      .set({
+        isBlocked: false,
+        startedAt: order.startedAt ?? now,
+        updatedAt: now,
+      })
+      .where(eq(manufacturingOrders.id, orderId));
+
+    if (order.manufacturingMode === "batch") {
+      await ensureBatchExecutionRowsInTx(tx, order);
+      const batches = await getLockedBatchStateRowsInTx(tx, orderId);
+      const batch = getCurrentExecutionBatch(batches);
+
+      if (!batch) {
+        throw new ManufacturingError("All batches are already completed", 400);
+      }
+
+      if (batch.status === "pending") {
+        await tx
+          .update(manufacturingOrderBatches)
+          .set({
+            status: "in_progress",
+            startedAt: now,
+            updatedAt: now,
+          })
+          .where(eq(manufacturingOrderBatches.id, batch.id));
+      }
+    }
+
+    return { id: orderId };
   });
 }
 

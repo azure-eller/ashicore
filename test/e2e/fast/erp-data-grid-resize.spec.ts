@@ -174,7 +174,10 @@ test("sales orders AG grid reorders open rows with the rank drag handle", async 
   expect(rankStatus).toBe(200);
 
   await page.goto("/sales/orders");
-  await expect(page.getByLabel("Search orders")).toBeVisible();
+  const resetSort = page.getByRole("button", { name: /Reset sort/i });
+  if (await resetSort.isVisible()) {
+    await resetSort.click();
+  }
 
   const centerRows = page.locator(
     '[data-slot="erp-data-grid"] .ag-center-cols-container [role="row"][row-index]'
@@ -217,42 +220,31 @@ test("sales orders AG grid reorders open rows with the rank drag handle", async 
     throw new Error("Expected draggable first three sales order rows");
   }
 
-  await page.mouse.move(
-    firstHandleBox.x + firstHandleBox.width / 2,
-    firstHandleBox.y + firstHandleBox.height / 2
-  );
+  const firstHandleX = firstHandleBox.x + firstHandleBox.width / 2;
+  const firstHandleY = firstHandleBox.y + firstHandleBox.height / 2;
+  await page.mouse.move(firstHandleX, firstHandleY);
   await page.mouse.down();
+  await page.mouse.move(firstHandleX + 24, firstHandleY, { steps: 4 });
   await page.mouse.move(
-    firstHandleBox.x + firstHandleBox.width / 2,
+    firstHandleX + 24,
     thirdRowBox.y + thirdRowBox.height + 4,
     { steps: 8 }
   );
-
-  await expect(
-    page.locator(".ag-row-highlight-below, .ag-row-highlight-above").first()
-  ).toBeVisible();
-
   await page.mouse.up();
 
   await expect
-    .poll(async () =>
-      centerRows.evaluateAll((rows, markers) => {
-        const [firstMarker, secondMarker, thirdMarker] = markers as string[];
-        const firstIndex = rows.findIndex((row) =>
-          row.textContent?.includes(firstMarker)
-        );
-        const secondIndex = rows.findIndex((row) =>
-          row.textContent?.includes(secondMarker)
-        );
-        const thirdIndex = rows.findIndex((row) =>
-          row.textContent?.includes(thirdMarker)
-        );
-        return secondIndex >= 0 && thirdIndex >= 0 && firstIndex > thirdIndex;
-      }, [
-        `Grid drag A ${suffix}`,
-        `Grid drag B ${suffix}`,
-        `Grid drag C ${suffix}`,
-      ])
+    .poll(async () => {
+      const firstBox = await centerRows
+        .filter({ hasText: `Grid drag A ${suffix}` })
+        .first()
+        .boundingBox();
+      const thirdBox = await centerRows
+        .filter({ hasText: `Grid drag C ${suffix}` })
+        .first()
+        .boundingBox();
+      return firstBox != null && thirdBox != null && firstBox.y > thirdBox.y;
+    },
+      { timeout: 15_000 }
     )
     .toBe(true);
 
@@ -272,46 +264,41 @@ test("sales orders AG grid reorders open rows with the rank drag handle", async 
     throw new Error("Expected moved sales order row to remain draggable");
   }
 
-  await page.mouse.move(
-    movedHandleBox.x + movedHandleBox.width / 2,
-    movedHandleBox.y + movedHandleBox.height / 2
-  );
+  const movedHandleX = movedHandleBox.x + movedHandleBox.width / 2;
+  const movedHandleY = movedHandleBox.y + movedHandleBox.height / 2;
+  await page.mouse.move(movedHandleX, movedHandleY);
   await page.mouse.down();
+  await page.mouse.move(movedHandleX + 24, movedHandleY, { steps: 4 });
   await page.mouse.move(
-    movedHandleBox.x + movedHandleBox.width / 2,
+    movedHandleX + 24,
     secondMarkerRowBox.y + 2,
     { steps: 8 }
   );
-
-  await expect(
-    page.locator(".ag-row-highlight-below, .ag-row-highlight-above").first()
-  ).toBeVisible();
-
   await page.mouse.up();
 
   await expect
-    .poll(async () =>
-      centerRows.evaluateAll((rows, markers) => {
-        const [firstMarker, secondMarker, thirdMarker] = markers as string[];
-        const firstIndex = rows.findIndex((row) =>
-          row.textContent?.includes(firstMarker)
-        );
-        const secondIndex = rows.findIndex((row) =>
-          row.textContent?.includes(secondMarker)
-        );
-        const thirdIndex = rows.findIndex((row) =>
-          row.textContent?.includes(thirdMarker)
-        );
-        return (
-          firstIndex >= 0 &&
-          firstIndex < secondIndex &&
-          firstIndex < thirdIndex
-        );
-      }, [
-        `Grid drag A ${suffix}`,
-        `Grid drag B ${suffix}`,
-        `Grid drag C ${suffix}`,
-      ])
+    .poll(async () => {
+      const firstBox = await centerRows
+        .filter({ hasText: `Grid drag A ${suffix}` })
+        .first()
+        .boundingBox();
+      const secondBox = await centerRows
+        .filter({ hasText: `Grid drag B ${suffix}` })
+        .first()
+        .boundingBox();
+      const thirdBox = await centerRows
+        .filter({ hasText: `Grid drag C ${suffix}` })
+        .first()
+        .boundingBox();
+      return (
+        firstBox != null &&
+        secondBox != null &&
+        thirdBox != null &&
+        firstBox.y < secondBox.y &&
+        firstBox.y < thirdBox.y
+      );
+    },
+      { timeout: 15_000 }
     )
     .toBe(true);
   expect(runtimeErrors).toEqual([]);

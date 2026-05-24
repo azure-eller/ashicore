@@ -2,25 +2,30 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { patchManufacturingOrderIngredient } from "@/lib/api/clients/manufacturing-orders";
 import type { ManufacturingLotStrategy } from "@/lib/schemas/manufacturing-orders";
 
 const STRATEGY_LABEL: Record<ManufacturingLotStrategy, string> = {
   fifo: "FIFO",
+  lifo: "LIFO",
   custom: "CUSTOM",
 };
 
 const STRATEGY_TONE: Record<ManufacturingLotStrategy, string> = {
   fifo: "text-[var(--color-accent)] bg-[var(--color-accent-soft)]",
+  lifo: "text-[var(--color-info)] bg-[var(--color-info-soft)]",
   custom: "text-[var(--color-warning)] bg-[var(--color-warning-soft)]",
 };
 
-const NEXT_STRATEGY: Record<ManufacturingLotStrategy, ManufacturingLotStrategy> = {
-  fifo: "custom",
-  custom: "fifo",
-};
+const STRATEGIES: ManufacturingLotStrategy[] = ["fifo", "lifo", "custom"];
 
 export type PickedLotSummary = {
   count: number;
@@ -31,10 +36,8 @@ export type PickedLotSummary = {
 };
 
 /**
- * Per-ingredient lot allocation control: a strategy chip (FIFO /
- * CUSTOM) plus an inline picked-lot summary. Click the strategy segment to
- * cycle FIFO → CUSTOM; CUSTOM (or clicking the summary) opens the
- * existing lot picker.
+ * Per-ingredient lot allocation control. FIFO/LIFO reallocate automatically;
+ * Custom opens the shared allocation picker.
  */
 export function LotStrategyChip({
   orderId,
@@ -42,12 +45,14 @@ export function LotStrategyChip({
   strategy,
   summary,
   onOpenPicker,
+  onChanged,
 }: {
   orderId: string;
   ingredientId: string;
   strategy: ManufacturingLotStrategy;
   summary: PickedLotSummary;
   onOpenPicker: () => void;
+  onChanged?: () => void;
 }) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
@@ -55,14 +60,18 @@ export function LotStrategyChip({
     mutationFn: (next: ManufacturingLotStrategy) =>
       patchManufacturingOrderIngredient(orderId, ingredientId, {
         lotStrategy: next,
-      }),
+    }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["manufacturing-order", orderId] });
+      onChanged?.();
     },
   });
 
-  const cycleStrategy = () => {
-    const next = NEXT_STRATEGY[strategy];
+  const selectStrategy = (next: ManufacturingLotStrategy) => {
+    if (next === strategy) {
+      if (next === "custom") onOpenPicker();
+      return;
+    }
     mutation.mutate(next, {
       onSuccess: () => {
         if (next === "custom") onOpenPicker();
@@ -79,26 +88,47 @@ export function LotStrategyChip({
 
   return (
     <div className="inline-flex h-6 items-stretch border border-[var(--color-line)]">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            aria-label={`Lot strategy ${STRATEGY_LABEL[strategy]}`}
+            className={cn(
+              "inline-flex items-center gap-1 px-2 font-mono text-[10px] font-semibold tracking-[0.04em] uppercase",
+              STRATEGY_TONE[strategy],
+            )}
+          >
+            {STRATEGY_LABEL[strategy]}
+            <HugeiconsIcon icon={ArrowDown01Icon} size={11} aria-hidden />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-28 p-0">
+          {STRATEGIES.map((option) => (
+            <DropdownMenuItem
+              key={option}
+              onSelect={(event) => {
+                event.preventDefault();
+                selectStrategy(option);
+              }}
+              className="h-8 rounded-none px-3 font-mono text-[11px]"
+            >
+              {STRATEGY_LABEL[option]}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
       <button
         type="button"
-        onClick={cycleStrategy}
-        disabled={mutation.isPending}
-        aria-label={`Lot strategy ${STRATEGY_LABEL[strategy]} (click to cycle)`}
-        className={cn(
-          "inline-flex items-center px-2 font-mono text-[10px] font-semibold tracking-[0.04em] uppercase",
-          STRATEGY_TONE[strategy],
-        )}
-      >
-        {STRATEGY_LABEL[strategy]}
-      </button>
-      <button
-        type="button"
-        onClick={onOpenPicker}
+        onClick={() => {
+          if (strategy === "custom") onOpenPicker();
+        }}
         className={cn(
           "inline-flex items-center gap-1.5 border-l border-[var(--color-line)] bg-[var(--color-surface)] px-2",
           "text-[11.5px] text-[var(--color-ink)]",
           summary.count === 0 && "text-[var(--color-muted)]",
-          "hover:bg-[var(--color-surface-alt)]",
+          strategy === "custom"
+            ? "hover:bg-[var(--color-surface-alt)]"
+            : "cursor-default",
         )}
       >
         <span className="font-mono">{lotText}</span>

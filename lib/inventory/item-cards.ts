@@ -819,7 +819,7 @@ export async function updateItemCardVariant(
   options?: { idempotencyKey?: string | null },
 ) {
   return withAuthedOrgContext(async (tx, orgId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
+    const replay = await beginInventoryOperationInTx<ItemCardDto>(tx, {
       organizationId: orgId,
       operationName: "updateItemCardVariant",
       idempotencyKey: options?.idempotencyKey ?? null,
@@ -921,7 +921,7 @@ export async function updateItemCardVariant(
       await recomputeVariantKeysInTx(tx, variant.familyId);
     }
 
-    const result = { id: itemId };
+    const result = await getItemCardInTx(tx, itemId);
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
       idempotencyKey: options?.idempotencyKey ?? null,

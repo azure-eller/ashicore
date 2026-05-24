@@ -15,12 +15,14 @@ export type ProductionStatusInput = {
   isBlocked: boolean;
   pickProgressStatus: ManufacturingPickProgressStatus;
   completedBatchCount?: number | null;
+  startedAt?: Date | string | null;
 };
 
 export function deriveProductionStatus(input: ProductionStatusInput): ProductionStatus {
   if (input.status === "done") return "done";
   if (input.isBlocked) return "blocked";
   const hasProgress =
+    input.startedAt != null ||
     input.pickProgressStatus !== "not_started" ||
     (input.completedBatchCount ?? 0) > 0;
   if (hasProgress) return "in_progress";

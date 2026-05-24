@@ -2,7 +2,6 @@
 
 import { useCallback, useMemo, useState } from "react";
 import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -21,13 +20,10 @@ import {
   type EditableLineDataGridChange,
   type LineField,
 } from "@/components/editable-lines";
-import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
-import { setItemCardFamilyQueryData } from "@/components/card-page/item-card-cache";
 import {
-  updateItemCard,
-  updateItemCardVariant,
   type ItemCardDto,
   type ItemCardVariantDto,
+  type UpdateItemCardInput,
   type UpdateItemCardVariantInput,
 } from "@/lib/api/clients/item-cards";
 import { formatQuantity } from "@/lib/format";
@@ -36,48 +32,21 @@ import styles from "@/components/card-page/card-page.module.css";
 
 export type MaterialSupplyDetailsTabProps = {
   card: ItemCardDto;
-  focusItemId: string;
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
   supplierOptions: SupplierOption[];
+  onFamilyChange: (patch: Partial<UpdateItemCardInput>, delayMs?: number) => void;
+  onVariantPatch: (variantId: string, patch: UpdateItemCardVariantInput) => void;
 };
 
 export function MaterialSupplyDetailsTab({
   card,
-  focusItemId,
   unitOptions,
   supplierOptions,
+  onFamilyChange,
+  onVariantPatch,
 }: MaterialSupplyDetailsTabProps) {
-  const queryClient = useQueryClient();
   const purchaseUnitEnabled = card.family.purchaseUnitDefinitionId != null;
   const [purchaseUnitOn, setPurchaseUnitOn] = useState(purchaseUnitEnabled);
-
-  const disablePurchaseUnit = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", focusItemId, "purchase-unit-off"),
-    mutationFn: () =>
-      updateItemCard(focusItemId, {
-        purchaseUnitDefinitionId: null,
-        purchaseToStockFactor: null,
-      }),
-    onSuccess: (nextCard) => {
-      setItemCardFamilyQueryData(queryClient, focusItemId, nextCard);
-    },
-  });
-  const supplierMutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", focusItemId, "defaultSupplierId"),
-    mutationFn: (defaultSupplierId: string | null) =>
-      updateItemCard(focusItemId, { defaultSupplierId }),
-    onSuccess: (nextCard) => {
-      setItemCardFamilyQueryData(queryClient, focusItemId, nextCard);
-    },
-  });
-  const purchaseUnitMutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", focusItemId, "purchaseUnitDefinitionId"),
-    mutationFn: (purchaseUnitDefinitionId: string | null) =>
-      updateItemCard(focusItemId, { purchaseUnitDefinitionId }),
-    onSuccess: (nextCard) => {
-      setItemCardFamilyQueryData(queryClient, focusItemId, nextCard);
-    },
-  });
 
   const visibleVariants = useMemo(
     () => card.variants.filter((variant) => variant.deletedAt == null),
@@ -93,7 +62,7 @@ export function MaterialSupplyDetailsTab({
             <EntityCombobox
               options={supplierOptions}
               value={card.family.defaultSupplierId}
-              onValueChange={(value) => supplierMutation.mutate(value)}
+              onValueChange={(value) => onFamilyChange({ defaultSupplierId: value })}
               placeholder="Search suppliers..."
               emptyMessage="No suppliers found"
               createLinks={[
@@ -120,7 +89,6 @@ export function MaterialSupplyDetailsTab({
             <label className="flex items-center gap-(--space-2) text-[length:var(--text-sm)]">
               <Checkbox
                 checked={purchaseUnitOn}
-                disabled={disablePurchaseUnit.isPending || purchaseUnitMutation.isPending}
                 onCheckedChange={(checked) => {
                   if (checked === true) {
                     setPurchaseUnitOn(true);
@@ -128,7 +96,10 @@ export function MaterialSupplyDetailsTab({
                   }
                   if (purchaseUnitOn) {
                     setPurchaseUnitOn(false);
-                    disablePurchaseUnit.mutate();
+                    onFamilyChange({
+                      purchaseUnitDefinitionId: null,
+                      purchaseToStockFactor: null,
+                    });
                   }
                 }}
               />
@@ -142,7 +113,9 @@ export function MaterialSupplyDetailsTab({
                 <FieldLabel>Default purchase unit of measure</FieldLabel>
                 <Select
                   value={card.family.purchaseUnitDefinitionId ?? ""}
-                  onValueChange={(value) => purchaseUnitMutation.mutate(value)}
+                  onValueChange={(value) =>
+                    onFamilyChange({ purchaseUnitDefinitionId: value })
+                  }
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select a purchase unit" />
@@ -157,9 +130,9 @@ export function MaterialSupplyDetailsTab({
                 </Select>
               </Field>
               <ConversionField
-                focusItemId={focusItemId}
                 stockUnitName={card.family.unitName ?? ""}
                 value={card.family.purchaseToStockFactor}
+                onFamilyChange={onFamilyChange}
               />
             </>
           ) : null}
@@ -167,40 +140,28 @@ export function MaterialSupplyDetailsTab({
       </CardSection>
 
       <CardSection title="Variants">
-        <SupplyVariantsGrid focusItemId={focusItemId} variants={visibleVariants} />
+        <SupplyVariantsGrid
+          variants={visibleVariants}
+          onVariantPatch={onVariantPatch}
+        />
       </CardSection>
     </>
   );
 }
 
 function SupplyVariantsGrid({
-  focusItemId,
   variants,
+  onVariantPatch,
 }: {
-  focusItemId: string;
   variants: ItemCardVariantDto[];
+  onVariantPatch: (variantId: string, patch: UpdateItemCardVariantInput) => void;
 }) {
-  const queryClient = useQueryClient();
   const [rows, setRows] = useState<ItemCardVariantDto[]>(variants);
   const [lastSynced, setLastSynced] = useState(variants);
   if (lastSynced !== variants) {
     setLastSynced(variants);
     setRows(variants);
   }
-
-  const cellMutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", focusItemId, "supply-variant-cell"),
-    mutationFn: ({
-      variantId,
-      payload,
-    }: {
-      variantId: string;
-      payload: UpdateItemCardVariantInput;
-    }) => updateItemCardVariant(variantId, payload),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
-    },
-  });
 
   const handleRowsChange = useCallback(
     (next: ItemCardVariantDto[], change: EditableLineDataGridChange<ItemCardVariantDto>) => {
@@ -231,9 +192,9 @@ function SupplyVariantsGrid({
         }
       })();
       if (!payload) return;
-      cellMutation.mutate({ variantId: change.row.id, payload });
+      onVariantPatch(change.row.id, payload);
     },
-    [cellMutation],
+    [onVariantPatch],
   );
 
   const columns = useMemo<LineField<ItemCardVariantDto>[]>(
@@ -340,24 +301,16 @@ function SupplyVariantsGrid({
 }
 
 function ConversionField({
-  focusItemId,
   stockUnitName,
   value,
+  onFamilyChange,
+  disabled,
 }: {
-  focusItemId: string;
   stockUnitName: string;
   value: string | null;
+  onFamilyChange: (patch: Partial<UpdateItemCardInput>, delayMs?: number) => void;
+  disabled?: boolean;
 }) {
-  const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", focusItemId, "purchaseToStockFactor"),
-    mutationFn: (next: string | null) =>
-      updateItemCard(focusItemId, { purchaseToStockFactor: next }),
-    onSuccess: (nextCard) => {
-      setItemCardFamilyQueryData(queryClient, focusItemId, nextCard);
-    },
-  });
-
   return (
     <Field>
       <FieldLabel>Unit conversion rate</FieldLabel>
@@ -370,9 +323,10 @@ function ConversionField({
           value={value}
           inputMode="decimal"
           className="max-w-[8rem]"
+          disabled={disabled}
           onCommit={(next) => {
             if (next === (value ?? null)) return;
-            mutation.mutate(next);
+            onFamilyChange({ purchaseToStockFactor: next });
           }}
         />
         <span className="text-[length:var(--text-sm)] text-muted-foreground">

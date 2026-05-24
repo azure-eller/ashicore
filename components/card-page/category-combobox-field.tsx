@@ -1,31 +1,22 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useId, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-} from "@/components/ui/combobox";
 import { Field, FieldLabel } from "@/components/ui/field";
-import { setItemCardFamilyQueryData } from "@/components/card-page/item-card-cache";
-import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
-import { fetchItemCategories, updateItemCard } from "@/lib/api/clients/item-cards";
+import { Input } from "@/components/ui/input";
+import { fetchItemCategories } from "@/lib/api/clients/item-cards";
 import type { ItemType } from "@/app/(dashboard)/inventory/types";
+import styles from "./card-page.module.css";
 
 type CategoryComboboxFieldProps = {
-  focusItemId: string | null;
   itemType: ItemType;
   value: string | null;
   label: string;
   placeholder?: string;
   disabled?: boolean;
-  onDraftChange: (category: string | null) => void;
-  onDraftCommit: (category: string | null) => void;
+  onChange: (category: string | null, delayMs?: number) => void;
+  onCommit: (category?: string | null) => void;
 };
 
 /**
@@ -33,19 +24,26 @@ type CategoryComboboxFieldProps = {
  * one. New values are persisted as-is — categories are free-text on the family.
  */
 export function CategoryComboboxField({
-  focusItemId,
   itemType,
   value,
   label,
   placeholder,
   disabled,
-  onDraftChange,
-  onDraftCommit,
+  onChange,
+  onCommit,
 }: CategoryComboboxFieldProps) {
-  const [draft, setDraft] = useState(value ?? "");
-  const [open, setOpen] = useState(false);
-  const queryClient = useQueryClient();
+  const normalizedValue = value ?? "";
+  const [draftState, setDraftState] = useState({
+    source: normalizedValue,
+    draft: normalizedValue,
+  });
+  let draft = draftState.draft;
+  if (draftState.source !== normalizedValue) {
+    draft = normalizedValue;
+    setDraftState({ source: normalizedValue, draft: normalizedValue });
+  }
   const inputId = "card-field-category";
+  const listId = `${useId()}-categories`;
 
   const { data: categories = [] } = useQuery({
     queryKey: ["item-categories", itemType],
@@ -53,74 +51,47 @@ export function CategoryComboboxField({
     staleTime: 60_000,
   });
 
-  const mutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "patch", "category"),
-    mutationFn: (next: string | null) =>
-      updateItemCard(focusItemId as string, { category: next }),
-    onSuccess: (nextCard) => {
-      setItemCardFamilyQueryData(queryClient, focusItemId as string, nextCard);
-      void queryClient.invalidateQueries({ queryKey: ["item-categories", itemType] });
-    },
-  });
-
   function toValue(text: string): string | null {
     const trimmed = text.trim();
     return trimmed === "" ? null : trimmed;
   }
 
-  function commit() {
+  function commit(text = draft) {
     if (disabled) return;
-    const next = toValue(draft);
-    if (focusItemId == null) {
-      onDraftChange(next);
-      onDraftCommit(next);
+    const next = toValue(text);
+    if (next === (value ?? null)) {
+      onCommit();
       return;
     }
-    if (next === (value ?? null)) return;
-    mutation.mutate(next);
+    onCommit(next);
   }
 
   return (
-    <Field data-invalid={mutation.isError}>
+    <Field>
       <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
-      <Combobox
-        items={categories}
-        open={open}
-        onOpenChange={setOpen}
-        inputValue={draft}
-        onInputValueChange={(next) => {
-          setDraft(next);
-          if (focusItemId == null) onDraftChange(toValue(next));
+      <Input
+        id={inputId}
+        aria-label={label}
+        className={styles.underlineControl}
+        list={listId}
+        value={draft}
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={(event) => {
+          const next = event.target.value;
+          setDraftState({ source: normalizedValue, draft: next });
+          onChange(toValue(next), Number.POSITIVE_INFINITY);
         }}
-        itemToStringLabel={(category: string) => category}
-        filter={(category: string, query: string) =>
-          category.toLocaleLowerCase().includes(query.toLocaleLowerCase())
-        }
-      >
-        <ComboboxInput
-          id={inputId}
-          className="w-full"
-          placeholder={placeholder}
-          disabled={disabled}
-          aria-invalid={mutation.isError || undefined}
-          onBlur={() => {
-            // Close the popup on blur so it can't overlay the page; base-ui
-            // doesn't close on a programmatic/synthetic blur on its own.
-            setOpen(false);
-            commit();
-          }}
-        />
-        <ComboboxContent className="bg-popover text-popover-foreground">
-          <ComboboxEmpty>No matching categories</ComboboxEmpty>
-          <ComboboxList>
-            {(category: string) => (
-              <ComboboxItem key={category} value={category}>
-                {category}
-              </ComboboxItem>
-            )}
-          </ComboboxList>
-        </ComboboxContent>
-      </Combobox>
+        onBlur={() => commit()}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+      />
+      <datalist id={listId}>
+        {categories.map((category) => (
+          <option key={category} value={category} />
+        ))}
+      </datalist>
     </Field>
   );
 }

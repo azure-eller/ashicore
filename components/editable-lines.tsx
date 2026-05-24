@@ -235,6 +235,7 @@ export function MutableLines<TData>({
       rows={sourceRows}
       createRow={createRow}
       rowHeight={42}
+      initializeBlankRow
       enableAddRow={!readOnly}
       enableReorder={!readOnly}
       enableDelete={!readOnly}

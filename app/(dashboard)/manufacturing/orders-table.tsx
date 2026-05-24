@@ -182,6 +182,7 @@ function getProductionState(order: ManufacturingOrderListRow): OperationalState 
   if (order.status === "done") {
     productionState = "done";
   } else if (
+    order.startedAt != null ||
     order.pickProgressStatus === "in_progress" ||
     order.pickProgressStatus === "picked" ||
     order.completedBatchCount > 0

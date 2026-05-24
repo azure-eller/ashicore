@@ -31,6 +31,7 @@ import {
   salesOrders,
   salesShipments,
   stocktakeItems,
+  stocktakeLotItems,
   stocktakes,
   user,
   variantOptions,
@@ -100,6 +101,7 @@ const manufacturingOrdersViaBatches = alias(
 );
 
 const stocktakeLineRefs = alias(stocktakeItems, "ledger_stocktake_line_refs");
+const stocktakeLotLineRefs = alias(stocktakeLotItems, "ledger_stocktake_lot_line_refs");
 const stocktakeDocs = alias(stocktakes, "ledger_stocktake_docs");
 const DEFAULT_LEDGER_TIME_ZONE = "UTC";
 
@@ -642,10 +644,20 @@ export async function getInventoryLedger(
             )
           )
           .leftJoin(
+            stocktakeLotLineRefs,
+            and(
+              eq(inventoryEvents.referenceType, "stocktake_line"),
+              eq(inventoryEvents.referenceId, stocktakeLotLineRefs.id)
+            )
+          )
+          .leftJoin(
             stocktakeLineRefs,
             and(
               eq(inventoryEvents.referenceType, "stocktake_line"),
-              eq(inventoryEvents.referenceId, stocktakeLineRefs.id)
+              or(
+                eq(inventoryEvents.referenceId, stocktakeLineRefs.id),
+                eq(stocktakeLotLineRefs.stocktakeItemId, stocktakeLineRefs.id)
+              )
             )
           )
           .leftJoin(stocktakeDocs, eq(stocktakeLineRefs.stocktakeId, stocktakeDocs.id))
@@ -837,10 +849,20 @@ export async function getInventoryLedger(
         )
       )
       .leftJoin(
+        stocktakeLotLineRefs,
+        and(
+          eq(inventoryEvents.referenceType, "stocktake_line"),
+          eq(inventoryEvents.referenceId, stocktakeLotLineRefs.id)
+        )
+      )
+      .leftJoin(
         stocktakeLineRefs,
         and(
           eq(inventoryEvents.referenceType, "stocktake_line"),
-          eq(inventoryEvents.referenceId, stocktakeLineRefs.id)
+          or(
+            eq(inventoryEvents.referenceId, stocktakeLineRefs.id),
+            eq(stocktakeLotLineRefs.stocktakeItemId, stocktakeLineRefs.id)
+          )
         )
       )
       .leftJoin(stocktakeDocs, eq(stocktakeLineRefs.stocktakeId, stocktakeDocs.id))

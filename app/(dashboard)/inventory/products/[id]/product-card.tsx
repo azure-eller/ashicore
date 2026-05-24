@@ -2,28 +2,22 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { CardPage } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CardTabs, type CardTab } from "@/components/card-page/card-tabs";
+import { useCardSaveStatus } from "@/components/card-page/use-card-save-status";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import {
   deleteItemCard,
   getItemCard,
-  type CreateItemCardResult,
   type ItemCardDto,
-  createItemCard,
 } from "@/lib/api/clients/item-cards";
-import {
-  saveStateFromEntityStatus,
-  useEntitySaveStatus,
-  type CardSaveState,
-} from "@/components/card-page/card-save-status";
+import { type CardSaveState } from "@/components/card-page/card-save-status";
 import { VariantConfigurationDialog } from "@/components/card-page/variant-configuration-dialog";
 import { ProductGeneralInfoTab } from "./tabs/general-info";
-import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
-import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
+import { useItemCardDraftController } from "@/components/card-page/use-item-card-draft-controller";
 
 export type ProductCardTab = "general" | "recipe" | "production" | "lots";
 
@@ -47,47 +41,21 @@ export function ProductCard({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const queryClient = useQueryClient();
   const [configOpen, setConfigOpen] = useState(false);
+  const [variantsEnabled, setVariantsEnabled] = useState(false);
+  const persistedHref = useCallback((id: string) => `/inventory/products/${id}`, []);
 
-  const engine = useDraftSaveEngine<
-    ItemCardDto,
-    { type: "patchFamily"; patch: Partial<ItemCardDto["family"]> },
-    CreateItemCardResult
-  >({
-    initialDraft: initialCard,
-    initialServerSnapshot: initialItemId ? initialCard : null,
-    initialId: initialItemId,
-    isSaveable: (draft) =>
-      Boolean(draft.family.name.trim()) && Boolean(draft.family.unitDefinitionId),
-    applyOp: (draft, op) =>
-      op.type === "patchFamily"
-        ? { ...draft, family: { ...draft.family, ...op.patch } }
-        : draft,
-    create: (draft) =>
-      createItemCard({
-        itemType: "product",
-        name: draft.family.name.trim(),
-        unitDefinitionId: draft.family.unitDefinitionId,
-        category: draft.family.category,
-        description: draft.family.description,
-      }),
-    save: async () => null,
-    getResultId: (result) => result.itemId,
-    applyPersistedIdentity: (draft, result) =>
-      preserveDraftVariantDisplay(draft, result.card),
-    mergeServerOwnedFields: (draft, result) =>
-      preserveDraftVariantDisplay(draft, result.card),
-    onPersisted: (id) => {
-      reflectPersistedCardUrlWithoutNavigation(`/inventory/products/${id}`);
-    },
-    onResult: (result, draft) => {
-      queryClient.setQueryData(["item-card", result.itemId], draft);
-      void queryClient.invalidateQueries({ queryKey: ["item-cards"] });
-    },
+  const controller = useItemCardDraftController({
+    initialItemId,
+    initialCard,
+    itemType: "product",
+    persistedHref,
+    unitOptions,
   });
-  const currentItemId = engine.currentId;
-  const isDraft = !engine.hasPersistedEntity;
+  const currentItemId = controller.currentItemId;
+  const isDraft = !controller.hasPersistedEntity;
+  const { mergeServerCard } = controller;
+  const actionSaveStatus = useCardSaveStatus(currentItemId ?? "__draft__");
 
   const cardQuery = useQuery({
     queryKey: ["item-card", currentItemId ?? "__draft__"],
@@ -97,8 +65,11 @@ export function ProductCard({
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
-  const card = isDraft ? engine.draft : cardQuery.data ?? engine.draft;
-  const liveSaveStatus = useEntitySaveStatus("item-card", currentItemId ?? "__draft__");
+  useEffect(() => {
+    if (isDraft || !cardQuery.data) return;
+    mergeServerCard(cardQuery.data);
+  }, [cardQuery.data, isDraft, mergeServerCard]);
+  const card = controller.card;
 
   useEffect(() => {
     if (!currentItemId) return;
@@ -120,19 +91,6 @@ export function ProductCard({
       router.replace(`/inventory/products/${currentItemId}`, { scroll: false });
     }
   }, [currentItemId, router, searchParams]);
-
-  const updateDraftFamily = useCallback((patch: Partial<ItemCardDto["family"]>) => {
-    engine.applyLocalOp({ type: "patchFamily", patch }, Number.POSITIVE_INFINITY);
-  }, [engine]);
-
-  const commitDraft = useCallback(
-    (patch?: Partial<ItemCardDto["family"]>) => {
-      if (!isDraft) return;
-      if (patch) engine.applyLocalOp({ type: "patchFamily", patch }, Number.POSITIVE_INFINITY);
-      void engine.flush().catch(() => undefined);
-    },
-    [engine, isDraft],
-  );
 
   const deleteCardMutation = useDeleteEntity({
     mutationKey: ["item-card-action", currentItemId ?? "__draft__", "delete-card"],
@@ -187,13 +145,26 @@ export function ProductCard({
 
   const avgIngredientsCost = getAverageIngredientsCost(card);
   const resolvedActiveTab = activeTab ?? getProductCardTabFromPath(pathname);
-  const saveState: CardSaveState = isDraft
-    ? engine.status === "saving"
+  const effectiveSaveStatus =
+    controller.status === "saving" || actionSaveStatus.status === "saving"
       ? "saving"
-      : engine.status === "error"
+      : controller.status === "error" || actionSaveStatus.status === "error"
+        ? "error"
+        : controller.status;
+  const saveState: CardSaveState = isDraft
+    ? effectiveSaveStatus === "saving"
+      ? "saving"
+      : effectiveSaveStatus === "error"
         ? "failed"
         : "not_saved"
-    : saveStateFromEntityStatus(liveSaveStatus.status);
+    : effectiveSaveStatus === "saving"
+      ? "saving"
+      : effectiveSaveStatus === "error"
+        ? "failed"
+        : effectiveSaveStatus === "dirty"
+          ? "not_saved"
+          : "saved";
+  const saveMessage = controller.error ?? actionSaveStatus.errorMessage;
 
   return (
     <CardPage>
@@ -201,6 +172,7 @@ export function ProductCard({
         title={isDraft && !card.family.name.trim() ? "New product" : card.family.name}
         fallbackHref="/inventory/products"
         saveState={saveState}
+        saveMessage={saveMessage}
         menuActions={[
           ...(currentItemId
             ? [
@@ -238,9 +210,14 @@ export function ProductCard({
             focusItemId={currentItemId}
             unitOptions={unitOptions}
             onOpenConfig={() => setConfigOpen(true)}
-            onDraftFamilyChange={updateDraftFamily}
-            onDraftCommit={commitDraft}
-            draftCreatePending={engine.status === "saving"}
+            onFamilyChange={controller.patchFamily}
+            onFamilyCommit={controller.commitFamily}
+            onSellableChange={controller.setSellable}
+            onVariantPatch={controller.patchVariant}
+            onVariantReorder={controller.reorderVariants}
+            onFlush={controller.flush}
+            variantsEnabled={variantsEnabled}
+            onVariantsEnabledChange={setVariantsEnabled}
           />
         ) : (
           children
@@ -253,6 +230,11 @@ export function ProductCard({
             open={configOpen}
             onOpenChange={setConfigOpen}
             card={card}
+            onSaved={(nextCard) =>
+              setVariantsEnabled(
+                nextCard.options.some((option) => option.disabledAt == null),
+              )
+            }
           />
         </>
       )}
@@ -276,15 +258,4 @@ function getProductCardTabFromPath(pathname: string): ProductCardTab {
   if (pathname.endsWith("/production")) return "production";
   if (pathname.endsWith("/lots")) return "lots";
   return "general";
-}
-
-function preserveDraftVariantDisplay(
-  draftCard: ItemCardDto,
-  savedCard: ItemCardDto,
-): ItemCardDto {
-  return {
-    ...savedCard,
-    options: draftCard.options,
-    variants: draftCard.variants,
-  };
 }

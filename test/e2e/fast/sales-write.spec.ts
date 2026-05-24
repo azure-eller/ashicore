@@ -498,7 +498,7 @@ test.describe("Sales write-path smoke", () => {
     expect(order.status).toBe("open");
     expect(order.orderDate).toBe("2026-04-01");
     expect(order.shipDate).toBe("2026-04-15");
-    expect(order.requestedDate).toBeNull();
+    expect(order.requestedDate).toBe("2026-04-15");
     expect(order.notes).toBe(orderNote);
 
     await page.goto("/sales/orders");
@@ -831,8 +831,6 @@ test.describe("Sales write-path smoke", () => {
     const pickerOrderId = getIdFromUrl(page.url());
 
     const lineGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
-    await expect(lineGrid).toContainText("No line items yet.");
-    await page.getByRole("button", { name: "Add line" }).click();
     await expect(lineGrid.locator(".ag-row").first()).toBeVisible();
 
     await lineGrid.locator('.ag-row [col-id="itemId"]').first().click();
@@ -1943,7 +1941,7 @@ test.describe("Sales write-path smoke", () => {
     await expect(page.getByText("20/12")).toBeVisible({ timeout: 60_000 });
 
     await page
-      .getByRole("button", { name: /Collapse Unplanned demand/ })
+      .getByRole("button", { name: /Collapse No ship date/ })
       .click();
     await expect(
       page.getByText("Pool vs. demand · 1 orders, 1 short of 1 lines")
@@ -1956,10 +1954,10 @@ test.describe("Sales write-path smoke", () => {
           const raw = window.localStorage.getItem(
             "ashicore.viewPreferences.sales.orders.allocator",
           );
-          return raw ? JSON.parse(raw).unplannedOpen : null;
+          return raw ? JSON.parse(raw).collapsedWeeks?.includes("no-date") : null;
         }),
       )
-      .toBe(false);
+      .toBe(true);
 
     const hiddenMenu = page.getByRole("button", { name: /hidden/ });
     await expect(hiddenMenu).toBeVisible();
@@ -4311,7 +4309,7 @@ test.describe("Sales write-path smoke", () => {
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText(productTwoName);
     await expect(dialog).toContainText("1 order");
-    await selectDate(page, dialog.getByLabel("Planned Date"), "2026-05-22");
+    await selectDate(page, dialog.getByLabel("Production deadline"), "2026-05-22");
     await expect(dialog.getByRole("button", { name: "Create 1 order" })).toBeEnabled();
   });
 

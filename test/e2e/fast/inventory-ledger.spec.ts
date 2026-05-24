@@ -15,6 +15,7 @@ import {
   purchaseOrders,
   salesOrders,
   stocktakeItems,
+  stocktakeLotItems,
   unitDefinitions,
 } from "../../../lib/db/schema";
 import { buildStocktakeCategoryScope } from "../../../lib/schemas/stocktakes";
@@ -113,6 +114,8 @@ test.describe("Inventory ledger explorer", () => {
   let stocktakeId = "";
   let stocktakeLossLineId = "";
   let stocktakeVerifiedLineId = "";
+  let stocktakeLossLotLineId = "";
+  let stocktakeVerifiedLotLineId = "";
   let balanceItemId = "";
   let balanceLotAId = "";
   let balanceLotBId = "";
@@ -365,16 +368,36 @@ test.describe("Inventory ledger explorer", () => {
     expect(stocktakeLossLineId).not.toBe("");
     expect(stocktakeVerifiedLineId).not.toBe("");
 
+    const lotLines = await db
+      .select({
+        id: stocktakeLotItems.id,
+        stocktakeItemId: stocktakeLotItems.stocktakeItemId,
+      })
+      .from(stocktakeLotItems)
+      .where(
+        inArray(stocktakeLotItems.stocktakeItemId, [
+          stocktakeLossLineId,
+          stocktakeVerifiedLineId,
+        ])
+      );
+    stocktakeLossLotLineId =
+      lotLines.find((line) => line.stocktakeItemId === stocktakeLossLineId)?.id ?? "";
+    stocktakeVerifiedLotLineId =
+      lotLines.find((line) => line.stocktakeItemId === stocktakeVerifiedLineId)?.id ?? "";
+
+    expect(stocktakeLossLotLineId).not.toBe("");
+    expect(stocktakeVerifiedLotLineId).not.toBe("");
+
     const saveCounts = await testFetch(`/api/stocktakes/${stocktakeId}`, {
       method: "PUT",
       body: JSON.stringify({
-        lines: [
+        lotLines: [
           {
-            lineId: stocktakeLossLineId,
+            lotLineId: stocktakeLossLotLineId,
             countedQty: "3",
           },
           {
-            lineId: stocktakeVerifiedLineId,
+            lotLineId: stocktakeVerifiedLotLineId,
             countedQty: "2",
           },
         ],
@@ -400,8 +423,8 @@ test.describe("Inventory ledger explorer", () => {
             and(
               eq(inventoryEvents.referenceType, "stocktake_line"),
               inArray(inventoryEvents.referenceId, [
-                stocktakeLossLineId,
-                stocktakeVerifiedLineId,
+                stocktakeLossLotLineId,
+                stocktakeVerifiedLotLineId,
               ])
             )
           );
@@ -417,8 +440,8 @@ test.describe("Inventory ledger explorer", () => {
             and(
               eq(inventoryEvents.referenceType, "stocktake_line"),
               inArray(inventoryEvents.referenceId, [
-                stocktakeLossLineId,
-                stocktakeVerifiedLineId,
+                stocktakeLossLotLineId,
+                stocktakeVerifiedLotLineId,
               ])
             )
           );
@@ -1211,7 +1234,7 @@ test.describe("Inventory ledger explorer", () => {
     );
     expect(
       body.rows.every((row: { referenceId: string }) =>
-        [stocktakeLossLineId, stocktakeVerifiedLineId].includes(row.referenceId)
+        [stocktakeLossLotLineId, stocktakeVerifiedLotLineId].includes(row.referenceId)
       )
     ).toBe(true);
   });

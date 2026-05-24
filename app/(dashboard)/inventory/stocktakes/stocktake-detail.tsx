@@ -230,6 +230,7 @@ export function StocktakeDetail({
 
   const handleComplete = async () => {
     try {
+      await saveEngine.flush();
       await completeMutation.mutateAsync(false);
     } catch {
       return;
@@ -392,8 +393,7 @@ export function StocktakeDetail({
   const canComplete =
     canEditCounts &&
     liveCountedCount > 0 &&
-    !completeMutation.isPending &&
-    saveEngine.status !== "saving";
+    !completeMutation.isPending;
   const cardSaveState = cardSaveStateFromEngine(saveEngine.status);
   const countActions = (
     <div className="flex flex-wrap items-center gap-(--space-3)">

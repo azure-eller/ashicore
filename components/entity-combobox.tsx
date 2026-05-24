@@ -38,6 +38,7 @@ export function EntityCombobox<TOption extends EntityComboboxOption>({
   inputId,
   inputClassName,
   inputAriaInvalid,
+  disabled,
   contentClassName,
   createLinks = [],
   getSearchText = defaultEntitySearchText,
@@ -51,6 +52,7 @@ export function EntityCombobox<TOption extends EntityComboboxOption>({
   inputId?: string;
   inputClassName?: string;
   inputAriaInvalid?: boolean;
+  disabled?: boolean;
   contentClassName?: string;
   createLinks?: ComboboxCreateLink[];
   getSearchText?: (option: TOption) => string;
@@ -74,6 +76,7 @@ export function EntityCombobox<TOption extends EntityComboboxOption>({
         aria-invalid={inputAriaInvalid}
         className={inputClassName}
         placeholder={placeholder}
+        disabled={disabled}
       />
       <ComboboxContent className={cn("bg-popover text-popover-foreground", contentClassName)}>
         <ComboboxEmpty>{emptyMessage}</ComboboxEmpty>

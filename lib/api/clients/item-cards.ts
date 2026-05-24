@@ -240,7 +240,7 @@ export async function updateItemCard(
 export async function updateItemCardVariant(
   variantItemId: string,
   input: UpdateItemCardVariantInput
-): Promise<{ id: string }> {
+): Promise<ItemCardDto> {
   const path = `/api/item-cards/${variantItemId}/variant`;
   const response = await fetch(path, {
     method: "PATCH",
@@ -250,7 +250,7 @@ export async function updateItemCardVariant(
     body: JSON.stringify(input),
   });
   if (!response.ok) return parseError(response, path);
-  return (await response.json()) as { id: string };
+  return (await response.json()) as ItemCardDto;
 }
 
 export async function updateItemCardSellable(

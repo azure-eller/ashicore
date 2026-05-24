@@ -21,7 +21,10 @@ import {
   SalesOrderApiError,
 } from "@/lib/api/clients/sales-orders";
 import { updatePurchaseOrderStatus } from "@/lib/api/clients/purchase-orders";
-import { patchManufacturingOrder } from "@/lib/api/clients/manufacturing-orders";
+import {
+  patchManufacturingOrder,
+  startManufacturingOrder,
+} from "@/lib/api/clients/manufacturing-orders";
 import { deriveProductionStatus } from "@/lib/manufacturing/derive-status";
 import { deriveOrderDisplayStatus } from "@/lib/sales/order-display-status";
 import { formatQuantity } from "@/lib/format";
@@ -145,6 +148,7 @@ export type ManufacturingStatusFields = {
   manufacturingMode: string;
   pickProgressStatus: ManufacturingPickProgressStatus;
   completedBatchCount: number;
+  startedAt?: Date | string | null;
   actualQuantity?: string | null;
 };
 
@@ -167,18 +171,26 @@ export const manufacturingOrderStatusConfig: OrderStatusControlConfig<Manufactur
       isBlocked: order.isBlocked,
       pickProgressStatus: order.pickProgressStatus,
       completedBatchCount: order.completedBatchCount,
+      startedAt: order.startedAt,
     }),
   transitionKind: (from, to, { order }) => {
     if (from === "done") return "disabled";
     if (to === from) return "noop";
+    if (to === "not_started" && hasManufacturingWorkStarted(order)) return "disabled";
     if (to === "partially_complete" && order.manufacturingMode !== "batch") {
       return "disabled";
     }
     if (to === "partially_complete" || to === "done") return "dialog";
     return "instant";
   },
-  runInstant: (to, { order }) =>
-    patchManufacturingOrder(order.id, { isBlocked: to === "blocked" }).then(() => undefined),
+  runInstant: (to, { order }) => {
+    if (to === "in_progress") {
+      return startManufacturingOrder(order.id).then(() => undefined);
+    }
+    return patchManufacturingOrder(order.id, { isBlocked: to === "blocked" }).then(
+      () => undefined
+    );
+  },
   renderDialog: ({ to, ctx, onClose, onDone }) => {
     if (to !== "done" && to !== "partially_complete") return null;
     return (
@@ -191,6 +203,14 @@ export const manufacturingOrderStatusConfig: OrderStatusControlConfig<Manufactur
     );
   },
 };
+
+function hasManufacturingWorkStarted(order: ManufacturingStatusFields) {
+  return (
+    order.startedAt != null ||
+    order.pickProgressStatus !== "not_started" ||
+    order.completedBatchCount > 0
+  );
+}
 
 export function isManufacturingStatusDisabled(
   order: Pick<ManufacturingStatusFields, "status">

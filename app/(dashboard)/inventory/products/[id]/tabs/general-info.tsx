@@ -1,7 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -21,13 +19,10 @@ import {
 import { VariantTable } from "@/components/card-page/variant-table";
 import { GenerateBarcodesButton } from "@/components/card-page/generate-barcodes-button";
 import { CategoryComboboxField } from "@/components/card-page/category-combobox-field";
-import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
-import { setItemCardFamilyQueryData } from "@/components/card-page/item-card-cache";
 import styles from "@/components/card-page/card-page.module.css";
 import {
-  updateItemCard,
-  updateItemCardSellable,
   type ItemCardDto,
+  type UpdateItemCardVariantInput,
   type UpdateItemCardInput,
 } from "@/lib/api/clients/item-cards";
 
@@ -39,9 +34,14 @@ export type ProductGeneralInfoTabProps = {
   focusItemId: string | null;
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
   onOpenConfig: () => void;
-  onDraftFamilyChange: (patch: DraftFamilyPatch) => void;
-  onDraftCommit: (patch?: DraftFamilyPatch) => void;
-  draftCreatePending?: boolean;
+  onFamilyChange: (patch: DraftFamilyPatch, delayMs?: number) => void;
+  onFamilyCommit: (patch?: DraftFamilyPatch) => void;
+  onSellableChange: (sellable: boolean) => void;
+  onVariantPatch: (variantId: string, patch: UpdateItemCardVariantInput) => void;
+  onVariantReorder: (orderedVariantIds: string[]) => void;
+  onFlush: () => Promise<void>;
+  variantsEnabled: boolean;
+  onVariantsEnabledChange: (enabled: boolean) => void;
 };
 
 export function ProductGeneralInfoTab({
@@ -49,12 +49,16 @@ export function ProductGeneralInfoTab({
   focusItemId,
   unitOptions,
   onOpenConfig,
-  onDraftFamilyChange,
-  onDraftCommit,
-  draftCreatePending,
+  onFamilyChange,
+  onFamilyCommit,
+  onSellableChange,
+  onVariantPatch,
+  onVariantReorder,
+  onFlush,
+  variantsEnabled,
+  onVariantsEnabledChange,
 }: ProductGeneralInfoTabProps) {
   const hasOptions = card.options.some((option) => option.disabledAt == null);
-  const [variantsEnabled, setVariantsEnabled] = useState(hasOptions);
   const visibleVariantCount = card.variants.filter((variant) => variant.deletedAt == null)
     .length;
   const isDraft = focusItemId == null;
@@ -64,18 +68,7 @@ export function ProductGeneralInfoTab({
   const sellableIndeterminate =
     visibleVariants.some((variant) => variant.sellable) &&
     visibleVariants.some((variant) => !variant.sellable);
-  const queryClient = useQueryClient();
-  const sellableMutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "sellable"),
-    mutationFn: (sellable: boolean) =>
-      updateItemCardSellable(focusItemId as string, { sellable }),
-    onSuccess: (nextCard) => {
-      if (focusItemId) {
-        queryClient.setQueryData(["item-card", focusItemId], nextCard);
-      }
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
-    },
-  });
+  const variantsActive = hasOptions || variantsEnabled;
 
   return (
     <>
@@ -84,55 +77,49 @@ export function ProductGeneralInfoTab({
         left={
           <>
             <ItemCardCommitField
-              focusItemId={focusItemId}
               field="name"
               label="Product name"
               value={card.family.name}
               required
               autoFocus={isDraft}
-              onDraftFamilyChange={onDraftFamilyChange}
-              onDraftCommit={onDraftCommit}
-              disabled={draftCreatePending}
+              onFamilyChange={onFamilyChange}
+              onFamilyCommit={onFamilyCommit}
             />
             <CategoryComboboxField
-              focusItemId={focusItemId}
               itemType={card.family.itemType}
               label="Category"
               value={card.family.category}
               placeholder="Select or create category"
-              onDraftChange={(category) => onDraftFamilyChange({ category })}
-              onDraftCommit={(category) => onDraftCommit({ category })}
-              disabled={draftCreatePending}
+              onChange={(category, delayMs) => onFamilyChange({ category }, delayMs)}
+              onCommit={(category) =>
+                category === undefined ? onFamilyCommit() : onFamilyCommit({ category })
+              }
             />
             <ItemCardNotesField
-              focusItemId={focusItemId}
               field="description"
               label="Description"
               value={card.family.description}
-              onDraftFamilyChange={onDraftFamilyChange}
-              onDraftCommit={onDraftCommit}
-              disabled={draftCreatePending}
+              onFamilyChange={onFamilyChange}
+              onFamilyCommit={onFamilyCommit}
             />
           </>
         }
         right={
           <>
             <UnitSelectField
-              focusItemId={focusItemId}
               currentUnitId={card.family.unitDefinitionId}
               unitOptions={unitOptions}
-              onDraftFamilyChange={onDraftFamilyChange}
-              onDraftCommit={onDraftCommit}
-              disabled={draftCreatePending}
+              onFamilyChange={onFamilyChange}
+              onFamilyCommit={onFamilyCommit}
             />
             <Field>
               <FieldLabel>Usability</FieldLabel>
               <label className="flex items-center gap-(--space-2) text-[length:var(--text-sm)]">
                 <Checkbox
                   checked={sellableIndeterminate ? "indeterminate" : sellableChecked}
-                  disabled={isDraft || sellableMutation.isPending || visibleVariants.length === 0}
+                  disabled={isDraft || visibleVariants.length === 0}
                   onCheckedChange={(checked) => {
-                    sellableMutation.mutate(checked === true);
+                    onSellableChange(checked === true);
                   }}
                 />
                 <span>Sellable</span>
@@ -149,7 +136,7 @@ export function ProductGeneralInfoTab({
         count={hasOptions ? `· ${visibleVariantCount} variants` : null}
         actions={
           <>
-            {hasOptions || variantsEnabled ? (
+            {variantsActive ? (
               <Button
                 type="button"
                 variant="outline"
@@ -161,30 +148,40 @@ export function ProductGeneralInfoTab({
               </Button>
             ) : null}
             <GenerateBarcodesButton
-              cardItemId={focusItemId ?? ""}
               variants={card.variants}
               disabled={isDraft}
+              onAssignBarcode={(variantId, barcode) =>
+                onVariantPatch(variantId, { internalBarcode: barcode })
+              }
+              onFlush={onFlush}
             />
           </>
         }
       >
-        <label className="mb-(--space-2) flex items-center gap-(--space-2) text-[length:var(--text-sm)] text-muted-foreground">
-          <Checkbox
-            checked={hasOptions || variantsEnabled}
-            disabled={isDraft || hasOptions}
-            onCheckedChange={(checked) => {
-              const enabled = checked === true;
-              setVariantsEnabled(enabled);
-              if (enabled) onOpenConfig();
-            }}
-          />
-          This product has multiple variants
-        </label>
+        {variantsActive ? null : (
+          <label className="mb-(--space-2) flex items-center gap-(--space-2) text-[length:var(--text-sm)] text-muted-foreground">
+            <Checkbox
+              checked={false}
+              disabled={isDraft}
+              onCheckedChange={(checked) => {
+                if (checked !== true) return;
+                onVariantsEnabledChange(true);
+                onOpenConfig();
+              }}
+            />
+            This product has multiple variants
+          </label>
+        )}
 
-        {hasOptions || variantsEnabled ? (
-          <VariantTable card={card} viewMode="product" />
+        {hasOptions ? (
+          <VariantTable
+            card={card}
+            viewMode="product"
+            onVariantPatch={onVariantPatch}
+            onVariantReorder={onVariantReorder}
+          />
         ) : (
-          <p className={styles.helper}>No variants yet. Open configuration to add some.</p>
+          <p className={styles.helper}>No variants yet.</p>
         )}
       </CardSection>
     </>
@@ -192,32 +189,20 @@ export function ProductGeneralInfoTab({
 }
 
 type UnitSelectFieldProps = {
-  focusItemId: string | null;
   currentUnitId: string;
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
   disabled?: boolean;
-  onDraftFamilyChange: (patch: DraftFamilyPatch) => void;
-  onDraftCommit: (patch?: DraftFamilyPatch) => void;
+  onFamilyChange: (patch: DraftFamilyPatch, delayMs?: number) => void;
+  onFamilyCommit: (patch?: DraftFamilyPatch) => void;
 };
 
 function UnitSelectField({
-  focusItemId,
   currentUnitId,
   unitOptions,
   disabled,
-  onDraftFamilyChange,
-  onDraftCommit,
+  onFamilyChange,
+  onFamilyCommit,
 }: UnitSelectFieldProps) {
-  const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", focusItemId ?? "__draft__", "patch", "unitDefinitionId"),
-    mutationFn: (next: string) =>
-      updateItemCard(focusItemId as string, { unitDefinitionId: next }),
-    onSuccess: (nextCard) => {
-      setItemCardFamilyQueryData(queryClient, focusItemId as string, nextCard);
-    },
-  });
-
   return (
     <Field>
       <FieldLabel>Unit of measure</FieldLabel>
@@ -225,13 +210,10 @@ function UnitSelectField({
         value={currentUnitId}
         onValueChange={(value) => {
           if (disabled) return;
-          if (focusItemId == null) {
-            const patch = { unitDefinitionId: value };
-            onDraftFamilyChange(patch);
-            onDraftCommit(patch);
-            return;
-          }
-          if (value !== currentUnitId) mutation.mutate(value);
+          if (value === currentUnitId) return;
+          const patch = { unitDefinitionId: value };
+          onFamilyChange(patch, Number.POSITIVE_INFINITY);
+          onFamilyCommit(patch);
         }}
         disabled={disabled}
       >

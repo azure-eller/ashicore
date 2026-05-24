@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type CSSProperties,
 } from "react";
 import { AgGridReact } from "ag-grid-react";
@@ -72,9 +73,9 @@ export type EditableLineDataGridProps<TData> = {
   defaultColDef?: ColDef<TData>;
   enableReorder?: boolean;
   enableDelete?: boolean;
-  /** Deprecated compatibility prop. Blank-row auto-add behavior is disabled. */
+  /** Shows one transient editable row when an addable grid has no rows. */
   initializeBlankRow?: boolean;
-  /** Deprecated compatibility prop. Blank-row auto-add behavior is disabled. */
+  /** Deprecated compatibility prop. */
   isBlankRow?: (row: TData) => boolean;
   /**
    * When false, the "+ Add row" button is hidden and the auto-initialized
@@ -194,7 +195,7 @@ export function EditableLineDataGrid<TData>({
   defaultColDef: defaultColDefOverrides,
   enableReorder = true,
   enableDelete = true,
-  initializeBlankRow: _initializeBlankRow,
+  initializeBlankRow = false,
   isBlankRow: _isBlankRow,
   enableAddRow = true,
   addDisabledReason,
@@ -207,21 +208,35 @@ export function EditableLineDataGrid<TData>({
   error,
   onGridReady,
 }: EditableLineDataGridProps<TData>) {
-  void _initializeBlankRow;
   void _isBlankRow;
   const gridApiRef = useRef<GridApi<TData> | null>(null);
   const stateRef = useRef({ rows, getRowId, onRowsChange });
   const pendingEditRowIdRef = useRef<string | null>(null);
+  const [transientBlankRow, setTransientBlankRow] = useState<TData>(() => createRow());
+  const [blankRowDismissed, setBlankRowDismissed] = useState(false);
 
   useEffect(() => {
     stateRef.current = { rows, getRowId, onRowsChange };
   }, [getRowId, onRowsChange, rows]);
 
+  const shouldShowTransientBlankRow =
+    initializeBlankRow &&
+    enableAddRow &&
+    rows.length === 0 &&
+    !blankRowDismissed &&
+    !addDisabledReason;
+
+  const displayRows = useMemo(
+    () =>
+      shouldShowTransientBlankRow ? [transientBlankRow] : rows,
+    [rows, shouldShowTransientBlankRow, transientBlankRow],
+  );
+
   useEffect(() => {
     const pendingRowId = pendingEditRowIdRef.current;
     if (!pendingRowId) return;
 
-    const rowIndex = rows.findIndex((row) => getRowId(row) === pendingRowId);
+    const rowIndex = displayRows.findIndex((row) => getRowId(row) === pendingRowId);
     if (rowIndex < 0) return;
 
     window.requestAnimationFrame(() => {
@@ -243,7 +258,7 @@ export function EditableLineDataGrid<TData>({
         colKey: firstEditableColumn,
       });
     });
-  }, [getRowId, rows]);
+  }, [displayRows, getRowId]);
 
   const emitRowsChange = useCallback(
     (nextRows: TData[], change: Omit<EditableLineDataGridChange<TData>, "rows">) => {
@@ -254,6 +269,8 @@ export function EditableLineDataGrid<TData>({
 
   const handleAddRow = useCallback(async () => {
     const latest = stateRef.current;
+    setTransientBlankRow(createRow());
+    setBlankRowDismissed(false);
     const row = onAddRow ? await onAddRow() : createRow();
     if (!row) return;
     const nextRows = [...latest.rows, row];
@@ -266,17 +283,32 @@ export function EditableLineDataGrid<TData>({
       const latest = stateRef.current;
       if (getDeleteDisabledReason?.(row, latest.rows)) return;
       if (canDeleteRow && !canDeleteRow(row, latest.rows)) return;
+      const rowId = latest.getRowId(row);
+      const existingRow = latest.rows.some(
+        (current) => latest.getRowId(current) === rowId
+      );
+      if (!existingRow) {
+        setTransientBlankRow(createRow());
+        setBlankRowDismissed(true);
+        emitRowsChange(latest.rows, { type: "row_deleted", row });
+        return;
+      }
+      if (latest.rows.length <= 1) {
+        setBlankRowDismissed(true);
+      }
       if (onDeleteRow) {
         await onDeleteRow(row, latest.rows);
         return;
       }
-      const rowId = latest.getRowId(row);
       const nextRows = latest.rows.filter(
         (current) => latest.getRowId(current) !== rowId
       );
+      if (nextRows.length === 0) {
+        setBlankRowDismissed(true);
+      }
       emitRowsChange(nextRows, { type: "row_deleted", row });
     },
-    [canDeleteRow, emitRowsChange, getDeleteDisabledReason, onDeleteRow]
+    [canDeleteRow, createRow, emitRowsChange, getDeleteDisabledReason, onDeleteRow]
   );
 
   const defaultColDef = useMemo<ColDef<TData>>(
@@ -321,7 +353,7 @@ export function EditableLineDataGrid<TData>({
         cellRenderer: (params: ICellRendererParams<TData>) => (
           <DeleteCell
             {...params}
-            rows={rows}
+            rows={displayRows}
             canDeleteRow={canDeleteRow}
             getDeleteDisabledReason={getDeleteDisabledReason}
             onDelete={handleDeleteRow}
@@ -338,7 +370,7 @@ export function EditableLineDataGrid<TData>({
     enableReorder,
     getDeleteDisabledReason,
     handleDeleteRow,
-    rows,
+    displayRows,
   ]);
 
   const columnDefs = useMemo<ColDef<TData>[]>(
@@ -362,9 +394,9 @@ export function EditableLineDataGrid<TData>({
   const gridStyle = useMemo<CSSProperties>(
     () => ({
       minHeight: minHeight ?? (rows.length === 0 ? headerHeight + rowHeight : undefined),
-      "--editable-grid-body-min-height": rows.length === 0 ? `${rowHeight}px` : "0",
+      "--editable-grid-body-min-height": displayRows.length === 0 ? `${rowHeight}px` : "0",
     }),
-    [headerHeight, minHeight, rowHeight, rows.length]
+    [displayRows.length, headerHeight, minHeight, rowHeight, rows.length]
   ) as CSSProperties;
 
   const handleCellValueChanged = useCallback(
@@ -375,9 +407,12 @@ export function EditableLineDataGrid<TData>({
 
       const latest = stateRef.current;
       const editedId = latest.getRowId(event.data);
-      const nextRows = latest.rows.map((row) =>
-        latest.getRowId(row) === editedId ? { ...event.data } : row
-      );
+      const existingRow = latest.rows.some((row) => latest.getRowId(row) === editedId);
+      const nextRows = existingRow
+        ? latest.rows.map((row) =>
+            latest.getRowId(row) === editedId ? { ...event.data } : row
+          )
+        : [{ ...event.data }];
       const editedRow = nextRows.find((row) => latest.getRowId(row) === editedId);
 
       latest.onRowsChange(nextRows, {
@@ -455,7 +490,7 @@ export function EditableLineDataGrid<TData>({
         style={gridStyle}
       >
         <AgGridReact<TData>
-          rowData={rows}
+          rowData={displayRows}
           columnDefs={columnDefs}
           defaultColDef={defaultColDef}
           getRowId={({ data }: GetRowIdParams<TData>) => getRowId(data)}

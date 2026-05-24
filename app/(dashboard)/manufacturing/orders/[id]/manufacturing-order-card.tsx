@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import type { ICellRendererParams } from "ag-grid-community";
@@ -15,18 +15,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   FixedEditableLines,
   MutableLines,
   type EditableLineDataGridChange,
   type LineField,
 } from "@/components/editable-lines";
 import { DatePicker } from "@/components/ui/date-picker";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -41,10 +36,10 @@ import {
   formatDate,
   formatPrice,
   formatQuantity,
+  normalizeNumeric,
 } from "@/lib/format";
 import {
   fetchManufacturingSalesLineOptions,
-  patchManufacturingOrderIngredient,
 } from "@/lib/api/clients/manufacturing-orders";
 import { OrderStatusControl } from "@/components/card-page/order-status-control";
 import {
@@ -55,7 +50,10 @@ import {
   LotStrategyChip,
   type PickedLotSummary,
 } from "@/components/manufacturing/lot-strategy-chip";
-import { ManufacturingIngredientLotCard } from "@/components/manufacturing/ingredient-lot-card";
+import {
+  AllocationSourceDialog,
+  type AllocationTarget,
+} from "@/app/(dashboard)/sales/sales-order-allocator";
 import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
@@ -116,8 +114,7 @@ export function ManufacturingOrderCard({
 }) {
   const queryClient = useQueryClient();
   const router = useRouter();
-  const [lotPickerIngredient, setLotPickerIngredient] =
-    useState<ManufacturingOrderIngredientDetail | null>(null);
+  const [lotPickerTarget, setLotPickerTarget] = useState<AllocationTarget | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const goBack = useSmartBack("/manufacturing/orders");
   const initialDraft = useMemo(() => makeDraftManufacturingOrder(), []);
@@ -193,30 +190,6 @@ export function ManufacturingOrderCard({
     cancelLabel: "Back",
     mutation: deleteMutation,
   });
-  const lotAllocationMutation = useMutation({
-    mutationKey: ["mo-action", currentOrderId ?? "__draft__", "ingredient-lot-allocation"],
-    onMutate: () => setActionError(null),
-    mutationFn: async ({
-      ingredientId,
-      allocations,
-    }: {
-      ingredientId: string;
-      allocations: Array<{ sourceId: string; quantity: string }>;
-    }) => {
-      await controller.flush();
-      if (!currentOrderId) throw new Error("Save the manufacturing order before allocating lots.");
-      return patchManufacturingOrderIngredient(currentOrderId, ingredientId, {
-        lotStrategy: "custom",
-        allocations,
-      });
-    },
-    onSuccess: () => {
-      void controller.refreshFromServer();
-      void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
-    },
-    onError: (error) => setActionError((error as Error).message),
-  });
-
   const editState = getManufacturingOrderEditState(order);
   const headerSaveState: CardSaveState =
     controller.status === "saving" || controller.status === "dirty"
@@ -266,6 +239,7 @@ export function ManufacturingOrderCard({
                   completedBatchCount: order.batches.filter(
                     (batch) => batch.status === "completed",
                   ).length,
+                  startedAt: order.startedAt,
                   actualQuantity: order.actualQuantity,
                 },
               }}
@@ -322,9 +296,9 @@ export function ManufacturingOrderCard({
           ingredientOptions={ingredientOptions}
           canEditPlanning={editState.canEditPlanning}
           planningLockedReason={editState.planningLockedReason}
-          canEditLotAllocations={editState.canEditMetadata}
+          canEditLotAllocations={order == null || order.status === "open"}
           metadataLockedReason={editState.metadataLockedReason}
-          onOpenLotPicker={(ingredient) => setLotPickerIngredient(ingredient)}
+          onOpenLotPicker={(ingredient) => setLotPickerTarget(buildLotPickerTarget(order, ingredient))}
         />
         <OperationsSection order={order} />
         <NotesSection
@@ -334,39 +308,16 @@ export function ManufacturingOrderCard({
         />
       </CardPageBody>
 
-      {lotPickerIngredient ? (
-        <Dialog
-          open={lotPickerIngredient != null}
-          onOpenChange={(open) => {
-            if (!open) {
-              setLotPickerIngredient(null);
-              refreshOrder();
-            }
-          }}
-        >
-          <DialogContent size="lg" className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Pick lots for {lotPickerIngredient.itemName}</DialogTitle>
-            </DialogHeader>
-            <ManufacturingIngredientLotCard
-              itemId={lotPickerIngredient.itemId}
-              ingredientId={lotPickerIngredient.id}
-              itemName={lotPickerIngredient.itemName}
-              unitName={lotPickerIngredient.unitName}
-              plannedQuantity={lotPickerIngredient.plannedQuantity}
-              value={undefined}
-              manufacturingOrderId={currentOrderId}
-              autoAllocateOnSave={false}
-              onChange={(allocations) => {
-                lotAllocationMutation.mutate({
-                  ingredientId: lotPickerIngredient.id,
-                  allocations,
-                });
-              }}
-            />
-          </DialogContent>
-        </Dialog>
-      ) : null}
+      <AllocationSourceDialog
+        target={lotPickerTarget}
+        onOpenChange={(open) => {
+          if (!open) setLotPickerTarget(null);
+        }}
+        onSaved={() => {
+          void controller.refreshFromServer();
+          void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
+        }}
+      />
 
       {deleteConfirm.dialog}
     </CardPage>
@@ -406,8 +357,14 @@ function OrderDetailsSection({
     order.manufacturingMode === "batch" && order.numberOfBatches != null
       ? String(order.numberOfBatches)
       : order.requestedQuantity || order.plannedQuantity;
-  const plannedFieldLabel = isBatchProduct ? "Batches" : "Planned quantity";
+  const plannedFieldLabel = isBatchProduct ? "Number of batches" : "Quantity";
   const plannedFieldSuffix = isBatchProduct ? "batches" : unitName || "units";
+  const batchOutputHint =
+    isBatchProduct && expectedBatchYield != null
+      ? `Total output: ${formatQuantity(order.plannedQuantity)} ${
+          unitName || selectedProduct?.unitName || "units"
+        }`
+      : null;
   const productSelectDisabled = productOptions.length === 0;
   const productDisabledReason = productSelectDisabled
     ? "Create a product with a recipe before creating a manufacturing order."
@@ -528,41 +485,51 @@ function OrderDetailsSection({
       <div className={styles.formRow}>
         <CellShell label={plannedFieldLabel}>
           {canEditPlanning ? (
-            <div className={styles.suffixField}>
-              <CommitInput
-                label={plannedFieldLabel}
-                value={plannedInputValue}
-                inputMode={isBatchProduct ? "numeric" : "decimal"}
-                className={`${styles.underlineInput} ${styles.mono} text-right`}
-                onDraftChange={(next) => controller.updatePlannedInput(next)}
-                onCommit={(next) => {
-                  if (!next) return;
-                  if (next !== plannedInputValue) {
-                    controller.updatePlannedInput(next);
-                  }
-                }}
-              />
-              <span className={styles.fieldSuffix}>{plannedFieldSuffix}</span>
-            </div>
+            <>
+              <div className={styles.suffixField}>
+                {isBatchProduct ? (
+                  <BatchCountInput
+                    label={plannedFieldLabel}
+                    value={plannedInputValue}
+                    onChange={controller.updatePlannedInput}
+                  />
+                ) : (
+                  <CommitInput
+                    label={plannedFieldLabel}
+                    value={plannedInputValue}
+                    inputMode="decimal"
+                    className={`${styles.underlineInput} ${styles.mono} text-right`}
+                    onDraftChange={(next) => controller.updatePlannedInput(next)}
+                    onCommit={(next) => {
+                      if (!next) return;
+                      if (next !== plannedInputValue) {
+                        controller.updatePlannedInput(next);
+                      }
+                    }}
+                  />
+                )}
+                <span className={styles.fieldSuffix}>{plannedFieldSuffix}</span>
+              </div>
+              {batchOutputHint ? (
+                <p className={styles.fieldHint}>{batchOutputHint}</p>
+              ) : null}
+            </>
           ) : (
-            <div
-              className={`${styles.suffixField} ${styles.suffixFieldReadOnly}`}
-              title={planningLockedReason ?? undefined}
-            >
-              <span className={`${styles.underlineInput} ${styles.mono} text-right`}>
-                {formatQuantity(plannedInputValue)}
-              </span>
-              <span className={styles.fieldSuffix}>{plannedFieldSuffix}</span>
-            </div>
+            <>
+              <div
+                className={`${styles.suffixField} ${styles.suffixFieldReadOnly}`}
+                title={planningLockedReason ?? undefined}
+              >
+                <span className={`${styles.underlineInput} ${styles.mono} text-right`}>
+                  {formatQuantity(plannedInputValue)}
+                </span>
+                <span className={styles.fieldSuffix}>{plannedFieldSuffix}</span>
+              </div>
+              {batchOutputHint ? (
+                <p className={styles.fieldHint}>{batchOutputHint}</p>
+              ) : null}
+            </>
           )}
-        </CellShell>
-        <CellShell label="Batch yield">
-          <div className={`${styles.suffixField} ${styles.suffixFieldReadOnly}`}>
-            <span className={`${styles.underlineInput} ${styles.mono} text-right`}>
-              {expectedBatchYield != null ? formatQuantity(expectedBatchYield) : "—"}
-            </span>
-            <span className={styles.fieldSuffix}>{unitName || selectedProduct?.unitName || "—"}</span>
-          </div>
         </CellShell>
         <CellShell label="Sales order">
           {canEditPlanning ? (
@@ -680,6 +647,51 @@ function makeBlankIngredient(plannedQuantity: string, sortOrder: number) {
   };
 }
 
+function BatchCountInput({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const normalizedValue = normalizeBatchCountInput(value) || "1";
+  const [draft, setDraft] = useState(normalizedValue);
+
+  useEffect(() => {
+    setDraft(normalizedValue);
+  }, [normalizedValue]);
+
+  return (
+    <Input
+      aria-label={label}
+      inputMode="numeric"
+      value={draft}
+      className={`${styles.underlineInput} ${styles.mono} text-right`}
+      onChange={(event) => {
+        const next = event.target.value.trim();
+        if (next !== "" && !/^\d+$/.test(next)) return;
+        setDraft(next);
+        if (next !== "" && Number(next) > 0) {
+          onChange(next);
+        }
+      }}
+      onBlur={() => {
+        if (draft === "" || Number(draft) <= 0) {
+          setDraft(normalizedValue);
+        }
+      }}
+    />
+  );
+}
+
+function normalizeBatchCountInput(value: string) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return String(Math.max(1, Math.round(parsed)));
+}
+
 function getManufacturingOrderEditState(order: ManufacturingOrderDetail | null) {
   const metadataLockedReason =
     order?.status === "done"
@@ -701,6 +713,10 @@ function getManufacturingExecutionStartedReason(order: ManufacturingOrderDetail 
 
   if (order.producedLots.length > 0 || Number(order.actualQuantity ?? 0) > 0) {
     return "Output has already been recorded, so planning fields are locked to preserve inventory history.";
+  }
+
+  if (order.startedAt != null) {
+    return "Manufacturing work has started, so planning fields are locked to preserve execution history.";
   }
 
   if (
@@ -729,6 +745,43 @@ function getManufacturingExecutionStartedReason(order: ManufacturingOrderDetail 
   return null;
 }
 
+function buildLotPickerTarget(
+  order: ManufacturingOrderDetail,
+  ingredient: ManufacturingOrderIngredientDetail
+): AllocationTarget {
+  return {
+    demandType: "manufacturing_order_ingredient",
+    demandLabel: order.orderNumber,
+    demandContext: ingredient.itemName,
+    line: {
+      id: ingredient.id,
+      itemId: ingredient.itemId,
+      masterName: ingredient.itemName,
+      attrs: [],
+      itemSku: ingredient.itemSku,
+      quantity: ingredient.plannedQuantity,
+      remainingQty: ingredient.plannedQuantity,
+      allocatedQty: normalizeNumeric(
+        (ingredient.lotAllocations ?? []).reduce(
+          (total, allocation) => total + Number(allocation.quantity ?? 0),
+          0
+        )
+      ),
+      pickedQty: ingredient.pickedQuantity,
+      unitName: ingredient.unitName,
+    },
+    product: {
+      itemId: ingredient.itemId,
+      label: ingredient.itemName,
+      familyLabel: ingredient.itemName,
+      variantLabel: "",
+      sku: ingredient.itemSku,
+      unitName: ingredient.unitName,
+    },
+    targetQty: ingredient.plannedQuantity,
+  };
+}
+
 function IngredientsSection({
   order,
   controller,
@@ -752,6 +805,26 @@ function IngredientsSection({
     useState<ManufacturingOrderIngredientDetail | null>(null);
 
   const ingredients = useMemo(() => order.ingredients ?? [], [order.ingredients]);
+  const isBatchMode = order.manufacturingMode === "batch";
+  const batchCount = isBatchMode ? Math.max(1, order.numberOfBatches ?? 1) : 1;
+  const plannedOutputQuantity = Math.max(0, Number(order.plannedQuantity || 0));
+  const batchYield =
+    isBatchMode && batchCount > 0 ? plannedOutputQuantity / batchCount : plannedOutputQuantity;
+  const quantityBasisHeader = isBatchMode ? "Per batch" : "Per unit";
+  const quantityBasisValue = useCallback(
+    (ingredient: ManufacturingOrderIngredientDetail) => {
+      if (!isBatchMode) return ingredient.quantityPerUnit;
+      return normalizeNumeric(Number(ingredient.plannedQuantity || 0) / batchCount);
+    },
+    [batchCount, isBatchMode],
+  );
+  const quantityPerUnitFromBasis = useCallback(
+    (basisQuantity: number) => {
+      if (!isBatchMode) return normalizeNumeric(basisQuantity);
+      return normalizeNumeric(batchYield > 0 ? basisQuantity / batchYield : basisQuantity);
+    },
+    [batchYield, isBatchMode],
+  );
   const [rows, setRows] = useState<ManufacturingOrderIngredientDetail[]>(ingredients);
   const [lastSynced, setLastSynced] = useState(ingredients);
   if (lastSynced !== ingredients) {
@@ -799,25 +872,28 @@ function IngredientsSection({
         }
         if (change.field === "quantityPerUnit") {
           if (!change.row.itemId) return;
+          const quantityPerUnit = quantityPerUnitFromBasis(
+            Number.parseFloat(change.row.quantityPerUnit)
+          );
           if (change.row.id.startsWith("draft-") && !ingredients.some((row) => row.id === change.row?.id)) {
             const option = optionMap.get(change.row.itemId);
             if (!option) return;
             controller.addIngredient(
               ingredientFromOption(option, order.plannedQuantity, {
                 id: change.row.id,
-                quantityPerUnit: change.row.quantityPerUnit,
+                quantityPerUnit,
                 sortOrder: change.row.sortOrder,
               }),
             );
           } else {
             controller.updateIngredient(change.row.id, {
-              quantityPerUnit: change.row.quantityPerUnit,
+              quantityPerUnit,
             });
           }
         }
       }
     },
-    [controller, ingredients, optionMap, order.plannedQuantity],
+    [controller, ingredients, optionMap, order.plannedQuantity, quantityPerUnitFromBasis],
   );
 
   const columns = useMemo<LineField<ManufacturingOrderIngredientDetail>[]>(
@@ -878,28 +954,31 @@ function IngredientsSection({
       },
       {
         field: "quantityPerUnit",
-        headerName: "Per unit",
+        headerName: quantityBasisHeader,
         kind: "number",
         rightAligned: true,
         width: 120,
         mono: true,
         editable: (row) => canEditPlanning && Boolean(row?.itemId) && row?.pickStatus === "not_picked",
+        valueGetter: ({ data }) => (data ? quantityBasisValue(data) : "0"),
         valueFormatter: ({ value }) => formatQuantity(String(value ?? "0")) ?? "0",
         valueSetter: (params) => {
           const parsed = Number.parseFloat(String(params.newValue).trim());
           if (!Number.isFinite(parsed) || parsed <= 0) return false;
-          const normalized = parsed.toString();
-          if (normalized === Number.parseFloat(params.data.quantityPerUnit).toString()) {
+          const quantityPerUnit = quantityPerUnitFromBasis(parsed);
+          if (quantityPerUnit === Number.parseFloat(params.data.quantityPerUnit).toString()) {
             return false;
           }
-          params.data.quantityPerUnit = normalized;
-          params.data.plannedQuantity = (parsed * Number(order.plannedQuantity || 0)).toString();
+          params.data.quantityPerUnit = normalizeNumeric(parsed);
+          params.data.plannedQuantity = isBatchMode
+            ? normalizeNumeric(parsed * batchCount)
+            : normalizeNumeric(parsed * plannedOutputQuantity);
           return true;
         },
       },
       {
         field: "plannedQuantity",
-        headerName: "Planned",
+        headerName: "Total",
         type: "rightAligned",
         width: 120,
         cellRenderer: (params: ICellRendererParams<ManufacturingOrderIngredientDetail>) =>
@@ -927,12 +1006,20 @@ function IngredientsSection({
           const lotLockReason = !canEditLotAllocations
             ? metadataLockedReason
             : "Lot allocations cannot be changed after this ingredient has been picked.";
+          const lotAllocations = ingredient.lotAllocations ?? [];
+          const totalAllocated = lotAllocations.reduce(
+            (total, allocation) => total + Number(allocation.quantity ?? 0),
+            0
+          );
           const summary: PickedLotSummary = {
-            count: Number.isFinite(picked) && picked > 0 ? 1 : 0,
-            firstLot: null,
+            count: lotAllocations.length,
+            firstLot:
+              lotAllocations[0]?.sourceLabel ??
+              lotAllocations[0]?.lotNumber ??
+              null,
             totalQty:
-              Number.isFinite(picked) && picked > 0
-                ? formatQuantity(ingredient.pickedQuantity)
+              lotAllocations.length > 0
+                ? formatQuantity(normalizeNumeric(totalAllocated))
                 : null,
           };
           if (!canEditIngredientLots) {
@@ -952,6 +1039,9 @@ function IngredientsSection({
               strategy={ingredient.lotStrategy as ManufacturingLotStrategy}
               summary={summary}
               onOpenPicker={() => onOpenLotPicker(ingredient)}
+              onChanged={() => {
+                void controller.refreshFromServer();
+              }}
             />
           );
         },
@@ -968,13 +1058,19 @@ function IngredientsSection({
     [
       canEditLotAllocations,
       canEditPlanning,
-      controller.hasPersistedOrder,
+      controller,
       ingredientOptions,
+      batchCount,
+      isBatchMode,
       metadataLockedReason,
       onOpenLotPicker,
       optionMap,
       order.id,
       order.plannedQuantity,
+      plannedOutputQuantity,
+      quantityBasisHeader,
+      quantityBasisValue,
+      quantityPerUnitFromBasis,
     ],
   );
 

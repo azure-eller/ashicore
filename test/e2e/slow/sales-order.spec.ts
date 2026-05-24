@@ -139,9 +139,7 @@ test.describe("Sales order flow", () => {
   const expectedOrderDate = format(currentMonthFirst, "yyyy-MM-dd");
   const expectedShipDate = format(currentMonthFourteenth, "yyyy-MM-dd");
   const expectedRequestedDate = format(currentMonthFifteenth, "yyyy-MM-dd");
-  const expectedShipDateLabel = new Date(
-    `${expectedShipDate}T00:00:00`
-  ).toLocaleDateString("en-US");
+  const expectedShipDateLabel = format(currentMonthFourteenth, "MMMM d, yyyy");
 
   const primaryMaterialName = `Sales BOM Sand ${fixtureTs}`;
   const primaryProductName = `Premium Topsoil ${fixtureTs}`;
@@ -515,7 +513,7 @@ test.describe("Sales order flow", () => {
     expect(order.status).toBe("open");
     expect(order.orderDate).toBe(expectedOrderDate);
     expect(order.shipDate).toBe(expectedShipDate);
-    expect(order.requestedDate).toBeNull();
+    expect(order.requestedDate).toBe(expectedRequestedDate);
     expect(order.notes).toBe("Full lifecycle test order");
     expect(order.deletedAt).toBeNull();
 

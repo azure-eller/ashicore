@@ -119,7 +119,6 @@ export function useDraftSaveEngine<TEntity, TOp, TResult>({
       pendingOpsRef.current = coalesceOps
         ? coalesceOps(pendingOpsRef.current, queued)
         : [...pendingOpsRef.current, queued];
-      setError(null);
       setStatus((current) => (current === "saving" ? current : "dirty"));
       setDraftState(applyOp(draftRef.current, op, revision));
       scheduleFlush(delayMs);

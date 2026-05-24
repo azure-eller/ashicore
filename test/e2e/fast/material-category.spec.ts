@@ -44,8 +44,8 @@ test.describe("material card: default tab + category combobox", () => {
     // The existing category shows up as a selectable suggestion.
     await category.click();
     await expect(
-      page.getByRole("option", { name: existingCategory }),
-    ).toBeVisible({ timeout: 5_000 });
+      page.locator(`datalist option[value="${existingCategory}"]`),
+    ).toHaveCount(1);
 
     // Typing a brand-new value and blurring autosaves it.
     await category.fill(newCategory);
@@ -65,5 +65,57 @@ test.describe("material card: default tab + category combobox", () => {
     // Survives a reload.
     await page.reload();
     await expect(page.locator("#card-field-category")).toHaveValue(newCategory);
+  });
+
+  test("keeps a local category edit visible while material create is pending", async ({
+    page,
+  }) => {
+    const raceTs = Date.now();
+    const materialName = `QA Create Race Material ${raceTs}`;
+    const raceCategory = `QA Create Race Category ${raceTs}`;
+    let delayed = false;
+
+    await page.route("**/api/item-cards", async (route) => {
+      if (route.request().method() !== "POST" || delayed) {
+        await route.continue();
+        return;
+      }
+      delayed = true;
+      await page.waitForTimeout(750);
+      await route.continue();
+    });
+
+    await page.goto("/inventory/material");
+    const nameInput = page.getByLabel("Material name");
+    await expect(nameInput).toBeVisible();
+    await nameInput.fill(materialName);
+
+    const createResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/api/item-cards"),
+    );
+    await nameInput.blur();
+
+    const category = page.locator("#card-field-category");
+    await expect(category).toBeVisible();
+    await category.fill(raceCategory);
+    await expect(category).toHaveValue(raceCategory);
+
+    const response = await createResponse;
+    expect(response.status()).toBe(201);
+    const created = (await response.json()) as { itemId: string };
+
+    await page.waitForURL(`**/inventory/materials/${created.itemId}*`);
+    await expect(page.locator("#card-field-category")).toHaveValue(raceCategory);
+    await expect
+      .poll(
+        async () => {
+          const res = await testFetch(`/api/item-cards/${created.itemId}`);
+          return (await res.json()).family.category as string | null;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(raceCategory);
   });
 });

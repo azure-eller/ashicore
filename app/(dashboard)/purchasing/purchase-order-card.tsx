@@ -2068,9 +2068,7 @@ export function PurchaseOrderCard({
                   type="button"
                   className="font-medium text-foreground"
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={
-                    uploadFileMutation.isPending || purchaseOrderEngine.status === "saving"
-                  }
+                  disabled={uploadFileMutation.isPending}
                 >
                   Upload or drop files
                 </button>

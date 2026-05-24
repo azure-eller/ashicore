@@ -834,6 +834,20 @@
       "when": 1779469000000,
       "tag": "0118_sales_order_shipping_fee",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1779599000000,
+      "tag": "0119_manufacturing_order_started_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1779600000000,
+      "tag": "0120_manufacturing_lifo_lot_strategy",
+      "breakpoints": true
     }
   ]
 }

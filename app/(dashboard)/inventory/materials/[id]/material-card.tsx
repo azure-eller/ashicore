@@ -1,33 +1,27 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { CardPage } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CardTabs, type CardTab } from "@/components/card-page/card-tabs";
+import { useCardSaveStatus } from "@/components/card-page/use-card-save-status";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import {
-  createItemCard,
   deleteItemCard,
   getItemCard,
-  type CreateItemCardResult,
   type ItemCardDto,
 } from "@/lib/api/clients/item-cards";
-import {
-  saveStateFromEntityStatus,
-  useEntitySaveStatus,
-  type CardSaveState,
-} from "@/components/card-page/card-save-status";
+import { type CardSaveState } from "@/components/card-page/card-save-status";
 import { LotGridTab, type CardLotRow } from "@/components/card-page/lot-grid-tab";
 import { VariantConfigurationDialog } from "@/components/card-page/variant-configuration-dialog";
 import { MaterialGeneralInfoTab } from "./tabs/general-info";
 import { MaterialUsedInBomsTab } from "./tabs/used-in-boms";
 import { MaterialSupplyDetailsTab } from "./tabs/supply-details";
 import type { SupplierOption } from "@/app/(dashboard)/purchasing/types";
-import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
-import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
+import { useItemCardDraftController } from "@/components/card-page/use-item-card-draft-controller";
 
 export type MaterialCardProps = {
   initialItemId: string | null;
@@ -51,47 +45,21 @@ export function MaterialCard({
   initialLots,
 }: MaterialCardProps) {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const [configOpen, setConfigOpen] = useState(false);
+  const [variantsEnabled, setVariantsEnabled] = useState(false);
+  const persistedHref = useCallback((id: string) => `/inventory/materials/${id}`, []);
 
-  const engine = useDraftSaveEngine<
-    ItemCardDto,
-    { type: "patchFamily"; patch: Partial<ItemCardDto["family"]> },
-    CreateItemCardResult
-  >({
-    initialDraft: initialCard,
-    initialServerSnapshot: initialItemId ? initialCard : null,
-    initialId: initialItemId,
-    isSaveable: (draft) =>
-      Boolean(draft.family.name.trim()) && Boolean(draft.family.unitDefinitionId),
-    applyOp: (draft, op) =>
-      op.type === "patchFamily"
-        ? { ...draft, family: { ...draft.family, ...op.patch } }
-        : draft,
-    create: (draft) =>
-      createItemCard({
-        itemType: "material",
-        name: draft.family.name.trim(),
-        unitDefinitionId: draft.family.unitDefinitionId,
-        category: draft.family.category,
-        description: draft.family.description,
-      }),
-    save: async () => null,
-    getResultId: (result) => result.itemId,
-    applyPersistedIdentity: (draft, result) =>
-      preserveDraftVariantDisplay(draft, result.card),
-    mergeServerOwnedFields: (draft, result) =>
-      preserveDraftVariantDisplay(draft, result.card),
-    onPersisted: (id) => {
-      reflectPersistedCardUrlWithoutNavigation(`/inventory/materials/${id}`);
-    },
-    onResult: (result, draft) => {
-      queryClient.setQueryData(["item-card", result.itemId], draft);
-      void queryClient.invalidateQueries({ queryKey: ["item-cards"] });
-    },
+  const controller = useItemCardDraftController({
+    initialItemId,
+    initialCard,
+    itemType: "material",
+    persistedHref,
+    unitOptions,
   });
-  const currentItemId = engine.currentId;
-  const isDraft = !engine.hasPersistedEntity;
+  const currentItemId = controller.currentItemId;
+  const isDraft = !controller.hasPersistedEntity;
+  const { mergeServerCard } = controller;
+  const actionSaveStatus = useCardSaveStatus(currentItemId ?? "__draft__");
 
   const cardQuery = useQuery({
     queryKey: ["item-card", currentItemId ?? "__draft__"],
@@ -101,21 +69,11 @@ export function MaterialCard({
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
-  const card = isDraft ? engine.draft : cardQuery.data ?? engine.draft;
-  const liveSaveStatus = useEntitySaveStatus("item-card", currentItemId ?? "__draft__");
-
-  const updateDraftFamily = useCallback((patch: Partial<ItemCardDto["family"]>) => {
-    engine.applyLocalOp({ type: "patchFamily", patch }, Number.POSITIVE_INFINITY);
-  }, [engine]);
-
-  const commitDraft = useCallback(
-    (patch?: Partial<ItemCardDto["family"]>) => {
-      if (!isDraft) return;
-      if (patch) engine.applyLocalOp({ type: "patchFamily", patch }, Number.POSITIVE_INFINITY);
-      void engine.flush().catch(() => undefined);
-    },
-    [engine, isDraft],
-  );
+  useEffect(() => {
+    if (isDraft || !cardQuery.data) return;
+    mergeServerCard(cardQuery.data);
+  }, [cardQuery.data, isDraft, mergeServerCard]);
+  const card = controller.card;
 
   const deleteCardMutation = useDeleteEntity({
     mutationKey: ["item-card-action", currentItemId ?? "__draft__", "delete-card"],
@@ -163,13 +121,26 @@ export function MaterialCard({
   );
 
   const avgIngredientsCost = getAverageIngredientsCost(card);
-  const saveState: CardSaveState = isDraft
-    ? engine.status === "saving"
+  const effectiveSaveStatus =
+    controller.status === "saving" || actionSaveStatus.status === "saving"
       ? "saving"
-      : engine.status === "error"
+      : controller.status === "error" || actionSaveStatus.status === "error"
+        ? "error"
+        : controller.status;
+  const saveState: CardSaveState = isDraft
+    ? effectiveSaveStatus === "saving"
+      ? "saving"
+      : effectiveSaveStatus === "error"
         ? "failed"
         : "not_saved"
-    : saveStateFromEntityStatus(liveSaveStatus.status);
+    : effectiveSaveStatus === "saving"
+      ? "saving"
+      : effectiveSaveStatus === "error"
+        ? "failed"
+        : effectiveSaveStatus === "dirty"
+          ? "not_saved"
+          : "saved";
+  const saveMessage = controller.error ?? actionSaveStatus.errorMessage;
 
   return (
     <CardPage>
@@ -177,6 +148,7 @@ export function MaterialCard({
         title={isDraft && !card.family.name.trim() ? "New material" : card.family.name}
         fallbackHref="/inventory/materials"
         saveState={saveState}
+        saveMessage={saveMessage}
         menuActions={[
           ...(currentItemId
             ? [
@@ -213,9 +185,13 @@ export function MaterialCard({
               focusItemId={currentItemId}
               unitOptions={unitOptions}
               onOpenConfig={() => setConfigOpen(true)}
-              onDraftFamilyChange={updateDraftFamily}
-              onDraftCommit={commitDraft}
-              draftCreatePending={engine.status === "saving"}
+              onFamilyChange={controller.patchFamily}
+              onFamilyCommit={controller.commitFamily}
+              onVariantPatch={controller.patchVariant}
+              onVariantReorder={controller.reorderVariants}
+              onFlush={controller.flush}
+              variantsEnabled={variantsEnabled}
+              onVariantsEnabledChange={setVariantsEnabled}
             />
           ),
           lots: (
@@ -230,9 +206,10 @@ export function MaterialCard({
           supply: (
             <MaterialSupplyDetailsTab
               card={card}
-              focusItemId={currentItemId ?? ""}
               unitOptions={unitOptions}
               supplierOptions={supplierOptions}
+              onFamilyChange={controller.patchFamily}
+              onVariantPatch={controller.patchVariant}
             />
           ),
         }}
@@ -244,6 +221,11 @@ export function MaterialCard({
             open={configOpen}
             onOpenChange={setConfigOpen}
             card={card}
+            onSaved={(nextCard) =>
+              setVariantsEnabled(
+                nextCard.options.some((option) => option.disabledAt == null),
+              )
+            }
           />
         </>
       )}
@@ -260,15 +242,4 @@ function getAverageIngredientsCost(card: ItemCardDto) {
     .filter((value) => Number.isFinite(value));
   if (costs.length === 0) return null;
   return costs.reduce((total, value) => total + value, 0) / costs.length;
-}
-
-function preserveDraftVariantDisplay(
-  draftCard: ItemCardDto,
-  savedCard: ItemCardDto,
-): ItemCardDto {
-  return {
-    ...savedCard,
-    options: draftCard.options,
-    variants: draftCard.variants,
-  };
 }

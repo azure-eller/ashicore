@@ -17,7 +17,7 @@ export const MANUFACTURING_PICK_STATUSES = [
 export type ManufacturingPickStatus =
   (typeof MANUFACTURING_PICK_STATUSES)[number];
 
-export const MANUFACTURING_LOT_STRATEGIES = ["fifo", "custom"] as const;
+export const MANUFACTURING_LOT_STRATEGIES = ["fifo", "lifo", "custom"] as const;
 
 export type ManufacturingLotStrategy =
   (typeof MANUFACTURING_LOT_STRATEGIES)[number];

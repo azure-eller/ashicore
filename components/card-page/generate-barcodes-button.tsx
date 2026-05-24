@@ -1,20 +1,18 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   EndpointNotReadyError,
   getNextInternalBarcode,
-  updateItemCardVariant,
   type ItemCardVariantDto,
 } from "@/lib/api/clients/item-cards";
-import { cardSaveMutationKey } from "./card-save-status";
 
 export type GenerateBarcodesButtonProps = {
-  /** itemId the page is keyed by for card-save status. */
-  cardItemId: string;
   variants: ItemCardVariantDto[];
   disabled?: boolean;
+  onAssignBarcode: (variantId: string, barcode: string) => void;
+  onFlush: () => Promise<void>;
 };
 
 /**
@@ -23,39 +21,42 @@ export type GenerateBarcodesButtonProps = {
  * Idempotent — variants that already have a barcode are skipped.
  */
 export function GenerateBarcodesButton({
-  cardItemId,
   variants,
   disabled,
+  onAssignBarcode,
+  onFlush,
 }: GenerateBarcodesButtonProps) {
-  const queryClient = useQueryClient();
   const visibleVariants = variants.filter((variant) => variant.deletedAt == null);
   const candidates = visibleVariants.filter((variant) => !variant.internalBarcode);
   const hasVariants = visibleVariants.length > 0;
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
-  const mutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", cardItemId, "generate-internal-barcodes"),
-    mutationFn: async () => {
+  const assign = async () => {
+    setPending(true);
+    setError(null);
+    try {
       if (candidates.length === 0) return { assigned: 0 };
       // Sequential awaits (not Promise.all) — keeps the assignments
       // deterministic and predictable when reviewing assignments.
       for (const variant of candidates) {
         const barcode = await getNextInternalBarcode();
-        await updateItemCardVariant(variant.id, {
-          internalBarcode: barcode,
-        });
+        onAssignBarcode(variant.id, barcode);
       }
+      await onFlush();
       return { assigned: candidates.length };
-    },
-    onSettled: () => {
-      // Broad invalidation so every card view picks up the new barcodes.
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
-    },
-  });
+    } catch (assignError) {
+      setError(assignError instanceof Error ? assignError : new Error("Failed to assign barcodes."));
+      return { assigned: 0 };
+    } finally {
+      setPending(false);
+    }
+  };
 
-  const errorMessage = mutation.error
-    ? mutation.error instanceof EndpointNotReadyError
+  const errorMessage = error
+    ? error instanceof EndpointNotReadyError
       ? "Backend endpoint not ready."
-      : (mutation.error as Error).message
+      : error.message
     : null;
 
   return (
@@ -64,15 +65,15 @@ export function GenerateBarcodesButton({
         type="button"
         variant="outline"
         size="sm"
-        onClick={() => mutation.mutate()}
-        disabled={disabled || mutation.isPending || candidates.length === 0}
+        onClick={() => void assign()}
+        disabled={disabled || pending || candidates.length === 0}
         title={
           hasVariants && candidates.length === 0
             ? "All variants already have internal barcodes."
             : undefined
         }
       >
-        {mutation.isPending
+        {pending
           ? "Assigning…"
           : hasVariants && candidates.length === 0
           ? "Internal barcodes assigned"

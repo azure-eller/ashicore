@@ -100,7 +100,8 @@ test.describe("Inventory write-path smoke (card UI)", () => {
 
     await page.waitForURL(`**/inventory/materials/${materialId}*`);
     await expect(page.getByRole("heading", { name: materialName })).toBeVisible();
-    await expect(page.getByText("No variants yet. Open configuration to add some.")).toBeVisible();
+    await expect(page.getByText("This material has multiple variants")).toBeVisible();
+    await expect(page.getByText("No variants yet.")).toBeVisible();
     await expect(page.locator('[data-slot="editable-line-data-grid"]')).toHaveCount(0);
 
     const [material] = await db.select().from(items).where(eq(items.id, materialId));
@@ -256,7 +257,8 @@ test.describe("Inventory write-path smoke (card UI)", () => {
 
     await page.waitForURL(`**/inventory/products/${productId}*`);
     await expect(page.getByRole("heading", { name: productName })).toBeVisible();
-    await expect(page.getByText("No variants yet. Open configuration to add some.")).toBeVisible();
+    await expect(page.getByText("This product has multiple variants")).toBeVisible();
+    await expect(page.getByText("No variants yet.")).toBeVisible();
     await expect(page.locator('[data-slot="editable-line-data-grid"]')).toHaveCount(0);
 
     await page.getByRole("link", { name: "Recipe" }).click();

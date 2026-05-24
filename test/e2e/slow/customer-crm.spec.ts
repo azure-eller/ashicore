@@ -277,7 +277,6 @@ test.describe("Customer CRM detail flow", () => {
     test.skip(!hasBlobToken, "Live Vercel Blob credentials are required.");
 
     await page.goto(`/sales/customers/${customerId}`);
-    await page.getByRole("button", { name: /^Projects/ }).click();
     await page.getByRole("button", { name: new RegExp(projectName) }).click();
 
     const files = [
@@ -338,7 +337,9 @@ test.describe("Customer CRM detail flow", () => {
             .endsWith(`/api/customers/${customerId}/projects/${projectId}/files/${fileToDelete.id}`)
       ),
       page
-        .getByRole("button", { name: `Delete ${fileToDelete.filename}` })
+        .getByText(fileToDelete.filename)
+        .locator("..")
+        .getByRole("button", { name: "Delete" })
         .evaluate((button: HTMLElement) => button.click()),
     ]);
     expect(deleteFileResponse.status()).toBe(200);
@@ -361,8 +362,8 @@ test.describe("Customer CRM detail flow", () => {
     test.skip(!hasBlobToken, "Live Vercel Blob credentials are required.");
 
     await page.goto(`/sales/customers/${customerId}`);
-    await page.getByRole("button", { name: /^Projects/ }).click();
     await page.getByRole("button", { name: new RegExp(projectName) }).click();
+    await page.getByRole("button", { name: "Delete project" }).click();
 
     const [deleteProjectResponse] = await Promise.all([
       page.waitForResponse(
@@ -370,7 +371,7 @@ test.describe("Customer CRM detail flow", () => {
           res.request().method() === "DELETE" &&
           res.url().endsWith(`/api/customers/${customerId}/projects/${projectId}`)
       ),
-      page.getByRole("button", { name: "Delete", exact: true }).click(),
+      page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click(),
     ]);
     expect(deleteProjectResponse.status()).toBe(200);
     await expect(page.getByRole("button", { name: new RegExp(projectName) })).toBeHidden();
@@ -417,9 +418,10 @@ test.describe("Customer CRM detail flow", () => {
           eq(customerProjects.customerId, customerId),
           eq(customerProjects.name, cleanupProjectName)
         )
-      );
+    );
     expect(cleanupProject.deletedAt).toBeNull();
 
+    await page.goto(`/sales/customers/${customerId}`);
     await page.getByRole("button", { name: new RegExp(cleanupProjectName) }).click();
     await uploadFile(page, customerId, cleanupProject.id, {
       name: `customer-delete-cleanup-${run}.txt`,

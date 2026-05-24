@@ -358,7 +358,7 @@ export function SupplierCard({
         }
       />
       <CardPageBody>
-        <CardSection title="Supplier at a glance">
+        <CardSection>
           <div className={`${styles.formRow} ${styles.formRowThree}`}>
             <CellShell label="Name" required invalid={isDraft && !display.name.trim()}>
               <CommitInput

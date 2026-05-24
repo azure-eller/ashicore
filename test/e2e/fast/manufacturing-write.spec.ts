@@ -104,7 +104,7 @@ test.describe("Manufacturing write-path smoke", () => {
     const productSelect = page.getByLabel("Product");
     await expect(productSelect).toBeVisible();
 
-    await page.getByLabel("Planned quantity").fill("5");
+    await page.getByLabel("Quantity").fill("5");
 
     await productSelect.click();
     const [createResponse] = await Promise.all([
@@ -162,6 +162,28 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(order.plannedDate).toBe("2026-04-25");
     expect(order.notes).toBe("Fast manufacturing smoke test");
 
+    const statusButton = page.getByRole("button", { name: "Status: Not started" });
+    await expect(statusButton).toBeVisible();
+    await statusButton.click();
+    const startResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith(`/api/manufacturing-orders/${orderId}/start`)
+    );
+    await page.getByRole("menuitem", { name: "Work in progress" }).click();
+    expect((await startResponsePromise).status()).toBe(200);
+    await expect(page.getByText("Work in progress")).toBeVisible();
+
+    await expect
+      .poll(async () => {
+        const [startedOrder] = await db
+          .select({ startedAt: manufacturingOrders.startedAt })
+          .from(manufacturingOrders)
+          .where(eq(manufacturingOrders.id, orderId));
+        return startedOrder?.startedAt == null ? "not-started" : "started";
+      })
+      .toBe("started");
+
     const listResponse = await testFetch("/api/manufacturing-orders");
     expect(listResponse.status).toBe(200);
     const listBody = (await listResponse.json()) as Array<Record<string, unknown>>;
@@ -177,6 +199,9 @@ test.describe("Manufacturing write-path smoke", () => {
       .from(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
     expect(ingredients).toHaveLength(2);
+    expect(ingredients.every((ingredient) => ingredient.pickedQuantity === "0.0000")).toBe(
+      true
+    );
     const ingredientIds = ingredients.map((ingredient) => ingredient.id);
     const ingredientAllocations = await db
       .select({
@@ -291,7 +316,7 @@ test.describe("Manufacturing write-path smoke", () => {
     await page.goto("/manufacturing/order");
     await expect(page.getByRole("heading", { name: "New manufacturing order" })).toBeVisible();
 
-    await page.getByLabel("Planned quantity").fill("7");
+    await page.getByLabel("Quantity").fill("7");
     const productSelect = page.getByLabel("Product");
     await productSelect.click();
     const createResponsePromise = page.waitForResponse(
@@ -302,7 +327,7 @@ test.describe("Manufacturing write-path smoke", () => {
     await page.getByRole("option", { name: new RegExp(raceProductName) }).click();
 
     await expect(productSelect).toContainText(raceProductName);
-    await expect(page.getByLabel("Planned quantity")).toHaveValue("7");
+    await expect(page.getByLabel("Quantity")).toHaveValue("7");
 
     expect((await createResponsePromise).status()).toBe(201);
     await page.waitForURL(/\/manufacturing\/order\/[0-9a-f-]+$/);
@@ -313,14 +338,14 @@ test.describe("Manufacturing write-path smoke", () => {
     ).toHaveCount(0);
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/MO-\d{4}-\d{4}/);
     await expect(productSelect).toContainText(raceProductName);
-    await expect(page.getByLabel("Planned quantity")).toHaveValue("7");
+    await expect(page.getByLabel("Quantity")).toHaveValue("7");
     await page.reload();
     await expect(
       page.getByRole("heading", { name: "New manufacturing order" }),
     ).toHaveCount(0);
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/MO-\d{4}-\d{4}/);
     await expect(page.getByLabel("Product")).toContainText(raceProductName);
-    await expect(page.getByLabel("Planned quantity")).toHaveValue("7");
+    await expect(page.getByLabel("Quantity")).toHaveValue("7");
     await expect
       .poll(async () => {
         const [order] = await db
@@ -399,7 +424,7 @@ test.describe("Manufacturing write-path smoke", () => {
     );
     await page.getByRole("button", { name: "Delete row" }).first().click();
     await page.getByRole("button", { name: "Remove" }).click();
-    await expect(page.getByText("No ingredients yet.")).toBeVisible();
+    await expect(page.locator('[data-slot="editable-line-data-grid"]').first().locator(".ag-row")).toHaveCount(0);
 
     const notesField = page.getByLabel("Notes");
     await notesField.fill("Queued edit survived structural save");
@@ -422,7 +447,7 @@ test.describe("Manufacturing write-path smoke", () => {
       page.getByRole("heading", { name: "New manufacturing order" }),
     ).toHaveCount(0);
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/MO-\d{4}-\d{4}/);
-    await expect(page.getByText("No ingredients yet.")).toBeVisible();
+    await expect(page.locator('[data-slot="editable-line-data-grid"]').first().locator(".ag-row")).toHaveCount(1);
     await expect(page.getByLabel("Notes")).toHaveValue("Queued edit survived structural save");
 
     await expect
@@ -1673,13 +1698,31 @@ test.describe("Manufacturing write-path smoke", () => {
 
     // Batch-mode sheet uses batch count; a yield-2 product at 3 batches → 6 output.
     await page.goto("/manufacturing/order");
-    await page.getByLabel("Planned quantity").fill("3");
     const productSelect = page.getByLabel("Product");
     await productSelect.click();
     await page.getByRole("option", { name: new RegExp(batchProductName) }).click();
+    await page.getByLabel("Number of batches").fill("3");
+    await expect(page.getByText("Total output: 6")).toBeVisible();
+    await expect(page.getByText("Per batch", { exact: true })).toBeVisible();
 
     await page.waitForURL(/\/manufacturing\/order\/[0-9a-f-]+$/);
     const batchOrderId = getIdFromUrl(page.url());
+
+    await expect
+      .poll(async () => {
+        const [row] = await db
+          .select({
+            plannedQuantity: manufacturingOrders.plannedQuantity,
+            numberOfBatches: manufacturingOrders.numberOfBatches,
+          })
+          .from(manufacturingOrders)
+          .where(eq(manufacturingOrders.id, batchOrderId));
+        return row;
+      })
+      .toEqual({
+        plannedQuantity: "6.0000",
+        numberOfBatches: 3,
+      });
 
     const [openOrder] = await db
       .select()
@@ -1953,13 +1996,20 @@ test.describe("Manufacturing write-path smoke", () => {
     const movements = await db
       .select({
         eventType: inventoryEvents.eventType,
+        quantity: inventoryEvents.quantity,
       })
       .from(inventoryEvents)
       .where(eq(inventoryEvents.referenceId, batchOrderId));
-    expect(movements).toHaveLength(13);
+    const expectedIncreaseMovements = movements.filter(
+      (movement) => movement.eventType === "expected_increase"
+    );
+    expect(movements).toHaveLength(12 + expectedIncreaseMovements.length);
     expect(
-      movements.filter((movement) => movement.eventType === "expected_increase")
-    ).toHaveLength(1);
+      expectedIncreaseMovements.reduce(
+        (sum, movement) => sum + Number(movement.quantity),
+        0
+      )
+    ).toBe(6);
     expect(
       movements.filter(
         (movement) => movement.eventType === "manufacturing_ingredient_consumption"

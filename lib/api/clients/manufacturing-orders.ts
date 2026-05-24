@@ -128,6 +128,20 @@ export async function fetchManufacturingOrder(
   return (await response.json()) as ManufacturingOrderDetail;
 }
 
+export async function startManufacturingOrder(
+  orderId: string,
+): Promise<ManufacturingOrderDetail> {
+  const response = await fetch(`/api/manufacturing-orders/${orderId}/start`, {
+    method: "POST",
+    headers: createIdempotencyHeaders("startManufacturingOrder", {
+      "Content-Type": "application/json",
+    }),
+    body: JSON.stringify({}),
+  });
+  if (!response.ok) return parseError(response);
+  return (await response.json()) as ManufacturingOrderDetail;
+}
+
 export type CreateManufacturingOrderInput = {
   productId: string;
   plannedQuantity: string;

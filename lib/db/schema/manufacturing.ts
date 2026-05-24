@@ -73,6 +73,7 @@ export const manufacturingOrders = manufacturingSchema
         scale: 4,
       }),
       notes: text("notes"),
+      startedAt: timestamp("started_at", { withTimezone: true }),
       completedAt: timestamp("completed_at", { withTimezone: true }),
       cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
       deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -169,7 +170,7 @@ export const manufacturingOrderIngredients = manufacturingSchema
         .where(sql`${table.manufacturingOrderBatchId} IS NOT NULL`),
       check(
         "manufacturing_order_ingredients_lot_strategy_check",
-        sql`lot_strategy IN ('fifo', 'custom')`
+        sql`lot_strategy IN ('fifo', 'lifo', 'custom')`
       ),
       pgPolicy("manufacturing_order_ingredients_org_isolation", {
         for: "all",
