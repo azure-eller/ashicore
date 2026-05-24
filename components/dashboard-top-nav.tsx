@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -86,6 +86,8 @@ export function DashboardTopNav({
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [pageSearchOpen, setPageSearchOpen] = useState(false);
   const [pageSearch, setPageSearch] = useState("");
+  const [previewModuleHref, setPreviewModuleHref] = useState<string | null>(null);
+  const subNavResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const modules = getDashboardNavModules(assignedRoles, {
     salesAllocationMode: allocationMode,
   });
@@ -94,6 +96,11 @@ export function DashboardTopNav({
     salesAllocationMode: allocationMode,
   });
   const activeModule = getActiveDashboardModule(visiblePathname, modules);
+  const previewModule =
+    modules.find((module) => module.href === previewModuleHref) ?? null;
+  const visibleModule = previewModule ?? activeModule ?? modules[0] ?? null;
+  const isPreviewingModule =
+    previewModule != null && previewModule.baseHref !== activeModule?.baseHref;
   const normalizedPageSearch = pageSearch.trim().toLowerCase();
   const filteredSearchActions = normalizedPageSearch
     ? searchActions.filter(
@@ -107,6 +114,41 @@ export function DashboardTopNav({
   useEffect(() => {
     setHydratedPathname(pathname);
   }, [pathname]);
+
+  useEffect(() => {
+    setPreviewModuleHref(null);
+  }, [visiblePathname]);
+
+  useEffect(
+    () => () => {
+      if (subNavResetTimerRef.current) {
+        clearTimeout(subNavResetTimerRef.current);
+      }
+    },
+    []
+  );
+
+  function clearSubNavResetTimer() {
+    if (!subNavResetTimerRef.current) {
+      return;
+    }
+
+    clearTimeout(subNavResetTimerRef.current);
+    subNavResetTimerRef.current = null;
+  }
+
+  function scheduleSubNavReset(delay: number) {
+    clearSubNavResetTimer();
+    subNavResetTimerRef.current = setTimeout(() => {
+      setPreviewModuleHref(null);
+      subNavResetTimerRef.current = null;
+    }, delay);
+  }
+
+  function showModulePreview(moduleHref: string) {
+    clearSubNavResetTimer();
+    setPreviewModuleHref(moduleHref);
+  }
 
   async function handleLogout() {
     const { error } = await authClient.signOut();
@@ -141,12 +183,12 @@ export function DashboardTopNav({
 
   return (
     <>
-      <header className="flex h-[65px] shrink-0 items-center border-b bg-sidebar text-sidebar-foreground">
+      <header className="flex h-(--height-nav) shrink-0 items-center border-b bg-sidebar text-sidebar-foreground">
         <div className="flex min-w-0 flex-1 items-center">
-          <div className="mr-[11px] flex h-[65px] min-w-0 shrink-0 items-center gap-[11px] border-r border-sidebar-border px-[22px] pr-[27px]">
+          <div className="mr-(--space-5) flex h-(--height-nav) min-w-0 shrink-0 items-center gap-(--space-5) border-r border-sidebar-border px-(--space-10) pr-(--space-12)">
             <NavigationLink
               href="/sales/orders"
-              className="flex items-center gap-[11px] text-[19px] font-semibold tracking-[0] text-sidebar-foreground"
+              className="flex items-center gap-(--space-5) text-[length:var(--text-lg)] font-semibold tracking-[0] text-sidebar-foreground"
             >
               <AshicoreLogo showWordmark markClassName="size-(--space-10)" />
             </NavigationLink>
@@ -154,13 +196,18 @@ export function DashboardTopNav({
 
           <nav
             aria-label="Primary"
-            className="flex min-w-0 flex-1 items-center gap-0 overflow-x-auto px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="flex min-w-0 flex-1 items-center gap-(--space-2) overflow-x-auto px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
             {modules.map((module) => {
               const active = isDashboardPathActive(
                 visiblePathname,
                 module.baseHref
               );
+              const dimActive =
+                active &&
+                isPreviewingModule &&
+                visibleModule?.baseHref !== module.baseHref;
+              const showingSubNav = visibleModule?.baseHref === module.baseHref;
 
               return (
                 <Button
@@ -169,20 +216,28 @@ export function DashboardTopNav({
                   variant="ghost"
                   size="default"
                   className={cn(
-                    "mb-[-1px] h-[65px] shrink-0 rounded-none px-[19px] text-sidebar-foreground/80 shadow-[inset_0_-2px_0_transparent] hover:bg-transparent hover:text-sidebar-accent-foreground",
+                    "relative h-(--height-input-md) shrink-0 rounded-none px-(--space-7) text-sidebar-foreground/80 transition-colors duration-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                    showingSubNav && "bg-sidebar-accent text-sidebar-accent-foreground",
                     active &&
-                      "text-sidebar-accent-foreground shadow-[inset_0_-2px_0_var(--color-accent)]"
+                      "font-semibold text-sidebar-accent-foreground shadow-[inset_0_-2px_0_var(--color-accent)]",
+                    dimActive && "text-sidebar-foreground/50"
                   )}
                   asChild
                 >
                   <NavigationLink
                     href={module.href}
-                    className="flex items-center justify-center gap-[9.5px] text-[17.5px] leading-none font-medium"
+                    aria-current={active ? "true" : undefined}
+                    className="flex items-center justify-center gap-(--space-4) text-[length:var(--text-md)] leading-[var(--leading-sm)] font-medium"
+                    onMouseEnter={() => showModulePreview(module.href)}
+                    onMouseLeave={() => scheduleSubNavReset(220)}
+                    onFocus={() => showModulePreview(module.href)}
+                    onBlur={() => scheduleSubNavReset(220)}
+                    onClick={() => setPreviewModuleHref(null)}
                   >
                     <HugeiconsIcon
                       icon={module.icon}
                       strokeWidth={2}
-                      className="size-[20px]"
+                      className="size-(--space-10)"
                     />
                     {module.title}
                   </NavigationLink>
@@ -432,31 +487,47 @@ export function DashboardTopNav({
           </div>
         </div>
       </header>
-      {activeModule ? (
-        <nav
-          aria-label={`${activeModule.title} pages`}
-          className="flex h-[49px] shrink-0 items-stretch border-b bg-background px-[22px]"
-        >
-          <div className="flex min-w-0 items-stretch gap-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {activeModule.items.map((item) => {
-              const active = isDashboardPathActive(visiblePathname, item.href);
+      <nav
+        aria-label={
+          visibleModule
+            ? isPreviewingModule
+              ? `Preview: ${visibleModule.title} pages`
+              : `${visibleModule.title} pages`
+            : "Section pages"
+        }
+        className={cn(
+          "flex h-(--height-subnav) shrink-0 items-stretch border-b bg-background px-(--space-10)",
+          isPreviewingModule && "opacity-85"
+        )}
+        onMouseEnter={clearSubNavResetTimer}
+        onMouseLeave={() => scheduleSubNavReset(120)}
+      >
+        {visibleModule ? (
+          <div className="flex min-w-0 items-center gap-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {visibleModule.items.map((item) => {
+              const active =
+                !isPreviewingModule &&
+                isDashboardPathActive(visiblePathname, item.href);
 
               return (
                 <NavigationLink
                   key={item.href}
                   href={item.href}
+                  aria-current={active ? "page" : undefined}
                   className={cn(
-                    "flex h-[49px] shrink-0 items-center border-b-0 px-[19px] text-[17px] leading-none font-medium text-muted-foreground shadow-[inset_0_-2px_0_transparent] hover:text-foreground",
-                    active && "text-primary shadow-[inset_0_-2px_0_var(--color-accent)]"
+                    "flex h-(--height-subnav) shrink-0 items-center px-(--space-5) text-[length:var(--text-base)] leading-[var(--leading-sm)] font-medium text-muted-foreground shadow-[inset_0_-2px_0_transparent] hover:text-foreground",
+                    active &&
+                      "font-semibold text-primary shadow-[inset_0_-2px_0_var(--color-accent)]"
                   )}
+                  onClick={() => setPreviewModuleHref(null)}
                 >
                   {item.title}
                 </NavigationLink>
               );
             })}
           </div>
-        </nav>
-      ) : null}
+        ) : null}
+      </nav>
     </>
   );
 }
