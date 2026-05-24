@@ -30,8 +30,8 @@ read_when:
 - A slow spec must be a realistic workflow a small manufacturer would recognize; edge cases belong only when they naturally occur inside that story.
 - Prefer flows like create, edit, submit, receive, confirm, ship, release, complete.
 - Include error or guard checks only when they naturally occur in the operational sequence.
-- Use UI actions first, API response assertions on important mutations, reload/persistence checks, and DB assertions through the `db` fixture.
-- Avoid pure API-only slow stories unless the contract is intentionally headless or mobile-facing; otherwise anchor the story in the UI and use API/DB checks as evidence.
+- Slow stories should be anchored in recognizable workflows. Use UI where it proves workflow usability or persistence; use API helpers for setup and mutation seams when UI breadth would make the story brittle.
+- Use API response assertions on important mutations, reload/persistence checks where relevant, and DB/read-model assertions through the `db` fixture as business-state evidence.
 - Use `docs/slow-suite-audit.md` when deciding whether existing slow coverage should stay, fold, delete, rewrite, or convert to `verify:*`.
 
 ## Local defaults
@@ -58,12 +58,12 @@ read_when:
 - PR CI runs after `ci:ready` is present and verifies a fresh install, migrations/schema, `pnpm build`, `pnpm lint`, and `pnpm test:fast`.
 - If you push another commit after final GitHub CI, remove `ci:ready`, rerun local validation, document the new results, then re-add `ci:ready`.
 - PR slow CI is label-selected and also waits for `ci:ready`. Every PR needs one of:
-  `ci:slow:sales`, `ci:slow:inventory`, `ci:slow:purchasing`,
-  `ci:slow:manufacturing`, `ci:slow:stocktake`, `ci:slow:auth`,
+  `ci:slow:sales`, `ci:slow:purchasing`,
+  `ci:slow:manufacturing`, `ci:slow:planning`, `ci:slow:stocktake`, `ci:slow:auth`,
   `ci:slow:all`, or `ci:slow:none`.
 - Missing `ci:slow:*` labels fail the selector job only after `ci:ready` is present. `ci:slow:none` is for docs-only or CI-only changes and must not be combined with other slow labels.
 - Use `ci:slow:all` for shared DB/schema/DAL/API/test infrastructure changes.
-- Nightly CI runs `pnpm test:slow` plus `pnpm test:slow:auth`. Manual dispatch can run `all`, one domain, `stocktake`, `auth`, or `none`.
+- Nightly CI runs `pnpm test:slow` plus `pnpm test:slow:auth`. Manual dispatch can run `all`, one domain, `planning`, `stocktake`, `auth`, or `none`.
 - Failed scheduled slow runs open or update a report-only investigation PR from `main`, mention `@codex`, and include the run link, failed jobs, and artifact links. The bot reuses `codex/nightly-slow-failure` while it is open to avoid PR spam.
 - The generated investigation PR is a branch for fixes, not an automatic merge candidate. The agent should inspect logs/artifacts, push real code or test fixes when appropriate, and document validation before merge.
 
@@ -76,6 +76,6 @@ read_when:
 - `pnpm test:fast:manufacturing`: `test/e2e/fast/manufacturing-demand-and-completion.spec.ts`
 - `pnpm test:fast:planning`: `test/e2e/fast/planning-demand-queue.spec.ts`
 - `pnpm test:slow`: all slow Playwright specs
-- `pnpm test:slow:sales`, `pnpm test:slow:inventory`, `pnpm test:slow:purchasing`, `pnpm test:slow:manufacturing`, `pnpm test:slow:stocktake`, `pnpm test:slow:auth`: selected slow lanes
-- Domain slow lanes may include multiple story files. Sales includes order and CRM stories; inventory includes item-form, cost-basis, and visibility stories.
+- `pnpm test:slow:sales`, `pnpm test:slow:purchasing`, `pnpm test:slow:manufacturing`, `pnpm test:slow:planning`, `pnpm test:slow:stocktake`, `pnpm test:slow:auth`: selected slow lanes
+- Slow story files must be listed in `test/e2e/slow/SLOW_TEST_STORIES.md`.
 - Existing `test:e2e:*`, `test:inventory`, and `test:sales` aliases remain for compatibility.

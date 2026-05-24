@@ -18,9 +18,9 @@ on:
         options:
           - all
           - sales
-          - inventory
           - purchasing
           - manufacturing
+          - planning
           - stocktake
           - auth
           - none
@@ -58,9 +58,9 @@ jobs:
           script: |
             const domainSuites = [
               { name: "sales", command: "pnpm test:slow:sales" },
-              { name: "inventory", command: "pnpm test:slow:inventory" },
               { name: "purchasing", command: "pnpm test:slow:purchasing" },
               { name: "manufacturing", command: "pnpm test:slow:manufacturing" },
+              { name: "planning", command: "pnpm test:slow:planning" },
               { name: "stocktake", command: "pnpm test:slow:stocktake" },
             ];
             const authSuite = { name: "auth", command: "pnpm test:slow:auth" };
@@ -73,9 +73,9 @@ jobs:
             );
             const labelToSuite = new Map([
               ["ci:slow:sales", "sales"],
-              ["ci:slow:inventory", "inventory"],
               ["ci:slow:purchasing", "purchasing"],
               ["ci:slow:manufacturing", "manufacturing"],
+              ["ci:slow:planning", "planning"],
               ["ci:slow:stocktake", "stocktake"],
               ["ci:slow:auth", "auth"],
             ]);
@@ -112,7 +112,7 @@ jobs:
                 core.setFailed(
                   [
                     "No ci:slow:* label found.",
-                    "Add one or more labels: ci:slow:sales, ci:slow:inventory, ci:slow:purchasing, ci:slow:manufacturing, ci:slow:stocktake, ci:slow:auth, ci:slow:all, or ci:slow:none.",
+                    "Add one or more labels: ci:slow:sales, ci:slow:purchasing, ci:slow:manufacturing, ci:slow:planning, ci:slow:stocktake, ci:slow:auth, ci:slow:all, or ci:slow:none.",
                   ].join(" ")
                 );
               } else if (slowLabels.includes("ci:slow:none") && slowLabels.length > 1) {

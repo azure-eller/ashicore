@@ -29,23 +29,28 @@ Current executable slow suite:
 
 Current footprint: 11 slow spec files and about 12.9k lines. The bloat is not the domain split itself; it is incident-shaped checks inside large serial files, especially SO/MO linkage, MO execute/fulfill, sales order, stocktake, and manufacturing order.
 
-## Rewrite Target
+## Rewrite Result
 
-Rewrite size target: 5-7 canonical story files, guard max 9 slow spec files, roughly 40-50 active `test()` blocks total unless the registry justifies more, and materially less line count than today.
+The rewrite landed as 5 canonical story files with the executable source of
+truth in `test/e2e/slow/SLOW_TEST_STORIES.md`. The old baseline below remains
+as the decision record for what was folded, deleted, or deferred.
 
-Target story files for the rewrite PR:
+Standalone customer workspace and cost-basis browser stories were not kept.
+Customer context is folded into sales fulfillment, and one compact cost-truth
+assertion is folded into manufacturing execution. Cost permutations remain a
+future verification concern, not slow Playwright scope.
+
+Final story files:
 
 | File | Lane | Story | Must prove | Not covered | Safety | Justification if needed |
 | --- | --- | --- | --- | --- | --- | --- |
-| `sales-fulfillment.spec.ts` | `ci:slow:sales` | A customer places an order, demand appears, stock is shipped partially/finally, and the order/inventory state remains correct. | customer snapshot/context, demand creation, partial/final shipment, order status, inventory consumption once | every customer field, list rendering, stale UI copy, unrelated delete guards | `serial-only` | Ordered lifecycle story. |
+| `sales-fulfillment.spec.ts` | `ci:slow:sales` | A customer places an order, demand appears, stock is shipped partially/finally, and the order/inventory state remains correct. | customer snapshot/context, demand creation, partial/final shipment, order status, inventory consumption once, delete releases commitments | every customer field, list rendering, stale UI copy, unrelated delete guard matrix | `serial-only` | Ordered lifecycle story. |
 | `purchasing-receiving.spec.ts` | `ci:slow:purchasing` | A buyer creates/submits a PO, receives it in parts, and expected supply becomes physical stock. | supplier/PO creation, submit, partial receive, final receive, expected supply closed, lot/balance truth | every supplier field, table behavior, status copy | `serial-only` | Ordered lifecycle story. |
-| `manufacturing-execution.spec.ts` | `ci:slow:manufacturing` | An operator creates/releases/picks/completes an MO and ingredient/output stock is correct. | BOM snapshot, release demand, pick, completion, FIFO or lot output, subassembly only if compact | every error code, every idempotency replay, BR/RA incident archive | `serial-only` | Ordered lifecycle story. |
+| `manufacturing-execution.spec.ts` | `ci:slow:manufacturing` | An operator creates/releases/picks/completes an MO and ingredient/output stock is correct. | BOM snapshot, release demand, pick, completion, output lot and compact cost truth, delete rolls back expected output | every error code, every idempotency replay, BR/RA incident archive | `serial-only` | Ordered lifecycle story. |
 | `planning-allocation-story.spec.ts` | `ci:slow:planning` | A planner resolves scarce stock across ranked demand, expected PO/MO supply, and a shared component blocker. | rank priority, shortage, expected supply, shared component visibility, make/buy signal | every planning tab, drag/drop, parked planning flows, copy strings | `serial-only` | Cross-domain planning needs its own lane. |
-| `stocktake-workflow.spec.ts` | `ci:slow:stocktake` | An operator opens a stocktake, counts lots, saves/reloads, completes, and sees reconciled state. | draft persistence, sparse counts, reload/continue, stale warning if natural, commit, visible reconciliation | re-proving basic count-to-event math already covered by fast | `serial-only` | Ordered workflow story. |
-| `customer-sales-workspace.spec.ts` | `ci:slow:sales` | Customer contact/shipping/pricing context flows into downstream sales work. | customer workspace persistence only where it affects order or shipment context | generic CRM breadth, storage cleanup unless first-class and CI-stable | `serial-only` | Default delete/defer unless the rewrite proves this feeds sales operations. |
-| `cost-basis-story.spec.ts` | `ci:slow:inventory` | A real inventory-cost workflow changes stock and exposes correct cost truth. | cost across at least two stock events, stockout or stocktake effect, business-visible cost truth | pure math permutations better suited for existing `verify:inventory` or a future verification lane | `serial-only` | Default delete/defer unless the rewrite proves this is an operator workflow. |
+| `stocktake-workflow.spec.ts` | `ci:slow:stocktake` | An operator opens a stocktake, saves/reloads sparse counts, completes, and sees reconciled state. | draft persistence, sparse counts, reload/continue, commit, completed reconciliation state | re-proving basic count-to-event math already covered by fast | `serial-only` | Ordered workflow story. |
 
-Planning slow selection decision: add `test:slow:planning` and `ci:slow:planning` in the rewrite PR. Planning is cross-domain and should not hide under sales or manufacturing once it has a real canonical story.
+Planning slow selection decision: `test:slow:planning` and `ci:slow:planning` are real lanes. `test:slow:inventory` and `ci:slow:inventory` are retired; inventory-affecting work routes to the relevant operating story plus `test:fast:inventory` / `verify:inventory`.
 
 ## Current File Decisions
 
@@ -137,14 +142,8 @@ Planning slow selection decision: add `test:slow:planning` and `ci:slow:planning
 - Legacy `test/scenarios/**` audit/spec JSON files are out of executable slow-lane scope. The rewrite should mark them superseded or update/delete scenario metadata only when a rewritten story directly relies on it.
 - Auth/team remains in the existing auth lane. It should follow the same no-bug-archive principle, but it is not part of this slow-domain rewrite.
 
-## Follow-Up Rewrite Work
+## Rewrite Implementation
 
-1. Add `test/e2e/slow/SLOW_TEST_STORIES.md` using the target registry table above.
-2. Add a simple slow registry guard:
-   - Every slow spec file is listed in the registry.
-   - Every registry file exists.
-   - Slow spec file count is at most 9.
-   - Multiple files under the same lane require a non-empty justification.
-3. Add `test:slow:planning` and `ci:slow:planning`.
-4. Rename/rewrite the executable slow specs to the target story names.
-5. Delete or convert the remaining historical regression coverage according to this audit.
+- `test/e2e/slow/SLOW_TEST_STORIES.md` is the executable registry.
+- `pnpm verify:slow-stories` enforces registry/file consistency and active test counts.
+- `test/scenarios/mo-execute-and-fulfill/**` and `test/scenarios/so-mo-linkage/**` were deleted with the old scenario archives so their `test-specs.json` files cannot point at removed specs.

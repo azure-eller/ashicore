@@ -35,7 +35,14 @@ The `db` fixture uses the app role with RLS — same security path as the real a
 | Auth, invites, team access | `pnpm test:slow:auth` (covers `auth-security.spec.ts` + `team-management.spec.ts`) |
 | Stock mutations, reservations, expected supply, inventory projections, inventory-affecting API routes | Affected slow spec(s), then `pnpm verify:inventory` |
 
-Domain slow lanes may include multiple story files: sales includes order and CRM stories; inventory includes item-form, cost-basis, and visibility stories. Stocktake is folded into `test:fast:inventory`.
+Slow lanes are one canonical story file per operating workflow. There is no generic inventory slow lane; route inventory-affecting PRs by workflow:
+
+- receiving / expected supply → `pnpm test:slow:purchasing`
+- manufacturing stock or output cost → `pnpm test:slow:manufacturing`
+- stocktake / reconciliation → `pnpm test:slow:stocktake`
+- allocation / planning → `pnpm test:slow:planning`
+- sales shipment / consumption → `pnpm test:slow:sales`
+- kernel / projection / math → `pnpm test:fast:inventory`, `pnpm verify:inventory`, and the relevant story lane
 
 Local fast lanes default to 2 Playwright workers. CI overrides with `PLAYWRIGHT_FAST_WORKERS=4`.
 
@@ -65,8 +72,10 @@ Slow tests are operating stories, not bug archives. A slow spec must be a realis
 - Do not move tests to slow just because deletion feels risky.
 - Prefer flows like create, edit, submit, receive, confirm, ship, release, complete, count, and reconcile.
 - Use API/DB helpers for prerequisites unless creating the prerequisite is part of the story.
-- Avoid pure API-only slow stories unless the contract is intentionally headless or mobile-facing.
-- Keep customer, cost, planning, and stocktake stories bounded by the active slow-suite audit in `docs/slow-suite-audit.md`.
+- Use UI where it proves workflow usability or persistence; use API helpers for setup and mutation seams when UI breadth would make the story brittle.
+- Assert API responses on important mutations and prove business state with DB/domain/read-model evidence.
+- Every slow spec must be listed in `test/e2e/slow/SLOW_TEST_STORIES.md`.
+- Keep customer, cost, planning, and stocktake stories bounded by the active slow-suite registry and audit in `docs/slow-suite-audit.md`.
 
 ## Writing tests
 
@@ -93,9 +102,9 @@ GitHub CI is a final clean-room gate, not the development test loop. Run the req
 PRs must have exactly the needed slow labels:
 
 - `ci:slow:sales`
-- `ci:slow:inventory`
 - `ci:slow:purchasing`
 - `ci:slow:manufacturing`
+- `ci:slow:planning`
 - `ci:slow:stocktake`
 - `ci:slow:auth`
 - `ci:slow:all` — shared DB/schema/DAL/API/test-infra changes (full slow directory + auth regressions)
@@ -112,6 +121,7 @@ Failed scheduled slow runs open/update an investigation PR, comment with run det
 - `test/e2e/fixtures.ts` — custom `test` with `db` fixture (Drizzle + Neon + RLS)
 - `test/e2e/fast/` — heartbeat mutation-seam specs
 - `test/e2e/slow/` — serial operational stories by domain
+- `test/e2e/slow/SLOW_TEST_STORIES.md` — allowed slow-story registry
 - `test/e2e/auth-security.spec.ts` — auth and permission regressions
 - `test/global-setup.ts` — creates test user/org/unit, writes `.test-env.json`
 - `test/helpers/api.ts` — authenticated fetch helpers

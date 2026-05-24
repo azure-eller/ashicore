@@ -42,7 +42,7 @@ These are non-negotiable repo rules. They are repeated here because violating th
 - `pnpm lint` — ESLint
 - `pnpm test` / `pnpm test:fast` — heartbeat fast Playwright lane (dev server must be running)
 - `pnpm test:fast:<domain>` — heartbeat domain lanes (`sales`, `inventory`, `purchasing`, `manufacturing`, `planning`)
-- `pnpm test:slow:<domain>` — slow domain lanes (`sales`, `inventory`, `purchasing`, `manufacturing`, `stocktake`, `auth`)
+- `pnpm test:slow:<domain>` — slow domain lanes (`sales`, `purchasing`, `manufacturing`, `planning`, `stocktake`, `auth`)
 - `pnpm db:local:setup` — set up this worktree's local DB and run migrations
 - `pnpm dev:seed-user` — seed canonical test user and Paonia-style data
 - `pnpm db:generate` — generate migration
