@@ -7,7 +7,6 @@ import {
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
-import { getOrganizationAllocationModeInTx } from "@/lib/dal/organization-settings";
 import type { Tx } from "@/lib/db/with-org-context";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { AllocationError } from "./errors";
@@ -122,17 +121,6 @@ export async function saveAllocationsForDemandInTx(
 ) {
   if (!isDemandType(input.demandType)) {
     throw new AllocationError("Unsupported allocation demand type.");
-  }
-
-  // Demand-queue mode persists no manual allocations. Guard the write path here
-  // (not just the route) so no caller — stale tab, direct request, bulk helper —
-  // can recreate active allocations while the org is in demand_queue mode.
-  const allocationMode = await getOrganizationAllocationModeInTx(tx, input.organizationId);
-  if (allocationMode === "demand_queue") {
-    throw new AllocationError(
-      "Manual allocation is disabled in demand queue mode.",
-      409
-    );
   }
 
   const adapter = getAllocationDemandAdapter(input.demandType);

@@ -855,6 +855,105 @@ test.describe("Manufacturing write-path smoke", () => {
     );
   });
 
+  test("manufacturing order priority controls ingredient readiness", async ({
+    db,
+  }) => {
+    const suffix = `${ts}-RANK-COVERAGE`;
+    const componentResult = await createItem({
+      name: `Fast MO Rank Component ${suffix}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-MO-RANK-COMP-${suffix}`,
+      category: `Fast Manufacturing ${suffix}`,
+      description: null,
+      defaultPurchasePrice: "1.00",
+      defaultSellingPrice: null,
+      stock: "5",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(componentResult.status).toBe(201);
+
+    const productResult = await createItem({
+      name: `Fast MO Rank Product ${suffix}`,
+      itemType: "product",
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-MO-RANK-PROD-${suffix}`,
+      category: `Fast Manufacturing ${suffix}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: componentResult.body.id, quantity: "4" }],
+    });
+    expect(productResult.status).toBe(201);
+
+    const firstMo = await createManufacturingOrder({
+      productId: productResult.body.id,
+      plannedQuantity: "1",
+      plannedDate: "2026-06-01",
+      ingredients: [{ itemId: componentResult.body.id, quantityPerUnit: "4" }],
+    });
+    const secondMo = await createManufacturingOrder({
+      productId: productResult.body.id,
+      plannedQuantity: "1",
+      plannedDate: "2026-06-02",
+      ingredients: [{ itemId: componentResult.body.id, quantityPerUnit: "4" }],
+    });
+    expect(firstMo.status).toBe(201);
+    expect(secondMo.status).toBe(201);
+
+    const openOrders = await db
+      .select({ id: manufacturingOrders.id })
+      .from(manufacturingOrders)
+      .where(
+        and(
+          eq(manufacturingOrders.status, "open"),
+          isNull(manufacturingOrders.deletedAt)
+        )
+      )
+      .orderBy(asc(manufacturingOrders.priorityRank), asc(manufacturingOrders.orderNumber));
+    const unrelatedOpenOrderIds = openOrders
+      .map((order) => order.id)
+      .filter((id) => id !== firstMo.body.id && id !== secondMo.body.id);
+
+    const readReadiness = async () => {
+      const response = await testFetch("/api/manufacturing-orders");
+      expect(response.status).toBe(200);
+      const rows = (await response.json()) as Array<{
+        id: string;
+        ingredientReadiness: string;
+      }>;
+      return new Map(rows.map((row) => [row.id, row.ingredientReadiness]));
+    };
+
+    let reorderResult = await testFetch("/api/manufacturing-orders/priority-ranks", {
+      method: "PATCH",
+      body: JSON.stringify({
+        orderIds: [firstMo.body.id, secondMo.body.id, ...unrelatedOpenOrderIds],
+      }),
+    });
+    expect(reorderResult.status).toBe(200);
+
+    let readiness = await readReadiness();
+    expect(readiness.get(firstMo.body.id)).toBe("in_stock");
+    expect(readiness.get(secondMo.body.id)).toBe("not_available");
+
+    reorderResult = await testFetch("/api/manufacturing-orders/priority-ranks", {
+      method: "PATCH",
+      body: JSON.stringify({
+        orderIds: [secondMo.body.id, firstMo.body.id, ...unrelatedOpenOrderIds],
+      }),
+    });
+    expect(reorderResult.status).toBe(200);
+
+    readiness = await readReadiness();
+    expect(readiness.get(secondMo.body.id)).toBe("in_stock");
+    expect(readiness.get(firstMo.body.id)).toBe("not_available");
+  });
+
   test("ranks open manufacturing orders", async ({
     page,
     db,

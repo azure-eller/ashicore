@@ -94,6 +94,24 @@
   text-align: right;
 }
 
+.grid :global(.ag-cell.regular) {
+  font-weight: var(--weight-regular);
+}
+
+.grid :global(.ag-cell.statusBlockCell) {
+  align-items: stretch;
+  padding: 0;
+}
+
+.grid :global(.ag-cell.statusBlockCell .ag-cell-value) {
+  align-items: stretch;
+}
+
+.grid :global(.ag-cell.statusBlockCell [data-slot="status-block"]) {
+  height: 100%;
+  width: 100%;
+}
+
 .grid :global(.ag-cell.muted) {
   color: var(--color-muted);
 }

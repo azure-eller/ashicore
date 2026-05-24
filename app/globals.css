@@ -69,11 +69,16 @@
   --color-accent-soft: #e6edf6;
   --color-accent-text: #ffffff;
   --color-success: #1e7a45;
+  --color-success-solid: #137a3f;
   --color-success-soft: #e6f2eb;
   --color-warning: #a87a1b;
+  --color-warning-solid: #f2c94c;
   --color-warning-soft: #fdf2dc;
   --color-danger: #a5342a;
+  --color-danger-solid: #b42318;
   --color-danger-soft: #fbe8e6;
+  --color-muted-solid: #eeeeef;
+  --color-muted-actionable-solid: #d7d9dc;
   --color-info: var(--color-accent);
   --color-info-soft: var(--color-accent-soft);
 
@@ -133,6 +138,7 @@
   --height-subnav: 54px;
   --height-nav: 64px;
   --height-statusbar: 45px;
+  --height-block: 24px;
   --height-input-sm: 39px;
   --height-input-md: 45px;
   --height-input-lg: 54px;

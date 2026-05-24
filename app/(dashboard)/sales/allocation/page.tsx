@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import { redirect } from "next/navigation";
 import { getSalesOrders } from "@/app/(dashboard)/sales/queries";
 import {
   SalesAllocationTable,
@@ -27,9 +26,6 @@ async function SalesAllocationData() {
     getAuthedMemberContext(),
     getSalesOrders(),
   ]);
-  if (context.allocationMode === "demand_queue") {
-    redirect("/sales/orders");
-  }
   const salesProductIds = orders
     .filter((order) => order.status === "open")
     .flatMap((order) =>

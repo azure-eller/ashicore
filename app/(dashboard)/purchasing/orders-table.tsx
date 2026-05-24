@@ -21,7 +21,6 @@ function PurchaseStatusCell({ order }: { order: PurchaseOrderListRow }) {
     <OrderStatusControl
       config={purchaseOrderStatusConfig}
       ctx={{ orderId: order.id, status: order.status }}
-      size="sm"
       onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
       }}

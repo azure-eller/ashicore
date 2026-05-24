@@ -7,7 +7,7 @@ import { ALLOCATION_MODES, type AllocationMode } from "@/lib/schemas/organizatio
 // convention). Keep allocation-mode reads centralized; nothing else should
 // hand-parse the metadata string.
 
-const DEFAULT_ALLOCATION_MODE: AllocationMode = "manual";
+const DEFAULT_ALLOCATION_MODE: AllocationMode = "demand_queue";
 
 function parseMetadata(metadata: string | null | undefined): Record<string, unknown> {
   if (!metadata) return {};

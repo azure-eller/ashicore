@@ -21,6 +21,7 @@ import {
   type LineField,
 } from "@/components/editable-lines";
 import { DatePicker } from "@/components/ui/date-picker";
+import { StatusBlock, type StatusBlockTone } from "@/components/ui/status-block";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -73,7 +74,10 @@ import type {
   ManufacturingOrderIngredientDetail,
   ManufacturingOrderOperationCostDetail,
 } from "@/app/(dashboard)/manufacturing/types";
-import type { ManufacturingLotStrategy } from "@/lib/schemas/manufacturing-orders";
+import type {
+  ManufacturingLotStrategy,
+  ManufacturingPickStatus,
+} from "@/lib/schemas/manufacturing-orders";
 import styles from "@/components/card-page/card-page.module.css";
 import {
   useManufacturingOrderDraftController,
@@ -708,6 +712,24 @@ function getManufacturingOrderEditState(order: ManufacturingOrderDetail | null) 
   };
 }
 
+const INGREDIENT_PICK_STATUS: Record<
+  ManufacturingPickStatus,
+  { label: string; tone: StatusBlockTone }
+> = {
+  not_picked: { label: "Not picked", tone: "muted" },
+  in_progress: { label: "Partial", tone: "warning" },
+  picked: { label: "Picked", tone: "success" },
+};
+
+function IngredientPickStatusBlock({
+  status,
+}: {
+  status: ManufacturingPickStatus;
+}) {
+  const state = INGREDIENT_PICK_STATUS[status];
+  return <StatusBlock tone={state.tone}>{state.label}</StatusBlock>;
+}
+
 function getManufacturingExecutionStartedReason(order: ManufacturingOrderDetail | null) {
   if (!order) return null;
 
@@ -987,6 +1009,16 @@ function IngredientsSection({
               <span className={styles.mono}>{formatQuantity(params.data.plannedQuantity)}</span>
               <span className={styles.uom}>{params.data.unitName}</span>
             </span>
+          ) : null,
+      },
+      {
+        field: "pickStatus",
+        headerName: "Status",
+        width: 125,
+        cellClass: "statusBlockCell",
+        cellRenderer: (params: ICellRendererParams<ManufacturingOrderIngredientDetail>) =>
+          params.data ? (
+            <IngredientPickStatusBlock status={params.data.pickStatus} />
           ) : null,
       },
       {

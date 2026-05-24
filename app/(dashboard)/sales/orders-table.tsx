@@ -11,9 +11,6 @@ import type { GridApi, ICellRendererParams } from "ag-grid-community";
 import { apiJson } from "@/lib/client/api";
 import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
 import {
-  type OperationalState,
-} from "@/components/operational-state-cell";
-import {
   Add01Icon,
   DatabaseExportIcon,
   Delete02Icon,
@@ -33,7 +30,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { StatusLabel, type StatusTone } from "@/components/ui/status-label";
+import { StatusBlock, type StatusBlockTone } from "@/components/ui/status-block";
 import { StatusRibbon } from "@/components/ui/status-ribbon";
 import {
   Tooltip,
@@ -54,6 +51,7 @@ import {
 } from "@/lib/tooltip-copy";
 import { formatDate, formatPrice } from "@/lib/format";
 import {
+  getSalesItemsAvailabilityState,
   getSalesItemsFilterValue,
   getSalesItemsState,
   type SalesAllocationMode,
@@ -62,6 +60,7 @@ import {
 import {
   getIngredientsDisplayState,
   getProductionDisplayState,
+  type FulfillmentDisplayState,
   type FulfillmentTone,
 } from "@/lib/sales/fulfillment-status";
 import { ProductionActionCell } from "./sales-order-table-action-cells";
@@ -78,7 +77,6 @@ function SalesDeliveryCell({ order }: { order: SalesOrderListRow }) {
     <OrderStatusControl
       config={salesOrderStatusConfig}
       ctx={{ order }}
-      size="sm"
       disabled={isSalesOrderStatusDisabled(order)}
       onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
@@ -92,10 +90,10 @@ const OPEN_SALES_STATUSES = ["open"] as const;
 const DONE_SALES_STATUSES = ["done"] as const;
 type SalesWorkflowFilterValue = "open" | "done";
 
-const fulfillmentToneToStatusTone: Record<FulfillmentTone, StatusTone> = {
+const fulfillmentToneToStatusBlockTone: Record<FulfillmentTone, StatusBlockTone> = {
   destructive: "danger",
-  muted: "neutral",
-  secondary: "info",
+  muted: "muted",
+  secondary: "warning",
   success: "success",
   warning: "warning",
 };
@@ -174,16 +172,34 @@ function SalesItemsActionCell({
   order: SalesOrderListRow;
   allocationMode: SalesAllocationMode;
 }) {
-  const state = getSalesItemsState(order, allocationMode);
+  const state = getSalesItemsAvailabilityState(order);
+  const allocationState = getSalesItemsState(order, allocationMode);
   const isActionLink =
     allocationMode === "manual"
-      ? state.label === "Not allocated" || state.label === "Partial"
+      ? allocationState.label === "Not allocated" || allocationState.label === "Partial"
       : order.fulfillmentSummary.salesItemsState === "not_available" ||
         order.fulfillmentSummary.salesItemsState === "expected";
-  const tone = fulfillmentToneToStatusTone[state.tone] ?? "neutral";
+  const tone = fulfillmentToneToStatusBlockTone[state.tone];
+  const hasManualReservation =
+    parseQuantity(order.fulfillmentSummary.manualReservationQty) > 0;
+  const manualReservationTitle = hasManualReservation
+    ? `Manual reservation${
+        order.fulfillmentSummary.manualReservationSummary
+          ? `: ${order.fulfillmentSummary.manualReservationSummary}`
+          : ""
+      }`
+    : undefined;
 
   if (!isActionLink) {
-    return <StatusLabel tone={tone}>{state.label}</StatusLabel>;
+    return (
+      <StatusBlock
+        tone={tone}
+        marker={hasManualReservation ? "M" : undefined}
+        title={manualReservationTitle}
+      >
+        {state.label}
+      </StatusBlock>
+    );
   }
 
   return (
@@ -191,17 +207,20 @@ function SalesItemsActionCell({
       href={`/sales/allocation?highlightOrderId=${order.id}`}
       className="block w-full outline-none focus-visible:shadow-[var(--focus-ring)]"
       aria-label="Open allocation status"
+      title={manualReservationTitle}
     >
-      <StatusLabel tone={tone}>{state.label}</StatusLabel>
+      <StatusBlock tone={tone} marker={hasManualReservation ? "M" : undefined}>
+        {state.label}
+      </StatusBlock>
     </Link>
   );
 }
 
-function getProductionState(order: SalesOrderListRow): OperationalState {
+function getProductionState(order: SalesOrderListRow): FulfillmentDisplayState {
   return getProductionDisplayState(order.fulfillmentSummary.productionState);
 }
 
-function getIngredientsState(order: SalesOrderListRow): OperationalState {
+function getIngredientsState(order: SalesOrderListRow): FulfillmentDisplayState {
   return getIngredientsDisplayState(
     order.fulfillmentSummary.ingredientsState,
     order.fulfillmentSummary.ingredientsExpectedDate
@@ -211,13 +230,13 @@ function getIngredientsState(order: SalesOrderListRow): OperationalState {
 function IngredientsStatusCell({ order }: { order: SalesOrderListRow }) {
   const state = getIngredientsState(order);
   return (
-    <StatusLabel tone={fulfillmentToneToStatusTone[state.tone]}>
+    <StatusBlock tone={fulfillmentToneToStatusBlockTone[state.tone]}>
       {state.label}
-    </StatusLabel>
+    </StatusBlock>
   );
 }
 
-function getDeliveryState(order: SalesOrderListRow): OperationalState {
+function getDeliveryState(order: SalesOrderListRow): FulfillmentDisplayState {
   if (order.status === "done") {
     return { label: "Shipped", tone: "success" };
   }
@@ -432,7 +451,6 @@ function OrdersTableContent({
   const middleLabel = allocationMode === "manual" ? "partial" : "expected";
   const shortLabel =
     allocationMode === "manual" ? "not allocated" : "not available";
-  const columnHeader = allocationMode === "manual" ? "Allocation" : "Sales Items";
   const readyCount = openOrders.filter(
     (order) => getSalesItemsFilterValue(order, allocationMode) === readyFilter
   ).length;
@@ -514,7 +532,7 @@ function OrdersTableContent({
           data ? (
             <Link
               href={`/sales/order/${data.id}`}
-              className="block truncate font-medium hover:underline"
+              className="block truncate hover:underline"
             >
               {data.orderNumber}
             </Link>
@@ -532,21 +550,8 @@ function OrdersTableContent({
         flex: 1,
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
           data ? (
-            <span className="block truncate font-semibold">
-              {data.customerName}
-            </span>
+            <span className="block truncate">{data.customerName}</span>
           ) : null,
-      },
-      {
-        field: "notes",
-        headerName: "Notes",
-        headerTooltip: SALES_ORDER_NOTES_TOOLTIP,
-        minWidth: 200,
-        flex: 1,
-        cellClass: "muted",
-        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
-          data ? <NotesCell notes={data.notes} /> : null,
-        getQuickFilterText: ({ data }) => data?.notes ?? "",
       },
       {
         field: "totalAmount",
@@ -554,19 +559,20 @@ function OrdersTableContent({
         headerTooltip: ORDER_TOTAL_TOOLTIP,
         width: 110,
         minWidth: 110,
-        cellClass: "num",
+        cellClass: "num regular",
         comparator: (left, right) =>
           parseFloat(String(left ?? "0")) - parseFloat(String(right ?? "0")),
         valueFormatter: ({ value }) => formatPrice(String(value ?? "")) ?? "—",
       },
       {
         colId: "allocation",
-        headerName: columnHeader,
+        headerName: "Sales Items",
         headerTooltip: SALES_ORDER_ITEMS_STATUS_TOOLTIP,
         width: 140,
         minWidth: 140,
+        cellClass: "statusBlockCell",
         valueGetter: ({ data }) =>
-          data ? getSalesItemsState(data, allocationMode).label : "",
+          data ? getSalesItemsAvailabilityState(data).label : "",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
           data ? (
             <SalesItemsActionCell
@@ -584,6 +590,7 @@ function OrdersTableContent({
         headerTooltip: SALES_ORDER_INGREDIENTS_STATUS_TOOLTIP,
         width: 145,
         minWidth: 135,
+        cellClass: "statusBlockCell",
         valueGetter: ({ data }) => (data ? getIngredientsState(data).label : ""),
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
           data ? <IngredientsStatusCell order={data} /> : null,
@@ -594,6 +601,7 @@ function OrdersTableContent({
         headerTooltip: SALES_ORDER_PRODUCTION_STATUS_TOOLTIP,
         width: 130,
         minWidth: 130,
+        cellClass: "statusBlockCell",
         valueGetter: ({ data }) => (data ? getProductionState(data).label : ""),
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
           data ? (
@@ -612,6 +620,7 @@ function OrdersTableContent({
         headerTooltip: SALES_ORDER_DELIVERY_STATUS_TOOLTIP,
         width: 130,
         minWidth: 130,
+        cellClass: "statusBlockCell",
         valueGetter: ({ data }) => (data ? getDeliveryState(data).label : ""),
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
           data ? <SalesDeliveryCell order={data} /> : null,
@@ -658,8 +667,19 @@ function OrdersTableContent({
           );
         },
       },
+      {
+        field: "notes",
+        headerName: "Notes",
+        headerTooltip: SALES_ORDER_NOTES_TOOLTIP,
+        minWidth: 200,
+        flex: 1,
+        cellClass: "muted",
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
+          data ? <NotesCell notes={data.notes} /> : null,
+        getQuickFilterText: ({ data }) => data?.notes ?? "",
+      },
     ],
-    [allocationMode, columnHeader, reorderEnabled, statusFilter]
+    [allocationMode, reorderEnabled, statusFilter]
   );
   const reorderMutation = useMutation({
     mutationFn: async (orderedRows: SalesOrderListRow[]) => {

@@ -884,7 +884,7 @@ test.describe("Sales order flow", () => {
     await filterList(page, "Search orders", shortOrder.orderNumber);
 
     const confirmedRow = salesOrderCard(page, shortOrder.orderNumber);
-    await confirmedRow.getByRole("button", { name: "Create MOs" }).click();
+    await confirmedRow.getByRole("button", { name: "Production: Make" }).click();
     await page.getByRole("menuitem", { name: "Make to order" }).click();
 
     const createMoDialog = page.getByRole("dialog", {

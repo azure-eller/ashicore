@@ -1464,6 +1464,26 @@ function normalizeShipmentQuantity(value: number) {
   return parseFloat(normalizeNumeric(roundQuantity(value)));
 }
 
+function summarizeManualReservations(
+  summaries: Array<SalesAllocationLineSummary | undefined>
+) {
+  const sources = summaries.flatMap((summary) => summary?.sources ?? []);
+  const quantity = sources.reduce(
+    (sum, source) => roundQuantity(sum + Number(source.quantity)),
+    0
+  );
+
+  return {
+    quantity,
+    summary:
+      sources.length === 0
+        ? null
+        : sources
+            .map((source) => `${formatQuantity(source.quantity)} ${source.label}`)
+            .join(", "),
+  };
+}
+
 async function getShipmentLineStatesInTx(
   tx: Tx,
   orderId: string,
@@ -5013,6 +5033,11 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           const openManufacturingOrders = openLinkedManufacturingOrders(
             linkedManufacturingOrders
           ).map(serializeLinkedManufacturingOrder);
+          const manualReservation = summarizeManualReservations(
+            salesLines.map((line) =>
+              allocationSummaryByLineId.get(line.salesOrderLineId)
+            )
+          );
           const stockBlockers = salesLines.flatMap((line) => {
             const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
             const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
@@ -5113,6 +5138,10 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 productionAllocatedQty: normalizeNumeric(
                   roundQuantity(fulfillmentTotals.productionAllocatedQty)
                 ),
+                manualReservationQty: normalizeNumeric(
+                  roundQuantity(manualReservation.quantity)
+                ),
+                manualReservationSummary: manualReservation.summary,
                 availabilityState: salesItemsState,
                 expectedDate: salesItemsExpectedDate,
                 label: getAvailabilityLabel(
@@ -5841,6 +5870,9 @@ export async function getSalesOrder(
         allocationSources: sources,
       };
     });
+    const manualReservation = summarizeManualReservations(
+      linesWithFulfillment.map((line) => allocationSummaryByLineId.get(line.id))
+    );
     let fulfillmentSummary: SalesOrderFulfillmentSummary = (() => {
       const remainingQty = linesWithAllocation.reduce(
         (sum, line) => roundQuantity(sum + Number(line.remainingQuantity)),
@@ -5878,6 +5910,8 @@ export async function getSalesOrder(
         allocatedQty: normalizeNumeric(allocatedQty),
         shortQty: normalizeNumeric(shortQty),
         productionAllocatedQty: normalizeNumeric(productionAllocatedQty),
+        manualReservationQty: normalizeNumeric(roundQuantity(manualReservation.quantity)),
+        manualReservationSummary: manualReservation.summary,
         availabilityState,
         expectedDate: null,
         label,

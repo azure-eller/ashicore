@@ -3,18 +3,19 @@
 import { useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
+import { Tick02Icon } from "@hugeicons/core-free-icons";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { StatusBlock, type StatusBlockTone } from "@/components/ui/status-block";
 import { cn } from "@/lib/utils";
 
 /**
  * One status control, shared by every order type (sales / manufacturing / purchase),
- * used both in the card-page header (size "md") and in list table rows (size "sm").
+ * used both in the card-page header and in list table rows.
  *
  * The component is domain-agnostic: each order type supplies an
  * {@link OrderStatusControlConfig}. Selecting an option either does nothing (current /
@@ -30,33 +31,22 @@ export type OrderStatusTone =
   | "success"
   | "accent";
 
-const TONE: Record<OrderStatusTone, { square: string; text: string; bg?: string }> = {
-  neutral: { square: "bg-[var(--color-ink-2)]", text: "text-[var(--color-ink-2)]" },
-  info: {
-    square: "bg-[var(--color-info)]",
-    text: "text-[var(--color-info)]",
-    bg: "bg-[var(--color-info-soft)]",
-  },
-  warning: {
-    square: "bg-[var(--color-warning)]",
-    text: "text-[var(--color-warning)]",
-    bg: "bg-[var(--color-warning-soft)]",
-  },
-  danger: {
-    square: "bg-[var(--color-danger)]",
-    text: "text-[var(--color-danger)]",
-    bg: "bg-[var(--color-danger-soft)]",
-  },
-  success: {
-    square: "bg-[var(--color-success)]",
-    text: "text-[var(--color-success)]",
-    bg: "bg-[var(--color-success-soft)]",
-  },
-  accent: {
-    square: "bg-[var(--color-accent)]",
-    text: "text-[var(--color-accent)]",
-    bg: "bg-[var(--color-accent-soft)]",
-  },
+const TONE_SWATCH: Record<OrderStatusTone, string> = {
+  neutral: "bg-[var(--color-muted-solid)]",
+  info: "bg-[var(--color-muted-solid)]",
+  warning: "bg-[var(--color-warning-solid)]",
+  danger: "bg-[var(--color-danger-solid)]",
+  success: "bg-[var(--color-success-solid)]",
+  accent: "bg-[var(--color-warning-solid)]",
+};
+
+const TONE_MAP: Record<OrderStatusTone, StatusBlockTone> = {
+  neutral: "muted",
+  info: "muted",
+  warning: "warning",
+  danger: "danger",
+  success: "success",
+  accent: "warning",
 };
 
 export type OrderStatusOption = {
@@ -99,7 +89,6 @@ export type OrderStatusControlConfig<Ctx> = {
 export type OrderStatusControlProps<Ctx> = {
   config: OrderStatusControlConfig<Ctx>;
   ctx: Ctx;
-  size?: "sm" | "md";
   disabled?: boolean;
   /** Called after any successful transition so the caller can update local state and invalidate/refetch. */
   onChanged?: (status: string) => void;
@@ -108,7 +97,6 @@ export type OrderStatusControlProps<Ctx> = {
 export function OrderStatusControl<Ctx>({
   config,
   ctx,
-  size = "md",
   disabled = false,
   onChanged,
 }: OrderStatusControlProps<Ctx>) {
@@ -117,7 +105,7 @@ export function OrderStatusControl<Ctx>({
   const current = config.current(ctx);
   const options = config.options(ctx);
   const currentOption = options.find((option) => option.value === current);
-  const tone = TONE[currentOption?.tone ?? "neutral"];
+  const tone = TONE_MAP[currentOption?.tone ?? "neutral"];
 
   const instant = useMutation({
     mutationKey: ["order-status", config.type, "instant"],
@@ -142,32 +130,19 @@ export function OrderStatusControl<Ctx>({
     setDialogTarget(to);
   };
 
-  const heightCls = size === "sm" ? "h-7" : "h-8";
-  const minWidthCls = size === "sm" ? "min-w-[140px]" : "min-w-[180px]";
-
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
-            type="button"
+          <StatusBlock
+            actionable
+            tone={tone}
             aria-label={`Status: ${currentOption?.label ?? current}`}
             disabled={busy}
             onClick={(event) => event.stopPropagation()}
-            className={cn(
-              heightCls,
-              minWidthCls,
-              tone.bg ?? "bg-[var(--color-surface)]",
-              "inline-flex items-center gap-2 border border-[var(--color-line)] px-2.5 text-left",
-              "text-[12.5px] font-medium",
-              tone.text,
-              "hover:bg-[var(--color-surface-alt)] disabled:opacity-60",
-            )}
           >
-            <span className={cn("inline-block h-2.5 w-2.5", tone.square)} />
-            <span className="flex-1 truncate">{currentOption?.label ?? current}</span>
-            <HugeiconsIcon icon={ArrowDown01Icon} size={14} aria-hidden />
-          </button>
+            {currentOption?.label ?? current}
+          </StatusBlock>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
@@ -175,7 +150,6 @@ export function OrderStatusControl<Ctx>({
           onClick={(event) => event.stopPropagation()}
         >
           {options.map((option) => {
-            const optTone = TONE[option.tone];
             const active = option.value === current;
             const kind = config.transitionKind(current, option.value, ctx);
             const selectable = kind === "instant" || kind === "dialog";
@@ -192,7 +166,7 @@ export function OrderStatusControl<Ctx>({
                   !selectable && !active && "cursor-not-allowed opacity-50",
                 )}
               >
-                <span className={cn("inline-block h-3 w-3", optTone.square)} />
+                <span className={cn("inline-block h-3 w-3", TONE_SWATCH[option.tone])} />
                 <span className="flex-1">{option.label}</span>
                 {active ? <HugeiconsIcon icon={Tick02Icon} size={14} aria-hidden /> : null}
               </DropdownMenuItem>

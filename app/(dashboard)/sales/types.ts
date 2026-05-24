@@ -330,6 +330,8 @@ export type SalesOrderFulfillmentSummary = {
   allocatedQty: string;
   shortQty: string;
   productionAllocatedQty: string;
+  manualReservationQty: string;
+  manualReservationSummary: string | null;
   availabilityState: "complete" | "available" | "expected" | "not_available";
   expectedDate: string | null;
   label: string;

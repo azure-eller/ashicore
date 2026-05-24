@@ -1,9 +1,11 @@
-import type { OperationalState } from "@/components/operational-state-cell";
 import type {
   SalesOrderDetail,
   SalesOrderListRow,
 } from "@/app/(dashboard)/sales/types";
-import { getSalesItemsDisplayState } from "@/lib/sales/fulfillment-status";
+import {
+  getSalesItemsDisplayState,
+  type FulfillmentDisplayState,
+} from "@/lib/sales/fulfillment-status";
 
 export type OrderDisplayStatusLabel =
   | "NOT SHIPPED"
@@ -69,7 +71,7 @@ function parseQuantity(value: string | null | undefined) {
 export function getSalesItemsState(
   order: SalesOrderListRow,
   mode: SalesAllocationMode = "manual"
-): OperationalState {
+): FulfillmentDisplayState {
   if (order.status === "done") {
     return { label: "Complete", tone: "success" };
   }
@@ -91,6 +93,19 @@ export function getSalesItemsState(
       return { label: "Partial", tone: "warning" };
     }
     return { label: "Not allocated", tone: "destructive" };
+  }
+
+  return getSalesItemsDisplayState(
+    order.fulfillmentSummary.salesItemsState,
+    order.fulfillmentSummary.salesItemsExpectedDate
+  );
+}
+
+export function getSalesItemsAvailabilityState(
+  order: SalesOrderListRow
+): FulfillmentDisplayState {
+  if (order.status === "done") {
+    return { label: "Complete", tone: "success" };
   }
 
   return getSalesItemsDisplayState(

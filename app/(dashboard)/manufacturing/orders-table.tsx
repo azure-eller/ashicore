@@ -14,11 +14,10 @@ import {
   type ERPGridPersistentState,
 } from "@/components/erp-data-grid";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
-import { type OperationalState } from "@/components/operational-state-cell";
 import { DateTimeText } from "@/components/date-time-text";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { StatusLabel, type StatusTone } from "@/components/ui/status-label";
+import { StatusBlock, type StatusBlockTone } from "@/components/ui/status-block";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,6 +33,7 @@ import { formatDate } from "@/lib/format";
 import {
   getIngredientsDisplayState,
   getProductionDisplayState,
+  type FulfillmentDisplayState,
   type SalesIngredientsFulfillmentState,
   type SalesProductionFulfillmentState,
 } from "@/lib/sales/fulfillment-status";
@@ -168,7 +168,7 @@ function ProgressCell({ order }: { order: ManufacturingOrderListRow }) {
   );
 }
 
-function getIngredientState(order: ManufacturingOrderListRow): OperationalState {
+function getIngredientState(order: ManufacturingOrderListRow): FulfillmentDisplayState {
   const ingredientState: SalesIngredientsFulfillmentState =
     order.ingredientReadiness === "picking"
       ? "in_stock"
@@ -176,7 +176,7 @@ function getIngredientState(order: ManufacturingOrderListRow): OperationalState 
   return getIngredientsDisplayState(ingredientState);
 }
 
-function getProductionState(order: ManufacturingOrderListRow): OperationalState {
+function getProductionState(order: ManufacturingOrderListRow): FulfillmentDisplayState {
   let productionState: SalesProductionFulfillmentState = "not_started";
 
   if (order.status === "done") {
@@ -193,28 +193,31 @@ function getProductionState(order: ManufacturingOrderListRow): OperationalState 
   return getProductionDisplayState(productionState);
 }
 
-const operationalToneToStatusTone: Record<OperationalState["tone"], StatusTone> = {
+const fulfillmentToneToStatusBlockTone: Record<
+  FulfillmentDisplayState["tone"],
+  StatusBlockTone
+> = {
   destructive: "danger",
-  muted: "neutral",
-  secondary: "info",
+  muted: "muted",
+  secondary: "warning",
   success: "success",
   warning: "warning",
 };
 
-function ManufacturingStatusLabel({
+function ManufacturingStatusBlock({
   state,
   className,
 }: {
-  state: OperationalState;
+  state: FulfillmentDisplayState;
   className?: string;
 }) {
   return (
-    <StatusLabel
-      tone={operationalToneToStatusTone[state.tone]}
+    <StatusBlock
+      tone={fulfillmentToneToStatusBlockTone[state.tone]}
       className={className}
     >
       {state.label}
-    </StatusLabel>
+    </StatusBlock>
   );
 }
 
@@ -224,7 +227,6 @@ function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
     <OrderStatusControl
       config={manufacturingOrderStatusConfig}
       ctx={{ order }}
-      size="sm"
       disabled={isManufacturingStatusDisabled(order)}
       onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
@@ -439,10 +441,11 @@ export function OrdersTable({
         headerName: "Ingredients",
         width: 170,
         minWidth: 150,
+        cellClass: "statusBlockCell",
         valueGetter: ({ data }) => (data ? getIngredientState(data).label : ""),
         cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
           data ? (
-            <ManufacturingStatusLabel state={getIngredientState(data)} />
+            <ManufacturingStatusBlock state={getIngredientState(data)} />
           ) : null,
       },
       {
@@ -450,6 +453,7 @@ export function OrdersTable({
         headerName: "Production",
         width: 185,
         minWidth: 160,
+        cellClass: "statusBlockCell",
         valueGetter: ({ data }) => (data ? getProductionState(data).label : ""),
         cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
           data ? <ProductionActionCell order={data} /> : null,

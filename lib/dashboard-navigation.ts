@@ -66,10 +66,10 @@ type DashboardNavigationOptions = {
 
 function filterNavItemsForOptions(
   items: DashboardNavItem[],
-  options?: DashboardNavigationOptions
+  _options?: DashboardNavigationOptions
 ) {
-  if (options?.salesAllocationMode !== "demand_queue") return items;
-  return items.filter((item) => item.href !== "/sales/allocation");
+  void _options;
+  return items;
 }
 
 const dashboardNavModules: DashboardNavModule[] = [
@@ -174,8 +174,9 @@ export function getDashboardCreateActions(assignedRoles: string[]) {
 
 export function getDashboardSearchActions(
   assignedRoles: string[],
-  options?: DashboardNavigationOptions
+  _options?: DashboardNavigationOptions
 ): DashboardSearchAction[] {
+  void _options;
   const actions: DashboardSearchAction[] = [];
 
   if (canReadModule(assignedRoles, "sales")) {
@@ -201,17 +202,13 @@ export function getDashboardSearchActions(
         icon: Invoice01Icon,
         group: "Sales",
       },
-      ...(options?.salesAllocationMode === "demand_queue"
-        ? []
-        : [
-            {
-              title: "Allocation",
-              description: "View open sales order allocations",
-              href: "/sales/allocation",
-              icon: GridTableIcon,
-              group: "Sales",
-            },
-          ]),
+      {
+        title: "Allocation",
+        description: "View open sales order manual reservations",
+        href: "/sales/allocation",
+        icon: GridTableIcon,
+        group: "Sales",
+      },
       {
         title: "Customers",
         description: "View customers",

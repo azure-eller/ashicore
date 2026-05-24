@@ -1954,7 +1954,10 @@ test.describe("Sales write-path smoke", () => {
           const raw = window.localStorage.getItem(
             "ashicore.viewPreferences.sales.orders.allocator",
           );
-          return raw ? JSON.parse(raw).collapsedWeeks?.includes("no-date") : null;
+          const parsed = raw ? JSON.parse(raw) : null;
+          return Array.isArray(parsed?.collapsedWeeks)
+            ? parsed.collapsedWeeks.includes("no-date")
+            : false;
         }),
       )
       .toBe(true);
@@ -4453,6 +4456,17 @@ test.describe("Sales write-path smoke", () => {
     );
     expect(allocationResponse.status).toBe(200);
 
+    const [independentIngredient] = await db
+      .select({ id: manufacturingOrderIngredients.id })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, independentMoId));
+    expect(independentIngredient?.id).toBeTruthy();
+    const pickIndependentResponse = await testFetch(
+      `/api/manufacturing-orders/${independentMoId}/ingredients/${independentIngredient.id}/pick`,
+      { method: "POST", body: JSON.stringify({}) }
+    );
+    expect(pickIndependentResponse.status).toBe(200);
+
     const allocatedListResponse = await testFetch("/api/sales-orders");
     expect(allocatedListResponse.status).toBe(200);
     const allocatedListRows = (await allocatedListResponse.json()) as Array<{
@@ -4477,17 +4491,30 @@ test.describe("Sales write-path smoke", () => {
       shippingReadiness: { state: "in_production" },
     });
 
-    const [order] = await db
+    const [stockedOrder] = await db
       .select({ orderNumber: salesOrders.orderNumber })
       .from(salesOrders)
       .where(eq(salesOrders.id, stockedOrderId));
+    const [oversellOrder] = await db
+      .select({ orderNumber: salesOrders.orderNumber })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, oversellOrderId));
 
     await page.goto("/sales/orders");
     await showSalesOrderStatus(page, "Confirmed");
-    await filterList(page, "Search orders", order.orderNumber);
+    await filterList(page, "Search orders", stockedOrder.orderNumber);
 
-    const orderCard = salesOrderCard(page, order.orderNumber);
-    await expect(orderCard.getByRole("button", { name: "Create MOs" })).toBeVisible();
+    const orderCard = salesOrderCard(page, stockedOrder.orderNumber);
+    await expect(orderCard.getByRole("button", { name: "Production: Make" })).toBeVisible();
+
+    await filterList(page, "Search orders", oversellOrder.orderNumber);
+    const workInProgressRow = salesOrderCard(page, oversellOrder.orderNumber);
+    await expect(
+      workInProgressRow.locator(
+        '[data-slot="status-block"][data-actionable="true"][data-tone="warning"]',
+        { hasText: "Work in progress" }
+      )
+    ).toBeVisible();
   });
 
   test.skip("ships a planned shipment from sales order detail", async ({ page, db }) => {

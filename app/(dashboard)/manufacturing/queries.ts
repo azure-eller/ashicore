@@ -3223,9 +3223,12 @@ function getBatchPickProgressStatus(
 function getIngredientReadiness(params: {
   status: ManufacturingOrderStatus;
   pickProgressStatus: ManufacturingPickProgressStatus;
-  ingredients: Array<{ itemId: string; plannedQuantity: string }>;
-  availableByItemId: Map<string, number>;
-  expectedByItemId: Map<string, number>;
+  ingredients: Array<{
+    itemId: string;
+    plannedQuantity: string;
+    inStockQuantity: number;
+    expectedQuantity: number;
+  }>;
 }): ManufacturingIngredientReadiness {
   if (params.status === "done") return "picked";
 
@@ -3242,8 +3245,8 @@ function getIngredientReadiness(params: {
     const needed = Number.parseFloat(ingredient.plannedQuantity);
     if (!Number.isFinite(needed)) return "not_available";
 
-    const available = params.availableByItemId.get(ingredient.itemId) ?? 0;
-    const expected = params.expectedByItemId.get(ingredient.itemId) ?? 0;
+    const available = ingredient.inStockQuantity;
+    const expected = ingredient.expectedQuantity;
 
     if (available >= needed) {
       continue;
@@ -3258,6 +3261,96 @@ function getIngredientReadiness(params: {
   }
 
   return hasExpectedCoverage ? "expected" : "in_stock";
+}
+
+function compareManufacturingIngredientPriority(
+  left: Pick<
+    ManufacturingOrderListRow,
+    "priorityRank" | "plannedDate" | "orderNumber" | "id"
+  >,
+  right: Pick<
+    ManufacturingOrderListRow,
+    "priorityRank" | "plannedDate" | "orderNumber" | "id"
+  >
+) {
+  const leftRank = left.priorityRank ?? Number.MAX_SAFE_INTEGER;
+  const rightRank = right.priorityRank ?? Number.MAX_SAFE_INTEGER;
+  const rankCompare = leftRank - rightRank;
+  if (rankCompare !== 0) return rankCompare;
+
+  const dateCompare = (left.plannedDate ?? "9999-12-31").localeCompare(
+    right.plannedDate ?? "9999-12-31"
+  );
+  if (dateCompare !== 0) return dateCompare;
+
+  const orderCompare = left.orderNumber.localeCompare(right.orderNumber, undefined, {
+    numeric: true,
+  });
+  if (orderCompare !== 0) return orderCompare;
+
+  return left.id.localeCompare(right.id);
+}
+
+function consumeManufacturingIngredientCoverage(params: {
+  orders: Array<
+    Pick<
+      ManufacturingOrderListRow,
+      "id" | "priorityRank" | "plannedDate" | "orderNumber"
+    >
+  >;
+  ingredientsByOrder: Map<string, Array<{ itemId: string; plannedQuantity: string }>>;
+  availableByItemId: Map<string, number>;
+  expectedByItemId: Map<string, number>;
+}) {
+  const orderById = new Map(params.orders.map((order) => [order.id, order]));
+  const demandsByItemId = new Map<
+    string,
+    Array<{ orderId: string; itemId: string; plannedQuantity: number }>
+  >();
+
+  for (const [orderId, ingredients] of params.ingredientsByOrder) {
+    for (const ingredient of ingredients) {
+      const plannedQuantity = Number.parseFloat(ingredient.plannedQuantity);
+      if (!Number.isFinite(plannedQuantity) || plannedQuantity <= 0) continue;
+      demandsByItemId.set(ingredient.itemId, [
+        ...(demandsByItemId.get(ingredient.itemId) ?? []),
+        { orderId, itemId: ingredient.itemId, plannedQuantity },
+      ]);
+    }
+  }
+
+  const coverageByOrderItem = new Map<
+    string,
+    { inStockQuantity: number; expectedQuantity: number }
+  >();
+
+  for (const [itemId, demands] of demandsByItemId) {
+    let available = params.availableByItemId.get(itemId) ?? 0;
+    let expected = params.expectedByItemId.get(itemId) ?? 0;
+
+    for (const demand of [...demands].sort((left, right) => {
+      const leftOrder = orderById.get(left.orderId);
+      const rightOrder = orderById.get(right.orderId);
+      if (!leftOrder || !rightOrder) return left.orderId.localeCompare(right.orderId);
+      return compareManufacturingIngredientPriority(leftOrder, rightOrder);
+    })) {
+      const inStockQuantity = Math.min(demand.plannedQuantity, Math.max(0, available));
+      available = normalizeQuantityNumber(available - inStockQuantity);
+
+      const remainingAfterStock = normalizeQuantityNumber(
+        demand.plannedQuantity - inStockQuantity
+      );
+      const expectedQuantity = Math.min(remainingAfterStock, Math.max(0, expected));
+      expected = normalizeQuantityNumber(expected - expectedQuantity);
+
+      coverageByOrderItem.set(`${demand.orderId}:${demand.itemId}`, {
+        inStockQuantity,
+        expectedQuantity,
+      });
+    }
+  }
+
+  return coverageByOrderItem;
 }
 
 export async function getManufacturingOrders(): Promise<ManufacturingOrderListRow[]> {
@@ -3422,9 +3515,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
           const balanceRows = await tx
             .select({
               itemId: inventoryItemBalances.itemId,
-              availableToPromise: trimScale(
-                inventoryItemBalances.availableToPromise
-              ).as("availableToPromise"),
+              onHandQty: trimScale(inventoryItemBalances.onHandQty).as("onHandQty"),
               expectedQty: trimScale(inventoryItemBalances.expectedQty).as(
                 "expectedQty"
               ),
@@ -3439,13 +3530,17 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             );
 
           for (const row of balanceRows) {
-            availableByItemId.set(
-              row.itemId,
-              Number.parseFloat(row.availableToPromise)
-            );
+            availableByItemId.set(row.itemId, Number.parseFloat(row.onHandQty));
             expectedByItemId.set(row.itemId, Number.parseFloat(row.expectedQty));
           }
         }
+
+        const ingredientCoverageByOrderItem = consumeManufacturingIngredientCoverage({
+          orders,
+          ingredientsByOrder: readinessIngredientsByOrder,
+          availableByItemId,
+          expectedByItemId,
+        });
 
         return orders.map(({ productFamilyName, ...order }) => {
           const batches = batchesByOrder.get(order.id) ?? [];
@@ -3485,9 +3580,14 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             ingredientReadiness: getIngredientReadiness({
               status: order.status,
               pickProgressStatus,
-              ingredients: readinessIngredientsByOrder.get(order.id) ?? [],
-              availableByItemId,
-              expectedByItemId,
+              ingredients: (readinessIngredientsByOrder.get(order.id) ?? []).map(
+                (ingredient) => ({
+                  ...ingredient,
+                  ...(ingredientCoverageByOrderItem.get(
+                    `${order.id}:${ingredient.itemId}`
+                  ) ?? { inStockQuantity: 0, expectedQuantity: 0 }),
+                })
+              ),
             }),
             completedBatchCount,
             actionableBatchCount: batches.filter((batch) => batch.status !== "completed").length,

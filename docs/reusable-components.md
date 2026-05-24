@@ -40,9 +40,9 @@ read_when:
 
 - `AutosaveStatus` — `components/autosave-status.tsx`
 - `StatusLabel` — `components/ui/status-label.tsx`
+- `StatusBlock` — `components/ui/status-block.tsx`
 - `StatusRibbon` — `components/ui/status-ribbon.tsx`
 - `AccountingSyncStatus` — `components/accounting-sync-status.tsx`
-- `OperationalStateCell` — `components/operational-state-cell.tsx`
 - `DisabledTooltipButton` — `components/disabled-tooltip-button.tsx`
 - `DetailPageActions` — `components/detail-page-actions.tsx`
 
@@ -70,7 +70,6 @@ read_when:
 
 ## Manufacturing
 
-- `StatusPicker` — `components/manufacturing/status-picker.tsx`
 - `LotStrategyChip` — `components/manufacturing/lot-strategy-chip.tsx`
 - `ManufacturingIngredientLotCard` — `components/manufacturing/ingredient-lot-card.tsx`
 - `useMoSaveStatus` — `components/manufacturing/use-mo-save-status.ts`
