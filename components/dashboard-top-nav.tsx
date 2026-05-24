@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -87,7 +87,6 @@ export function DashboardTopNav({
   const [pageSearchOpen, setPageSearchOpen] = useState(false);
   const [pageSearch, setPageSearch] = useState("");
   const [previewModuleHref, setPreviewModuleHref] = useState<string | null>(null);
-  const subNavResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const modules = getDashboardNavModules(assignedRoles, {
     salesAllocationMode: allocationMode,
   });
@@ -115,38 +114,7 @@ export function DashboardTopNav({
     setHydratedPathname(pathname);
   }, [pathname]);
 
-  useEffect(() => {
-    setPreviewModuleHref(null);
-  }, [visiblePathname]);
-
-  useEffect(
-    () => () => {
-      if (subNavResetTimerRef.current) {
-        clearTimeout(subNavResetTimerRef.current);
-      }
-    },
-    []
-  );
-
-  function clearSubNavResetTimer() {
-    if (!subNavResetTimerRef.current) {
-      return;
-    }
-
-    clearTimeout(subNavResetTimerRef.current);
-    subNavResetTimerRef.current = null;
-  }
-
-  function scheduleSubNavReset(delay: number) {
-    clearSubNavResetTimer();
-    subNavResetTimerRef.current = setTimeout(() => {
-      setPreviewModuleHref(null);
-      subNavResetTimerRef.current = null;
-    }, delay);
-  }
-
   function showModulePreview(moduleHref: string) {
-    clearSubNavResetTimer();
     setPreviewModuleHref(moduleHref);
   }
 
@@ -229,9 +197,7 @@ export function DashboardTopNav({
                     aria-current={active ? "true" : undefined}
                     className="flex items-center justify-center gap-(--space-4) text-[length:var(--text-md)] leading-[var(--leading-sm)] font-medium"
                     onMouseEnter={() => showModulePreview(module.href)}
-                    onMouseLeave={() => scheduleSubNavReset(220)}
                     onFocus={() => showModulePreview(module.href)}
-                    onBlur={() => scheduleSubNavReset(220)}
                     onClick={() => setPreviewModuleHref(null)}
                   >
                     <HugeiconsIcon
@@ -499,8 +465,6 @@ export function DashboardTopNav({
           "flex h-(--height-subnav) shrink-0 items-stretch border-b bg-background px-(--space-10)",
           isPreviewingModule && "opacity-85"
         )}
-        onMouseEnter={clearSubNavResetTimer}
-        onMouseLeave={() => scheduleSubNavReset(120)}
       >
         {visibleModule ? (
           <div className="flex min-w-0 items-center gap-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
