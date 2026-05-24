@@ -11,15 +11,16 @@ import {
   EXPECTED_DELIVERY_DATE_TOOLTIP,
   PURCHASE_ORDER_STATUS_COLUMN_TOOLTIP,
 } from "@/lib/tooltip-copy";
-import { PurchaseStatusControl } from "@/components/purchasing/purchase-status-control";
+import { OrderStatusControl } from "@/components/card-page/order-status-control";
+import { purchaseOrderStatusConfig } from "@/components/card-page/order-status-configs";
 import type { PurchaseOrderListRow } from "./types";
 
 function PurchaseStatusCell({ order }: { order: PurchaseOrderListRow }) {
   const queryClient = useQueryClient();
   return (
-    <PurchaseStatusControl
-      orderId={order.id}
-      status={order.status}
+    <OrderStatusControl
+      config={purchaseOrderStatusConfig}
+      ctx={{ orderId: order.id, status: order.status }}
       size="sm"
       onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
@@ -38,7 +39,7 @@ function createColumns(): ColDef<PurchaseOrderListRow>[] {
       cellRenderer: ({ data }: ICellRendererParams<PurchaseOrderListRow>) =>
         data ? (
           <Link
-            href={`/purchasing/orders/${data.id}`}
+            href={`/purchasing/order/${data.id}`}
             className="hover:underline"
           >
             {data.orderNumber}

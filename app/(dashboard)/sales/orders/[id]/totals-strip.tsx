@@ -5,20 +5,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { HelpCircleIcon } from "@hugeicons/core-free-icons";
-import { useEntityFieldCommit } from "@/components/card-page/use-entity-field-commit";
+import { TotalsSummary } from "@/components/card-page/totals-summary";
 import { formatPrice } from "@/lib/format";
-import { patchSalesOrderHeader } from "@/lib/api/clients/sales-orders";
 import type { SalesOrderDetail } from "@/app/(dashboard)/sales/types";
-import type { OrderDraftController } from "./order-draft";
+import type { SalesOrderDraftController } from "./use-sales-order-draft-controller";
 import styles from "./order-card.module.css";
 
 export type TotalsStripProps = {
   order: SalesOrderDetail;
   notesEditable: boolean;
-  draft?: OrderDraftController;
+  controller: SalesOrderDraftController;
 };
 
-export function TotalsStrip({ order, notesEditable, draft }: TotalsStripProps) {
+export function TotalsStrip({ order, notesEditable, controller }: TotalsStripProps) {
   const notesValue = order.notes ?? "";
   const { marginSummary } = order;
   const revenue = parseAmount(marginSummary.productRevenue);
@@ -39,7 +38,7 @@ export function TotalsStrip({ order, notesEditable, draft }: TotalsStripProps) {
           Notes
         </div>
         {notesEditable ? (
-          <NotesEditor orderId={order.id} initial={notesValue} draft={draft} />
+          <NotesEditor initial={notesValue} controller={controller} />
         ) : notesValue ? (
           <div className="whitespace-pre-wrap text-[13px] text-[var(--color-ink)]">
             {notesValue}
@@ -49,55 +48,39 @@ export function TotalsStrip({ order, notesEditable, draft }: TotalsStripProps) {
         )}
       </div>
 
-      <div className={styles.totalsRight}>
-        <TotalsRow label="Product revenue" value={formatMoney(revenue)} />
-        <TotalsRow
-          label={
-            <span className="inline-flex items-center gap-1">
-              COGS
-              {cogs == null ? <CostsEstimateMark /> : null}
-            </span>
-          }
-          value={cogs == null ? "—" : formatMoney(cogs)}
-          minusPrefix
-        />
-        <TotalsRow label="Shipping costs" value={formatMoney(shipmentCosts ?? 0)} minusPrefix />
-        <div className={`${styles.totalsRow} ${styles.totalsRule}`}>
-          <div className={styles.totalsRowLabel}>Total</div>
-          <div className={styles.totalsRowValue}>{formatMoney(total)}</div>
-        </div>
-        <div className={styles.totalsRow}>
-          <div className={styles.totalsRowLabel}>Contribution margin</div>
-          <div className={`${styles.totalsRowValue} ${styles.totalsMargin}`}>
-            {marginPct != null ? `${marginPct.toFixed(1)}%` : "—"}
-            {contributionMargin != null ? (
-              <span className={styles.totalsMarginSub}>{formatMoney(contributionMargin)}</span>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TotalsRow({
-  label,
-  value,
-  minusPrefix,
-}: {
-  label: React.ReactNode;
-  value: string;
-  minusPrefix?: boolean;
-}) {
-  return (
-    <div className={styles.totalsRow}>
-      <div className={styles.totalsRowLabel}>{label}</div>
-      <div className={styles.totalsRowValue}>
-        {minusPrefix && value !== "—" ? (
-          <span className={styles.totalsRowMinusPrefix}>−</span>
-        ) : null}
-        {value}
-      </div>
+      <TotalsSummary
+        className={styles.totalsRight}
+        rows={[
+          { label: "Product revenue", value: formatMoney(revenue) },
+          {
+            label: (
+              <span className="inline-flex items-center gap-1">
+                COGS
+                {cogs == null ? <CostsEstimateMark /> : null}
+              </span>
+            ),
+            value: cogs == null ? "—" : formatMoney(cogs),
+            minusPrefix: true,
+          },
+          {
+            label: "Shipping costs",
+            value: shipmentCosts == null ? "—" : formatMoney(shipmentCosts),
+            minusPrefix: true,
+          },
+          {
+            label: "Total",
+            value: formatMoney(total),
+            rule: true,
+            emphasis: "total",
+          },
+          {
+            label: "Contribution margin",
+            value: marginPct != null ? `${marginPct.toFixed(1)}%` : "—",
+            subValue: contributionMargin != null ? formatMoney(contributionMargin) : null,
+            emphasis: "success",
+          },
+        ]}
+      />
     </div>
   );
 }
@@ -122,38 +105,25 @@ function CostsEstimateMark() {
 }
 
 function NotesEditor({
-  orderId,
   initial,
-  draft,
+  controller,
 }: {
-  orderId: string;
   initial: string;
-  draft?: OrderDraftController;
+  controller: SalesOrderDraftController;
 }) {
-  const [value, setValue] = useState(initial);
-  const commit = useEntityFieldCommit<string | null, SalesOrderDetail>({
-    entityKey: "sales-order",
-    entityId: orderId,
-    scope: "notes",
-    mutationFn: (notes: string | null) => patchSalesOrderHeader(orderId, { notes }),
-    setQueryDataKey: ["sales-order", orderId],
-    optimisticUpdate: (current, notes) =>
-      current ? ({ ...current, notes } as SalesOrderDetail) : current,
-  });
+  const [edit, setEdit] = useState<{ value: string } | null>(null);
+  const value = edit?.value ?? initial;
 
   return (
     <Textarea
       value={value}
-      onChange={(event) => setValue(event.target.value)}
+      onChange={(event) => setEdit({ value: event.target.value })}
       onBlur={() => {
         const trimmed = value.trim();
         const next = trimmed === "" ? null : trimmed;
+        setEdit(null);
         if (next === (initial.trim() === "" ? null : initial)) return;
-        if (draft) {
-          draft.patchHeader({ notes: next });
-          return;
-        }
-        commit(next);
+        controller.patchHeader({ notes: next });
       }}
       rows={3}
       className="resize-y min-h-[48px]"

@@ -44,6 +44,7 @@ import {
   ORDER_TOTAL_TOOLTIP,
   SALES_ORDER_CUSTOMER_TOOLTIP,
   SALES_ORDER_DELIVERY_STATUS_TOOLTIP,
+  SALES_ORDER_INGREDIENTS_STATUS_TOOLTIP,
   SALES_ORDER_ITEMS_STATUS_TOOLTIP,
   SALES_ORDER_NOTES_TOOLTIP,
   SALES_ORDER_NUMBER_TOOLTIP,
@@ -58,16 +59,27 @@ import {
   type SalesAllocationMode,
   type SalesItemsFilterValue,
 } from "@/lib/sales/order-display-status";
+import {
+  getIngredientsDisplayState,
+  getProductionDisplayState,
+  type FulfillmentTone,
+} from "@/lib/sales/fulfillment-status";
 import { ProductionActionCell } from "./sales-order-table-action-cells";
-import { SalesStatusControl } from "@/components/sales/sales-status-control";
+import { OrderStatusControl } from "@/components/card-page/order-status-control";
+import {
+  isSalesOrderStatusDisabled,
+  salesOrderStatusConfig,
+} from "@/components/card-page/order-status-configs";
 import type { SalesOrderListRow } from "./types";
 
 function SalesDeliveryCell({ order }: { order: SalesOrderListRow }) {
   const queryClient = useQueryClient();
   return (
-    <SalesStatusControl
-      order={order}
+    <OrderStatusControl
+      config={salesOrderStatusConfig}
+      ctx={{ order }}
       size="sm"
+      disabled={isSalesOrderStatusDisabled(order)}
       onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
         void queryClient.invalidateQueries({ queryKey: ["items"] });
@@ -80,14 +92,12 @@ const OPEN_SALES_STATUSES = ["open"] as const;
 const DONE_SALES_STATUSES = ["done"] as const;
 type SalesWorkflowFilterValue = "open" | "done";
 
-const availabilityToneByLabel: Record<string, StatusTone> = {
-  Complete: "success",
-  Allocated: "success",
-  Partial: "warning",
-  "Not allocated": "danger",
-  Available: "success",
-  Expected: "warning",
-  "Not available": "danger",
+const fulfillmentToneToStatusTone: Record<FulfillmentTone, StatusTone> = {
+  destructive: "danger",
+  muted: "neutral",
+  secondary: "info",
+  success: "success",
+  warning: "warning",
 };
 
 function isOpenSalesOrder(order: SalesOrderListRow) {
@@ -168,12 +178,9 @@ function SalesItemsActionCell({
   const isActionLink =
     allocationMode === "manual"
       ? state.label === "Not allocated" || state.label === "Partial"
-      : order.fulfillmentSummary.availabilityState === "not_available" ||
-        order.fulfillmentSummary.availabilityState === "expected";
-  const tone =
-    availabilityToneByLabel[
-      state.label.startsWith("Expected") ? "Expected" : state.label
-    ] ?? "neutral";
+      : order.fulfillmentSummary.salesItemsState === "not_available" ||
+        order.fulfillmentSummary.salesItemsState === "expected";
+  const tone = fulfillmentToneToStatusTone[state.tone] ?? "neutral";
 
   if (!isActionLink) {
     return <StatusLabel tone={tone}>{state.label}</StatusLabel>;
@@ -191,30 +198,23 @@ function SalesItemsActionCell({
 }
 
 function getProductionState(order: SalesOrderListRow): OperationalState {
-  if (!order.hasManufacturableLines) {
-    if (
-      order.manufacturableDisabledReason ===
-      "Allocated stock covers every manufacturable line."
-    ) {
-      return { label: "Allocated", tone: "success" };
-    }
+  return getProductionDisplayState(order.fulfillmentSummary.productionState);
+}
 
-    return { label: "No production", tone: "muted" };
-  }
+function getIngredientsState(order: SalesOrderListRow): OperationalState {
+  return getIngredientsDisplayState(
+    order.fulfillmentSummary.ingredientsState,
+    order.fulfillmentSummary.ingredientsExpectedDate
+  );
+}
 
-  if (order.openManufacturingOrders.some((mo) => mo.status === "open")) {
-    return { label: "Work in progress", tone: "warning" };
-  }
-
-  if (parseQuantity(order.fulfillmentSummary.productionAllocatedQty) > 0) {
-    return { label: "Done", tone: "success" };
-  }
-
-  if (parseQuantity(order.fulfillmentSummary.shortQty) > 0) {
-    return { label: "Make", tone: "secondary" };
-  }
-
-  return { label: "No production", tone: "muted" };
+function IngredientsStatusCell({ order }: { order: SalesOrderListRow }) {
+  const state = getIngredientsState(order);
+  return (
+    <StatusLabel tone={fulfillmentToneToStatusTone[state.tone]}>
+      {state.label}
+    </StatusLabel>
+  );
 }
 
 function getDeliveryState(order: SalesOrderListRow): OperationalState {
@@ -270,6 +270,7 @@ function salesOrderMatchesSearch(
     getOrderShipmentSchedule(order).date,
     getOrderShipmentSchedule(order).label,
     getSalesItemsState(order, allocationMode).label,
+    getIngredientsState(order).label,
     getProductionState(order).label,
     getDeliveryState(order).label,
   ].some((value) => value?.toLowerCase().includes(normalizedSearch));
@@ -431,7 +432,7 @@ function OrdersTableContent({
   const middleLabel = allocationMode === "manual" ? "partial" : "expected";
   const shortLabel =
     allocationMode === "manual" ? "not allocated" : "not available";
-  const columnHeader = allocationMode === "manual" ? "Allocation" : "Available";
+  const columnHeader = allocationMode === "manual" ? "Allocation" : "Sales Items";
   const readyCount = openOrders.filter(
     (order) => getSalesItemsFilterValue(order, allocationMode) === readyFilter
   ).length;
@@ -512,7 +513,7 @@ function OrdersTableContent({
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
           data ? (
             <Link
-              href={`/sales/orders/${data.id}`}
+              href={`/sales/order/${data.id}`}
               className="block truncate font-medium hover:underline"
             >
               {data.orderNumber}
@@ -576,6 +577,16 @@ function OrdersTableContent({
         comparator: (_left, _right, leftNode, rightNode) =>
           parseQuantity(leftNode.data?.fulfillmentSummary.shortQty) -
           parseQuantity(rightNode.data?.fulfillmentSummary.shortQty),
+      },
+      {
+        colId: "ingredientsState",
+        headerName: "Ingredients",
+        headerTooltip: SALES_ORDER_INGREDIENTS_STATUS_TOOLTIP,
+        width: 145,
+        minWidth: 135,
+        valueGetter: ({ data }) => (data ? getIngredientsState(data).label : ""),
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
+          data ? <IngredientsStatusCell order={data} /> : null,
       },
       {
         colId: "productionState",
@@ -692,6 +703,12 @@ function OrdersTableContent({
     },
     onError: (_error, _orderedRows, context) => {
       queryClient.setQueryData(["sales-orders"], context?.previous);
+    },
+    onSettled: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["items"] }),
+      ]);
     },
   });
   const deleteMutation = useMutation({

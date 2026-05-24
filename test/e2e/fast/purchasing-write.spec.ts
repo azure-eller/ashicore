@@ -31,11 +31,22 @@ test.describe("Purchasing write-path smoke", () => {
 
   test("creates and edits a supplier through the browser form", async ({ page, db }) => {
     await page.goto("/purchasing/suppliers/new");
-    await page.waitForURL(/\/purchasing\/suppliers\/[0-9a-f-]+$/);
     await expect(page.getByRole("heading", { name: "New supplier" })).toBeVisible();
-    supplierId = getIdFromUrl(page.url());
 
-    await commitSupplierField(page, supplierId, "Name", supplierName);
+    const [createSupplierResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/api/suppliers")
+      ),
+      (async () => {
+        await page.getByLabel("Name", { exact: true }).fill(supplierName);
+        await page.getByLabel("Name", { exact: true }).blur();
+      })(),
+    ]);
+    expect(createSupplierResponse.status()).toBe(201);
+    await page.waitForURL(/\/purchasing\/suppliers\/[0-9a-f-]+$/);
+    supplierId = getIdFromUrl(page.url());
     await expect(page.getByRole("heading", { name: supplierName })).toBeVisible();
 
     await commitSupplierField(page, supplierId, "Code", `FAST-SUP-${ts}`);
@@ -62,6 +73,43 @@ test.describe("Purchasing write-path smoke", () => {
       .where(eq(purchasingSuppliers.id, supplierId));
     expect(updatedSupplier.phone).toBe("555-0216");
     expect(updatedSupplier.notes).toBe("Fast supplier updated");
+  });
+
+  test("purchase order create switches to persisted URL after supplier selection", async ({
+    page,
+    db,
+  }) => {
+    await page.goto("/purchasing/order");
+    await expect(page.getByRole("heading", { name: "New purchase order" })).toBeVisible();
+
+    const supplierInput = page.getByRole("combobox", { name: "Search suppliers..." });
+    const [createOrderResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/api/purchase-orders")
+      ),
+      (async () => {
+        await supplierInput.fill(supplierName);
+        await page.getByRole("option", { name: new RegExp(supplierName) }).click();
+      })(),
+    ]);
+    expect(createOrderResponse.status()).toBe(201);
+    const created = await createOrderResponse.json();
+    await expect(page).toHaveURL(new RegExp(`/purchasing/order/${created.id}$`));
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(/PO-\d{4}-\d{4}/);
+
+    const [order] = await db
+      .select()
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, created.id));
+    expect(order.supplierId).toBe(supplierId);
+
+    await page.getByRole("button", { name: "Create" }).click();
+    await page.getByRole("menuitem", { name: "Purchase Order" }).click();
+    await expect(page).toHaveURL(/\/purchasing\/order$/);
+    await expect(page.getByRole("heading", { name: "New purchase order" })).toBeVisible();
+    await expect(supplierInput).toHaveValue("");
   });
 
   test("creates a draft purchase order through the browser form", async ({ page, db }) => {
@@ -156,7 +204,7 @@ test.describe("Purchasing write-path smoke", () => {
     expect(saveOrderResponse.status).toBe(201);
     purchaseOrderId = (await saveOrderResponse.json()).id;
 
-    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
+    await page.goto(`/purchasing/order/${purchaseOrderId}`);
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/PO-\d{4}-\d{4}/);
 
     const [order] = await db
@@ -630,7 +678,7 @@ test.describe("Purchasing write-path smoke", () => {
   });
 
   test("duplicates a purchase order from the detail actions", async ({ page, db }) => {
-    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
+    await page.goto(`/purchasing/order/${purchaseOrderId}`);
     await page.getByRole("button", { name: "More actions" }).click();
 
     const [duplicateResponse] = await Promise.all([
@@ -644,7 +692,7 @@ test.describe("Purchasing write-path smoke", () => {
     expect(duplicateResponse.status()).toBe(201);
     const created = await duplicateResponse.json();
     const duplicateId = created.id as string;
-    await page.waitForURL(`**/purchasing/orders/${duplicateId}`);
+    await page.waitForURL(`**/purchasing/order/${duplicateId}`);
     expect(duplicateId).not.toBe(purchaseOrderId);
 
     const [duplicate] = await db

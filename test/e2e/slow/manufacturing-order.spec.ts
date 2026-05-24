@@ -509,7 +509,7 @@ test.describe("Manufacturing order flow", () => {
       },
     ]);
 
-    await page.goto(`/manufacturing/orders/${releasedOrderId}`);
+    await page.goto(`/manufacturing/order/${releasedOrderId}`);
     await expect(page.getByText("Initial draft manufacturing order")).toBeVisible();
     await expect(page.getByRole("button", { name: /Status:/ })).toBeVisible();
     await expect(page.getByRole("button", { name: "Planned date" })).toContainText(
@@ -576,7 +576,7 @@ test.describe("Manufacturing order flow", () => {
     });
     const linkBody = await linkResponse.json().catch(() => null);
     expect(linkResponse.status, JSON.stringify(linkBody)).toBe(200);
-    await page.goto(`/manufacturing/orders/${releasedOrderId}`);
+    await page.goto(`/manufacturing/order/${releasedOrderId}`);
 
     const [linkedOrder] = await db
       .select()
@@ -637,7 +637,7 @@ test.describe("Manufacturing order flow", () => {
     expect(batchOrder).toBeTruthy();
     await confirmSalesOrder(batchSalesOrderId, true);
 
-    await page.goto(`/sales/orders/${batchSalesOrderId}`);
+    await page.goto(`/sales/order/${batchSalesOrderId}`);
     await openSalesOrderCreateMoDialog(page);
     const dialog = page.getByRole("dialog", { name: "Create Manufacturing Orders" });
     await expect(dialog).toBeVisible();
@@ -781,7 +781,7 @@ test.describe("Manufacturing order flow", () => {
     expect(completeResult.status).toBe(200);
     expect(completeResult.body?.id).toBe(repeatOrderId);
 
-    await page.goto(`/sales/orders/${repeatSalesOrderId}`);
+    await page.goto(`/sales/order/${repeatSalesOrderId}`);
     await expect(page.getByRole("button", { name: "New shipment" }).first()).toBeVisible();
     await page.getByRole("button", { name: "More actions" }).click();
     await expect(
@@ -884,7 +884,7 @@ test.describe("Manufacturing order flow", () => {
     });
     const editBody = await editResponse.json().catch(() => null);
     expect(editResponse.status, JSON.stringify(editBody)).toBe(200);
-    await page.goto(`/manufacturing/orders/${releasedOrderId}`);
+    await page.goto(`/manufacturing/order/${releasedOrderId}`);
 
     const [editedOrder] = await db
       .select()
@@ -1039,7 +1039,7 @@ test.describe("Manufacturing order flow", () => {
 
     expect(productBeforeDelete.expectedQty).toBe("2.0000");
 
-    await page.goto(`/manufacturing/orders/${deleteOrderId}`);
+    await page.goto(`/manufacturing/order/${deleteOrderId}`);
     await page.getByRole("button", { name: "More actions" }).click();
     await expect(page.getByRole("menuitem", { name: "Open execution" })).toHaveCount(0);
     await page.keyboard.press("Escape");
@@ -1556,7 +1556,7 @@ test.describe("Manufacturing order flow", () => {
       )
       .toBe("done");
 
-    await page.goto(`/manufacturing/orders/${completionOrderId}`);
+    await page.goto(`/manufacturing/order/${completionOrderId}`);
     await expect(
       page.getByRole("button", { name: /Status: Done/ })
     ).toBeVisible();
@@ -2021,7 +2021,7 @@ test.describe("Manufacturing order flow", () => {
       throw new Error("Expected output allocation sales destination.");
     }
 
-    await page.goto(`/manufacturing/orders/${sourceOrderId}`);
+    await page.goto(`/manufacturing/order/${sourceOrderId}`);
     await page.waitForLoadState("networkidle");
     await expect(page.getByRole("heading", { name: /Allocation Tote/ })).toBeVisible();
     await expect(page.getByRole("grid").first()).toContainText("Allocation Base");

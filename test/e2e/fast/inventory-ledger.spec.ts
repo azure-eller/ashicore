@@ -1132,7 +1132,7 @@ test.describe("Inventory ledger explorer", () => {
   });
 
   test("drills through from purchase and sales order detail pages", async ({ page }) => {
-    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
+    await page.goto(`/purchasing/order/${purchaseOrderId}`);
     await page.getByRole("button", { name: "More actions" }).click();
     const purchaseLedgerItem = page.getByRole("menuitem", {
       name: "View inventory activity",
@@ -1156,7 +1156,7 @@ test.describe("Inventory ledger explorer", () => {
     await expect(purchaseTableBody.getByText("Manual stock increase")).toHaveCount(0);
     await expect(purchaseTableBody.getByText(purchaseOrderNumber).first()).toBeVisible();
 
-    await page.goto(`/sales/orders/${salesOrderId}`);
+    await page.goto(`/sales/order/${salesOrderId}`);
     await page.getByRole("button", { name: "More actions" }).click();
     const salesLedgerItem = page.getByRole("menuitem", {
       name: "View inventory activity",

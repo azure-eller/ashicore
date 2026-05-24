@@ -33,8 +33,13 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const data = updateManufacturingOrderSchema.parse(body);
 
   try {
-    const order = await updateManufacturingOrder(id, data);
+    const updated = await updateManufacturingOrder(id, data);
 
+    if (!updated) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    const order = await getManufacturingOrder(id);
     if (!order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
@@ -53,8 +58,13 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   const data = patchManufacturingOrderSchema.parse(body);
 
   try {
-    const order = await patchManufacturingOrder(id, data);
+    const patched = await patchManufacturingOrder(id, data);
 
+    if (!patched) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    const order = await getManufacturingOrder(id);
     if (!order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }

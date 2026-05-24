@@ -1302,7 +1302,10 @@ export async function createPurchaseOrderInTx(
       shippingCost: prepared.shippingCost,
       totalAmount: prepared.totalAmount,
     })
-    .returning({ id: purchaseOrders.id });
+    .returning({
+      id: purchaseOrders.id,
+      orderNumber: purchaseOrders.orderNumber,
+    });
 
   if (
     options.accountingPushStatus === "pushed" &&

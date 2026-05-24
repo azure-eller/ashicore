@@ -342,11 +342,11 @@ function getSourceDocumentHref(
 
   switch (sourceType) {
     case "purchase_order":
-      return `/purchasing/orders/${id}`;
+      return `/purchasing/order/${id}`;
     case "sales_order":
-      return `/sales/orders/${id}`;
+      return `/sales/order/${id}`;
     case "manufacturing_order":
-      return `/manufacturing/orders/${id}`;
+      return `/manufacturing/order/${id}`;
     case "stocktake":
       return `/inventory/stocktakes/${id}`;
     case "item":

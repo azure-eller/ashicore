@@ -396,10 +396,7 @@ async function prepareDefaultFamiliesInTx(
       (family) =>
         family.unitDefinitionId === familyUnitId &&
         (family.category ?? null) === (seed.category ?? null)
-    ) ?? matches[0];
-    if (matches.length > 1 && !existing) {
-      throw new Error(`Multiple active default item families found for ${seed.name}.`);
-    }
+    );
 
     if (!existing) {
       const [created] = await tx

@@ -91,7 +91,6 @@ const priorityRankSchema = z
   .refine((value) => value == null || value > 0, "Priority rank must be positive");
 
 const ingredientsSchema = cleanedIngredientRowsSchema
-  .refine((rows) => rows.length >= 1, "At least one ingredient is required")
   .superRefine((rows, ctx) => {
     const seen = new Set<string>();
 

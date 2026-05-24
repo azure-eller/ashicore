@@ -34,18 +34,17 @@ type EditableLineCellEditorParams = {
 
 export type EditableLineDataGridChangeType =
   | "cell_edit_committed"
+  | "blank_row_committed"
   | "row_added"
   | "row_deleted"
-  | "row_reordered"
-  | "blank_row_committed"
-  | "initialized_blank_row";
+  | "row_reordered";
 
 export type EditableLineDataGridChange<TData> = {
   type: EditableLineDataGridChangeType;
   rows: TData[];
   row?: TData;
   /**
-   * For `cell_edit_committed` / `blank_row_committed` changes, the colDef field
+   * For `cell_edit_committed` changes, the colDef field
    * the user edited (e.g. `"sku"`). Useful for per-cell autosave consumers
    * that need to know which API field to PATCH.
    */
@@ -73,6 +72,10 @@ export type EditableLineDataGridProps<TData> = {
   defaultColDef?: ColDef<TData>;
   enableReorder?: boolean;
   enableDelete?: boolean;
+  /** Deprecated compatibility prop. Blank-row auto-add behavior is disabled. */
+  initializeBlankRow?: boolean;
+  /** Deprecated compatibility prop. Blank-row auto-add behavior is disabled. */
+  isBlankRow?: (row: TData) => boolean;
   /**
    * When false, the "+ Add row" button is hidden and the auto-initialized
    * blank row is suppressed. Use for list-style editable grids whose rows
@@ -80,14 +83,12 @@ export type EditableLineDataGridProps<TData> = {
    * from option combinations, not row-add).
    */
   enableAddRow?: boolean;
-  initializeBlankRow?: boolean;
   addDisabledReason?: string | null;
   canDeleteRow?: (row: TData, rows: TData[]) => boolean;
   getDeleteDisabledReason?: (row: TData, rows: TData[]) => string | null;
   onDeleteRow?: (row: TData, rows: TData[]) => void | Promise<void>;
   onAddRow?: () => TData | null | Promise<TData | null>;
   extraEndColumns?: ColDef<TData>[];
-  isBlankRow?: (row: TData) => boolean;
   rowHasError?: (row: TData) => boolean;
   error?: string | null;
   onGridReady?: (event: GridReadyEvent<TData>) => void;
@@ -193,22 +194,23 @@ export function EditableLineDataGrid<TData>({
   defaultColDef: defaultColDefOverrides,
   enableReorder = true,
   enableDelete = true,
+  initializeBlankRow: _initializeBlankRow,
+  isBlankRow: _isBlankRow,
   enableAddRow = true,
-  initializeBlankRow = true,
   addDisabledReason,
   canDeleteRow,
   getDeleteDisabledReason,
   onDeleteRow,
   onAddRow,
   extraEndColumns,
-  isBlankRow,
   rowHasError,
   error,
   onGridReady,
 }: EditableLineDataGridProps<TData>) {
+  void _initializeBlankRow;
+  void _isBlankRow;
   const gridApiRef = useRef<GridApi<TData> | null>(null);
   const stateRef = useRef({ rows, getRowId, onRowsChange });
-  const hasInitializedBlankRowRef = useRef(false);
   const pendingEditRowIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -242,21 +244,6 @@ export function EditableLineDataGrid<TData>({
       });
     });
   }, [getRowId, rows]);
-
-  useEffect(() => {
-    if (!enableAddRow || !initializeBlankRow) return;
-    if (hasInitializedBlankRowRef.current || rows.length > 0) {
-      return;
-    }
-
-    hasInitializedBlankRowRef.current = true;
-    const row = createRow();
-    onRowsChange([row], {
-      type: "initialized_blank_row",
-      rows: [row],
-      row,
-    });
-  }, [createRow, enableAddRow, initializeBlankRow, onRowsChange, rows.length]);
 
   const emitRowsChange = useCallback(
     (nextRows: TData[], change: Omit<EditableLineDataGridChange<TData>, "rows">) => {
@@ -392,22 +379,10 @@ export function EditableLineDataGrid<TData>({
         latest.getRowId(row) === editedId ? { ...event.data } : row
       );
       const editedRow = nextRows.find((row) => latest.getRowId(row) === editedId);
-      let finalRows = nextRows;
-      let type: EditableLineDataGridChangeType = "cell_edit_committed";
 
-      if (
-        editedRow &&
-        isBlankRow &&
-        !isBlankRow(editedRow) &&
-        finalRows.every((row) => !isBlankRow(row))
-      ) {
-        finalRows = [...finalRows, createRow()];
-        type = "blank_row_committed";
-      }
-
-      latest.onRowsChange(finalRows, {
-        type,
-        rows: finalRows,
+      latest.onRowsChange(nextRows, {
+        type: "cell_edit_committed",
+        rows: nextRows,
         row: editedRow,
         field: event.colDef.field ?? null,
         colId: event.column.getColId(),
@@ -415,7 +390,7 @@ export function EditableLineDataGrid<TData>({
         newValue: event.newValue,
       });
     },
-    [createRow, isBlankRow]
+    []
   );
 
   const handleRowDragEnd = useCallback((event: RowDragEndEvent<TData>) => {

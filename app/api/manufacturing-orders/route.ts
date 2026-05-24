@@ -6,6 +6,7 @@ import { insertManufacturingOrderSchema } from "@/lib/schemas/manufacturing-orde
 import {
   createManufacturingOrder,
   deleteManufacturingOrders,
+  getManufacturingOrder,
   getManufacturingOrders,
   ManufacturingError,
 } from "@/app/(dashboard)/manufacturing/queries";
@@ -35,7 +36,13 @@ export const POST = apiHandler(async (request) => {
   const data = insertManufacturingOrderSchema.parse(body);
 
   try {
-    const order = await createManufacturingOrder(data);
+    const created = await createManufacturingOrder(data);
+    const order = await getManufacturingOrder(created.id);
+
+    if (!order) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
     return NextResponse.json(order, { status: 201 });
   } catch (error) {
     if (error instanceof ManufacturingError) return error.toResponse();

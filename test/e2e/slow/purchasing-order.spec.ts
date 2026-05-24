@@ -98,36 +98,44 @@ test.describe("Purchasing flow", () => {
   });
 
   test("creates a supplier with all fields", async ({ page, db }) => {
-    const nameInput = page.locator("#name");
-
     await page.goto("/purchasing/suppliers/new");
-    await expect(page.getByText("Add Supplier")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "New supplier" })).toBeVisible();
 
-    await page.locator("#code").pressSequentially(`SUP-${ts}`, { delay: 20 });
-    await page.locator("#contactName").pressSequentially("Jordan Mesa", { delay: 20 });
-    await page.locator("#paymentTerms").pressSequentially("Net 15", { delay: 20 });
-    await page.locator("#email").pressSequentially(`purchasing-${ts}@example.com`, {
+    await page.getByLabel("Code", { exact: true }).pressSequentially(`SUP-${ts}`, { delay: 20 });
+    await page.getByLabel("Contact name", { exact: true }).pressSequentially("Jordan Mesa", { delay: 20 });
+    await page.getByLabel("Payment terms", { exact: true }).pressSequentially("Net 15", { delay: 20 });
+    await page.getByLabel("Email", { exact: true }).pressSequentially(`purchasing-${ts}@example.com`, {
       delay: 20,
     });
-    await page.locator("#phone").pressSequentially("555-0215", { delay: 20 });
-    await page.locator("#supplier-billing-line1").pressSequentially("88 Supply Road", { delay: 20 });
-    await page.locator("#notes").pressSequentially("Primary mulch and sand vendor", {
+    await page.getByLabel("Phone", { exact: true }).pressSequentially("555-0215", { delay: 20 });
+    await page.getByLabel("Notes", { exact: true }).pressSequentially("Primary mulch and sand vendor", {
       delay: 20,
     });
-    await nameInput.pressSequentially(supplierName, { delay: 20 });
-    await expect(nameInput).toHaveValue(supplierName);
 
-    await page.getByRole("button", { name: "Create Supplier" }).click();
+    const [createSupplierResponse] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          response.url().endsWith("/api/suppliers")
+      ),
+      (async () => {
+        const nameInput = page.getByLabel("Name", { exact: true });
+        await nameInput.pressSequentially(supplierName, { delay: 20 });
+        await expect(nameInput).toHaveValue(supplierName);
+        await nameInput.blur();
+      })(),
+    ]);
+    expect(createSupplierResponse.status()).toBe(201);
     await page.waitForURL(/\/purchasing\/suppliers\/[0-9a-f-]+$/);
     supplierId = getIdFromUrl(page.url());
     await expect(page.getByRole("heading", { name: supplierName })).toBeVisible();
-    await expect(page.getByText(`purchasing-${ts}@example.com`)).toBeVisible();
-    await expect(page.getByText("Jordan Mesa")).toBeVisible();
+    await expect(page.getByLabel("Email", { exact: true })).toHaveValue(`purchasing-${ts}@example.com`);
+    await expect(page.getByLabel("Contact name", { exact: true })).toHaveValue("Jordan Mesa");
 
     await page.reload();
     await expect(page.getByRole("heading", { name: supplierName })).toBeVisible();
-    await expect(page.getByText(`purchasing-${ts}@example.com`)).toBeVisible();
-    await expect(page.getByText("Jordan Mesa")).toBeVisible();
+    await expect(page.getByLabel("Email", { exact: true })).toHaveValue(`purchasing-${ts}@example.com`);
+    await expect(page.getByLabel("Contact name", { exact: true })).toHaveValue("Jordan Mesa");
 
     const [supplier] = await db
       .select()
@@ -166,7 +174,7 @@ test.describe("Purchasing flow", () => {
     expect(createOrderResponse.status).toBe(201);
     const createOrderBody = await createOrderResponse.json();
     purchaseOrderId = createOrderBody.id;
-    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
+    await page.goto(`/purchasing/order/${purchaseOrderId}`);
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/PO-\d{4}-\d{4}/);
     await expect(
       purchaseOrderStatusButton(page)
@@ -257,7 +265,7 @@ test.describe("Purchasing flow", () => {
     });
     expect(updateResponse.status).toBe(200);
 
-    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
+    await page.goto(`/purchasing/order/${purchaseOrderId}`);
     await expect(
       page.getByText("Updated delivery window after supplier confirmation.")
     ).toBeVisible();
@@ -295,7 +303,7 @@ test.describe("Purchasing flow", () => {
   });
 
   test("submits the purchase order and blocks active deletes", async ({ page, db }) => {
-    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
+    await page.goto(`/purchasing/order/${purchaseOrderId}`);
     await expect(page.getByRole("heading", { name: purchaseOrderNumber })).toBeVisible();
 
     const submitResponse = await testFetch(`/api/purchase-orders/${purchaseOrderId}/status`, {
@@ -436,7 +444,7 @@ test.describe("Purchasing flow", () => {
     );
     expect(partialReceiveResponse.status).toBe(200);
 
-    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
+    await page.goto(`/purchasing/order/${purchaseOrderId}`);
     await expect(
       purchaseOrderStatusButton(page)
     ).toBeVisible({ timeout: 15000 });
@@ -589,7 +597,7 @@ test.describe("Purchasing flow", () => {
     );
     expect(finalReceiveResponse.status).toBe(200);
 
-    await page.goto(`/purchasing/orders/${purchaseOrderId}`);
+    await page.goto(`/purchasing/order/${purchaseOrderId}`);
     await expect(
       purchaseOrderStatusButton(page)
     ).toBeVisible({ timeout: 15000 });

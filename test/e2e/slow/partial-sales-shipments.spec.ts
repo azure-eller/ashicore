@@ -130,7 +130,7 @@ test.describe("Partial sales shipments", () => {
       .from(salesOrders)
       .where(eq(salesOrders.id, orderId));
 
-    await page.goto(`/sales/orders/${orderId}`);
+    await page.goto(`/sales/order/${orderId}`);
     await expect(page.getByRole("heading", { name: orderHeader.orderNumber })).toBeVisible();
     await expect(page.locator("main").getByText(/Not shipped|Partially shipped/).first()).toBeVisible();
     await expect(page.getByRole("grid").first()).toContainText(itemName);
@@ -157,7 +157,7 @@ test.describe("Partial sales shipments", () => {
     expect(partialOrder.status).toBe("open");
     expect(partialOrder.shippedAt).toBeNull();
 
-    await page.goto(`/sales/orders/${orderId}`);
+    await page.goto(`/sales/order/${orderId}`);
     await expect(page.locator("main").getByText("Partially shipped").first()).toBeVisible();
     await expect(page.getByRole("grid").first()).toContainText("4 shipped");
 
@@ -209,7 +209,7 @@ test.describe("Partial sales shipments", () => {
     expect(shippedOrder.status).toBe("done");
     expect(shippedOrder.shippedAt).not.toBeNull();
 
-    await page.goto(`/sales/orders/${orderId}`);
+    await page.goto(`/sales/order/${orderId}`);
     await expect(page.locator("main").getByText("Shipped", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("grid").first()).toContainText("10 shipped");
 

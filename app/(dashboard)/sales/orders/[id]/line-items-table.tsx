@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type {
   ICellRendererParams,
   ValueSetterParams,
@@ -22,8 +21,6 @@ import {
   type LineField,
 } from "@/components/editable-lines";
 import { CardSection } from "@/components/card-page/card-page";
-import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
-import { patchSalesOrderLine } from "@/lib/api/clients/sales-orders";
 import { cn } from "@/lib/utils";
 import { formatPrice, formatQuantity, normalizeMoney } from "@/lib/format";
 import type {
@@ -31,39 +28,22 @@ import type {
   SalesOrderDetailLine,
   SalesOrderItemOption,
 } from "@/app/(dashboard)/sales/types";
-import { makeDraftLine, type OrderDraftController } from "./order-draft";
+import { makeDraftLine } from "./order-draft";
+import type { SalesOrderDraftController } from "./use-sales-order-draft-controller";
 
 export type LineItemsTableProps = {
   order: SalesOrderDetail;
   editable: boolean;
   itemOptions?: SalesOrderItemOption[];
-  draft?: OrderDraftController;
-  onAddLineItem?: (
-    line: Pick<SalesOrderDetailLine, "itemId" | "quantity" | "unitPrice">,
-    option: SalesOrderItemOption,
-  ) => void;
-  addingLine?: boolean;
-  onDeleteLine?: (line: SalesOrderDetailLine) => Promise<void> | void;
-  onReorderLines?: (orderedIds: string[]) => void;
-  /** Draft-mode per-cell edit; live mode patches via the API directly. */
-  onPatchLine?: (
-    lineId: string,
-    patch: { quantity?: string; unitPrice?: string },
-  ) => void;
+  controller: SalesOrderDraftController;
 };
 
 export function LineItemsTable({
   order,
   editable,
   itemOptions,
-  draft,
-  onAddLineItem,
-  addingLine,
-  onDeleteLine,
-  onReorderLines,
-  onPatchLine,
+  controller,
 }: LineItemsTableProps) {
-  const queryClient = useQueryClient();
   const [confirmDelete, setConfirmDelete] = useState<SalesOrderDetailLine | null>(null);
   const [rows, setRows] = useState(order.lines);
 
@@ -71,9 +51,10 @@ export function LineItemsTable({
     setRows(order.lines);
   }, [order.lines]);
 
-  const totalQuantity = sumNumeric(rows.map((line) => line.quantity));
-  const totalLineAmount = sumNumeric(rows.map((line) => line.lineTotal));
-  const canAddLine = editable && (draft != null || onAddLineItem != null) && itemOptions != null;
+  const nonBlankRows = rows.filter((line) => !isBlankSalesOrderLine(line));
+  const totalQuantity = sumNumeric(nonBlankRows.map((line) => line.quantity));
+  const totalLineAmount = sumNumeric(nonBlankRows.map((line) => line.lineTotal));
+  const canAddLine = editable && itemOptions != null;
   const existingItemIds = useMemo(
     () => new Set(rows.filter((line) => !isBlankSalesOrderLine(line)).map((line) => line.itemId)),
     [rows],
@@ -83,40 +64,8 @@ export function LineItemsTable({
     [itemOptions],
   );
 
-  // Live per-cell PATCH (draft mode short-circuits to onPatchLine).
-  const patchMutation = useMutation({
-    mutationKey: cardSaveMutationKey("sales-order", order.id, "line-cell"),
-    mutationFn: ({
-      lineId,
-      patch,
-    }: {
-      lineId: string;
-      patch: { quantity?: string; unitPrice?: string };
-    }) => patchSalesOrderLine(order.id, lineId, patch),
-    onMutate: async ({ lineId, patch }) => {
-      const queryKey = ["sales-order", order.id] as const;
-      await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<SalesOrderDetail>(queryKey);
-      if (previous) {
-        queryClient.setQueryData(queryKey, optimisticLinePatch(previous, lineId, patch));
-      }
-      return { previous, queryKey };
-    },
-    onError: (_error, _variables, context) => {
-      if (!context) return;
-      queryClient.setQueryData(context.queryKey, context.previous);
-    },
-    onSuccess: (next) => {
-      queryClient.setQueryData(["sales-order", order.id], next);
-    },
-  });
-
   const applyPatch = (lineId: string, patch: { quantity?: string; unitPrice?: string }) => {
-    if (draft) {
-      onPatchLine?.(lineId, patch);
-      return;
-    }
-    patchMutation.mutate({ lineId, patch });
+    controller.updateLine(lineId, patch);
   };
 
   const fields = useMemo<LineField<SalesOrderDetailLine>[]>(
@@ -260,20 +209,20 @@ export function LineItemsTable({
   ) => {
     setRows(nextRows);
     if (change.type === "row_reordered") {
-      onReorderLines?.(nextRows.filter((row) => !isBlankSalesOrderLine(row)).map((row) => row.id));
+      controller.reorderLines(
+        nextRows.filter((row) => !isBlankSalesOrderLine(row)).map((row) => row.id),
+      );
       return;
     }
     if (isDraftLineSaveAttempt(change)) {
       const picked = itemMap.get(change.row.itemId);
       if (!picked || !isSavableDraftLine(change.row)) return;
-      if (draft) {
-        draft.addLine(lineFromItem(picked, undefined, {
+      controller.addLine(
+        lineFromItem(picked, change.row.id, {
           quantity: change.row.quantity,
           unitPrice: change.row.unitPrice,
-        }));
-      } else {
-        onAddLineItem?.(change.row, picked);
-      }
+        }),
+      );
       return;
     }
     if (change.type === "cell_edit_committed" && change.row && change.field && isPersistedLine(change.row)) {
@@ -286,14 +235,15 @@ export function LineItemsTable({
   };
 
   const requestDelete = (line: SalesOrderDetailLine) => {
+    if (deleteLineLockedReason(line)) return;
     if (Number(line.allocatedQty) > 0 || Number(line.shippedQuantity) > 0) {
       setConfirmDelete(line);
       return;
     }
-    void onDeleteLine?.(line);
+    controller.removeLine(line.id);
   };
 
-  const lineCount = rows.filter((line) => !isBlankSalesOrderLine(line)).length;
+  const lineCount = nonBlankRows.length;
 
   return (
     <CardSection
@@ -311,18 +261,11 @@ export function LineItemsTable({
         onRowsChange={handleRowsChange}
         addLabel="Add line"
         readOnly={!canAddLine}
-        addDisabledReason={addingLine ? "Adding line..." : null}
+        addDisabledReason={null}
         emptyMessage="No line items yet."
-        canDeleteRow={(row) =>
-          isBlankSalesOrderLine(row) ||
-          !isPersistedLine(row) ||
-          draft != null ||
-          deleteLineLockedReason(row) == null
-        }
+        canDeleteRow={() => true}
         getDeleteDisabledReason={(row) =>
-          isBlankSalesOrderLine(row) || !isPersistedLine(row) || draft != null
-            ? null
-            : deleteLineLockedReason(row)
+          isPersistedLine(row) ? deleteLineLockedReason(row) : null
         }
         onDeleteRow={(row) => {
           if (!isPersistedLine(row)) {
@@ -331,22 +274,19 @@ export function LineItemsTable({
           }
           requestDelete(row);
         }}
-        isBlankRow={isBlankSalesOrderLine}
       />
 
-      {rows.some((line) => !isBlankSalesOrderLine(line)) ? (
-        <div className="flex justify-end gap-(--space-8) px-(--space-3) pt-(--space-2) text-[length:var(--text-sm)]">
-          <span className="text-muted-foreground uppercase tracking-wide text-[length:var(--text-xs)] font-medium">
-            Total
-          </span>
-          <span className="font-mono tabular-nums">
-            {formatQuantity(String(totalQuantity))} units
-          </span>
-          <span className="font-mono tabular-nums font-semibold">
-            {money(String(totalLineAmount))}
-          </span>
-        </div>
-      ) : null}
+      <div className="flex justify-end gap-(--space-8) px-(--space-3) pt-(--space-2) text-[length:var(--text-sm)]">
+        <span className="text-muted-foreground uppercase tracking-wide text-[length:var(--text-xs)] font-medium">
+          Total
+        </span>
+        <span className="font-mono tabular-nums">
+          {formatQuantity(String(totalQuantity))} units
+        </span>
+        <span className="font-mono tabular-nums font-semibold">
+          {money(String(totalLineAmount))}
+        </span>
+      </div>
 
       <AlertDialog
         open={confirmDelete != null}
@@ -368,7 +308,7 @@ export function LineItemsTable({
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault();
-                if (confirmDelete) void onDeleteLine?.(confirmDelete);
+                if (confirmDelete) controller.removeLine(confirmDelete.id);
                 setConfirmDelete(null);
               }}
             >
@@ -439,7 +379,7 @@ function isDraftLineSaveAttempt(
   field: "itemId" | "quantity" | "unitPrice";
 } {
   return (
-    (change.type === "cell_edit_committed" || change.type === "blank_row_committed") &&
+    change.type === "cell_edit_committed" &&
     change.row != null &&
     (change.field === "itemId" ||
       change.field === "quantity" ||
@@ -454,42 +394,6 @@ function isSavableDraftLine(line: SalesOrderDetailLine) {
     Number(line.quantity) > 0 &&
     Number(line.unitPrice) > 0
   );
-}
-
-function optimisticLinePatch(
-  order: SalesOrderDetail,
-  lineId: string,
-  patch: { quantity?: string; unitPrice?: string },
-): SalesOrderDetail {
-  const lines = order.lines.map((line) => {
-    if (line.id !== lineId) return line;
-    const quantity = patch.quantity ?? line.quantity;
-    const unitPrice = patch.unitPrice ?? line.unitPrice;
-    return {
-      ...line,
-      quantity,
-      unitPrice,
-      lineTotal: (Number(quantity || 0) * Number(unitPrice || 0)).toFixed(2),
-    };
-  });
-  const productRevenue = lines
-    .reduce((sum, line) => sum + Number(line.lineTotal || 0), 0)
-    .toFixed(2);
-  const orderTotal = (
-    Number(productRevenue) +
-    Number(order.shippingFeeAmount || 0) +
-    Number(order.shippingFeeTaxAmount || 0)
-  ).toFixed(2);
-
-  return {
-    ...order,
-    lines,
-    totalAmount: orderTotal,
-    marginSummary: {
-      ...order.marginSummary,
-      productRevenue,
-    },
-  };
 }
 
 function minimumLineQuantity(line: SalesOrderDetailLine) {

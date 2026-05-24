@@ -333,6 +333,22 @@ export type SalesOrderFulfillmentSummary = {
   availabilityState: "complete" | "available" | "expected" | "not_available";
   expectedDate: string | null;
   label: string;
+  salesItemsState: "complete" | "available" | "expected" | "not_available";
+  salesItemsExpectedDate: string | null;
+  ingredientsState:
+    | "not_applicable"
+    | "in_stock"
+    | "expected"
+    | "not_available"
+    | "picked";
+  ingredientsExpectedDate: string | null;
+  productionState:
+    | "not_applicable"
+    | "make"
+    | "not_started"
+    | "in_progress"
+    | "done"
+    | "blocked";
 };
 
 export type SalesShippingReadinessState =
@@ -349,6 +365,12 @@ export type SalesShippingReadiness = {
   blockers: string[];
 };
 
+export type SalesLinkedManufacturingProductionStatus =
+  | "not_started"
+  | "blocked"
+  | "in_progress"
+  | "done";
+
 export type SalesLinkedManufacturingOrder = {
   id: string;
   orderNumber: string;
@@ -359,6 +381,7 @@ export type SalesLinkedManufacturingOrder = {
   plannedDate: string | null;
   priorityRank: number | null;
   status: "open" | "done";
+  productionStatus: SalesLinkedManufacturingProductionStatus;
   linkSource: "sales_order" | "output_allocation" | "both";
 };
 
@@ -386,6 +409,7 @@ export type SalesOrderListRow = {
   manufacturableLineCount: number;
   manufacturableDisabledReason: string | null;
   openManufacturingOrderCount: number;
+  linkedManufacturingOrders: SalesLinkedManufacturingOrder[];
   openManufacturingOrders: SalesLinkedManufacturingOrder[];
   shippingReadiness: SalesShippingReadiness;
   deletedAt: Date | null;

@@ -528,7 +528,7 @@ test.describe("Sales-order to manufacturing-order linkage", () => {
         "non_product"
       );
 
-      await page.goto(`/sales/orders/${soId}`);
+      await page.goto(`/sales/order/${soId}`);
       await page.getByRole("button", { name: "More actions" }).click();
       await page.getByRole("menuitem", { name: "Create manufacturing order(s)" }).click();
 

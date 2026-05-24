@@ -474,7 +474,7 @@ test.describe("Sales order flow", () => {
         ],
       }),
     });
-    await page.goto(`/sales/orders/${orderId}`);
+    await page.goto(`/sales/order/${orderId}`);
 
     // UI — verify the detail page
     await expect(
@@ -590,7 +590,7 @@ test.describe("Sales order flow", () => {
     expect(updateResponse.status, JSON.stringify(updateBody)).toBe(200);
     fullOrderNumber = updateBody.orderNumber ?? fullOrderNumber;
 
-    await page.goto(`/sales/orders/${fullOrderId}`);
+    await page.goto(`/sales/order/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: /SO-/ })).toContainText(customerName, {
       timeout: 30000,
     });
@@ -715,7 +715,7 @@ test.describe("Sales order flow", () => {
   });
 
   test("confirmed order from detail keeps reservations and production actions", async ({ page, db }) => {
-    await page.goto(`/sales/orders/${fullOrderId}`);
+    await page.goto(`/sales/order/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
 
     await expect
@@ -774,7 +774,7 @@ test.describe("Sales order flow", () => {
   });
 
   test("confirmed order cards expose edit and workflow actions", async ({ page }) => {
-    await page.goto(`/sales/orders/${fullOrderId}`);
+    await page.goto(`/sales/order/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
     await expect(page.getByRole("button", { name: "New shipment" })).toHaveCount(0);
     await page.getByRole("button", { name: "More actions" }).click();
@@ -840,7 +840,7 @@ test.describe("Sales order flow", () => {
     page,
     db,
   }) => {
-    await page.goto(`/sales/orders/${fullOrderId}`);
+    await page.goto(`/sales/order/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
 
     await page.getByRole("button", { name: "More actions" }).click();
@@ -939,7 +939,7 @@ test.describe("Sales order flow", () => {
     noManufacturingOrderNumber = confirmedOrder.orderNumber;
     expect(confirmedOrder.status).toBe("open");
 
-    await page.goto(`/sales/orders/${noManufacturingOrderId}`);
+    await page.goto(`/sales/order/${noManufacturingOrderId}`);
     await expect(
       page.getByRole("button", { name: "Plan Fulfillment", exact: true })
     ).toHaveCount(0);
@@ -976,7 +976,7 @@ test.describe("Sales order flow", () => {
   });
 
   test("deletes the confirmed order and releases committed stock", async ({ page, db }) => {
-    await page.goto(`/sales/orders/${fullOrderId}`);
+    await page.goto(`/sales/order/${fullOrderId}`);
     await expect(page.getByRole("heading", { name: fullOrderNumber })).toBeVisible();
 
     await page.getByRole("button", { name: "More actions" }).click();
@@ -1206,7 +1206,7 @@ test.describe("Sales order flow", () => {
     expect(afterRejectedDeleteShipment.status).toBe("shipped");
     expect(afterRejectedDeleteShipment.shippedAt).not.toBeNull();
 
-    await page.goto(`/sales/orders/${shipOrderId}`);
+    await page.goto(`/sales/order/${shipOrderId}`);
     await expect(page.locator("main").getByText(/SHIPPED|Shipped/).first()).toBeVisible();
     await expect(page.getByText("Shipping coverage")).toBeVisible();
     await expect(page.locator("main")).toContainText(primaryProductName);
@@ -1573,7 +1573,7 @@ test.describe("Sales order flow", () => {
     );
     expect(deletePartiallyShippedResponse.status).toBeGreaterThanOrEqual(400);
 
-    await page.goto(`/sales/orders/${partialOrderId}`);
+    await page.goto(`/sales/order/${partialOrderId}`);
     await expect(page.locator("main")).not.toContainText("remaining quantities were closed");
     await expect(page.locator("main")).toContainText(createdShipment.shipmentNumber);
   });

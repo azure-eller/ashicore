@@ -481,7 +481,7 @@ test.describe("Sales write-path smoke", () => {
     expect(createOrderResult.status).toBe(201);
     orderId = createOrderResult.body.id;
 
-    await page.goto(`/sales/orders/${orderId}`);
+    await page.goto(`/sales/order/${orderId}`);
     await expect(
       page.getByRole("heading", {
         level: 1,
@@ -507,13 +507,13 @@ test.describe("Sales write-path smoke", () => {
     const listRow = salesOrderCard(page, order.orderNumber);
     await expect(
       listRow.getByRole("link", { name: order.orderNumber })
-    ).toHaveAttribute("href", `/sales/orders/${orderId}`);
+    ).toHaveAttribute("href", `/sales/order/${orderId}`);
     await expect(listRow).toContainText(customerName);
     await expect(listRow.getByRole("link", { name: customerName })).toHaveCount(0);
     await listRow.getByRole("button", { name: orderNote }).hover();
     await expect(page.getByRole("tooltip")).toContainText(orderNote);
 
-    await page.goto(`/sales/orders/${orderId}`);
+    await page.goto(`/sales/order/${orderId}`);
     await expect(
       page.getByRole("heading", {
         level: 1,
@@ -597,10 +597,186 @@ test.describe("Sales write-path smoke", () => {
         },
       });
 
-    await page.goto(`/sales/orders/${orderId}`);
+    await page.goto(`/sales/order/${orderId}`);
     await expect(page.getByText("Confirm the order before shipping.")).toHaveCount(0);
     await expect(page.getByText("Failed to confirm order.")).toHaveCount(0);
     await expect(page.locator("main").getByText("Not shipped").first()).toBeVisible();
+  });
+
+  test("sales order create keeps job and ship date selected while create is pending", async ({
+    page,
+    db,
+  }) => {
+    test.slow();
+
+    const raceCustomerName = `Fast Race Customer ${ts}`;
+    const raceProjectName = `Fast Race Project ${ts}`;
+    const raceCustomerResult = await createCustomer({
+      name: raceCustomerName,
+      email: `fast-race-${ts}@example.com`,
+      shipLine1: "44 Race Lane",
+      shipCity: "Denver",
+      shipRegion: "CO",
+      shipPostcode: "80202",
+      shipCountry: "US",
+    });
+    expect(raceCustomerResult.status).toBe(201);
+    const raceCustomerId = raceCustomerResult.body.id as string;
+    const raceProjectResponse = await testFetch(
+      `/api/customers/${raceCustomerId}/projects`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: raceProjectName,
+          status: "planning",
+          startDate: null,
+          targetEndDate: null,
+          summary: "Sales order create race project",
+        }),
+      },
+    );
+    expect(raceProjectResponse.status).toBe(201);
+    const [raceProject] = await db
+      .select()
+      .from(customerProjects)
+      .where(eq(customerProjects.customerId, raceCustomerId));
+
+    let releaseCreate: () => void = () => undefined;
+    const createStarted = new Promise<void>((resolve) => {
+      void page.route("**/api/sales-orders", async (route) => {
+        const request = route.request();
+        if (request.method() !== "POST") {
+          await route.continue();
+          return;
+        }
+
+        resolve();
+        await new Promise<void>((release) => {
+          releaseCreate = release;
+        });
+        await route.continue();
+      });
+    });
+
+    await page.goto("/sales/order");
+    await expect(page.getByRole("heading", { name: "New sales order" })).toBeVisible();
+
+    const customerInput = page.getByPlaceholder("Search customers…");
+    await customerInput.click();
+    await customerInput.pressSequentially(raceCustomerName);
+    await page.getByRole("option", { name: new RegExp(raceCustomerName) }).click();
+    await createStarted;
+
+    await page.getByLabel("Project / Job").click();
+    await page.getByRole("option", { name: raceProjectName }).click();
+    await selectDate(page, page.getByLabel("Ship date"), "2026-04-22");
+
+    releaseCreate();
+    await page.waitForURL(/\/sales\/order\/[0-9a-f-]+$/);
+    const raceOrderId = getIdFromUrl(page.url());
+
+    await expect(page.getByRole("heading", { name: "New sales order" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(/SO-\d{4}-\d{4}/);
+    await expect(page.getByText(raceProjectName).first()).toBeVisible();
+    await expect(page.getByLabel("Ship date")).toContainText("April 22, 2026");
+    await expect
+      .poll(async () => {
+        const [order] = await db
+          .select({
+            customerProjectId: salesOrders.customerProjectId,
+            shipDate: salesOrders.shipDate,
+          })
+          .from(salesOrders)
+          .where(eq(salesOrders.id, raceOrderId));
+        return order;
+      })
+      .toEqual({
+        customerProjectId: raceProject.id,
+        shipDate: "2026-04-22",
+      });
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "New sales order" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(/SO-\d{4}-\d{4}/);
+    await expect(page.getByText(raceProjectName).first()).toBeVisible();
+    await expect(page.getByLabel("Ship date")).toContainText("April 22, 2026");
+  });
+
+  test("sales order customer change does not snap back after autosave response", async ({
+    page,
+    db,
+  }) => {
+    const firstCustomerName = `Fast SO Customer A ${ts}`;
+    const secondCustomerName = `Fast SO Customer B ${ts}`;
+    const firstCustomer = await createCustomer({
+      name: firstCustomerName,
+      email: `fast-so-a-${ts}@example.com`,
+      shipLine1: "10 First Lane",
+      shipCity: "Denver",
+      shipRegion: "CO",
+      shipPostcode: "80202",
+      shipCountry: "US",
+    });
+    expect(firstCustomer.status).toBe(201);
+    const secondCustomer = await createCustomer({
+      name: secondCustomerName,
+      email: `fast-so-b-${ts}@example.com`,
+      shipLine1: "20 Second Lane",
+      shipCity: "Boulder",
+      shipRegion: "CO",
+      shipPostcode: "80301",
+      shipCountry: "US",
+    });
+    expect(secondCustomer.status).toBe(201);
+
+    const orderResult = await createSalesOrder({
+      customerId: firstCustomer.body.id as string,
+      orderDate: "2026-04-01",
+      shipDate: null,
+      lines: [],
+    });
+    expect(orderResult.status).toBe(201);
+    const changeOrderId = orderResult.body.id as string;
+
+    await page.route(`**/api/sales-orders/${changeOrderId}`, async (route) => {
+      if (route.request().method() === "PATCH") {
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/sales/order/${changeOrderId}`);
+    const customerInput = page.getByPlaceholder("Search customers…");
+    await expect(customerInput).toHaveValue(firstCustomerName);
+
+    const patchResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PATCH" &&
+        response.url().endsWith(`/api/sales-orders/${changeOrderId}`)
+    );
+    await customerInput.click();
+    await customerInput.fill(secondCustomerName);
+    await page.getByRole("option", { name: new RegExp(secondCustomerName) }).click();
+    await expect(customerInput).toHaveValue(secondCustomerName);
+
+    await page.waitForTimeout(500);
+    await expect(customerInput).toHaveValue(secondCustomerName);
+    expect((await patchResponsePromise).status()).toBe(200);
+    await expect(customerInput).toHaveValue(secondCustomerName);
+    await expect
+      .poll(async () => {
+        const [order] = await db
+          .select({
+            customerId: salesOrders.customerId,
+            customerName: salesOrders.customerName,
+          })
+          .from(salesOrders)
+          .where(eq(salesOrders.id, changeOrderId));
+        return order;
+      })
+      .toEqual({
+        customerId: secondCustomer.body.id,
+        customerName: secondCustomerName,
+      });
   });
 
   test("sales order item picker fills the blank line and saves it", async ({ page, db }) => {
@@ -651,11 +827,13 @@ test.describe("Sales write-path smoke", () => {
     expect(productResult.status).toBe(201);
 
     await page.goto(`/sales/order?customerId=${customerResult.body.id}`);
-    await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
+    await page.waitForURL(/\/sales\/order\/[0-9a-f-]+$/);
     const pickerOrderId = getIdFromUrl(page.url());
 
     const lineGrid = page.locator('[data-slot="editable-line-data-grid"]').first();
-    await expect(lineGrid).toContainText("Search items...");
+    await expect(lineGrid).toContainText("No line items yet.");
+    await page.getByRole("button", { name: "Add line" }).click();
+    await expect(lineGrid.locator(".ag-row").first()).toBeVisible();
 
     await lineGrid.locator('.ag-row [col-id="itemId"]').first().click();
     const itemInput = page.getByPlaceholder("Search items...").first();
@@ -1007,7 +1185,7 @@ test.describe("Sales write-path smoke", () => {
   });
 
   test("duplicates a sales order from the detail actions", async ({ page, db }) => {
-    await page.goto(`/sales/orders/${orderId}`);
+    await page.goto(`/sales/order/${orderId}`);
     await page.getByRole("button", { name: "More actions" }).click();
 
     const [duplicateResponse] = await Promise.all([
@@ -1021,7 +1199,7 @@ test.describe("Sales write-path smoke", () => {
     expect(duplicateResponse.status()).toBe(201);
     const created = await duplicateResponse.json();
     const duplicateId = created.id as string;
-    await page.waitForURL(`**/sales/orders/${duplicateId}`);
+    await page.waitForURL(`**/sales/order/${duplicateId}`);
     expect(duplicateId).not.toBe(orderId);
 
     const [duplicate] = await db
@@ -1077,8 +1255,19 @@ test.describe("Sales write-path smoke", () => {
       secondProductName,
       `FAST-DETAIL-KEEP-${ts}`
     );
+    const detailCustomerResult = await createCustomer({
+      name: `Fast Detail Delete Customer ${ts}`,
+      email: `fast-detail-delete-${ts}@example.com`,
+      shipLine1: "19 Detail Lane",
+      shipCity: "Denver",
+      shipRegion: "CO",
+      shipPostcode: "80202",
+      shipCountry: "US",
+    });
+    expect(detailCustomerResult.status).toBe(201);
+
     const detailOrderResult = await createSalesOrder({
-      customerId,
+      customerId: detailCustomerResult.body.id as string,
       status: "open",
       shipDate: null,
       requestedDate: null,
@@ -1092,26 +1281,53 @@ test.describe("Sales write-path smoke", () => {
     expect(detailOrderResult.status).toBe(201);
     const detailOrderId = detailOrderResult.body.id as string;
 
-    await page.goto(`/sales/orders/${detailOrderId}`);
+    await page.route(`**/api/sales-orders/${detailOrderId}`, async (route) => {
+      if (route.request().method() === "PUT") {
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/sales/order/${detailOrderId}`);
     const detailDeleteResponsePromise = page.waitForResponse(
       (response) =>
-        ["PATCH", "PUT"].includes(response.request().method()) &&
+        response.request().method() === "PUT" &&
         response.url().endsWith(`/api/sales-orders/${detailOrderId}`)
     );
     await page
       .getByRole("row", { name: new RegExp(firstProductName) })
       .getByRole("button", { name: "Delete row" })
       .click();
+
+    const notesField = page.getByPlaceholder("Add notes for the warehouse or customer.");
+    await notesField.fill("Queued sales edit survived structural save");
+    await notesField.blur();
+    await expect(notesField).toHaveValue("Queued sales edit survived structural save");
+
     expect((await detailDeleteResponsePromise).status()).toBe(200);
+    await expect(notesField).toHaveValue("Queued sales edit survived structural save");
     await expect(page.getByText(firstProductName)).toHaveCount(0);
 
-    const detailLines = await db
-      .select()
-      .from(salesOrderLines)
-      .where(eq(salesOrderLines.salesOrderId, detailOrderId))
-      .orderBy(asc(salesOrderLines.sortOrder));
-    expect(detailLines).toHaveLength(1);
-    expect(detailLines[0].itemId).toBe(detailKeepId);
+    await expect
+      .poll(async () => {
+        const [order] = await db
+          .select({ notes: salesOrders.notes })
+          .from(salesOrders)
+          .where(eq(salesOrders.id, detailOrderId));
+        const detailLines = await db
+          .select({ itemId: salesOrderLines.itemId })
+          .from(salesOrderLines)
+          .where(eq(salesOrderLines.salesOrderId, detailOrderId))
+          .orderBy(asc(salesOrderLines.sortOrder));
+        return {
+          notes: order?.notes,
+          itemIds: detailLines.map((line) => line.itemId),
+        };
+      })
+      .toEqual({
+        notes: "Queued sales edit survived structural save",
+        itemIds: [detailKeepId],
+      });
   });
 
   test("edits an open unshipped order and refreshes reservations", async ({
@@ -1163,7 +1379,7 @@ test.describe("Sales write-path smoke", () => {
       .from(salesOrders)
       .where(eq(salesOrders.id, editOrderId));
 
-    await page.goto(`/sales/orders/${editOrderId}`);
+    await page.goto(`/sales/order/${editOrderId}`);
     await expect(
       page.getByRole("heading", {
         level: 1,
@@ -1187,7 +1403,7 @@ test.describe("Sales write-path smoke", () => {
     });
     expect(updateOrderResult.status).toBe(200);
 
-    await page.goto(`/sales/orders/${editOrderId}`);
+    await page.goto(`/sales/order/${editOrderId}`);
     await expect(
       page.getByRole("heading", {
         level: 1,
@@ -4086,7 +4302,7 @@ test.describe("Sales write-path smoke", () => {
     });
     expect(addBomResult.status).toBe(200);
 
-    await page.goto(`/sales/orders/${partialMoOrderId}`);
+    await page.goto(`/sales/order/${partialMoOrderId}`);
     await page.getByRole("button", { name: "More actions" }).click();
     await page
       .getByRole("menuitem", { name: "Create manufacturing order(s)" })
@@ -4329,7 +4545,7 @@ test.describe("Sales write-path smoke", () => {
     expect(orderResult.status).toBe(201);
     const webShipOrderId = orderResult.body.id as string;
 
-    await page.goto(`/sales/orders/${webShipOrderId}`);
+    await page.goto(`/sales/order/${webShipOrderId}`);
     const shipmentRow = page.getByRole("row", { name: /PLANNED/ });
     await shipmentRow.getByRole("button", { name: /Actions for/ }).click();
     await page.getByRole("menuitem", { name: "Mark as shipped" }).click();

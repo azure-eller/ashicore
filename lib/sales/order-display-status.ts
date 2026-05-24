@@ -3,7 +3,7 @@ import type {
   SalesOrderDetail,
   SalesOrderListRow,
 } from "@/app/(dashboard)/sales/types";
-import { formatDate } from "@/lib/format";
+import { getSalesItemsDisplayState } from "@/lib/sales/fulfillment-status";
 
 export type OrderDisplayStatusLabel =
   | "NOT SHIPPED"
@@ -93,22 +93,10 @@ export function getSalesItemsState(
     return { label: "Not allocated", tone: "destructive" };
   }
 
-  switch (order.fulfillmentSummary.availabilityState) {
-    case "available":
-      return { label: "Available", tone: "success" };
-    case "expected":
-      return {
-        label: order.fulfillmentSummary.expectedDate
-          ? `Expected ${formatDate(order.fulfillmentSummary.expectedDate)}`
-          : "Expected",
-        tone: "warning",
-      };
-    case "complete":
-      return { label: "Complete", tone: "success" };
-    case "not_available":
-    default:
-      return { label: "Not available", tone: "destructive" };
-  }
+  return getSalesItemsDisplayState(
+    order.fulfillmentSummary.salesItemsState,
+    order.fulfillmentSummary.salesItemsExpectedDate
+  );
 }
 
 export function getSalesItemsFilterValue(
@@ -126,7 +114,7 @@ export function getSalesItemsFilterValue(
     return "not_allocated";
   }
 
-  switch (order.fulfillmentSummary.availabilityState) {
+  switch (order.fulfillmentSummary.salesItemsState) {
     case "complete":
     case "available":
       return "available";

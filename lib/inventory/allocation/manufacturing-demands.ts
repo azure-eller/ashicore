@@ -125,7 +125,7 @@ export async function getManufacturingAllocationDemandRowsInTx(
         orderNumber: row.orderNumber,
         productName: row.productName,
         plannedDate: row.plannedDate,
-        href: `/manufacturing/orders/${row.manufacturingOrderId}`,
+        href: `/manufacturing/order/${row.manufacturingOrderId}`,
         ingredients: [],
       } satisfies ManufacturingAllocationDemandRow);
     byOrderId.set(row.manufacturingOrderId, order);

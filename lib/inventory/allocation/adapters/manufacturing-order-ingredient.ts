@@ -52,7 +52,7 @@ function mapManufacturingIngredientDemandRow(row: {
     requiredDate: row.plannedDate,
     openQty: quantityString(openQty),
     pickedQty: quantityString(pickedQty),
-    href: `/manufacturing/orders/${row.manufacturingOrderId}`,
+    href: `/manufacturing/order/${row.manufacturingOrderId}`,
     sortDate: row.plannedDate,
     sortLabel: `${row.orderNumber}:${row.sortOrder}:${row.createdAt.toISOString()}`,
     priorityRank: row.priorityRank,

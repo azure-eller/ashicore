@@ -1026,6 +1026,47 @@ function getApprovedBomMaterialOption(
   };
 }
 
+function tryGetApprovedBomMaterialOption(
+  row: BomRevisionComponentSnapshot,
+  itemId: string
+) {
+  try {
+    return getApprovedBomMaterialOption(row, itemId);
+  } catch {
+    return null;
+  }
+}
+
+async function getActiveIngredientItemMapInTx(tx: Tx, ingredientIds: string[]) {
+  const uniqueIds = [...new Set(ingredientIds)];
+  if (uniqueIds.length === 0) {
+    return new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        sku: string | null;
+        itemType: string;
+        unitName: string;
+      }
+    >();
+  }
+
+  const rows = await tx
+    .select({
+      id: items.id,
+      name: items.name,
+      sku: items.sku,
+      itemType: items.itemType,
+      unitName: unitDefinitions.name,
+    })
+    .from(items)
+    .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+    .where(and(inArray(items.id, uniqueIds), isNull(items.deletedAt)));
+
+  return new Map(rows.map((row) => [row.id, row]));
+}
+
 async function prepareCreateIngredientsFromBomInTx(
   tx: Tx,
   productId: string,
@@ -1693,12 +1734,7 @@ async function prepareUpdatedIngredientsInTx(
   submittedIngredients: UpdateManufacturingOrder["ingredients"]
 ): Promise<ValidatedIngredient[]> {
   if (!bomRevisionId) {
-    return prepareLegacyUpdatedIngredientsInTx(
-      tx,
-      manufacturingOrderId,
-      outputQuantity,
-      submittedIngredients
-    );
+    return prepareFreeformUpdatedIngredientsInTx(tx, outputQuantity, submittedIngredients);
   }
 
   const bomRows = await getBomRevisionComponentsInTx(tx, bomRevisionId);
@@ -1709,33 +1745,40 @@ async function prepareUpdatedIngredientsInTx(
     })
     .from(bomRevisions)
     .where(eq(bomRevisions.id, bomRevisionId));
-  const editableRows = await getEditableManufacturingIngredientSnapshotInTx(
-    tx,
-    manufacturingOrderId
-  );
-
-  if (
-    bomRows.length !== submittedIngredients.length ||
-    editableRows.length !== submittedIngredients.length
-  ) {
-    throw new ManufacturingError(
-      "Ingredient rows cannot be added or removed after the order is created",
-      400
-    );
-  }
-
   const bomBySortOrder = new Map(bomRows.map((row) => [row.sortOrder, row]));
   const recipeBasis = normalizeRecipeBasis(bomRevision?.recipeBasis);
   const recipeOutputQuantity = bomRevision?.outputQuantity ?? "1";
+  const activeItemById = await getActiveIngredientItemMapInTx(
+    tx,
+    submittedIngredients.map((row) => row.itemId)
+  );
 
-  return editableRows.map((existingRow, index) => {
-    const row = bomBySortOrder.get(existingRow.sortOrder);
-    if (!row) {
-      throw new ManufacturingError("The order BOM snapshot is missing.", 400);
+  return submittedIngredients.map((submitted, index) => {
+    const row = bomBySortOrder.get(index);
+    const activeItem = activeItemById.get(submitted.itemId);
+    if (!activeItem) {
+      throw new ManufacturingError(
+        "One or more ingredients are no longer active. Update the order before releasing it.",
+        400
+      );
     }
-
-    const submitted = submittedIngredients[index];
-    const selected = getApprovedBomMaterialOption(row, submitted.itemId);
+    const selected = row
+      ? tryGetApprovedBomMaterialOption(row, submitted.itemId) ?? {
+          itemId: activeItem.id,
+          itemName: activeItem.name,
+          itemSku: activeItem.sku,
+          itemType: activeItem.itemType,
+          unitName: activeItem.unitName,
+          quantityPerUnit: submitted.quantityPerUnit,
+        }
+      : {
+          itemId: activeItem.id,
+          itemName: activeItem.name,
+          itemSku: activeItem.sku,
+          itemType: activeItem.itemType,
+          unitName: activeItem.unitName,
+          quantityPerUnit: submitted.quantityPerUnit,
+        };
     const quantityPerUnit = normalizeNumeric(Number(submitted.quantityPerUnit));
 
     return {
@@ -1753,52 +1796,37 @@ async function prepareUpdatedIngredientsInTx(
         outputQuantity,
         recipeOutputQuantity,
       }),
-      sortOrder: existingRow.sortOrder,
-      constraints: row.constraints,
+      sortOrder: index,
+      constraints: row?.constraints ?? [],
     };
   });
 }
 
-async function prepareLegacyUpdatedIngredientsInTx(
+async function prepareFreeformUpdatedIngredientsInTx(
   tx: Tx,
-  manufacturingOrderId: string,
   outputQuantity: number,
   submittedIngredients: UpdateManufacturingOrder["ingredients"]
 ): Promise<ValidatedIngredient[]> {
-  const existingRows = await getEditableManufacturingIngredientSnapshotInTx(
+  const activeItemById = await getActiveIngredientItemMapInTx(
     tx,
-    manufacturingOrderId
+    submittedIngredients.map((row) => row.itemId)
   );
 
-  if (existingRows.length !== submittedIngredients.length) {
-    throw new ManufacturingError(
-      "Ingredient rows cannot be added or removed after the order is created",
-      400
-    );
-  }
-
-  const constraintsById = await getIngredientConstraintsByIdInTx(
-    tx,
-    existingRows.map((row) => row.id)
-  );
-
-  return existingRows.map((row, index) => {
-    const submitted = submittedIngredients[index];
-    if (submitted.itemId !== row.itemId) {
+  return submittedIngredients.map((submitted, index) => {
+    const activeItem = activeItemById.get(submitted.itemId);
+    if (!activeItem) {
       throw new ManufacturingError(
-        "This draft order is missing a BOM snapshot. Recreate it before changing ingredients.",
+        "One or more ingredients are no longer active. Update the order before releasing it.",
         400
       );
     }
-
     const quantityPerUnit = normalizeNumeric(Number(submitted.quantityPerUnit));
-
     return {
-      itemId: row.itemId,
-      itemName: row.itemName,
-      itemSku: row.itemSku,
-      itemType: row.itemType,
-      unitName: row.unitName,
+      itemId: activeItem.id,
+      itemName: activeItem.name,
+      itemSku: activeItem.sku,
+      itemType: activeItem.itemType,
+      unitName: activeItem.unitName,
       quantityPerUnit,
       recipeBasis: "unit",
       recipeOutputQuantity: "1",
@@ -1808,8 +1836,8 @@ async function prepareLegacyUpdatedIngredientsInTx(
         outputQuantity,
         recipeOutputQuantity: "1",
       }),
-      sortOrder: row.sortOrder,
-      constraints: constraintsById.get(row.id) ?? [],
+      sortOrder: index,
+      constraints: [],
     };
   });
 }
@@ -1819,6 +1847,7 @@ async function validateActiveIngredientItemsInTx(
   ingredientIds: string[]
 ) {
   const uniqueIds = [...new Set(ingredientIds)];
+  if (uniqueIds.length === 0) return;
 
   const rows = await tx
     .select({ id: items.id })

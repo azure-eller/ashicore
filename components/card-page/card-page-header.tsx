@@ -47,12 +47,9 @@ export type CardPageHeaderProps = {
   eyebrow?: ReactNode;
   title: ReactNode;
   meta?: ReactNode;
-  status?: ReactNode;
-  /**
-   * Interactive order-status control rendered in the top-right cluster (not inline with
-   * the title). Order pages pass an `OrderStatusControl` here; `status` remains for
-   * non-order pages that want an inline badge beside the title.
-   */
+  /** Static status badge rendered next to the title. */
+  statusBadge?: ReactNode;
+  /** Interactive order-status control rendered in the top-right cluster. */
   statusControl?: ReactNode;
   saveState?: CardSaveState | null;
   saveMessage?: string | null;
@@ -69,7 +66,7 @@ export function CardPageHeader({
   eyebrow,
   title,
   meta,
-  status,
+  statusBadge,
   statusControl,
   saveState,
   saveMessage,
@@ -98,15 +95,15 @@ export function CardPageHeader({
         {eyebrow ? <div className={styles.eyebrow}>{eyebrow}</div> : null}
         <div className={styles.titleRow}>
           <h1 className={styles.title}>{title}</h1>
-          {status}
+          {statusBadge}
         </div>
         {meta ? <div className={styles.meta}>{meta}</div> : null}
       </div>
       <div className={styles.headerRight}>
-        {statusControl}
         {saveState ? (
           <CardSaveStatusIndicator state={saveState} message={saveMessage} />
         ) : null}
+        {statusControl}
         {primaryAction ? <HeaderActionButton action={primaryAction} /> : null}
         {showPrint ? (
           <button

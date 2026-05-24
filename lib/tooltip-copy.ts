@@ -322,6 +322,9 @@ export const SALES_ORDER_NOTES_TOOLTIP =
 export const SALES_ORDER_ITEMS_STATUS_TOOLTIP =
   "Stock coverage for sales lines.";
 
+export const SALES_ORDER_INGREDIENTS_STATUS_TOOLTIP =
+  "Ingredient coverage for manufacturable sales lines.";
+
 export const SALES_ORDER_PRODUCTION_STATUS_TOOLTIP =
   "Manufacturing coverage for order lines.";
 

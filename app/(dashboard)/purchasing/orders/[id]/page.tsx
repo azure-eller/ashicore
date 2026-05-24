@@ -1,76 +1,28 @@
 import { redirect } from "next/navigation";
-import { PurchaseOrderCard } from "@/app/(dashboard)/purchasing/purchase-order-card";
-import {
-  getEditablePurchaseOrder,
-  getPurchaseOrderMaterialOptions,
-  getSuppliers,
-} from "@/app/(dashboard)/purchasing/queries";
-import { getAddressEntries } from "@/lib/dal/addresses";
-import { requireModuleReadAccess } from "@/lib/dal/auth";
-import { hasModuleAccess } from "@/lib/authz";
-import { captureAppError } from "@/lib/observability/sentry";
 
 export default async function PurchaseOrderDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const context = await requireModuleReadAccess("purchasing");
-  const canWrite = hasModuleAccess(
-    context.assignedRoles,
-    "purchasing",
-    "operate",
-  );
-  const canViewLedger = hasModuleAccess(
-    context.assignedRoles,
-    "inventory",
-    "read",
-  );
   const { id } = await params;
-  let order;
-  let suppliers;
-  let materials;
-  let addresses;
+  redirect(withSearch(`/purchasing/order/${id}`, await searchParams));
+}
 
-  try {
-    [order, suppliers, materials, addresses] = await Promise.all([
-      getEditablePurchaseOrder(id),
-      getSuppliers(),
-      getPurchaseOrderMaterialOptions(),
-      getAddressEntries(),
-    ]);
-  } catch (error) {
-    captureAppError(error, {
-      route: "/purchasing/orders/[id]",
-      method: "GET",
-      runtime: "server",
-      module: "purchasing",
-      operation: "render_purchase_order_detail",
-      source: "server_component",
-      appDebug: {
-        has_purchase_order_id: Boolean(id),
-      },
-    });
-    throw error;
+function withSearch(
+  path: string,
+  searchParams: Record<string, string | string[] | undefined>,
+) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams)) {
+    if (Array.isArray(value)) {
+      for (const entry of value) params.append(key, entry);
+    } else if (value != null) {
+      params.set(key, value);
+    }
   }
-
-  if (!order) {
-    redirect("/purchasing/orders");
-  }
-
-  return (
-    <PurchaseOrderCard
-      initialData={order}
-      suppliers={suppliers.map((supplier) => ({
-        id: supplier.id,
-        name: supplier.name,
-        code: supplier.code,
-      }))}
-      materials={materials}
-      addresses={addresses}
-      orderTitle={order.orderNumber}
-      canWrite={canWrite}
-      canViewLedger={canViewLedger}
-    />
-  );
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
 }

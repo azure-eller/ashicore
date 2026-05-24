@@ -127,6 +127,7 @@ test.describe("Stocktake write-path smoke", () => {
     const lotCountCell = page
       .locator(".ag-center-cols-container .ag-row")
       .filter({ hasText: "LOT-" })
+      .first()
       .locator('[col-id="countedQty"]');
     await lotCountCell.dblclick();
     await page.keyboard.type("4");

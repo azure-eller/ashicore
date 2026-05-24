@@ -1,62 +1,28 @@
 import { redirect } from "next/navigation";
-import { OrderCard } from "./order-card";
-import {
-  getSalesOrder,
-  getSalesOrderCustomerOptions,
-  getSalesOrderItemOptions,
-} from "@/app/(dashboard)/sales/queries";
-import { hasModuleAccess } from "@/lib/authz";
-import { getAuthedMemberContext } from "@/lib/dal/auth";
-import { getAddressEntries } from "@/lib/dal/addresses";
-import { getXeroConnection } from "@/lib/dal/xero";
 
 export default async function OrderDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const context = await getAuthedMemberContext();
   const { id } = await params;
+  redirect(withSearch(`/sales/order/${id}`, await searchParams));
+}
 
-  const [order, xeroConnection, customerOptions, itemOptions, addressEntries] = await Promise.all([
-    getSalesOrder(id, { includeDeleted: true }),
-    getXeroConnection(),
-    getSalesOrderCustomerOptions(),
-    getSalesOrderItemOptions(),
-    getAddressEntries(),
-  ]);
-
-  if (!order) {
-    redirect("/sales/orders");
+function withSearch(
+  path: string,
+  searchParams: Record<string, string | string[] | undefined>,
+) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams)) {
+    if (Array.isArray(value)) {
+      for (const entry of value) params.append(key, entry);
+    } else if (value != null) {
+      params.set(key, value);
+    }
   }
-
-  const xeroInvoiceSetupStatus = !xeroConnection
-    ? "not_connected"
-    : xeroConnection.defaultAccountCode
-      ? "ready"
-      : "missing_sales_account";
-
-  return (
-    <OrderCard
-      initialOrder={order}
-      customerOptions={customerOptions}
-      addressOptions={addressEntries.map((entry) => ({
-        id: entry.id,
-        label: entry.label,
-        contactName: entry.contactName,
-        contactPhone: entry.contactPhone,
-        line1: entry.line1,
-        line2: entry.line2,
-        city: entry.city,
-        region: entry.region,
-        postcode: entry.postcode,
-        country: entry.country,
-        deliveryInstructions: entry.deliveryInstructions,
-        notes: entry.notes,
-      }))}
-      itemOptions={itemOptions}
-      canViewLedger={hasModuleAccess(context.assignedRoles, "inventory", "read")}
-      xeroInvoiceSetupStatus={xeroInvoiceSetupStatus}
-    />
-  );
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
 }

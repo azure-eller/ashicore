@@ -33,7 +33,11 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   const data = patchSalesOrderHeaderSchema.parse(await request.json());
 
   try {
-    const order = await patchSalesOrderHeader(id, data, { idempotencyKey });
+    const patched = await patchSalesOrderHeader(id, data, { idempotencyKey });
+    if (!patched) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+    const order = await getSalesOrder(id);
     if (!order) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }

@@ -647,7 +647,7 @@ function AllocationSourceEditor({
                               "href" in claim && claim.href
                                 ? claim.href
                                 : orderId
-                                  ? `/sales/orders/${orderId}`
+                                  ? `/sales/order/${orderId}`
                                   : null;
                             const tooltip = `${formatQuantity(claim.quantity)} reserved for ${claim.demandLabel}${customer ? ` — ${customer}` : ""}${due ? `, due ${due}` : ""}.`;
 

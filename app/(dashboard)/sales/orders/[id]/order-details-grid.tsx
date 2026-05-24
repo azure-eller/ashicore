@@ -2,7 +2,6 @@
 
 import { createContext, useContext, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation } from "@tanstack/react-query";
 import { Controller, useForm } from "react-hook-form";
 import type { z } from "zod";
 import { AddressFields } from "@/components/address-fields";
@@ -16,9 +15,11 @@ import {
 } from "@/components/delivery-address-input";
 import { EntityCombobox } from "@/components/entity-combobox";
 import { CardSection } from "@/components/card-page/card-page";
-import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
-import { CellShell } from "@/components/card-page/form-cell";
-import { useEntityFieldCommit } from "@/components/card-page/use-entity-field-commit";
+import {
+  CellShell,
+  DisabledFieldTooltip,
+  underlineControlClass,
+} from "@/components/card-page/form-cell";
 import {
   Select,
   SelectContent,
@@ -39,7 +40,6 @@ import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { createAddressEntry, updateAddressEntry } from "@/lib/api/clients/customers";
-import { patchSalesOrderHeader } from "@/lib/api/clients/sales-orders";
 import { formatAddressLines } from "@/lib/format";
 import { createAddressEntrySchema } from "@/lib/schemas/addresses";
 import type {
@@ -48,7 +48,7 @@ import type {
   SalesOrderDetail,
 } from "@/app/(dashboard)/sales/types";
 import type { PatchSalesOrderHeader } from "@/lib/schemas/sales-orders";
-import type { OrderDraftController } from "./order-draft";
+import type { SalesOrderDraftController } from "./use-sales-order-draft-controller";
 import cardStyles from "@/components/card-page/card-page.module.css";
 
 export type OrderDetailsGridProps = {
@@ -56,7 +56,7 @@ export type OrderDetailsGridProps = {
   editable: boolean;
   customerOptions: CustomerOption[];
   addressOptions: SalesAddressOption[];
-  draft?: OrderDraftController;
+  controller: SalesOrderDraftController;
 };
 
 const NO_PROJECT_VALUE = "__no_project__";
@@ -82,12 +82,8 @@ const EMPTY_ADDRESS_DIALOG_VALUES: AddressDialogValues = {
   notes: null,
 };
 
-type GridCtx = { orderId: string; draft?: OrderDraftController };
-const DetailsContext = createContext<GridCtx>({ orderId: "" });
-type HeaderOptimisticPatch = PatchSalesOrderHeader &
-  Partial<
-    Pick<SalesOrderDetail, "customerName" | "customerEmail" | "customerProjectName">
-  >;
+type GridCtx = { controller: SalesOrderDraftController };
+const DetailsContext = createContext<GridCtx | null>(null);
 type AddressTarget = "shipping" | "billing";
 type AddressDialogValues = z.input<typeof createAddressEntrySchema>;
 type AddressDialogState = {
@@ -100,7 +96,7 @@ export function OrderDetailsGrid({
   editable,
   customerOptions,
   addressOptions,
-  draft,
+  controller,
 }: OrderDetailsGridProps) {
   const customerProjects = useMemo(() => {
     const customer = customerOptions.find((c) => c.id === order.customerId);
@@ -108,20 +104,24 @@ export function OrderDetailsGrid({
   }, [customerOptions, order.customerId]);
 
   return (
-    <DetailsContext.Provider value={{ orderId: order.id, draft }}>
+    <DetailsContext.Provider value={{ controller }}>
       <CardSection title="Order details">
         <div className={`${cardStyles.formRow} ${cardStyles.formRowFour}`}>
-          <TextCell
-            label="Sales order"
-            field="orderNumber"
-            value={order.orderNumber}
-            editable={editable}
-            placeholder="Auto"
-          />
           <CustomerCell
             order={order}
             editable={editable}
             customerOptions={customerOptions}
+          />
+          <TextCell
+            label="Sales order"
+            field="orderNumber"
+            value={order.orderNumber}
+            editable={editable && controller.hasPersistedOrder}
+            disabledReason={
+              !controller.hasPersistedOrder
+                ? "Sales order number is assigned after you select a customer."
+                : undefined
+            }
           />
           <ProjectCell order={order} editable={editable} projects={customerProjects} />
           <DateCell
@@ -150,6 +150,7 @@ function TextCell<Field extends keyof PatchSalesOrderHeader>({
   editable,
   required,
   placeholder,
+  disabledReason,
 }: {
   label: string;
   field: Field;
@@ -157,9 +158,9 @@ function TextCell<Field extends keyof PatchSalesOrderHeader>({
   editable: boolean;
   required?: boolean;
   placeholder?: string;
+  disabledReason?: string;
 }) {
-  const { draft } = useContext(DetailsContext);
-  const commit = useFieldCommit(field);
+  const { controller } = useDetailsContext();
 
   return (
     <CellShell label={label} required={required}>
@@ -170,23 +171,19 @@ function TextCell<Field extends keyof PatchSalesOrderHeader>({
           required={required}
           placeholder={placeholder}
           onDraftChange={(next) => {
-            if (draft) {
-              draft.patchHeader({ [field]: next || null } as PatchSalesOrderHeader);
-            }
+            controller.patchHeader({ [field]: next || null } as PatchSalesOrderHeader);
           }}
           onCommit={(next) => {
             if (next === (value ?? null)) return;
-            if (draft) {
-              draft.patchHeader({ [field]: next } as PatchSalesOrderHeader);
-              return;
-            }
-            commit(next as PatchSalesOrderHeader[Field]);
+            controller.patchHeader({ [field]: next } as PatchSalesOrderHeader);
           }}
         />
       ) : (
-        <div className={`${cardStyles.readOnlyFieldValue} ${cardStyles.mono}`}>
-          {value || "—"}
-        </div>
+        <DisabledFieldTooltip reason={disabledReason}>
+          <div className={`${cardStyles.readOnlyFieldValue} ${cardStyles.mono}`}>
+            {value || placeholder || ""}
+          </div>
+        </DisabledFieldTooltip>
       )}
     </CellShell>
   );
@@ -198,17 +195,14 @@ function DateCell({
   value,
   editable,
   required,
-  hint,
 }: {
   label: string;
   field: "shipDate";
   value: string | null;
   editable: boolean;
   required?: boolean;
-  hint?: string;
 }) {
-  const { draft } = useContext(DetailsContext);
-  const commit = useFieldCommit(field);
+  const { controller } = useDetailsContext();
 
   return (
     <CellShell label={label} required={required}>
@@ -216,15 +210,11 @@ function DateCell({
         <DatePicker
           aria-label={label}
           value={value ?? ""}
-          className={cardStyles.underlineControl}
+          className={underlineControlClass()}
           onChange={(next) => {
             const normalized = next || null;
             if (normalized === value) return;
-            if (draft) {
-              draft.patchHeader({ [field]: normalized } as PatchSalesOrderHeader);
-              return;
-            }
-            commit(normalized as PatchSalesOrderHeader[typeof field]);
+            controller.patchHeader({ [field]: normalized } as PatchSalesOrderHeader);
           }}
         />
       ) : (
@@ -232,7 +222,6 @@ function DateCell({
           {value || "—"}
         </div>
       )}
-      {hint ? <div className={cardStyles.fieldHint}>{hint}</div> : null}
     </CellShell>
   );
 }
@@ -246,11 +235,10 @@ function CustomerCell({
   editable: boolean;
   customerOptions: CustomerOption[];
 }) {
-  const { draft } = useContext(DetailsContext);
-  const commitPatch = useHeaderPatchCommit("customer");
+  const { controller } = useDetailsContext();
 
   return (
-    <CellShell label="Customer" required>
+    <CellShell label="Customer" required invalid={editable && !order.customerId}>
       {editable ? (
         <>
           <EntityCombobox
@@ -267,27 +255,17 @@ function CustomerCell({
                 ...customerDefaultShipAddressPatch(picked),
                 ...emptySalesBillingAddressPatch(),
               };
-              if (draft) {
-                draft.patchHeader(patch);
-                return;
-              }
-              commitPatch(patch);
+              controller.patchHeader(patch);
             }}
             placeholder="Search customers…"
             emptyMessage="No customers found"
-            inputClassName={cardStyles.underlineControl}
+            inputClassName={underlineControlClass(editable && !order.customerId)}
             createLinks={[{ href: "/sales/customer", label: "Create customer" }]}
           />
-          {order.customerEmail ? (
-            <div className={cardStyles.fieldMeta}>{order.customerEmail}</div>
-          ) : null}
         </>
       ) : (
         <>
           <div className={cardStyles.readOnlyFieldValue}>{order.customerName}</div>
-          {order.customerEmail ? (
-            <div className={cardStyles.fieldMeta}>{order.customerEmail}</div>
-          ) : null}
         </>
       )}
     </CellShell>
@@ -303,8 +281,7 @@ function ProjectCell({
   editable: boolean;
   projects: CustomerOption["projects"];
 }) {
-  const { draft } = useContext(DetailsContext);
-  const commit = useFieldCommit("customerProjectId");
+  const { controller } = useDetailsContext();
   const selected = order.customerProjectId ?? NO_PROJECT_VALUE;
 
   if (!editable) {
@@ -319,33 +296,38 @@ function ProjectCell({
 
   return (
     <CellShell label="Project / Job">
-      <Select
-        key={`${order.customerId}-${selected}`}
-        value={selected}
-        onValueChange={(value) => {
-          const next = value === NO_PROJECT_VALUE ? null : value;
-          if (next === order.customerProjectId) return;
-          if (draft) {
-            const name = projects.find((p) => p.id === next)?.name ?? null;
-            draft.patchHeader({ customerProjectId: next, customerProjectName: name });
-            return;
-          }
-          commit(next);
-        }}
-        disabled={projects.length === 0}
+      <DisabledFieldTooltip
+        reason={
+          projects.length === 0
+            ? order.customerId
+              ? "This customer has no projects."
+              : "Select a customer before choosing a project."
+            : undefined
+        }
       >
-        <SelectTrigger className={cardStyles.underlineControl}>
-          <SelectValue placeholder={projects.length === 0 ? "No projects" : "No project"} />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={NO_PROJECT_VALUE}>No project</SelectItem>
-          {projects.map((project) => (
-            <SelectItem key={project.id} value={project.id}>
-              {project.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+        <Select
+          value={selected}
+          onValueChange={(value) => {
+            const next = value === NO_PROJECT_VALUE ? null : value;
+            if (next === order.customerProjectId) return;
+            const name = projects.find((p) => p.id === next)?.name ?? null;
+            controller.patchHeader({ customerProjectId: next, customerProjectName: name });
+          }}
+          disabled={projects.length === 0}
+        >
+          <SelectTrigger aria-label="Project / Job" className={underlineControlClass()}>
+            <SelectValue placeholder={projects.length === 0 ? "No projects" : "No project"} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NO_PROJECT_VALUE}>No project</SelectItem>
+            {projects.map((project) => (
+              <SelectItem key={project.id} value={project.id}>
+                {project.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </DisabledFieldTooltip>
     </CellShell>
   );
 }
@@ -359,12 +341,12 @@ function AddressCell({
   editable: boolean;
   addressOptions: SalesAddressOption[];
 }) {
-  const { draft } = useContext(DetailsContext);
-  const commitPatch = useHeaderPatchCommit("address");
+  const { controller } = useDetailsContext();
   const [addressBook, setAddressBook] = useState(addressOptions);
-  const [showSeparateBilling, setShowSeparateBilling] = useState(false);
   const [addressDialogState, setAddressDialogState] =
     useState<AddressDialogState | null>(null);
+  const [addressBookPending, setAddressBookPending] = useState(false);
+  const [addressBookError, setAddressBookError] = useState<Error | null>(null);
   const currentShippingAddress = normalizeDeliveryAddress({
     shipLine1: order.shipLine1,
     shipLine2: order.shipLine2,
@@ -381,8 +363,7 @@ function AddressCell({
     shipPostcode: order.billingPostcode,
     shipCountry: order.billingCountry,
   });
-  const billingSameAsShipping =
-    isBlankDeliveryAddress(currentBillingAddress) && !showSeparateBilling;
+  const billingSameAsShipping = isBlankDeliveryAddress(currentBillingAddress);
   const options = buildSalesShipAddressOptions(order, addressBook);
 
   const addressForm = useForm<AddressDialogValues>({
@@ -399,21 +380,62 @@ function AddressCell({
         : address
           ? salesBillingAddressPatch(address)
           : emptySalesBillingAddressPatch();
-    if (draft) {
-      draft.patchHeader(patch);
-      return;
-    }
-    commitPatch(patch);
+    controller.patchHeader(patch);
   };
 
-  const addressBookMutation = useMutation({
-    mutationKey: cardSaveMutationKey("sales-order", order.id, "address-book"),
-    mutationFn: ({ id, values }: { id: string | null; values: AddressDialogValues }) => {
-      const data = createAddressEntrySchema.parse(values);
-      return id ? updateAddressEntry(id, data) : createAddressEntry(data);
-    },
-    onSuccess: (entry) => {
-      if (!addressDialogState) return;
+  const openAddressDialog = (target: AddressTarget) => {
+    setAddressBookError(null);
+    addressForm.reset(EMPTY_ADDRESS_DIALOG_VALUES);
+    setAddressDialogState({ target, option: null });
+  };
+
+  const openEditAddressDialog = (target: AddressTarget, option: DeliveryAddressOption) => {
+    setAddressBookError(null);
+    addressForm.reset({
+      label: option.label,
+      contactName: option.shipContactName,
+      contactPhone: option.shipContactPhone,
+      line1: option.shipLine1,
+      line2: option.shipLine2,
+      city: option.shipCity,
+      region: option.shipRegion,
+      postcode: option.shipPostcode,
+      country: option.shipCountry,
+      deliveryInstructions: option.shipDeliveryInstructions,
+      notes: option.notes,
+    });
+    setAddressDialogState({ target, option });
+  };
+
+  const handleAddressDialogSubmit = async (values: AddressDialogValues) => {
+    if (!addressDialogState) return;
+    const baseLabel =
+      values.label.trim() ||
+      formatAddressLines({
+        line1: values.line1,
+        line2: values.line2,
+        city: values.city,
+        region: values.region,
+        postcode: values.postcode,
+        country: values.country,
+      }).join(", ") ||
+      "Address";
+    const existingLabels = new Set(addressBook.map((address) => address.label));
+    let label = baseLabel;
+    if (!values.label.trim()) {
+      let suffix = 2;
+      while (existingLabels.has(label)) {
+        label = `${baseLabel} (${suffix})`;
+        suffix += 1;
+      }
+    }
+    setAddressBookPending(true);
+    setAddressBookError(null);
+    try {
+      const data = createAddressEntrySchema.parse({ ...values, label });
+      const entry = addressDialogState.option?.addressEntryId
+        ? await updateAddressEntry(addressDialogState.option.addressEntryId, data)
+        : await createAddressEntry(data);
       const option = makeDeliveryAddressOption(
         {
           shipAddressEntryId: entry.id,
@@ -437,59 +459,11 @@ function AddressCell({
       if (option) commitAddress(addressDialogState.target, option);
       setAddressDialogState(null);
       addressForm.reset(EMPTY_ADDRESS_DIALOG_VALUES);
-    },
-  });
-
-  const openAddressDialog = (target: AddressTarget) => {
-    addressBookMutation.reset();
-    addressForm.reset(EMPTY_ADDRESS_DIALOG_VALUES);
-    setAddressDialogState({ target, option: null });
-  };
-
-  const openEditAddressDialog = (target: AddressTarget, option: DeliveryAddressOption) => {
-    addressBookMutation.reset();
-    addressForm.reset({
-      label: option.label,
-      contactName: option.shipContactName,
-      contactPhone: option.shipContactPhone,
-      line1: option.shipLine1,
-      line2: option.shipLine2,
-      city: option.shipCity,
-      region: option.shipRegion,
-      postcode: option.shipPostcode,
-      country: option.shipCountry,
-      deliveryInstructions: option.shipDeliveryInstructions,
-      notes: option.notes,
-    });
-    setAddressDialogState({ target, option });
-  };
-
-  const handleAddressDialogSubmit = (values: AddressDialogValues) => {
-    if (!addressDialogState) return;
-    const baseLabel =
-      values.label.trim() ||
-      formatAddressLines({
-        line1: values.line1,
-        line2: values.line2,
-        city: values.city,
-        region: values.region,
-        postcode: values.postcode,
-        country: values.country,
-      }).join(", ") ||
-      "Address";
-    const existingLabels = new Set(addressBook.map((address) => address.label));
-    let label = baseLabel;
-    if (!values.label.trim()) {
-      let suffix = 2;
-      while (existingLabels.has(label)) {
-        label = `${baseLabel} (${suffix})`;
-        suffix += 1;
-      }
+    } catch (error) {
+      setAddressBookError(error instanceof Error ? error : new Error("Failed to save address"));
+    } finally {
+      setAddressBookPending(false);
     }
-    addressBookMutation.mutate({
-      id: addressDialogState.option?.addressEntryId ?? null,
-      values: { ...values, label },
-    });
   };
 
   if (!editable) {
@@ -498,7 +472,7 @@ function AddressCell({
         <ReadOnlyAddressCell label="Ship to" address={currentShippingAddress} />
         {billingSameAsShipping ? (
           <CellShell label="Billing">
-            <div className={cardStyles.readOnlyFieldValue}>Same as shipping</div>
+            <div className={cardStyles.readOnlyFieldValue}>Same as shipping address</div>
           </CellShell>
         ) : (
           <ReadOnlyAddressCell label="Billing" address={currentBillingAddress} />
@@ -517,56 +491,25 @@ function AddressCell({
           onChange={(address) => commitAddress("shipping", address)}
           onAddNew={() => openAddressDialog("shipping")}
           onEdit={(option) => openEditAddressDialog("shipping", option)}
-          inputClassName={cardStyles.underlineControl}
+          inputClassName={underlineControlClass()}
         />
       </CellShell>
       <CellShell label="Billing">
-        {billingSameAsShipping ? (
-          <label className={cardStyles.ck}>
-            <input
-              type="checkbox"
-              checked
-              onChange={(event) => {
-                if (!event.currentTarget.checked) {
-                  setShowSeparateBilling(true);
-                }
-              }}
-            />
-            Billing same as shipping
-          </label>
-        ) : (
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <DeliveryAddressInput
-                id="sales-order-billing-address"
-                value={currentBillingAddress}
-                options={options}
-                onChange={(address) => commitAddress("billing", address)}
-                onAddNew={() => openAddressDialog("billing")}
-                onEdit={(option) => openEditAddressDialog("billing", option)}
-                inputClassName={cardStyles.underlineControl}
-              />
-            </div>
-            <label className={cardStyles.ck}>
-              <input
-                type="checkbox"
-                checked={false}
-                onChange={(event) => {
-                  if (event.currentTarget.checked) {
-                    setShowSeparateBilling(false);
-                    commitAddress("billing", null);
-                  }
-                }}
-              />
-              Same
-            </label>
-          </div>
-        )}
+        <DeliveryAddressInput
+          id="sales-order-billing-address"
+          value={billingSameAsShipping ? undefined : currentBillingAddress}
+          options={options}
+          onChange={(address) => commitAddress("billing", address)}
+          onAddNew={() => openAddressDialog("billing")}
+          onEdit={(option) => openEditAddressDialog("billing", option)}
+          inputClassName={underlineControlClass()}
+          nullOptionLabel="Same as shipping address"
+        />
         <AddressBookDialog
           state={addressDialogState}
           form={addressForm}
-          pending={addressBookMutation.isPending}
-          error={addressBookMutation.error}
+          pending={addressBookPending}
+          error={addressBookError}
           onClose={() => {
             setAddressDialogState(null);
             addressForm.reset(EMPTY_ADDRESS_DIALOG_VALUES);
@@ -576,6 +519,14 @@ function AddressCell({
       </CellShell>
     </>
   );
+}
+
+function useDetailsContext() {
+  const context = useContext(DetailsContext);
+  if (!context) {
+    throw new Error("OrderDetailsGrid context is missing.");
+  }
+  return context;
 }
 
 function ReadOnlyAddressCell({
@@ -870,39 +821,4 @@ function AddressBookDialog({
       </DialogContent>
     </Dialog>
   );
-}
-
-function useHeaderPatchCommit(scope: string) {
-  const { orderId } = useContext(DetailsContext);
-  return useEntityFieldCommit<HeaderOptimisticPatch, SalesOrderDetail>({
-    entityKey: "sales-order",
-    entityId: orderId,
-    scope,
-    mutationFn: (patch) => patchSalesOrderHeader(orderId, persistedHeaderPatch(patch)),
-    setQueryDataKey: ["sales-order", orderId],
-    optimisticUpdate: (current, patch) =>
-      current ? ({ ...current, ...patch } as SalesOrderDetail) : current,
-  });
-}
-
-function useFieldCommit<Field extends keyof PatchSalesOrderHeader>(field: Field) {
-  const { orderId } = useContext(DetailsContext);
-  return useEntityFieldCommit<PatchSalesOrderHeader[Field], SalesOrderDetail>({
-    entityKey: "sales-order",
-    entityId: orderId,
-    scope: String(field),
-    mutationFn: (value) =>
-      patchSalesOrderHeader(orderId, { [field]: value } as PatchSalesOrderHeader),
-    setQueryDataKey: ["sales-order", orderId],
-    optimisticUpdate: (current, value) =>
-      current ? ({ ...current, [field]: value } as SalesOrderDetail) : current,
-  });
-}
-
-function persistedHeaderPatch(patch: HeaderOptimisticPatch): PatchSalesOrderHeader {
-  const { customerName, customerEmail, customerProjectName, ...persisted } = patch;
-  void customerName;
-  void customerEmail;
-  void customerProjectName;
-  return persisted;
 }

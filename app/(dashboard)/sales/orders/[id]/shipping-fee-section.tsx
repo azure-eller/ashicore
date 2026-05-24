@@ -3,11 +3,9 @@
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { CardSection } from "@/components/card-page/card-page";
-import { useEntityFieldCommit } from "@/components/card-page/use-entity-field-commit";
-import { patchSalesOrderHeader } from "@/lib/api/clients/sales-orders";
 import { formatPrice } from "@/lib/format";
 import type { SalesOrderDetail } from "@/app/(dashboard)/sales/types";
-import type { OrderDraftController } from "./order-draft";
+import type { SalesOrderDraftController } from "./use-sales-order-draft-controller";
 
 type ShippingFeePatch = Pick<
   SalesOrderDetail,
@@ -17,35 +15,23 @@ type ShippingFeePatch = Pick<
 export function ShippingFeeSection({
   order,
   editable,
-  draft,
+  controller,
 }: {
   order: SalesOrderDetail;
   editable: boolean;
-  draft?: OrderDraftController;
+  controller: SalesOrderDraftController;
 }) {
-  const [description, setDescription] = useState(order.shippingFeeDescription ?? "");
-  const [amount, setAmount] = useState(order.shippingFeeAmount);
-  const [tax, setTax] = useState(order.shippingFeeTaxAmount);
-
-  const commit = useEntityFieldCommit<Partial<ShippingFeePatch>, SalesOrderDetail>({
-    entityKey: "sales-order",
-    entityId: order.id,
-    scope: "shipping-fee",
-    mutationFn: (patch) => patchSalesOrderHeader(order.id, patch),
-    setQueryDataKey: ["sales-order", order.id],
-    optimisticUpdate: (current, patch) =>
-      current ? ({ ...current, ...patch } as SalesOrderDetail) : current,
-    invalidateQueryKeys: [["sales-orders"]],
-  });
+  const [descriptionEdit, setDescriptionEdit] = useState<InputEdit | null>(null);
+  const [amountEdit, setAmountEdit] = useState<InputEdit | null>(null);
+  const [taxEdit, setTaxEdit] = useState<InputEdit | null>(null);
+  const description = descriptionEdit?.value ?? order.shippingFeeDescription ?? "";
+  const amount = amountEdit?.value ?? order.shippingFeeAmount;
+  const tax = taxEdit?.value ?? order.shippingFeeTaxAmount;
 
   const total = Number(amount || 0) + Number(tax || 0);
 
   const save = (patch: Partial<ShippingFeePatch>) => {
-    if (draft) {
-      draft.patchHeader(patch);
-      return;
-    }
-    commit(patch);
+    controller.patchHeader(patch);
   };
 
   return (
@@ -65,9 +51,10 @@ export function ShippingFeeSection({
             <Input
               value={description}
               disabled={!editable}
-              onChange={(event) => setDescription(event.target.value)}
+              onChange={(event) => setDescriptionEdit({ value: event.target.value })}
               onBlur={() => {
                 const next = description.trim() || null;
+                setDescriptionEdit(null);
                 if (next === order.shippingFeeDescription) return;
                 save({ shippingFeeDescription: next });
               }}
@@ -82,10 +69,10 @@ export function ShippingFeeSection({
               step="0.01"
               value={amount}
               disabled={!editable}
-              onChange={(event) => setAmount(event.target.value)}
+              onChange={(event) => setAmountEdit({ value: event.target.value })}
               onBlur={() => {
                 const next = normalizeMoneyInput(amount);
-                setAmount(next);
+                setAmountEdit(null);
                 if (next === order.shippingFeeAmount) return;
                 save({ shippingFeeAmount: next });
               }}
@@ -100,10 +87,10 @@ export function ShippingFeeSection({
               step="0.01"
               value={tax}
               disabled={!editable}
-              onChange={(event) => setTax(event.target.value)}
+              onChange={(event) => setTaxEdit({ value: event.target.value })}
               onBlur={() => {
                 const next = normalizeMoneyInput(tax);
-                setTax(next);
+                setTaxEdit(null);
                 if (next === order.shippingFeeTaxAmount) return;
                 save({ shippingFeeTaxAmount: next });
               }}
@@ -121,6 +108,8 @@ export function ShippingFeeSection({
     </CardSection>
   );
 }
+
+type InputEdit = { value: string };
 
 function normalizeMoneyInput(value: string) {
   const parsed = Number.parseFloat(value);

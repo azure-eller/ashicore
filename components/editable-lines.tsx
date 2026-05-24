@@ -208,41 +208,36 @@ type MutableLinesProps<TData> = SharedLinesProps<TData> & {
   addLabel: string;
   readOnly?: boolean;
   addDisabledReason?: string | null;
+  /** Deprecated compatibility prop. Blank-row auto-add behavior is disabled. */
+  isBlankRow?: (row: TData) => boolean;
   canDeleteRow?: (row: TData, rows: TData[]) => boolean;
   getDeleteDisabledReason?: (row: TData, rows: TData[]) => string | null;
   onDeleteRow?: (row: TData, rows: TData[]) => void | Promise<void>;
   onAddRow?: () => TData | null | Promise<TData | null>;
-  isBlankRow?: (row: TData) => boolean;
 };
 
 export function MutableLines<TData>({
   readOnly = false,
   rows: sourceRows,
   createRow,
-  isBlankRow,
   fields,
+  isBlankRow: _isBlankRow,
   ...props
 }: MutableLinesProps<TData>) {
+  void _isBlankRow;
   const columns = useMemo(() => buildLineColumns(fields), [fields]);
   assertAllowedLineColumns(columns);
-  const rows = useMemo(() => {
-    if (readOnly || !isBlankRow) return sourceRows;
-    if (sourceRows.some((row) => isBlankRow(row))) return sourceRows;
-    return [...sourceRows, createRow()];
-  }, [createRow, isBlankRow, readOnly, sourceRows]);
 
   return (
     <EditableLineDataGrid
       {...props}
       columns={columns}
-      rows={rows}
+      rows={sourceRows}
       createRow={createRow}
-      isBlankRow={isBlankRow}
       rowHeight={42}
       enableAddRow={!readOnly}
       enableReorder={!readOnly}
       enableDelete={!readOnly}
-      initializeBlankRow={Boolean(isBlankRow)}
     />
   );
 }

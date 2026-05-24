@@ -2,29 +2,20 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CardPage } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CardTabs, type CardTab } from "@/components/card-page/card-tabs";
+import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
+import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import {
   createItemCard,
   deleteItemCard,
   getItemCard,
-  type CreateItemCardInput,
+  type CreateItemCardResult,
   type ItemCardDto,
 } from "@/lib/api/clients/item-cards";
 import {
-  cardSaveMutationKey,
   saveStateFromEntityStatus,
   useEntitySaveStatus,
   type CardSaveState,
@@ -35,6 +26,8 @@ import { MaterialGeneralInfoTab } from "./tabs/general-info";
 import { MaterialUsedInBomsTab } from "./tabs/used-in-boms";
 import { MaterialSupplyDetailsTab } from "./tabs/supply-details";
 import type { SupplierOption } from "@/app/(dashboard)/purchasing/types";
+import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
+import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 
 export type MaterialCardProps = {
   initialItemId: string | null;
@@ -59,9 +52,46 @@ export function MaterialCard({
 }: MaterialCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [currentItemId, setCurrentItemId] = useState<string | null>(initialItemId);
-  const [draftCard, setDraftCard] = useState<ItemCardDto>(initialCard);
-  const isDraft = currentItemId == null;
+  const [configOpen, setConfigOpen] = useState(false);
+
+  const engine = useDraftSaveEngine<
+    ItemCardDto,
+    { type: "patchFamily"; patch: Partial<ItemCardDto["family"]> },
+    CreateItemCardResult
+  >({
+    initialDraft: initialCard,
+    initialServerSnapshot: initialItemId ? initialCard : null,
+    initialId: initialItemId,
+    isSaveable: (draft) =>
+      Boolean(draft.family.name.trim()) && Boolean(draft.family.unitDefinitionId),
+    applyOp: (draft, op) =>
+      op.type === "patchFamily"
+        ? { ...draft, family: { ...draft.family, ...op.patch } }
+        : draft,
+    create: (draft) =>
+      createItemCard({
+        itemType: "material",
+        name: draft.family.name.trim(),
+        unitDefinitionId: draft.family.unitDefinitionId,
+        category: draft.family.category,
+        description: draft.family.description,
+      }),
+    save: async () => null,
+    getResultId: (result) => result.itemId,
+    applyPersistedIdentity: (draft, result) =>
+      preserveDraftVariantDisplay(draft, result.card),
+    mergeServerOwnedFields: (draft, result) =>
+      preserveDraftVariantDisplay(draft, result.card),
+    onPersisted: (id) => {
+      reflectPersistedCardUrlWithoutNavigation(`/inventory/materials/${id}`);
+    },
+    onResult: (result, draft) => {
+      queryClient.setQueryData(["item-card", result.itemId], draft);
+      void queryClient.invalidateQueries({ queryKey: ["item-cards"] });
+    },
+  });
+  const currentItemId = engine.currentId;
+  const isDraft = !engine.hasPersistedEntity;
 
   const cardQuery = useQuery({
     queryKey: ["item-card", currentItemId ?? "__draft__"],
@@ -71,65 +101,38 @@ export function MaterialCard({
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
-  const card = isDraft ? draftCard : cardQuery.data ?? draftCard;
+  const card = isDraft ? engine.draft : cardQuery.data ?? engine.draft;
   const liveSaveStatus = useEntitySaveStatus("item-card", currentItemId ?? "__draft__");
 
-  const [configOpen, setConfigOpen] = useState(false);
-  const [confirmDeleteCard, setConfirmDeleteCard] = useState(false);
-
-  const createMutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", "__draft__", "create"),
-    mutationFn: (input: CreateItemCardInput) => createItemCard(input),
-    onSuccess: (result) => {
-      const displayCard = preserveDraftVariantDisplay(draftCard, result.card);
-      setCurrentItemId(result.itemId);
-      setDraftCard(displayCard);
-      queryClient.setQueryData(["item-card", result.itemId], displayCard);
-      void queryClient.invalidateQueries({ queryKey: ["item-cards"] });
-      window.history.replaceState(null, "", `/inventory/materials/${result.itemId}`);
-    },
-  });
-
   const updateDraftFamily = useCallback((patch: Partial<ItemCardDto["family"]>) => {
-    setDraftCard((current) => ({
-      ...current,
-      family: {
-        ...current.family,
-        ...patch,
-      },
-    }));
-  }, []);
+    engine.applyLocalOp({ type: "patchFamily", patch }, Number.POSITIVE_INFINITY);
+  }, [engine]);
 
   const commitDraft = useCallback(
     (patch?: Partial<ItemCardDto["family"]>) => {
-      if (currentItemId != null || createMutation.isPending || createMutation.isSuccess) {
-        return;
-      }
-
-      const family = { ...draftCard.family, ...patch };
-      const name = (family.name ?? "").trim();
-      if (!name || !family.unitDefinitionId) {
-        return;
-      }
-
-      createMutation.mutate({
-        itemType: "material",
-        name,
-        unitDefinitionId: family.unitDefinitionId,
-        category: family.category,
-        description: family.description,
-      });
+      if (!isDraft) return;
+      if (patch) engine.applyLocalOp({ type: "patchFamily", patch }, Number.POSITIVE_INFINITY);
+      void engine.flush().catch(() => undefined);
     },
-    [createMutation, currentItemId, draftCard.family],
+    [engine, isDraft],
   );
 
-  const deleteCardMutation = useMutation({
+  const deleteCardMutation = useDeleteEntity({
     mutationKey: ["item-card-action", currentItemId ?? "__draft__", "delete-card"],
     mutationFn: () => deleteItemCard(currentItemId as string),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-cards"] });
-      router.push("/inventory/materials");
-    },
+    invalidateQueryKeys: [["item-cards"]],
+    onDeleted: () => router.push("/inventory/materials"),
+  });
+  const deleteConfirm = useConfirmMutation<void>({
+    title: "Delete material card?",
+    description: (
+      <>
+        {card.family.name} and all its variants will be removed. This cannot be undone.
+      </>
+    ),
+    confirmLabel: "Delete",
+    pendingLabel: "Deleting...",
+    mutation: deleteCardMutation,
   });
 
   const tabs: CardTab[] = useMemo(
@@ -159,14 +162,11 @@ export function MaterialCard({
     [currentItemId, initialLots.length, usedInBoms.length],
   );
 
-  const visibleVariantCount = card.variants.filter(
-    (variant) => variant.deletedAt == null,
-  ).length;
   const avgIngredientsCost = getAverageIngredientsCost(card);
   const saveState: CardSaveState = isDraft
-    ? createMutation.isPending
+    ? engine.status === "saving"
       ? "saving"
-      : createMutation.isError
+      : engine.status === "error"
         ? "failed"
         : "not_saved"
     : saveStateFromEntityStatus(liveSaveStatus.status);
@@ -174,13 +174,7 @@ export function MaterialCard({
   return (
     <CardPage>
       <CardPageHeader
-        eyebrow={card.family.category ? `Material · ${card.family.category}` : "Material"}
         title={isDraft && !card.family.name.trim() ? "New material" : card.family.name}
-        meta={
-          <span>
-            {visibleVariantCount} {visibleVariantCount === 1 ? "variant" : "variants"}
-          </span>
-        }
         fallbackHref="/inventory/materials"
         saveState={saveState}
         menuActions={[
@@ -197,7 +191,7 @@ export function MaterialCard({
             : [
                 {
                   label: "Delete material",
-                  onClick: () => setConfirmDeleteCard(true),
+                  onClick: () => deleteConfirm.trigger(undefined),
                   destructive: true,
                 },
               ]),
@@ -221,7 +215,7 @@ export function MaterialCard({
               onOpenConfig={() => setConfigOpen(true)}
               onDraftFamilyChange={updateDraftFamily}
               onDraftCommit={commitDraft}
-              draftCreatePending={createMutation.isPending}
+              draftCreatePending={engine.status === "saving"}
             />
           ),
           lots: (
@@ -254,35 +248,7 @@ export function MaterialCard({
         </>
       )}
 
-      <AlertDialog open={confirmDeleteCard} onOpenChange={setConfirmDeleteCard}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete material card?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {card.family.name} and all its variants will be removed. This cannot be undone.
-              {deleteCardMutation.error ? (
-                <span className="block mt-(--space-2) text-destructive">
-                  {(deleteCardMutation.error as Error).message}
-                </span>
-              ) : null}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => deleteCardMutation.reset()}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(event) => {
-                event.preventDefault();
-                deleteCardMutation.mutate();
-              }}
-              disabled={deleteCardMutation.isPending}
-            >
-              {deleteCardMutation.isPending ? "Deleting…" : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {deleteConfirm.dialog}
     </CardPage>
   );
 }

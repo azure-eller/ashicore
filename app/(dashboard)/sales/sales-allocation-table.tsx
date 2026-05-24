@@ -1017,7 +1017,7 @@ function OrderIdentityCell({
         {data.customerName}
       </span>
       <Link
-        href={`/sales/orders/${data.order!.id}`}
+        href={`/sales/order/${data.order!.id}`}
         className={styles.orderNumber}
       >
         {data.order?.orderNumber}

@@ -108,7 +108,7 @@ export async function recordManufacturingOutput(
 export async function patchManufacturingOrder(
   orderId: string,
   input: PatchManufacturingOrder,
-): Promise<{ id: string }> {
+): Promise<ManufacturingOrderDetail> {
   const response = await fetch(`/api/manufacturing-orders/${orderId}`, {
     method: "PATCH",
     headers: createIdempotencyHeaders("patchManufacturingOrder", {
@@ -117,7 +117,7 @@ export async function patchManufacturingOrder(
     body: JSON.stringify(input),
   });
   if (!response.ok) return parseError(response);
-  return (await response.json()) as { id: string };
+  return (await response.json()) as ManufacturingOrderDetail;
 }
 
 export async function fetchManufacturingOrder(
@@ -132,6 +132,7 @@ export type CreateManufacturingOrderInput = {
   productId: string;
   plannedQuantity: string;
   plannedDate: string | null;
+  notes?: string | null;
   ingredients: Array<{ itemId: string; quantityPerUnit: string }>;
 };
 
@@ -142,7 +143,7 @@ export type CreateManufacturingOrderInput = {
  */
 export async function createManufacturingOrder(
   input: CreateManufacturingOrderInput,
-): Promise<{ id: string }> {
+): Promise<ManufacturingOrderDetail> {
   const response = await fetch("/api/manufacturing-orders", {
     method: "POST",
     headers: createIdempotencyHeaders("createManufacturingOrder", {
@@ -152,13 +153,14 @@ export async function createManufacturingOrder(
       productId: input.productId,
       plannedQuantity: input.plannedQuantity,
       plannedDate: input.plannedDate,
+      notes: input.notes ?? null,
       ingredients: input.ingredients,
       autoAllocateIngredientLots: true,
       confirmShortage: true,
     }),
   });
   if (!response.ok) return parseError(response);
-  return (await response.json()) as { id: string };
+  return (await response.json()) as ManufacturingOrderDetail;
 }
 
 export async function fetchManufacturingSalesLineOptions(
@@ -187,7 +189,7 @@ export async function saveManufacturingOrderIngredients(
     salesOrderLineId: string | null;
   },
   ingredients: Array<{ itemId: string; quantityPerUnit: string }>,
-): Promise<{ id: string }> {
+): Promise<ManufacturingOrderDetail> {
   const response = await fetch(`/api/manufacturing-orders/${orderId}`, {
     method: "PUT",
     headers: createIdempotencyHeaders("saveManufacturingOrderIngredients", {
@@ -205,7 +207,7 @@ export async function saveManufacturingOrderIngredients(
     }),
   });
   if (!response.ok) return parseError(response);
-  return (await response.json()) as { id: string };
+  return (await response.json()) as ManufacturingOrderDetail;
 }
 
 export async function reorderManufacturingOrderIngredients(

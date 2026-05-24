@@ -137,6 +137,66 @@
   font-variant-numeric: tabular-nums;
 }
 
+.totalsSummary {
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: stretch;
+}
+
+.totalsSummaryRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 20px;
+  font-size: 12.5px;
+}
+
+.totalsSummaryLabel {
+  color: var(--color-ink-2, #3a3f48);
+  text-align: right;
+}
+
+.totalsSummaryValue {
+  font-family: var(--font-mono, "Geist Mono", monospace);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-ink);
+  min-width: 90px;
+  text-align: right;
+}
+
+.totalsSummaryMinusPrefix {
+  color: var(--color-muted);
+  margin-right: 2px;
+}
+
+.totalsSummaryRule {
+  border-top: 1px solid var(--color-line);
+  padding-top: 6px;
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.totalsSummaryTotal {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.totalsSummarySuccess {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-success);
+}
+
+.totalsSummarySubValue {
+  font-size: 11px;
+  color: var(--color-muted);
+  font-family: var(--font-mono, "Geist Mono", monospace);
+  margin-left: 6px;
+}
+
 .headerRight {
   margin-left: auto;
   display: flex;
@@ -400,13 +460,17 @@
 
 .formLabel {
   display: block;
-  margin-bottom: 4px;
-  font-size: 10.5px;
+  margin-bottom: 5px;
+  font-size: 11.5px;
   font-weight: 600;
-  line-height: 14px;
+  line-height: 16px;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.07em;
   color: var(--color-muted);
+}
+
+.formLabelInvalid {
+  color: var(--color-danger);
 }
 
 .requiredMark {
@@ -414,7 +478,7 @@
 }
 
 .underlineInput {
-  height: 34px;
+  height: var(--height-input-sm);
   width: 100%;
   border: 0;
   border-bottom: 1px solid var(--color-line);
@@ -422,8 +486,8 @@
   border-radius: 0;
   box-shadow: none;
   padding: 0;
-  font-size: 13.5px;
-  line-height: 20px;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   color: var(--color-ink);
 }
 
@@ -454,7 +518,7 @@
 
 .underlineControl,
 .underlineControl[data-slot="input-group"] {
-  height: 34px;
+  height: var(--height-input-sm);
   width: 100%;
   min-width: 0;
   border: 0;
@@ -463,8 +527,8 @@
   border-radius: 0;
   box-shadow: none;
   padding: 0;
-  font-size: 13.5px;
-  line-height: 20px;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
 }
 
 .underlineControl:hover,
@@ -488,11 +552,25 @@
   opacity: 1;
 }
 
+.invalidControl,
+.invalidControl[data-slot="input-group"] {
+  border-bottom-color: var(--color-danger);
+  box-shadow: 0 1px 0 0 var(--color-danger);
+}
+
+.invalidControl:hover,
+.invalidControl[data-slot="input-group"]:hover,
+.invalidControl:focus-visible,
+.invalidControl[data-slot="input-group"]:focus-within {
+  border-bottom-color: var(--color-danger);
+  box-shadow: 0 1px 0 0 var(--color-danger);
+}
+
 .fieldMeta,
 .fieldHint {
   margin-top: 4px;
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 17px;
   color: var(--color-muted);
 }
 
@@ -505,7 +583,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 34px;
+  height: var(--height-input-sm);
   border-bottom: 1px solid var(--color-line);
 }
 
@@ -520,7 +598,7 @@
 }
 
 .suffixField .underlineInput {
-  height: 33px;
+  height: calc(var(--height-input-sm) - 1px);
   border-bottom: 0;
   box-shadow: none;
 }
@@ -528,26 +606,26 @@
 .fieldSuffix {
   flex: 0 0 auto;
   font-family: var(--font-mono, "Geist Mono", "SF Mono", ui-monospace, monospace);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 12.5px;
+  line-height: 18px;
   color: var(--color-muted);
 }
 
 .readOnlyFieldValue {
-  min-height: 34px;
+  min-height: var(--height-input-sm);
   border-bottom: 1px dotted var(--color-line-2);
-  padding: 7px 0 6px;
-  font-size: 13.5px;
-  line-height: 20px;
+  padding: 9px 0 8px;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   color: var(--color-ink);
 }
 
 .readOnlyAddress {
-  min-height: 34px;
+  min-height: var(--height-input-sm);
   border-bottom: 1px dotted var(--color-line-2);
-  padding: 4px 0 5px;
-  font-size: 13px;
-  line-height: 17px;
+  padding: 7px 0 8px;
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
   color: var(--color-ink);
 }
 

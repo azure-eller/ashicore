@@ -1,44 +1,14 @@
 import { todayInTimeZone } from "@/lib/format";
-import type {
-  InsertSalesOrder,
-  PatchSalesOrderHeader,
-} from "@/lib/schemas/sales-orders";
+import type { InsertSalesOrder } from "@/lib/schemas/sales-orders";
 import type {
   SalesOrderDetail,
   SalesOrderDetailLine,
 } from "@/app/(dashboard)/sales/types";
 
 /**
- * In draft mode (/sales/order before the order exists) the sections write to
- * local state through this controller instead of hitting PATCH endpoints. When
- * absent, sections use their live per-field PATCH mutations.
- */
-export type OrderDraftController = {
-  /** Accepts header PATCH fields plus denormalized display fields (customerName,
-   *  customerEmail, customerProjectName) so the draft renders without a refetch. */
-  patchHeader: (
-    patch: PatchSalesOrderHeader &
-      Partial<
-        Pick<
-          SalesOrderDetail,
-          "customerName" | "customerEmail" | "customerProjectName"
-        >
-      >,
-  ) => void;
-  addLine: (line: SalesOrderDetailLine) => void;
-  updateLine: (
-    lineId: string,
-    patch: { quantity?: string; unitPrice?: string },
-  ) => void;
-  removeLine: (lineId: string) => void;
-  reorderLines: (orderedIds: string[]) => void;
-};
-
-/**
  * A blank SalesOrderDetail used as the local draft on /sales/order before the
- * order exists server-side. Mirrors ProductCard's emptyCard() pattern — the
- * same <OrderCard> renders this in draft mode, then swaps to live data after
- * the create POST succeeds.
+ * order exists server-side. The Sales Order draft controller owns this as the
+ * live editable document and serializes create/update persistence.
  */
 export function makeDraftOrder(timeZone: string): SalesOrderDetail {
   const today = todayInTimeZone(timeZone);
@@ -94,6 +64,11 @@ export function makeDraftOrder(timeZone: string): SalesOrderDetail {
       availabilityState: "complete",
       expectedDate: null,
       label: "",
+      salesItemsState: "complete",
+      salesItemsExpectedDate: null,
+      ingredientsState: "not_applicable",
+      ingredientsExpectedDate: null,
+      productionState: "not_applicable",
     },
     shippingReadiness: {
       state: "not_confirmed",
@@ -199,7 +174,7 @@ export function orderToUpdatePayload(
     status: "open",
     orderDate: order.orderDate,
     shipDate: order.shipDate,
-    requestedDate: null,
+    requestedDate: order.requestedDate,
     notes: order.notes,
     shipLine1: order.shipLine1,
     shipLine2: order.shipLine2,
@@ -226,15 +201,18 @@ export function orderToUpdatePayload(
 }
 
 /** Assemble the create payload from the local draft order. */
-export function draftToInsertPayload(draft: SalesOrderDetail): InsertSalesOrder {
+export function draftToInsertPayload(
+  draft: SalesOrderDetail,
+  options?: { useServerOrderNumber?: boolean },
+): InsertSalesOrder {
   return {
-    orderNumber: draft.orderNumber.trim() || null,
+    orderNumber: options?.useServerOrderNumber ? null : draft.orderNumber.trim() || null,
     customerId: draft.customerId,
     customerProjectId: draft.customerProjectId,
     status: "open",
     orderDate: draft.orderDate,
     shipDate: draft.shipDate,
-    requestedDate: null,
+    requestedDate: draft.requestedDate,
     notes: draft.notes,
     shipLine1: draft.shipLine1,
     shipLine2: draft.shipLine2,

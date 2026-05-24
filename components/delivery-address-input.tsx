@@ -36,6 +36,7 @@ export type DeliveryAddressOption = Required<DeliveryAddressFields> & {
 
 const ADD_DELIVERY_ADDRESS_VALUE = "__add_delivery_address__";
 const EDIT_DELIVERY_ADDRESS_VALUE = "__edit_delivery_address__";
+const NULL_DELIVERY_ADDRESS_VALUE = "__null_delivery_address__";
 
 export function normalizeDeliveryAddress(
   address: DeliveryAddressFields | undefined,
@@ -119,6 +120,7 @@ export function DeliveryAddressInput({
   onAddNew,
   onEdit,
   inputClassName,
+  nullOptionLabel,
 }: {
   id: string;
   label?: ReactNode;
@@ -128,12 +130,17 @@ export function DeliveryAddressInput({
   onAddNew?: () => void;
   onEdit?: (address: DeliveryAddressOption) => void;
   inputClassName?: string;
+  nullOptionLabel?: string;
 }) {
   const currentAddressId = deliveryAddressKey(value);
+  const currentValue = nullOptionLabel && currentAddressId === ""
+    ? NULL_DELIVERY_ADDRESS_VALUE
+    : currentAddressId;
   const canEditCurrent = currentAddressId !== "" && Boolean(onEdit);
   const optionIds = options.map((option) => option.id);
   const optionMap = new Map(options.map((option) => [option.id, option]));
   const items = [
+    ...(nullOptionLabel ? [NULL_DELIVERY_ADDRESS_VALUE] : []),
     ...optionIds,
     ...(canEditCurrent ? [EDIT_DELIVERY_ADDRESS_VALUE] : []),
     ...(onAddNew ? [ADD_DELIVERY_ADDRESS_VALUE] : []),
@@ -146,9 +153,9 @@ export function DeliveryAddressInput({
       </FieldLabel>
       <Combobox
         items={items}
-        value={currentAddressId}
+        value={currentValue}
         onValueChange={(nextValue) => {
-          if (!nextValue) {
+          if (!nextValue || nextValue === NULL_DELIVERY_ADDRESS_VALUE) {
             onChange(null);
             return;
           }
@@ -165,6 +172,8 @@ export function DeliveryAddressInput({
           onChange(optionMap.get(nextValue) ?? null);
         }}
         itemToStringLabel={(itemId) => {
+          if (itemId === NULL_DELIVERY_ADDRESS_VALUE)
+            return nullOptionLabel ?? "";
           if (itemId === ADD_DELIVERY_ADDRESS_VALUE) return "Add new address";
           if (itemId === EDIT_DELIVERY_ADDRESS_VALUE)
             return "Edit selected address";
@@ -181,6 +190,13 @@ export function DeliveryAddressInput({
           <ComboboxEmpty>No addresses found</ComboboxEmpty>
           <ComboboxList>
             {(itemId: string) => {
+              if (itemId === NULL_DELIVERY_ADDRESS_VALUE) {
+                return (
+                  <ComboboxItem key={itemId} value={itemId}>
+                    {nullOptionLabel}
+                  </ComboboxItem>
+                );
+              }
               if (itemId === ADD_DELIVERY_ADDRESS_VALUE) {
                 return (
                   <ComboboxItem key={itemId} value={itemId}>

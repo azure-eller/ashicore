@@ -231,9 +231,9 @@ async function loadAssignmentsForItemInTx(
       salesOrderId: row.salesOrderIdFromLine ?? row.salesOrderIdFromShipment ?? null,
       href:
         row.salesOrderIdFromLine || row.salesOrderIdFromShipment
-          ? `/sales/orders/${row.salesOrderIdFromLine ?? row.salesOrderIdFromShipment}`
+          ? `/sales/order/${row.salesOrderIdFromLine ?? row.salesOrderIdFromShipment}`
           : row.manufacturingOrderId
-            ? `/manufacturing/orders/${row.manufacturingOrderId}`
+            ? `/manufacturing/order/${row.manufacturingOrderId}`
             : null,
     }));
 }
@@ -297,7 +297,7 @@ async function loadProductionClaimsForItemInTx(
         demandLabel: row.orderNumber,
         contextLabel: row.productName,
         requiredDate: row.plannedDate,
-        href: `/manufacturing/orders/${row.manufacturingOrderId}`,
+        href: `/manufacturing/order/${row.manufacturingOrderId}`,
         sourceLabel: row.sourceLabelSnapshot ?? row.sourceId,
       })
     );
@@ -394,9 +394,9 @@ export async function getAllocationWorkspaceInTx(
       contextLabel: demand?.contextLabel ?? null,
       requiredDate: demand?.requiredDate ?? null,
       href: assignment.salesOrderId
-        ? `/sales/orders/${assignment.salesOrderId}`
+        ? `/sales/order/${assignment.salesOrderId}`
         : assignment.demandType === "sales_order_line" && demand?.parentDemandId
-          ? `/sales/orders/${demand.parentDemandId}`
+          ? `/sales/order/${demand.parentDemandId}`
           : assignment.href,
     };
   });

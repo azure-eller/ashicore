@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { hasModuleAccess } from "@/lib/authz";
-import { getAuthedMemberContext } from "@/lib/dal/auth";
+import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { getStocktake, getStocktakePreviewItems, getStocktakeScopeOptions } from "../queries";
 import { StocktakeDetail } from "../stocktake-detail";
 
@@ -9,7 +9,7 @@ export default async function StocktakeDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const context = await getAuthedMemberContext();
+  const context = await requireModuleReadAccess("inventory");
   const { id } = await params;
   const [stocktake, scopeGroups, previewItems] = await Promise.all([
     getStocktake(id),

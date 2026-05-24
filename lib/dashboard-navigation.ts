@@ -433,7 +433,7 @@ export function getDashboardRouteShell(href: string): DashboardRouteShell {
     return { title: `New ${createAction.title}`, href: resolvedHref, kind: "create" };
   }
 
-  if (pathname.startsWith("/sales/orders/")) {
+  if (pathname.startsWith("/sales/order/") || pathname.startsWith("/sales/orders/")) {
     return { title: "Sales Order", href: resolvedHref, kind: "detail" };
   }
 
@@ -449,7 +449,10 @@ export function getDashboardRouteShell(href: string): DashboardRouteShell {
     return { title: "Material", href: resolvedHref, kind: "detail" };
   }
 
-  if (pathname.startsWith("/purchasing/orders/")) {
+  if (
+    pathname.startsWith("/purchasing/order/") ||
+    pathname.startsWith("/purchasing/orders/")
+  ) {
     return { title: "Purchase Order", href: resolvedHref, kind: "detail" };
   }
 
@@ -457,7 +460,10 @@ export function getDashboardRouteShell(href: string): DashboardRouteShell {
     return { title: "Supplier", href: resolvedHref, kind: "detail" };
   }
 
-  if (pathname.startsWith("/manufacturing/orders/")) {
+  if (
+    pathname.startsWith("/manufacturing/order/") ||
+    pathname.startsWith("/manufacturing/orders/")
+  ) {
     return { title: "Manufacturing Order", href: resolvedHref, kind: "detail" };
   }
 

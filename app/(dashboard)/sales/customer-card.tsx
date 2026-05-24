@@ -60,13 +60,13 @@ import {
   CardSection,
 } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
-import { CellShell } from "@/components/card-page/form-cell";
+import { CellShell, underlineControlClass } from "@/components/card-page/form-cell";
 import { CommitInput } from "@/components/card-page/commit-input";
 import { NotesField } from "@/components/card-page/notes-field";
+import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
+import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import {
   cardSaveMutationKey,
-  saveStateFromEntityStatus,
-  useEntitySaveStatus,
   type CardSaveState,
 } from "@/components/card-page/card-save-status";
 import {
@@ -85,6 +85,8 @@ import {
   updateCustomerContact,
   updateCustomerProject,
 } from "@/lib/api/clients/customers";
+import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
+import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import type { AddressEntry } from "@/lib/dal/addresses";
 import {
   formatAddressLines,
@@ -198,17 +200,66 @@ export function CustomerCard({
 }: CustomerCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [currentCustomerId, setCurrentCustomerId] = useState(initialCustomerId);
   const [addressBook, setAddressBook] = useState(addresses);
   const [addressDialogState, setAddressDialogState] =
     useState<AddressDialogState | null>(null);
-  const [draftCustomer, setDraftCustomer] = useState<InsertCustomer>({
-    ...customerDefaultValues,
-    accountState: "active",
-    accountPriority: "standard",
+  const engine = useDraftSaveEngine<
+    CustomerDetailData,
+    { type: "patch"; patch: PatchCustomer },
+    CustomerDetailData
+  >({
+    initialDraft:
+      initialCustomer ??
+      makeDraftCustomer({
+        ...customerDefaultValues,
+        accountState: "active",
+        accountPriority: "standard",
+      }),
+    initialServerSnapshot: initialCustomer,
+    initialId: initialCustomerId,
+    isSaveable: (draft) => Boolean(draft.name.trim()),
+    applyOp: (draft, op) => mergeCustomerPatch(draft, op.patch),
+    coalesceOps: (existing, next) => [
+      {
+        op: {
+          type: "patch",
+          patch: existing.reduce<PatchCustomer>(
+            (patch, queued) => ({ ...patch, ...queued.op.patch }),
+            next.op.patch,
+          ),
+        },
+        revision: next.revision,
+      },
+    ],
+    create: async (draft) => {
+      const created = await createCustomer(customerToInsertInput(draft));
+      return getCustomerCard(created.id);
+    },
+    save: async (customerId, draft, ops) => {
+      if (ops.length === 0) return null;
+      await patchCustomer(customerId, customerEditableSnapshot(draft));
+      return getCustomerCard(customerId);
+    },
+    getResultId: (result) => result.id,
+    applyPersistedIdentity: (draft, result) => ({
+      ...draft,
+      id: result.id,
+      createdAt: result.createdAt,
+    }),
+    mergeServerOwnedFields: (draft, result) => ({
+      ...result,
+      ...customerEditableSnapshot(draft),
+    }),
+    onPersisted: (id) => {
+      reflectPersistedCardUrlWithoutNavigation(`/sales/customers/${id}`);
+    },
+    onResult: (result, draft) => {
+      queryClient.setQueryData(["customer-card", result.id], draft);
+      void queryClient.invalidateQueries({ queryKey: ["customers"] });
+    },
   });
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const isDraft = currentCustomerId == null;
+  const currentCustomerId = engine.currentId;
+  const isDraft = !engine.hasPersistedEntity;
 
   const customerQuery = useQuery({
     queryKey: ["customer-card", currentCustomerId ?? "__draft__"],
@@ -217,56 +268,30 @@ export function CustomerCard({
     enabled: !isDraft,
     refetchOnWindowFocus: false,
   });
-  const customer = isDraft ? null : customerQuery.data ?? initialCustomer;
-  const readOnly = Boolean(customer?.deletedAt);
-  const saveStatus = useEntitySaveStatus("customer", currentCustomerId ?? "__draft__");
+  const serverCustomer = isDraft ? null : customerQuery.data ?? initialCustomer;
+  const display = isDraft
+    ? engine.draft
+    : serverCustomer
+      ? { ...serverCustomer, ...customerEditableSnapshot(engine.draft) }
+      : engine.draft;
+  const readOnly = Boolean(display.deletedAt);
 
-  const createMutation = useMutation({
-    mutationKey: cardSaveMutationKey("customer", "__draft__", "create"),
-    mutationFn: (input: InsertCustomer) => createCustomer(input),
-    onSuccess: async (result) => {
-      setCurrentCustomerId(result.id);
-      await queryClient.invalidateQueries({ queryKey: ["customers"] });
-      const next = await getCustomerCard(result.id);
-      queryClient.setQueryData(["customer-card", result.id], next);
-      router.replace(`/sales/customers/${result.id}`);
-    },
-  });
-
-  const patchMutation = useMutation({
-    mutationKey: cardSaveMutationKey("customer", currentCustomerId ?? "__draft__", "patch"),
-    mutationFn: (input: PatchCustomer) =>
-      patchCustomer(currentCustomerId as string, input),
-    onMutate: async (input) => {
-      if (!currentCustomerId) return undefined;
-      const queryKey = ["customer-card", currentCustomerId] as const;
-      await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<CustomerDetailData>(queryKey);
-      if (previous) {
-        queryClient.setQueryData(queryKey, {
-          ...previous,
-          ...input,
-        } as CustomerDetailData);
-      }
-      return { previous, queryKey };
-    },
-    onError: (_error, _input, context) => {
-      if (!context) return;
-      queryClient.setQueryData(context.queryKey, context.previous);
-    },
-    onSuccess: async () => {
-      if (!currentCustomerId) return;
-      await queryClient.invalidateQueries({ queryKey: ["customers"] });
-    },
-  });
-
-  const deleteMutation = useMutation({
+  const deleteMutation = useDeleteEntity({
     mutationKey: ["customer-action", currentCustomerId ?? "__draft__", "delete"],
     mutationFn: () => deleteCustomer(currentCustomerId as string),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["customers"] });
-      router.push("/sales/customers");
-    },
+    invalidateQueryKeys: [["customers"]],
+    onDeleted: () => router.push("/sales/customers"),
+  });
+  const deleteConfirm = useConfirmMutation<void>({
+    title: "Delete customer?",
+    description: (
+      <>
+        This customer will be soft-deleted. Existing sales orders keep their customer snapshot.
+      </>
+    ),
+    confirmLabel: "Delete",
+    pendingLabel: "Deleting...",
+    mutation: deleteMutation,
   });
 
   const addressForm = useForm<AddressDialogValues>({
@@ -294,31 +319,12 @@ export function CustomerCard({
     },
   });
 
-  const updateDraft = useCallback((patch: Partial<InsertCustomer>) => {
-    setDraftCustomer((current) => ({ ...current, ...patch }));
-  }, []);
-
-  const commitDraft = useCallback(
-    (patch?: Partial<InsertCustomer>) => {
-      if (!isDraft || createMutation.isPending || createMutation.isSuccess) return;
-      const next = { ...draftCustomer, ...patch };
-      if (!next.name.trim()) return;
-      createMutation.mutate({ ...next, name: next.name.trim() });
-    },
-    [createMutation, draftCustomer, isDraft]
-  );
-
   const commitCustomerPatch = useCallback(
     (patch: PatchCustomer) => {
       if (readOnly) return;
-      if (isDraft) {
-        updateDraft(patch);
-        commitDraft(patch);
-        return;
-      }
-      patchMutation.mutate(patch);
+      engine.applyLocalOp({ type: "patch", patch });
     },
-    [commitDraft, isDraft, patchMutation, readOnly, updateDraft]
+    [engine, readOnly]
   );
 
   const applyCustomerAddress = useCallback(
@@ -394,7 +400,6 @@ export function CustomerCard({
     [addressBook, addressDialogState, addressMutation]
   );
 
-  const display = customer ?? makeDraftCustomer(draftCustomer);
   const openOrders = display.salesOrders.filter((order) => order.status === "open");
   const billingAddress = getCustomerBillingAddress(display);
   const shippingAddress = getCustomerShippingAddress(display);
@@ -409,33 +414,39 @@ export function CustomerCard({
 
   const cardSaveState: CardSaveState = readOnly
     ? "readonly"
-    : isDraft
-      ? createMutation.isPending
-        ? "saving"
-        : createMutation.isError
-          ? "failed"
-          : "not_saved"
-      : saveStateFromEntityStatus(saveStatus.status);
+    : engine.status === "saving" || engine.status === "dirty"
+      ? "saving"
+      : engine.status === "error"
+        ? "failed"
+        : isDraft
+          ? "not_saved"
+          : "saved";
+  const cardSaveMessage =
+    cardSaveState === "saved"
+      ? "Saved"
+      : cardSaveState === "failed"
+        ? engine.error
+        : null;
 
   return (
     <CardPage>
       <CardPageHeader
-        eyebrow="Customer"
         title={display.name.trim() || "New customer"}
-        meta={
-          display.createdAt ? (
-            <span>Customer since {formatDate(toDateOnlyString(display.createdAt))}</span>
-          ) : null
-        }
         saveState={cardSaveState}
+        saveMessage={cardSaveMessage}
         fallbackHref="/sales/customers"
+        showPrint={false}
         menuActions={
           isDraft || readOnly
             ? []
             : [
                 {
+                  label: "Print",
+                  onClick: () => window.print(),
+                },
+                {
                   label: "Delete customer",
-                  onClick: () => setConfirmDelete(true),
+                  onClick: () => deleteConfirm.trigger(undefined),
                   destructive: true,
                 },
               ]
@@ -445,13 +456,14 @@ export function CustomerCard({
       <CardPageBody>
         <CardSection title="Customer at a glance">
           <div className={`${styles.formRow} ${styles.formRowThree}`}>
-            <CellShell label="Customer name" required>
+            <CellShell label="Customer name" required invalid={isDraft && !display.name.trim()}>
               <CommitInput
                 label="Customer name"
                 value={display.name}
-                disabled={readOnly || createMutation.isPending}
+                disabled={readOnly}
                 autoFocus={isDraft}
                 required
+                className={underlineControlClass(isDraft && !display.name.trim())}
                 onCommit={(name) => {
                   if (name) commitCustomerPatch({ name });
                 }}
@@ -462,7 +474,7 @@ export function CustomerCard({
                 label="Email"
                 type="email"
                 value={display.email ?? ""}
-                disabled={readOnly || createMutation.isPending}
+                disabled={readOnly}
                 onCommit={(email) => commitCustomerPatch({ email })}
               />
             </CellShell>
@@ -470,7 +482,7 @@ export function CustomerCard({
               <CommitInput
                 label="Phone"
                 value={display.phone ?? ""}
-                disabled={readOnly || createMutation.isPending}
+                disabled={readOnly}
                 onCommit={(phone) => commitCustomerPatch({ phone })}
               />
             </CellShell>
@@ -480,7 +492,7 @@ export function CustomerCard({
                 target="shipping"
                 value={shippingAddress}
                 options={addressOptions}
-                disabled={readOnly || createMutation.isPending}
+                disabled={readOnly}
                 onChange={(address) => applyCustomerAddress("shipping", address)}
                 onAddNew={() => openAddressDialog("shipping")}
                 onEdit={(option) => openEditAddressDialog("shipping", option)}
@@ -494,7 +506,7 @@ export function CustomerCard({
                 sameAsShippingLabel={customerAddressLabel(shippingAddress)}
                 options={addressOptions}
                 sameAsShipping
-                disabled={readOnly || createMutation.isPending}
+                disabled={readOnly}
                 onChange={(address) => applyCustomerAddress("billing", address)}
                 onAddNew={() => openAddressDialog("billing")}
                 onEdit={(option) => openEditAddressDialog("billing", option)}
@@ -530,11 +542,11 @@ export function CustomerCard({
             <NotesField
               label="Notes"
               value={display.notes ?? ""}
-              disabled={readOnly || createMutation.isPending}
+              disabled={readOnly}
               readOnlyValue={readOnly}
               commitUnchangedValue={isDraft}
               onDraftChange={(notes) => {
-                if (isDraft) updateDraft({ notes });
+                if (isDraft) engine.applyLocalOp({ type: "patch", patch: { notes } }, Number.POSITIVE_INFINITY);
               }}
               onCommit={(notes) => commitCustomerPatch({ notes })}
             />
@@ -542,35 +554,7 @@ export function CustomerCard({
         </div>
       </CardPageBody>
 
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete customer?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This customer will be soft-deleted. Existing sales orders keep their customer snapshot.
-              {deleteMutation.error ? (
-                <span className="mt-(--space-2) block text-destructive">
-                  {(deleteMutation.error as Error).message}
-                </span>
-              ) : null}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => deleteMutation.reset()}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(event) => {
-                event.preventDefault();
-                deleteMutation.mutate();
-              }}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {deleteConfirm.dialog}
 
       <Dialog
         open={addressDialogState != null}
@@ -807,8 +791,7 @@ function ContactsSection({
         return;
       }
       if (
-        (change.type === "cell_edit_committed" ||
-          change.type === "blank_row_committed") &&
+        change.type === "cell_edit_committed" &&
         change.row?.name.trim()
       ) {
         saveMutation.mutate(change.row);
@@ -888,9 +871,9 @@ function ProjectsSection({
       }
       aria-label={`Projects ${sourceRows.length}`}
     >
-      {sourceRows.length > 0 ? (
-        <div className="grid gap-(--space-4)">
-          {sourceRows.map((project) => (
+      <div className="grid gap-(--space-4)">
+        {sourceRows.length > 0 ? (
+          sourceRows.map((project) => (
             <button
               key={project.id}
               type="button"
@@ -909,13 +892,13 @@ function ProjectsSection({
                 {formatProjectDateRange(project)} · {project.orderCount} order{project.orderCount === 1 ? "" : "s"} · {formatPrice(project.orderValue) ?? "$0.00"} · {project.files.length} attachment{project.files.length === 1 ? "" : "s"}
               </span>
             </button>
-          ))}
-        </div>
-      ) : (
-        <div className="border border-dashed border-border p-(--space-10) text-center text-[length:var(--text-sm)] text-muted-foreground">
-          No projects yet.
-        </div>
-      )}
+          ))
+        ) : (
+          <div className="border border-dashed border-border p-(--space-10) text-center text-[length:var(--text-sm)] text-muted-foreground">
+            No projects yet.
+          </div>
+        )}
+      </div>
 
       {activeProject ? (
         <CustomerProjectDialog
@@ -1094,14 +1077,14 @@ function CustomerProjectDialog({
 
           <div className="grid gap-(--space-4)">
             <h3 className={styles.sectionHeading}>Linked sales orders</h3>
-            {linkedOrders.length > 0 ? (
-              <div className="overflow-x-auto border border-border">
-                <table className="w-full text-[length:var(--text-sm)]">
-                  <tbody>
-                    {linkedOrders.map((order) => (
+            <div className="overflow-x-auto border border-border">
+              <table className="w-full text-[length:var(--text-sm)]">
+                <tbody>
+                  {linkedOrders.length > 0 ? (
+                    linkedOrders.map((order) => (
                       <tr key={order.id} className="border-b border-border last:border-b-0">
                         <td className="p-(--space-4)">
-                          <Link href={`/sales/orders/${order.id}`} className="font-mono font-medium text-primary">
+                          <Link href={`/sales/order/${order.id}`} className="font-mono font-medium text-primary">
                             {order.orderNumber}
                           </Link>
                         </td>
@@ -1115,15 +1098,20 @@ function CustomerProjectDialog({
                           {formatPrice(order.totalAmount) ?? "$0.00"}
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="border border-dashed border-border p-(--space-8) text-center text-[length:var(--text-sm)] text-muted-foreground">
-                No linked sales orders.
-              </div>
-            )}
+                    ))
+                  ) : (
+                    <tr>
+                      <td
+                        colSpan={4}
+                        className="p-(--space-8) text-center text-[length:var(--text-sm)] text-muted-foreground"
+                      >
+                        No linked sales orders.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <div className="grid gap-(--space-4)">
@@ -1141,13 +1129,13 @@ function CustomerProjectDialog({
                 }}
               />
             </div>
-            {draft.isNew ? (
-              <div className="border border-dashed border-border p-(--space-8) text-center text-[length:var(--text-sm)] text-muted-foreground">
-                Save the project before adding attachments.
-              </div>
-            ) : files.length > 0 ? (
-              <ul className="grid gap-(--space-2)">
-                {files.map((file) => (
+            <ul className="grid gap-(--space-2)">
+              {draft.isNew ? (
+                <li className="border border-dashed border-border p-(--space-8) text-center text-[length:var(--text-sm)] text-muted-foreground">
+                  Save the project before adding attachments.
+                </li>
+              ) : files.length > 0 ? (
+                files.map((file) => (
                   <li
                     key={file.id}
                     className="flex items-center justify-between gap-(--space-4) border border-border p-(--space-4)"
@@ -1173,13 +1161,13 @@ function CustomerProjectDialog({
                       </Button>
                     ) : null}
                   </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="border border-dashed border-border p-(--space-8) text-center text-[length:var(--text-sm)] text-muted-foreground">
-                No attachments yet.
-              </div>
-            )}
+                ))
+              ) : (
+                <li className="border border-dashed border-border p-(--space-8) text-center text-[length:var(--text-sm)] text-muted-foreground">
+                  No attachments yet.
+                </li>
+              )}
+            </ul>
             {fileUploadMutation.error ? (
               <FieldError>{(fileUploadMutation.error as Error).message}</FieldError>
             ) : null}
@@ -1271,12 +1259,12 @@ function OpenOrdersSection({
 
   return (
     <CardSection title="Open orders" count={`· ${sourceRows.length}`}>
-      {rows.length > 0 ? (
-        <ul className="grid gap-(--space-3)">
-          {rows.map((order) => (
+      <ul className="grid gap-(--space-3)">
+        {rows.length > 0 ? (
+          rows.map((order) => (
             <li key={order.id}>
               <Link
-                href={`/sales/orders/${order.id}`}
+                href={`/sales/order/${order.id}`}
                 className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-(--space-4) border border-border p-(--space-4) hover:bg-muted"
               >
                 <span className="min-w-0">
@@ -1295,13 +1283,13 @@ function OpenOrdersSection({
                 </span>
               </Link>
             </li>
-          ))}
-        </ul>
-      ) : (
-        <div className="border border-dashed border-border p-(--space-10) text-center text-[length:var(--text-sm)] text-muted-foreground">
-          No open orders.
-        </div>
-      )}
+          ))
+        ) : (
+          <li className="border border-dashed border-border p-(--space-10) text-center text-[length:var(--text-sm)] text-muted-foreground">
+            No open orders.
+          </li>
+        )}
+      </ul>
       {customerId ? (
         <Link
           href={`/sales/orders?customerId=${customerId}`}
@@ -1309,7 +1297,11 @@ function OpenOrdersSection({
         >
           View all sales orders for this customer →
         </Link>
-      ) : null}
+      ) : (
+        <span className="mt-(--space-5) inline-flex text-[length:var(--text-sm)] font-medium text-muted-foreground">
+          View all sales orders for this customer →
+        </span>
+      )}
     </CardSection>
   );
 }
@@ -1549,6 +1541,72 @@ function makeDraftCustomer(draft: InsertCustomer): CustomerDetailData {
     correspondence: [],
     projects: [],
     salesOrders: [],
+  };
+}
+
+function normalizeCustomerDraft(draft: InsertCustomer): InsertCustomer {
+  return {
+    ...draft,
+    name: draft.name.trim(),
+  };
+}
+
+function mergeCustomerPatch(
+  customer: CustomerDetailData,
+  patch: PatchCustomer
+): CustomerDetailData {
+  return {
+    ...customer,
+    ...patch,
+    updatedAt: new Date(),
+  };
+}
+
+function customerToInsertInput(customer: CustomerDetailData): InsertCustomer {
+  return normalizeCustomerDraft({
+    name: customer.name,
+    customerCategoryId: customer.customerCategoryId,
+    accountState: customer.accountState,
+    accountPriority: customer.accountPriority,
+    email: customer.email,
+    phone: customer.phone,
+    billingLine1: customer.billingLine1,
+    billingLine2: customer.billingLine2,
+    billingCity: customer.billingCity,
+    billingRegion: customer.billingRegion,
+    billingPostcode: customer.billingPostcode,
+    billingCountry: customer.billingCountry,
+    shipLine1: customer.shipLine1,
+    shipLine2: customer.shipLine2,
+    shipCity: customer.shipCity,
+    shipRegion: customer.shipRegion,
+    shipPostcode: customer.shipPostcode,
+    shipCountry: customer.shipCountry,
+    notes: customer.notes,
+  });
+}
+
+function customerEditableSnapshot(customer: CustomerDetailData): PatchCustomer {
+  return {
+    name: customer.name,
+    customerCategoryId: customer.customerCategoryId,
+    accountState: customer.accountState,
+    accountPriority: customer.accountPriority,
+    email: customer.email,
+    phone: customer.phone,
+    billingLine1: customer.billingLine1,
+    billingLine2: customer.billingLine2,
+    billingCity: customer.billingCity,
+    billingRegion: customer.billingRegion,
+    billingPostcode: customer.billingPostcode,
+    billingCountry: customer.billingCountry,
+    shipLine1: customer.shipLine1,
+    shipLine2: customer.shipLine2,
+    shipCity: customer.shipCity,
+    shipRegion: customer.shipRegion,
+    shipPostcode: customer.shipPostcode,
+    shipCountry: customer.shipCountry,
+    notes: customer.notes,
   };
 }
 

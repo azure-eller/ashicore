@@ -3,6 +3,8 @@
 import type { SupplierOption } from "./types";
 import { EntityCombobox } from "@/components/entity-combobox";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import styles from "@/components/card-page/card-page.module.css";
+import { cn } from "@/lib/utils";
 
 export function SupplierSelect({
   suppliers,
@@ -11,6 +13,8 @@ export function SupplierSelect({
   errorMessage,
   inputClassName,
   labelClassName,
+  required,
+  invalid,
 }: {
   suppliers: SupplierOption[];
   value: string | null;
@@ -18,10 +22,18 @@ export function SupplierSelect({
   errorMessage?: string;
   inputClassName?: string;
   labelClassName?: string;
+  required?: boolean;
+  invalid?: boolean;
 }) {
+  const isInvalid = invalid || Boolean(errorMessage);
+
   return (
-    <Field data-invalid={Boolean(errorMessage)}>
-      <FieldLabel className={labelClassName}>Supplier</FieldLabel>
+    <Field data-invalid={isInvalid}>
+      <FieldLabel
+        className={cn(labelClassName, isInvalid && styles.formLabelInvalid)}
+      >
+        Supplier{required ? <span className={styles.requiredMark}> *</span> : null}
+      </FieldLabel>
       <EntityCombobox
         options={suppliers}
         value={value ?? null}

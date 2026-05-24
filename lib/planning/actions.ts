@@ -197,7 +197,7 @@ async function assertNoDuplicatePurchaseDraftInTx(
         existingDraft: {
           id: existing.id,
           label: existing.orderNumber,
-          href: `/purchasing/orders/${existing.id}`,
+          href: `/purchasing/order/${existing.id}`,
         },
       }
     );
@@ -237,7 +237,7 @@ async function assertNoDuplicateManufacturingDraftInTx(
         existingDraft: {
           id: existing.id,
           label: existing.orderNumber,
-          href: `/manufacturing/orders/${existing.id}`,
+          href: `/manufacturing/order/${existing.id}`,
         },
       }
     );

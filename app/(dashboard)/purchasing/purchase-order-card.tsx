@@ -3,8 +3,7 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
-import { Controller, useForm, useWatch } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { Controller, useForm } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import type {
@@ -34,7 +33,6 @@ import {
   formatDate,
   formatAddressLines,
   getFieldArrayError,
-  getFirstFormErrorMessage,
   normalizeAddressFields,
   normalizeMoney,
   parsePositive,
@@ -76,14 +74,16 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { AddressFields } from "@/components/address-fields";
-import { useAutosaveForm } from "@/lib/hooks/use-autosave-form";
+import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
+import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { DetailHeaderTitle } from "@/components/card-page/detail-header-title";
-import { CardMetaStrip, CardMetaValue } from "@/components/card-page/card-meta-strip";
 import { NotesField } from "@/components/card-page/notes-field";
+import { TotalsSummary } from "@/components/card-page/totals-summary";
 import { type CardSaveState } from "@/components/card-page/card-save-status";
+import { underlineControlClass } from "@/components/card-page/form-cell";
 import {
   PO_LINE_TOTAL_TOOLTIP,
   PURCHASE_ACCOUNT_TOOLTIP,
@@ -103,15 +103,23 @@ import type {
   SupplierOption,
 } from "./types";
 import { SupplierSelect } from "./supplier-select";
-import { PurchaseStatusControl } from "@/components/purchasing/purchase-status-control";
+import { OrderStatusControl } from "@/components/card-page/order-status-control";
+import { purchaseOrderStatusConfig } from "@/components/card-page/order-status-configs";
 import styles from "@/components/card-page/card-page.module.css";
 
 type PurchaseOrderFormValues = z.input<typeof insertPurchaseOrderSchema>;
+type PurchaseOrderDraftOp = {
+  type: "patch";
+  patch: Partial<PurchaseOrderFormValues>;
+};
 
 type ApiError = {
   error?: string;
   errors?: Record<string, string[]>;
 };
+
+type FieldErrorState = Record<string, unknown>;
+type FieldErrorShape = { message: string };
 
 type XeroAccountOption = {
   code: string;
@@ -228,8 +236,9 @@ function createPurchaseOrderLineRow(
 function toPurchaseOrderLineGridRows(
   rows: PurchaseOrderFormValues["lines"] | undefined,
 ) {
-  const gridRows = (rows ?? []).map((row) => createPurchaseOrderLineRow(row));
-  return gridRows.length > 0 ? gridRows : [createPurchaseOrderLineRow()];
+  return (rows ?? [])
+    .filter((row) => !isBlankPurchaseOrderLine(row))
+    .map((row) => createPurchaseOrderLineRow(row));
 }
 
 function toPurchaseOrderLinePayloadRows(
@@ -253,10 +262,6 @@ function toPurchaseOrderLinePayloadRows(
       shipCountry: row.shipCountry,
       shipDeliveryInstructions: row.shipDeliveryInstructions,
     }));
-}
-
-function comparablePurchaseOrderLines(rows: PurchaseOrderLineGridRow[]) {
-  return JSON.stringify(toPurchaseOrderLinePayloadRows(rows));
 }
 
 function isBlankPurchaseOrderAdditionalCost(
@@ -321,12 +326,6 @@ function toPurchaseOrderAdditionalCostPayloadRows(
         amount,
       }),
     );
-}
-
-function comparablePurchaseOrderAdditionalCosts(
-  rows: PurchaseOrderAdditionalCostGridRow[],
-) {
-  return JSON.stringify(toPurchaseOrderAdditionalCostPayloadRows(rows));
 }
 
 function normalizeGridText(value: unknown) {
@@ -685,6 +684,71 @@ function hasAutosaveMinimum(values: PurchaseOrderFormValues) {
   return Boolean(values.supplierId?.trim());
 }
 
+function setFieldErrorPath(
+  target: FieldErrorState,
+  path: Array<string | number>,
+  message: string,
+) {
+  let current: Record<string, unknown> = target;
+  path.forEach((part, index) => {
+    const key = String(part);
+    if (index === path.length - 1) {
+      current[key] = { message } satisfies FieldErrorShape;
+      return;
+    }
+    const next = current[key];
+    if (!next || typeof next !== "object") {
+      current[key] = {};
+    }
+    current = current[key] as Record<string, unknown>;
+  });
+}
+
+function purchaseOrderValidationErrors(values: PurchaseOrderFormValues) {
+  const parsed = insertPurchaseOrderSchema.safeParse(values);
+  if (parsed.success) return null;
+
+  const errors: FieldErrorState = {};
+  parsed.error.issues.forEach((issue) => {
+    setFieldErrorPath(
+      errors,
+      issue.path.filter((part): part is string | number => typeof part !== "symbol"),
+      issue.message,
+    );
+  });
+  return errors;
+}
+
+function purchaseOrderApiFieldErrors(error: ApiError) {
+  if (!error.errors) return {};
+  const errors: FieldErrorState = {};
+  Object.entries(error.errors).forEach(([field, messages]) => {
+    setFieldErrorPath(errors, field.split("."), messages[0] ?? "Invalid value");
+  });
+  return errors;
+}
+
+function fieldErrorMessage(error: unknown) {
+  return error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+    ? error.message
+    : null;
+}
+
+function firstFieldErrorMessage(errors: FieldErrorState): string | null {
+  for (const value of Object.values(errors)) {
+    const message = fieldErrorMessage(value);
+    if (message) return message;
+    if (value && typeof value === "object") {
+      const nested = firstFieldErrorMessage(value as FieldErrorState);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
 export function PurchaseOrderCard({
   suppliers,
   materials,
@@ -708,14 +772,18 @@ export function PurchaseOrderCard({
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const fallbackPath = initialData
-    ? `/purchasing/orders/${initialData.id}`
+    ? `/purchasing/order/${initialData.id}`
     : "/purchasing/orders";
   const [formError, setFormError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrorState>({});
   const [fileActionError, setFileActionError] = useState<string | null>(null);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const savedOrderIdRef = useRef<string | null>(initialData?.id ?? null);
   const [savedOrderId, setSavedOrderId] = useState<string | null>(
     initialData?.id ?? null,
+  );
+  const [savedOrderNumber, setSavedOrderNumber] = useState<string | null>(
+    orderTitle ?? initialData?.orderNumber ?? null,
   );
   const [displayStatus, setDisplayStatus] = useState<PurchaseOrderStatus>(
     initialData?.status ?? "draft",
@@ -727,7 +795,10 @@ export function PurchaseOrderCard({
     queryKey: ["xero-accounts"],
     queryFn: async () => {
       const response = await fetch("/api/xero/accounts");
-      if (!response.ok) return { accounts: [] as XeroAccountOption[] };
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error ?? "Failed to load Xero accounts.");
+      }
       return response.json() as Promise<{ accounts: XeroAccountOption[] }>;
     },
   });
@@ -807,11 +878,96 @@ export function PurchaseOrderCard({
         ),
       };
 
-  const form = useForm<PurchaseOrderFormValues>({
-    resolver: zodResolver(insertPurchaseOrderSchema),
-    mode: "onBlur",
-    defaultValues: initialFormValues,
+  const persistPurchaseOrder = useCallback(
+    async (orderId: string | null, values: PurchaseOrderFormValues) => {
+      const validationErrors = purchaseOrderValidationErrors(values);
+      if (validationErrors) {
+        setFieldErrors(validationErrors);
+        throw {
+          error: firstFieldErrorMessage(validationErrors) ?? "Fix highlighted fields.",
+        } satisfies ApiError;
+      }
+
+      setFormError(null);
+      setFieldErrors({});
+      const response = await fetch(
+        orderId ? `/api/purchase-orders/${orderId}` : "/api/purchase-orders",
+        {
+          method: orderId ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(values),
+        },
+      );
+
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const error = {
+          error: body?.error ?? "Failed to save purchase order.",
+          errors: body?.errors,
+        } satisfies ApiError;
+        setFieldErrors(purchaseOrderApiFieldErrors(error));
+        setFormError(error.error);
+        throw error;
+      }
+
+      return body as { id: string; orderNumber: string };
+    },
+    [],
+  );
+
+  const purchaseOrderEngine = useDraftSaveEngine<
+    PurchaseOrderFormValues,
+    PurchaseOrderDraftOp,
+    { id: string; orderNumber: string }
+  >({
+    initialDraft: initialFormValues,
+    initialId: initialData?.id ?? null,
+    isSaveable: hasAutosaveMinimum,
+    applyOp: (draft, op) => ({ ...draft, ...op.patch }),
+    coalesceOps: (existing, next) => [
+      {
+        op: {
+          type: "patch",
+          patch: existing.reduce<Partial<PurchaseOrderFormValues>>(
+            (patch, queued) => ({ ...patch, ...queued.op.patch }),
+            next.op.patch,
+          ),
+        },
+        revision: next.revision,
+      },
+    ],
+    create: (draft) => persistPurchaseOrder(null, draft),
+    save: (orderId, draft, ops) => {
+      if (ops.length === 0) return Promise.resolve(null);
+      return persistPurchaseOrder(orderId, draft);
+    },
+    getResultId: (result) => result.id,
+    applyPersistedIdentity: (draft) => draft,
+    mergeServerOwnedFields: (draft) => draft,
+    onPersisted: (id) => {
+      savedOrderIdRef.current = id;
+      setSavedOrderId(id);
+      reflectPersistedCardUrlWithoutNavigation(`/purchasing/order/${id}`);
+    },
+    onResult: (result) => {
+      savedOrderIdRef.current = result.id;
+      setSavedOrderId(result.id);
+      setSavedOrderNumber(result.orderNumber);
+      void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+    },
+    getErrorMessage: (error) =>
+      (error as ApiError)?.error ??
+      (error instanceof Error ? error.message : "Failed to save purchase order."),
   });
+  const draftValues = purchaseOrderEngine.draft;
+  const commitPurchaseOrderDraft = useCallback(
+    (patch: Partial<PurchaseOrderFormValues>, delayMs = 1200) => {
+      setFormError(null);
+      purchaseOrderEngine.applyLocalOp({ type: "patch", patch }, delayMs);
+    },
+    [purchaseOrderEngine],
+  );
   const addressForm = useForm<AddressDialogValues>({
     defaultValues: EMPTY_ADDRESS_DIALOG_VALUES,
   });
@@ -833,53 +989,19 @@ export function PurchaseOrderCard({
   const [initialLineRows] = useState(() =>
     toPurchaseOrderLineGridRows(initialFormValues.lines),
   );
-  const [initialLineComparable] = useState(() =>
-    comparablePurchaseOrderLines(
-      toPurchaseOrderLineGridRows(initialFormValues.lines),
-    ),
-  );
   const [lineGridRows, setLineGridRows] =
     useState<PurchaseOrderLineGridRow[]>(initialLineRows);
   const [initialAdditionalCostRows] = useState(() =>
     toPurchaseOrderAdditionalCostGridRows(initialFormValues.additionalCosts),
   );
-  const [initialAdditionalCostComparable] = useState(() =>
-    comparablePurchaseOrderAdditionalCosts(
-      toPurchaseOrderAdditionalCostGridRows(initialFormValues.additionalCosts),
-    ),
-  );
   const [additionalCostGridRows, setAdditionalCostGridRows] = useState<
     PurchaseOrderAdditionalCostGridRow[]
   >(initialAdditionalCostRows);
 
-  const watchedSupplierId = useWatch({
-    control: form.control,
-    name: "supplierId",
-  });
-  const watchedShippingCost = useWatch({
-    control: form.control,
-    name: "shippingCost",
-  });
-  const watchedAdditionalCosts = useWatch({
-    control: form.control,
-    name: "additionalCosts",
-  });
-  const watchedNotes = useWatch({
-    control: form.control,
-    name: "notes",
-  });
-  const watchedDeliveryAddress = useWatch({
-    control: form.control,
-    name: [
-      "shipLine1",
-      "shipLine2",
-      "shipCity",
-      "shipRegion",
-      "shipPostcode",
-      "shipCountry",
-    ],
-  });
-
+  const watchedSupplierId = draftValues.supplierId;
+  const watchedShippingCost = draftValues.shippingCost;
+  const watchedAdditionalCosts = draftValues.additionalCosts;
+  const watchedNotes = draftValues.notes;
   const additionalCostRows = watchedAdditionalCosts ?? [];
   const landedCostPreview = useMemo(
     () =>
@@ -930,7 +1052,7 @@ export function PurchaseOrderCard({
         return index >= 0
           ? Boolean(
               getPurchaseOrderLineCellError(
-                form.formState.errors.lines,
+                fieldErrors.lines,
                 index,
                 key,
               ),
@@ -947,7 +1069,7 @@ export function PurchaseOrderCard({
         const index = rowErrorIndex(data);
         return index >= 0
           ? getPurchaseOrderLineCellError(
-              form.formState.errors.lines,
+              fieldErrors.lines,
               index,
               key,
             )
@@ -1137,7 +1259,7 @@ export function PurchaseOrderCard({
       },
     ];
   }, [
-    form.formState.errors.lines,
+    fieldErrors.lines,
     landedCostPreview.lines,
     lineGridRows,
     materialMap,
@@ -1150,15 +1272,11 @@ export function PurchaseOrderCard({
   const handleLineRowsChange = useCallback(
     (rows: PurchaseOrderLineGridRow[]) => {
       setLineGridRows(rows);
-      const dirty =
-        comparablePurchaseOrderLines(rows) !== initialLineComparable;
-      form.setValue("lines", toPurchaseOrderLinePayloadRows(rows), {
-        shouldDirty: dirty,
-        shouldTouch: false,
-        shouldValidate: false,
+      commitPurchaseOrderDraft({
+        lines: toPurchaseOrderLinePayloadRows(rows),
       });
     },
-    [form, initialLineComparable],
+    [commitPurchaseOrderDraft],
   );
   const createLineRow = useCallback(() => createPurchaseOrderLineRow(), []);
   const getLineRowId = useCallback(
@@ -1183,7 +1301,7 @@ export function PurchaseOrderCard({
         return index >= 0
           ? Boolean(
               getPurchaseOrderAdditionalCostCellError(
-                form.formState.errors.additionalCosts,
+                fieldErrors.additionalCosts,
                 index,
                 key,
               ),
@@ -1197,7 +1315,7 @@ export function PurchaseOrderCard({
         const index = rowErrorIndex(data);
         return index >= 0
           ? getPurchaseOrderAdditionalCostCellError(
-              form.formState.errors.additionalCosts,
+              fieldErrors.additionalCosts,
               index,
               key,
             )
@@ -1343,7 +1461,7 @@ export function PurchaseOrderCard({
     ];
   }, [
     additionalCostGridRows,
-    form.formState.errors.additionalCosts,
+    fieldErrors.additionalCosts,
     readOnly,
     xeroAccounts,
     xeroAccountsByCode,
@@ -1351,20 +1469,11 @@ export function PurchaseOrderCard({
   const handleAdditionalCostRowsChange = useCallback(
     (rows: PurchaseOrderAdditionalCostGridRow[]) => {
       setAdditionalCostGridRows(rows);
-      const dirty =
-        comparablePurchaseOrderAdditionalCosts(rows) !==
-        initialAdditionalCostComparable;
-      form.setValue(
-        "additionalCosts",
-        toPurchaseOrderAdditionalCostPayloadRows(rows),
-        {
-          shouldDirty: dirty,
-          shouldTouch: false,
-          shouldValidate: false,
-        },
-      );
+      commitPurchaseOrderDraft({
+        additionalCosts: toPurchaseOrderAdditionalCostPayloadRows(rows),
+      });
     },
-    [form, initialAdditionalCostComparable],
+    [commitPurchaseOrderDraft],
   );
   const createAdditionalCostRow = useCallback(
     () => createPurchaseOrderAdditionalCostRow(),
@@ -1374,63 +1483,6 @@ export function PurchaseOrderCard({
     (row: PurchaseOrderAdditionalCostGridRow) => row.clientRowId,
     [],
   );
-
-  const savePurchaseOrder = useCallback(
-    async (values: PurchaseOrderFormValues) => {
-      const orderId = savedOrderIdRef.current;
-      const response = await fetch(
-        orderId ? `/api/purchase-orders/${orderId}` : "/api/purchase-orders",
-        {
-          method: orderId ? "PUT" : "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(values),
-        },
-      );
-
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw {
-          error: body?.error ?? "Failed to save purchase order.",
-          errors: body?.errors,
-        } satisfies ApiError;
-      }
-
-      const result = body as { id: string };
-      savedOrderIdRef.current = result.id;
-      setSavedOrderId(result.id);
-      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
-      return result;
-    },
-    [queryClient],
-  );
-
-  const autosave = useAutosaveForm<
-    PurchaseOrderFormValues,
-    PurchaseOrderFormValues
-  >({
-    form,
-    buildPayload: (values) => (hasAutosaveMinimum(values) ? values : null),
-    save: async (values) => {
-      setFormError(null);
-      form.clearErrors();
-      await savePurchaseOrder(values);
-    },
-    onError: (error: ApiError) => {
-      if (error.errors) {
-        setFormError(error.error ?? "Fix the highlighted fields.");
-        Object.entries(error.errors).forEach(([field, messages]) => {
-          form.setError(field as never, {
-            type: "server",
-            message: messages[0],
-          });
-        });
-        return;
-      }
-
-      setFormError(error.error ?? "Failed to save purchase order.");
-    },
-  });
 
   const uploadFileMutation = useMutation({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "file-upload"],
@@ -1500,7 +1552,7 @@ export function PurchaseOrderCard({
     },
     onSuccess: async (order) => {
       await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
-      router.push(`/purchasing/orders/${order.id}`);
+      router.push(`/purchasing/order/${order.id}`);
     },
     onError: (error: Error) => setFormError(error.message),
   });
@@ -1528,25 +1580,25 @@ export function PurchaseOrderCard({
 
       return body as { id: string };
     },
-    onSuccess: async () => {
-      setDisplayStatus("cancelled");
+    onSuccess: async (_result, status) => {
+      setDisplayStatus(status);
       await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
     },
     onError: (error: Error) => setFormError(error.message),
   });
 
   const ensureSavedOrder = async () => {
-    const valid = await form.trigger();
-    if (!valid) {
+    await purchaseOrderEngine.flush();
+    const orderId = savedOrderIdRef.current;
+    if (!orderId) {
       const message =
-        getFirstFormErrorMessage(form.formState.errors) ??
+        purchaseOrderEngine.error ??
+        firstFieldErrorMessage(fieldErrors) ??
         "Choose a supplier before uploading files.";
       setFormError(message);
       throw new Error(message);
     }
-
-    const result = await savePurchaseOrder(form.getValues());
-    return result.id;
+    return orderId;
   };
 
   const handleFileInput = async (files: FileList | null) => {
@@ -1608,6 +1660,17 @@ export function PurchaseOrderCard({
       setAddressDialogState(null);
       addressForm.reset(EMPTY_ADDRESS_DIALOG_VALUES);
     },
+    onError: (error: ApiError) => {
+      if (error.errors) {
+        Object.entries(error.errors).forEach(([field, messages]) => {
+          addressForm.setError(field as keyof AddressDialogValues, {
+            type: "server",
+            message: messages[0],
+          });
+        });
+      }
+      setFormError(error.error ?? "Failed to save address.");
+    },
   });
 
   const handleCancel = useSmartBack(fallbackPath);
@@ -1615,30 +1678,7 @@ export function PurchaseOrderCard({
     const nextAddress = address
       ? normalizeDeliveryAddress(address)
       : EMPTY_DELIVERY_ADDRESS;
-    form.setValue("shipLine1", nextAddress.shipLine1, {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-    form.setValue("shipLine2", nextAddress.shipLine2, {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-    form.setValue("shipCity", nextAddress.shipCity, {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-    form.setValue("shipRegion", nextAddress.shipRegion, {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-    form.setValue("shipPostcode", nextAddress.shipPostcode, {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
-    form.setValue("shipCountry", nextAddress.shipCountry, {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
+    commitPurchaseOrderDraft(nextAddress);
   };
 
   const openAddressDialog = () => {
@@ -1693,32 +1733,32 @@ export function PurchaseOrderCard({
     });
   };
 
-  const linesError = getFieldArrayError(form.formState.errors.lines);
+  const linesError = getFieldArrayError(fieldErrors.lines);
   const additionalCostsError = getFieldArrayError(
-    form.formState.errors.additionalCosts,
+    fieldErrors.additionalCosts,
   );
   const selectedSupplier = supplierOptionsSorted.find(
     (supplier) => supplier.id === watchedSupplierId,
   );
   const currentDeliveryAddress: DeliveryAddressFields = {
-    shipLine1: watchedDeliveryAddress?.[0] ?? null,
-    shipLine2: watchedDeliveryAddress?.[1] ?? null,
-    shipCity: watchedDeliveryAddress?.[2] ?? null,
-    shipRegion: watchedDeliveryAddress?.[3] ?? null,
-    shipPostcode: watchedDeliveryAddress?.[4] ?? null,
-    shipCountry: watchedDeliveryAddress?.[5] ?? null,
+    shipLine1: draftValues.shipLine1,
+    shipLine2: draftValues.shipLine2,
+    shipCity: draftValues.shipCity,
+    shipRegion: draftValues.shipRegion,
+    shipPostcode: draftValues.shipPostcode,
+    shipCountry: draftValues.shipCountry,
   };
-  const autosaveState = canAutosaveDraft ? autosave.state : "blocked";
+  const autosaveState = canAutosaveDraft ? purchaseOrderEngine.status : "idle";
   const autosaveMessage = canAutosaveDraft
-    ? autosave.state === "saved" || autosave.state === "idle"
+    ? purchaseOrderEngine.status === "saved" || purchaseOrderEngine.status === "idle"
       ? "All changes saved"
-      : autosave.message
+      : purchaseOrderEngine.error
     : "All changes saved";
   const cardSaveState: CardSaveState = (() => {
     if (readOnly) return "readonly";
     if (autosaveState === "saving") return "saving";
     if (autosaveState === "error") return "failed";
-    if (!savedOrderId || autosaveState === "dirty" || autosaveState === "blocked") {
+    if (!savedOrderId || autosaveState === "dirty") {
       return "not_saved";
     }
     return "saved";
@@ -1731,35 +1771,11 @@ export function PurchaseOrderCard({
         : null;
   const displayTitle = savedOrderId ? (
     <DetailHeaderTitle
-      recordNumber={orderTitle ?? `PO-${savedOrderId.slice(0, 8)}`}
+      recordNumber={savedOrderNumber ?? ""}
       name={selectedSupplier?.name ?? null}
     />
   ) : (
     "New purchase order"
-  );
-  const headerMeta = (
-    <CardMetaStrip>
-      {[
-        <CardMetaValue
-          key="supplier"
-          label="Supplier"
-          value={selectedSupplier?.code ?? "not selected"}
-          mono={Boolean(selectedSupplier?.code)}
-        />,
-        <CardMetaValue
-          key="expected"
-          label="Expected"
-          value={form.getValues("expectedDate") ?? "not set"}
-          mono
-        />,
-        <CardMetaValue
-          key="total"
-          label="Order total"
-          value={`${formatPrice(orderTotal.toFixed(4)) ?? "$0.00"} USD`}
-          mono
-        />,
-      ]}
-    </CardMetaStrip>
   );
   const materialColumns = lineColumns.map((column) => {
     if (column.field === "itemId") return { ...column, headerName: "Item" };
@@ -1782,17 +1798,15 @@ export function PurchaseOrderCard({
     <>
       <CardPage>
         <CardPageHeader
-          eyebrow="Purchase order"
           title={displayTitle}
-          meta={headerMeta}
           statusControl={
             savedOrderId ? (
-              <PurchaseStatusControl
-                orderId={savedOrderId}
-                status={displayStatus}
+              <OrderStatusControl
+                config={purchaseOrderStatusConfig}
+                ctx={{ orderId: savedOrderId, status: displayStatus }}
                 disabled={!canWrite || statusMutation.isPending}
                 onChanged={(next) => {
-                  setDisplayStatus(next);
+                  setDisplayStatus(next as PurchaseOrderStatus);
                   void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
                 }}
               />
@@ -1800,6 +1814,7 @@ export function PurchaseOrderCard({
           }
           saveState={cardSaveState}
           saveMessage={cardSaveMessage}
+          showPrint={false}
           menuActions={[
             ...(savedOrderId && canViewLedger
               ? [
@@ -1812,11 +1827,23 @@ export function PurchaseOrderCard({
                   },
                 ]
               : []),
-            {
-              label: "Duplicate",
-              onClick: () => duplicateMutation.mutate(),
-              disabled: !savedOrderId || duplicateMutation.isPending,
-            },
+            ...(savedOrderId
+              ? [
+                  {
+                    label: "Duplicate",
+                    onClick: () => duplicateMutation.mutate(),
+                    disabled: duplicateMutation.isPending,
+                  },
+                ]
+              : []),
+            ...(savedOrderId
+              ? [
+                  {
+                    label: "Print",
+                    onClick: () => window.print(),
+                  },
+                ]
+              : []),
             ...(savedOrderId &&
             canWrite &&
             (displayStatus === "draft" || displayStatus === "ordered")
@@ -1844,63 +1871,57 @@ export function PurchaseOrderCard({
               <FieldError>{formError}</FieldError>
             </CardSection>
           )}
+          {xeroAccountsQuery.error ? (
+            <CardSection>
+              <FieldError>
+                {xeroAccountsQuery.error instanceof Error
+                  ? xeroAccountsQuery.error.message
+                  : "Failed to load Xero accounts."}
+              </FieldError>
+            </CardSection>
+          ) : null}
 
           <>
             <CardSection title="Order details">
               <div className={`${styles.formRow} ${styles.formRowPo}`}>
                 <div className={styles.formField}>
-                  <Controller
-                    control={form.control}
-                    name="supplierId"
-                    render={({ field, fieldState }) => (
-                      <SupplierSelect
-                        suppliers={supplierOptionsSorted}
-                        value={field.value}
-                        onValueChange={(nextValue) =>
-                          field.onChange(nextValue ?? "")
-                        }
-                        errorMessage={fieldState.error?.message}
-                        inputClassName={styles.underlineControl}
-                        labelClassName={styles.formLabel}
-                      />
+                  <SupplierSelect
+                    suppliers={supplierOptionsSorted}
+                    value={draftValues.supplierId}
+                    onValueChange={(nextValue) =>
+                      commitPurchaseOrderDraft({ supplierId: nextValue ?? "" })
+                    }
+                    errorMessage={fieldErrorMessage(fieldErrors.supplierId) ?? undefined}
+                    inputClassName={underlineControlClass(
+                      !savedOrderId && !draftValues.supplierId,
                     )}
+                    labelClassName={styles.formLabel}
+                    required
+                    invalid={!savedOrderId && !draftValues.supplierId}
                   />
-                  {selectedSupplier?.code ? (
-                    <div className={styles.fieldMeta}>{selectedSupplier.code}</div>
-                  ) : null}
                 </div>
                 <div className={styles.formField}>
-                  <Controller
-                    control={form.control}
-                    name="expectedDate"
-                    render={({ field, fieldState }) => (
-                      <Field data-invalid={fieldState.invalid}>
-                        <FieldLabel className={styles.formLabel} htmlFor={field.name}>
-                          Expected arrival <span className={styles.requiredMark}>*</span>
-                        </FieldLabel>
-                        {readOnly ? (
-                          <div className={`${styles.readOnlyFieldValue} ${styles.mono}`}>
-                            {field.value ? formatDate(field.value) : "—"}
-                          </div>
-                        ) : (
-                          <DatePicker
-                            id={field.name}
-                            value={field.value ?? ""}
-                            onChange={(value) => field.onChange(value || null)}
-                            onBlur={field.onBlur}
-                            aria-invalid={fieldState.invalid}
-                            className={styles.underlineControl}
-                          />
-                        )}
-                        <div className={styles.fieldHint}>
-                          Supplier-confirmed delivery date.
-                        </div>
-                        {fieldState.invalid && (
-                          <FieldError errors={[fieldState.error]} />
-                        )}
-                      </Field>
+                  <Field data-invalid={Boolean(fieldErrors.expectedDate)}>
+                    <FieldLabel className={styles.formLabel} htmlFor="expectedDate">
+                      Expected arrival <span className={styles.requiredMark}>*</span>
+                    </FieldLabel>
+                    {readOnly ? (
+                      <div className={`${styles.readOnlyFieldValue} ${styles.mono}`}>
+                        {draftValues.expectedDate ? formatDate(draftValues.expectedDate) : "—"}
+                      </div>
+                    ) : (
+                      <DatePicker
+                        id="expectedDate"
+                        value={draftValues.expectedDate ?? ""}
+                        onChange={(value) => commitPurchaseOrderDraft({ expectedDate: value || null })}
+                        aria-invalid={Boolean(fieldErrors.expectedDate)}
+                        className={styles.underlineControl}
+                      />
                     )}
-                  />
+                    {fieldErrors.expectedDate ? (
+                      <FieldError>{fieldErrorMessage(fieldErrors.expectedDate)}</FieldError>
+                    ) : null}
+                  </Field>
                 </div>
                 <div className={styles.formField}>
                   <DeliveryAddressInput
@@ -1915,12 +1936,8 @@ export function PurchaseOrderCard({
                     labelClassName={styles.formLabel}
                     readOnly={readOnly}
                   />
-                  <div className={styles.fieldHint}>
-                    Receives this purchase order.
-                  </div>
                 </div>
               </div>
-              <input type="hidden" {...form.register("shippingCost")} />
             </CardSection>
 
             <CardSection title="Materials" count={`· ${lineCount}`}>
@@ -1939,7 +1956,6 @@ export function PurchaseOrderCard({
                     : null
                 }
                 emptyMessage="No materials yet."
-                isBlankRow={isBlankPurchaseOrderLine}
                 error={linesError}
               />
             </CardSection>
@@ -1954,7 +1970,6 @@ export function PurchaseOrderCard({
                 addLabel="Add cost"
                 readOnly={readOnly}
                 emptyMessage="No additional costs yet."
-                isBlankRow={isBlankPurchaseOrderAdditionalCost}
                 error={additionalCostsError}
               />
             </CardSection>
@@ -1981,53 +1996,43 @@ export function PurchaseOrderCard({
                   readOnlyValue={readOnly}
                   rows={6}
                   onCommit={(next) => {
-                    form.setValue("notes", next, {
-                      shouldDirty: true,
-                      shouldValidate: true,
-                    });
+                    commitPurchaseOrderDraft({ notes: next });
                   }}
                 />
-                {form.formState.errors.notes ? (
-                  <FieldError errors={[form.formState.errors.notes]} />
-                ) : null}
+                {fieldErrors.notes ? <FieldError>{fieldErrorMessage(fieldErrors.notes)}</FieldError> : null}
               </CardSection>
 
               <CardSection title="Totals">
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">Total units</span>
-                      <span className={styles.mono}>
-                        {Number.isInteger(totalUnits)
-                          ? totalUnits.toString()
-                          : totalUnits.toFixed(4)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">Subtotal</span>
-                      <span className={styles.mono}>
-                        {formatPrice(materialsTotal.toFixed(4)) ?? "$0.00"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <span className="text-muted-foreground">
-                        Additional costs
-                      </span>
-                      <span className={styles.mono}>
-                        {formatPrice(
+                <TotalsSummary
+                  rows={[
+                    {
+                      label: "Total units",
+                      value: Number.isInteger(totalUnits)
+                        ? totalUnits.toString()
+                        : totalUnits.toFixed(4),
+                    },
+                    {
+                      label: "Subtotal",
+                      value: formatPrice(materialsTotal.toFixed(4)) ?? "$0.00",
+                    },
+                    {
+                      label: "Additional costs",
+                      value:
+                        formatPrice(
                           (
                             distributedAdditionalCostTotal +
                             nonDistributedAdditionalCostTotal
                           ).toFixed(4),
-                        ) ?? "$0.00"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between gap-4 border-t border-border pt-2 font-semibold">
-                      <span>Total</span>
-                      <span className={styles.mono}>
-                        {formatPrice(orderTotal.toFixed(4)) ?? "$0.00"}
-                      </span>
-                    </div>
-                  </div>
+                        ) ?? "$0.00",
+                    },
+                    {
+                      label: "Total",
+                      value: formatPrice(orderTotal.toFixed(4)) ?? "$0.00",
+                      rule: true,
+                      emphasis: "total",
+                    },
+                  ]}
+                />
               </CardSection>
             </div>
           </>
@@ -2064,7 +2069,7 @@ export function PurchaseOrderCard({
                   className="font-medium text-foreground"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={
-                    uploadFileMutation.isPending || autosave.state === "saving"
+                    uploadFileMutation.isPending || purchaseOrderEngine.status === "saving"
                   }
                 >
                   Upload or drop files

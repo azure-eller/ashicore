@@ -5,17 +5,7 @@ import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { z } from "zod";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AddressFields } from "@/components/address-fields";
 import {
   Combobox,
@@ -44,16 +34,15 @@ import {
   CardSection,
 } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
-import { CellShell } from "@/components/card-page/form-cell";
+import { CellShell, underlineControlClass } from "@/components/card-page/form-cell";
 import { CommitInput } from "@/components/card-page/commit-input";
 import { NotesField } from "@/components/card-page/notes-field";
+import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
+import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import {
   cardSaveMutationKey,
-  saveStateFromEntityStatus,
-  useEntitySaveStatus,
   type CardSaveState,
 } from "@/components/card-page/card-save-status";
-import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import {
   createAddressEntry,
   updateAddressEntry,
@@ -64,6 +53,8 @@ import {
   getSupplierCard,
   patchSupplier,
 } from "@/lib/api/clients/suppliers";
+import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
+import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import type { AddressEntry } from "@/lib/dal/addresses";
 import { createAddressEntrySchema } from "@/lib/schemas/addresses";
 import {
@@ -71,7 +62,7 @@ import {
   type InsertSupplier,
   type PatchSupplier,
 } from "@/lib/schemas/suppliers";
-import { formatAddressLines, formatDateTime, normalizeAddressFields } from "@/lib/format";
+import { formatAddressLines, normalizeAddressFields } from "@/lib/format";
 import {
   PAYMENT_TERMS_TOOLTIP,
   SUPPLIER_CODE_TOOLTIP,
@@ -137,65 +128,86 @@ export function SupplierCard({
 }: SupplierCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const timeZone = useOrganizationTimeZone();
-  const [currentSupplierId, setCurrentSupplierId] = useState(initialSupplierId);
-  const [localSupplier, setLocalSupplier] = useState<SupplierRow | null>(
-    initialSupplier
-  );
   const [addressBook, setAddressBook] = useState(addresses);
   const [addressDialogOption, setAddressDialogOption] =
     useState<SupplierAddressOption | null>(null);
   const [addressDialogOpen, setAddressDialogOpen] = useState(false);
-  const [draftSupplier, setDraftSupplier] =
-    useState<InsertSupplier>(supplierDefaultValues);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const isDraft = currentSupplierId == null;
-
-  const supplierQuery = useQuery({
-    queryKey: ["supplier-card", currentSupplierId ?? "__draft__"],
-    queryFn: () => getSupplierCard(currentSupplierId as string),
-    initialData: initialSupplier ?? undefined,
-    enabled: !isDraft && !initialSupplier?.deletedAt,
-    refetchOnWindowFocus: false,
+  const engine = useDraftSaveEngine<
+    SupplierRow,
+    { type: "patch"; patch: PatchSupplier },
+    SupplierRow
+  >({
+    initialDraft: initialSupplier ?? makeDraftSupplier(supplierDefaultValues),
+    initialServerSnapshot: initialSupplier,
+    initialId: initialSupplierId,
+    isSaveable: (draft) => Boolean(draft.name.trim()),
+    applyOp: (draft, op) => mergeSupplierPatch(draft, op.patch),
+    coalesceOps: (existing, next) => [
+      {
+        op: {
+          type: "patch",
+          patch: existing.reduce<PatchSupplier>(
+            (patch, queued) => ({ ...patch, ...queued.op.patch }),
+            next.op.patch,
+          ),
+        },
+        revision: next.revision,
+      },
+    ],
+    create: async (draft) => {
+      const created = await createSupplier(supplierToInsertInput(draft));
+      return getSupplierCard(created.id);
+    },
+    save: async (supplierId, draft, ops) => {
+      if (ops.length === 0) return null;
+      const patch = ops.reduce<PatchSupplier>(
+        (nextPatch, queued) => ({ ...nextPatch, ...queued.op.patch }),
+        {},
+      );
+      await patchSupplier(supplierId, draft, patch);
+      return getSupplierCard(supplierId);
+    },
+    getResultId: (result) => result.id,
+    applyPersistedIdentity: (draft, result) => ({
+      ...draft,
+      id: result.id,
+      createdAt: result.createdAt,
+    }),
+    mergeServerOwnedFields: (draft, result) => ({
+      ...result,
+      ...supplierEditableSnapshot(draft),
+    }),
+    onPersisted: (id) => {
+      reflectPersistedCardUrlWithoutNavigation(`/purchasing/suppliers/${id}`);
+    },
+    onResult: (result, draft) => {
+      queryClient.setQueryData(["supplier-card", result.id], draft);
+      void queryClient.invalidateQueries({ queryKey: ["suppliers"] });
+    },
   });
-  const supplier = isDraft ? null : localSupplier ?? supplierQuery.data ?? initialSupplier;
-  const display = supplier ?? makeDraftSupplier(draftSupplier);
+  const currentSupplierId = engine.currentId;
+  const isDraft = !engine.hasPersistedEntity;
+
+  const display = engine.draft;
   const readOnly = Boolean(display.deletedAt);
-  const saveStatus = useEntitySaveStatus("supplier", currentSupplierId ?? "__draft__");
 
-  const createMutation = useMutation({
-    mutationKey: cardSaveMutationKey("supplier", "__draft__", "create"),
-    mutationFn: (input: InsertSupplier) => createSupplier(input),
-    onSuccess: async (result) => {
-      setCurrentSupplierId(result.id);
-      await queryClient.invalidateQueries({ queryKey: ["suppliers"] });
-      const next = await getSupplierCard(result.id);
-      setLocalSupplier(next);
-      queryClient.setQueryData(["supplier-card", result.id], next);
-      router.replace(`/purchasing/suppliers/${result.id}`);
-    },
-  });
-
-  const patchMutation = useMutation({
-    mutationKey: cardSaveMutationKey("supplier", currentSupplierId ?? "__draft__", "patch"),
-    mutationFn: (input: { current: SupplierRow; patch: PatchSupplier }) =>
-      patchSupplier(currentSupplierId as string, input.current, input.patch),
-    onSettled: async () => {
-      if (!currentSupplierId) return;
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["supplier-card", currentSupplierId] }),
-        queryClient.invalidateQueries({ queryKey: ["suppliers"] }),
-      ]);
-    },
-  });
-
-  const deleteMutation = useMutation({
+  const deleteMutation = useDeleteEntity({
     mutationKey: ["supplier-action", currentSupplierId ?? "__draft__", "delete"],
     mutationFn: () => deleteSupplier(currentSupplierId as string),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["suppliers"] });
-      router.push("/purchasing/suppliers");
-    },
+    invalidateQueryKeys: [["suppliers"]],
+    onDeleted: () => router.push("/purchasing/suppliers"),
+  });
+  const deleteConfirm = useConfirmMutation<void>({
+    title: "Delete supplier?",
+    description: (
+      <>
+        This supplier will be soft-deleted. Suppliers with active draft,
+        ordered, or partially received purchase orders cannot be deleted.
+      </>
+    ),
+    confirmLabel: "Delete",
+    pendingLabel: "Deleting...",
+    mutation: deleteMutation,
   });
 
   const addressForm = useForm<AddressDialogValues>({
@@ -223,33 +235,12 @@ export function SupplierCard({
     },
   });
 
-  const updateDraft = useCallback((patch: Partial<InsertSupplier>) => {
-    setDraftSupplier((current) => ({ ...current, ...patch }));
-  }, []);
-
-  const commitDraft = useCallback(
-    (patch?: Partial<InsertSupplier>) => {
-      if (!isDraft || createMutation.isPending || createMutation.isSuccess) return;
-      const next = { ...draftSupplier, ...patch };
-      if (!next.name.trim()) return;
-      createMutation.mutate({ ...next, name: next.name.trim() });
-    },
-    [createMutation, draftSupplier, isDraft]
-  );
-
   const commitSupplierPatch = useCallback(
     (patch: PatchSupplier) => {
       if (readOnly) return;
-      if (isDraft) {
-        updateDraft(patch);
-        commitDraft(patch);
-        return;
-      }
-      const nextSupplier = mergeSupplierPatch(display, patch);
-      setLocalSupplier(nextSupplier);
-      patchMutation.mutate({ current: nextSupplier, patch: {} });
+      engine.applyLocalOp({ type: "patch", patch });
     },
-    [commitDraft, display, isDraft, patchMutation, readOnly, updateDraft]
+    [engine, readOnly]
   );
 
   const applySupplierAddress = useCallback(
@@ -328,30 +319,40 @@ export function SupplierCard({
   );
   const cardSaveState: CardSaveState = readOnly
     ? "readonly"
-    : isDraft
-      ? createMutation.isPending
-        ? "saving"
-        : createMutation.isError
-          ? "failed"
-          : "not_saved"
-      : saveStateFromEntityStatus(saveStatus.status);
+    : engine.status === "saving" || engine.status === "dirty"
+      ? "saving"
+      : engine.status === "error"
+        ? "failed"
+        : isDraft
+          ? "not_saved"
+          : "saved";
+  const cardSaveMessage =
+    cardSaveState === "saved"
+      ? "Saved"
+      : cardSaveState === "failed"
+        ? engine.error
+        : null;
 
   return (
     <CardPage>
       <CardPageHeader
-        eyebrow="Supplier"
         title={display.name.trim() || "New supplier"}
-        meta={<SupplierMeta supplier={display} isDraft={isDraft} timeZone={timeZone} />}
         saveState={cardSaveState}
+        saveMessage={cardSaveMessage}
         fallbackHref="/purchasing/suppliers"
+        showPrint={false}
         menuActions={
           isDraft || readOnly
             ? []
             : [
                 {
+                  label: "Print",
+                  onClick: () => window.print(),
+                },
+                {
                   label: "Delete supplier",
                   destructive: true,
-                  onClick: () => setConfirmDelete(true),
+                  onClick: () => deleteConfirm.trigger(undefined),
                 },
               ]
         }
@@ -359,13 +360,14 @@ export function SupplierCard({
       <CardPageBody>
         <CardSection title="Supplier at a glance">
           <div className={`${styles.formRow} ${styles.formRowThree}`}>
-            <CellShell label="Name" required>
+            <CellShell label="Name" required invalid={isDraft && !display.name.trim()}>
               <CommitInput
                 label="Name"
                 value={display.name}
-                disabled={readOnly || createMutation.isPending}
+                disabled={readOnly}
                 autoFocus={isDraft}
                 required
+                className={underlineControlClass(isDraft && !display.name.trim())}
                 onCommit={(name) => {
                   if (name) commitSupplierPatch({ name });
                 }}
@@ -375,7 +377,7 @@ export function SupplierCard({
               <CommitInput
                 label="Code"
                 value={display.code ?? ""}
-                disabled={readOnly || createMutation.isPending}
+                disabled={readOnly}
                 onCommit={(code) => commitSupplierPatch({ code })}
               />
             </CellShell>
@@ -383,7 +385,7 @@ export function SupplierCard({
               <CommitInput
                 label="Contact name"
                 value={display.contactName ?? ""}
-                disabled={readOnly || createMutation.isPending}
+                disabled={readOnly}
                 onCommit={(contactName) => commitSupplierPatch({ contactName })}
               />
             </CellShell>
@@ -392,7 +394,7 @@ export function SupplierCard({
                 label="Email"
                 type="email"
                 value={display.email ?? ""}
-                disabled={readOnly || createMutation.isPending}
+                disabled={readOnly}
                 onCommit={(email) => commitSupplierPatch({ email })}
               />
             </CellShell>
@@ -400,7 +402,7 @@ export function SupplierCard({
               <CommitInput
                 label="Phone"
                 value={display.phone ?? ""}
-                disabled={readOnly || createMutation.isPending}
+                disabled={readOnly}
                 onCommit={(phone) => commitSupplierPatch({ phone })}
               />
             </CellShell>
@@ -408,7 +410,7 @@ export function SupplierCard({
               <CommitInput
                 label="Payment terms"
                 value={display.paymentTerms ?? ""}
-                disabled={readOnly || createMutation.isPending}
+                disabled={readOnly}
                 onCommit={(paymentTerms) => commitSupplierPatch({ paymentTerms })}
               />
             </CellShell>
@@ -417,7 +419,7 @@ export function SupplierCard({
                 id="supplier-billing-address"
                 value={billingAddress}
                 options={addressOptions}
-                disabled={readOnly || createMutation.isPending}
+                disabled={readOnly}
                 onChange={applySupplierAddress}
                 onAddNew={openAddressDialog}
                 onEdit={openEditAddressDialog}
@@ -430,47 +432,18 @@ export function SupplierCard({
           <NotesField
             label="Notes"
             value={display.notes ?? ""}
-            disabled={readOnly || createMutation.isPending}
+            disabled={readOnly}
             readOnlyValue={readOnly}
             commitUnchangedValue={isDraft}
             onDraftChange={(notes) => {
-              if (isDraft) updateDraft({ notes });
+              if (isDraft) engine.applyLocalOp({ type: "patch", patch: { notes } }, Number.POSITIVE_INFINITY);
             }}
             onCommit={(notes) => commitSupplierPatch({ notes })}
           />
         </CardSection>
       </CardPageBody>
 
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete supplier?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This supplier will be soft-deleted. Suppliers with active draft,
-              ordered, or partially received purchase orders cannot be deleted.
-              {deleteMutation.error ? (
-                <span className="mt-(--space-2) block text-destructive">
-                  {(deleteMutation.error as Error).message}
-                </span>
-              ) : null}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => deleteMutation.reset()}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(event) => {
-                event.preventDefault();
-                deleteMutation.mutate();
-              }}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {deleteConfirm.dialog}
 
       <Dialog
         open={addressDialogOpen}
@@ -613,40 +586,6 @@ export function SupplierCard({
   );
 }
 
-function SupplierMeta({
-  supplier,
-  isDraft,
-  timeZone,
-}: {
-  supplier: SupplierRow;
-  isDraft: boolean;
-  timeZone: string;
-}) {
-  const parts = [];
-  if (supplier.code) {
-    parts.push(
-      <span key="code" className={styles.mono}>
-        {supplier.code}
-      </span>
-    );
-  }
-  if (!isDraft) {
-    parts.push(<span key="created">Created {formatDateTime(supplier.createdAt, timeZone)}</span>);
-    parts.push(<span key="updated">Updated {formatDateTime(supplier.updatedAt, timeZone)}</span>);
-  }
-  if (parts.length === 0) return null;
-  return (
-    <>
-      {parts.map((part, index) => (
-        <span key={part.key ?? index} className="inline-flex items-center gap-(--space-2)">
-          {index > 0 ? <span className={styles.metaDot} /> : null}
-          {part}
-        </span>
-      ))}
-    </>
-  );
-}
-
 function SupplierAddressInput({
   id,
   value,
@@ -757,11 +696,69 @@ function makeDraftSupplier(draft: InsertSupplier): SupplierRow {
   };
 }
 
+function normalizeSupplierDraft(draft: InsertSupplier): InsertSupplier {
+  return {
+    ...draft,
+    name: draft.name.trim(),
+  };
+}
+
 function mergeSupplierPatch(supplier: SupplierRow, patch: PatchSupplier): SupplierRow {
   return {
     ...supplier,
     ...patch,
     updatedAt: new Date(),
+  };
+}
+
+function supplierToInsertInput(supplier: SupplierRow): InsertSupplier {
+  return normalizeSupplierDraft({
+    name: supplier.name,
+    code: supplier.code,
+    contactName: supplier.contactName,
+    email: supplier.email,
+    phone: supplier.phone,
+    billingLine1: supplier.billingLine1,
+    billingLine2: supplier.billingLine2,
+    billingCity: supplier.billingCity,
+    billingRegion: supplier.billingRegion,
+    billingPostcode: supplier.billingPostcode,
+    billingCountry: supplier.billingCountry,
+    paymentTerms: supplier.paymentTerms,
+    notes: supplier.notes,
+  });
+}
+
+function supplierEditableSnapshot(supplier: SupplierRow): Pick<
+  SupplierRow,
+  | "name"
+  | "code"
+  | "contactName"
+  | "email"
+  | "phone"
+  | "billingLine1"
+  | "billingLine2"
+  | "billingCity"
+  | "billingRegion"
+  | "billingPostcode"
+  | "billingCountry"
+  | "paymentTerms"
+  | "notes"
+> {
+  return {
+    name: supplier.name,
+    code: supplier.code,
+    contactName: supplier.contactName,
+    email: supplier.email,
+    phone: supplier.phone,
+    billingLine1: supplier.billingLine1,
+    billingLine2: supplier.billingLine2,
+    billingCity: supplier.billingCity,
+    billingRegion: supplier.billingRegion,
+    billingPostcode: supplier.billingPostcode,
+    billingCountry: supplier.billingCountry,
+    paymentTerms: supplier.paymentTerms,
+    notes: supplier.notes,
   };
 }
 

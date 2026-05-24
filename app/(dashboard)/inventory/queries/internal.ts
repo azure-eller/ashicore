@@ -1479,7 +1479,7 @@ export async function getLots(itemId: string) {
         type: "sales_order",
         label: row.orderNumber,
         contextLabel: row.customerName,
-        href: `/sales/orders/${row.salesOrderId}`,
+        href: `/sales/order/${row.salesOrderId}`,
         quantity: row.quantity,
       });
       allocationsByLotId.set(row.lotId, current);
@@ -1491,7 +1491,7 @@ export async function getLots(itemId: string) {
         type: "manufacturing_order",
         label: row.orderNumber,
         contextLabel: row.productName,
-        href: `/manufacturing/orders/${row.manufacturingOrderId}`,
+        href: `/manufacturing/order/${row.manufacturingOrderId}`,
         quantity: row.quantity,
       });
       allocationsByLotId.set(row.lotId, current);

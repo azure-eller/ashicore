@@ -1,13 +1,16 @@
-import { redirect } from "next/navigation";
 import { requireModuleWriteAccess } from "@/lib/dal/auth";
-import { createSupplier } from "@/app/(dashboard)/purchasing/queries";
-import { supplierDefaultValues } from "@/lib/schemas/suppliers";
+import { getAddressEntries } from "@/lib/dal/addresses";
+import { SupplierCard } from "@/app/(dashboard)/purchasing/supplier-card";
 
 export default async function NewSupplierPage() {
   await requireModuleWriteAccess("purchasing");
-  const supplier = await createSupplier({
-    ...supplierDefaultValues,
-    name: "New supplier",
-  });
-  redirect(`/purchasing/suppliers/${supplier.id}`);
+  const addresses = await getAddressEntries();
+
+  return (
+    <SupplierCard
+      initialSupplierId={null}
+      initialSupplier={null}
+      addresses={addresses}
+    />
+  );
 }

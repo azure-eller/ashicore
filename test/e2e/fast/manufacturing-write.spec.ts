@@ -116,9 +116,20 @@ test.describe("Manufacturing write-path smoke", () => {
       page.getByRole("option", { name: new RegExp(productName) }).click(),
     ]);
     expect(createResponse.status()).toBe(201);
+    const createBody = await createResponse.json();
+    expect(createBody).toMatchObject({
+      productId,
+      productName,
+    });
+    expect(Number(createBody.plannedQuantity)).toBe(5);
+    expect(createBody.orderNumber).toMatch(/^MO-\d{4}-\d{4}$/);
+    expect(createBody.ingredients).toHaveLength(2);
 
-    await page.waitForURL(/\/manufacturing\/orders\/[0-9a-f-]+$/);
+    await page.waitForURL(/\/manufacturing\/order\/[0-9a-f-]+$/);
     orderId = getIdFromUrl(page.url());
+    await expect(
+      page.getByRole("heading", { name: "New manufacturing order" })
+    ).toHaveCount(0);
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/MO-\d{4}-\d{4}/);
 
     // Continue editing inline on the saved sheet (autosave).
@@ -202,8 +213,8 @@ test.describe("Manufacturing write-path smoke", () => {
     });
 
     // Existing orders edit inline on the detail sheet.
-    await page.goto(`/manufacturing/orders/${orderId}`);
-    await expect(page).toHaveURL(new RegExp(`/manufacturing/orders/${orderId}$`));
+    await page.goto(`/manufacturing/order/${orderId}`);
+    await expect(page).toHaveURL(new RegExp(`/manufacturing/order/${orderId}$`));
     const editNotesField = page.getByLabel("Notes");
     await expect(editNotesField).toHaveValue("Fast manufacturing smoke test");
     await editNotesField.click();
@@ -227,6 +238,280 @@ test.describe("Manufacturing write-path smoke", () => {
         return row.notes;
       })
       .toBe("Fast manufacturing updated");
+  });
+
+  test("manufacturing order create keeps draft fields visible while create is pending", async ({
+    page,
+    db,
+  }) => {
+    const raceTs = Date.now();
+    const raceMaterialName = `Fast MO Race Material ${raceTs}`;
+    const raceProductName = `Fast MO Race Product ${raceTs}`;
+    const materialCreate = await createItem({
+      name: raceMaterialName,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-MO-RACE-MAT-${raceTs}`,
+      category: `Fast MO Race ${raceTs}`,
+      description: null,
+      defaultPurchasePrice: "1.50",
+      defaultSellingPrice: null,
+      stock: "100",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialCreate.status).toBe(201);
+
+    const productCreate = await createItem({
+      name: raceProductName,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-MO-RACE-PROD-${raceTs}`,
+      category: `Fast MO Race ${raceTs}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "25.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: materialCreate.body.id as string, quantity: "2" }],
+    });
+    expect(productCreate.status).toBe(201);
+
+    await page.route("**/api/manufacturing-orders", async (route) => {
+      const request = route.request();
+      if (request.method() !== "POST") {
+        await route.continue();
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await route.continue();
+    });
+
+    await page.goto("/manufacturing/order");
+    await expect(page.getByRole("heading", { name: "New manufacturing order" })).toBeVisible();
+
+    await page.getByLabel("Planned quantity").fill("7");
+    const productSelect = page.getByLabel("Product");
+    await productSelect.click();
+    const createResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        response.url().endsWith("/api/manufacturing-orders"),
+    );
+    await page.getByRole("option", { name: new RegExp(raceProductName) }).click();
+
+    await expect(productSelect).toContainText(raceProductName);
+    await expect(page.getByLabel("Planned quantity")).toHaveValue("7");
+
+    expect((await createResponsePromise).status()).toBe(201);
+    await page.waitForURL(/\/manufacturing\/order\/[0-9a-f-]+$/);
+    const raceOrderId = getIdFromUrl(page.url());
+
+    await expect(
+      page.getByRole("heading", { name: "New manufacturing order" }),
+    ).toHaveCount(0);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(/MO-\d{4}-\d{4}/);
+    await expect(productSelect).toContainText(raceProductName);
+    await expect(page.getByLabel("Planned quantity")).toHaveValue("7");
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "New manufacturing order" }),
+    ).toHaveCount(0);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(/MO-\d{4}-\d{4}/);
+    await expect(page.getByLabel("Product")).toContainText(raceProductName);
+    await expect(page.getByLabel("Planned quantity")).toHaveValue("7");
+    await expect
+      .poll(async () => {
+        const [order] = await db
+          .select({
+            productId: manufacturingOrders.productId,
+            plannedQuantity: manufacturingOrders.plannedQuantity,
+          })
+          .from(manufacturingOrders)
+          .where(eq(manufacturingOrders.id, raceOrderId));
+        return order;
+      })
+      .toEqual({
+        productId: productCreate.body.id,
+        plannedQuantity: "7.0000",
+      });
+  });
+
+  test("manufacturing order preserves queued local edits while structural save is pending", async ({
+    page,
+    db,
+  }) => {
+    const queuedTs = Date.now();
+    const materialCreate = await createItem({
+      name: `Fast MO Queue Material ${queuedTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-MO-QUEUE-MAT-${queuedTs}`,
+      category: `Fast MO Queue ${queuedTs}`,
+      description: null,
+      defaultPurchasePrice: "1.50",
+      defaultSellingPrice: null,
+      stock: "100",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialCreate.status).toBe(201);
+
+    const productCreate = await createItem({
+      name: `Fast MO Queue Product ${queuedTs}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-MO-QUEUE-PROD-${queuedTs}`,
+      category: `Fast MO Queue ${queuedTs}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "25.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: materialCreate.body.id as string, quantity: "2" }],
+    });
+    expect(productCreate.status).toBe(201);
+
+    const orderCreate = await createManufacturingOrder({
+      productId: productCreate.body.id as string,
+      plannedQuantity: "4",
+      plannedDate: null,
+      ingredients: [{ itemId: materialCreate.body.id as string, quantityPerUnit: "2" }],
+    });
+    expect(orderCreate.status).toBe(201);
+    const queuedOrderId = orderCreate.body.id as string;
+
+    await page.route(`**/api/manufacturing-orders/${queuedOrderId}`, async (route) => {
+      if (route.request().method() === "PUT") {
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/manufacturing/order/${queuedOrderId}`);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(/MO-\d{4}-\d{4}/);
+
+    const putResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().endsWith(`/api/manufacturing-orders/${queuedOrderId}`),
+    );
+    await page.getByRole("button", { name: "Delete row" }).first().click();
+    await page.getByRole("button", { name: "Remove" }).click();
+    await expect(page.getByText("No ingredients yet.")).toBeVisible();
+
+    const notesField = page.getByLabel("Notes");
+    await notesField.fill("Queued edit survived structural save");
+    await expect(notesField).toHaveValue("Queued edit survived structural save");
+    await page.getByRole("heading", { name: "Order details" }).click();
+
+    const putResponse = await putResponsePromise;
+    expect(putResponse.status()).toBe(200);
+    const putBody = await putResponse.json();
+    expect(putBody).toMatchObject({
+      id: queuedOrderId,
+      ingredients: [],
+    });
+    await expect(notesField).toHaveValue("Queued edit survived structural save");
+    await expect(
+      page.getByRole("heading", { name: "New manufacturing order" }),
+    ).toHaveCount(0);
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "New manufacturing order" }),
+    ).toHaveCount(0);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(/MO-\d{4}-\d{4}/);
+    await expect(page.getByText("No ingredients yet.")).toBeVisible();
+    await expect(page.getByLabel("Notes")).toHaveValue("Queued edit survived structural save");
+
+    await expect
+      .poll(async () => {
+        const [row] = await db
+          .select({
+            notes: manufacturingOrders.notes,
+          })
+          .from(manufacturingOrders)
+          .where(eq(manufacturingOrders.id, queuedOrderId));
+        const ingredients = await db
+          .select()
+          .from(manufacturingOrderIngredients)
+          .where(eq(manufacturingOrderIngredients.manufacturingOrderId, queuedOrderId));
+        return { notes: row?.notes, ingredientCount: ingredients.length };
+      }, { timeout: 15_000 })
+      .toEqual({
+        notes: "Queued edit survived structural save",
+        ingredientCount: 0,
+      });
+  });
+
+  test("manufacturing order ingredients can be deleted down to zero rows", async ({
+    page,
+    db,
+  }) => {
+    const deleteTs = Date.now();
+    const materialCreate = await createItem({
+      name: `Fast MO Delete Material ${deleteTs}`,
+      itemType: "material",
+      unitDefinitionId: unitId,
+      sku: `FAST-MO-DELETE-MAT-${deleteTs}`,
+      category: `Fast MO Delete ${deleteTs}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "100",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(materialCreate.status).toBe(201);
+
+    const productCreate = await createItem({
+      name: `Fast MO Delete Product ${deleteTs}`,
+      itemType: "product",
+      unitDefinitionId: unitId,
+      sku: `FAST-MO-DELETE-PROD-${deleteTs}`,
+      category: `Fast MO Delete ${deleteTs}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "30.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: materialCreate.body.id as string, quantity: "1" }],
+    });
+    expect(productCreate.status).toBe(201);
+
+    const orderCreate = await createManufacturingOrder({
+      productId: productCreate.body.id as string,
+      plannedQuantity: "4",
+      plannedDate: null,
+      ingredients: [{ itemId: materialCreate.body.id as string, quantityPerUnit: "1" }],
+    });
+    expect(orderCreate.status).toBe(201);
+    const deleteOrderId = orderCreate.body.id as string;
+
+    await page.goto(`/manufacturing/order/${deleteOrderId}`);
+    await expect(page).toHaveURL(new RegExp(`/manufacturing/order/${deleteOrderId}$`));
+    await expect(page.getByText(`Fast MO Delete Material ${deleteTs}`)).toBeVisible();
+
+    const saveResponsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().endsWith(`/api/manufacturing-orders/${deleteOrderId}`),
+    );
+    await page.getByRole("button", { name: "Delete row" }).first().click();
+    await page.getByRole("button", { name: "Remove" }).click();
+    expect((await saveResponsePromise).status()).toBe(200);
+
+    await expect(page.getByText("No ingredients yet.")).toBeVisible();
+    await expect
+      .poll(async () => {
+        const ingredients = await db
+          .select()
+          .from(manufacturingOrderIngredients)
+          .where(eq(manufacturingOrderIngredients.manufacturingOrderId, deleteOrderId));
+        return ingredients.length;
+      })
+      .toBe(0);
   });
 
   test("rejects legacy group BOM fields", async () => {
@@ -504,7 +789,7 @@ test.describe("Manufacturing write-path smoke", () => {
     page,
     db,
   }) => {
-    await page.goto(`/manufacturing/orders/${orderId}`);
+    await page.goto(`/manufacturing/order/${orderId}`);
     await page.getByRole("button", { name: "More actions" }).click();
 
     const [duplicateResponse] = await Promise.all([
@@ -518,7 +803,7 @@ test.describe("Manufacturing write-path smoke", () => {
     expect(duplicateResponse.status()).toBe(201);
     const created = await duplicateResponse.json();
     const duplicateId = created.id as string;
-    await page.waitForURL(`**/manufacturing/orders/${duplicateId}`);
+    await page.waitForURL(`**/manufacturing/order/${duplicateId}`);
     expect(duplicateId).not.toBe(orderId);
 
     const [duplicate] = await db
@@ -861,10 +1146,23 @@ test.describe("Manufacturing write-path smoke", () => {
       method: "DELETE",
       body: JSON.stringify({ ids: [resourceId] }),
     });
-    expect(deleteResource.status).toBe(409);
-    const deleteResourceBody = await deleteResource.json();
-    expect(deleteResourceBody.error).toContain("BOM operation cost line");
-    expect(deleteResourceBody.error).toContain("manufacturing order snapshot");
+    expect(deleteResource.status).toBe(200);
+    await expect
+      .poll(async () => {
+        const [bomLink] = await db
+          .select({ id: bomRevisionOperationCosts.id })
+          .from(bomRevisionOperationCosts)
+          .where(eq(bomRevisionOperationCosts.resourceId, resourceId));
+        const [snapshotLink] = await db
+          .select({ resourceId: manufacturingOrderOperationCosts.resourceId })
+          .from(manufacturingOrderOperationCosts)
+          .where(eq(manufacturingOrderOperationCosts.manufacturingOrderId, directOrderId));
+        return {
+          hasBomOperationLink: Boolean(bomLink),
+          snapshotResourceId: snapshotLink?.resourceId ?? null,
+        };
+      })
+      .toEqual({ hasBomOperationLink: false, snapshotResourceId: null });
 
     const [ingredient] = await db
       .select({ id: manufacturingOrderIngredients.id })
@@ -1380,7 +1678,7 @@ test.describe("Manufacturing write-path smoke", () => {
     await productSelect.click();
     await page.getByRole("option", { name: new RegExp(batchProductName) }).click();
 
-    await page.waitForURL(/\/manufacturing\/orders\/[0-9a-f-]+$/);
+    await page.waitForURL(/\/manufacturing\/order\/[0-9a-f-]+$/);
     const batchOrderId = getIdFromUrl(page.url());
 
     const [openOrder] = await db
@@ -1772,8 +2070,8 @@ test.describe("Manufacturing write-path smoke", () => {
 
     // Existing orders edit inline on the detail sheet; ingredients
     // render in the Ingredients table rather than a legacy edit form.
-    await page.goto(`/manufacturing/orders/${legacyOrderId}`);
-    await page.waitForURL(`**/manufacturing/orders/${legacyOrderId}`);
+    await page.goto(`/manufacturing/order/${legacyOrderId}`);
+    await page.waitForURL(`**/manufacturing/order/${legacyOrderId}`);
     await expect(page.getByRole("heading", { name: "Order details" })).toBeVisible();
     await expect(page.getByText(`Legacy Batch Sand ${legacyTs}`)).toBeVisible();
     await expect(page.getByText(`Legacy Batch Compost ${legacyTs}`)).toBeVisible();

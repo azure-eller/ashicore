@@ -32,12 +32,22 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatDate } from "@/lib/format";
 import {
+  getIngredientsDisplayState,
+  getProductionDisplayState,
+  type SalesIngredientsFulfillmentState,
+  type SalesProductionFulfillmentState,
+} from "@/lib/sales/fulfillment-status";
+import {
   MANUFACTURING_ACTUAL_QTY_TOOLTIP,
   MANUFACTURING_PLANNED_QTY_TOOLTIP,
   MANUFACTURING_SALES_ORDER_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import type { ManufacturingOrdersPreference } from "@/lib/view-preferences";
-import { ManufacturingStatusControl } from "@/components/manufacturing/manufacturing-status-control";
+import { OrderStatusControl } from "@/components/card-page/order-status-control";
+import {
+  isManufacturingStatusDisabled,
+  manufacturingOrderStatusConfig,
+} from "@/components/card-page/order-status-configs";
 import type { ManufacturingOrderListRow } from "./types";
 
 const BADGE_VARIANTS = ["secondary", "outline", "default"] as const;
@@ -89,19 +99,9 @@ function ProductCell({ order }: { order: ManufacturingOrderListRow }) {
 }
 
 function PlannedQuantityCell({ order }: { order: ManufacturingOrderListRow }) {
-  const batchLabel =
-    order.manufacturingMode === "batch" && order.numberOfBatches != null
-      ? `${order.numberOfBatches}b`
-      : null;
-
   return (
-    <div className="flex min-w-0 flex-nowrap items-center gap-1.5">
+    <div className="flex min-w-0 items-center">
       <QuantityWithUnit value={order.plannedQuantity} unitName={order.unitName} />
-      {batchLabel != null ? (
-        <Badge variant="outline" className="shrink-0 text-xs font-normal">
-          {batchLabel}
-        </Badge>
-      ) : null}
     </div>
   );
 }
@@ -169,39 +169,27 @@ function ProgressCell({ order }: { order: ManufacturingOrderListRow }) {
 }
 
 function getIngredientState(order: ManufacturingOrderListRow): OperationalState {
-  if (order.ingredientReadiness === "picked") {
-    return { label: "Picked", tone: "success" };
-  }
-
-  if (order.ingredientReadiness === "picking") {
-    return { label: "Picking", tone: "warning" };
-  }
-
-  if (order.ingredientReadiness === "in_stock") {
-    return { label: "In stock", tone: "success" };
-  }
-
-  if (order.ingredientReadiness === "expected") {
-    return { label: "Expected", tone: "warning" };
-  }
-
-  return { label: "Not available", tone: "destructive" };
+  const ingredientState: SalesIngredientsFulfillmentState =
+    order.ingredientReadiness === "picking"
+      ? "in_stock"
+      : order.ingredientReadiness;
+  return getIngredientsDisplayState(ingredientState);
 }
 
 function getProductionState(order: ManufacturingOrderListRow): OperationalState {
-  if (order.status === "done") {
-    return { label: "Completed", tone: "success" };
-  }
+  let productionState: SalesProductionFulfillmentState = "not_started";
 
-  if (
+  if (order.status === "done") {
+    productionState = "done";
+  } else if (
     order.pickProgressStatus === "in_progress" ||
     order.pickProgressStatus === "picked" ||
     order.completedBatchCount > 0
   ) {
-    return { label: "Work in progress", tone: "warning" };
+    productionState = "in_progress";
   }
 
-  return { label: "Not started", tone: "muted" };
+  return getProductionDisplayState(productionState);
 }
 
 const operationalToneToStatusTone: Record<OperationalState["tone"], StatusTone> = {
@@ -232,9 +220,11 @@ function ManufacturingStatusLabel({
 function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
   const queryClient = useQueryClient();
   return (
-    <ManufacturingStatusControl
-      order={order}
+    <OrderStatusControl
+      config={manufacturingOrderStatusConfig}
+      ctx={{ order }}
       size="sm"
+      disabled={isManufacturingStatusDisabled(order)}
       onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
         void queryClient.invalidateQueries({ queryKey: ["items"] });
@@ -394,7 +384,7 @@ export function OrdersTable({
         cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
           data ? (
             <Link
-              href={`/manufacturing/orders/${data.id}`}
+              href={`/manufacturing/order/${data.id}`}
               className="hover:underline"
             >
               {data.orderNumber}

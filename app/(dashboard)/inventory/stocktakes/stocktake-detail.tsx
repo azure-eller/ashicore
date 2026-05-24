@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { itemDetailHref } from "@/app/(dashboard)/inventory/types";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -13,16 +13,8 @@ import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import type { CardSaveState } from "@/components/card-page/card-save-status";
 import { CellShell } from "@/components/card-page/form-cell";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
+import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -60,6 +52,7 @@ import {
   type ColDef,
   type EditableLineDataGridChange,
 } from "@/components/editable-line-data-grid";
+import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
 import { StocktakeStatusBadge } from "./status-badge";
 import {
   buildStocktakeName,
@@ -150,7 +143,6 @@ export function StocktakeDetail({
   const timeZone = useOrganizationTimeZone();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [deleteOpen, setDeleteOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [countFilter, setCountFilter] = useState<CountFilter>("all");
   const [lineSearch, setLineSearch] = useState("");
@@ -160,41 +152,47 @@ export function StocktakeDetail({
   const [stocktakeNotes, setStocktakeNotes] = useState(stocktake.notes ?? "");
   const canEditCounts = stocktake.status === "draft";
 
-  useEffect(() => {
-    if (!canEditCounts) return;
-    const intervalId = window.setInterval(() => router.refresh(), 15000);
-    return () => window.clearInterval(intervalId);
-  }, [canEditCounts, router]);
-
   const refreshStocktakeQueries = async () => {
     await queryClient.invalidateQueries({ queryKey: ["stocktakes"] });
   };
 
-  const saveMutation = useMutation<void, ApiError, StocktakeUpdatePayload>({
-    mutationFn: async (payload) => {
-      const response = await fetch(`/api/stocktakes/${stocktake.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw {
-          error: body?.error ?? "Failed to save counts.",
-          errors: body?.errors,
-        } satisfies ApiError;
+  const saveEngine = useDraftSaveEngine<
+    StocktakeUpdatePayload,
+    StocktakeUpdatePayload,
+    void
+  >({
+    initialDraft: {},
+    initialId: stocktake.id,
+    isSaveable: () => canEditCounts,
+    applyOp: (draft, op) => mergeStocktakeUpdatePayload(draft, op),
+    create: async () => undefined,
+    save: async (_id, _draft, ops) => {
+      for (const { op } of ops) {
+        setActionError(null);
+        const response = await fetch(`/api/stocktakes/${stocktake.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updateStocktakeCountsSchema.parse(op)),
+        });
+        const body = await response.json().catch(() => null);
+        if (!response.ok) {
+          const error = {
+            error: body?.error ?? "Failed to save counts.",
+            errors: body?.errors,
+          } satisfies ApiError;
+          setActionError(error.error);
+          throw error;
+        }
       }
-    },
-    onMutate: () => {
-      setActionError(null);
-    },
-    onError: (error: ApiError) => {
-      setActionError(error.error ?? "Failed to save counts.");
-    },
-    onSuccess: async () => {
       await refreshStocktakeQueries();
-      router.refresh();
+      return undefined;
     },
+    getResultId: () => stocktake.id,
+    applyPersistedIdentity: (draft) => draft,
+    mergeServerOwnedFields: (draft) => draft,
+    getErrorMessage: (error) =>
+      (error as ApiError)?.error ??
+      (error instanceof Error ? error.message : "Failed to save counts."),
   });
 
   const completeMutation = useMutation<void, ApiError, boolean>({
@@ -238,7 +236,8 @@ export function StocktakeDetail({
     }
   };
 
-  const deleteMutation = useMutation<void, Error, void>({
+  const deleteMutation = useDeleteEntity({
+    mutationKey: ["stocktake-action", stocktake.id, "delete"],
     mutationFn: async () => {
       const response = await fetch("/api/stocktakes", {
         method: "DELETE",
@@ -253,14 +252,24 @@ export function StocktakeDetail({
     onMutate: () => {
       setActionError(null);
     },
-    onSuccess: async () => {
-      await refreshStocktakeQueries();
-      setDeleteOpen(false);
-      router.push("/inventory/stocktakes");
-    },
+    invalidateQueryKeys: [["stocktakes"]],
+    onDeleted: () => router.push("/inventory/stocktakes"),
     onError: (error) => {
       setActionError(error.message);
     },
+  });
+  const deleteConfirm = useConfirmMutation<void>({
+    title: "Delete this stocktake?",
+    description: (
+      <>
+        Draft stocktakes will be removed from normal views without changing inventory.
+        Completed stocktakes cannot be deleted. This action cannot be undone.
+      </>
+    ),
+    confirmLabel: "Delete Stocktake",
+    pendingLabel: "Deleting...",
+    cancelLabel: "Back",
+    mutation: deleteMutation,
   });
 
   const previewItemMap = useMemo(
@@ -271,9 +280,9 @@ export function StocktakeDetail({
   const commitStocktakePatch = useCallback(
     (payload: StocktakeUpdatePayload) => {
       if (!canEditCounts) return;
-      saveMutation.mutate(updateStocktakeCountsSchema.parse(payload));
+      saveEngine.applyLocalOp(updateStocktakeCountsSchema.parse(payload), 0);
     },
-    [canEditCounts, saveMutation]
+    [canEditCounts, saveEngine]
   );
 
   const commitItemIds = useCallback(
@@ -349,9 +358,6 @@ export function StocktakeDetail({
     [countFilter, displayLines, lineSearch]
   );
 
-  const savedCountedCount = displayLines.filter(
-    (line) => line.currentCountedQty != null
-  ).length;
   const liveCountedCount = displayLines.filter(
     (line) => line.currentCountedQty != null
   ).length;
@@ -387,18 +393,8 @@ export function StocktakeDetail({
     canEditCounts &&
     liveCountedCount > 0 &&
     !completeMutation.isPending &&
-    !saveMutation.isPending;
-  const cardSaveState = cardSaveStateFromMutation(saveMutation.status);
-  const headerMeta = (
-    <>
-      <span>Created {formatDateTime(stocktake.createdAt, timeZone)}</span>
-      <span>Updated {formatDateTime(stocktake.updatedAt, timeZone)}</span>
-      <span>Items {rows.length}</span>
-      <span>
-        {canEditCounts ? liveCountedCount : savedCountedCount}/{rows.length} counted
-      </span>
-    </>
-  );
+    saveEngine.status !== "saving";
+  const cardSaveState = cardSaveStateFromEngine(saveEngine.status);
   const countActions = (
     <div className="flex flex-wrap items-center gap-(--space-3)">
       <Input
@@ -736,11 +732,10 @@ export function StocktakeDetail({
     <>
       <CardPage>
         <CardPageHeader
-          eyebrow="Inventory · Stocktake"
           title={stocktakeName}
-          status={<StocktakeStatusBadge status={stocktake.status} />}
-          meta={headerMeta}
+          statusBadge={<StocktakeStatusBadge status={stocktake.status} />}
           saveState={cardSaveState}
+          showPrint={false}
           primaryAction={
             canEditCounts
               ? {
@@ -761,15 +756,19 @@ export function StocktakeDetail({
                               documentType: "stocktake",
                               documentId: stocktake.id,
                             })
-                          ),
+                        ),
                       },
                     ]
                   : []),
+                {
+                  label: "Print",
+                  onClick: () => window.print(),
+                },
                 ...(canEditCounts
                   ? [
                       {
                         label: "Delete stocktake",
-                        onClick: () => setDeleteOpen(true),
+                        onClick: () => deleteConfirm.trigger(undefined),
                         disabled: deleteMutation.isPending,
                         destructive: true,
                       },
@@ -886,29 +885,7 @@ export function StocktakeDetail({
         </CardPageBody>
       </CardPage>
 
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent className="bg-background text-foreground">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this stocktake?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Draft stocktakes will be removed from normal views without changing inventory.
-              Completed stocktakes cannot be deleted. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(event) => {
-                event.preventDefault();
-                deleteMutation.mutate();
-              }}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? "Deleting..." : "Delete Stocktake"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {deleteConfirm.dialog}
     </>
   );
 }
@@ -924,8 +901,21 @@ function itemMatchesScope(item: StocktakePreviewItem, scope: StocktakeScope) {
   );
 }
 
-function cardSaveStateFromMutation(state: "idle" | "pending" | "success" | "error"): CardSaveState {
-  if (state === "pending") return "saving";
+function mergeStocktakeUpdatePayload(
+  current: StocktakeUpdatePayload,
+  patch: StocktakeUpdatePayload
+): StocktakeUpdatePayload {
+  return {
+    ...current,
+    ...patch,
+    lines: patch.lines ?? current.lines,
+    lotLines: patch.lotLines ?? current.lotLines,
+    itemIds: patch.itemIds ?? current.itemIds,
+  };
+}
+
+function cardSaveStateFromEngine(state: "idle" | "dirty" | "saving" | "saved" | "error"): CardSaveState {
+  if (state === "dirty" || state === "saving") return "saving";
   if (state === "error") return "failed";
   return "saved";
 }

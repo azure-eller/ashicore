@@ -6,7 +6,28 @@ import {
 import type { InventoryDisposition } from "@/lib/db/schema";
 import { isValidTimeZone } from "@/lib/time-zone";
 
-const priceFormat = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const currencyFormats = new Map<string, Intl.NumberFormat>();
+
+export function formatCurrency(
+  value: string | number | null | undefined,
+  currency = "USD"
+): string | null {
+  if (value == null) return null;
+
+  const normalizedCurrency = currency.toUpperCase();
+  let formatter = currencyFormats.get(normalizedCurrency);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: normalizedCurrency,
+    });
+    currencyFormats.set(normalizedCurrency, formatter);
+  }
+
+  const numericValue = typeof value === "number" ? value : parseFloat(value);
+  return formatter.format(numericValue);
+}
+
 const costFormat = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -19,8 +40,7 @@ const costFormat = new Intl.NumberFormat("en-US", {
  * Returns null for null/undefined inputs.
  */
 export function formatPrice(value: string | null | undefined): string | null {
-  if (value == null) return null;
-  return priceFormat.format(parseFloat(value));
+  return formatCurrency(value, "USD");
 }
 
 export function formatCost(value: string | null | undefined): string | null {

@@ -27,7 +27,12 @@ export async function ManufacturingOrderCardShell({ orderId }: { orderId: string
         expectedBatchYield: template.expectedBatchYield,
         bom: template.bom.map((row) => ({
           itemId: row.itemId,
+          itemName: row.itemName,
+          itemSku: row.itemSku,
+          itemType: row.itemType,
+          unitName: row.unitName,
           quantityPerUnit: row.quantityPerUnit,
+          defaultQuantityPerUnit: row.defaultQuantityPerUnit,
         })),
       }))}
     />

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { getItem, getUnitDefinitions } from "@/app/(dashboard)/inventory/queries";
+import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { getItemCard } from "@/lib/inventory/item-cards";
 import { ProductCard, type ProductCardTab } from "./product-card";
 
@@ -17,6 +18,7 @@ export async function ProductCardShell({
   lotsCount,
   children,
 }: ProductCardShellProps) {
+  await requireModuleReadAccess("inventory");
   const item = await getItem(itemId);
   if (!item || item.itemType !== "product") {
     redirect("/inventory/products");

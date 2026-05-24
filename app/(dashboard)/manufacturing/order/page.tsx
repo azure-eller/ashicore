@@ -6,7 +6,7 @@ import { ManufacturingOrderCard } from "../orders/[id]/manufacturing-order-card"
  * Draft MO entry point — mirrors `/inventory/product` (singular). The sheet
  * itself is the create surface: pick a product (planned qty defaults to 1)
  * and the order is created inline, then the URL swaps to
- * `/manufacturing/orders/{id}` for continued inline autosave editing.
+ * `/manufacturing/order/{id}` for continued inline autosave editing.
  */
 export default async function ManufacturingOrderDraftPage() {
   await requireModuleAccess("manufacturing", "operate");
@@ -26,7 +26,12 @@ export default async function ManufacturingOrderDraftPage() {
         expectedBatchYield: template.expectedBatchYield,
         bom: template.bom.map((row) => ({
           itemId: row.itemId,
+          itemName: row.itemName,
+          itemSku: row.itemSku,
+          itemType: row.itemType,
+          unitName: row.unitName,
           quantityPerUnit: row.quantityPerUnit,
+          defaultQuantityPerUnit: row.defaultQuantityPerUnit,
         })),
       }))}
     />

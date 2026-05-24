@@ -513,7 +513,7 @@ test.describe("Reservation correctness", () => {
     expect(createOrderResponse.status()).toBe(201);
     const created = await createOrderResponse.json();
     const orderId = created.id as string;
-    await page.waitForURL(/\/sales\/orders\/[0-9a-f-]+$/);
+    await page.waitForURL(/\/sales\/order\/[0-9a-f-]+$/);
 
     const updateResponse = await updateSalesOrder(orderId, {
       customerId,
@@ -521,7 +521,7 @@ test.describe("Reservation correctness", () => {
       lines: [{ itemId, quantity: "5", unitPrice: "9.00" }],
     });
     expect(updateResponse.status).toBe(200);
-    await page.goto(`/sales/orders/${orderId}`);
+    await page.goto(`/sales/order/${orderId}`);
 
     await expect(page.getByText(materialName).first()).toBeVisible({ timeout: 15000 });
 
