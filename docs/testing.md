@@ -12,7 +12,7 @@ read_when:
 
 **Playwright e2e only** — no Vitest, no unit tests, no mocks. `e2e` means Playwright; `fast` and `slow` are the lanes.
 
-Fast tests are heartbeat tests. Slow tests follow **serial domain stories** mirroring real user workflows. Keep each file self-contained so inventory and sales can run together or in isolation.
+Fast tests are heartbeat tests. Slow tests follow **operating stories** mirroring real user workflows. Keep each file self-contained so inventory and sales can run together or in isolation.
 
 The `db` fixture uses the app role with RLS — same security path as the real app. After the seam action, query the database directly via that fixture to verify the resulting state.
 
@@ -22,7 +22,7 @@ The `db` fixture uses the app role with RLS — same security path as the real a
 - **Slow specs** live in `test/e2e/slow/` and stay serial, operational stories: create, edit, transition, reload, and verify UI/API/DB/storage effects where relevant.
 - **Auth regressions** live in `test/e2e/auth-security.spec.ts` and run separately from the fast/slow domain split.
 - Keep slow specs rooted in normal operations. Only include guards/errors when they arise inside a realistic workflow.
-- Use `test/e2e/slow/customer-crm.spec.ts` as the breadth model for slow stories.
+- Slow specs are not bug archives. A slow spec must be a realistic operational story that a small manufacturer would recognize.
 - Do not add new one-off story suites outside `fast/`, `slow/`, or `auth-security.spec.ts`.
 
 ## Which lane to run
@@ -56,6 +56,17 @@ Fast tests are mutation-seam heartbeats. Each test must prove one business invar
 - No bug-souvenir tests. Historical one-off regressions are deleted unless they represent a compact class-level invariant tied to a listed seam.
 
 Not fast in this pass: Xero OAuth/push/retry/email/accounting sync, detailed FEFO/lot-expiry, detailed cost roll-up, catalog/item-card autosave, long manufacturing execution workflows, and full planning/allocation operational stories.
+
+## Slow Test Guardrails
+
+Slow tests are operating stories, not bug archives. A slow spec must be a realistic workflow a small manufacturer would recognize; edge cases belong only when they naturally occur inside that story.
+
+- If the story cannot be stated in one sentence, delete it or convert the invariant to non-browser verification.
+- Do not move tests to slow just because deletion feels risky.
+- Prefer flows like create, edit, submit, receive, confirm, ship, release, complete, count, and reconcile.
+- Use API/DB helpers for prerequisites unless creating the prerequisite is part of the story.
+- Avoid pure API-only slow stories unless the contract is intentionally headless or mobile-facing.
+- Keep customer, cost, planning, and stocktake stories bounded by the active slow-suite audit in `docs/slow-suite-audit.md`.
 
 ## Writing tests
 

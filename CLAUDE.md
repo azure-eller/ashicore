@@ -31,7 +31,7 @@ These are non-negotiable repo rules. They are repeated here because violating th
 - **Inventory kernel.** Stock, lots, costs, commitments, expected supply, dispositions, and allocations must go through canonical inventory/domain paths. Never "just update a quantity."
 - **Icons.** HugeIcons only. Never Lucide.
 - **Design tokens.** shadcn semantic color classes, V2 raw tokens for spacing/sizing/type. Never hardcode Tailwind colors. Sharp corners.
-- **Testing model.** Playwright is the app test path with real DB assertions. No bug-souvenir tests. Fast tests must protect a listed core mutation seam and avoid incidental UI assertions. Do not add Vitest, unit tests, or mocking frameworks unless explicitly asked.
+- **Testing model.** Playwright is the app test path with real DB assertions. No bug-souvenir tests. Fast tests must protect a listed core mutation seam and avoid incidental UI assertions. Slow tests are operating stories, not bug archives; edge cases belong only when they naturally occur inside that story. Do not add Vitest, unit tests, or mocking frameworks unless explicitly asked.
 - **No `git add .` / `git add -A`.** Stage specific files.
 - **Never `--no-verify`.** Never bypass hooks or safety checks without explicit ask.
 

@@ -26,11 +26,13 @@ read_when:
 ## Slow lane rules
 
 - Keep `test.describe.configure({ mode: "serial" })`.
-- Write the file as a business story, not a bag of isolated guards.
+- Write the file as an operating story, not a bug archive or bag of isolated guards.
+- A slow spec must be a realistic workflow a small manufacturer would recognize; edge cases belong only when they naturally occur inside that story.
 - Prefer flows like create, edit, submit, receive, confirm, ship, release, complete.
 - Include error or guard checks only when they naturally occur in the operational sequence.
-- Use `test/e2e/slow/customer-crm.spec.ts` as the breadth model: UI actions first, API response assertions on important mutations, reload/persistence checks, DB assertions through the `db` fixture, and storage assertions when the workflow owns files.
+- Use UI actions first, API response assertions on important mutations, reload/persistence checks, and DB assertions through the `db` fixture.
 - Avoid pure API-only slow stories unless the contract is intentionally headless or mobile-facing; otherwise anchor the story in the UI and use API/DB checks as evidence.
+- Use `docs/slow-suite-audit.md` when deciding whether existing slow coverage should stay, fold, delete, rewrite, or convert to `verify:*`.
 
 ## Local defaults
 
