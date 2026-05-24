@@ -5,7 +5,7 @@
     { "file": "test/helpers/api.ts", "symbol": "testFetch, createItem, createCustomer, createSalesOrder, confirmSalesOrder, createManufacturingOrder, releaseManufacturingOrder, completeManufacturingOrder", "reason": "Auth + idempotency-key helpers (key derived from method:path:bodyFingerprint) and DAL wrappers." },
     { "file": "test/e2e/slow/manufacturing-order.spec.ts", "symbol": "pickAllManufacturingIngredients, createManufacturingOrder, releaseManufacturingOrder", "reason": "Breadth model: serial domain story with per-test data sharing via describe-level lets." },
     { "file": "test/e2e/fast/manufacturing-actuals.spec.ts", "symbol": "batch start + pick + complete + variance assertions", "reason": "Canonical fast-write-path style for batch/pick/complete + variance event assertions." },
-    { "file": "test/e2e/slow/partial-sales-shipments.spec.ts", "symbol": "shipment plan + costs + ship + DB invariants", "reason": "Canonical pattern for shipment cost + ship flow." },
+    { "file": "test/e2e/slow/sales-order.spec.ts", "symbol": "shipment plan + costs + ship + DB invariants", "reason": "Canonical pattern for shipment cost + ship flow." },
     { "file": "test/e2e/reconciliation/kernel-invariants.spec.ts", "symbol": "postJsonWithKey, deleteWithKey, key(label, ts), withTestOrg, diffProjections", "reason": "Idempotency-key replay patterns with explicit header override and per-test deterministic keys." },
     { "file": "test/e2e/reconciliation/global-invariants.spec.ts", "symbol": "global invariants (5)", "reason": "Companion invariant spec shipping with this PR series — referenced for snapshot-and-diff style." }
   ],

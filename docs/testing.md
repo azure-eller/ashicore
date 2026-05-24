@@ -35,7 +35,7 @@ The `db` fixture uses the app role with RLS — same security path as the real a
 | Auth, invites, team access | `pnpm test:slow:auth` (covers `auth-security.spec.ts` + `team-management.spec.ts`) |
 | Stock mutations, reservations, expected supply, inventory projections, inventory-affecting API routes | Affected slow spec(s), then `pnpm verify:inventory` |
 
-Domain slow lanes may include multiple story files: sales includes order, CRM, and partial-shipment stories; inventory includes item-form, cost-basis, and visibility stories.
+Domain slow lanes may include multiple story files: sales includes order and CRM stories; inventory includes item-form, cost-basis, and visibility stories. Stocktake has no separate fast stub; `test:fast:stocktake` runs the canonical stocktake story.
 
 Local fast lanes default to 2 Playwright workers. CI overrides with `PLAYWRIGHT_FAST_WORKERS=4`.
 
