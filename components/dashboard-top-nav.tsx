@@ -86,7 +86,6 @@ export function DashboardTopNav({
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [pageSearchOpen, setPageSearchOpen] = useState(false);
   const [pageSearch, setPageSearch] = useState("");
-  const [previewModuleHref, setPreviewModuleHref] = useState<string | null>(null);
   const modules = getDashboardNavModules(assignedRoles, {
     salesAllocationMode: allocationMode,
   });
@@ -95,11 +94,7 @@ export function DashboardTopNav({
     salesAllocationMode: allocationMode,
   });
   const activeModule = getActiveDashboardModule(visiblePathname, modules);
-  const previewModule =
-    modules.find((module) => module.href === previewModuleHref) ?? null;
-  const visibleModule = previewModule ?? activeModule ?? modules[0] ?? null;
-  const isPreviewingModule =
-    previewModule != null && previewModule.baseHref !== activeModule?.baseHref;
+  const visibleModule = activeModule ?? modules[0] ?? null;
   const normalizedPageSearch = pageSearch.trim().toLowerCase();
   const filteredSearchActions = normalizedPageSearch
     ? searchActions.filter(
@@ -113,10 +108,6 @@ export function DashboardTopNav({
   useEffect(() => {
     setHydratedPathname(pathname);
   }, [pathname]);
-
-  function showModulePreview(moduleHref: string) {
-    setPreviewModuleHref(moduleHref);
-  }
 
   async function handleLogout() {
     const { error } = await authClient.signOut();
@@ -171,10 +162,6 @@ export function DashboardTopNav({
                 visiblePathname,
                 module.baseHref
               );
-              const dimActive =
-                active &&
-                isPreviewingModule &&
-                visibleModule?.baseHref !== module.baseHref;
               const showingSubNav = visibleModule?.baseHref === module.baseHref;
 
               return (
@@ -187,8 +174,7 @@ export function DashboardTopNav({
                     "relative h-(--height-input-md) shrink-0 rounded-none px-(--space-7) text-sidebar-foreground/80 transition-colors duration-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                     showingSubNav && "bg-sidebar-accent text-sidebar-accent-foreground",
                     active &&
-                      "font-semibold text-sidebar-accent-foreground shadow-[inset_0_-2px_0_var(--color-accent)]",
-                    dimActive && "text-sidebar-foreground/50"
+                      "font-semibold text-sidebar-accent-foreground shadow-[inset_0_-2px_0_var(--color-accent)]"
                   )}
                   asChild
                 >
@@ -196,9 +182,6 @@ export function DashboardTopNav({
                     href={module.href}
                     aria-current={active ? "true" : undefined}
                     className="flex items-center justify-center gap-(--space-4) text-[length:var(--text-md)] leading-[var(--leading-sm)] font-medium"
-                    onMouseEnter={() => showModulePreview(module.href)}
-                    onFocus={() => showModulePreview(module.href)}
-                    onClick={() => setPreviewModuleHref(null)}
                   >
                     <HugeiconsIcon
                       icon={module.icon}
@@ -456,22 +439,15 @@ export function DashboardTopNav({
       <nav
         aria-label={
           visibleModule
-            ? isPreviewingModule
-              ? `Preview: ${visibleModule.title} pages`
-              : `${visibleModule.title} pages`
+            ? `${visibleModule.title} pages`
             : "Section pages"
         }
-        className={cn(
-          "flex h-(--height-subnav) shrink-0 items-stretch border-b bg-background px-(--space-10)",
-          isPreviewingModule && "opacity-85"
-        )}
+        className="flex h-(--height-subnav) shrink-0 items-stretch border-b bg-background px-(--space-10)"
       >
         {visibleModule ? (
           <div className="flex min-w-0 items-center gap-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {visibleModule.items.map((item) => {
-              const active =
-                !isPreviewingModule &&
-                isDashboardPathActive(visiblePathname, item.href);
+              const active = isDashboardPathActive(visiblePathname, item.href);
 
               return (
                 <NavigationLink
@@ -483,7 +459,6 @@ export function DashboardTopNav({
                     active &&
                       "font-semibold text-primary shadow-[inset_0_-2px_0_var(--color-accent)]"
                   )}
-                  onClick={() => setPreviewModuleHref(null)}
                 >
                   {item.title}
                 </NavigationLink>
