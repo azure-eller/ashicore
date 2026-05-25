@@ -178,16 +178,19 @@ function ProductionProgressBar({ order }: { order: ManufacturingOrderListRow }) 
   const progress = getOrderProgress(order);
   const batchCount =
     order.manufacturingMode === "batch" ? order.numberOfBatches ?? 0 : 0;
+  const progressText =
+    order.manufacturingMode === "batch" && batchCount > 0
+      ? `${order.completedBatchCount}/${batchCount} batches`
+      : `${progress.percent}%`;
 
   return (
-    <div className="flex min-w-0 flex-col gap-(--space-1)">
-      <div className="flex items-center justify-between gap-(--space-3) text-[length:var(--text-xs)] leading-none">
-        <span className="truncate text-muted-foreground">{progress.label}</span>
-        <span className="font-mono tabular-nums">{progress.percent}%</span>
+    <span className="flex min-w-0 flex-col gap-(--space-1)">
+      <div className="flex items-center justify-end text-[length:var(--text-xs)] leading-none">
+        <span className="font-mono tabular-nums opacity-80">{progressText}</span>
       </div>
       {batchCount > 1 ? (
         <div
-          className="grid h-(--space-3) gap-px"
+          className="grid h-(--space-2) gap-px"
           style={{
             gridTemplateColumns: `repeat(${batchCount}, minmax(0, 1fr))`,
           }}
@@ -197,22 +200,22 @@ function ProductionProgressBar({ order }: { order: ManufacturingOrderListRow }) 
               key={index}
               className={
                 index < order.completedBatchCount
-                  ? "bg-[var(--color-ink)]"
-                  : "bg-border"
+                  ? "bg-current"
+                  : "bg-[color-mix(in_oklab,currentColor,transparent_78%)]"
               }
               aria-hidden="true"
             />
           ))}
         </div>
       ) : (
-        <div className="h-(--space-2) bg-border">
+        <div className="h-(--space-2) bg-[color-mix(in_oklab,currentColor,transparent_78%)]">
           <div
-            className="h-full bg-[var(--color-ink)] transition-[width]"
+            className="h-full bg-current transition-[width]"
             style={{ width: `${progress.percent}%` }}
           />
         </div>
       )}
-    </div>
+    </span>
   );
 }
 
@@ -305,19 +308,27 @@ function IngredientsStatusCell({ order }: { order: ManufacturingOrderListRow }) 
 
 function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
   const queryClient = useQueryClient();
+
+  if (order.status === "done") {
+    return (
+      <StatusBlock tone="success" aria-label="Production: Done">
+        Done
+      </StatusBlock>
+    );
+  }
+
   return (
-    <div className="flex h-full min-w-0 flex-col justify-center gap-(--space-2) py-(--space-2)">
-      <OrderStatusControl
-        config={manufacturingOrderStatusConfig}
-        ctx={{ order }}
-        disabled={isManufacturingStatusDisabled(order)}
-        onChanged={() => {
-          void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
-          void queryClient.invalidateQueries({ queryKey: ["items"] });
-        }}
-      />
-      <ProductionProgressBar order={order} />
-    </div>
+    <OrderStatusControl
+      config={manufacturingOrderStatusConfig}
+      ctx={{ order }}
+      disabled={isManufacturingStatusDisabled(order)}
+      footer={<ProductionProgressBar order={order} />}
+      actionVariant="button"
+      onChanged={() => {
+        void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
+        void queryClient.invalidateQueries({ queryKey: ["items"] });
+      }}
+    />
   );
 }
 
@@ -577,7 +588,7 @@ export function OrdersTable({
         headerName: "Production",
         width: 205,
         minWidth: 180,
-        cellClass: "productionProgressCell",
+        cellClass: "statusBlockCell",
         valueGetter: ({ data }) => (data ? getProductionState(data).label : ""),
         cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
           data ? <ProductionActionCell order={data} /> : null,

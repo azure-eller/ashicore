@@ -35,6 +35,7 @@ export type StatusBlockTone = "success" | "warning" | "danger" | "muted";
 type StatusBlockBaseProps = {
   tone: StatusBlockTone;
   children: ReactNode;
+  footer?: ReactNode;
   marker?: ReactNode;
   leadingIcon?: IconSvgElement;
   icon?: IconSvgElement;
@@ -86,6 +87,7 @@ function statusBlockBg(tone: StatusBlockTone, actionable: boolean) {
 
 function StatusBlockContent({
   children,
+  footer,
   marker,
   leadingIcon,
   icon,
@@ -93,6 +95,7 @@ function StatusBlockContent({
   actionVariant,
 }: {
   children: ReactNode;
+  footer?: ReactNode;
   marker?: ReactNode;
   leadingIcon?: IconSvgElement;
   icon?: IconSvgElement;
@@ -103,15 +106,25 @@ function StatusBlockContent({
 
   return (
     <>
-      <span className={cn("inline-flex items-center px-(--space-5)", showActionWell && "pr-(--space-3)")}>
-        {leadingIcon ? (
-          <HugeiconsIcon
-            icon={leadingIcon}
-            size={11}
-            className="mr-(--space-2) opacity-90"
-          />
-        ) : null}
-        {children}
+      <span
+        className={cn(
+          footer
+            ? "flex min-w-0 flex-1 flex-col justify-center gap-(--space-1) px-(--space-5) py-(--space-2)"
+            : "inline-flex items-center px-(--space-5)",
+          showActionWell && "pr-(--space-3)",
+        )}
+      >
+        <span className="inline-flex min-w-0 items-center">
+          {leadingIcon ? (
+            <HugeiconsIcon
+              icon={leadingIcon}
+              size={11}
+              className="mr-(--space-2) opacity-90"
+            />
+          ) : null}
+          <span className="truncate">{children}</span>
+        </span>
+        {footer ? <span className="min-w-0 normal-case tracking-normal">{footer}</span> : null}
       </span>
       {marker ? (
         <span className="ml-auto inline-flex min-w-(--space-10) items-center justify-center border-l border-[var(--status-block-divider)] px-(--space-2) text-[10px] font-bold">
@@ -133,6 +146,7 @@ function StatusBlockContent({
 export function StatusBlock({
   tone,
   children,
+  footer,
   marker,
   leadingIcon,
   icon,
@@ -161,6 +175,7 @@ export function StatusBlock({
   } as CSSProperties;
   const content = (
     <StatusBlockContent
+      footer={footer}
       marker={marker}
       leadingIcon={leadingIcon}
       icon={icon}

@@ -90,6 +90,8 @@ export type OrderStatusControlProps<Ctx> = {
   config: OrderStatusControlConfig<Ctx>;
   ctx: Ctx;
   disabled?: boolean;
+  footer?: ReactNode;
+  actionVariant?: "menu" | "button";
   /** Called after any successful transition so the caller can update local state and invalidate/refetch. */
   onChanged?: (status: string) => void;
 };
@@ -98,6 +100,8 @@ export function OrderStatusControl<Ctx>({
   config,
   ctx,
   disabled = false,
+  footer,
+  actionVariant = "menu",
   onChanged,
 }: OrderStatusControlProps<Ctx>) {
   const [dialogTarget, setDialogTarget] = useState<string | null>(null);
@@ -137,6 +141,8 @@ export function OrderStatusControl<Ctx>({
           <StatusBlock
             actionable
             tone={tone}
+            footer={footer}
+            actionVariant={actionVariant}
             aria-label={`Change status: ${currentOption?.label ?? current}`}
             title="Change status"
             disabled={busy}
