@@ -178,6 +178,7 @@ export type ReadySalesImportOrder = {
   sourceRows: number[];
   existingId: string | null;
   existingOrderNumber: string | null;
+  orderNumber: string | null;
   unchanged?: boolean;
   status: "open";
   customerKey: string;
@@ -298,6 +299,7 @@ export type OrderSeed = {
   sourceRows: number[];
   customerName: string;
   reference: string | null;
+  orderNumber?: string | null;
   orderDate?: string | null;
   shipDate?: string | null;
   requestedDate?: string | null;

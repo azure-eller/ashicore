@@ -282,6 +282,10 @@ export type SalesOrderListLine = {
   shortQty?: string;
   sourceSummary?: string;
   allocationStatus?: SalesAllocationLineSummary["status"];
+  demandQueueInStockQty?: string;
+  demandQueueExpectedQty?: string;
+  demandQueueShortQty?: string;
+  demandQueueExpectedDate?: string | null;
   unplannedAllocatedQty?: string;
   unplannedShortQty?: string;
   unplannedSourceSummary?: string;
@@ -338,12 +342,21 @@ export type SalesOrderFulfillmentSummary = {
   salesItemsState: "complete" | "available" | "expected" | "not_available";
   salesItemsExpectedDate: string | null;
   ingredientsState:
+    | "not_needed"
     | "not_applicable"
     | "in_stock"
     | "expected"
     | "not_available"
     | "picked";
   ingredientsExpectedDate: string | null;
+  ingredientShortages: Array<{
+    itemId: string;
+    itemName: string;
+    itemSku: string | null;
+    unitName: string;
+    requiredQty: string;
+    shortQty: string;
+  }>;
   productionState:
     | "not_applicable"
     | "make"
@@ -459,6 +472,10 @@ export type SalesOrderDetailLine = {
   sourceSummary: string;
   allocationStatus: SalesAllocationLineSummary["status"];
   allocationSources: SalesAllocationLineSummary["sources"];
+  demandQueueInStockQty: string;
+  demandQueueExpectedQty: string;
+  demandQueueShortQty: string;
+  demandQueueExpectedDate: string | null;
 };
 
 export type SalesShipmentLine = {

@@ -81,6 +81,7 @@ import type {
 import styles from "@/components/card-page/card-page.module.css";
 import {
   useManufacturingOrderDraftController,
+  ingredientRequirementMultiplier,
   makeDraftIngredient,
   makeDraftManufacturingOrder,
   resolvePlannedOutputQuantity,
@@ -614,7 +615,7 @@ function buildIngredientOptions(
 
 function ingredientFromOption(
   option: InventoryItemComboboxOption,
-  plannedQuantity: string,
+  requirementMultiplier: string,
   values?: { id?: string; quantityPerUnit?: string; sortOrder?: number },
 ) {
   const ingredient = makeDraftIngredient(
@@ -626,13 +627,13 @@ function ingredientFromOption(
       unitName: option.unitName ?? "",
       quantityPerUnit: values?.quantityPerUnit ?? "1",
     },
-    plannedQuantity,
+    requirementMultiplier,
     values?.sortOrder ?? 0,
   );
   return values?.id ? { ...ingredient, id: values.id } : ingredient;
 }
 
-function makeBlankIngredient(plannedQuantity: string, sortOrder: number) {
+function makeBlankIngredient(requirementMultiplier: string, sortOrder: number) {
   return {
     ...makeDraftIngredient(
       {
@@ -643,7 +644,7 @@ function makeBlankIngredient(plannedQuantity: string, sortOrder: number) {
         unitName: "",
         quantityPerUnit: "1",
       },
-      plannedQuantity,
+      requirementMultiplier,
       sortOrder,
     ),
     itemId: "",
@@ -830,6 +831,7 @@ function IngredientsSection({
   const isBatchMode = order.manufacturingMode === "batch";
   const batchCount = isBatchMode ? Math.max(1, order.numberOfBatches ?? 1) : 1;
   const plannedOutputQuantity = Math.max(0, Number(order.plannedQuantity || 0));
+  const requirementMultiplier = ingredientRequirementMultiplier(order);
   const batchYield =
     isBatchMode && batchCount > 0 ? plannedOutputQuantity / batchCount : plannedOutputQuantity;
   const quantityBasisHeader = isBatchMode ? "Per batch" : "Per unit";
@@ -880,7 +882,7 @@ function IngredientsSection({
         if (change.field === "itemId") {
           const option = optionMap.get(change.row.itemId);
           if (!option) return;
-          const nextIngredient = ingredientFromOption(option, order.plannedQuantity, {
+          const nextIngredient = ingredientFromOption(option, requirementMultiplier, {
             id: change.row.id,
             quantityPerUnit: change.row.quantityPerUnit || "1",
             sortOrder: change.row.sortOrder,
@@ -901,7 +903,7 @@ function IngredientsSection({
             const option = optionMap.get(change.row.itemId);
             if (!option) return;
             controller.addIngredient(
-              ingredientFromOption(option, order.plannedQuantity, {
+              ingredientFromOption(option, requirementMultiplier, {
                 id: change.row.id,
                 quantityPerUnit,
                 sortOrder: change.row.sortOrder,
@@ -915,7 +917,7 @@ function IngredientsSection({
         }
       }
     },
-    [controller, ingredients, optionMap, order.plannedQuantity, quantityPerUnitFromBasis],
+    [controller, ingredients, optionMap, quantityPerUnitFromBasis, requirementMultiplier],
   );
 
   const columns = useMemo<LineField<ManufacturingOrderIngredientDetail>[]>(
@@ -944,7 +946,7 @@ function IngredientsSection({
           if (!option) return false;
           Object.assign(
             params.data,
-            ingredientFromOption(option, order.plannedQuantity, {
+            ingredientFromOption(option, requirementMultiplier, {
               id: params.data.id,
               quantityPerUnit: params.data.quantityPerUnit || "1",
               sortOrder: params.data.sortOrder,
@@ -1098,11 +1100,11 @@ function IngredientsSection({
       onOpenLotPicker,
       optionMap,
       order.id,
-      order.plannedQuantity,
       plannedOutputQuantity,
       quantityBasisHeader,
       quantityBasisValue,
       quantityPerUnitFromBasis,
+      requirementMultiplier,
     ],
   );
 
@@ -1117,9 +1119,10 @@ function IngredientsSection({
         rows={rows}
         fields={columns}
         getRowId={(row) => row.id}
-        createRow={() => makeBlankIngredient(order.plannedQuantity, rows.length)}
+        createRow={() => makeBlankIngredient(requirementMultiplier, rows.length)}
         onRowsChange={handleRowsChange}
         addLabel="Add ingredient"
+        initializeBlankRow={false}
         readOnly={!canEditPlanning}
         emptyMessage={
           order.productId

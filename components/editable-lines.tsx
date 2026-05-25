@@ -214,6 +214,7 @@ type MutableLinesProps<TData> = SharedLinesProps<TData> & {
   getDeleteDisabledReason?: (row: TData, rows: TData[]) => string | null;
   onDeleteRow?: (row: TData, rows: TData[]) => void | Promise<void>;
   onAddRow?: () => TData | null | Promise<TData | null>;
+  initializeBlankRow?: boolean;
 };
 
 export function MutableLines<TData>({
@@ -221,6 +222,7 @@ export function MutableLines<TData>({
   rows: sourceRows,
   createRow,
   fields,
+  initializeBlankRow = true,
   isBlankRow: _isBlankRow,
   ...props
 }: MutableLinesProps<TData>) {
@@ -235,7 +237,7 @@ export function MutableLines<TData>({
       rows={sourceRows}
       createRow={createRow}
       rowHeight={42}
-      initializeBlankRow
+      initializeBlankRow={initializeBlankRow}
       enableAddRow={!readOnly}
       enableReorder={!readOnly}
       enableDelete={!readOnly}
@@ -403,9 +405,18 @@ type TextLineCellEditorProps<TData> = CustomCellEditorProps<TData, string | null
 
 export function TextLineCellEditor<TData>(props: TextLineCellEditorProps<TData>) {
   const editorRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const valueRef = useRef<string | null>(props.value ?? null);
   const [value, setValue] = useState(props.value ?? "");
   const suffix = props.getSuffix?.(props.data) ?? null;
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   useGridCellEditor({
     getValidationElement: () => editorRef.current ?? props.eGridCell,
@@ -416,6 +427,7 @@ export function TextLineCellEditor<TData>(props: TextLineCellEditorProps<TData>)
   return (
     <div ref={editorRef} className="flex h-full w-full items-center gap-(--space-3)">
       <Input
+        ref={inputRef}
         value={value}
         onChange={(event) => {
           const next = event.target.value;

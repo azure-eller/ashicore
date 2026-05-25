@@ -9,6 +9,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { StatusBlock, type StatusBlockTone } from "@/components/ui/status-block";
@@ -34,11 +35,10 @@ const productionToneToStatusBlockTone: Record<
 export function ProductionActionCell({ order, state }: ProductionActionCellProps) {
   const [makeToOrderOpen, setMakeToOrderOpen] = useState(false);
   const isMakeAction = order.status === "open" && state.label === "Make";
-  const isActionable =
-    order.status === "open" && state.label === "Work in progress";
+  const hasOpenManufacturingOrders = order.openManufacturingOrders.length > 0;
   const tone = isMakeAction ? "muted" : productionToneToStatusBlockTone[state.tone];
 
-  if (!isMakeAction && !isActionable) {
+  if (!isMakeAction && !hasOpenManufacturingOrders) {
     return <StatusBlock tone={tone}>{state.label}</StatusBlock>;
   }
 
@@ -49,7 +49,7 @@ export function ProductionActionCell({ order, state }: ProductionActionCellProps
           <StatusBlock
             suppressHydrationWarning
             actionable
-            actionVariant={isMakeAction ? "button" : "menu"}
+            actionVariant="button"
             tone={tone}
             leadingIcon={isMakeAction ? Add01Icon : undefined}
             onClick={(event) => event.stopPropagation()}
@@ -58,20 +58,38 @@ export function ProductionActionCell({ order, state }: ProductionActionCellProps
             {state.label}
           </StatusBlock>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuItem
-            onSelect={() => setMakeToOrderOpen(true)}
-            className="gap-(--space-6) py-(--space-5) text-[length:var(--text-sm)]"
-          >
-            <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-(--space-8)" />
-            Make to order
-          </DropdownMenuItem>
-          <DropdownMenuItem asChild className="gap-(--space-6) py-(--space-5) text-[length:var(--text-sm)]">
-            <Link href="/manufacturing/order">
-              <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-(--space-8)" />
-              Make to stock
-            </Link>
-          </DropdownMenuItem>
+        <DropdownMenuContent align="end" className="w-72">
+          {isMakeAction ? (
+            <>
+              <DropdownMenuItem
+                onSelect={() => setMakeToOrderOpen(true)}
+                className="gap-(--space-6) py-(--space-5) text-[length:var(--text-sm)]"
+              >
+                <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-(--space-8)" />
+                Make to order
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild className="gap-(--space-6) py-(--space-5) text-[length:var(--text-sm)]">
+                <Link href="/manufacturing/order">
+                  <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-(--space-8)" />
+                  Make to stock
+                </Link>
+              </DropdownMenuItem>
+            </>
+          ) : (
+            <>
+              <DropdownMenuLabel>Manufacturing orders</DropdownMenuLabel>
+              {order.openManufacturingOrders.map((mo) => (
+                <DropdownMenuItem key={mo.id} asChild className="py-(--space-4)">
+                  <Link href={`/manufacturing/order/${mo.id}`} className="block">
+                    <div className="font-medium">{mo.orderNumber}</div>
+                    <div className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                      {mo.plannedQuantity} {mo.productName} {mo.unitName}
+                    </div>
+                  </Link>
+                </DropdownMenuItem>
+              ))}
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

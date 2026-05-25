@@ -149,6 +149,9 @@ import {
   getAvailabilityLabel,
   type SalesFulfillmentDemandLine,
 } from "@/lib/sales/fulfillment-read-model";
+import {
+  getDemandQueueCoverageByDemandKeyForItemsInTx,
+} from "@/lib/inventory/allocation/demand-queue";
 import { getEstimatedUnitCostsByItemIdInTx } from "@/lib/inventory/estimated-cost";
 import { getAddressEntryInTx } from "@/lib/dal/addresses";
 
@@ -4919,6 +4922,17 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           .from(salesOrderLines)
           .where(inArray(salesOrderLines.salesOrderId, orderIds))
           .orderBy(asc(salesOrderLines.salesOrderId), asc(salesOrderLines.sortOrder));
+        const demandQueueCoverageByDemandKey =
+          await getDemandQueueCoverageByDemandKeyForItemsInTx(tx, {
+            organizationId: orgId,
+            itemIds: availabilityLineRows.map((line) => line.itemId),
+            includeManufacturingDetail: false,
+          });
+        const demandQueueCoverageBySalesLineId = new Map(
+          [...demandQueueCoverageByDemandKey.values()]
+            .filter((coverage) => coverage.demandType === "sales_order_line")
+            .map((coverage) => [coverage.demandId, coverage])
+        );
         const orderedQuantityByLineId = new Map(
           availabilityLineRows.map((line) => [line.salesOrderLineId, line.quantity])
         );
@@ -4977,9 +4991,23 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 const remainingQty = normalizeShipmentQuantity(
                   Number(line.quantity) - shippedQty
                 );
+                const demandQueueCoverage = demandQueueCoverageBySalesLineId.get(
+                  line.salesOrderLineId
+                );
+                const demandQueueInStockQty = Number(
+                  demandQueueCoverage?.inStockQty ?? 0
+                );
+                const demandQueueExpectedQty = Number(
+                  demandQueueCoverage?.expectedQty ?? 0
+                );
+                const demandQueueShortQty = Number(
+                  demandQueueCoverage?.shortQty ?? remainingQty
+                );
                 acc.remainingQty += remainingQty;
-                acc.allocatedQty += Number(allocation?.allocatedQty ?? 0);
-                acc.shortQty += Number(allocation?.shortQty ?? remainingQty);
+                acc.allocatedQty += roundQuantity(
+                  demandQueueInStockQty + demandQueueExpectedQty
+                );
+                acc.shortQty += demandQueueShortQty;
                 acc.productionAllocatedQty +=
                   allocation?.sources
                     .filter((source) => source.sourceType === "manufacturing_order")
@@ -5039,25 +5067,31 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             )
           );
           const stockBlockers = salesLines.flatMap((line) => {
-            const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
             const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
             const remainingQty = normalizeShipmentQuantity(
               Number(line.quantity) - shippedQty
             );
+            const demandQueueCoverage = demandQueueCoverageBySalesLineId.get(
+              line.salesOrderLineId
+            );
             const shortQty = roundQuantity(
-              Number(allocation?.shortQty ?? remainingQty)
+              Number(demandQueueCoverage?.shortQty ?? remainingQty)
             );
 
             if (!Number.isFinite(shortQty) || shortQty <= 0) {
               return [];
             }
 
-            const allocatedQty = allocation?.allocatedQty ?? "0";
+            const inStockQty = demandQueueCoverage?.inStockQty ?? "0";
+            const expectedQty = demandQueueCoverage?.expectedQty ?? "0";
+            const coveredQty = normalizeNumeric(
+              roundQuantity(Number(inStockQty) + Number(expectedQty))
+            );
 
             return [
               `${line.itemName} needs ${formatQuantity(normalizeNumeric(remainingQty))} ${line.unitName}; ${formatQuantity(
-                allocatedQty
-              )} ${line.unitName} allocated`,
+                coveredQty
+              )} ${line.unitName} covered`,
             ];
           });
 
@@ -5080,6 +5114,9 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
               const allocatedQty = Number(allocation?.allocatedQty ?? 0);
               const shortQty = roundQuantity(
                 Number(allocation?.shortQty ?? remainingQty)
+              );
+              const demandQueueCoverage = demandQueueCoverageBySalesLineId.get(
+                line.salesOrderLineId
               );
               const sources = allocation?.sources ?? [];
 
@@ -5104,6 +5141,12 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                       : sources.some((source) => source.sourceType === "manufacturing_order")
                         ? "waiting_production"
                         : "ready",
+                demandQueueInStockQty: demandQueueCoverage?.inStockQty ?? "0",
+                demandQueueExpectedQty: demandQueueCoverage?.expectedQty ?? "0",
+                demandQueueShortQty:
+                  demandQueueCoverage?.shortQty ?? normalizeNumeric(remainingQty),
+                demandQueueExpectedDate:
+                  demandQueueCoverage?.earliestExpectedDate ?? null,
                 unplannedAllocatedQty: unplannedAllocation?.allocatedQty ?? "0",
                 unplannedShortQty:
                   unplannedAllocation?.shortQty ?? normalizeNumeric(unplannedQty),
@@ -5154,6 +5197,14 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                   fulfillmentReadModel?.ingredientsState ?? "not_applicable",
                 ingredientsExpectedDate:
                   fulfillmentReadModel?.ingredientsExpectedDate ?? null,
+                ingredientShortages:
+                  fulfillmentReadModel?.ingredientShortages.map((shortage) => ({
+                    ...shortage,
+                    requiredQty: normalizeNumeric(
+                      roundQuantity(shortage.requiredQty)
+                    ),
+                    shortQty: normalizeNumeric(roundQuantity(shortage.shortQty)),
+                  })) ?? [],
                 productionState:
                   fulfillmentReadModel?.productionState ?? "not_applicable",
               };
@@ -5846,12 +5897,24 @@ export async function getSalesOrder(
         sources,
       });
     }
+    const demandQueueCoverageByDemandKey =
+      await getDemandQueueCoverageByDemandKeyForItemsInTx(tx, {
+        organizationId: orgId,
+        itemIds: linesWithFulfillment.map((line) => line.itemId),
+        includeManufacturingDetail: false,
+      });
+    const demandQueueCoverageBySalesLineId = new Map(
+      [...demandQueueCoverageByDemandKey.values()]
+        .filter((coverage) => coverage.demandType === "sales_order_line")
+        .map((coverage) => [coverage.demandId, coverage])
+    );
     const linesWithAllocation = linesWithFulfillment.map((line) => {
       const allocation = allocationSummaryByLineId.get(line.id);
       const allocatedQty = Number(allocation?.allocatedQty ?? 0);
       const shortQty = roundQuantity(
         Number(allocation?.shortQty ?? Number(line.remainingQuantity))
       );
+      const demandQueueCoverage = demandQueueCoverageBySalesLineId.get(line.id);
       const sources = allocation?.sources ?? [];
 
       return {
@@ -5868,6 +5931,11 @@ export async function getSalesOrder(
                 ? "waiting_production"
                 : "ready",
         allocationSources: sources,
+        demandQueueInStockQty: demandQueueCoverage?.inStockQty ?? "0",
+        demandQueueExpectedQty: demandQueueCoverage?.expectedQty ?? "0",
+        demandQueueShortQty:
+          demandQueueCoverage?.shortQty ?? line.remainingQuantity,
+        demandQueueExpectedDate: demandQueueCoverage?.earliestExpectedDate ?? null,
       };
     });
     const manualReservation = summarizeManualReservations(
@@ -5879,11 +5947,16 @@ export async function getSalesOrder(
         0
       );
       const allocatedQty = linesWithAllocation.reduce(
-        (sum, line) => roundQuantity(sum + Number(line.allocatedQty)),
+        (sum, line) =>
+          roundQuantity(
+            sum +
+              Number(line.demandQueueInStockQty) +
+              Number(line.demandQueueExpectedQty)
+          ),
         0
       );
       const shortQty = linesWithAllocation.reduce(
-        (sum, line) => roundQuantity(sum + Number(line.shortQty)),
+        (sum, line) => roundQuantity(sum + Number(line.demandQueueShortQty)),
         0
       );
       const productionAllocatedQty = linesWithAllocation.reduce(
@@ -5919,6 +5992,7 @@ export async function getSalesOrder(
         salesItemsExpectedDate: null,
         ingredientsState: "not_applicable",
         ingredientsExpectedDate: null,
+        ingredientShortages: [],
         productionState: "not_applicable",
       };
     })();
@@ -5993,19 +6067,31 @@ export async function getSalesOrder(
       salesItemsExpectedDate,
       ingredientsState: fulfillmentReadModel?.ingredientsState ?? "not_applicable",
       ingredientsExpectedDate: fulfillmentReadModel?.ingredientsExpectedDate ?? null,
+      ingredientShortages:
+        fulfillmentReadModel?.ingredientShortages.map((shortage) => ({
+          ...shortage,
+          requiredQty: normalizeNumeric(roundQuantity(shortage.requiredQty)),
+          shortQty: normalizeNumeric(roundQuantity(shortage.shortQty)),
+        })) ?? [],
       productionState: fulfillmentReadModel?.productionState ?? "not_applicable",
     };
     const stockBlockers = linesWithAllocation.flatMap((line) => {
-      const shortQty = Number(line.shortQty);
+      const shortQty = Number(line.demandQueueShortQty);
 
       if (!Number.isFinite(shortQty) || shortQty <= 0) {
         return [];
       }
 
+      const coveredQty = normalizeNumeric(
+        roundQuantity(
+          Number(line.demandQueueInStockQty) + Number(line.demandQueueExpectedQty)
+        )
+      );
+
       return [
         `${line.itemName} needs ${formatQuantity(line.remainingQuantity)} ${line.unitName}; ${formatQuantity(
-          line.allocatedQty
-        )} ${line.unitName} allocated`,
+          coveredQty
+        )} ${line.unitName} covered`,
       ];
     });
 

@@ -24,7 +24,9 @@ export function formatCurrency(
     currencyFormats.set(normalizedCurrency, formatter);
   }
 
-  const numericValue = typeof value === "number" ? value : parseFloat(value);
+  const parsedValue = typeof value === "number" ? value : parseFloat(value);
+  const numericValue =
+    Number.isFinite(parsedValue) && Math.abs(parsedValue) < 0.005 ? 0 : parsedValue;
   return formatter.format(numericValue);
 }
 

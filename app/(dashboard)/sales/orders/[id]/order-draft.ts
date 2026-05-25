@@ -70,6 +70,7 @@ export function makeDraftOrder(timeZone: string): SalesOrderDetail {
       salesItemsExpectedDate: null,
       ingredientsState: "not_applicable",
       ingredientsExpectedDate: null,
+      ingredientShortages: [],
       productionState: "not_applicable",
     },
     shippingReadiness: {
@@ -154,6 +155,10 @@ export function makeDraftLine(input: {
     sourceSummary: "",
     allocationStatus: "short",
     allocationSources: [],
+    demandQueueInStockQty: "0",
+    demandQueueExpectedQty: "0",
+    demandQueueShortQty: input.quantity,
+    demandQueueExpectedDate: null,
   };
 }
 

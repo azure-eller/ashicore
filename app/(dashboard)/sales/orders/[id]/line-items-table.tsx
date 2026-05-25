@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   ICellRendererParams,
   ValueSetterParams,
@@ -46,9 +46,15 @@ export function LineItemsTable({
 }: LineItemsTableProps) {
   const [confirmDelete, setConfirmDelete] = useState<SalesOrderDetailLine | null>(null);
   const [rows, setRows] = useState(order.lines);
+  const savedDraftLineIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
     setRows(order.lines);
+    savedDraftLineIdsRef.current = new Set(
+      order.lines
+        .filter((line) => line.id.startsWith("draft-") && !isBlankSalesOrderLine(line))
+        .map((line) => line.id),
+    );
   }, [order.lines]);
 
   const nonBlankRows = rows.filter((line) => !isBlankSalesOrderLine(line));
@@ -217,6 +223,10 @@ export function LineItemsTable({
     if (isDraftLineSaveAttempt(change)) {
       const picked = itemMap.get(change.row.itemId);
       if (!picked || !isSavableDraftLine(change.row)) return;
+      if (savedDraftLineIdsRef.current.has(change.row.id)) {
+        return;
+      }
+      savedDraftLineIdsRef.current.add(change.row.id);
       controller.addLine(
         lineFromItem(picked, change.row.id, {
           quantity: change.row.quantity,
@@ -389,10 +399,14 @@ function isDraftLineSaveAttempt(
 }
 
 function isSavableDraftLine(line: SalesOrderDetailLine) {
+  const quantity = Number(line.quantity);
+  const unitPrice = Number(line.unitPrice);
   return (
     Boolean(line.itemId) &&
-    Number(line.quantity) > 0 &&
-    Number(line.unitPrice) > 0
+    Number.isFinite(quantity) &&
+    quantity > 0 &&
+    Number.isFinite(unitPrice) &&
+    unitPrice >= 0
   );
 }
 

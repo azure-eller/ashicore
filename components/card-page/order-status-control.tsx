@@ -137,7 +137,8 @@ export function OrderStatusControl<Ctx>({
           <StatusBlock
             actionable
             tone={tone}
-            aria-label={`Status: ${currentOption?.label ?? current}`}
+            aria-label={`Change status: ${currentOption?.label ?? current}`}
+            title="Change status"
             disabled={busy}
             onClick={(event) => event.stopPropagation()}
           >

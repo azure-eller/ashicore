@@ -590,6 +590,7 @@ export async function evaluateSalesImportInTx(
           sourceRows: order.sourceRows,
           existingId: existingOrder.id,
           existingOrderNumber: existingOrder.orderNumber,
+          orderNumber: order.orderNumber ?? null,
           status,
           customerKey,
           customerName: resolvedCustomerName,
@@ -620,6 +621,7 @@ export async function evaluateSalesImportInTx(
       sourceRows: order.sourceRows,
       existingId: existingOrder?.id ?? null,
       existingOrderNumber: existingOrder?.orderNumber ?? null,
+      orderNumber: order.orderNumber ?? null,
       unchanged:
         existingOrder != null &&
         existingOrder.status === status &&
@@ -791,7 +793,7 @@ export async function applySalesImportOrdersInTx(
           `${order.existingOrderNumber ?? order.existingId} - ${order.label}`
         );
       } else {
-        const orderNumber = await generateSalesOrderNumber(tx);
+        const orderNumber = order.orderNumber ?? (await generateSalesOrderNumber(tx));
         const [createdOrder] = await tx
           .insert(salesOrders)
           .values({

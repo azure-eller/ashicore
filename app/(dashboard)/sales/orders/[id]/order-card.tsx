@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -14,6 +15,7 @@ import type {
   SalesOrderDetail,
   SalesOrderItemOption,
 } from "@/app/(dashboard)/sales/types";
+import { formatDate, formatQuantity } from "@/lib/format";
 import { OrderStatusControl } from "@/components/card-page/order-status-control";
 import {
   isSalesOrderStatusDisabled,
@@ -24,7 +26,7 @@ import { LineItemsTable } from "./line-items-table";
 import { ShippingFeeSection } from "./shipping-fee-section";
 import { TotalsStrip } from "./totals-strip";
 import { CreateManufacturingOrdersDialog } from "../../create-manufacturing-orders-dialog";
-import { CardPage, CardPageBody } from "@/components/card-page/card-page";
+import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { DetailHeaderTitle } from "@/components/card-page/detail-header-title";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
@@ -291,6 +293,8 @@ export function OrderCard({
           controller={controller}
         />
 
+        <LinkedManufacturingOrdersSection order={order} />
+
         <ShippingFeeSection
           order={order}
           editable={isEditable}
@@ -331,6 +335,76 @@ export function OrderCard({
       {deleteConfirm.dialog}
     </CardPage>
   );
+}
+
+function LinkedManufacturingOrdersSection({ order }: { order: SalesOrderDetail }) {
+  if (order.linkedManufacturingOrders.length === 0) return null;
+
+  return (
+    <CardSection
+      title="Manufacturing"
+      count={`· ${order.linkedManufacturingOrders.length} order${
+        order.linkedManufacturingOrders.length === 1 ? "" : "s"
+      }`}
+    >
+      <div className="overflow-x-auto border border-[var(--color-line)]">
+        <table className="w-full border-collapse text-sm">
+          <thead className="bg-[var(--color-surface-muted)] text-[11px] uppercase tracking-normal text-muted-foreground">
+            <tr>
+              <th className="px-(--space-3) py-(--space-2) text-left font-medium">Order</th>
+              <th className="px-(--space-3) py-(--space-2) text-left font-medium">Product</th>
+              <th className="px-(--space-3) py-(--space-2) text-right font-medium">Planned</th>
+              <th className="px-(--space-3) py-(--space-2) text-left font-medium">Status</th>
+              <th className="px-(--space-3) py-(--space-2) text-left font-medium">Deadline</th>
+            </tr>
+          </thead>
+          <tbody>
+            {order.linkedManufacturingOrders.map((linkedOrder) => (
+              <tr key={linkedOrder.id} className="border-t border-[var(--color-line)]">
+                <td className="px-(--space-3) py-(--space-2)">
+                  <Link
+                    href={`/manufacturing/order/${linkedOrder.id}`}
+                    className="font-medium text-foreground underline-offset-2 hover:underline"
+                    prefetch={false}
+                  >
+                    {linkedOrder.orderNumber}
+                  </Link>
+                </td>
+                <td className="px-(--space-3) py-(--space-2) text-muted-foreground">
+                  {linkedOrder.productName}
+                </td>
+                <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums">
+                  {formatQuantity(linkedOrder.plannedQuantity)} {linkedOrder.unitName}
+                </td>
+                <td className="px-(--space-3) py-(--space-2)">
+                  {manufacturingProductionStatusLabel(linkedOrder.productionStatus)}
+                </td>
+                <td className="px-(--space-3) py-(--space-2) text-muted-foreground">
+                  {linkedOrder.plannedDate ? formatDate(linkedOrder.plannedDate) : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </CardSection>
+  );
+}
+
+function manufacturingProductionStatusLabel(
+  status: SalesOrderDetail["linkedManufacturingOrders"][number]["productionStatus"],
+) {
+  switch (status) {
+    case "blocked":
+      return "Blocked";
+    case "in_progress":
+      return "Work in progress";
+    case "done":
+      return "Done";
+    case "not_started":
+    default:
+      return "Not started";
+  }
 }
 
 function makeInitialDraftOrder(

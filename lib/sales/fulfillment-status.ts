@@ -7,6 +7,7 @@ export type SalesItemsFulfillmentState =
   | "complete";
 
 export type SalesIngredientsFulfillmentState =
+  | "not_needed"
   | "not_applicable"
   | "in_stock"
   | "expected"
@@ -58,6 +59,8 @@ export function getIngredientsDisplayState(
   expectedDate: string | null = null
 ): FulfillmentDisplayState {
   switch (state) {
+    case "not_needed":
+      return { label: "Available", tone: "success" };
     case "picked":
       return { label: "Picked", tone: "success" };
     case "in_stock":

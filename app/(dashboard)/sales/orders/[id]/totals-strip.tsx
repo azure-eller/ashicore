@@ -7,6 +7,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { HelpCircleIcon } from "@hugeicons/core-free-icons";
 import { TotalsSummary } from "@/components/card-page/totals-summary";
 import { formatPrice } from "@/lib/format";
+import { displaySalesOrderNotes } from "@/lib/sales/import-notes";
 import type { SalesOrderDetail } from "@/app/(dashboard)/sales/types";
 import type { SalesOrderDraftController } from "./use-sales-order-draft-controller";
 import styles from "./order-card.module.css";
@@ -18,7 +19,7 @@ export type TotalsStripProps = {
 };
 
 export function TotalsStrip({ order, notesEditable, controller }: TotalsStripProps) {
-  const notesValue = order.notes ?? "";
+  const notesValue = displaySalesOrderNotes(order.notes) ?? "";
   const { marginSummary } = order;
   const revenue = parseAmount(marginSummary.productRevenue);
   const cogs = parseAmount(marginSummary.productCogs);
@@ -60,12 +61,12 @@ export function TotalsStrip({ order, notesEditable, controller }: TotalsStripPro
               </span>
             ),
             value: cogs == null ? "—" : formatMoney(cogs),
-            minusPrefix: true,
+            minusPrefix: !isZeroAmount(cogs),
           },
           {
             label: "Shipping costs",
             value: shipmentCosts == null ? "—" : formatMoney(shipmentCosts),
-            minusPrefix: true,
+            minusPrefix: !isZeroAmount(shipmentCosts),
           },
           {
             label: "Total",
@@ -141,4 +142,8 @@ function parseAmount(value: string | null | undefined): number | null {
 function formatMoney(value: number | string | null | undefined): string {
   if (value == null) return "—";
   return formatPrice(String(value)) ?? "—";
+}
+
+function isZeroAmount(value: number | null | undefined) {
+  return value === 0;
 }

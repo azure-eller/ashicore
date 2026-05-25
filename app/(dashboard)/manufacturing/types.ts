@@ -151,6 +151,12 @@ export type ManufacturingOrderListRow = {
   pickProgressStatus: ManufacturingPickProgressStatus;
   pickProgressPercent: number;
   ingredientReadiness: ManufacturingIngredientReadiness;
+  ingredientShortages: Array<{
+    itemId: string;
+    itemName: string;
+    needed: string;
+    available: string;
+  }>;
   completedBatchCount: number;
   actionableBatchCount: number;
   startedAt: Date | null;

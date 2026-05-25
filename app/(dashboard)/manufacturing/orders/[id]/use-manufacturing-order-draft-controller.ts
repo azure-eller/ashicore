@@ -108,12 +108,15 @@ export function useManufacturingOrderDraftController({
           } as ManufacturingOrderDetail);
         case "selectProduct": {
           editableSnapshotRevisionRef.current = revision;
+          const inputQuantity = plannedInputValue(current);
           const plannedQuantity =
             resolvePlannedOutputQuantity({
-              inputQuantity: plannedInputValue(current),
+              inputQuantity,
               manufacturingMode: op.product.manufacturingMode,
               expectedBatchYield: op.product.expectedBatchYield,
             }) ?? "1";
+          const ingredientMultiplier =
+            op.product.manufacturingMode === "batch" ? inputQuantity : plannedQuantity;
           return recomputeManufacturingDraft({
             ...current,
             productId: op.product.id,
@@ -133,7 +136,7 @@ export function useManufacturingOrderDraftController({
             salesOrderNumber: null,
             salesCustomerName: null,
             ingredients: op.product.bom.map((ingredient, index) =>
-              makeDraftIngredient(ingredient, plannedQuantity, index),
+              makeDraftIngredient(ingredient, ingredientMultiplier, index),
             ),
             operationCosts: [],
           });
@@ -152,7 +155,14 @@ export function useManufacturingOrderDraftController({
               ...ingredient,
               plannedQuantity: multiplyQuantityString(
                 ingredient.quantityPerUnit,
-                op.plannedQuantity,
+                ingredientRequirementMultiplier({
+                  ...current,
+                  plannedQuantity: op.plannedQuantity,
+                  numberOfBatches:
+                    current.manufacturingMode === "batch"
+                      ? Number(op.inputQuantity)
+                      : current.numberOfBatches,
+                }),
               ),
             })),
           });
@@ -167,7 +177,7 @@ export function useManufacturingOrderDraftController({
                 sortOrder: current.ingredients.length,
                 plannedQuantity: multiplyQuantityString(
                   op.ingredient.quantityPerUnit,
-                  current.plannedQuantity,
+                  ingredientRequirementMultiplier(current),
                 ),
               },
             ],
@@ -183,7 +193,7 @@ export function useManufacturingOrderDraftController({
                 ...next,
                 plannedQuantity: multiplyQuantityString(
                   next.quantityPerUnit,
-                  current.plannedQuantity,
+                  ingredientRequirementMultiplier(current),
                 ),
               };
             }),
@@ -418,9 +428,10 @@ export function makeDraftIngredient(
     quantityPerUnit: string;
     defaultQuantityPerUnit?: string | null;
   },
-  plannedQuantity: string,
+  requirementMultiplier: string,
   sortOrder = 0,
 ): ManufacturingOrderIngredientDetail {
+  const plannedQuantity = multiplyQuantityString(input.quantityPerUnit, requirementMultiplier);
   return {
     id: `draft-${crypto.randomUUID()}`,
     itemId: input.itemId,
@@ -429,10 +440,10 @@ export function makeDraftIngredient(
     itemType: input.itemType,
     unitName: input.unitName,
     quantityPerUnit: input.quantityPerUnit,
-    plannedQuantity: multiplyQuantityString(input.quantityPerUnit, plannedQuantity),
+    plannedQuantity,
     lotStrategy: "fifo",
     pickedQuantity: "0",
-    remainingQuantity: multiplyQuantityString(input.quantityPerUnit, plannedQuantity),
+    remainingQuantity: plannedQuantity,
     pickStatus: "not_picked",
     actualQuantity: null,
     actualCostTotal: null,
@@ -684,6 +695,7 @@ function savedHeaderKeys(ops: Array<QueuedDraftOp<ManufacturingOrderDraftOp>>) {
 }
 
 function recomputeManufacturingDraft(order: ManufacturingOrderDetail) {
+  const requirementMultiplier = ingredientRequirementMultiplier(order);
   return {
     ...order,
     ingredients: order.ingredients.map((ingredient, index) => ({
@@ -691,14 +703,40 @@ function recomputeManufacturingDraft(order: ManufacturingOrderDetail) {
       sortOrder: index,
       plannedQuantity: multiplyQuantityString(
         ingredient.quantityPerUnit,
-        order.plannedQuantity,
+        requirementMultiplier,
       ),
       remainingQuantity: multiplyQuantityString(
         ingredient.quantityPerUnit,
-        order.plannedQuantity,
+        requirementMultiplier,
       ),
     })),
   };
+}
+
+export function ingredientRequirementMultiplier(order: Pick<
+  ManufacturingOrderDetail,
+  "manufacturingMode" | "numberOfBatches" | "plannedQuantity" | "expectedBatchYield" | "requestedQuantity"
+>) {
+  if (order.manufacturingMode !== "batch") {
+    return order.requestedQuantity || order.plannedQuantity || "1";
+  }
+
+  if (order.numberOfBatches != null && Number.isFinite(order.numberOfBatches)) {
+    return formatDecimal(order.numberOfBatches);
+  }
+
+  const plannedQuantity = Number(order.plannedQuantity);
+  const batchYield = Number(order.expectedBatchYield);
+  if (
+    Number.isFinite(plannedQuantity) &&
+    plannedQuantity > 0 &&
+    Number.isFinite(batchYield) &&
+    batchYield > 0
+  ) {
+    return formatDecimal(plannedQuantity / batchYield);
+  }
+
+  return plannedInputValue(order as ManufacturingOrderDetail);
 }
 
 function plannedInputValue(order: ManufacturingOrderDetail) {

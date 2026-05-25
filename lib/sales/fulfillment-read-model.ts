@@ -5,11 +5,13 @@ import {
   bomRevisionComponents,
   bomRevisions,
   inventoryLotBalances,
+  items,
   manufacturingOrderIngredients,
   manufacturingOrders,
   purchaseOrderLines,
   purchaseOrders,
   stockAllocations,
+  unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -31,7 +33,17 @@ export type SalesFulfillmentReadModel = {
   salesItemsExpectedDate: string | null;
   ingredientsState: SalesIngredientsFulfillmentState;
   ingredientsExpectedDate: string | null;
+  ingredientShortages: SalesIngredientShortageSummary[];
   productionState: SalesProductionFulfillmentState;
+};
+
+export type SalesIngredientShortageSummary = {
+  itemId: string;
+  itemName: string;
+  itemSku: string | null;
+  unitName: string;
+  requiredQty: number;
+  shortQty: number;
 };
 
 export type SalesFulfillmentDemandLine = {
@@ -90,11 +102,17 @@ type IngredientSupplySlice = {
 type IngredientNeed = {
   salesOrderId: string;
   itemId: string;
+  itemName: string;
+  itemSku: string | null;
+  unitName: string;
   quantity: number;
 };
 
 type IngredientCoverage = {
-  state: Exclude<SalesIngredientsFulfillmentState, "not_applicable" | "picked">;
+  state: Exclude<
+    SalesIngredientsFulfillmentState,
+    "not_needed" | "not_applicable" | "picked"
+  >;
   expectedDate: string | null;
 };
 
@@ -533,6 +551,10 @@ function deriveProductionState(
     return "in_progress";
   }
 
+  if (order.linkedManufacturingOrders.some((mo) => mo.productionStatus === "done")) {
+    return "in_progress";
+  }
+
   if (linkedOpenOrders.some((mo) => mo.productionStatus === "not_started")) {
     return "not_started";
   }
@@ -585,6 +607,7 @@ function coverageForNeeds(
   supplyByItemId: Map<string, IngredientSupplySlice[]>
 ) {
   const coverages: IngredientCoverage[] = [];
+  const shortages: SalesIngredientShortageSummary[] = [];
 
   for (const need of needs) {
     let remaining = need.quantity;
@@ -621,9 +644,17 @@ function coverageForNeeds(
     }
 
     coverages.push({ state: "not_available", expectedDate: null });
+    shortages.push({
+      itemId: need.itemId,
+      itemName: need.itemName,
+      itemSku: need.itemSku,
+      unitName: need.unitName,
+      requiredQty: need.quantity,
+      shortQty: remaining,
+    });
   }
 
-  return coverages;
+  return { coverages, shortages };
 }
 
 function aggregateNeeds(needs: IngredientNeed[]) {
@@ -636,6 +667,9 @@ function aggregateNeeds(needs: IngredientNeed[]) {
     byOrderAndItem.set(key, {
       salesOrderId: need.salesOrderId,
       itemId: need.itemId,
+      itemName: need.itemName,
+      itemSku: need.itemSku,
+      unitName: need.unitName,
       quantity: roundQuantity((existing?.quantity ?? 0) + need.quantity),
     });
   }
@@ -664,6 +698,9 @@ async function getOpenLinkedMoIngredientNeedsInTx(
     .select({
       manufacturingOrderId: manufacturingOrders.id,
       itemId: manufacturingOrderIngredients.itemId,
+      itemName: manufacturingOrderIngredients.itemName,
+      itemSku: manufacturingOrderIngredients.itemSku,
+      unitName: manufacturingOrderIngredients.unitName,
       quantity: trimScale(
         sql`COALESCE(SUM(GREATEST(${manufacturingOrderIngredients.plannedQuantity} - ${manufacturingOrderIngredients.pickedQuantity}, 0)), 0)`
       ).as("quantity"),
@@ -683,7 +720,13 @@ async function getOpenLinkedMoIngredientNeedsInTx(
         inArray(manufacturingOrders.id, linkedMoIds)
       )
     )
-    .groupBy(manufacturingOrders.id, manufacturingOrderIngredients.itemId);
+    .groupBy(
+      manufacturingOrders.id,
+      manufacturingOrderIngredients.itemId,
+      manufacturingOrderIngredients.itemName,
+      manufacturingOrderIngredients.itemSku,
+      manufacturingOrderIngredients.unitName
+    );
 
   const bySalesOrderId = new Map<string, IngredientNeed[]>();
   for (const row of rows) {
@@ -693,7 +736,14 @@ async function getOpenLinkedMoIngredientNeedsInTx(
     for (const salesOrderId of salesOrderIds) {
       bySalesOrderId.set(salesOrderId, [
         ...(bySalesOrderId.get(salesOrderId) ?? []),
-        { salesOrderId, itemId: row.itemId, quantity },
+        {
+          salesOrderId,
+          itemId: row.itemId,
+          itemName: row.itemName,
+          itemSku: row.itemSku,
+          unitName: row.unitName,
+          quantity,
+        },
       ]);
     }
   }
@@ -739,9 +789,14 @@ async function getBomIngredientNeedsInTx(
     .select({
       bomRevisionId: bomRevisionComponents.bomRevisionId,
       componentId: bomRevisionComponents.componentId,
+      componentName: items.name,
+      componentSku: items.sku,
+      unitName: unitDefinitions.name,
       quantity: trimScale(bomRevisionComponents.quantity).as("quantity"),
     })
     .from(bomRevisionComponents)
+    .innerJoin(items, eq(bomRevisionComponents.componentId, items.id))
+    .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
     .where(inArray(bomRevisionComponents.bomRevisionId, revisions.map((row) => row.id)))
     .orderBy(asc(bomRevisionComponents.sortOrder));
 
@@ -770,6 +825,9 @@ async function getBomIngredientNeedsInTx(
       needs.push({
         salesOrderId: line.salesOrderId,
         itemId: component.componentId,
+        itemName: component.componentName,
+        itemSku: component.componentSku,
+        unitName: component.unitName ?? "unit",
         quantity: parseQuantity(
           calculateIngredientPlannedQuantity({
             recipeBasis,
@@ -978,6 +1036,18 @@ export async function getSalesFulfillmentReadModelsInTx(
     const salesItemsState = availability?.salesItemsState ?? "not_available";
     const productionState = deriveProductionState(order);
 
+    if (salesItemsState === "available" || salesItemsState === "complete") {
+      models.set(order.id, {
+        salesItemsState,
+        salesItemsExpectedDate: null,
+        productionState,
+        ingredientsState: "not_needed",
+        ingredientsExpectedDate: null,
+        ingredientShortages: [],
+      });
+      continue;
+    }
+
     const linkedNeeds = aggregateNeeds(linkedNeedsByOrderId.get(order.id) ?? []);
     const bomOrderNeeds = bomNeedsByOrderId.get(order.id) ?? [];
     const ingredientNeeds = aggregateNeeds([...linkedNeeds, ...bomOrderNeeds]);
@@ -986,15 +1056,25 @@ export async function getSalesFulfillmentReadModelsInTx(
       (line) => !linkedLineIds?.has(line.salesOrderLineId)
     );
 
-    const ingredientSummary =
+    const ingredientCoverage =
       !hasUnlinkedManufacturableLines &&
       order.linkedManufacturingOrders.length > 0 &&
       (order.linkedManufacturingOrders.every((mo) => mo.productionStatus === "done") ||
         linkedNeeds.length === 0)
-        ? { ingredientsState: "picked" as const, ingredientsExpectedDate: null }
-        : rollupIngredientCoverages(
-            coverageForNeeds(ingredientNeeds, ingredientSupplyByItemId)
-          );
+        ? {
+            summary: {
+              ingredientsState: "picked" as const,
+              ingredientsExpectedDate: null,
+            },
+            shortages: [],
+          }
+        : (() => {
+            const coverage = coverageForNeeds(ingredientNeeds, ingredientSupplyByItemId);
+            return {
+              summary: rollupIngredientCoverages(coverage.coverages),
+              shortages: coverage.shortages,
+            };
+          })();
 
     models.set(order.id, {
       salesItemsState,
@@ -1003,7 +1083,8 @@ export async function getSalesFulfillmentReadModelsInTx(
           ? availability?.salesItemsExpectedDate ?? null
           : null,
       productionState,
-      ...ingredientSummary,
+      ...ingredientCoverage.summary,
+      ingredientShortages: ingredientCoverage.shortages,
     });
   }
 

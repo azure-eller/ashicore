@@ -3409,6 +3409,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             | "pickProgressStatus"
             | "pickProgressPercent"
             | "ingredientReadiness"
+            | "ingredientShortages"
             | "completedBatchCount"
             | "actionableBatchCount"
             | "itemSpriteKind"
@@ -3433,6 +3434,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             manufacturingOrderId: manufacturingOrderIngredients.manufacturingOrderId,
             manufacturingOrderBatchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
             itemId: manufacturingOrderIngredients.itemId,
+            itemName: manufacturingOrderIngredients.itemName,
             plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
               "plannedQuantity"
             ),
@@ -3486,10 +3488,19 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
         const readinessIngredientsByOrder = new Map(
           [...readinessQuantityByOrderItem.entries()].map(([orderId, rows]) => [
             orderId,
-            [...rows.entries()].map(([itemId, plannedQuantity]) => ({
-              itemId,
-              plannedQuantity: normalizeNumeric(plannedQuantity),
-            })),
+            [...rows.entries()].map(([itemId, plannedQuantity]) => {
+              const matchingIngredient = ingredientRows.find(
+                (ingredient) =>
+                  ingredient.manufacturingOrderId === orderId &&
+                  ingredient.itemId === itemId
+              );
+
+              return {
+                itemId,
+                itemName: matchingIngredient?.itemName ?? "Ingredient",
+                plannedQuantity: normalizeNumeric(plannedQuantity),
+              };
+            }),
           ])
         );
 
@@ -3565,6 +3576,28 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             sku: order.productSku,
             name: order.productName,
           });
+          const ingredientShortages = (
+            readinessIngredientsByOrder.get(order.id) ?? []
+          ).flatMap((ingredient) => {
+            const coverage = ingredientCoverageByOrderItem.get(
+              `${order.id}:${ingredient.itemId}`
+            ) ?? { inStockQuantity: 0, expectedQuantity: 0 };
+            const needed = Number.parseFloat(ingredient.plannedQuantity);
+            const available = coverage.inStockQuantity;
+
+            if (!Number.isFinite(needed) || available >= needed) {
+              return [];
+            }
+
+            return [
+              {
+                itemId: ingredient.itemId,
+                itemName: ingredient.itemName,
+                needed: normalizeNumeric(needed),
+                available: normalizeNumeric(available),
+              },
+            ];
+          });
 
           return {
             ...order,
@@ -3589,6 +3622,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
                 })
               ),
             }),
+            ingredientShortages,
             completedBatchCount,
             actionableBatchCount: batches.filter((batch) => batch.status !== "completed").length,
           };

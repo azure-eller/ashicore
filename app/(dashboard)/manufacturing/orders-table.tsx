@@ -17,6 +17,12 @@ import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { DateTimeText } from "@/components/date-time-text";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { StatusBlock, type StatusBlockTone } from "@/components/ui/status-block";
 import {
   AlertDialog,
@@ -29,7 +35,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatQuantity } from "@/lib/format";
 import {
   getIngredientsDisplayState,
   getProductionDisplayState,
@@ -204,20 +210,54 @@ const fulfillmentToneToStatusBlockTone: Record<
   warning: "warning",
 };
 
-function ManufacturingStatusBlock({
-  state,
-  className,
-}: {
-  state: FulfillmentDisplayState;
-  className?: string;
-}) {
+function IngredientsStatusCell({ order }: { order: ManufacturingOrderListRow }) {
+  const state = getIngredientState(order);
+  const rows = order.ingredientShortages;
+
   return (
-    <StatusBlock
-      tone={fulfillmentToneToStatusBlockTone[state.tone]}
-      className={className}
-    >
-      {state.label}
-    </StatusBlock>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <StatusBlock
+          tone={fulfillmentToneToStatusBlockTone[state.tone]}
+          actionable
+          actionVariant="button"
+          onClick={(event) => event.stopPropagation()}
+          aria-label={`Ingredients: ${state.label}`}
+        >
+          {state.label}
+        </StatusBlock>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-[420px]">
+        <DropdownMenuLabel>Short ingredients</DropdownMenuLabel>
+        {rows.length === 0 ? (
+          <div className="px-(--space-3) py-(--space-4) text-[length:var(--text-sm)] text-muted-foreground">
+            No ingredient shortages.
+          </div>
+        ) : (
+          <div className="max-h-[320px] overflow-y-auto">
+            <div className="grid grid-cols-[minmax(0,1fr)_64px_64px] gap-x-(--space-5) border-b border-border px-(--space-3) py-(--space-2) text-[length:var(--text-xs)] font-medium text-muted-foreground">
+              <div>Item</div>
+              <div className="text-right">Needed</div>
+              <div className="text-right">Available</div>
+            </div>
+            {rows.map((row) => (
+              <div
+                key={row.itemId}
+                className="grid grid-cols-[minmax(0,1fr)_64px_64px] items-start gap-x-(--space-5) border-b border-border/60 px-(--space-3) py-(--space-3) text-[length:var(--text-sm)] last:border-b-0"
+              >
+                <div className="min-w-0 truncate font-medium">{row.itemName}</div>
+                <div className="text-right font-mono text-[length:var(--text-xs)] tabular-nums text-muted-foreground">
+                  {formatQuantity(row.needed)}
+                </div>
+                <div className="text-right font-mono text-[length:var(--text-xs)] tabular-nums text-muted-foreground">
+                  {formatQuantity(row.available)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -444,9 +484,7 @@ export function OrdersTable({
         cellClass: "statusBlockCell",
         valueGetter: ({ data }) => (data ? getIngredientState(data).label : ""),
         cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
-          data ? (
-            <ManufacturingStatusBlock state={getIngredientState(data)} />
-          ) : null,
+          data ? <IngredientsStatusCell order={data} /> : null,
       },
       {
         colId: "productionState",

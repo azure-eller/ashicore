@@ -92,6 +92,16 @@ function compareSupplyOrder(
   return compareNullableDate(left.availableDate, right.availableDate);
 }
 
+function expectedSupplyCanCoverDemand(
+  supply: DemandQueueSupplyChunk,
+  demand: DemandQueueDemandInput
+) {
+  if (supply.kind === "on_hand") return true;
+  if (supply.availableDate == null) return demand.requiredDate == null;
+  if (demand.requiredDate == null) return true;
+  return supply.availableDate <= demand.requiredDate;
+}
+
 export function computeDemandQueueCoverage(params: {
   supply: DemandQueueSupplyChunk[];
   demands: DemandQueueDemandInput[];
@@ -111,6 +121,7 @@ export function computeDemandQueueCoverage(params: {
     for (const chunk of supply) {
       if (remainingNeed <= 0) break;
       if (chunk.remaining <= 0) continue;
+      if (!expectedSupplyCanCoverDemand(chunk, demand)) continue;
       const claim = roundQuantity(Math.min(remainingNeed, chunk.remaining));
       if (claim <= 0) continue;
 
@@ -189,6 +200,13 @@ export type DemandQueueItemCoverage = {
   shortQty: string;
   demands: DemandQueueCoverageDemand[];
 };
+
+export function demandQueueCoverageKey(ref: {
+  demandType: AllocationDemandType;
+  demandId: string;
+}) {
+  return `${ref.demandType}:${ref.demandId}` as const;
+}
 
 export async function getDemandQueueCoverageForItemInTx(
   tx: Tx,
@@ -294,4 +312,52 @@ export async function getDemandQueueCoverageForItemInTx(
       shortQty: quantityString(row.shortQty),
     })),
   };
+}
+
+export async function getDemandQueueCoverageForItemsInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    itemIds: string[];
+    includeManufacturingDetail: boolean;
+  }
+): Promise<DemandQueueItemCoverage[]> {
+  const coverage: DemandQueueItemCoverage[] = [];
+  const itemIds = [...new Set(params.itemIds)];
+
+  for (const itemId of itemIds) {
+    const itemCoverage = await getDemandQueueCoverageForItemInTx(tx, {
+      organizationId: params.organizationId,
+      itemId,
+      includeManufacturingDetail: params.includeManufacturingDetail,
+    });
+    if (itemCoverage) {
+      coverage.push(itemCoverage);
+    }
+  }
+
+  return coverage;
+}
+
+export async function getDemandQueueCoverageByDemandKeyForItemsInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    itemIds: string[];
+    includeManufacturingDetail: boolean;
+  }
+): Promise<Map<ReturnType<typeof demandQueueCoverageKey>, DemandQueueCoverageDemand>> {
+  const coverage = await getDemandQueueCoverageForItemsInTx(tx, params);
+  const byDemandKey = new Map<
+    ReturnType<typeof demandQueueCoverageKey>,
+    DemandQueueCoverageDemand
+  >();
+
+  for (const item of coverage) {
+    for (const demand of item.demands) {
+      byDemandKey.set(demandQueueCoverageKey(demand), demand);
+    }
+  }
+
+  return byDemandKey;
 }
