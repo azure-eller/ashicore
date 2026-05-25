@@ -763,4 +763,13 @@ export type NegativeStockWarningPayload = {
   available: number;
   requested: number;
   shortage: number;
+  reason?: "negative_stock" | "commitment_conflict" | "commitment_and_negative_stock";
+  committedToOthers?: number;
+  commitments?: Array<{
+    referenceType: "sales_order" | "manufacturing_order";
+    referenceId: string;
+    label: string;
+    quantity: number;
+    href: string | null;
+  }>;
 };

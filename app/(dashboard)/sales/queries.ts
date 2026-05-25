@@ -21,6 +21,7 @@ import {
   accountingDocumentSyncs,
   customers,
   inventoryEvents,
+  inventoryReservationsSummary,
   integrationExternalRecords,
   itemFamilies,
   itemVariantValues,
@@ -7389,19 +7390,23 @@ export async function shipSalesShipment(
         const blockingLine = shipmentLines.find(
           (line) => line.itemId === error.itemId
         );
-	        throw new SalesError(
-	          `Cannot ship shipment. Insufficient stock for ${blockingLine?.itemName ?? "one item"}.`,
-	          409,
-	          {
-	            negativeStock: {
-	              itemId: error.itemId,
-	              itemName: blockingLine?.itemName ?? "one item",
-	              available: error.available,
-	              requested: error.requested,
-	              shortage: Math.max(0, error.requested - error.available),
-	            },
-	          }
-	        );
+        const warning = await buildStockWarningPayloadInTx(tx, {
+          organizationId: orgId,
+          itemId: error.itemId,
+          itemName: blockingLine?.itemName ?? "one item",
+          available: error.available,
+          requested: error.requested,
+          excludeSalesOrderLineIds: shipmentLines.map(
+            (line) => line.salesOrderLineId
+          ),
+        });
+        throw new SalesError(
+          `Cannot ship shipment. Insufficient stock for ${blockingLine?.itemName ?? "one item"}.`,
+          409,
+          {
+            negativeStock: warning,
+          }
+        );
       }
       throw error;
     }
@@ -7480,6 +7485,119 @@ export async function shipSalesShipment(
   }
 
   return result.result;
+}
+
+async function buildStockWarningPayloadInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    itemId: string;
+    itemName: string;
+    available: number;
+    requested: number;
+    excludeSalesOrderLineIds: string[];
+  }
+): Promise<NegativeStockWarningPayload> {
+  const salesReservationRows = await tx
+    .select({
+      referenceId: inventoryReservationsSummary.referenceId,
+      quantity: trimScale(inventoryReservationsSummary.quantity).as("quantity"),
+      orderId: salesOrders.id,
+      orderNumber: salesOrders.orderNumber,
+      customerName: salesOrders.customerName,
+    })
+    .from(inventoryReservationsSummary)
+    .innerJoin(
+      salesOrderLines,
+      eq(salesOrderLines.id, inventoryReservationsSummary.referenceId)
+    )
+    .innerJoin(salesOrders, eq(salesOrders.id, salesOrderLines.salesOrderId))
+    .where(
+      and(
+        eq(inventoryReservationsSummary.organizationId, params.organizationId),
+        eq(inventoryReservationsSummary.itemId, params.itemId),
+        eq(inventoryReservationsSummary.referenceType, "sales_order_line"),
+        eq(salesOrders.status, "open"),
+        isNull(salesOrders.deletedAt),
+        params.excludeSalesOrderLineIds.length > 0
+          ? notInArray(
+              inventoryReservationsSummary.referenceId,
+              params.excludeSalesOrderLineIds
+            )
+          : undefined,
+        sql`${inventoryReservationsSummary.quantity} > 0`
+      )
+    );
+
+  const manufacturingReservationRows = await tx
+    .select({
+      referenceId: inventoryReservationsSummary.referenceId,
+      quantity: trimScale(inventoryReservationsSummary.quantity).as("quantity"),
+      orderId: manufacturingOrders.id,
+      orderNumber: manufacturingOrders.orderNumber,
+      productName: manufacturingOrders.productName,
+    })
+    .from(inventoryReservationsSummary)
+    .innerJoin(
+      manufacturingOrderIngredients,
+      eq(manufacturingOrderIngredients.id, inventoryReservationsSummary.referenceId)
+    )
+    .innerJoin(
+      manufacturingOrders,
+      eq(manufacturingOrders.id, manufacturingOrderIngredients.manufacturingOrderId)
+    )
+    .where(
+      and(
+        eq(inventoryReservationsSummary.organizationId, params.organizationId),
+        eq(inventoryReservationsSummary.itemId, params.itemId),
+        eq(
+          inventoryReservationsSummary.referenceType,
+          "manufacturing_order_ingredient"
+        ),
+        eq(manufacturingOrders.status, "open"),
+        isNull(manufacturingOrders.deletedAt),
+        sql`${inventoryReservationsSummary.quantity} > 0`
+      )
+    );
+
+  const commitments = [
+    ...manufacturingReservationRows.map((row) => ({
+      referenceType: "manufacturing_order" as const,
+      referenceId: row.orderId,
+      label: `${row.orderNumber} ${row.productName}`,
+      quantity: parseFloat(row.quantity),
+      href: `/manufacturing/orders/${row.orderId}`,
+    })),
+    ...salesReservationRows.map((row) => ({
+      referenceType: "sales_order" as const,
+      referenceId: row.orderId,
+      label: `${row.orderNumber} ${row.customerName}`,
+      quantity: parseFloat(row.quantity),
+      href: `/sales/orders/${row.orderId}`,
+    })),
+  ].filter((commitment) => commitment.quantity > 0);
+
+  const committedToOthers = roundQuantity(
+    commitments.reduce((sum, commitment) => sum + commitment.quantity, 0)
+  );
+  const shortage = Math.max(0, params.requested - params.available);
+  const reason =
+    committedToOthers <= 0
+      ? "negative_stock"
+      : params.available + committedToOthers >= params.requested
+        ? "commitment_conflict"
+        : "commitment_and_negative_stock";
+
+  return {
+    itemId: params.itemId,
+    itemName: params.itemName,
+    available: params.available,
+    requested: params.requested,
+    shortage,
+    reason,
+    committedToOthers,
+    commitments: commitments.slice(0, 5),
+  };
 }
 
 export async function shipSalesOrder(
@@ -7609,17 +7727,19 @@ export async function shipSalesOrder(
     } catch (error) {
       if (error instanceof InsufficientStockError) {
         const blockingLine = linesToShip.find((line) => line.itemId === error.itemId);
+        const warning = await buildStockWarningPayloadInTx(tx, {
+          organizationId: orgId,
+          itemId: error.itemId,
+          itemName: blockingLine?.itemName ?? "one item",
+          available: error.available,
+          requested: error.requested,
+          excludeSalesOrderLineIds: linesToShip.map((line) => line.salesOrderLineId),
+        });
         throw new SalesError(
           `Cannot ship order. Insufficient stock for ${blockingLine?.itemName ?? "one item"}.`,
           409,
           {
-            negativeStock: {
-              itemId: error.itemId,
-              itemName: blockingLine?.itemName ?? "one item",
-              available: error.available,
-              requested: error.requested,
-              shortage: Math.max(0, error.requested - error.available),
-            },
+            negativeStock: warning,
           }
         );
       }

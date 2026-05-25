@@ -28,6 +28,10 @@ import {
 import { deriveProductionStatus } from "@/lib/manufacturing/derive-status";
 import { deriveOrderDisplayStatus } from "@/lib/sales/order-display-status";
 import { formatQuantity } from "@/lib/format";
+import {
+  stockWarningDescription,
+  stockWarningTitle,
+} from "@/lib/sales/stock-warning-copy";
 import type {
   NegativeStockWarningPayload,
   SalesOrderDetail,
@@ -70,13 +74,21 @@ function NegativeStockNotice({ items }: { items: NegativeStockWarningPayload[] }
   return (
     <div className="space-y-2 border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-3">
       <p className="text-sm font-medium text-[var(--color-warning)]">
-        This will drive stock negative:
+        {stockWarningTitle(items[0])}
       </p>
       <ul className="space-y-1 text-xs text-muted-foreground">
         {items.map((item) => (
           <li key={item.itemId}>
-            {item.itemName}: short {formatQuantity(String(item.shortage))} (need{" "}
-            {formatQuantity(String(item.requested))}, have {formatQuantity(String(item.available))})
+            {stockWarningDescription(item)}
+            {item.commitments?.length ? (
+              <ul className="mt-1 space-y-0.5">
+                {item.commitments.map((commitment) => (
+                  <li key={`${commitment.referenceType}:${commitment.referenceId}`}>
+                    {commitment.label}: {formatQuantity(String(commitment.quantity))}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </li>
         ))}
       </ul>

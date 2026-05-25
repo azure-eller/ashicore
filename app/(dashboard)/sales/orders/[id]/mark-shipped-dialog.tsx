@@ -16,6 +16,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { getApiErrorMessage } from "@/lib/client/api";
 import { formatQuantity } from "@/lib/format";
+import {
+  stockWarningDescription,
+  stockWarningTitle,
+} from "@/lib/sales/stock-warning-copy";
 import type {
   NegativeStockWarningPayload,
   SalesOrderDetail,
@@ -107,18 +111,29 @@ export function MarkShippedDialog({
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
           <AlertDialogTitle>
-            {negativeStock ? "Ship despite shortage?" : "Mark shipment shipped?"}
+            {negativeStock
+              ? stockWarningTitle(negativeStock)
+              : "Mark shipment shipped?"}
           </AlertDialogTitle>
           <AlertDialogDescription>
             {negativeStock
-              ? `${negativeStock.itemName} is short by ${formatQuantity(
-                  String(negativeStock.shortage),
-                )} (available ${formatQuantity(
-                  String(negativeStock.available),
-                )}, needs ${formatQuantity(String(negativeStock.requested))}). Shipping will drive stock negative.`
+              ? stockWarningDescription(negativeStock)
               : `${shipment?.shipmentNumber} will be marked shipped and inventory consumed via FIFO. This cannot be undone.`}
           </AlertDialogDescription>
         </AlertDialogHeader>
+
+        {negativeStock?.commitments?.length ? (
+          <div className="border border-border p-3 text-[length:var(--text-sm)]">
+            <p className="font-medium">Current commitments</p>
+            <ul className="mt-2 space-y-1 text-muted-foreground">
+              {negativeStock.commitments.map((commitment) => (
+                <li key={`${commitment.referenceType}:${commitment.referenceId}`}>
+                  {commitment.label}: {formatQuantity(String(commitment.quantity))}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         {!negativeStock && xeroReady ? (
           <label className="flex items-center gap-(--space-2) text-[length:var(--text-sm)]">
