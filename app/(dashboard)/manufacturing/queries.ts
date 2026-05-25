@@ -3410,6 +3410,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             | "pickProgressPercent"
             | "ingredientReadiness"
             | "ingredientShortages"
+            | "operationResources"
             | "completedBatchCount"
             | "actionableBatchCount"
             | "itemSpriteKind"
@@ -3452,6 +3453,51 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
           })
           .from(manufacturingOrderBatches)
           .where(inArray(manufacturingOrderBatches.manufacturingOrderId, orderIds));
+
+        const operationResourceRows = await tx
+          .select({
+            manufacturingOrderId:
+              manufacturingOrderOperationCosts.manufacturingOrderId,
+            resourceId: manufacturingOrderOperationCosts.resourceId,
+            resourceName: manufacturingOrderOperationCosts.resourceName,
+            resourceType: manufacturingOrderOperationCosts.resourceType,
+            sortOrder: manufacturingOrderOperationCosts.sortOrder,
+          })
+          .from(manufacturingOrderOperationCosts)
+          .where(
+            inArray(manufacturingOrderOperationCosts.manufacturingOrderId, orderIds)
+          )
+          .orderBy(
+            asc(manufacturingOrderOperationCosts.manufacturingOrderId),
+            asc(manufacturingOrderOperationCosts.sortOrder)
+          );
+
+        const operationResourcesByOrder = new Map<
+          string,
+          ManufacturingOrderListRow["operationResources"]
+        >();
+        for (const row of operationResourceRows) {
+          const existing =
+            operationResourcesByOrder.get(row.manufacturingOrderId) ?? [];
+          const resourceKey =
+            row.resourceId ?? `${row.resourceType}:${row.resourceName}`;
+          if (
+            existing.some(
+              (resource) =>
+                (resource.id ?? `${resource.type}:${resource.name}`) ===
+                resourceKey
+            )
+          ) {
+            continue;
+          }
+
+          existing.push({
+            id: row.resourceId,
+            name: row.resourceName,
+            type: row.resourceType,
+          });
+          operationResourcesByOrder.set(row.manufacturingOrderId, existing);
+        }
 
         const ingredientsByOrder = new Map<string, IngredientProgressRow[]>();
         const readinessQuantityByOrderItem = new Map<string, Map<string, number>>();
@@ -3623,6 +3669,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
               ),
             }),
             ingredientShortages,
+            operationResources: operationResourcesByOrder.get(order.id) ?? [],
             completedBatchCount,
             actionableBatchCount: batches.filter((batch) => batch.status !== "completed").length,
           };

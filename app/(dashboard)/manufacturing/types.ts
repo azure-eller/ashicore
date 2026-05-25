@@ -157,6 +157,11 @@ export type ManufacturingOrderListRow = {
     needed: string;
     available: string;
   }>;
+  operationResources: Array<{
+    id: string | null;
+    name: string;
+    type: string;
+  }>;
   completedBatchCount: number;
   actionableBatchCount: number;
   startedAt: Date | null;

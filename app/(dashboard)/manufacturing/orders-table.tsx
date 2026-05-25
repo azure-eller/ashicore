@@ -25,6 +25,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { StatusBlock, type StatusBlockTone } from "@/components/ui/status-block";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -64,6 +71,8 @@ const DEFAULT_MANUFACTURING_ORDERS_PREFERENCE: ManufacturingOrdersPreference = {
   version: 1,
 };
 type ManufacturingWorkflowFilterValue = "open" | "done";
+const ALL_RESOURCES_FILTER = "__all";
+const NO_RESOURCE_FILTER = "__none";
 
 function keepManufacturingRankDraggable(
   grid: ERPGridPersistentState | undefined
@@ -102,6 +111,20 @@ function ProductCell({ order }: { order: ManufacturingOrderListRow }) {
       <AttributeBadges attrs={order.productAttrs} />
     </div>
   );
+}
+
+function getResourceFilterKey(
+  resource: ManufacturingOrderListRow["operationResources"][number]
+) {
+  return resource.id ?? `${resource.type}:${resource.name}`;
+}
+
+function getOrderResourceFilterKeys(order: ManufacturingOrderListRow) {
+  if (order.operationResources.length === 0) {
+    return [NO_RESOURCE_FILTER];
+  }
+
+  return order.operationResources.map(getResourceFilterKey);
 }
 
 function PlannedQuantityCell({ order }: { order: ManufacturingOrderListRow }) {
@@ -320,8 +343,15 @@ function manufacturingOrderMatchesSearch(
     order.plannedDate,
     getIngredientState(order).label,
     getProductionState(order).label,
+    ...order.operationResources.map((resource) => resource.name),
   ].some((value) => value?.toLowerCase().includes(normalizedSearch));
 }
+
+type ManufacturingResourceFilterOption = {
+  value: string;
+  label: string;
+  count: number;
+};
 
 function RankCell({
   rowIndex,
@@ -351,6 +381,7 @@ export function OrdersTable({
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] =
     useState<ManufacturingWorkflowFilterValue>("open");
+  const [resourceFilter, setResourceFilter] = useState(ALL_RESOURCES_FILTER);
   const [searchValue, setSearchValue] = useState("");
   const [selectedOrders, setSelectedOrders] = useState<ManufacturingOrderListRow[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -375,23 +406,67 @@ export function OrdersTable({
 
     return counts;
   }, [orders]);
-  const displayedOrders = useMemo(() => {
+  const statusFilteredOrders = useMemo(() => {
     const allowedStatuses =
       statusFilter === "done"
         ? DONE_MANUFACTURING_STATUSES
         : OPEN_MANUFACTURING_STATUSES;
-    const filteredOrders = orders.filter(
+    return orders.filter(
       (order) =>
         (allowedStatuses as readonly string[]).includes(order.status) &&
         manufacturingOrderMatchesSearch(order, searchValue)
     );
+  }, [orders, searchValue, statusFilter]);
+  const resourceOptions = useMemo<ManufacturingResourceFilterOption[]>(() => {
+    const optionByValue = new Map<string, ManufacturingResourceFilterOption>();
+
+    for (const order of statusFilteredOrders) {
+      if (order.operationResources.length === 0) {
+        const existing = optionByValue.get(NO_RESOURCE_FILTER);
+        optionByValue.set(NO_RESOURCE_FILTER, {
+          value: NO_RESOURCE_FILTER,
+          label: "No resource",
+          count: (existing?.count ?? 0) + 1,
+        });
+        continue;
+      }
+
+      for (const resource of order.operationResources) {
+        const value = getResourceFilterKey(resource);
+        const existing = optionByValue.get(value);
+        optionByValue.set(value, {
+          value,
+          label: resource.name,
+          count: (existing?.count ?? 0) + 1,
+        });
+      }
+    }
+
+    return [...optionByValue.values()].sort((left, right) => {
+      if (left.value === NO_RESOURCE_FILTER) return 1;
+      if (right.value === NO_RESOURCE_FILTER) return -1;
+      return left.label.localeCompare(right.label, undefined, { numeric: true });
+    });
+  }, [statusFilteredOrders]);
+  const effectiveResourceFilter =
+    resourceFilter === ALL_RESOURCES_FILTER ||
+    resourceOptions.some((option) => option.value === resourceFilter)
+      ? resourceFilter
+      : ALL_RESOURCES_FILTER;
+  const displayedOrders = useMemo(() => {
+    const filteredOrders =
+      effectiveResourceFilter === ALL_RESOURCES_FILTER
+        ? statusFilteredOrders
+        : statusFilteredOrders.filter((order) =>
+            getOrderResourceFilterKeys(order).includes(effectiveResourceFilter)
+          );
 
     if (statusFilter === "done") {
       return filteredOrders;
     }
 
     return [...filteredOrders].sort(compareManufacturingRank);
-  }, [orders, searchValue, statusFilter]);
+  }, [effectiveResourceFilter, statusFilter, statusFilteredOrders]);
   const reorderEnabled = statusFilter === "open";
   const persistedGridState = useMemo(
     () => keepManufacturingRankDraggable(ordersPreference.grid),
@@ -636,6 +711,12 @@ export function OrdersTable({
         }
         actions={
           <>
+            <ManufacturingResourceFilter
+              value={effectiveResourceFilter}
+              options={resourceOptions}
+              orderCount={statusFilteredOrders.length}
+              onValueChange={setResourceFilter}
+            />
             <Button
               type="button"
               variant="destructive"
@@ -699,6 +780,50 @@ export function OrdersTable({
         </AlertDialogContent>
       </AlertDialog>
     </>
+  );
+}
+
+function ManufacturingResourceFilter({
+  value,
+  options,
+  orderCount,
+  onValueChange,
+}: {
+  value: string;
+  options: ManufacturingResourceFilterOption[];
+  orderCount: number;
+  onValueChange: (value: string) => void;
+}) {
+  if (options.length === 0) {
+    return null;
+  }
+
+  return (
+    <Select value={value} onValueChange={onValueChange}>
+      <SelectTrigger
+        size="sm"
+        aria-label="Filter manufacturing orders by resource"
+        className="max-w-[220px] bg-background"
+      >
+        <SelectValue placeholder="All resources" />
+      </SelectTrigger>
+      <SelectContent align="start">
+        <SelectItem value={ALL_RESOURCES_FILTER}>
+          All resources
+          <span className="font-mono text-[length:var(--text-2xs)] text-muted-foreground tabular-nums">
+            {orderCount}
+          </span>
+        </SelectItem>
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            {option.label}
+            <span className="font-mono text-[length:var(--text-2xs)] text-muted-foreground tabular-nums">
+              {option.count}
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
