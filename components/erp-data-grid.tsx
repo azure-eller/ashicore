@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   type CSSProperties,
@@ -220,6 +221,14 @@ function serializeGridState(state: ERPGridPersistentState | undefined) {
   return JSON.stringify(state ?? {});
 }
 
+function getGridVerticalScrollViewport(root: HTMLDivElement | null) {
+  return (
+    root?.querySelector<HTMLElement>(".ag-body-vertical-scroll-viewport") ??
+    root?.querySelector<HTMLElement>(".ag-body-viewport") ??
+    null
+  );
+}
+
 export function ERPDataGrid<TData extends { id: string }>({
   rows,
   columns,
@@ -260,8 +269,11 @@ export function ERPDataGrid<TData extends { id: string }>({
   onFirstDataRendered,
 }: ERPDataGridProps<TData>) {
   const gridApiRef = useRef<GridApi<TData> | null>(null);
+  const gridRootRef = useRef<HTMLDivElement | null>(null);
   const applyingPersistedGridStateRef = useRef(false);
   const lastPersistedGridStateRef = useRef(serializeGridState(persistedGridState));
+  const lastVerticalScrollTopRef = useRef(0);
+  const cleanupScrollListenerRef = useRef<(() => void) | null>(null);
   const managedRowDragStateRef = useRef({
     enableManagedRowDrag,
     getRowId,
@@ -347,6 +359,25 @@ export function ERPDataGrid<TData extends { id: string }>({
     []
   );
 
+  const bindVerticalScrollViewport = useCallback(() => {
+    cleanupScrollListenerRef.current?.();
+    cleanupScrollListenerRef.current = null;
+
+    const viewport = getGridVerticalScrollViewport(gridRootRef.current);
+    if (!viewport) return;
+
+    lastVerticalScrollTopRef.current = viewport.scrollTop;
+
+    const handleScroll = () => {
+      lastVerticalScrollTopRef.current = viewport.scrollTop;
+    };
+
+    viewport.addEventListener("scroll", handleScroll, { passive: true });
+    cleanupScrollListenerRef.current = () => {
+      viewport.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
+
   useEffect(() => {
     managedRowDragStateRef.current = {
       enableManagedRowDrag,
@@ -365,9 +396,34 @@ export function ERPDataGrid<TData extends { id: string }>({
       if (managedRowDragTimeoutRef.current != null) {
         clearTimeout(managedRowDragTimeoutRef.current);
       }
+      cleanupScrollListenerRef.current?.();
     },
     []
   );
+
+  useLayoutEffect(() => {
+    if (!resetRowDataOnUpdate) return;
+
+    const api = gridApiRef.current;
+    const scrollTop = lastVerticalScrollTopRef.current;
+    if (!api || api.isDestroyed() || scrollTop <= 0) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      if (api.isDestroyed()) return;
+
+      const viewport = getGridVerticalScrollViewport(gridRootRef.current);
+      if (!viewport) return;
+
+      const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      const nextScrollTop = Math.min(scrollTop, maxScrollTop);
+      if (Math.abs(viewport.scrollTop - nextScrollTop) > 1) {
+        viewport.scrollTop = nextScrollTop;
+        lastVerticalScrollTopRef.current = nextScrollTop;
+      }
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [resetRowDataOnUpdate, rows]);
 
   const getId = (row: TData) => getResolvedRowId(row, getRowId);
 
@@ -487,6 +543,7 @@ export function ERPDataGrid<TData extends { id: string }>({
         </div>
       )}
       <div
+        ref={gridRootRef}
         data-slot="erp-data-grid"
         className={cn(
           "ashicore-grid min-w-0 overflow-hidden rounded-(--radius-none) border",
@@ -559,9 +616,13 @@ export function ERPDataGrid<TData extends { id: string }>({
           onGridReady={(event: GridReadyEvent<TData>) => {
             gridApiRef.current = event.api;
             applyPersistedGridState(persistedGridState);
+            window.setTimeout(bindVerticalScrollViewport, 0);
             onGridReady?.(event);
           }}
-          onFirstDataRendered={onFirstDataRendered}
+          onFirstDataRendered={(event: FirstDataRenderedEvent<TData>) => {
+            bindVerticalScrollViewport();
+            onFirstDataRendered?.(event);
+          }}
           onRowDragEnd={handleRowDragEnd}
           onStateUpdated={handleStateUpdated}
           onSortChanged={(event: SortChangedEvent<TData>) => {
