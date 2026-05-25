@@ -20,10 +20,10 @@ The `db` fixture uses the app role with RLS — same security path as the real a
 
 - **Fast specs** live in `test/e2e/fast/` and protect core mutation seams. Each fast spec must map to `test/e2e/fast/FAST_TEST_SEAMS.md`.
 - **Slow specs** live in `test/e2e/slow/` and stay serial, operational stories: create, edit, transition, reload, and verify UI/API/DB/storage effects where relevant.
-- **Auth regressions** live in `test/e2e/auth-security.spec.ts` and run separately from the fast/slow domain split.
+- **Auth/security access stories** live in `test/e2e/auth-security.spec.ts` and `test/e2e/team-access.spec.ts`; they run separately from the fast/slow domain split.
 - Keep slow specs rooted in normal operations. Only include guards/errors when they arise inside a realistic workflow.
 - Slow specs are not bug archives. A slow spec must be a realistic operational story that a small manufacturer would recognize.
-- Do not add new one-off story suites outside `fast/`, `slow/`, or `auth-security.spec.ts`.
+- Do not add new one-off story suites outside `fast/`, `slow/`, or the auth/security access lane.
 
 ## Which lane to run
 
@@ -32,7 +32,7 @@ The `db` fixture uses the app role with RLS — same security path as the real a
 | Narrow domain change | `pnpm build`, `pnpm lint`, `pnpm test:fast:<domain>` |
 | Shared / cross-domain change | `pnpm build`, `pnpm lint`, `pnpm test:fast` |
 | Deep change in one domain | Add `pnpm test:slow:<domain>` |
-| Auth, invites, team access | `pnpm test:slow:auth` (covers `auth-security.spec.ts` + `team-management.spec.ts`) |
+| Auth, invites, team access | `pnpm test:slow:auth` (covers `auth-security.spec.ts` + `team-access.spec.ts`) |
 | Stock mutations, reservations, expected supply, inventory projections, inventory-affecting API routes | Affected slow spec(s), then `pnpm verify:inventory` |
 
 Slow lanes are one canonical story file per operating workflow. There is no generic inventory slow lane; route inventory-affecting PRs by workflow:
@@ -123,5 +123,6 @@ Failed scheduled slow runs open/update an investigation PR, comment with run det
 - `test/e2e/slow/` — serial operational stories by domain
 - `test/e2e/slow/SLOW_TEST_STORIES.md` — allowed slow-story registry
 - `test/e2e/auth-security.spec.ts` — auth and permission regressions
+- `test/e2e/team-access.spec.ts` — compact team invite and access-boundary stories
 - `test/global-setup.ts` — creates test user/org/unit, writes `.test-env.json`
 - `test/helpers/api.ts` — authenticated fetch helpers

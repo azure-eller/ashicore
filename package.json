@@ -69,7 +69,7 @@
     "test:slow:sales": "pnpm test:e2e:sales:slow",
     "test:e2e:sales:slow": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/slow/sales-fulfillment.spec.ts",
     "test:slow:auth": "pnpm test:e2e:auth",
-    "test:e2e:auth": "BETTER_AUTH_RATE_LIMIT_DISABLED=1 EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/auth-security.spec.ts test/e2e/team-management.spec.ts",
+    "test:e2e:auth": "BETTER_AUTH_RATE_LIMIT_DISABLED=1 EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/auth-security.spec.ts test/e2e/team-access.spec.ts",
     "test:inventory": "pnpm test:fast:inventory",
     "test:sales": "pnpm test:fast:sales"
   },

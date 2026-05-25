@@ -46,7 +46,7 @@ read_when:
 - ERP agent tests are archived with the parked agent. See `docs/erp-agent.md` before restoring live provider coverage.
 - If the change is isolated to one domain, add that domain's slow spec locally instead of the whole slow lane
 - Use `pnpm test:slow:auth` when touching auth, invites, sessions, team access, or permission gates
-  This lane includes both `auth-security.spec.ts` and `team-management.spec.ts`.
+  This lane includes both `auth-security.spec.ts` and `team-access.spec.ts`.
 - Avoid `pnpm test:slow` locally unless the change is cross-domain or explicitly needs broader workflow confidence
 - Do not add ad hoc story suites outside the fast, slow, and auth buckets
 
