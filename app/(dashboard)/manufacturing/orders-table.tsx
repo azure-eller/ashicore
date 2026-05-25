@@ -157,7 +157,7 @@ function getOrderProgress(order: ManufacturingOrderListRow) {
       label:
         totalBatchCount > 0
           ? `${order.completedBatchCount}/${totalBatchCount} batches`
-          : "In production",
+          : "Progress",
     };
   }
 
@@ -170,29 +170,48 @@ function getOrderProgress(order: ManufacturingOrderListRow) {
     label:
       order.pickProgressPercent > 0
         ? `${clampPercent(order.pickProgressPercent)}% picked`
-        : "In production",
+        : "Progress",
   };
 }
 
-function ProgressCell({ order }: { order: ManufacturingOrderListRow }) {
+function ProductionProgressBar({ order }: { order: ManufacturingOrderListRow }) {
   const progress = getOrderProgress(order);
-  const fillClassName =
-    order.status === "done"
-      ? "alloc-progress-fill-supply"
-      : "alloc-progress-fill-held";
+  const batchCount =
+    order.manufacturingMode === "batch" ? order.numberOfBatches ?? 0 : 0;
 
   return (
-    <div className="flex h-full min-w-32 flex-col justify-center gap-(--space-2)">
-      <div className="flex items-center justify-between gap-(--space-3) text-[length:var(--text-xs)] leading-[var(--leading-xs)]">
+    <div className="flex min-w-0 flex-col gap-(--space-1)">
+      <div className="flex items-center justify-between gap-(--space-3) text-[length:var(--text-xs)] leading-none">
         <span className="truncate text-muted-foreground">{progress.label}</span>
         <span className="font-mono tabular-nums">{progress.percent}%</span>
       </div>
-      <div className="alloc-progress-track h-(--space-5) rounded-(--radius-none)">
+      {batchCount > 1 ? (
         <div
-          className={`${fillClassName} h-full rounded-(--radius-none) transition-[width]`}
-          style={{ width: `${progress.percent}%` }}
-        />
-      </div>
+          className="grid h-(--space-3) gap-px"
+          style={{
+            gridTemplateColumns: `repeat(${batchCount}, minmax(0, 1fr))`,
+          }}
+        >
+          {Array.from({ length: batchCount }, (_, index) => (
+            <span
+              key={index}
+              className={
+                index < order.completedBatchCount
+                  ? "bg-[var(--color-ink)]"
+                  : "bg-border"
+              }
+              aria-hidden="true"
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="h-(--space-2) bg-border">
+          <div
+            className="h-full bg-[var(--color-ink)] transition-[width]"
+            style={{ width: `${progress.percent}%` }}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -287,15 +306,18 @@ function IngredientsStatusCell({ order }: { order: ManufacturingOrderListRow }) 
 function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
   const queryClient = useQueryClient();
   return (
-    <OrderStatusControl
-      config={manufacturingOrderStatusConfig}
-      ctx={{ order }}
-      disabled={isManufacturingStatusDisabled(order)}
-      onChanged={() => {
-        void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
-        void queryClient.invalidateQueries({ queryKey: ["items"] });
-      }}
-    />
+    <div className="flex h-full min-w-0 flex-col justify-center gap-(--space-2) py-(--space-2)">
+      <OrderStatusControl
+        config={manufacturingOrderStatusConfig}
+        ctx={{ order }}
+        disabled={isManufacturingStatusDisabled(order)}
+        onChanged={() => {
+          void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
+          void queryClient.invalidateQueries({ queryKey: ["items"] });
+        }}
+      />
+      <ProductionProgressBar order={order} />
+    </div>
   );
 }
 
@@ -541,17 +563,6 @@ export function OrdersTable({
           data ? <PlannedQuantityCell order={data} /> : null,
       },
       {
-        field: "pickProgressPercent",
-        headerName: "Progress",
-        width: 170,
-        minWidth: 150,
-        comparator: (_left, _right, leftNode, rightNode) =>
-          (leftNode.data ? getOrderProgress(leftNode.data).percent : 0) -
-          (rightNode.data ? getOrderProgress(rightNode.data).percent : 0),
-        cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
-          data ? <ProgressCell order={data} /> : null,
-      },
-      {
         field: "ingredientReadiness",
         headerName: "Ingredients",
         width: 170,
@@ -564,9 +575,9 @@ export function OrdersTable({
       {
         colId: "productionState",
         headerName: "Production",
-        width: 185,
-        minWidth: 160,
-        cellClass: "statusBlockCell",
+        width: 205,
+        minWidth: 180,
+        cellClass: "productionProgressCell",
         valueGetter: ({ data }) => (data ? getProductionState(data).label : ""),
         cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
           data ? <ProductionActionCell order={data} /> : null,

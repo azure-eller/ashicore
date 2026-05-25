@@ -3,7 +3,10 @@ import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { AllocationError } from "@/lib/inventory/allocation/errors";
-import { saveAllocationWorkspace } from "@/lib/inventory/allocation/service";
+import {
+  saveAllocationWorkspace,
+  saveManufacturingIngredientGroupAllocationWorkspace,
+} from "@/lib/inventory/allocation/service";
 
 const saveSchema = z.object({
   demandType: z.enum([
@@ -11,6 +14,7 @@ const saveSchema = z.object({
     "manufacturing_order_ingredient",
   ]),
   demandId: z.string().uuid(),
+  demandIds: z.array(z.string().uuid()).optional(),
   itemId: z.string().uuid(),
   allocations: z
     .array(
@@ -38,7 +42,22 @@ export const POST = apiHandler(async (request: Request) => {
   );
 
   try {
-    await saveAllocationWorkspace(input, { returnWorkspace: false });
+    if (
+      input.demandType === "manufacturing_order_ingredient" &&
+      input.demandIds &&
+      input.demandIds.length > 1
+    ) {
+      await saveManufacturingIngredientGroupAllocationWorkspace(
+        {
+          itemId: input.itemId,
+          demandIds: input.demandIds,
+          allocations: input.allocations,
+        },
+        { returnWorkspace: false }
+      );
+    } else {
+      await saveAllocationWorkspace(input, { returnWorkspace: false });
+    }
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof AllocationError) return error.toResponse();

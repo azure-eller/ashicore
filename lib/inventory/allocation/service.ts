@@ -1,10 +1,14 @@
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { getAllocationWorkspaceInTx } from "./read-model";
-import { saveAllocationsForDemandInTx } from "./commands";
+import {
+  saveAllocationsForDemandInTx,
+  saveAllocationsForManufacturingIngredientGroupInTx,
+} from "./commands";
 import type { AllocationDemandRef, SaveAllocationsForDemandInput } from "./types";
 
 export async function getAllocationWorkspace(params: {
   primaryDemand?: AllocationDemandRef | null;
+  primaryDemands?: AllocationDemandRef[] | null;
   itemId?: string | null;
   includeManufacturingDemand?: boolean;
 }) {
@@ -25,4 +29,20 @@ export async function saveAllocationWorkspace(
       returnWorkspace: options.returnWorkspace,
     })
   );
+}
+
+export async function saveManufacturingIngredientGroupAllocationWorkspace(
+  input: Omit<SaveAllocationsForDemandInput, "demandType" | "demandId"> & {
+    demandIds: string[];
+  },
+  options: { returnWorkspace?: boolean } = {}
+) {
+  return withAuthedOrgContext(async (tx, organizationId, actorUserId) => {
+    const workspace = await saveAllocationsForManufacturingIngredientGroupInTx(tx, {
+      ...input,
+      organizationId,
+      actorUserId,
+    });
+    return options.returnWorkspace === false ? null : workspace;
+  });
 }

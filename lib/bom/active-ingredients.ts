@@ -9,6 +9,7 @@ import {
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
+import { getItemDisplayNamesByIdInTx } from "@/lib/inventory/item-display";
 import {
   LOT_AGE_MIN_DAYS_CONSTRAINT,
   type BomComponentConstraint,
@@ -109,6 +110,10 @@ export async function getCurrentActiveBomIngredientsInTx(tx: Tx, productId: stri
         asc(bomRevisionComponentAlternates.createdAt)
       ),
   ]);
+  const displayNamesByItemId = await getItemDisplayNamesByIdInTx(tx, [
+    ...rows.map((row) => row.itemId),
+    ...alternates.map((alternate) => alternate.alternateItemId),
+  ]);
 
   const constraintsByComponentId = new Map<string, BomComponentConstraint[]>();
   for (const constraint of constraints) {
@@ -138,7 +143,9 @@ export async function getCurrentActiveBomIngredientsInTx(tx: Tx, productId: stri
     const bucket = alternatesByComponentId.get(alternate.bomRevisionComponentId) ?? [];
     bucket.push({
       itemId: alternate.alternateItemId,
-      itemName: alternate.alternateItemName,
+      itemName:
+        displayNamesByItemId.get(alternate.alternateItemId) ??
+        alternate.alternateItemName,
       itemSku: alternate.alternateItemSku,
       itemType: alternate.alternateItemType,
       unitName: alternate.unitName,
@@ -150,6 +157,7 @@ export async function getCurrentActiveBomIngredientsInTx(tx: Tx, productId: stri
 
   return rows.map((row) => ({
     ...row,
+    itemName: displayNamesByItemId.get(row.itemId) ?? row.itemName,
     constraints: constraintsByComponentId.get(row.bomRevisionComponentId) ?? [],
     alternates: alternatesByComponentId.get(row.bomRevisionComponentId) ?? [],
   }));

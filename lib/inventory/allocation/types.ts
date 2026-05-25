@@ -45,6 +45,7 @@ export type AllocationSourceClaim = AllocationSourceRef & {
 
 export type AllocationDemandRow = AllocationDemandRef & {
   demandKey: `${AllocationDemandType}:${string}`;
+  demandIds?: string[];
   parentDemandId: string | null;
   salesOrderId: string | null;
   itemId: string;

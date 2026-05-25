@@ -9,6 +9,7 @@ import {
 import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import { getItemDisplayNamesByIdInTx } from "@/lib/inventory/item-display";
 
 export type ManufacturingAllocationDemandRow = {
   id: string;
@@ -114,6 +115,10 @@ export async function getManufacturingAllocationDemandRowsInTx(
   const allocatedByIngredientId = new Map(
     allocationRows.map((row) => [row.demandId, toQuantity(row.quantity)])
   );
+  const displayNamesByItemId = await getItemDisplayNamesByIdInTx(
+    tx,
+    ingredientRows.map((row) => row.itemId)
+  );
 
   const byOrderId = new Map<string, ManufacturingAllocationDemandRow>();
   for (const row of ingredientRows) {
@@ -135,7 +140,7 @@ export async function getManufacturingAllocationDemandRowsInTx(
     order.ingredients.push({
       id: row.id,
       itemId: row.itemId,
-      itemName: row.itemName,
+      itemName: displayNamesByItemId.get(row.itemId) ?? row.itemName,
       itemSku: row.itemSku,
       unitName: row.unitName,
       plannedQty: row.plannedQty,

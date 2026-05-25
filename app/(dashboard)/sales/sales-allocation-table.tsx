@@ -419,6 +419,10 @@ function buildRows(
           parseQuantity(ingredient.shortQty);
         existingCell.demand = nextDemand;
         existingCell.alloc = nextAlloc;
+        existingCell.line.allocationDemandIds = [
+          ...(existingCell.line.allocationDemandIds ?? [existingCell.line.id]),
+          ingredient.id,
+        ];
         existingCell.line.quantity = quantityString(nextDemand);
         existingCell.line.remainingQty = quantityString(nextDemand);
         existingCell.line.allocatedQty = quantityString(nextAlloc);
@@ -429,6 +433,7 @@ function buildRows(
 
       const demandLine: SalesOrderListLine & { id: string } = {
         id: ingredient.id,
+        allocationDemandIds: [ingredient.id],
         allocationDemandType: "manufacturing_order_ingredient",
         manufacturingOrderId: demandRow.orderId,
         manufacturingOrderNumber: demandRow.orderNumber,

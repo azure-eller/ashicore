@@ -150,10 +150,13 @@ function isPrimaryAssignment(
   assignment: AllocationAssignment | AllocationSourceClaim,
   workspace: AllocationWorkspace
 ) {
+  const primaryDemandIds = workspace.primaryDemand?.demandIds;
   return (
     workspace.primaryDemand != null &&
     assignment.demandType === workspace.primaryDemand.demandType &&
-    assignment.demandId === workspace.primaryDemand.demandId
+    (primaryDemandIds
+      ? primaryDemandIds.includes(assignment.demandId)
+      : assignment.demandId === workspace.primaryDemand.demandId)
   );
 }
 
@@ -294,6 +297,9 @@ export function AllocationSourceDialog({
         demandId: target.line.id,
         itemId: target.line.itemId,
       });
+      for (const demandId of target.line.allocationDemandIds ?? []) {
+        if (demandId !== target.line.id) params.append("demandId", demandId);
+      }
       return apiJson<AllocationWorkspace>(`/api/allocation/workspace?${params}`, {
         fallbackError: "Failed to load allocation sources.",
       });
@@ -397,6 +403,7 @@ function AllocationSourceEditor({
         body: {
           demandType: target.demandType,
           demandId: target.line.id,
+          demandIds: target.line.allocationDemandIds,
           itemId: target.line.itemId,
           allocations: Object.entries(draft)
             .map(([key, value]) => {

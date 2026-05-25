@@ -34,6 +34,13 @@ function sameDemand(
   );
 }
 
+function sameAnyDemand(
+  row: { demandType: string; demandId: string },
+  primaryDemands: AllocationDemandRef[]
+) {
+  return primaryDemands.some((primaryDemand) => sameDemand(row, primaryDemand));
+}
+
 async function getActiveSourceAllocationsForItemInTx(
   tx: Tx,
   params: { organizationId: string; itemId: string }
@@ -88,9 +95,13 @@ export async function loadAllocationSourcesForItemInTx(
     organizationId: string;
     itemId: string;
     primaryDemand?: AllocationDemandRef | null;
+    primaryDemands?: AllocationDemandRef[];
   }
 ): Promise<AllocationSourceRow[]> {
   const activeRows = await getActiveSourceAllocationsForItemInTx(tx, params);
+  const primaryDemands = params.primaryDemands ?? (
+    params.primaryDemand ? [params.primaryDemand] : []
+  );
   const allocatedBySource = new Map<string, number>();
   const currentBySource = new Map<string, number>();
 
@@ -98,7 +109,7 @@ export async function loadAllocationSourcesForItemInTx(
     const key = `${row.sourceType}:${row.sourceId}`;
     const qty = toQuantity(row.quantity);
     allocatedBySource.set(key, roundQuantity((allocatedBySource.get(key) ?? 0) + qty));
-    if (sameDemand(row, params.primaryDemand)) {
+    if (sameAnyDemand(row, primaryDemands)) {
       currentBySource.set(key, roundQuantity((currentBySource.get(key) ?? 0) + qty));
     }
   }

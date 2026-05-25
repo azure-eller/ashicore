@@ -5,6 +5,7 @@ import {
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import { getItemDisplayNamesByIdInTx } from "@/lib/inventory/item-display";
 import type { Tx } from "@/lib/db/with-org-context";
 import type {
   AllocationDemandAdapter,
@@ -97,8 +98,18 @@ async function loadManufacturingIngredientRowsInTx(
       asc(manufacturingOrderIngredients.sortOrder)
     );
 
+  const displayNamesByItemId = await getItemDisplayNamesByIdInTx(
+    tx,
+    rows.map((row) => row.itemId)
+  );
+
   return rows
-    .map(mapManufacturingIngredientDemandRow)
+    .map((row) =>
+      mapManufacturingIngredientDemandRow({
+        ...row,
+        itemName: displayNamesByItemId.get(row.itemId) ?? row.itemName,
+      })
+    )
     .filter((row) => toQuantity(row.openQty) > 0);
 }
 

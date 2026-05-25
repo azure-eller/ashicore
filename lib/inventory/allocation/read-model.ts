@@ -1,8 +1,7 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   itemFamilies,
-  itemVariantValues,
   items,
   manufacturingOrderIngredients,
   manufacturingOrders,
@@ -12,17 +11,17 @@ import {
   salesShipments,
   stockAllocations,
   unitDefinitions,
-  variantOptions,
-  variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import { getItemDisplayNamesByIdInTx } from "@/lib/inventory/item-display";
 import { allocationDemandAdapters, getAllocationDemandAdapter } from "./adapters";
 import { loadAllocationSourcesForItemInTx } from "./sources";
 import type {
   AllocationAssignment,
   AllocationDemandRef,
+  AllocationDemandType,
   AllocationDemandRow,
   AllocationSourceClaim,
   AllocationWorkspace,
@@ -82,24 +81,10 @@ async function loadItemInTx(tx: Tx, itemId: string) {
     .where(eq(items.id, itemId));
   if (!row) return null;
 
-  const optionRows = await tx
-    .select({
-      label: variantOptionValues.label,
-    })
-    .from(itemVariantValues)
-    .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
-    .innerJoin(
-      variantOptionValues,
-      eq(itemVariantValues.optionValueId, variantOptionValues.id)
-    )
-    .where(eq(itemVariantValues.itemId, itemId))
-    .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder));
+  const displayNames = await getItemDisplayNamesByIdInTx(tx, [itemId]);
   return {
     itemId: row.id,
-    itemName:
-      row.familyName && optionRows.length > 0
-        ? `${row.familyName} / ${optionRows.map((option) => option.label).join(" / ")}`
-        : row.familyName ?? row.name,
+    itemName: displayNames.get(row.id) ?? row.familyName ?? row.name,
     unitName: row.unitName ?? "units",
   };
 }
@@ -308,22 +293,40 @@ export async function getAllocationWorkspaceInTx(
   params: {
     organizationId: string;
     primaryDemand?: AllocationDemandRef | null;
+    primaryDemands?: AllocationDemandRef[] | null;
     itemId?: string | null;
     includeManufacturingDemand?: boolean;
   }
 ): Promise<AllocationWorkspace | null> {
-  const primaryDemand =
-    params.primaryDemand == null
-      ? null
-      : await getAllocationDemandAdapter(params.primaryDemand.demandType).loadPrimaryDemandInTx(
+  const primaryDemandRefs =
+    params.primaryDemands && params.primaryDemands.length > 0
+      ? params.primaryDemands
+      : params.primaryDemand
+        ? [params.primaryDemand]
+        : [];
+  const primaryDemandRows = (
+    await Promise.all(
+      primaryDemandRefs.map((primaryDemand) =>
+        getAllocationDemandAdapter(primaryDemand.demandType).loadPrimaryDemandInTx(
           tx,
           {
             organizationId: params.organizationId,
-            demandId: params.primaryDemand.demandId,
+            demandId: primaryDemand.demandId,
           }
-        );
+        )
+      )
+    )
+  ).filter((row): row is NonNullable<typeof row> => row != null);
+  const primaryDemand = primaryDemandRows[0] ?? null;
   const itemId = primaryDemand?.itemId ?? params.itemId ?? null;
   if (!itemId) return null;
+  if (primaryDemandRows.some((row) => row.itemId !== itemId)) return null;
+  const primaryDemandIdsByType = new Map<AllocationDemandType, Set<string>>();
+  for (const row of primaryDemandRows) {
+    const ids = primaryDemandIdsByType.get(row.demandType) ?? new Set<string>();
+    ids.add(row.demandId);
+    primaryDemandIdsByType.set(row.demandType, ids);
+  }
 
   const item = await loadItemInTx(tx, itemId);
   if (!item) return null;
@@ -350,17 +353,20 @@ export async function getAllocationWorkspaceInTx(
       if (dateCompare !== 0) return dateCompare;
       return left.sortLabel.localeCompare(right.sortLabel, undefined, { numeric: true });
     });
-  if (
-    primaryDemand &&
-    !demandAdapterRows.some((row) => demandKey(row) === demandKey(primaryDemand))
-  ) {
-    demandAdapterRows = [primaryDemand, ...demandAdapterRows];
+  for (const row of primaryDemandRows) {
+    if (!demandAdapterRows.some((demandRow) => demandKey(demandRow) === demandKey(row))) {
+      demandAdapterRows = [row, ...demandAdapterRows];
+    }
   }
 
   const sources = await loadAllocationSourcesForItemInTx(tx, {
     organizationId: params.organizationId,
     itemId,
     primaryDemand: params.primaryDemand ?? null,
+    primaryDemands: primaryDemandRows.map((row) => ({
+      demandType: row.demandType,
+      demandId: row.demandId,
+    })),
   });
   const sourceLabels = new Map(sources.map((source) => [source.sourceKey, source.label]));
   const assignments = (await loadAssignmentsForItemInTx(tx, {
@@ -439,11 +445,38 @@ export async function getAllocationWorkspaceInTx(
       pickedQty: row.pickedQty ?? null,
       href: row.href ?? null,
       isPrimary:
-        params.primaryDemand?.demandType === row.demandType &&
-        params.primaryDemand.demandId === row.demandId,
+        primaryDemandIdsByType.get(row.demandType)?.has(row.demandId) ?? false,
       assignments: rowAssignments,
     };
   });
+
+  const primaryRows =
+    primaryDemandRows.length > 0
+      ? demands.filter((row) =>
+          primaryDemandIdsByType.get(row.demandType)?.has(row.demandId)
+        )
+      : [];
+  const aggregatePrimaryDemand =
+    primaryRows.length <= 1
+      ? primaryRows[0] ?? null
+      : ({
+          ...primaryRows[0],
+          demandIds: primaryRows.map((row) => row.demandId),
+          openQty: quantityString(
+            primaryRows.reduce((sum, row) => sum + toQuantity(row.openQty), 0)
+          ),
+          allocatedQty: quantityString(
+            primaryRows.reduce((sum, row) => sum + toQuantity(row.allocatedQty), 0)
+          ),
+          shortQty: quantityString(
+            primaryRows.reduce((sum, row) => sum + toQuantity(row.shortQty), 0)
+          ),
+          pickedQty: quantityString(
+            primaryRows.reduce((sum, row) => sum + toQuantity(row.pickedQty), 0)
+          ),
+          assignments: primaryRows.flatMap((row) => row.assignments),
+          isPrimary: true,
+        } satisfies AllocationDemandRow);
 
   const totals = demands.reduce(
     (acc, demand) => {
@@ -457,7 +490,7 @@ export async function getAllocationWorkspaceInTx(
 
   return {
     item,
-    primaryDemand: demands.find((demand) => demand.isPrimary) ?? null,
+    primaryDemand: aggregatePrimaryDemand,
     demands,
     sources,
     assignments,

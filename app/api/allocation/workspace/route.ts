@@ -36,6 +36,9 @@ const querySchema = z
 export const GET = apiHandler(async (request: Request) => {
   const url = new URL(request.url);
   const query = querySchema.parse(Object.fromEntries(url.searchParams.entries()));
+  const demandIds = [...new Set(url.searchParams.getAll("demandId"))].filter(
+    Boolean
+  );
   const context = await getAuthedApiMemberContext(request.headers);
   const canReadSales = hasModuleAccess(context.assignedRoles, "sales", "read");
   const canReadManufacturing = hasModuleAccess(
@@ -54,10 +57,14 @@ export const GET = apiHandler(async (request: Request) => {
   } else if (!canReadSales && !canReadManufacturing) {
     return NextResponse.json({ error: "You do not have access to allocation." }, { status: 403 });
   }
+  const demandType = query.demandType;
   const workspace = await getAllocationWorkspace({
-    primaryDemand:
-      query.demandType && query.demandId
-        ? { demandType: query.demandType, demandId: query.demandId }
+    primaryDemand: demandType && query.demandId
+      ? { demandType, demandId: query.demandId }
+      : null,
+    primaryDemands:
+      demandType && demandIds.length > 1
+        ? demandIds.map((demandId) => ({ demandType, demandId }))
         : null,
     itemId: query.itemId ?? null,
     includeManufacturingDemand: canReadManufacturing,

@@ -258,6 +258,7 @@ export type SalesOrderItemOption = {
 
 export type SalesOrderListLine = {
   id?: string;
+  allocationDemandIds?: string[];
   allocationDemandType?:
     | "sales_order_line"
     | "manufacturing_order_ingredient";
