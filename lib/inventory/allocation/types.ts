@@ -1,13 +1,8 @@
 export type AllocationDemandType =
   | "sales_order_line"
-  | "sales_shipment_line"
   | "manufacturing_order_ingredient";
 
 export type AllocationSourceType = "inventory_lot" | "manufacturing_order";
-
-export type AllocationSourceClaimDemandType =
-  | AllocationDemandType
-  | "manufacturing_order_ingredient";
 
 export type AllocationDemandRef = {
   demandType: AllocationDemandType;
@@ -31,7 +26,7 @@ export type AllocationAssignment = AllocationDemandRef &
   };
 
 export type AllocationSourceClaim = AllocationSourceRef & {
-  demandType: AllocationSourceClaimDemandType;
+  demandType: AllocationDemandType;
   demandId: string;
   itemId: string;
   quantity: string;

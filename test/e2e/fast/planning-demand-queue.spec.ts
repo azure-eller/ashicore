@@ -74,9 +74,25 @@ test("demand queue allocates scarce stock by rank without overclaiming", async (
   expect(first.status).toBe(201);
   expect(second.status).toBe(201);
 
+  const createdOrders = await db
+    .select({
+      id: salesOrders.id,
+      orderNumber: salesOrders.orderNumber,
+      priorityRank: salesOrders.priorityRank,
+    })
+    .from(salesOrders)
+    .where(inArray(salesOrders.orderNumber, [firstOrderNumber, secondOrderNumber]));
+  const createdByOrderNumber = new Map(
+    createdOrders.map((row) => [row.orderNumber, row])
+  );
+  const firstOrder = createdByOrderNumber.get(firstOrderNumber);
+  const secondOrder = createdByOrderNumber.get(secondOrderNumber);
+  expect(firstOrder).toBeTruthy();
+  expect(secondOrder).toBeTruthy();
+
   const reorder = await testFetch("/api/sales-orders/priority-ranks", {
     method: "PATCH",
-    body: JSON.stringify({ orderIds: [first.body.id, second.body.id] }),
+    body: JSON.stringify({ orderIds: [firstOrder!.id, secondOrder!.id] }),
   });
   expect(reorder.status).toBe(200);
 
@@ -89,10 +105,10 @@ test("demand queue allocates scarce stock by rank without overclaiming", async (
       priorityRank: salesOrders.priorityRank,
     })
     .from(salesOrders)
-    .where(inArray(salesOrders.id, [first.body.id, second.body.id]));
+    .where(inArray(salesOrders.id, [firstOrder!.id, secondOrder!.id]));
   const rankById = new Map(rankedOrders.map((row) => [row.id, row.priorityRank]));
-  const firstRank = rankById.get(first.body.id);
-  const secondRank = rankById.get(second.body.id);
+  const firstRank = rankById.get(firstOrder!.id);
+  const secondRank = rankById.get(secondOrder!.id);
   expect(firstRank).toBeTruthy();
   expect(secondRank).toBeTruthy();
   expect(firstRank!).toBeLessThan(secondRank!);
@@ -103,8 +119,8 @@ test("demand queue allocates scarce stock by rank without overclaiming", async (
     id: string;
     fulfillmentSummary?: { salesItemsState?: string };
   }>;
-  const firstReadModel = salesOrderRows.find((order) => order.id === first.body.id);
-  const secondReadModel = salesOrderRows.find((order) => order.id === second.body.id);
+  const firstReadModel = salesOrderRows.find((order) => order.id === firstOrder!.id);
+  const secondReadModel = salesOrderRows.find((order) => order.id === secondOrder!.id);
   expect(firstReadModel?.fulfillmentSummary?.salesItemsState).toBe("available");
   expect(secondReadModel?.fulfillmentSummary?.salesItemsState).toBe("not_available");
 

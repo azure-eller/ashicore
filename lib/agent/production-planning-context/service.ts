@@ -211,40 +211,9 @@ async function getPlannedSalesQuantityByLineInTx(tx: Tx, salesOrderLineIds: stri
   return new Map(rows.map((row) => [row.salesOrderLineId, toQuantity(row.quantity)]));
 }
 
-async function getPlannedShipmentAllocationQuantityByLineInTx(
-  tx: Tx,
-  salesOrderLineIds: string[]
-) {
-  if (salesOrderLineIds.length === 0) return new Map<string, number>();
-
-  const rows = await tx
-    .select({
-      salesOrderLineId: salesShipmentLines.salesOrderLineId,
-      quantity: trimScale(sql`COALESCE(SUM(${stockAllocations.quantity}), 0)`).as(
-        "quantity"
-      ),
-    })
-    .from(stockAllocations)
-    .innerJoin(
-      salesShipmentLines,
-      eq(stockAllocations.demandId, salesShipmentLines.id)
-    )
-    .where(
-      and(
-        eq(stockAllocations.demandType, "sales_shipment_line"),
-        eq(stockAllocations.status, "active"),
-        inArray(salesShipmentLines.salesOrderLineId, salesOrderLineIds)
-      )
-    )
-    .groupBy(salesShipmentLines.salesOrderLineId);
-
-  return new Map(rows.map((row) => [row.salesOrderLineId, toQuantity(row.quantity)]));
-}
-
 async function loadPlannedSalesShipmentsByOrderInTx(
   tx: Tx,
-  salesOrderLineIds: string[],
-  allocatedByDemand: Map<string, number>
+  salesOrderLineIds: string[]
 ): Promise<Map<string, AgentOpenSalesOrderContext["shipments"]>> {
   if (salesOrderLineIds.length === 0) return new Map();
 
@@ -301,10 +270,6 @@ async function loadPlannedSalesShipmentsByOrderInTx(
         deliveryDate: row.deliveryDate,
         lines: [],
       } satisfies AgentOpenSalesOrderContext["shipments"][number]);
-    const allocatedQty =
-      allocatedByDemand.get(
-        demandAllocationKey("sales_shipment_line", row.salesShipmentLineId)
-      ) ?? 0;
     const quantity = toQuantity(row.quantity);
     shipment.lines.push({
       salesShipmentLineId: row.salesShipmentLineId,
@@ -313,8 +278,8 @@ async function loadPlannedSalesShipmentsByOrderInTx(
       itemName: row.itemName,
       unitName: row.unitName,
       quantity: row.quantity,
-      allocatedQty: quantityString(allocatedQty),
-      unallocatedQty: quantityString(Math.max(0, quantity - allocatedQty)),
+      allocatedQty: "0",
+      unallocatedQty: quantityString(quantity),
     });
     byShipment.set(row.shipmentId, shipment);
 
@@ -340,15 +305,6 @@ async function loadActiveAllocationContextInTx(
 ): Promise<AgentAllocationContext[]> {
   const lineRefs = alias(salesOrderLines, "agent_allocation_sales_order_lines");
   const lineOrderRefs = alias(salesOrders, "agent_allocation_sales_orders");
-  const shipmentLineRefs = alias(
-    salesShipmentLines,
-    "agent_allocation_sales_shipment_lines"
-  );
-  const shipmentRefs = alias(salesShipments, "agent_allocation_sales_shipments");
-  const shipmentOrderRefs = alias(
-    salesOrders,
-    "agent_allocation_sales_shipment_orders"
-  );
   const ingredientRefs = alias(
     manufacturingOrderIngredients,
     "agent_allocation_mo_ingredients"
@@ -376,8 +332,6 @@ async function loadActiveAllocationContextInTx(
       demandLabelSnapshot: stockAllocations.demandLabelSnapshot,
       sourceLabelSnapshot: stockAllocations.sourceLabelSnapshot,
       salesOrderNumber: lineOrderRefs.orderNumber,
-      shipmentNumber: shipmentRefs.shipmentNumber,
-      shipmentOrderNumber: shipmentOrderRefs.orderNumber,
       ingredientOrderNumber: ingredientOrderRefs.orderNumber,
       lotNumber: lots.lotNumber,
       sourceManufacturingOrderNumber: sourceManufacturingOrders.orderNumber,
@@ -393,18 +347,6 @@ async function loadActiveAllocationContextInTx(
       )
     )
     .leftJoin(lineOrderRefs, eq(lineRefs.salesOrderId, lineOrderRefs.id))
-    .leftJoin(
-      shipmentLineRefs,
-      and(
-        eq(stockAllocations.demandType, "sales_shipment_line"),
-        eq(stockAllocations.demandId, shipmentLineRefs.id)
-      )
-    )
-    .leftJoin(
-      shipmentRefs,
-      eq(shipmentLineRefs.salesShipmentId, shipmentRefs.id)
-    )
-    .leftJoin(shipmentOrderRefs, eq(shipmentRefs.salesOrderId, shipmentOrderRefs.id))
     .leftJoin(
       ingredientRefs,
       and(
@@ -441,12 +383,6 @@ async function loadActiveAllocationContextInTx(
             isNull(lineOrderRefs.deletedAt)
           ),
           and(
-            eq(stockAllocations.demandType, "sales_shipment_line"),
-            eq(shipmentRefs.status, "planned"),
-            inArray(shipmentOrderRefs.status, [...OPEN_SALES_ORDER_STATUSES]),
-            isNull(shipmentOrderRefs.deletedAt)
-          ),
-          and(
             eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
             eq(ingredientOrderRefs.status, "open"),
             isNull(ingredientOrderRefs.deletedAt),
@@ -465,7 +401,6 @@ async function loadActiveAllocationContextInTx(
         sourceType: AgentAllocationContext["sourceType"];
       } =>
         (row.demandType === "sales_order_line" ||
-          row.demandType === "sales_shipment_line" ||
           row.demandType === "manufacturing_order_ingredient") &&
         (row.sourceType === "inventory_lot" ||
           row.sourceType === "manufacturing_order")
@@ -479,8 +414,6 @@ async function loadActiveAllocationContextInTx(
       demandLabel:
         row.demandLabelSnapshot ??
         row.salesOrderNumber ??
-        row.shipmentNumber ??
-        row.shipmentOrderNumber ??
         row.ingredientOrderNumber ??
         row.demandId,
       sourceType: row.sourceType,
@@ -577,14 +510,8 @@ async function loadOpenSalesOrdersInTx(
   const lineIds = rows.map((row) => row.lineId);
   const shippedByLine = await getShippedSalesQuantityByLineInTx(tx, lineIds);
   const plannedByLine = await getPlannedSalesQuantityByLineInTx(tx, lineIds);
-  const plannedShipmentAllocatedByLine =
-    await getPlannedShipmentAllocationQuantityByLineInTx(tx, lineIds);
   const allocatedByDemand = sumAllocationsByDemand(allocations);
-  const shipmentsByOrder = await loadPlannedSalesShipmentsByOrderInTx(
-    tx,
-    lineIds,
-    allocatedByDemand
-  );
+  const shipmentsByOrder = await loadPlannedSalesShipmentsByOrderInTx(tx, lineIds);
   const byOrder = new Map<string, AgentOpenSalesOrderContext>();
 
   for (const row of rows) {
@@ -597,7 +524,7 @@ async function loadOpenSalesOrdersInTx(
 
     const directAllocatedQty =
       allocatedByDemand.get(demandAllocationKey("sales_order_line", row.lineId)) ?? 0;
-    const shipmentAllocatedQty = plannedShipmentAllocatedByLine.get(row.lineId) ?? 0;
+    const shipmentAllocatedQty = 0;
     const allocatedQty = roundQuantity(directAllocatedQty + shipmentAllocatedQty);
     const shortQty = roundQuantity(Math.max(0, openQty - allocatedQty));
 

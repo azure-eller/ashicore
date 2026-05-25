@@ -22,6 +22,8 @@ import {
   createReleasedManufacturingOrder,
   createSellableProductFixture,
   expectResponse,
+  readAvailableLotId,
+  readSalesOrderLine,
 } from "./story-helpers";
 
 test.describe("planning allocation operating story", () => {
@@ -122,6 +124,138 @@ test.describe("planning allocation operating story", () => {
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", highOrder.orderNumber);
     await expect(page.getByRole("row").filter({ hasText: highOrder.orderNumber })).toBeVisible();
+  });
+
+  test("manual pins reserve capacity before queue-ranked demand under contention", async ({
+    db,
+  }) => {
+    const component = await createMaterialFixture({
+      name: "Planning Pinned Queue Component",
+      stock: "100",
+      cost: "1.00",
+    });
+    const product = await createSellableProductFixture({
+      name: "Planning Pinned Queue Product",
+      stock: "10",
+      price: "12.00",
+      bom: [{ componentId: component.id, quantity: "1" }],
+    });
+    const customer = await createCustomerFixture({
+      name: "Planning Pinned Queue Customer",
+    });
+    const lowPinnedOrderId = await createConfirmedSalesOrder({
+      customerId: customer.id,
+      productId: product.id,
+      quantity: "8",
+      shipDate: "2026-06-10",
+    });
+    const lowPinnedLine = await readSalesOrderLine(db, lowPinnedOrderId, product.id);
+    const lotId = await readAvailableLotId(db, product.id);
+
+    const pin = await testFetch("/api/allocation/save", {
+      method: "POST",
+      body: JSON.stringify({
+        demandType: "sales_order_line",
+        demandId: lowPinnedLine.id,
+        itemId: product.id,
+        allocations: [
+          {
+            sourceType: "inventory_lot",
+            sourceId: lotId,
+            quantity: "8",
+          },
+        ],
+      }),
+    });
+    expect(pin.status).toBe(200);
+
+    const highQueueOrderId = await createConfirmedSalesOrder({
+      customerId: customer.id,
+      productId: product.id,
+      quantity: "8",
+      shipDate: "2026-06-01",
+    });
+    const reorder = await testFetch("/api/sales-orders/priority-ranks", {
+      method: "PATCH",
+      body: JSON.stringify({
+        orderIds: [highQueueOrderId, lowPinnedOrderId],
+      }),
+    });
+    expect(reorder.status).toBe(200);
+
+    const salesOrdersResponse = await testFetch("/api/sales-orders");
+    expect(salesOrdersResponse.status).toBe(200);
+    const salesOrderRows = (await salesOrdersResponse.json()) as Array<{
+      id: string;
+      lines?: Array<{
+        id: string;
+        demandQueuePinnedQty?: string;
+        demandQueueQueueCoveredQty?: string;
+        demandQueueInStockQty?: string;
+        demandQueueShortQty?: string;
+        demandQueueSegments?: Array<{ kind: string; qty: string }>;
+      }>;
+    }>;
+    const highLine = salesOrderRows
+      .find((order) => order.id === highQueueOrderId)
+      ?.lines?.find((line) => line.id);
+    const lowLine = salesOrderRows
+      .find((order) => order.id === lowPinnedOrderId)
+      ?.lines?.find((line) => line.id === lowPinnedLine.id);
+
+    expect(Number(lowLine?.demandQueuePinnedQty ?? 0)).toBe(8);
+    expect(Number(lowLine?.demandQueueShortQty ?? 0)).toBe(0);
+    expect(lowLine?.demandQueueSegments?.some((segment) => segment.kind === "pinned_in_stock")).toBe(true);
+
+    expect(Number(highLine?.demandQueueQueueCoveredQty ?? 0)).toBe(2);
+    expect(Number(highLine?.demandQueueInStockQty ?? 0)).toBe(2);
+    expect(Number(highLine?.demandQueueShortQty ?? 0)).toBe(6);
+    expect(highLine?.demandQueueSegments?.some((segment) => segment.kind === "short")).toBe(true);
+  });
+
+  test("late expected manufacturing supply does not cover earlier sales demand", async () => {
+    const component = await createMaterialFixture({
+      name: "Planning Late Expected Component",
+      stock: "10",
+      cost: "1.00",
+    });
+    const product = await createSellableProductFixture({
+      name: "Planning Late Expected Product",
+      stock: "0",
+      price: "14.00",
+      bom: [{ componentId: component.id, quantity: "1" }],
+    });
+    const customer = await createCustomerFixture({
+      name: "Planning Late Expected Customer",
+    });
+    const orderId = await createConfirmedSalesOrder({
+      customerId: customer.id,
+      productId: product.id,
+      quantity: "5",
+      shipDate: "2026-06-01",
+    });
+    await createReleasedManufacturingOrder({
+      productId: product.id,
+      componentId: component.id,
+      plannedQuantity: "5",
+      quantityPerUnit: "1",
+    });
+
+    const salesOrdersResponse = await testFetch("/api/sales-orders");
+    expect(salesOrdersResponse.status).toBe(200);
+    const salesOrderRows = (await salesOrdersResponse.json()) as Array<{
+      id: string;
+      lines?: Array<{
+        demandQueueExpectedQty?: string;
+        demandQueueShortQty?: string;
+        demandQueueSegments?: Array<{ kind: string; qty: string }>;
+      }>;
+    }>;
+    const line = salesOrderRows.find((order) => order.id === orderId)?.lines?.[0];
+
+    expect(Number(line?.demandQueueExpectedQty ?? 0)).toBe(0);
+    expect(Number(line?.demandQueueShortQty ?? 0)).toBe(5);
+    expect(line?.demandQueueSegments?.some((segment) => segment.kind === "short")).toBe(true);
   });
 
   test("expected purchase and manufacturing supply are visible to the planning read model", async ({

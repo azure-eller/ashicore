@@ -152,6 +152,184 @@ jobs:
       - name: Run base migrations
         run: pnpm drizzle-kit migrate
 
+      - name: Seed 0121 shipment-line allocation fixture
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO inventory.unit_definitions (id, organization_id, name, size, uom)
+          VALUES ('00000000-0000-4000-8000-000000012101', 'migration-0121-org', 'Each', 1, 'each');
+
+          INSERT INTO inventory.items (
+            id,
+            organization_id,
+            name,
+            item_type,
+            unit_definition_id,
+            sellable
+          )
+          VALUES (
+            '00000000-0000-4000-8000-000000012102',
+            'migration-0121-org',
+            'Migration 0121 Item',
+            'product',
+            '00000000-0000-4000-8000-000000012101',
+            true
+          );
+
+          INSERT INTO sales.customers (id, organization_id, name)
+          VALUES ('00000000-0000-4000-8000-000000012103', 'migration-0121-org', 'Migration 0121 Customer');
+
+          INSERT INTO sales.sales_orders (
+            id,
+            organization_id,
+            order_number,
+            customer_id,
+            customer_name,
+            status,
+            order_date
+          )
+          VALUES (
+            '00000000-0000-4000-8000-000000012104',
+            'migration-0121-org',
+            'SO-0121-MIGRATION',
+            '00000000-0000-4000-8000-000000012103',
+            'Migration 0121 Customer',
+            'open',
+            CURRENT_DATE
+          );
+
+          INSERT INTO sales.sales_order_lines (
+            id,
+            sales_order_id,
+            item_id,
+            item_name,
+            unit_name,
+            quantity,
+            unit_price,
+            line_total
+          )
+          VALUES (
+            '00000000-0000-4000-8000-000000012105',
+            '00000000-0000-4000-8000-000000012104',
+            '00000000-0000-4000-8000-000000012102',
+            'Migration 0121 Item',
+            'Each',
+            10,
+            1,
+            10
+          );
+
+          INSERT INTO sales.sales_shipments (
+            id,
+            organization_id,
+            sales_order_id,
+            shipment_number,
+            sequence,
+            status,
+            order_number,
+            customer_name
+          )
+          VALUES
+            (
+              '00000000-0000-4000-8000-000000012106',
+              'migration-0121-org',
+              '00000000-0000-4000-8000-000000012104',
+              'SHIP-0121-A',
+              1,
+              'planned',
+              'SO-0121-MIGRATION',
+              'Migration 0121 Customer'
+            ),
+            (
+              '00000000-0000-4000-8000-000000012107',
+              'migration-0121-org',
+              '00000000-0000-4000-8000-000000012104',
+              'SHIP-0121-B',
+              2,
+              'planned',
+              'SO-0121-MIGRATION',
+              'Migration 0121 Customer'
+            );
+
+          INSERT INTO sales.sales_shipment_lines (
+            id,
+            sales_shipment_id,
+            sales_order_line_id,
+            item_id,
+            item_name,
+            unit_name,
+            quantity
+          )
+          VALUES
+            (
+              '00000000-0000-4000-8000-000000012108',
+              '00000000-0000-4000-8000-000000012106',
+              '00000000-0000-4000-8000-000000012105',
+              '00000000-0000-4000-8000-000000012102',
+              'Migration 0121 Item',
+              'Each',
+              2
+            ),
+            (
+              '00000000-0000-4000-8000-000000012109',
+              '00000000-0000-4000-8000-000000012107',
+              '00000000-0000-4000-8000-000000012105',
+              '00000000-0000-4000-8000-000000012102',
+              'Migration 0121 Item',
+              'Each',
+              3
+            );
+
+          INSERT INTO inventory.stock_allocations (
+            id,
+            organization_id,
+            demand_type,
+            demand_id,
+            item_id,
+            source_type,
+            source_id,
+            quantity,
+            status,
+            notes
+          )
+          VALUES
+            (
+              '00000000-0000-4000-8000-000000012110',
+              'migration-0121-org',
+              'sales_shipment_line',
+              '00000000-0000-4000-8000-000000012108',
+              '00000000-0000-4000-8000-000000012102',
+              'inventory_lot',
+              '00000000-0000-4000-8000-000000012113',
+              2,
+              'active',
+              'active shipment-line allocation A'
+            ),
+            (
+              '00000000-0000-4000-8000-000000012111',
+              'migration-0121-org',
+              'sales_shipment_line',
+              '00000000-0000-4000-8000-000000012109',
+              '00000000-0000-4000-8000-000000012102',
+              'inventory_lot',
+              '00000000-0000-4000-8000-000000012113',
+              3,
+              'active',
+              'active shipment-line allocation B'
+            ),
+            (
+              '00000000-0000-4000-8000-000000012112',
+              'migration-0121-org',
+              'sales_shipment_line',
+              '00000000-0000-4000-8000-000000012109',
+              '00000000-0000-4000-8000-000000012102',
+              'inventory_lot',
+              '00000000-0000-4000-8000-000000012114',
+              1,
+              'consumed',
+              'historical consumed allocation'
+            );
+          SQL
+
       - name: Checkout PR head
         uses: actions/checkout@v4
         with:
@@ -171,6 +349,62 @@ jobs:
 
       - name: Run PR migrations
         run: pnpm drizzle-kit migrate
+
+      - name: Verify 0121 shipment-line allocation migration fixture
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          DECLARE
+            parent_qty numeric;
+            cancelled_active_count integer;
+            consumed_history_count integer;
+          BEGIN
+            SELECT COALESCE(SUM(quantity), 0)
+            INTO parent_qty
+            FROM inventory.stock_allocations
+            WHERE organization_id = 'migration-0121-org'
+              AND demand_type = 'sales_order_line'
+              AND demand_id = '00000000-0000-4000-8000-000000012105'
+              AND item_id = '00000000-0000-4000-8000-000000012102'
+              AND source_type = 'inventory_lot'
+              AND source_id = '00000000-0000-4000-8000-000000012113'
+              AND status = 'active';
+
+            IF ROUND(parent_qty, 4) <> 5 THEN
+              RAISE EXCEPTION '0121 fixture expected parent sales-line allocation quantity 5, found %', parent_qty;
+            END IF;
+
+            SELECT COUNT(*)
+            INTO cancelled_active_count
+            FROM inventory.stock_allocations
+            WHERE id IN (
+                '00000000-0000-4000-8000-000000012110',
+                '00000000-0000-4000-8000-000000012111'
+              )
+              AND demand_type = 'sales_shipment_line'
+              AND status = 'cancelled'
+              AND cancelled_at IS NOT NULL
+              AND notes LIKE '%retire_sales_shipment_line_allocations%'
+              AND notes LIKE '%prior_demand_id%';
+
+            IF cancelled_active_count <> 2 THEN
+              RAISE EXCEPTION '0121 fixture expected 2 cancelled active shipment-line rows with prior attribution, found %', cancelled_active_count;
+            END IF;
+
+            SELECT COUNT(*)
+            INTO consumed_history_count
+            FROM inventory.stock_allocations
+            WHERE id = '00000000-0000-4000-8000-000000012112'
+              AND demand_type = 'sales_shipment_line'
+              AND demand_id = '00000000-0000-4000-8000-000000012109'
+              AND status = 'consumed'
+              AND notes = 'historical consumed allocation';
+
+            IF consumed_history_count <> 1 THEN
+              RAISE EXCEPTION '0121 fixture expected consumed shipment-line history to keep original attribution';
+            END IF;
+          END $$;
+          SQL
 
       - name: Verify upgraded database schema
         run: pnpm verify:db-schema

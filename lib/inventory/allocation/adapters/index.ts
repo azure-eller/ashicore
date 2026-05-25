@@ -3,7 +3,7 @@ import type { AllocationDemandAdapter, AllocationDemandType } from "../types";
 import { manufacturingOrderIngredientAllocationAdapter } from "./manufacturing-order-ingredient";
 import { salesOrderLineAllocationAdapter } from "./sales-order-line";
 
-const adapters: Partial<Record<AllocationDemandType, AllocationDemandAdapter>> = {
+const adapters: Record<AllocationDemandType, AllocationDemandAdapter> = {
   sales_order_line: salesOrderLineAllocationAdapter,
   manufacturing_order_ingredient: manufacturingOrderIngredientAllocationAdapter,
 };

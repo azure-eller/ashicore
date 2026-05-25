@@ -49,10 +49,7 @@ export type AllocatorProduct = {
 };
 
 export type AllocationTarget = {
-  demandType:
-    | "sales_order_line"
-    | "sales_shipment_line"
-    | "manufacturing_order_ingredient";
+  demandType: "sales_order_line" | "manufacturing_order_ingredient";
   demandLabel: string;
   demandContext: string;
   order?: Pick<SalesOrderListRow, "id" | "orderNumber" | "customerName">;
@@ -621,8 +618,7 @@ function AllocationSourceEditor({
                         <ul className={styles.claimList} role="list">
                           {claims.map((claim) => {
                             const claimDemandRef =
-                              claim.demandType === "sales_order_line" ||
-                              claim.demandType === "sales_shipment_line"
+                              claim.demandType === "sales_order_line"
                                 ? {
                                     demandType: claim.demandType,
                                     demandId: claim.demandId,

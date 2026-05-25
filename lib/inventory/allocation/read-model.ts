@@ -7,8 +7,6 @@ import {
   manufacturingOrders,
   salesOrderLines,
   salesOrders,
-  salesShipmentLines,
-  salesShipments,
   stockAllocations,
   unitDefinitions,
 } from "@/lib/db/schema";
@@ -98,18 +96,6 @@ async function loadAssignmentsForItemInTx(
     "allocation_assignment_sales_order_line_refs"
   );
   const allocationOrderRefs = alias(salesOrders, "allocation_assignment_sales_order_refs");
-  const allocationShipmentLineRefs = alias(
-    salesShipmentLines,
-    "allocation_assignment_sales_shipment_line_refs"
-  );
-  const allocationShipmentRefs = alias(
-    salesShipments,
-    "allocation_assignment_sales_shipment_refs"
-  );
-  const allocationShipmentOrderRefs = alias(
-    salesOrders,
-    "allocation_assignment_sales_shipment_order_refs"
-  );
   const allocationManufacturingIngredientRefs = alias(
     manufacturingOrderIngredients,
     "allocation_assignment_manufacturing_ingredient_refs"
@@ -131,9 +117,6 @@ async function loadAssignmentsForItemInTx(
       sourceLabelSnapshot: stockAllocations.sourceLabelSnapshot,
       salesOrderIdFromLine: allocationOrderRefs.id,
       salesOrderNumberFromLine: allocationOrderRefs.orderNumber,
-      salesOrderIdFromShipment: allocationShipmentOrderRefs.id,
-      salesOrderNumberFromShipment: allocationShipmentOrderRefs.orderNumber,
-      shipmentNumber: allocationShipmentRefs.shipmentNumber,
       manufacturingOrderId: allocationManufacturingOrderRefs.id,
       manufacturingOrderNumber: allocationManufacturingOrderRefs.orderNumber,
     })
@@ -146,21 +129,6 @@ async function loadAssignmentsForItemInTx(
       )
     )
     .leftJoin(allocationOrderRefs, eq(allocationOrderLineRefs.salesOrderId, allocationOrderRefs.id))
-    .leftJoin(
-      allocationShipmentLineRefs,
-      and(
-        eq(stockAllocations.demandType, "sales_shipment_line"),
-        eq(stockAllocations.demandId, allocationShipmentLineRefs.id)
-      )
-    )
-    .leftJoin(
-      allocationShipmentRefs,
-      eq(allocationShipmentLineRefs.salesShipmentId, allocationShipmentRefs.id)
-    )
-    .leftJoin(
-      allocationShipmentOrderRefs,
-      eq(allocationShipmentRefs.salesOrderId, allocationShipmentOrderRefs.id)
-    )
     .leftJoin(
       allocationManufacturingIngredientRefs,
       and(
@@ -191,7 +159,6 @@ async function loadAssignmentsForItemInTx(
         sourceId: string;
       } =>
         (row.demandType === "sales_order_line" ||
-          row.demandType === "sales_shipment_line" ||
           row.demandType === "manufacturing_order_ingredient") &&
         (row.sourceType === "inventory_lot" ||
           row.sourceType === "manufacturing_order") &&
@@ -208,15 +175,13 @@ async function loadAssignmentsForItemInTx(
       demandLabel:
         row.demandLabelSnapshot ??
         row.salesOrderNumberFromLine ??
-        row.shipmentNumber ??
-        row.salesOrderNumberFromShipment ??
         row.manufacturingOrderNumber ??
         row.demandId,
       sourceLabel: row.sourceLabelSnapshot ?? row.sourceId,
-      salesOrderId: row.salesOrderIdFromLine ?? row.salesOrderIdFromShipment ?? null,
+      salesOrderId: row.salesOrderIdFromLine ?? null,
       href:
-        row.salesOrderIdFromLine || row.salesOrderIdFromShipment
-          ? `/sales/order/${row.salesOrderIdFromLine ?? row.salesOrderIdFromShipment}`
+        row.salesOrderIdFromLine
+          ? `/sales/order/${row.salesOrderIdFromLine}`
           : row.manufacturingOrderId
             ? `/manufacturing/order/${row.manufacturingOrderId}`
             : null,

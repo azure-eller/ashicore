@@ -12,9 +12,12 @@ import {
   variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
-import { normalizeNumeric, roundQuantity } from "@/lib/format";
-import { setSalesLineStockReservationInTx } from "@/lib/inventory/kernel";
+import { roundQuantity } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
+import {
+  allocationQuantityString,
+  toAllocationQuantity,
+} from "../format";
 import type {
   AllocationDemandAdapter,
   AllocationDemandAdapterRow,
@@ -23,12 +26,11 @@ import type {
 const ACTIVE_ORDER_STATUSES = ["open"] as const;
 
 function toQuantity(value: string | number | null | undefined) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return toAllocationQuantity(value);
 }
 
 function quantityString(value: number) {
-  return normalizeNumeric(roundQuantity(Math.max(0, value)));
+  return allocationQuantityString(value);
 }
 
 async function getShippedByLineInTx(tx: Tx, salesOrderLineIds: string[]) {
@@ -183,54 +185,6 @@ async function loadSalesRowsInTx(
     .filter((row) => toQuantity(row.openQty) > 0);
 }
 
-export async function getSalesLineInventoryLotAllocationQtyInTx(
-  tx: Tx,
-  params: { organizationId: string; salesOrderLineId: string; itemId: string }
-) {
-  const [direct] = await tx
-    .select({ quantity: sql<string>`COALESCE(SUM(${stockAllocations.quantity}), 0)` })
-    .from(stockAllocations)
-    .where(
-      and(
-        eq(stockAllocations.organizationId, params.organizationId),
-        eq(stockAllocations.demandType, "sales_order_line"),
-        eq(stockAllocations.demandId, params.salesOrderLineId),
-        eq(stockAllocations.itemId, params.itemId),
-        eq(stockAllocations.sourceType, "inventory_lot"),
-        eq(stockAllocations.status, "active")
-      )
-    );
-
-  return roundQuantity(toQuantity(direct?.quantity));
-}
-
-export async function syncSalesLineAllocationReservationInTx(
-  tx: Tx,
-  params: {
-    organizationId: string;
-    salesOrderLineId: string;
-    itemId: string;
-    actorUserId?: string | null;
-  }
-) {
-  const [order] = await tx
-    .select({ status: salesOrders.status })
-    .from(salesOrderLines)
-    .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
-    .where(eq(salesOrderLines.id, params.salesOrderLineId));
-
-  if (order?.status !== "open") return;
-
-  const quantity = await getSalesLineInventoryLotAllocationQtyInTx(tx, params);
-  await setSalesLineStockReservationInTx(tx, {
-    organizationId: params.organizationId,
-    salesOrderLineId: params.salesOrderLineId,
-    itemId: params.itemId,
-    quantity,
-    actorUserId: params.actorUserId ?? null,
-  });
-}
-
 export const salesOrderLineAllocationAdapter: AllocationDemandAdapter = {
   demandType: "sales_order_line",
   async loadPrimaryDemandInTx(tx, params) {
@@ -259,12 +213,6 @@ export const salesOrderLineAllocationAdapter: AllocationDemandAdapter = {
     return demand?.itemId === params.itemId ? demand : null;
   },
   async afterSaveAllocationsInTx(tx, params) {
-    const [order] = await tx
-      .select({ status: salesOrders.status })
-      .from(salesOrderLines)
-      .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
-      .where(eq(salesOrderLines.id, params.demandId));
-
     await tx
       .update(salesOrderLines)
       .set({
@@ -273,15 +221,6 @@ export const salesOrderLineAllocationAdapter: AllocationDemandAdapter = {
         updatedAt: new Date(),
       })
       .where(eq(salesOrderLines.id, params.demandId));
-
-    if (order?.status === "open") {
-      await syncSalesLineAllocationReservationInTx(tx, {
-        organizationId: params.organizationId,
-        salesOrderLineId: params.demandId,
-        itemId: params.itemId,
-        actorUserId: params.actorUserId ?? null,
-      });
-    }
   },
 };
 

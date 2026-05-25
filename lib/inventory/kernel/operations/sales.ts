@@ -1,4 +1,4 @@
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { roundQuantity } from "@/lib/format";
 import {
   inventoryDemandSummary,
@@ -580,9 +580,6 @@ export async function consumeForShipmentInTx(
       .filter((row) => row.allocationManagedAt != null)
       .map((row) => row.id)
   );
-  const shipmentLineIds = params.lines
-    .map((line) => line.salesShipmentLineId)
-    .filter((id): id is string => id != null);
   const allocationRows = await tx
     .select({
       demandType: stockAllocations.demandType,
@@ -596,20 +593,10 @@ export async function consumeForShipmentInTx(
       and(
         eq(stockAllocations.organizationId, params.organizationId),
         eq(stockAllocations.status, "active"),
-        or(
-          and(
-            eq(stockAllocations.demandType, "sales_order_line"),
-            inArray(
-              stockAllocations.demandId,
-              params.lines.map((line) => line.salesOrderLineId)
-            )
-          ),
-          shipmentLineIds.length > 0
-            ? and(
-                eq(stockAllocations.demandType, "sales_shipment_line"),
-                inArray(stockAllocations.demandId, shipmentLineIds)
-              )
-            : undefined
+        eq(stockAllocations.demandType, "sales_order_line"),
+        inArray(
+          stockAllocations.demandId,
+          params.lines.map((line) => line.salesOrderLineId)
         )
       )
     );
@@ -622,38 +609,19 @@ export async function consumeForShipmentInTx(
   }
 
   function getLineAllocationContext(line: (typeof params.lines)[number]) {
-    const shipmentDemandRef = line.salesShipmentLineId
-      ? {
-          demandType: "sales_shipment_line" as const,
-          demandId: line.salesShipmentLineId,
-        }
-      : null;
-    const shipmentLineAllocations = shipmentDemandRef
-      ? allocationsByDemandKey.get(
-          `${shipmentDemandRef.demandType}:${shipmentDemandRef.demandId}`
-        ) ?? []
-      : [];
-    const hasShipmentAllocations = shipmentLineAllocations.length > 0;
     const parentDemandRef = {
       demandType: "sales_order_line" as const,
       demandId: line.salesOrderLineId,
     };
-    const activeDemandRef = hasShipmentAllocations && shipmentDemandRef
-      ? shipmentDemandRef
-      : parentDemandRef;
-    const lineAllocations = hasShipmentAllocations
-      ? shipmentLineAllocations
-      : managedLineIds.has(line.salesOrderLineId)
+    const lineAllocations = managedLineIds.has(line.salesOrderLineId)
         ? allocationsByDemandKey.get(
             `${parentDemandRef.demandType}:${parentDemandRef.demandId}`
           ) ?? []
         : [];
 
     return {
-      activeDemandRef,
-      hasShipmentAllocations,
+      activeDemandRef: parentDemandRef,
       lineAllocations,
-      shipmentLineAllocations,
     };
   }
 
@@ -709,7 +677,6 @@ export async function consumeForShipmentInTx(
     let remaining = roundQuantity(line.quantity);
     const {
       activeDemandRef,
-      hasShipmentAllocations,
       lineAllocations,
     } = getLineAllocationContext(line);
     const allocatedQty = roundQuantity(
@@ -717,7 +684,7 @@ export async function consumeForShipmentInTx(
     );
 
     if (
-      (hasShipmentAllocations || managedLineIds.has(line.salesOrderLineId)) &&
+      managedLineIds.has(line.salesOrderLineId) &&
       allocatedQty < line.quantity &&
       !params.allowNegativeStock
     ) {

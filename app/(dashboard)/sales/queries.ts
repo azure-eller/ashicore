@@ -77,7 +77,7 @@ import {
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import { deleteManufacturingOrdersInTx } from "@/app/(dashboard)/manufacturing/queries";
 import { getSalesAllocationReadModelForItemInTx } from "./allocation-service";
-import { syncSalesLineAllocationReservationInTx } from "@/lib/inventory/allocation/adapters/sales-order-line";
+import { reconcileAllocationPinsToReservationsInTx } from "@/lib/inventory/allocation/reservations";
 import type {
   InsertCustomer,
   PatchCustomer,
@@ -1015,48 +1015,6 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
       )
     );
 
-  const shipmentAllocationRows = await tx
-    .select({
-      salesOrderId: salesOrderLines.salesOrderId,
-      salesOrderLineId: salesOrderLines.id,
-      id: manufacturingOrders.id,
-      orderNumber: manufacturingOrders.orderNumber,
-      productName: manufacturingOrders.productName,
-      productSku: manufacturingOrders.productSku,
-      plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
-        "plannedQuantity"
-      ),
-      unitName: manufacturingOrders.unitName,
-      plannedDate: manufacturingOrders.plannedDate,
-      priorityRank: manufacturingOrders.priorityRank,
-      status: manufacturingOrders.status,
-      productionStatus: productionStatusExpression,
-      createdAt: manufacturingOrders.createdAt,
-    })
-    .from(stockAllocations)
-    .innerJoin(
-      salesShipmentLines,
-      eq(stockAllocations.demandId, salesShipmentLines.id)
-    )
-    .innerJoin(
-      salesOrderLines,
-      eq(salesShipmentLines.salesOrderLineId, salesOrderLines.id)
-    )
-    .innerJoin(
-      manufacturingOrders,
-      eq(stockAllocations.sourceId, manufacturingOrders.id)
-    )
-    .where(
-      and(
-        eq(stockAllocations.demandType, "sales_shipment_line"),
-        eq(stockAllocations.sourceType, "manufacturing_order"),
-        eq(stockAllocations.status, "active"),
-        inArray(salesOrderLines.salesOrderId, uniqueSalesOrderIds),
-        isNull(manufacturingOrders.deletedAt),
-        isNull(manufacturingOrders.cancelledAt)
-      )
-    );
-
   const merged = new Map<string, LinkedManufacturingOrderRead>();
   const addRow = (
     row: (typeof headerRows)[number] | (typeof allocationRows)[number],
@@ -1085,7 +1043,6 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
 
   headerRows.forEach((row) => addRow(row, "sales_order"));
   allocationRows.forEach((row) => addRow(row, "output_allocation"));
-  shipmentAllocationRows.forEach((row) => addRow(row, "output_allocation"));
 
   [...merged.values()]
     .toSorted((left, right) => {
@@ -1617,15 +1574,17 @@ function buildShipmentEntries(
   });
 }
 
-type SalesAllocationDemandType = "sales_order_line" | "sales_shipment_line";
+type LegacySalesAllocationSourceDemandType =
+  | "sales_order_line"
+  | "sales_shipment_line";
 
 async function moveActiveSalesAllocationsInTx(
   tx: Tx,
   params: {
     organizationId: string;
-    sourceDemandType: SalesAllocationDemandType;
+    sourceDemandType: LegacySalesAllocationSourceDemandType;
     sourceDemandId: string;
-    targetDemandType: SalesAllocationDemandType;
+    targetDemandType: "sales_order_line";
     targetDemandId: string;
     itemId: string;
     quantity?: number | null;
@@ -1749,11 +1708,18 @@ async function cancelShipmentLineAllocationsInTx(
       demandLabelSnapshot: null,
       actorUserId: params.actorUserId ?? null,
     });
-    await syncSalesLineAllocationReservationInTx(tx, {
+    await reconcileAllocationPinsToReservationsInTx(tx, {
       organizationId: params.organizationId,
-      salesOrderLineId: line.salesOrderLineId,
       itemId: line.itemId,
+      affectedDemands: [
+        {
+          demandType: "sales_order_line",
+          demandId: line.salesOrderLineId,
+        },
+      ],
       actorUserId: params.actorUserId ?? null,
+      closedDemandPolicy: "release",
+      releaseUnpinnedAffectedDemands: true,
     });
   }
 }
@@ -1807,11 +1773,17 @@ async function moveReplacedSalesLineAllocationsInTx(
     });
 
     if (movedQty > 0) {
-      await syncSalesLineAllocationReservationInTx(tx, {
+      await reconcileAllocationPinsToReservationsInTx(tx, {
         organizationId: params.organizationId,
-        salesOrderLineId: replacement.salesOrderLineId,
         itemId: replacement.itemId,
+        affectedDemands: [
+          {
+            demandType: "sales_order_line",
+            demandId: replacement.salesOrderLineId,
+          },
+        ],
         actorUserId: params.actorUserId ?? null,
+        closedDemandPolicy: "release",
       });
     }
   }
@@ -5142,6 +5114,14 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                       : sources.some((source) => source.sourceType === "manufacturing_order")
                         ? "waiting_production"
                         : "ready",
+                demandQueuePinnedQty: demandQueueCoverage?.pinnedQty ?? "0",
+                demandQueuePinnedDateValidQty:
+                  demandQueueCoverage?.pinnedDateValidQty ?? "0",
+                demandQueuePinnedDateInvalidQty:
+                  demandQueueCoverage?.pinnedDateInvalidQty ?? "0",
+                demandQueueQueueCoveredQty:
+                  demandQueueCoverage?.queueCoveredQty ?? "0",
+                demandQueueSegments: demandQueueCoverage?.segments ?? [],
                 demandQueueInStockQty: demandQueueCoverage?.inStockQty ?? "0",
                 demandQueueExpectedQty: demandQueueCoverage?.expectedQty ?? "0",
                 demandQueueShortQty:
@@ -5932,6 +5912,14 @@ export async function getSalesOrder(
                 ? "waiting_production"
                 : "ready",
         allocationSources: sources,
+        demandQueuePinnedQty: demandQueueCoverage?.pinnedQty ?? "0",
+        demandQueuePinnedDateValidQty:
+          demandQueueCoverage?.pinnedDateValidQty ?? "0",
+        demandQueuePinnedDateInvalidQty:
+          demandQueueCoverage?.pinnedDateInvalidQty ?? "0",
+        demandQueueQueueCoveredQty:
+          demandQueueCoverage?.queueCoveredQty ?? "0",
+        demandQueueSegments: demandQueueCoverage?.segments ?? [],
         demandQueueInStockQty: demandQueueCoverage?.inStockQty ?? "0",
         demandQueueExpectedQty: demandQueueCoverage?.expectedQty ?? "0",
         demandQueueShortQty:

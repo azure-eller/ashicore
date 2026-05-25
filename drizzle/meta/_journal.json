@@ -848,6 +848,13 @@
       "when": 1779600000000,
       "tag": "0120_manufacturing_lifo_lot_strategy",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1779600000001,
+      "tag": "0121_retire_shipment_line_allocations",
+      "breakpoints": true
     }
   ]
 }

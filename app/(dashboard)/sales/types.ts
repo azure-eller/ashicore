@@ -12,6 +12,7 @@ import type {
   CUSTOMER_CORRESPONDENCE_TYPES,
   CUSTOMER_PROJECT_STATUSES,
 } from "@/lib/schemas/customer-crm";
+import type { DemandQueueCoverageSegment } from "@/lib/inventory/allocation/demand-queue";
 
 export type PricingSourceType = "base_price" | "schedule_break";
 
@@ -283,6 +284,11 @@ export type SalesOrderListLine = {
   shortQty?: string;
   sourceSummary?: string;
   allocationStatus?: SalesAllocationLineSummary["status"];
+  demandQueuePinnedQty?: string;
+  demandQueuePinnedDateValidQty?: string;
+  demandQueuePinnedDateInvalidQty?: string;
+  demandQueueQueueCoveredQty?: string;
+  demandQueueSegments?: DemandQueueCoverageSegment[];
   demandQueueInStockQty?: string;
   demandQueueExpectedQty?: string;
   demandQueueShortQty?: string;
@@ -473,6 +479,11 @@ export type SalesOrderDetailLine = {
   sourceSummary: string;
   allocationStatus: SalesAllocationLineSummary["status"];
   allocationSources: SalesAllocationLineSummary["sources"];
+  demandQueuePinnedQty: string;
+  demandQueuePinnedDateValidQty: string;
+  demandQueuePinnedDateInvalidQty: string;
+  demandQueueQueueCoveredQty: string;
+  demandQueueSegments: DemandQueueCoverageSegment[];
   demandQueueInStockQty: string;
   demandQueueExpectedQty: string;
   demandQueueShortQty: string;

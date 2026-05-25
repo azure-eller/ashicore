@@ -8,10 +8,15 @@ import {
 import { trimScale } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
-import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import { roundQuantity } from "@/lib/format";
 import { AllocationError } from "./errors";
 import { getAllocationDemandAdapter } from "./adapters";
 import { getAllocationWorkspaceInTx } from "./read-model";
+import {
+  allocationQuantityString,
+  toAllocationQuantity,
+} from "./format";
+import { reconcileAllocationPinsToReservationsInTx } from "./reservations";
 import type {
   AllocationDemandType,
   AllocationDemandRef,
@@ -21,12 +26,11 @@ import type {
 import { sourceKey } from "./types";
 
 function toQuantity(value: string | number | null | undefined) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return toAllocationQuantity(value);
 }
 
 function quantityString(value: number) {
-  return normalizeNumeric(roundQuantity(Math.max(0, value)));
+  return allocationQuantityString(value);
 }
 
 function isDemandType(value: string): value is AllocationDemandType {
@@ -289,6 +293,20 @@ export async function saveAllocationsForDemandInTx(
     inventoryLotAllocationQty,
   });
 
+  await reconcileAllocationPinsToReservationsInTx(tx, {
+    organizationId: input.organizationId,
+    itemId: input.itemId,
+    affectedDemands: [
+      {
+        demandType: input.demandType,
+        demandId: input.demandId,
+      },
+    ],
+    actorUserId: input.actorUserId ?? null,
+    closedDemandPolicy: "release",
+    releaseUnpinnedAffectedDemands: true,
+  });
+
   if (input.returnWorkspace === false) {
     return null;
   }
@@ -510,6 +528,15 @@ export async function saveAllocationsForManufacturingIngredientGroupInTx(
   if (inserts.length > 0) {
     await tx.insert(stockAllocations).values(inserts);
   }
+
+  await reconcileAllocationPinsToReservationsInTx(tx, {
+    organizationId: input.organizationId,
+    itemId: input.itemId,
+    affectedDemands: primaryDemands,
+    actorUserId: input.actorUserId ?? null,
+    closedDemandPolicy: "release",
+    releaseUnpinnedAffectedDemands: true,
+  });
 
   return getAllocationWorkspaceInTx(tx, {
     organizationId: input.organizationId,

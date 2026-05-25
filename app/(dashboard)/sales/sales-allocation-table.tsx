@@ -119,6 +119,12 @@ type AllocationCell = {
   product: AllocationProduct;
   demand: number;
   alloc: number;
+  manualAlloc: number;
+  queueCoveredQty: number;
+  queueExpectedQty: number;
+  queueShortQty: number;
+  pinnedQty: number;
+  pinnedDateInvalidQty: number;
 };
 
 type AllocationRow = {
@@ -222,6 +228,17 @@ function isOpenSalesOrder(order: SalesOrderListRow) {
 function parseQuantity(value: string | null | undefined) {
   const parsed = Number.parseFloat(value ?? "0");
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function sumDemandQueueSegments(
+  line: SalesOrderListLine,
+  kinds: ReadonlySet<string>
+) {
+  return (line.demandQueueSegments ?? []).reduce(
+    (sum, segment) =>
+      kinds.has(segment.kind) ? sum + parseQuantity(segment.qty) : sum,
+    0
+  );
 }
 
 function compactQuantity(value: number) {
@@ -373,11 +390,67 @@ function buildRows(
           quantity: demandQuantity,
           remainingQty: demandQuantity,
         };
+        const manualAlloc = parseQuantity(demandLine.allocatedQty);
+        const segmentPinnedQty = sumDemandQueueSegments(
+          demandLine,
+          new Set(["pinned_in_stock", "pinned_expected", "pinned_late"])
+        );
+        const segmentQueueCoveredQty = sumDemandQueueSegments(
+          demandLine,
+          new Set(["in_stock", "expected"])
+        );
+        const segmentExpectedQty = sumDemandQueueSegments(
+          demandLine,
+          new Set(["expected", "pinned_expected"])
+        );
+        const segmentShortQty = sumDemandQueueSegments(
+          demandLine,
+          new Set(["short"])
+        );
+        const segmentPinnedDateInvalidQty = sumDemandQueueSegments(
+          demandLine,
+          new Set(["pinned_late"])
+        );
+        const hasDemandQueueCoverage =
+          demandLine.demandQueueInStockQty != null ||
+          demandLine.demandQueueExpectedQty != null ||
+          demandLine.demandQueueShortQty != null ||
+          (demandLine.demandQueueSegments?.length ?? 0) > 0;
+        const coveredQty = hasDemandQueueCoverage
+          ? parseQuantity(demandLine.demandQueueInStockQty) +
+            parseQuantity(demandLine.demandQueueExpectedQty)
+          : manualAlloc;
         fallbackCells.set(product.itemId, {
           line: demandLine,
           product,
           demand: parseQuantity(demandLine.remainingQty ?? demandLine.quantity),
-          alloc: parseQuantity(demandLine.allocatedQty),
+          alloc: coveredQty,
+          manualAlloc,
+          queueCoveredQty:
+            (demandLine.demandQueueSegments?.length ?? 0) > 0
+              ? segmentQueueCoveredQty
+              : parseQuantity(demandLine.demandQueueQueueCoveredQty),
+          queueExpectedQty:
+            (demandLine.demandQueueSegments?.length ?? 0) > 0
+              ? segmentExpectedQty
+              : parseQuantity(demandLine.demandQueueExpectedQty),
+          queueShortQty: hasDemandQueueCoverage
+            ? (demandLine.demandQueueSegments?.length ?? 0) > 0
+              ? segmentShortQty
+              : parseQuantity(demandLine.demandQueueShortQty)
+            : Math.max(
+                0,
+                parseQuantity(demandLine.remainingQty ?? demandLine.quantity) -
+                  manualAlloc
+              ),
+          pinnedQty:
+            (demandLine.demandQueueSegments?.length ?? 0) > 0
+              ? segmentPinnedQty
+              : parseQuantity(demandLine.demandQueuePinnedQty ?? "0"),
+          pinnedDateInvalidQty:
+            (demandLine.demandQueueSegments?.length ?? 0) > 0
+              ? segmentPinnedDateInvalidQty
+              : parseQuantity(demandLine.demandQueuePinnedDateInvalidQty),
         });
       });
       if (fallbackCells.size > 0) {
@@ -419,6 +492,8 @@ function buildRows(
           parseQuantity(ingredient.shortQty);
         existingCell.demand = nextDemand;
         existingCell.alloc = nextAlloc;
+        existingCell.queueCoveredQty += alloc;
+        existingCell.queueShortQty = shortQty;
         existingCell.line.allocationDemandIds = [
           ...(existingCell.line.allocationDemandIds ?? [existingCell.line.id]),
           ingredient.id,
@@ -459,6 +534,12 @@ function buildRows(
         product,
         demand,
         alloc,
+        manualAlloc: 0,
+        queueCoveredQty: alloc,
+        queueExpectedQty: 0,
+        queueShortQty: parseQuantity(ingredient.shortQty),
+        pinnedQty: 0,
+        pinnedDateInvalidQty: 0,
       });
     });
 
@@ -596,16 +677,72 @@ function getCoverage(products: AllocationProduct[], rows: AllocationRow[]) {
   );
 }
 
-function getCellStatus(cell: Pick<AllocationCell, "alloc" | "demand" | "line"> | null) {
+type AllocationMarker = {
+  shape: "circle" | "square" | "triangle";
+  tone: "covered" | "production" | "short" | "none";
+};
+
+function getCellStatus(cell: AllocationCell | null) {
   if (!cell || cell.demand <= 0) return "empty";
   const isManufacturingDemand =
     cell.line.allocationDemandType === "manufacturing_order_ingredient";
   if (cell.alloc <= 0) return "zero";
-  if (!isManufacturingDemand && cell.line.allocationStatus === "waiting_production") {
+  if (
+    !isManufacturingDemand &&
+    (cell.line.allocationStatus === "waiting_production" || cell.queueExpectedQty > 0)
+  ) {
     return "waiting";
   }
   if (cell.alloc >= cell.demand) return "full";
   return "part";
+}
+
+function hasCellShortage(cell: AllocationCell | null) {
+  if (!cell || cell.demand <= 0) return false;
+  return cell.pinnedDateInvalidQty > 0 || cell.queueShortQty > 0 || cell.alloc < cell.demand;
+}
+
+function hasExpectedCoverage(cell: AllocationCell) {
+  return (
+    cell.queueExpectedQty > 0 ||
+    (cell.line.allocationDemandType !== "manufacturing_order_ingredient" &&
+      cell.line.allocationStatus === "waiting_production")
+  );
+}
+
+function getCoverageTone(cell: AllocationCell): AllocationMarker["tone"] {
+  if (hasExpectedCoverage(cell)) return "production";
+  if (cell.alloc > 0) return "covered";
+  return "none";
+}
+
+function getCellMarkers(cell: AllocationCell | null): AllocationMarker[] {
+  if (!cell || cell.demand <= 0) return [];
+  const markers: AllocationMarker[] = [];
+  if (hasCellShortage(cell)) {
+    markers.push({ shape: "triangle", tone: "short" });
+  }
+  if (cell.pinnedQty > 0 || cell.manualAlloc > 0) {
+    markers.push({ shape: "square", tone: getCoverageTone(cell) });
+  }
+  if (cell.queueCoveredQty > 0) {
+    markers.push({ shape: "circle", tone: getCoverageTone(cell) });
+  }
+  if (markers.length === 0) {
+    markers.push({ shape: "circle", tone: "none" });
+  }
+  return markers;
+}
+
+function getCellStatusLabels(cell: AllocationCell | null) {
+  if (!cell || cell.demand <= 0) return [];
+  const labels: string[] = [];
+  if (hasCellShortage(cell)) labels.push("short or date issue");
+  if (cell.pinnedQty > 0 || cell.manualAlloc > 0) labels.push("manual pin");
+  if (cell.queueCoveredQty > 0) labels.push("queue covered");
+  if (hasExpectedCoverage(cell)) labels.push("expected MO coverage");
+  if (labels.length === 0) labels.push("not allocated");
+  return labels;
 }
 
 function isoWeekMondayOf(value: string) {
@@ -1153,6 +1290,8 @@ function AllocationProductCell({
   const allocatedText = cell ? compactQuantity(cell.alloc) : "0";
   const demandText = cell ? compactQuantity(cell.demand) : "0";
   const shouldWrapQuantity = `${allocatedText}/${demandText}`.length > 9;
+  const markers = getCellMarkers(cell);
+  const statusLabel = getCellStatusLabels(cell).join(", ");
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -1163,13 +1302,20 @@ function AllocationProductCell({
           onClick={() => {
             if (cell) onOpenAllocation(data, cell);
           }}
-          aria-label={`Allocate ${product.label}`}
+          aria-label={`Allocate ${product.label}: ${allocationLabel}${
+            statusLabel ? `, ${statusLabel}` : ""
+          }`}
         >
-          <span
-            className={styles.miniSquare}
-            data-status={status}
-            aria-hidden="true"
-          />
+          <span className={styles.cellMarkers} aria-hidden="true">
+            {markers.map((marker, index) => (
+              <span
+                key={`${marker.shape}-${marker.tone}-${index}`}
+                className={styles.cellMarker}
+                data-shape={marker.shape}
+                data-tone={marker.tone}
+              />
+            ))}
+          </span>
           <span
             className={styles.allocationCellText}
             data-wrap={shouldWrapQuantity ? "true" : undefined}
@@ -1437,8 +1583,14 @@ function AllocationToolbar({
         onClick={() => onToggleFilter("late")}
         disabled={lateCount === 0}
         aria-pressed={activeFilter === "late"}
+        aria-label={`Filter by late lines, ${lateCount} lines`}
       >
-        <span className={styles.statusStatSquare} data-tone="late" aria-hidden="true" />
+        <span
+          className={styles.statusStatMarker}
+          data-shape="triangle"
+          data-tone="short"
+          aria-hidden="true"
+        />
         <b>{lateCount}</b> late
       </button>
       <button
@@ -1448,8 +1600,14 @@ function AllocationToolbar({
         onClick={() => onToggleFilter("shortLines")}
         disabled={shortLines === 0}
         aria-pressed={activeFilter === "shortLines"}
+        aria-label={`Filter by short lines, ${shortLines} of ${totalLines} lines`}
       >
-        <span className={styles.statusStatSquare} data-tone="short" aria-hidden="true" />
+        <span
+          className={styles.statusStatMarker}
+          data-shape="triangle"
+          data-tone="short"
+          aria-hidden="true"
+        />
         <b>{shortLines}</b> short of <b>{totalLines}</b>
       </button>
       <button
@@ -1459,9 +1617,11 @@ function AllocationToolbar({
         onClick={() => onToggleFilter("moWait")}
         disabled={moWaitLines === 0}
         aria-pressed={activeFilter === "moWait"}
+        aria-label={`Filter by expected production wait, ${moWaitLines} lines`}
       >
         <span
-          className={styles.statusStatSquare}
+          className={styles.statusStatMarker}
+          data-shape="circle"
           data-tone="production"
           aria-hidden="true"
         />
@@ -1474,9 +1634,11 @@ function AllocationToolbar({
         onClick={() => onToggleFilter("variantsShort")}
         disabled={variantsShort === 0}
         aria-pressed={activeFilter === "variantsShort"}
+        aria-label={`Filter by variants short, ${variantsShort} variants`}
       >
         <span
-          className={styles.statusStatSquare}
+          className={styles.statusStatMarker}
+          data-shape="triangle"
           data-tone="variants"
           aria-hidden="true"
         />

@@ -2,10 +2,8 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import {
   inventoryLotBalances,
-  inventoryReservationsSummary,
   manufacturingOrderIngredients,
   manufacturingOrderOutputs,
-  salesOrders,
   salesOrderLines,
   salesShipmentLines,
   salesShipments,
@@ -15,8 +13,9 @@ import {
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
-import { applyReservationReferenceDeltasInTx } from "./common";
 import { consumeSpecificLotInTx } from "./stock-core";
+import { reconcileAllocationPinsToReservationsInTx } from "@/lib/inventory/allocation/reservations";
+import type { AllocationDemandRef } from "@/lib/inventory/allocation/types";
 
 function quantityString(value: number) {
   return normalizeNumeric(roundQuantity(Math.max(0, value)));
@@ -153,92 +152,6 @@ async function getActiveLotAllocationQtyForDemandInTx(
   return roundQuantity(parseFloat(row?.quantity ?? "0"));
 }
 
-async function syncSalesLineStockReservationFromLotAllocationsInTx(
-  tx: Tx,
-  params: {
-    organizationId: string;
-    salesOrderLineId: string;
-    itemId: string;
-    actorUserId?: string | null;
-  }
-) {
-  const [line] = await tx
-    .select({
-      status: salesOrders.status,
-    })
-    .from(salesOrderLines)
-    .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
-    .where(
-      and(
-        eq(salesOrderLines.id, params.salesOrderLineId),
-        eq(salesOrderLines.itemId, params.itemId)
-      )
-    );
-
-  if (line?.status !== "open") {
-    return;
-  }
-
-  const directInventoryLotAllocationQty = await getActiveLotAllocationQtyForDemandInTx(tx, {
-    organizationId: params.organizationId,
-    demandType: "sales_order_line",
-    demandId: params.salesOrderLineId,
-    itemId: params.itemId,
-  });
-  const [shipmentInventoryLotAllocation] = await tx
-    .select({ quantity: sql<string>`COALESCE(SUM(${stockAllocations.quantity}), 0)` })
-    .from(stockAllocations)
-    .innerJoin(
-      salesShipmentLines,
-      eq(stockAllocations.demandId, salesShipmentLines.id)
-    )
-    .where(
-      and(
-        eq(stockAllocations.organizationId, params.organizationId),
-        eq(stockAllocations.demandType, "sales_shipment_line"),
-        eq(salesShipmentLines.salesOrderLineId, params.salesOrderLineId),
-        eq(stockAllocations.itemId, params.itemId),
-        eq(stockAllocations.sourceType, "inventory_lot"),
-        eq(stockAllocations.status, "active")
-      )
-    );
-  const inventoryLotAllocationQty = roundQuantity(
-    directInventoryLotAllocationQty +
-      parseFloat(shipmentInventoryLotAllocation?.quantity ?? "0")
-  );
-
-  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
-  const [existingReservation] = await tx
-    .select({ quantity: inventoryReservationsSummary.quantity })
-    .from(inventoryReservationsSummary)
-    .where(
-      and(
-        eq(inventoryReservationsSummary.organizationId, params.organizationId),
-        eq(inventoryReservationsSummary.locationId, location.id),
-        eq(inventoryReservationsSummary.referenceType, "sales_order_line"),
-        eq(inventoryReservationsSummary.referenceId, params.salesOrderLineId)
-      )
-    );
-  const currentQty = roundQuantity(parseFloat(existingReservation?.quantity ?? "0"));
-  const deltaQty = roundQuantity(inventoryLotAllocationQty - currentQty);
-  if (deltaQty === 0) return;
-
-  await applyReservationReferenceDeltasInTx(tx, {
-    organizationId: params.organizationId,
-    locationId: location.id,
-    actorUserId: params.actorUserId ?? null,
-    eventSubtype: "sales_allocation",
-    deltas: [
-      {
-        itemId: params.itemId,
-        referenceType: "sales_order_line",
-        referenceId: params.salesOrderLineId,
-        quantity: deltaQty,
-      },
-    ],
-  });
-}
-
 async function getOpenDemandQtyForAllocationInTx(
   tx: Tx,
   params: {
@@ -285,25 +198,6 @@ async function getOpenDemandQtyForAllocationInTx(
           parseFloat(shipped?.quantity ?? "0")
       )
     );
-  } else if (params.demandType === "sales_shipment_line") {
-    const [line] = await tx
-      .select({
-        quantity: salesShipmentLines.quantity,
-      })
-      .from(salesShipmentLines)
-      .innerJoin(salesShipments, eq(salesShipments.id, salesShipmentLines.salesShipmentId))
-      .innerJoin(salesOrders, eq(salesOrders.id, salesShipments.salesOrderId))
-      .where(
-        and(
-          eq(salesShipmentLines.id, params.demandId),
-          eq(salesShipmentLines.itemId, params.itemId),
-          eq(salesShipments.status, "planned"),
-          eq(salesOrders.status, "open")
-        )
-      )
-      .for("update");
-
-    baseRemainingQty = roundQuantity(parseFloat(line?.quantity ?? "0"));
   } else if (params.demandType === "manufacturing_order_ingredient") {
     const [ingredient] = await tx
       .select({
@@ -505,15 +399,40 @@ export async function materializeManufacturingOrderSourceAllocationsForLotInTx(
     )
     .orderBy(asc(stockAllocations.createdAt), asc(stockAllocations.id))
     .for("update");
-  const salesLinesToSync = new Set<string>();
+  const affectedDemands = new Map<string, AllocationDemandRef>();
 
   for (const promise of promises) {
     if (remainingOutputQty <= 0) break;
-    if (!isStockAllocationDemandType(promise.demandType)) {
-      throw new Error(`Unsupported stock allocation demand type: ${promise.demandType}`);
-    }
-    const demandType = promise.demandType;
+    const promiseDemandType = String(promise.demandType);
     const promiseQty = roundQuantity(parseFloat(promise.quantity));
+    if (promiseDemandType === "sales_shipment_line") {
+      const retiredHoldQty = roundQuantity(Math.min(remainingOutputQty, promiseQty));
+      const [shipmentLine] = await tx
+        .select({ salesOrderLineId: salesShipmentLines.salesOrderLineId })
+        .from(salesShipmentLines)
+        .where(eq(salesShipmentLines.id, promise.demandId));
+      if (shipmentLine?.salesOrderLineId) {
+        affectedDemands.set(`sales_order_line:${shipmentLine.salesOrderLineId}`, {
+          demandType: "sales_order_line",
+          demandId: shipmentLine.salesOrderLineId,
+        });
+      }
+      if (promiseQty > 0) {
+        await reduceOrCloseAllocationInTx(tx, {
+          allocationId: promise.id,
+          currentQuantity: promise.quantity,
+          consumedQuantity: promiseQty,
+          statusWhenClosed: "cancelled",
+          actorUserId: params.actorUserId ?? null,
+        });
+      }
+      remainingOutputQty = roundQuantity(remainingOutputQty - retiredHoldQty);
+      continue;
+    }
+    if (!isStockAllocationDemandType(promiseDemandType)) {
+      throw new Error(`Unsupported stock allocation demand type: ${promiseDemandType}`);
+    }
+    const demandType = promiseDemandType;
     const openDemandQty = await getOpenDemandQtyForAllocationInTx(tx, {
       organizationId: params.organizationId,
       demandType,
@@ -535,15 +454,10 @@ export async function materializeManufacturingOrderSourceAllocationsForLotInTx(
         actorUserId: params.actorUserId ?? null,
       });
 
-      if (demandType === "sales_order_line") {
-        salesLinesToSync.add(promise.demandId);
-      } else if (demandType === "sales_shipment_line") {
-        const [line] = await tx
-          .select({ salesOrderLineId: salesShipmentLines.salesOrderLineId })
-          .from(salesShipmentLines)
-          .where(eq(salesShipmentLines.id, promise.demandId));
-        if (line) salesLinesToSync.add(line.salesOrderLineId);
-      }
+      affectedDemands.set(`${demandType}:${promise.demandId}`, {
+        demandType,
+        demandId: promise.demandId,
+      });
 
       await reduceOrCloseAllocationInTx(tx, {
         allocationId: promise.id,
@@ -574,12 +488,14 @@ export async function materializeManufacturingOrderSourceAllocationsForLotInTx(
     remainingOutputQty = roundQuantity(remainingOutputQty - holdQty);
   }
 
-  for (const salesOrderLineId of salesLinesToSync) {
-    await syncSalesLineStockReservationFromLotAllocationsInTx(tx, {
+  if (affectedDemands.size > 0) {
+    await reconcileAllocationPinsToReservationsInTx(tx, {
       organizationId: params.organizationId,
-      salesOrderLineId,
       itemId: params.itemId,
+      affectedDemands: [...affectedDemands.values()],
       actorUserId: params.actorUserId ?? null,
+      closedDemandPolicy: "release",
+      releaseUnpinnedAffectedDemands: true,
     });
   }
 }

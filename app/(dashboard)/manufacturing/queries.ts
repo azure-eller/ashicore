@@ -6098,7 +6098,6 @@ export async function saveManufacturingOutputAllocation(
           inArray(stockAllocations.demandType, [
             "manufacturing_order_ingredient",
             "sales_order_line",
-            "sales_shipment_line",
           ]),
           eq(stockAllocations.itemId, order.productId),
           eq(stockAllocations.status, "active"),

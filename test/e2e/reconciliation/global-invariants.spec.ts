@@ -194,9 +194,8 @@ test.describe("global inventory and manufacturing invariants", () => {
   }) => {
     // For every sales_order_lines row, SUM(stock_allocations.quantity)
     // active demand of type 'sales_order_line' against this line id must
-    // be <= line.quantity. Shipment-bucket allocations (demandType
-    // 'sales_shipment_line') key by shipment line id and aren't
-    // comparable here, so we restrict to the SO bucket.
+    // be <= line.quantity. Shipment lines are fulfillment slices; active
+    // allocation demand belongs to the parent sales line.
     const overReserved = await db.execute(sql`
       SELECT
         line.id AS line_id,
@@ -217,6 +216,125 @@ test.describe("global inventory and manufacturing invariants", () => {
     expect(
       overReserved.rows,
       `Sales-line over-allocation on ${overReserved.rows.length} lines: ${JSON.stringify(overReserved.rows.slice(0, 5))}`
+    ).toHaveLength(0);
+  });
+
+  test("invariant: shipment lines do not own active stock allocations", async ({
+    db,
+  }) => {
+    const rows = await db.execute(sql`
+      SELECT id, demand_id, item_id, quantity
+      FROM inventory.stock_allocations
+      WHERE organization_id = ${orgId}
+        AND demand_type = 'sales_shipment_line'
+        AND status = 'active'
+      LIMIT 5
+    `);
+
+    expect(
+      rows.rows,
+      `Active shipment-line stock allocations remain after migration: ${JSON.stringify(rows.rows)}`
+    ).toHaveLength(0);
+  });
+
+  test("invariant: active shipment-line stock allocation inserts are rejected", async ({
+    db,
+  }) => {
+    const [lot] = await db
+      .select({ id: lots.id, itemId: lots.itemId })
+      .from(lots)
+      .where(eq(lots.organizationId, orgId));
+    expect(lot).toBeTruthy();
+    const orgLiteral = orgId.replace(/'/g, "''");
+    const itemId = lot!.itemId;
+    const lotId = lot!.id;
+
+    await db.execute(sql.raw(`
+      DO $$
+      DECLARE
+        rejected boolean := false;
+      BEGIN
+        BEGIN
+          INSERT INTO inventory.stock_allocations (
+            organization_id,
+            demand_type,
+            demand_id,
+            item_id,
+            source_type,
+            source_id,
+            quantity,
+            status
+          )
+          VALUES (
+            '${orgLiteral}',
+            'sales_shipment_line',
+            gen_random_uuid(),
+            '${itemId}'::uuid,
+            'inventory_lot',
+            '${lotId}'::uuid,
+            1,
+            'active'
+          );
+        EXCEPTION
+          WHEN check_violation THEN
+            rejected := true;
+        END;
+
+        IF NOT rejected THEN
+          RAISE EXCEPTION 'active sales_shipment_line allocation insert was not rejected';
+        END IF;
+      END $$;
+    `));
+  });
+
+  test("invariant: physical lot pins reconcile to reservation projection", async ({
+    db,
+  }) => {
+    const mismatches = await db.execute(sql`
+      WITH pin_totals AS (
+        SELECT
+          organization_id,
+          item_id,
+          demand_type,
+          demand_id,
+          ROUND(SUM(quantity)::numeric, 4) AS pin_qty
+        FROM inventory.stock_allocations
+        WHERE organization_id = ${orgId}
+          AND status = 'active'
+          AND source_type = 'inventory_lot'
+          AND demand_type IN ('sales_order_line', 'manufacturing_order_ingredient')
+        GROUP BY organization_id, item_id, demand_type, demand_id
+      ),
+      reservation_totals AS (
+        SELECT
+          organization_id,
+          item_id,
+          reference_type AS demand_type,
+          reference_id AS demand_id,
+          ROUND(SUM(quantity)::numeric, 4) AS reserved_qty
+        FROM inventory.inventory_reservations_summary
+        WHERE organization_id = ${orgId}
+        GROUP BY organization_id, item_id, reference_type, reference_id
+      )
+      SELECT
+        pins.item_id,
+        pins.demand_type,
+        pins.demand_id,
+        pins.pin_qty,
+        COALESCE(reservations.reserved_qty, 0) AS reserved_qty
+      FROM pin_totals pins
+      LEFT JOIN reservation_totals reservations
+        ON reservations.organization_id = pins.organization_id
+       AND reservations.item_id = pins.item_id
+       AND reservations.demand_type = pins.demand_type
+       AND reservations.demand_id = pins.demand_id
+      WHERE pins.pin_qty <> COALESCE(reservations.reserved_qty, 0)
+      LIMIT 10
+    `);
+
+    expect(
+      mismatches.rows,
+      `Inventory-lot pins without matching reservations: ${JSON.stringify(mismatches.rows)}`
     ).toHaveLength(0);
   });
 });

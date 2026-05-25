@@ -1,10 +1,14 @@
 import "server-only";
 
+import { and, eq } from "drizzle-orm";
+import { stockAllocations } from "@/lib/db/schema";
+import { trimScale } from "@/lib/db/numeric";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
 import { allocationDemandAdapters } from "./adapters";
 import { loadAllocationSourcesForItemInTx } from "./sources";
 import type { AllocationDemandType } from "./types";
+import { compareDemandOrder, compareNullableDate } from "./priority";
 
 // Demand-queue mode computes item-level quantity coverage from supply chunks.
 // It is a pure read projection: nothing is persisted, no lot identity is chosen.
@@ -12,9 +16,19 @@ import type { AllocationDemandType } from "./types";
 
 export type DemandQueueSupplyChunk = {
   kind: "on_hand" | "expected_mo";
+  sourceType?: "inventory_lot" | "manufacturing_order";
+  sourceId?: string;
   quantity: number;
   availableDate: string | null;
   label: string | null;
+};
+
+export type DemandQueuePin = {
+  demandType: AllocationDemandType;
+  demandId: string;
+  sourceType: "inventory_lot" | "manufacturing_order";
+  sourceId: string;
+  quantity: number;
 };
 
 export type DemandQueueDemandInput = {
@@ -43,44 +57,60 @@ export type DemandQueueCoverageRow = {
   openQty: number;
   inStockQty: number;
   expectedQty: number;
+  pinnedQty: number;
+  pinnedDateValidQty: number;
+  pinnedDateInvalidQty: number;
+  queueCoveredQty: number;
   earliestExpectedDate: string | null;
   claimedQty: number;
   shortQty: number;
+  segments: CoverageSegment[];
 };
 
-const DEMAND_GROUP_RANK: Record<AllocationDemandType, number> = {
-  manufacturing_order_ingredient: 0,
-  sales_shipment_line: 1,
-  sales_order_line: 2,
+type DemandQueueCoverageState = DemandQueueCoverageRow & {
+  remainingNeed: number;
 };
 
-function compareNullableNumber(left: number | null, right: number | null) {
-  if (left == null && right == null) return 0;
-  if (left == null) return 1; // nulls last
-  if (right == null) return -1;
-  return left - right;
-}
+export type CoverageSegment =
+  | { kind: "in_stock"; qty: number }
+  | { kind: "expected"; qty: number; availableDate: string | null }
+  | { kind: "pinned_in_stock"; qty: number; sourceId: string }
+  | {
+      kind: "pinned_expected";
+      qty: number;
+      sourceId: string;
+      availableDate: string | null;
+    }
+  | {
+      kind: "pinned_late";
+      qty: number;
+      sourceId: string;
+      availableDate: string | null;
+    }
+  | { kind: "short"; qty: number };
 
-function compareNullableDate(left: string | null, right: string | null) {
-  if (left === right) return 0;
-  if (!left) return 1; // nulls last
-  if (!right) return -1;
-  return left.localeCompare(right);
-}
+export type DemandQueueCoverageSegment =
+  | { kind: "in_stock"; qty: string }
+  | { kind: "expected"; qty: string; availableDate: string | null }
+  | { kind: "pinned_in_stock"; qty: string; sourceId: string }
+  | {
+      kind: "pinned_expected";
+      qty: string;
+      sourceId: string;
+      availableDate: string | null;
+    }
+  | {
+      kind: "pinned_late";
+      qty: string;
+      sourceId: string;
+      availableDate: string | null;
+    }
+  | { kind: "short"; qty: string };
 
-function compareDemandOrder(
-  left: DemandQueueDemandInput,
-  right: DemandQueueDemandInput
-) {
-  const groupCompare = DEMAND_GROUP_RANK[left.demandType] - DEMAND_GROUP_RANK[right.demandType];
-  if (groupCompare !== 0) return groupCompare;
-  const rankCompare = compareNullableNumber(left.priorityRank, right.priorityRank);
-  if (rankCompare !== 0) return rankCompare;
-  const dateCompare = compareNullableDate(left.priorityDate, right.priorityDate);
-  if (dateCompare !== 0) return dateCompare;
-  return left.priorityLabel.localeCompare(right.priorityLabel, undefined, {
-    numeric: true,
-  });
+function serializeCoverageSegment(
+  segment: CoverageSegment
+): DemandQueueCoverageSegment {
+  return { ...segment, qty: quantityString(segment.qty) };
 }
 
 function compareSupplyOrder(
@@ -102,47 +132,52 @@ function expectedSupplyCanCoverDemand(
   return supply.availableDate <= demand.requiredDate;
 }
 
+function segmentQty(row: DemandQueueCoverageRow, kinds: CoverageSegment["kind"][]) {
+  const allowed = new Set(kinds);
+  return roundQuantity(
+    row.segments.reduce(
+      (sum, segment) => sum + (allowed.has(segment.kind) ? segment.qty : 0),
+      0
+    )
+  );
+}
+
+function assertCoverageSegmentsMatchTotals(row: DemandQueueCoverageRow) {
+  const checks = [
+    [segmentQty(row, ["in_stock", "pinned_in_stock"]), row.inStockQty],
+    [segmentQty(row, ["expected", "pinned_expected"]), row.expectedQty],
+    [
+      segmentQty(row, ["pinned_in_stock", "pinned_expected", "pinned_late"]),
+      row.pinnedQty,
+    ],
+    [
+      segmentQty(row, ["pinned_in_stock", "pinned_expected"]),
+      row.pinnedDateValidQty,
+    ],
+    [segmentQty(row, ["pinned_late"]), row.pinnedDateInvalidQty],
+    [segmentQty(row, ["in_stock", "expected"]), row.queueCoveredQty],
+    [segmentQty(row, ["short"]), row.shortQty],
+  ];
+  if (checks.some(([left, right]) => roundQuantity(left - right) !== 0)) {
+    throw new Error(
+      `Demand queue coverage segment totals diverged for ${row.demandType}:${row.demandId}.`
+    );
+  }
+}
+
 export function computeDemandQueueCoverage(params: {
   supply: DemandQueueSupplyChunk[];
   demands: DemandQueueDemandInput[];
+  pins?: DemandQueuePin[];
 }): DemandQueueCoverageRow[] {
   const supply = params.supply
     .map((chunk) => ({ ...chunk, remaining: roundQuantity(Math.max(0, chunk.quantity)) }))
     .filter((chunk) => chunk.remaining > 0)
     .sort(compareSupplyOrder);
   const demands = [...params.demands].sort(compareDemandOrder);
-
-  return demands.map((demand) => {
-    let remainingNeed = roundQuantity(Math.max(0, demand.openQty));
-    let inStockQty = 0;
-    let expectedQty = 0;
-    let earliestExpectedDate: string | null = null;
-
-    for (const chunk of supply) {
-      if (remainingNeed <= 0) break;
-      if (chunk.remaining <= 0) continue;
-      if (!expectedSupplyCanCoverDemand(chunk, demand)) continue;
-      const claim = roundQuantity(Math.min(remainingNeed, chunk.remaining));
-      if (claim <= 0) continue;
-
-      chunk.remaining = roundQuantity(chunk.remaining - claim);
-      remainingNeed = roundQuantity(remainingNeed - claim);
-
-      if (chunk.kind === "on_hand") {
-        inStockQty = roundQuantity(inStockQty + claim);
-      } else {
-        expectedQty = roundQuantity(expectedQty + claim);
-        if (
-          chunk.availableDate &&
-          (earliestExpectedDate == null || chunk.availableDate < earliestExpectedDate)
-        ) {
-          earliestExpectedDate = chunk.availableDate;
-        }
-      }
-    }
-
-    const claimedQty = roundQuantity(inStockQty + expectedQty);
-    return {
+  const coverageByKey = new Map<string, DemandQueueCoverageState>();
+  for (const demand of demands) {
+    coverageByKey.set(demandQueueCoverageKey(demand), {
       demandType: demand.demandType,
       demandId: demand.demandId,
       label: demand.label,
@@ -150,12 +185,160 @@ export function computeDemandQueueCoverage(params: {
       requiredDate: demand.requiredDate,
       href: demand.href,
       openQty: roundQuantity(Math.max(0, demand.openQty)),
-      inStockQty,
-      expectedQty,
-      earliestExpectedDate,
+      inStockQty: 0,
+      expectedQty: 0,
+      pinnedQty: 0,
+      pinnedDateValidQty: 0,
+      pinnedDateInvalidQty: 0,
+      queueCoveredQty: 0,
+      earliestExpectedDate: null,
+      claimedQty: 0,
+      shortQty: 0,
+      segments: [],
+      remainingNeed: roundQuantity(Math.max(0, demand.openQty)),
+    });
+  }
+
+  const pinsByDemandKey = new Map<string, DemandQueuePin[]>();
+  for (const pin of params.pins ?? []) {
+    const key = demandQueueCoverageKey(pin);
+    const current = pinsByDemandKey.get(key) ?? [];
+    current.push({ ...pin, quantity: roundQuantity(Math.max(0, pin.quantity)) });
+    pinsByDemandKey.set(key, current);
+  }
+
+  const pinnedDemandKeys = new Set(pinsByDemandKey.keys());
+  const sortedPinnedDemands = demands.filter((demand) =>
+    pinnedDemandKeys.has(demandQueueCoverageKey(demand))
+  );
+
+  for (const demand of sortedPinnedDemands) {
+    const key = demandQueueCoverageKey(demand);
+    const coverage = coverageByKey.get(key);
+    if (!coverage) continue;
+    for (const pin of pinsByDemandKey.get(key) ?? []) {
+      if (coverage.remainingNeed <= 0) break;
+      if (pin.quantity <= 0) continue;
+      const chunk = supply.find(
+        (candidate) =>
+          candidate.sourceType === pin.sourceType &&
+          candidate.sourceId === pin.sourceId &&
+          candidate.remaining > 0
+      );
+      if (!chunk) continue;
+      const claim = roundQuantity(
+        Math.min(coverage.remainingNeed, chunk.remaining, pin.quantity)
+      );
+      if (claim <= 0) continue;
+
+      chunk.remaining = roundQuantity(chunk.remaining - claim);
+      coverage.remainingNeed = roundQuantity(coverage.remainingNeed - claim);
+      coverage.pinnedQty = roundQuantity(coverage.pinnedQty + claim);
+
+      if (expectedSupplyCanCoverDemand(chunk, demand)) {
+        coverage.pinnedDateValidQty = roundQuantity(
+          coverage.pinnedDateValidQty + claim
+        );
+        if (chunk.kind === "on_hand") {
+          coverage.inStockQty = roundQuantity(coverage.inStockQty + claim);
+          coverage.segments.push({
+            kind: "pinned_in_stock",
+            qty: claim,
+            sourceId: pin.sourceId,
+          });
+        } else {
+          coverage.expectedQty = roundQuantity(coverage.expectedQty + claim);
+          coverage.segments.push({
+            kind: "pinned_expected",
+            qty: claim,
+            sourceId: pin.sourceId,
+            availableDate: chunk.availableDate,
+          });
+          if (
+            chunk.availableDate &&
+            (coverage.earliestExpectedDate == null ||
+              chunk.availableDate < coverage.earliestExpectedDate)
+          ) {
+            coverage.earliestExpectedDate = chunk.availableDate;
+          }
+        }
+      } else {
+        coverage.pinnedDateInvalidQty = roundQuantity(
+          coverage.pinnedDateInvalidQty + claim
+        );
+        coverage.segments.push({
+          kind: "pinned_late",
+          qty: claim,
+          sourceId: pin.sourceId,
+          availableDate: chunk.availableDate,
+        });
+      }
+    }
+  }
+
+  for (const demand of demands) {
+    const coverage = coverageByKey.get(demandQueueCoverageKey(demand));
+    if (!coverage) continue;
+    for (const chunk of supply) {
+      if (coverage.remainingNeed <= 0) break;
+      if (chunk.remaining <= 0) continue;
+      if (!expectedSupplyCanCoverDemand(chunk, demand)) continue;
+      const claim = roundQuantity(Math.min(coverage.remainingNeed, chunk.remaining));
+      if (claim <= 0) continue;
+
+      chunk.remaining = roundQuantity(chunk.remaining - claim);
+      coverage.remainingNeed = roundQuantity(coverage.remainingNeed - claim);
+
+      if (chunk.kind === "on_hand") {
+        coverage.inStockQty = roundQuantity(coverage.inStockQty + claim);
+        coverage.segments.push({ kind: "in_stock", qty: claim });
+      } else {
+        coverage.expectedQty = roundQuantity(coverage.expectedQty + claim);
+        coverage.segments.push({
+          kind: "expected",
+          qty: claim,
+          availableDate: chunk.availableDate,
+        });
+        if (
+          chunk.availableDate &&
+          (coverage.earliestExpectedDate == null ||
+            chunk.availableDate < coverage.earliestExpectedDate)
+        ) {
+          coverage.earliestExpectedDate = chunk.availableDate;
+        }
+      }
+      coverage.queueCoveredQty = roundQuantity(coverage.queueCoveredQty + claim);
+    }
+  }
+
+  return demands.map((demand) => {
+    const coverage = coverageByKey.get(demandQueueCoverageKey(demand))!;
+    const claimedQty = roundQuantity(coverage.inStockQty + coverage.expectedQty);
+    const shortQty = roundQuantity(Math.max(0, demand.openQty - claimedQty));
+    const row: DemandQueueCoverageRow = {
+      demandType: coverage.demandType,
+      demandId: coverage.demandId,
+      label: coverage.label,
+      contextLabel: coverage.contextLabel,
+      requiredDate: coverage.requiredDate,
+      href: coverage.href,
+      openQty: coverage.openQty,
+      inStockQty: coverage.inStockQty,
+      expectedQty: coverage.expectedQty,
+      pinnedQty: coverage.pinnedQty,
+      pinnedDateValidQty: coverage.pinnedDateValidQty,
+      pinnedDateInvalidQty: coverage.pinnedDateInvalidQty,
+      queueCoveredQty: coverage.queueCoveredQty,
+      earliestExpectedDate: coverage.earliestExpectedDate,
       claimedQty,
-      shortQty: roundQuantity(Math.max(0, demand.openQty - claimedQty)),
+      shortQty,
+      segments:
+        shortQty > 0
+          ? [...coverage.segments, { kind: "short", qty: shortQty }]
+          : coverage.segments,
     };
+    assertCoverageSegmentsMatchTotals(row);
+    return row;
   });
 }
 
@@ -170,7 +353,6 @@ function quantityString(value: number) {
 
 const DEMAND_TYPE_LABELS: Record<AllocationDemandType, string> = {
   manufacturing_order_ingredient: "Manufacturing",
-  sales_shipment_line: "Planned shipment",
   sales_order_line: "Sales order",
 };
 
@@ -185,8 +367,13 @@ export type DemandQueueCoverageDemand = {
   requiredQty: string;
   inStockQty: string;
   expectedQty: string;
+  pinnedQty: string;
+  pinnedDateValidQty: string;
+  pinnedDateInvalidQty: string;
+  queueCoveredQty: string;
   earliestExpectedDate: string | null;
   shortQty: string;
+  segments: DemandQueueCoverageSegment[];
 };
 
 export type DemandQueueItemCoverage = {
@@ -206,6 +393,19 @@ export function demandQueueCoverageKey(ref: {
   demandId: string;
 }) {
   return `${ref.demandType}:${ref.demandId}` as const;
+}
+
+function isAllocationDemandType(value: string): value is AllocationDemandType {
+  return (
+    value === "sales_order_line" ||
+    value === "manufacturing_order_ingredient"
+  );
+}
+
+function isDemandQueuePinSourceType(
+  value: string
+): value is DemandQueuePin["sourceType"] {
+  return value === "inventory_lot" || value === "manufacturing_order";
 }
 
 export async function getDemandQueueCoverageForItemInTx(
@@ -247,6 +447,8 @@ export async function getDemandQueueCoverageForItemInTx(
     )
     .map((source) => ({
       kind: source.sourceType === "inventory_lot" ? "on_hand" : "expected_mo",
+      sourceType: source.sourceType,
+      sourceId: source.sourceId,
       quantity: toQuantity(source.totalQty),
       availableDate: source.sourceType === "inventory_lot" ? null : source.date,
       label: source.label,
@@ -268,7 +470,51 @@ export async function getDemandQueueCoverageForItemInTx(
     priorityLabel: row.priorityLabel,
   }));
 
-  const coverage = computeDemandQueueCoverage({ supply, demands });
+  const demandKeys = new Set(demands.map((demand) => demandQueueCoverageKey(demand)));
+  const pinRows = await tx
+    .select({
+      demandType: stockAllocations.demandType,
+      demandId: stockAllocations.demandId,
+      sourceType: stockAllocations.sourceType,
+      sourceId: stockAllocations.sourceId,
+      quantity: trimScale(stockAllocations.quantity).as("quantity"),
+    })
+    .from(stockAllocations)
+    .where(
+      and(
+        eq(stockAllocations.organizationId, params.organizationId),
+        eq(stockAllocations.itemId, params.itemId),
+        eq(stockAllocations.status, "active")
+      )
+    );
+  const pins: DemandQueuePin[] = pinRows
+    .filter(
+      (
+        row
+      ): row is typeof row & {
+        demandType: AllocationDemandType;
+        sourceType: DemandQueuePin["sourceType"];
+        sourceId: string;
+      } =>
+        isAllocationDemandType(row.demandType) &&
+        isDemandQueuePinSourceType(row.sourceType) &&
+        row.sourceId != null &&
+        demandKeys.has(
+          demandQueueCoverageKey({
+            demandType: row.demandType,
+            demandId: row.demandId,
+          })
+        )
+    )
+    .map((row) => ({
+      demandType: row.demandType,
+      demandId: row.demandId,
+      sourceType: row.sourceType,
+      sourceId: row.sourceId,
+      quantity: toQuantity(row.quantity),
+    }));
+
+  const coverage = computeDemandQueueCoverage({ supply, demands, pins });
 
   const onHandQty = supply
     .filter((chunk) => chunk.kind === "on_hand")
@@ -308,8 +554,13 @@ export async function getDemandQueueCoverageForItemInTx(
       requiredQty: quantityString(row.openQty),
       inStockQty: quantityString(row.inStockQty),
       expectedQty: quantityString(row.expectedQty),
+      pinnedQty: quantityString(row.pinnedQty),
+      pinnedDateValidQty: quantityString(row.pinnedDateValidQty),
+      pinnedDateInvalidQty: quantityString(row.pinnedDateInvalidQty),
+      queueCoveredQty: quantityString(row.queueCoveredQty),
       earliestExpectedDate: row.earliestExpectedDate,
       shortQty: quantityString(row.shortQty),
+      segments: row.segments.map(serializeCoverageSegment),
     })),
   };
 }
