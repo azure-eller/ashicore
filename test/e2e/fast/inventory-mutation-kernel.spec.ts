@@ -4,6 +4,7 @@ import { test, expect } from "../fixtures";
 import {
   inventoryEvents,
   inventoryItemBalances,
+  inventoryLocations,
   inventoryLotBalances,
   lots,
   stockAllocations,
@@ -11,6 +12,10 @@ import {
   stocktakeLotItems,
   stocktakes,
 } from "../../../lib/db/schema";
+import {
+  consumeStockFifoInTx,
+  createPositiveStockEventInTx,
+} from "../../../lib/inventory/kernel";
 import { buildStocktakeCategoryScope } from "../../../lib/schemas/stocktakes";
 import { createItem, getOrgId, getUnitId, testFetch } from "../../helpers/api";
 
@@ -88,6 +93,205 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(itemBalance).toMatchObject({
       onHandQty: "13.0000",
       availableToPromise: "13.0000",
+    });
+  });
+
+  test("negative stock uses one debt lot and withholds receipts until debt clears", async ({
+    db,
+  }) => {
+    const category = `Fast Negative Debt ${ts}`;
+    const item = await createItem({
+      itemType: "material",
+      name: `Fast Negative Debt ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-NEG-DEBT-${ts}`,
+      category,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(item.status).toBe(201);
+    const itemId = item.body.id as string;
+
+    const [location] = await db
+      .select({ id: inventoryLocations.id })
+      .from(inventoryLocations)
+      .where(
+        and(
+          eq(inventoryLocations.organizationId, orgId),
+          eq(inventoryLocations.isDefault, true)
+        )
+      );
+    const locationId = location?.id;
+    expect(locationId).toBeTruthy();
+    if (!locationId) throw new Error("Default inventory location not found.");
+
+    await db.transaction(async (tx) => {
+      await consumeStockFifoInTx(tx, {
+        organizationId: orgId,
+        locationId,
+        itemId,
+        quantity: 4,
+        eventType: "manual_adjustment_decrease",
+        eventSubtype: "fast_negative_regression",
+        referenceType: "item",
+        referenceId: itemId,
+        allowNegativeStock: true,
+      });
+      await consumeStockFifoInTx(tx, {
+        organizationId: orgId,
+        locationId,
+        itemId,
+        quantity: 6,
+        eventType: "manual_adjustment_decrease",
+        eventSubtype: "fast_negative_regression",
+        referenceType: "item",
+        referenceId: itemId,
+        allowNegativeStock: true,
+      });
+    });
+
+    let [itemBalance] = await db
+      .select({
+        onHandQty: inventoryItemBalances.onHandQty,
+        availableToPromise: inventoryItemBalances.availableToPromise,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, itemId));
+
+    expect(itemBalance).toMatchObject({
+      onHandQty: "-10.0000",
+      availableToPromise: "0.0000",
+    });
+
+    await db.transaction(async (tx) => {
+      await createPositiveStockEventInTx(tx, {
+        organizationId: orgId,
+        locationId,
+        itemId,
+        quantity: 5,
+        unitCost: "2.00",
+        eventType: "manual_adjustment_increase",
+        eventSubtype: "fast_negative_regression",
+        referenceType: "item",
+        referenceId: itemId,
+      });
+      await consumeStockFifoInTx(tx, {
+        organizationId: orgId,
+        locationId,
+        itemId,
+        quantity: 8,
+        eventType: "manual_adjustment_decrease",
+        eventSubtype: "fast_negative_regression",
+        referenceType: "item",
+        referenceId: itemId,
+        allowNegativeStock: true,
+      });
+      await createPositiveStockEventInTx(tx, {
+        organizationId: orgId,
+        locationId,
+        itemId,
+        quantity: 7,
+        unitCost: "2.00",
+        eventType: "manual_adjustment_increase",
+        eventSubtype: "fast_negative_regression",
+        referenceType: "item",
+        referenceId: itemId,
+      });
+    });
+
+    const lotRows = await db
+      .select({
+        lotNumber: lots.lotNumber,
+        quantity: lots.quantity,
+      })
+      .from(lots)
+      .where(eq(lots.itemId, itemId))
+      .orderBy(lots.lotNumber);
+
+    expect(
+      lotRows.filter((lot) => lot.lotNumber === "UNBATCHED-NEGATIVE-STOCK")
+    ).toEqual([expect.objectContaining({ quantity: "-13.0000" })]);
+    expect(
+      lotRows.filter((lot) => lot.lotNumber !== "UNBATCHED-NEGATIVE-STOCK")
+    ).toHaveLength(2);
+    expect(
+      lotRows
+        .filter((lot) => lot.lotNumber !== "UNBATCHED-NEGATIVE-STOCK")
+        .reduce((sum, lot) => sum + Number(lot.quantity), 0)
+    ).toBe(7);
+
+    [itemBalance] = await db
+      .select({
+        onHandQty: inventoryItemBalances.onHandQty,
+        availableToPromise: inventoryItemBalances.availableToPromise,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, itemId));
+
+    expect(itemBalance).toMatchObject({
+      onHandQty: "-6.0000",
+      availableToPromise: "0.0000",
+    });
+
+    const stocktakeResponse = await testFetch("/api/stocktakes", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Fast Negative Debt Stocktake ${ts}`,
+        scope: buildStocktakeCategoryScope("material", category),
+        notes: null,
+      }),
+    });
+    expect(stocktakeResponse.status).toBe(201);
+    const stocktake = await stocktakeResponse.json();
+
+    const [line] = await db
+      .select({ id: stocktakeItems.id, expectedQty: stocktakeItems.expectedQty })
+      .from(stocktakeItems)
+      .where(
+        and(
+          eq(stocktakeItems.stocktakeId, stocktake.id),
+          eq(stocktakeItems.itemId, itemId)
+        )
+      );
+    expect(line).toBeTruthy();
+    if (!line) throw new Error("Expected stocktake line was not created.");
+    expect(line?.expectedQty).toBe("-6.0000");
+
+    const stocktakeLotRows = await db
+      .select({ id: stocktakeLotItems.id })
+      .from(stocktakeLotItems)
+      .where(eq(stocktakeLotItems.stocktakeItemId, line.id));
+    expect(stocktakeLotRows).toEqual([]);
+
+    await db.transaction(async (tx) => {
+      await createPositiveStockEventInTx(tx, {
+        organizationId: orgId,
+        locationId,
+        itemId,
+        quantity: 10,
+        unitCost: "2.00",
+        eventType: "manual_adjustment_increase",
+        eventSubtype: "fast_negative_regression",
+        referenceType: "item",
+        referenceId: itemId,
+      });
+    });
+
+    [itemBalance] = await db
+      .select({
+        onHandQty: inventoryItemBalances.onHandQty,
+        availableToPromise: inventoryItemBalances.availableToPromise,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, itemId));
+
+    expect(itemBalance).toMatchObject({
+      onHandQty: "4.0000",
+      availableToPromise: "4.0000",
     });
   });
 

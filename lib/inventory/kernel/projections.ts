@@ -197,16 +197,29 @@ export async function recomputeAvailableToPromiseForItemsInTx(
       .update(inventoryItemBalances)
       .set({
         availableToPromise: sql`
-          COALESCE((
-            SELECT SUM(${inventoryLotBalances.quantity})
-            FROM ${inventoryLotBalances}
-            WHERE ${inventoryLotBalances.organizationId} = ${inventoryItemBalances.organizationId}
-	              AND ${inventoryLotBalances.locationId} = ${inventoryItemBalances.locationId}
-	              AND ${inventoryLotBalances.itemId} = ${inventoryItemBalances.itemId}
-	              AND ${inventoryLotBalances.disposition} = 'available'
-	          ), 0)
+          GREATEST(
+            0,
+            COALESCE((
+              SELECT SUM(${inventoryLotBalances.quantity})
+              FROM ${inventoryLotBalances}
+              WHERE ${inventoryLotBalances.organizationId} = ${inventoryItemBalances.organizationId}
+	                AND ${inventoryLotBalances.locationId} = ${inventoryItemBalances.locationId}
+	                AND ${inventoryLotBalances.itemId} = ${inventoryItemBalances.itemId}
+	                AND ${inventoryLotBalances.disposition} = 'available'
+                  AND ${inventoryLotBalances.quantity} > 0
+	            ), 0)
+            - COALESCE((
+              SELECT ABS(SUM(${inventoryLotBalances.quantity}))
+              FROM ${inventoryLotBalances}
+              WHERE ${inventoryLotBalances.organizationId} = ${inventoryItemBalances.organizationId}
+	                AND ${inventoryLotBalances.locationId} = ${inventoryItemBalances.locationId}
+	                AND ${inventoryLotBalances.itemId} = ${inventoryItemBalances.itemId}
+	                AND ${inventoryLotBalances.disposition} = 'available'
+                  AND ${inventoryLotBalances.quantity} < 0
+	            ), 0)
+            + ${inventoryItemBalances.expectedQty}
+          )
           - ${inventoryItemBalances.demandQty}
-          + ${inventoryItemBalances.expectedQty}
         `,
         updatedAt: new Date(),
       })

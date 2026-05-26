@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import {
   normalizeNumeric,
@@ -8,6 +7,7 @@ import {
 import { calculateAverageUnitConsumptionQuantity } from "@/lib/manufacturing/consumption";
 import {
   type InventoryDisposition,
+  inventoryEvents,
   inventoryItemBalances,
   inventoryLotBalances,
   items,
@@ -51,6 +51,8 @@ type NegativeStockEventType =
 type RestockEventType = "unpick_restock" | "manufacturing_variance_gain";
 
 const DEFAULT_DISPOSITION: InventoryDisposition = "available";
+// Lot master identity is per org+item; per-location debt lives in lot balances.
+const NEGATIVE_STOCK_LOT_NUMBER = "UNBATCHED-NEGATIVE-STOCK";
 
 export type FifoAllocation = {
   lotId: string;
@@ -238,7 +240,7 @@ export async function getCurrentOnHandQtyInTx(tx: Tx, itemId: string) {
 }
 
 export async function getCurrentAvailableOnHandQtyInTx(tx: Tx, itemId: string) {
-  const [row] = await tx
+  const [positive] = await tx
     .select({
       quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
     })
@@ -246,15 +248,31 @@ export async function getCurrentAvailableOnHandQtyInTx(tx: Tx, itemId: string) {
 	    .where(
 	      and(
 	        eq(inventoryLotBalances.itemId, itemId),
-	        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION)
+	        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
+	        sql`${inventoryLotBalances.quantity} > 0`
 	      )
 	    );
+  const [debt] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(ABS(SUM(${inventoryLotBalances.quantity})), 0)`,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.itemId, itemId),
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
+        sql`${inventoryLotBalances.quantity} < 0`
+      )
+    );
 
-  return parseFloat(row?.quantity ?? "0");
+  return Math.max(
+    0,
+    roundQuantity(parseFloat(positive?.quantity ?? "0") - parseFloat(debt?.quantity ?? "0"))
+  );
 }
 
 export async function getCurrentAvailableQtyInTx(tx: Tx, itemId: string) {
-  const [reservable] = await tx
+  const [positive] = await tx
     .select({
       quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
     })
@@ -262,9 +280,22 @@ export async function getCurrentAvailableQtyInTx(tx: Tx, itemId: string) {
 	    .where(
 	      and(
 	        eq(inventoryLotBalances.itemId, itemId),
-	        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION)
+	        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
+	        sql`${inventoryLotBalances.quantity} > 0`
 	      )
 	    );
+  const [debt] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(ABS(SUM(${inventoryLotBalances.quantity})), 0)`,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.itemId, itemId),
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
+        sql`${inventoryLotBalances.quantity} < 0`
+      )
+    );
   const [reserved] = await tx
     .select({
       quantity: sql<string>`COALESCE(SUM(${inventoryItemBalances.committedQty}), 0)`,
@@ -275,7 +306,9 @@ export async function getCurrentAvailableQtyInTx(tx: Tx, itemId: string) {
   return Math.max(
     0,
     roundQuantity(
-      parseFloat(reservable?.quantity ?? "0") - parseFloat(reserved?.quantity ?? "0")
+      parseFloat(positive?.quantity ?? "0") -
+        parseFloat(debt?.quantity ?? "0") -
+        parseFloat(reserved?.quantity ?? "0")
     )
   );
 }
@@ -288,7 +321,7 @@ export async function getCurrentAvailableQtyAtLocationInTx(
     itemId: string;
   }
 ) {
-  const [reservable] = await tx
+  const [positive] = await tx
     .select({
       quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
     })
@@ -298,9 +331,24 @@ export async function getCurrentAvailableQtyAtLocationInTx(
 	        eq(inventoryLotBalances.organizationId, params.organizationId),
 	        eq(inventoryLotBalances.locationId, params.locationId),
 	        eq(inventoryLotBalances.itemId, params.itemId),
-	        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION)
+	        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
+	        sql`${inventoryLotBalances.quantity} > 0`
 	      )
 	    );
+  const [debt] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(ABS(SUM(${inventoryLotBalances.quantity})), 0)`,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
+        sql`${inventoryLotBalances.quantity} < 0`
+      )
+    );
   const [reserved] = await tx
     .select({
       quantity: sql<string>`COALESCE(SUM(${inventoryItemBalances.committedQty}), 0)`,
@@ -317,7 +365,9 @@ export async function getCurrentAvailableQtyAtLocationInTx(
   return Math.max(
     0,
     roundQuantity(
-      parseFloat(reservable?.quantity ?? "0") - parseFloat(reserved?.quantity ?? "0")
+      parseFloat(positive?.quantity ?? "0") -
+        parseFloat(debt?.quantity ?? "0") -
+        parseFloat(reserved?.quantity ?? "0")
     )
   );
 }
@@ -330,7 +380,7 @@ async function getCurrentAvailableLotBalanceQtyAtLocationInTx(
     itemId: string;
   }
 ) {
-  const [row] = await tx
+  const [positive] = await tx
     .select({
       quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
     })
@@ -340,11 +390,29 @@ async function getCurrentAvailableLotBalanceQtyAtLocationInTx(
         eq(inventoryLotBalances.organizationId, params.organizationId),
         eq(inventoryLotBalances.locationId, params.locationId),
         eq(inventoryLotBalances.itemId, params.itemId),
-        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION)
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    );
+  const [debt] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(ABS(SUM(${inventoryLotBalances.quantity})), 0)`,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
+        sql`${inventoryLotBalances.quantity} < 0`
       )
     );
 
-  return parseFloat(row?.quantity ?? "0");
+  return Math.max(
+    0,
+    roundQuantity(parseFloat(positive?.quantity ?? "0") - parseFloat(debt?.quantity ?? "0"))
+  );
 }
 
 export async function resolvePositiveStockUnitCostInTx(
@@ -1175,18 +1243,11 @@ async function createNegativeStockEventInTx(
   });
   const quantity = roundQuantity(params.quantity);
   const occurredAt = params.occurredAt ?? new Date();
-  const lotNumber = `NEG-${occurredAt.toISOString().slice(0, 10)}-${randomUUID()}`;
-  const [lot] = await tx
-    .insert(lots)
-    .values({
-      organizationId: params.organizationId,
-      itemId: params.itemId,
-      lotNumber,
-      quantity: normalizeNumeric(-quantity),
-      receivedAt: occurredAt,
-      updatedAt: occurredAt,
-    })
-    .returning({ id: lots.id, lotNumber: lots.lotNumber });
+  const lot = await getOrCreateNegativeStockLotInTx(tx, {
+    organizationId: params.organizationId,
+    itemId: params.itemId,
+    occurredAt,
+  });
 
   const [event] = await insertInventoryEventsInTx(tx, [
     {
@@ -1206,9 +1267,21 @@ async function createNegativeStockEventInTx(
       actorUserId: params.actorUserId ?? null,
       idempotencyKey: params.idempotencyKey ?? null,
       occurredAt,
-      metadata: params.metadata ?? null,
+      metadata: {
+        ...(params.metadata ?? {}),
+        lotNumber: lot.lotNumber,
+        negativeStockLot: true,
+      },
     },
   ]);
+
+  await tx
+    .update(lots)
+    .set({
+      quantity: sql`${lots.quantity} - ${quantity}`,
+      updatedAt: occurredAt,
+    })
+    .where(eq(lots.id, lot.id));
 
   await applyLotBalanceDeltasInTx(tx, [
     {
@@ -1234,6 +1307,58 @@ async function createNegativeStockEventInTx(
     },
     eventId: event.id,
   };
+}
+
+// Caller must hold the item lock so concurrent shortages serialize per item.
+async function getOrCreateNegativeStockLotInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    itemId: string;
+    occurredAt: Date;
+  }
+) {
+  const [lot] = await tx
+    .insert(lots)
+    .values({
+      organizationId: params.organizationId,
+      itemId: params.itemId,
+      lotNumber: NEGATIVE_STOCK_LOT_NUMBER,
+      quantity: "0",
+      receivedAt: params.occurredAt,
+      updatedAt: params.occurredAt,
+    })
+    .onConflictDoUpdate({
+      target: [lots.organizationId, lots.itemId, lots.lotNumber],
+      set: { updatedAt: lots.updatedAt },
+    })
+    .returning({
+      id: lots.id,
+      lotNumber: lots.lotNumber,
+      quantity: lots.quantity,
+    });
+
+  const [usage] = await tx
+    .select({
+      eventCount: sql<string>`COUNT(*)`,
+      debtEventCount: sql<string>`COUNT(*) FILTER (
+        WHERE ${inventoryEvents.metadata}->>'negativeStockLot' = 'true'
+          OR ${inventoryEvents.eventSubtype} = 'negative_stock_debt_consolidation'
+      )`,
+    })
+    .from(inventoryEvents)
+    .where(eq(inventoryEvents.lotId, lot.id));
+
+  if (
+    parseFloat(lot.quantity) > 0 ||
+    (Number(usage?.eventCount ?? 0) > 0 && Number(usage?.debtEventCount ?? 0) === 0)
+  ) {
+    throw new Error(
+      `Lot number ${NEGATIVE_STOCK_LOT_NUMBER} is reserved for synthetic negative stock debt.`
+    );
+  }
+
+  return lot;
 }
 
 export async function consumeSpecificLotInTx(

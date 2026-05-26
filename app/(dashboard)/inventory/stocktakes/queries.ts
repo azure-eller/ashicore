@@ -19,7 +19,7 @@ import {
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
   lockItemsInTx,
-  projectedReservableOnHandQtyExpr,
+  projectedOnHandQty,
   reconcileStocktakeCountInTx,
 } from "@/lib/inventory/kernel";
 import {
@@ -130,9 +130,7 @@ async function getStocktakeLinesInTx(
   options?: { liveCurrent?: boolean }
 ): Promise<StocktakeDetailLine[]> {
   const expectedQty = options?.liveCurrent
-    ? trimScale(projectedReservableOnHandQtyExpr(items.organizationId, items.id)).as(
-        "expectedQty"
-      )
+    ? projectedOnHandQty(items.organizationId, items.id).as("expectedQty")
     : trimScale(stocktakeItems.expectedQty).as("expectedQty");
   const rows = await tx
     .select({
@@ -181,7 +179,8 @@ async function getStocktakeLinesInTx(
       inventoryLotBalances,
       and(
         eq(inventoryLotBalances.lotId, stocktakeLotItems.lotId),
-        eq(inventoryLotBalances.disposition, "available")
+        eq(inventoryLotBalances.disposition, "available"),
+        sql`${inventoryLotBalances.quantity} > 0`
       )
     )
     .where(inArray(stocktakeLotItems.stocktakeItemId, lineRows.map((line) => line.id)))
@@ -227,7 +226,16 @@ async function getAvailableLotRowsForItemIdsInTx(tx: Tx, itemIds: string[]) {
       and(
         inArray(inventoryLotBalances.itemId, itemIds),
         eq(inventoryLotBalances.disposition, "available"),
-        sql`${inventoryLotBalances.quantity} > 0`
+        sql`${inventoryLotBalances.quantity} > 0`,
+        sql`NOT EXISTS (
+          SELECT 1
+          FROM ${inventoryLotBalances} debt_balances
+          WHERE debt_balances.organization_id = ${inventoryLotBalances.organizationId}
+            AND debt_balances.location_id = ${inventoryLotBalances.locationId}
+            AND debt_balances.item_id = ${inventoryLotBalances.itemId}
+            AND debt_balances.disposition = 'available'
+            AND debt_balances.quantity < 0
+        )`
       )
     )
     .groupBy(
@@ -270,9 +278,7 @@ async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
       sku: items.sku,
       itemType: items.itemType,
       unitName: unitDefinitions.name,
-      currentQty: trimScale(
-        projectedReservableOnHandQtyExpr(items.organizationId, items.id)
-      ).as("currentQty"),
+      currentQty: projectedOnHandQty(items.organizationId, items.id).as("currentQty"),
     })
     .from(items)
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -317,9 +323,7 @@ async function getSnapshotItemsForItemIdsInTx(tx: Tx, itemIds: string[]) {
       sku: items.sku,
       itemType: items.itemType,
       unitName: unitDefinitions.name,
-      currentQty: trimScale(
-        projectedReservableOnHandQtyExpr(items.organizationId, items.id)
-      ).as("currentQty"),
+      currentQty: projectedOnHandQty(items.organizationId, items.id).as("currentQty"),
     })
     .from(items)
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
@@ -345,9 +349,7 @@ export async function getStocktakePreviewItems(): Promise<StocktakePreviewItem[]
         ),
         category: items.category,
         unitName: unitDefinitions.name,
-        currentQty: trimScale(
-          projectedReservableOnHandQtyExpr(items.organizationId, items.id)
-        ).as("currentQty"),
+        currentQty: projectedOnHandQty(items.organizationId, items.id).as("currentQty"),
       })
       .from(items)
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))

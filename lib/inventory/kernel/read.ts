@@ -316,7 +316,7 @@ export function projectedReservableOnHandQtyExpr(
   organizationId: SqlExpression,
   itemId: SqlExpression
 ) {
-  return sql`COALESCE((
+  const positiveAvailableQty = sql`COALESCE((
     SELECT SUM(${inventoryLotBalances.quantity})
     FROM ${inventoryLotBalances}
     WHERE ${inventoryLotBalances.organizationId} = ${organizationId}
@@ -325,7 +325,21 @@ export function projectedReservableOnHandQtyExpr(
 	      )}
 	      AND ${inventoryLotBalances.itemId} = ${itemId}
 	      AND ${inventoryLotBalances.disposition} = 'available'
+        AND ${inventoryLotBalances.quantity} > 0
 	  ), 0)`;
+  const debtQty = sql`COALESCE((
+    SELECT ABS(SUM(${inventoryLotBalances.quantity}))
+    FROM ${inventoryLotBalances}
+    WHERE ${inventoryLotBalances.organizationId} = ${organizationId}
+	      AND ${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
+	        organizationId
+	      )}
+	      AND ${inventoryLotBalances.itemId} = ${itemId}
+	      AND ${inventoryLotBalances.disposition} = 'available'
+        AND ${inventoryLotBalances.quantity} < 0
+	  ), 0)`;
+
+  return sql`GREATEST(0, ${positiveAvailableQty} - ${debtQty})`;
 }
 
 export function projectedAvailableQtyExpr(
@@ -344,9 +358,7 @@ export function projectedAgeEligibleAvailableQtyExpr(
   itemId: SqlExpression,
   minimumLotAgeDays: SqlExpression
 ) {
-  return sql`GREATEST(
-    0,
-    COALESCE((
+  const ageEligiblePositiveQty = sql`COALESCE((
       SELECT SUM(${inventoryLotBalances.quantity})
       FROM ${inventoryLotBalances}
       WHERE ${inventoryLotBalances.organizationId} = ${organizationId}
@@ -355,11 +367,27 @@ export function projectedAgeEligibleAvailableQtyExpr(
         )}
 	        AND ${inventoryLotBalances.itemId} = ${itemId}
 	        AND ${inventoryLotBalances.disposition} = 'available'
+	        AND ${inventoryLotBalances.quantity} > 0
 	        AND ${inventoryLotBalances.receivedAt}::date <= (
           ${organizationCurrentDateExpr(organizationId)}
           - (${minimumLotAgeDays}::int * INTERVAL '1 day')
         )
-    ), 0)
+    ), 0)`;
+  const debtQty = sql`COALESCE((
+    SELECT ABS(SUM(${inventoryLotBalances.quantity}))
+    FROM ${inventoryLotBalances}
+    WHERE ${inventoryLotBalances.organizationId} = ${organizationId}
+      AND ${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
+        organizationId
+      )}
+      AND ${inventoryLotBalances.itemId} = ${itemId}
+      AND ${inventoryLotBalances.disposition} = 'available'
+      AND ${inventoryLotBalances.quantity} < 0
+  ), 0)`;
+
+  return sql`GREATEST(
+    0,
+    GREATEST(0, ${ageEligiblePositiveQty} - ${debtQty})
     - ${projectedCommittedQtyExpr(organizationId, itemId)}
   )`;
 }
@@ -424,9 +452,36 @@ export function projectedAvailableToPromiseExpr(
   organizationId: SqlExpression,
   itemId: SqlExpression
 ) {
+  const positiveAvailableQty = sql`COALESCE((
+    SELECT SUM(${inventoryLotBalances.quantity})
+    FROM ${inventoryLotBalances}
+    WHERE ${inventoryLotBalances.organizationId} = ${organizationId}
+      AND ${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
+        organizationId
+      )}
+      AND ${inventoryLotBalances.itemId} = ${itemId}
+      AND ${inventoryLotBalances.disposition} = 'available'
+      AND ${inventoryLotBalances.quantity} > 0
+  ), 0)`;
+  const debtQty = sql`COALESCE((
+    SELECT ABS(SUM(${inventoryLotBalances.quantity}))
+    FROM ${inventoryLotBalances}
+    WHERE ${inventoryLotBalances.organizationId} = ${organizationId}
+      AND ${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
+        organizationId
+      )}
+      AND ${inventoryLotBalances.itemId} = ${itemId}
+      AND ${inventoryLotBalances.disposition} = 'available'
+      AND ${inventoryLotBalances.quantity} < 0
+  ), 0)`;
+
   return sql`
-    ${projectedReservableOnHandQtyExpr(organizationId, itemId)}
+    GREATEST(
+      0,
+      ${positiveAvailableQty}
+      + ${projectedExpectedQtyExpr(organizationId, itemId)}
+      - ${debtQty}
+    )
     - ${projectedDemandQtyExpr(organizationId, itemId)}
-    + ${projectedExpectedQtyExpr(organizationId, itemId)}
   `;
 }

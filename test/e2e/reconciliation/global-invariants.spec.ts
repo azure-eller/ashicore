@@ -46,9 +46,9 @@ test.describe("global inventory and manufacturing invariants", () => {
   test("invariant: lot quantity conservation — every lot has non-negative quantity and item balances reconcile with lot sums", async ({
     db,
   }) => {
-    // Per-lot: ordinary lots must never be negative. Intentional
-    // negative-stock overrides create NEG-* synthetic lots with negative
-    // quantity; those are valid so the conservation check below covers them.
+    // Per-lot: ordinary lots must never be negative. Intentional negative-stock
+    // overrides live in the dedicated debt lot; those are valid so the
+    // conservation check below covers them.
     const negativeLots = await db
       .select({ id: lots.id, itemId: lots.itemId, quantity: lots.quantity })
       .from(lots)
@@ -56,6 +56,7 @@ test.describe("global inventory and manufacturing invariants", () => {
         and(
           eq(lots.organizationId, orgId),
           sql`${lots.lotNumber} NOT LIKE 'NEG-%'`,
+          sql`${lots.lotNumber} <> 'UNBATCHED-NEGATIVE-STOCK'`,
           sql`${lots.quantity}::numeric < 0`
         )
       );

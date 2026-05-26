@@ -540,17 +540,25 @@ export async function diffProjections(
     computedLotsByLotId.set(row.lotId, current);
   }
   const reservableOnHandByItemKey = new Map<BalanceKey, number>();
+  const debtByItemKey = new Map<BalanceKey, number>();
 
   for (const lot of computedLots.values()) {
-    if (lot.disposition !== "available" || lot.quantity <= 0) {
+    if (lot.disposition !== "available" || lot.quantity === 0) {
       continue;
     }
 
     const itemKey = balanceKey([lot.locationId, lot.itemId]);
-    reservableOnHandByItemKey.set(
-      itemKey,
-      roundQuantity((reservableOnHandByItemKey.get(itemKey) ?? 0) + lot.quantity)
-    );
+    if (lot.quantity > 0) {
+      reservableOnHandByItemKey.set(
+        itemKey,
+        roundQuantity((reservableOnHandByItemKey.get(itemKey) ?? 0) + lot.quantity)
+      );
+    } else {
+      debtByItemKey.set(
+        itemKey,
+        roundQuantity((debtByItemKey.get(itemKey) ?? 0) + Math.abs(lot.quantity))
+      );
+    }
   }
 
   const itemKeys = new Set([
@@ -610,9 +618,12 @@ export async function diffProjections(
         expectedQty: normalizeNumeric(computed.expectedQty),
         availableToPromise: normalizeNumeric(
           roundQuantity(
-            (reservableOnHandByItemKey.get(key) ?? 0)
-              - computed.demandQty
-              + computed.expectedQty
+            Math.max(
+              0,
+              (reservableOnHandByItemKey.get(key) ?? 0)
+                - (debtByItemKey.get(key) ?? 0)
+                + computed.expectedQty
+            ) - computed.demandQty
           )
         ),
       };

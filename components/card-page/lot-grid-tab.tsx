@@ -75,6 +75,12 @@ function quantityValue(value: number) {
   return String(Math.round(value * 10000) / 10000);
 }
 
+function lotNumberLabel(lotNumber: string) {
+  return lotNumber === "UNBATCHED-NEGATIVE-STOCK"
+    ? "Unbatched negative stock"
+    : lotNumber;
+}
+
 function normalizeEditedQuantity(value: unknown) {
   const trimmed = typeof value === "string" ? value.trim() : String(value ?? "").trim();
   const parsed = Number(trimmed);
@@ -90,7 +96,7 @@ function LotNumberCell({ data }: ICellRendererParams<CardLotRow>) {
   const hasNegativeBalance = toQuantity(data.quantity) < 0;
   return (
     <div className="flex h-full min-w-0 items-center gap-(--space-2)">
-      <span className={`${styles.mono} truncate`}>{data.lotNumber}</span>
+      <span className={`${styles.mono} truncate`}>{lotNumberLabel(data.lotNumber)}</span>
       {hasNegativeBalance ? (
         <span className="shrink-0">
           <Badge variant="destructive">Negative stock</Badge>
@@ -190,7 +196,7 @@ export function LotGridTab({
         rightAligned: true,
         flex: 0.8,
         minWidth: 130,
-        editable: true,
+        editable: (row) => row?.lotNumber !== "UNBATCHED-NEGATIVE-STOCK",
         mono: true,
         cellClass: ({ data }) =>
           data && toQuantity(data.quantity) < 0 ? "text-destructive" : null,
