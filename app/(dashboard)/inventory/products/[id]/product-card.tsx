@@ -230,6 +230,7 @@ export function ProductCard({
             open={configOpen}
             onOpenChange={setConfigOpen}
             card={card}
+            focusItemId={currentItemId}
             onSaved={(nextCard) =>
               setVariantsEnabled(
                 nextCard.options.some((option) => option.disabledAt == null),

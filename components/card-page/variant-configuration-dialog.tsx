@@ -59,6 +59,7 @@ export type VariantConfigurationDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   card: ItemCardDto;
+  focusItemId: string | null;
   onSaved?: (card: ItemCardDto) => void;
 };
 
@@ -66,6 +67,7 @@ export function VariantConfigurationDialog({
   open,
   onOpenChange,
   card,
+  focusItemId,
   onSaved,
 }: VariantConfigurationDialogProps) {
   // Snapshot the card into the inner component on mount so editing the form
@@ -75,7 +77,12 @@ export function VariantConfigurationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg" className="max-h-[80vh] overflow-y-auto p-0">
         {open ? (
-          <DialogBody card={card} onOpenChange={onOpenChange} onSaved={onSaved} />
+          <DialogBody
+            card={card}
+            focusItemId={focusItemId}
+            onOpenChange={onOpenChange}
+            onSaved={onSaved}
+          />
         ) : null}
       </DialogContent>
     </Dialog>
@@ -84,10 +91,12 @@ export function VariantConfigurationDialog({
 
 function DialogBody({
   card,
+  focusItemId,
   onOpenChange,
   onSaved,
 }: {
   card: ItemCardDto;
+  focusItemId: string | null;
   onOpenChange: (open: boolean) => void;
   onSaved?: (card: ItemCardDto) => void;
 }) {
@@ -110,8 +119,6 @@ function DialogBody({
     staleTime: 0,
     refetchOnWindowFocus: false,
   });
-
-  const focusItemId = card.variants[0]?.id;
 
   const sourcesQuery = useQuery({
     queryKey: ["item-card", card.family.itemType, "variant-config-sources"],

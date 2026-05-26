@@ -1088,6 +1088,46 @@ export async function updateVariantConfig(
       })
       .from(variantOptions)
       .where(eq(variantOptions.familyId, familyId));
+    const activeVariantRows = await tx
+      .select({ id: items.id })
+      .from(items)
+      .where(and(eq(items.familyId, familyId), isNull(items.deletedAt)))
+      .for("update");
+    if (activeVariantRows.length > 1 && data.options.length === 0) {
+      const variantIdsToDelete = activeVariantRows
+        .map((variant) => variant.id)
+        .filter((variantId) => variantId !== itemId);
+      const blocker = await getBlockingReferenceMessageInTx(tx, variantIdsToDelete);
+      if (blocker) throw new ItemCardError(blocker);
+
+      const historicallyReferencedIds: string[] = [];
+      const unreferencedIds: string[] = [];
+      for (const variantId of variantIdsToDelete) {
+        if (await hasHistoricalReferenceInTx(tx, [variantId])) {
+          historicallyReferencedIds.push(variantId);
+        } else {
+          unreferencedIds.push(variantId);
+        }
+      }
+      if (historicallyReferencedIds.length > 0) {
+        await tx
+          .update(items)
+          .set({ deletedAt: now, updatedAt: now })
+          .where(inArray(items.id, historicallyReferencedIds));
+      }
+      if (unreferencedIds.length > 0) {
+        await tx.delete(itemVariantValues).where(inArray(itemVariantValues.itemId, unreferencedIds));
+        await tx.delete(items).where(inArray(items.id, unreferencedIds));
+      }
+    }
+    if (
+      activeVariantRows.length > 1 &&
+      data.options.some((option) => option.values.length === 0)
+    ) {
+      throw new ItemCardError(
+        "Each option needs at least one value while this card has multiple variants.",
+      );
+    }
     const keptOptionIds = new Set(data.options.flatMap((option) => (option.id ? [option.id] : [])));
     const optionUsedRows = await tx
       .select({ optionId: itemVariantValues.optionId })
@@ -1249,6 +1289,14 @@ export async function updateVariantConfig(
         }
       }
 
+    }
+
+    if (data.options.length === 0) {
+      await tx.delete(itemVariantValues).where(eq(itemVariantValues.itemId, itemId));
+      await tx
+        .update(items)
+        .set({ optionCombinationKey: "", updatedAt: now })
+        .where(eq(items.id, itemId));
     }
 
     await recomputeVariantKeysInTx(tx, familyId);
