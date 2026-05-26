@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
@@ -5,15 +6,17 @@ import {
   inventoryItemBalances,
   inventoryLotBalances,
   lots,
+  stockAllocations,
   stocktakeItems,
   stocktakeLotItems,
   stocktakes,
 } from "../../../lib/db/schema";
 import { buildStocktakeCategoryScope } from "../../../lib/schemas/stocktakes";
-import { createItem, getUnitId, testFetch } from "../../helpers/api";
+import { createItem, getOrgId, getUnitId, testFetch } from "../../helpers/api";
 
 test.describe("inventory mutation kernel heartbeat", () => {
   const ts = Date.now();
+  const orgId = getOrgId();
   const unitId = getUnitId();
 
   test("manual adjustment writes stock event and projection truth", async ({
@@ -129,16 +132,32 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(line?.id).toBeTruthy();
 
     const [lotLine] = await db
-      .select({ id: stocktakeLotItems.id })
+      .select({ id: stocktakeLotItems.id, lotId: stocktakeLotItems.lotId })
       .from(stocktakeLotItems)
       .where(eq(stocktakeLotItems.stocktakeItemId, line.id));
     expect(lotLine?.id).toBeTruthy();
+    const lotId = lotLine?.lotId;
+    expect(lotId).toBeTruthy();
+
+    const [allocation] = await db
+      .insert(stockAllocations)
+      .values({
+        organizationId: orgId,
+        demandType: "manufacturing_order_ingredient",
+        demandId: randomUUID(),
+        itemId,
+        sourceType: "inventory_lot",
+        sourceId: lotId!,
+        quantity: "6.0000",
+        status: "active",
+      })
+      .returning({ id: stockAllocations.id });
 
     const saveResponse = await testFetch(`/api/stocktakes/${stocktake.id}`, {
       method: "PUT",
       body: JSON.stringify({
         lines: [],
-        lotLines: [{ lotLineId: lotLine.id, countedQty: "7" }],
+        lotLines: [{ lotLineId: lotLine.id, countedQty: "3" }],
       }),
     });
     expect(saveResponse.status).toBe(200);
@@ -162,7 +181,16 @@ test.describe("inventory mutation kernel heartbeat", () => {
       .select({ quantity: sql<string>`COALESCE(SUM(${lots.quantity}), 0)` })
       .from(lots)
       .where(eq(lots.itemId, itemId));
-    expect(Number(lotTotal.quantity)).toBe(7);
+    expect(Number(lotTotal.quantity)).toBe(3);
+
+    const [reducedAllocation] = await db
+      .select({ quantity: stockAllocations.quantity, status: stockAllocations.status })
+      .from(stockAllocations)
+      .where(eq(stockAllocations.id, allocation.id));
+    expect(reducedAllocation).toMatchObject({
+      quantity: "3.0000",
+      status: "active",
+    });
 
     const events = await db
       .select({ eventType: inventoryEvents.eventType })
