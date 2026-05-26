@@ -938,6 +938,8 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
     CASE
       WHEN ${manufacturingOrders.status} = 'done' THEN 'done'
       WHEN ${manufacturingOrders.isBlocked} THEN 'blocked'
+      WHEN ${manufacturingOrders.startedAt} IS NOT NULL THEN 'in_progress'
+      WHEN COALESCE(${manufacturingOrders.actualQuantity}, 0) > 0 THEN 'in_progress'
       WHEN EXISTS (
         SELECT 1
         FROM ${manufacturingOrderBatches}
