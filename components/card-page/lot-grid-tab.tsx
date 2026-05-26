@@ -87,9 +87,17 @@ function LotNumberCell({ data }: ICellRendererParams<CardLotRow>) {
   const balances = data.dispositionBalances.filter(
     (balance) => toQuantity(balance.quantity) > 0,
   );
+  const hasNegativeBalance = data.dispositionBalances.some(
+    (balance) => toQuantity(balance.quantity) < 0,
+  );
   return (
     <div className="flex h-full min-w-0 items-center gap-(--space-2)">
       <span className={`${styles.mono} truncate`}>{data.lotNumber}</span>
+      {hasNegativeBalance ? (
+        <span className="shrink-0">
+          <Badge variant="destructive">Negative stock</Badge>
+        </span>
+      ) : null}
       {balances.map((balance) => (
         <span key={`${data.id}-${balance.disposition}`} className="shrink-0">
           <Badge
@@ -184,6 +192,8 @@ export function LotGridTab({
         minWidth: 130,
         editable: true,
         mono: true,
+        cellClass: ({ data }) =>
+          data && toQuantity(data.quantity) < 0 ? "text-destructive" : null,
         valueFormatter: ({ value }) => formatQuantity(String(value ?? "0")),
         valueSetter: (params: ValueSetterParams<CardLotRow>) => {
           const next = normalizeEditedQuantity(params.newValue);

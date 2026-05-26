@@ -1569,7 +1569,7 @@ export async function getLots(itemId: string) {
           eq(inventoryLotBalances.organizationId, lots.organizationId),
           eq(inventoryLotBalances.itemId, lots.itemId),
           eq(inventoryLotBalances.lotId, lots.id),
-          sql`${inventoryLotBalances.quantity} > 0`
+          sql`${inventoryLotBalances.quantity} <> 0`
         )
       )
       .where(eq(lots.itemId, itemId))
