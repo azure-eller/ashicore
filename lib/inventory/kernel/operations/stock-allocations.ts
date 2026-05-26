@@ -276,6 +276,138 @@ export async function getUnavailableLotAllocationQtyByLotIdInTx(
   return unavailableByLotId;
 }
 
+export async function reconcileInventoryLotAllocationsForItemsInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    itemIds: string[];
+    lotIds?: string[];
+    actorUserId?: string | null;
+  }
+) {
+  const itemIds = [...new Set(params.itemIds)];
+  if (itemIds.length === 0) return { cancelledOrReducedCount: 0 };
+
+  const lotIds = [...new Set(params.lotIds ?? [])];
+  const allocationRows = await tx
+    .select({
+      id: stockAllocations.id,
+      demandType: stockAllocations.demandType,
+      demandId: stockAllocations.demandId,
+      itemId: stockAllocations.itemId,
+      sourceId: stockAllocations.sourceId,
+      quantity: stockAllocations.quantity,
+      createdAt: stockAllocations.createdAt,
+    })
+    .from(stockAllocations)
+    .where(
+      and(
+        eq(stockAllocations.organizationId, params.organizationId),
+        inArray(stockAllocations.itemId, itemIds),
+        eq(stockAllocations.sourceType, "inventory_lot"),
+        eq(stockAllocations.status, "active"),
+        lotIds.length > 0 ? inArray(stockAllocations.sourceId, lotIds) : undefined
+      )
+    )
+    .orderBy(
+      asc(stockAllocations.itemId),
+      asc(stockAllocations.sourceId),
+      asc(stockAllocations.createdAt),
+      asc(stockAllocations.id)
+    )
+    .for("update");
+
+  if (allocationRows.length === 0) return { cancelledOrReducedCount: 0 };
+
+  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  const balanceRows = await tx
+    .select({
+      itemId: inventoryLotBalances.itemId,
+      lotId: inventoryLotBalances.lotId,
+      quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, location.id),
+        inArray(inventoryLotBalances.itemId, itemIds),
+        eq(inventoryLotBalances.disposition, "available"),
+        lotIds.length > 0 ? inArray(inventoryLotBalances.lotId, lotIds) : undefined
+      )
+    )
+    .groupBy(inventoryLotBalances.itemId, inventoryLotBalances.lotId);
+
+  const balanceByItemLot = new Map(
+    balanceRows.map((row) => [
+      `${row.itemId}:${row.lotId}`,
+      roundQuantity(parseFloat(row.quantity)),
+    ])
+  );
+  const allocationsByItemLot = new Map<string, typeof allocationRows>();
+  for (const row of allocationRows) {
+    if (!row.sourceId) continue;
+    const key = `${row.itemId}:${row.sourceId}`;
+    allocationsByItemLot.set(key, [...(allocationsByItemLot.get(key) ?? []), row]);
+  }
+
+  const affectedDemandsByItem = new Map<string, Map<string, AllocationDemandRef>>();
+  let changedCount = 0;
+
+  for (const [key, rows] of allocationsByItemLot) {
+    const availableLotQty = balanceByItemLot.get(key) ?? 0;
+    const allocatedQty = rows.reduce(
+      (sum, row) => roundQuantity(sum + parseFloat(row.quantity)),
+      0
+    );
+    let excessQty = roundQuantity(allocatedQty - availableLotQty);
+    if (excessQty <= 0) continue;
+
+    for (const row of [...rows].reverse()) {
+      if (excessQty <= 0) break;
+      if (!isStockAllocationDemandType(row.demandType)) {
+        throw new Error(`Unsupported stock allocation demand type: ${row.demandType}`);
+      }
+
+      const rowQty = roundQuantity(parseFloat(row.quantity));
+      const reductionQty = roundQuantity(Math.min(rowQty, excessQty));
+      if (reductionQty <= 0) continue;
+
+      await reduceOrCloseAllocationInTx(tx, {
+        allocationId: row.id,
+        currentQuantity: row.quantity,
+        consumedQuantity: reductionQty,
+        statusWhenClosed: "cancelled",
+        actorUserId: params.actorUserId ?? null,
+      });
+
+      const affectedForItem =
+        affectedDemandsByItem.get(row.itemId) ?? new Map<string, AllocationDemandRef>();
+      affectedForItem.set(`${row.demandType}:${row.demandId}`, {
+        demandType: row.demandType,
+        demandId: row.demandId,
+      });
+      affectedDemandsByItem.set(row.itemId, affectedForItem);
+
+      changedCount += 1;
+      excessQty = roundQuantity(excessQty - reductionQty);
+    }
+  }
+
+  for (const [itemId, affectedDemands] of affectedDemandsByItem) {
+    await reconcileAllocationPinsToReservationsInTx(tx, {
+      organizationId: params.organizationId,
+      itemId,
+      affectedDemands: [...affectedDemands.values()],
+      actorUserId: params.actorUserId ?? null,
+      closedDemandPolicy: "release",
+      releaseUnpinnedAffectedDemands: true,
+    });
+  }
+
+  return { cancelledOrReducedCount: changedCount };
+}
+
 export async function consumeLotAllocationsForDemandInTx(
   tx: Tx,
   params: {
@@ -295,6 +427,12 @@ export async function consumeLotAllocationsForDemandInTx(
     metadata?: Record<string, unknown> | null;
   }
 ) {
+  await reconcileInventoryLotAllocationsForItemsInTx(tx, {
+    organizationId: params.organizationId,
+    itemIds: [params.itemId],
+    actorUserId: params.actorUserId ?? null,
+  });
+
   const rows = await tx
     .select({
       id: stockAllocations.id,

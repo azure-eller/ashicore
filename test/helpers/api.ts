@@ -894,13 +894,14 @@ export async function releaseManufacturingOrder(
 export async function completeManufacturingOrder(
   id: string,
   actualQuantity: string,
-  options?: { outputDisposition?: "available" | "blocked" }
+  options?: { outputDisposition?: "available" | "blocked"; confirmNegativeStock?: boolean }
 ) {
   const res = await testFetch(`/api/manufacturing-orders/${id}/complete`, {
     method: "POST",
     body: JSON.stringify({
       actualQuantity,
       outputDisposition: options?.outputDisposition ?? "available",
+      confirmNegativeStock: options?.confirmNegativeStock ?? false,
     }),
   });
   const body = await res.json().catch(() => null);

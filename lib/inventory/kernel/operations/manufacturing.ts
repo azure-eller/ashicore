@@ -30,6 +30,7 @@ import {
   consumeLotAllocationsForDemandInTx,
   getUnavailableLotAllocationQtyByLotIdInTx,
   materializeManufacturingOrderSourceAllocationsForLotInTx,
+  reconcileInventoryLotAllocationsForItemsInTx,
 } from "@/lib/inventory/kernel/operations/stock-allocations";
 
 export async function addExpectedFromManufacturingInTx(
@@ -352,6 +353,11 @@ export async function pickManufacturingIngredientInTx(
 
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
   await lockItemsInTx(tx, [params.itemId]);
+  await reconcileInventoryLotAllocationsForItemsInTx(tx, {
+    organizationId: params.organizationId,
+    itemIds: [params.itemId],
+    actorUserId: params.actorUserId ?? null,
+  });
   const [ownReservationRow] = await tx
     .select({ quantity: inventoryReservationsSummary.quantity })
     .from(inventoryReservationsSummary)

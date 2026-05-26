@@ -163,4 +163,70 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       .where(eq(manufacturingOrders.id, order.body.id));
     expect(savedOrder.status).toBe("done");
   });
+
+  test("confirmed completion can consume ingredients into negative stock", async ({
+    db,
+  }) => {
+    const component = await createItem({
+      itemType: "material",
+      name: `Fast MO Negative Component ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-MO-NEG-COMP-${ts}`,
+      category: `Fast Manufacturing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(component.status).toBe(201);
+
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast MO Negative Product ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-MO-NEG-PRODUCT-${ts}`,
+      category: `Fast Manufacturing ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "20.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "2" }],
+    });
+    expect(product.status).toBe(201);
+
+    const order = await createManufacturingOrder({
+      productId: product.body.id,
+      plannedQuantity: "1",
+      ingredients: [{ itemId: component.body.id, quantityPerUnit: "2" }],
+      confirmShortage: false,
+    });
+    expect(order.status).toBe(201);
+    expect((await releaseManufacturingOrder(order.body.id)).status).toBe(200);
+
+    const firstAttempt = await completeManufacturingOrder(order.body.id, "1");
+    expect(firstAttempt.status).toBe(409);
+    expect(firstAttempt.body?.shortage?.ingredients?.[0]?.warningType).toBe(
+      "stock_shortage"
+    );
+
+    const confirmed = await completeManufacturingOrder(order.body.id, "1", {
+      confirmNegativeStock: true,
+    });
+    expect(confirmed.status).toBe(200);
+
+    const [componentBalance] = await db
+      .select({ onHandQty: inventoryItemBalances.onHandQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, component.body.id));
+    const [savedOrder] = await db
+      .select({ status: manufacturingOrders.status })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, order.body.id));
+
+    expect(componentBalance.onHandQty).toBe("-2.0000");
+    expect(savedOrder.status).toBe("done");
+  });
 });

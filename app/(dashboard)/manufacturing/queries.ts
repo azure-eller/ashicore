@@ -77,9 +77,11 @@ import {
   produceManufacturedStockInTx,
   projectedLotUnitCost,
   reconcileIngredientActualsInTx,
+  reconcileInventoryLotAllocationsForItemsInTx,
   releaseIngredientReservationForManufacturingInTx,
   restockExistingLotInTx,
 } from "@/lib/inventory/kernel";
+import { reconcileAllocationPinsToReservationsInTx } from "@/lib/inventory/allocation/reservations";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
 import {
   evaluateLotAgeMinDaysRequirement,
@@ -1750,6 +1752,31 @@ async function saveManufacturingIngredientLotAllocationsInTx(
       "Ingredient lot allocations cannot exceed planned ingredient demand.",
       400
     );
+  }
+
+  const affectedDemandsByItem = new Map<
+    string,
+    Array<{ demandType: "manufacturing_order_ingredient"; demandId: string }>
+  >();
+  for (const ingredient of params.ingredients) {
+    affectedDemandsByItem.set(ingredient.itemId, [
+      ...(affectedDemandsByItem.get(ingredient.itemId) ?? []),
+      {
+        demandType: "manufacturing_order_ingredient",
+        demandId: ingredient.ingredientId,
+      },
+    ]);
+  }
+
+  for (const [itemId, affectedDemands] of affectedDemandsByItem) {
+    await reconcileAllocationPinsToReservationsInTx(tx, {
+      organizationId: params.organizationId,
+      itemId,
+      affectedDemands,
+      actorUserId: params.actorUserId ?? null,
+      closedDemandPolicy: "release",
+      releaseUnpinnedAffectedDemands: true,
+    });
   }
 }
 
@@ -5555,6 +5582,11 @@ export async function recordManufacturingOutput(
       tx,
       ingredientRows.map((row) => row.itemId)
     );
+    await reconcileInventoryLotAllocationsForItemsInTx(tx, {
+      organizationId: orgId,
+      itemIds: ingredientRows.map((row) => row.itemId),
+      actorUserId: userId,
+    });
 
     const outputConsumedByIngredient = await getConsumedQuantityByIngredientInTx(
       tx,
@@ -5635,37 +5667,38 @@ export async function recordManufacturingOutput(
           options?.idempotencyKey,
           `consume:${ingredient.id}`
         );
-        const heldConsumed = await consumeLotAllocationsForDemandInTx(tx, {
-          organizationId: orgId,
-          locationId: location.id,
-          demandType: "manufacturing_order_ingredient",
-          demandId: ingredient.id,
-          itemId: ingredient.itemId,
-          quantity: remainingRequiredQuantity,
-          eventType: "manufacturing_ingredient_consumption",
-          eventSubtype: "manufacturing_output",
-          referenceType: batch != null ? "manufacturing_batch" : "manufacturing_order",
-          referenceId: batch?.id ?? orderId,
-          actorUserId: userId,
-          idempotencyKey: consumeIdempotencyKey,
-          metadata: { manufacturingOrderIngredientId: ingredient.id },
-        });
-        const unavailableByLotId = await getUnavailableLotAllocationQtyByLotIdInTx(
-          tx,
-          {
-            organizationId: orgId,
-            itemId: ingredient.itemId,
-            excludeDemand: {
-              demandType: "manufacturing_order_ingredient",
-              demandId: ingredient.id,
-            },
-          }
-        );
+        let heldConsumed: Awaited<ReturnType<typeof consumeLotAllocationsForDemandInTx>>;
         let fifoConsumed: Awaited<ReturnType<typeof consumeStockFifoInTx>> | {
           allocations: [];
           eventIds: [];
         };
         try {
+          heldConsumed = await consumeLotAllocationsForDemandInTx(tx, {
+            organizationId: orgId,
+            locationId: location.id,
+            demandType: "manufacturing_order_ingredient",
+            demandId: ingredient.id,
+            itemId: ingredient.itemId,
+            quantity: remainingRequiredQuantity,
+            eventType: "manufacturing_ingredient_consumption",
+            eventSubtype: "manufacturing_output",
+            referenceType: batch != null ? "manufacturing_batch" : "manufacturing_order",
+            referenceId: batch?.id ?? orderId,
+            actorUserId: userId,
+            idempotencyKey: consumeIdempotencyKey,
+            metadata: { manufacturingOrderIngredientId: ingredient.id },
+          });
+          const unavailableByLotId = await getUnavailableLotAllocationQtyByLotIdInTx(
+            tx,
+            {
+              organizationId: orgId,
+              itemId: ingredient.itemId,
+              excludeDemand: {
+                demandType: "manufacturing_order_ingredient",
+                demandId: ingredient.id,
+              },
+            }
+          );
           fifoConsumed =
             heldConsumed.remainingQuantity > 0
               ? await consumeStockFifoInTx(tx, {
