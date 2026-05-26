@@ -844,6 +844,38 @@ function inventoryItemLotsHref(ingredient: ManufacturingOrderIngredientDetail) {
     : `/inventory/products/${ingredient.itemId}/lots`;
 }
 
+function ingredientSelectionOptions(ingredient: ManufacturingOrderIngredientDetail) {
+  const options = new Map<
+    string,
+    { itemId: string; itemName: string; label: string }
+  >();
+
+  const defaultItemId = ingredient.defaultItemId ?? ingredient.itemId;
+  options.set(defaultItemId, {
+    itemId: defaultItemId,
+    itemName: ingredient.defaultItemName ?? ingredient.itemName,
+    label: "Default",
+  });
+
+  for (const alternate of ingredient.alternates) {
+    options.set(alternate.itemId, {
+      itemId: alternate.itemId,
+      itemName: alternate.itemName,
+      label: "Alternate",
+    });
+  }
+
+  if (!options.has(ingredient.itemId)) {
+    options.set(ingredient.itemId, {
+      itemId: ingredient.itemId,
+      itemName: ingredient.itemName,
+      label: "Current",
+    });
+  }
+
+  return [...options.values()];
+}
+
 function IngredientsSection({
   order,
   controller,
@@ -931,6 +963,27 @@ function IngredientsSection({
       };
     },
     [],
+  );
+  const applyApprovedIngredientSelection = useCallback(
+    (row: ManufacturingOrderIngredientDetail, itemId: string) => {
+      if (itemId === row.itemId) return;
+      const selected = getApprovedIngredientSelection(row, itemId);
+      if (!selected) return;
+
+      controller.updateIngredient(row.id, {
+        itemId: selected.itemId,
+        itemName: selected.itemName,
+        itemSku: selected.itemSku,
+        itemType: selected.itemType,
+        unitName: selected.unitName,
+        quantityPerUnit: selected.quantityPerUnit,
+        plannedQuantity: multiplyQuantityString(
+          selected.quantityPerUnit,
+          requirementMultiplier,
+        ),
+      });
+    },
+    [controller, getApprovedIngredientSelection, requirementMultiplier],
   );
 
   const handleRowsChange = useCallback(
@@ -1069,17 +1122,55 @@ function IngredientsSection({
         cellRenderer: (params: ICellRendererParams<ManufacturingOrderIngredientDetail>) => {
           if (!params.data) return null;
           const sub = [params.data.itemType, params.data.unitName].filter(Boolean).join(" · ");
+          const alternateOptions = ingredientSelectionOptions(params.data);
+          const canSelectAlternate =
+            alternateOptions.length > 1 &&
+            canEditPlanning &&
+            params.data.pickStatus === "not_picked";
           return (
-            <div className="flex flex-col leading-tight">
-              <Link
-                href={inventoryItemHref(params.data)}
-                className="truncate text-[13px] font-medium text-[var(--color-ink)] hover:text-[var(--color-accent)] hover:underline"
-              >
-                {params.data.itemName}
-              </Link>
+            <div className="flex min-w-0 items-start gap-(--space-2) leading-tight">
+              {canSelectAlternate ? (
+                <div
+                  className="mt-(--space-1) flex shrink-0"
+                  onClick={(event) => event.stopPropagation()}
+                  onMouseDown={(event) => event.stopPropagation()}
+                >
+                  <Select
+                    value={params.data.itemId}
+                    onValueChange={(itemId) => {
+                      if (params.data) applyApprovedIngredientSelection(params.data, itemId);
+                    }}
+                  >
+                    <SelectTrigger
+                      aria-label={`Choose alternate for ${params.data.itemName}`}
+                      className="!h-(--space-8) !w-(--space-8) !gap-0 !border-0 !bg-transparent !p-0 text-muted-foreground hover:text-foreground"
+                    />
+                    <SelectContent align="start">
+                      {alternateOptions.map((option) => (
+                        <SelectItem key={option.itemId} value={option.itemId}>
+                          <div className="flex flex-col">
+                            <span>{option.itemName}</span>
+                            <span className="text-[length:var(--text-xs)] text-muted-foreground">
+                              {option.label}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+              <div className="flex min-w-0 flex-col">
+                <Link
+                  href={inventoryItemHref(params.data)}
+                  className="truncate text-[13px] font-medium text-[var(--color-ink)] hover:text-[var(--color-accent)] hover:underline"
+                >
+                  {params.data.itemName}
+                </Link>
               {sub ? (
                 <span className="text-[11px] text-[var(--color-muted)] capitalize">{sub}</span>
               ) : null}
+              </div>
             </div>
           );
         },
@@ -1213,6 +1304,7 @@ function IngredientsSection({
       canEditLotAllocations,
       canEditPlanning,
       controller,
+      applyApprovedIngredientSelection,
       getApprovedIngredientSelection,
       ingredientOptions,
       batchCount,
