@@ -152,7 +152,17 @@ jobs:
       - name: Run base migrations
         run: pnpm drizzle-kit migrate
 
+      - name: Detect 0121 shipment-line allocation fixture need
+        id: migration_fixture_0121
+        run: |
+          if git cat-file -e HEAD:drizzle/0121_retire_shipment_line_allocations.sql; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Seed 0121 shipment-line allocation fixture
+        if: steps.migration_fixture_0121.outputs.needed == 'true'
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
           INSERT INTO inventory.unit_definitions (id, organization_id, name, size, uom)
@@ -351,6 +361,7 @@ jobs:
         run: pnpm drizzle-kit migrate
 
       - name: Verify 0121 shipment-line allocation migration fixture
+        if: steps.migration_fixture_0121.outputs.needed == 'true'
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
           DO $$

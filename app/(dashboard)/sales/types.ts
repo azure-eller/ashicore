@@ -285,6 +285,7 @@ export type SalesOrderListLine = {
   shortQty?: string;
   sourceSummary?: string;
   allocationStatus?: SalesAllocationLineSummary["status"];
+  allocationSources?: SalesAllocationLineSummary["sources"];
   demandQueuePinnedQty?: string;
   demandQueuePinnedDateValidQty?: string;
   demandQueuePinnedDateInvalidQty?: string;

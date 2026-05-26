@@ -5338,6 +5338,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 allocatedQty: normalizeNumeric(allocatedQty),
                 shortQty: normalizeNumeric(shortQty),
                 sourceSummary: allocation?.sourceSummary ?? "\u2014",
+                allocationSources: sources,
                 allocationStatus:
                   allocatedQty <= 0
                     ? "short"
