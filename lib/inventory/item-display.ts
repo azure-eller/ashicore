@@ -26,6 +26,14 @@ export function formatItemDisplayName(row: {
   return row.familyName ?? row.name;
 }
 
+function activeOptionLabels(
+  rows: Array<{ label: string; optionDisabledAt: Date | null; valueDisabledAt: Date | null }>,
+) {
+  return rows
+    .filter((row) => row.optionDisabledAt == null && row.valueDisabledAt == null)
+    .map((row) => row.label);
+}
+
 export async function getItemDisplayNamesByIdInTx(tx: Tx, itemIds: string[]) {
   const uniqueItemIds = [...new Set(itemIds)].filter(Boolean);
   if (uniqueItemIds.length === 0) return new Map<string, string>();
@@ -44,6 +52,8 @@ export async function getItemDisplayNamesByIdInTx(tx: Tx, itemIds: string[]) {
       .select({
         itemId: itemVariantValues.itemId,
         label: variantOptionValues.label,
+        optionDisabledAt: variantOptions.disabledAt,
+        valueDisabledAt: variantOptionValues.disabledAt,
       })
       .from(itemVariantValues)
       .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
@@ -55,10 +65,17 @@ export async function getItemDisplayNamesByIdInTx(tx: Tx, itemIds: string[]) {
       .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder)),
   ]);
 
-  const optionLabelsByItemId = new Map<string, string[]>();
+  const optionLabelsByItemId = new Map<
+    string,
+    Array<{ label: string; optionDisabledAt: Date | null; valueDisabledAt: Date | null }>
+  >();
   for (const row of optionRows) {
     const bucket = optionLabelsByItemId.get(row.itemId) ?? [];
-    bucket.push(row.label);
+    bucket.push({
+      label: row.label,
+      optionDisabledAt: row.optionDisabledAt,
+      valueDisabledAt: row.valueDisabledAt,
+    });
     optionLabelsByItemId.set(row.itemId, bucket);
   }
 
@@ -67,7 +84,7 @@ export async function getItemDisplayNamesByIdInTx(tx: Tx, itemIds: string[]) {
       row.id,
       formatItemDisplayName({
         ...row,
-        optionLabels: optionLabelsByItemId.get(row.id) ?? [],
+        optionLabels: activeOptionLabels(optionLabelsByItemId.get(row.id) ?? []),
       }),
     ])
   );

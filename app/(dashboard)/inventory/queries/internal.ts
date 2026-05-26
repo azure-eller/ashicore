@@ -290,10 +290,13 @@ function formatNormalizedVariantDisplay(
   deletedAt?: Date | null,
 ) {
   const baseName = familyName ?? itemName;
+  const activeOptionValues = optionValues.filter(
+    (value) => value.optionDisabledAt == null && value.valueDisabledAt == null,
+  );
   const display =
-    optionValues.length === 0
+    activeOptionValues.length === 0
       ? baseName
-      : `${baseName} / ${optionValues.map((value) => value.valueLabel).join(" / ")}`;
+      : `${baseName} / ${activeOptionValues.map((value) => value.valueLabel).join(" / ")}`;
   return deletedAt ? `${display} (deleted)` : display;
 }
 
@@ -1423,7 +1426,9 @@ export async function getLots(
         salesOrderId: salesOrders.id,
         orderNumber: salesOrders.orderNumber,
         customerName: salesOrders.customerName,
-        quantity: trimScale(stockAllocations.quantity).as("quantity"),
+        quantity: trimScale(sql`COALESCE(SUM(${stockAllocations.quantity}), 0)`).as(
+          "quantity"
+        ),
       })
       .from(stockAllocations)
       .innerJoin(salesOrderLines, eq(stockAllocations.demandId, salesOrderLines.id))
@@ -1437,6 +1442,12 @@ export async function getLots(
           isNull(salesOrders.deletedAt)
         )
       )
+      .groupBy(
+        stockAllocations.sourceId,
+        salesOrders.id,
+        salesOrders.orderNumber,
+        salesOrders.customerName
+      )
       .orderBy(asc(salesOrders.orderNumber));
     const manufacturingAllocationRows = await tx
       .select({
@@ -1444,7 +1455,9 @@ export async function getLots(
         manufacturingOrderId: manufacturingOrders.id,
         orderNumber: manufacturingOrders.orderNumber,
         productName: manufacturingOrders.productName,
-        quantity: trimScale(stockAllocations.quantity).as("quantity"),
+        quantity: trimScale(sql`COALESCE(SUM(${stockAllocations.quantity}), 0)`).as(
+          "quantity"
+        ),
       })
       .from(stockAllocations)
       .innerJoin(
@@ -1463,6 +1476,12 @@ export async function getLots(
           eq(stockAllocations.itemId, itemId),
           isNull(manufacturingOrders.deletedAt)
         )
+      )
+      .groupBy(
+        stockAllocations.sourceId,
+        manufacturingOrders.id,
+        manufacturingOrders.orderNumber,
+        manufacturingOrders.productName
       )
       .orderBy(asc(manufacturingOrders.orderNumber));
     const allocationsByLotId = new Map<

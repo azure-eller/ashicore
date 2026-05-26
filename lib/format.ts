@@ -106,7 +106,7 @@ export function formatDateTime(
   }).format(new Date(value));
 }
 
-export function todayInTimeZone(timeZone: string): string {
+export function dateInTimeZone(value: Date, timeZone: string): string {
   if (!isValidTimeZone(timeZone)) {
     throw new Error(`Invalid IANA timezone: ${timeZone}`);
   }
@@ -116,7 +116,7 @@ export function todayInTimeZone(timeZone: string): string {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date());
+  }).formatToParts(value);
   const year = parts.find((part) => part.type === "year")?.value;
   const month = parts.find((part) => part.type === "month")?.value;
   const day = parts.find((part) => part.type === "day")?.value;
@@ -126,6 +126,10 @@ export function todayInTimeZone(timeZone: string): string {
   }
 
   return `${year}-${month}-${day}`;
+}
+
+export function todayInTimeZone(timeZone: string): string {
+  return dateInTimeZone(new Date(), timeZone);
 }
 
 export function getInitials(value: string | null | undefined): string {

@@ -15,6 +15,7 @@ import {
   manufacturingOrders,
   purchaseOrderLines,
   purchaseOrders,
+  organization,
   supplierItems,
   salesOrderLines,
   salesOrders,
@@ -32,7 +33,7 @@ import {
   projectedOnHandQty,
 } from "@/lib/inventory/kernel";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
-import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import { dateInTimeZone, normalizeNumeric, roundQuantity } from "@/lib/format";
 import { calculateIngredientPlannedQuantity, normalizeRecipeBasis } from "@/lib/manufacturing/consumption";
 import {
   LOT_AGE_MIN_DAYS_CONSTRAINT,
@@ -2903,7 +2904,12 @@ export async function buildPlanningSnapshotInTx(
   orgId: string,
   generatedAt: Date = new Date()
 ): Promise<PlanningSnapshot> {
-  const horizonStart = isoDate(generatedAt);
+  const [org] = await tx
+    .select({ timeZone: organization.timeZone })
+    .from(organization)
+    .where(eq(organization.id, orgId))
+    .limit(1);
+  const horizonStart = dateInTimeZone(generatedAt, org?.timeZone ?? "America/Denver");
   const horizonEnd = addDays(horizonStart, DEFAULT_COVER_HORIZON_DAYS);
   const itemsList = await getPlanningItemsInTx(tx);
   const productIds = itemsList

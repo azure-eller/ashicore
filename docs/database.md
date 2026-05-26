@@ -510,6 +510,80 @@ CREATE SEQUENCE "purchasing"."order_number_seq";
 GRANT USAGE, SELECT ON SEQUENCE "purchasing"."order_number_seq" TO app_user;
 ```
 
+## Production Data Access
+
+Production database URLs are secrets. Do not paste them into notes, PRs, logs,
+or chat. When an operator task needs production data, load the URL from a local
+env file or from Vercel, print only the redacted database identity
+`host/database`, and verify the target by row counts before trusting it.
+
+The production Neon account/project identity is:
+
+- Neon org: `org-aged-bread-93528894` (`7050technologies@gmail.com`)
+- Current ERP project: `wispy-haze-20532517` (`erp`)
+- Old ERP project: `bitter-haze-83982570` (`old-erp`)
+- Current production branch: `br-bitter-base-ai1tevx2` (`production`)
+- Current database: `neondb`
+- Migration role: `neondb_owner`
+- Runtime role: `app_user`
+
+The repo contains the schema and migration machinery, not the production
+credentials. `pnpm db:generate` creates migration SQL from the Drizzle schema.
+`pnpm drizzle-kit migrate` applies those migrations to whatever `DATABASE_URL`
+points at. For production, `DATABASE_URL` must be the Neon owner connection for
+the project/branch above. `DATABASE_URL_APP` is the app/runtime connection and
+must not be used for DDL.
+
+If Vercel env is stale or missing, use the Neon account to fetch a connection
+string without printing it:
+
+```bash
+pnpm dlx neonctl orgs list --api-key "$NEON_API_KEY" --output json
+pnpm dlx neonctl projects list --api-key "$NEON_API_KEY" --org-id org-aged-bread-93528894 --output json
+pnpm dlx neonctl connection-string br-bitter-base-ai1tevx2 \
+  --api-key "$NEON_API_KEY" \
+  --project-id wispy-haze-20532517 \
+  --role-name app_user \
+  --database-name neondb \
+  --pooled
+```
+
+Use `--role-name neondb_owner` only for migration/schema/operator work.
+
+Normal Vercel flow:
+
+```bash
+vercel env pull /tmp/erp-production.env --environment=production --yes
+pnpm paonia:current-source -- --env-file /tmp/erp-production.env
+rm /tmp/erp-production.env
+```
+
+Repo-root snapshots may also exist at `.vercel/.env.production.local` or
+`.tmp/.env.production`, but they are cached artifacts. Always run the inspector
+before using them:
+
+```bash
+pnpm paonia:current-source -- --env-file /home/aeller/Projects/erp/.vercel/.env.production.local
+```
+
+For current Paonia seed refreshes, the correct source must show real operational
+rows for a Paonia org, especially non-zero sales orders, lots, and manufacturing
+orders when MOs are expected. The inspector sets `app.current_org_id` before
+counting org-scoped tables. Raw `app_user` queries without that setting are
+blocked by RLS and can incorrectly look like empty production data.
+
+As of May 25, 2026, the current Neon production branch above contains
+`paonia-soil-company` operational data: `158` items, `43` sales orders, `150`
+manufacturing orders, `16` open MOs, `431` lots, and `442` active allocations.
+Some older worktree env files point at other Neon targets with Paonia-like data;
+treat those as candidates only after `pnpm paonia:current-source` confirms the
+expected org slug and counts.
+
+Use `DATABASE_URL_APP` for read-only/export tasks when it exists. Use owner
+`DATABASE_URL` only for migrations, schema verification, or explicit operator
+scripts that require elevated privileges. Never run destructive seed/reset/load
+commands against a production URL.
+
 ## Local Worktree Database Workflow
 
 Local development defaults to one shared local Postgres instance and one database per worktree.

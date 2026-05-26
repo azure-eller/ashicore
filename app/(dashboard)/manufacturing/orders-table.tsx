@@ -178,18 +178,15 @@ function ProductionProgressBar({ order }: { order: ManufacturingOrderListRow }) 
   const progress = getOrderProgress(order);
   const batchCount =
     order.manufacturingMode === "batch" ? order.numberOfBatches ?? 0 : 0;
-  const progressText =
-    order.manufacturingMode === "batch" && batchCount > 0
-      ? `${order.completedBatchCount}/${batchCount} batches`
-      : `${progress.percent}%`;
 
   return (
-    <span className="flex min-w-0 flex-col gap-(--space-1)">
-      <div className="flex items-center justify-end text-[length:var(--text-xs)] leading-none">
-        <span className="font-mono tabular-nums opacity-80">{progressText}</span>
-      </div>
+    <span
+      className="block min-w-0"
+      aria-label={progress.label}
+      title={progress.label}
+    >
       {batchCount > 1 ? (
-        <div
+        <span
           className="grid h-(--space-2) gap-px"
           style={{
             gridTemplateColumns: `repeat(${batchCount}, minmax(0, 1fr))`,
@@ -206,14 +203,14 @@ function ProductionProgressBar({ order }: { order: ManufacturingOrderListRow }) 
               aria-hidden="true"
             />
           ))}
-        </div>
+        </span>
       ) : (
-        <div className="h-(--space-2) bg-[color-mix(in_oklab,currentColor,transparent_78%)]">
-          <div
-            className="h-full bg-current transition-[width]"
+        <span className="block h-(--space-2) bg-[color-mix(in_oklab,currentColor,transparent_78%)]">
+          <span
+            className="block h-full bg-current transition-[width]"
             style={{ width: `${progress.percent}%` }}
           />
-        </div>
+        </span>
       )}
     </span>
   );
@@ -257,7 +254,7 @@ const fulfillmentToneToStatusBlockTone: Record<
 
 function IngredientsStatusCell({ order }: { order: ManufacturingOrderListRow }) {
   const state = getIngredientState(order);
-  const rows = order.ingredientShortages;
+  const rows = order.ingredientCoverage;
 
   return (
     <DropdownMenu>
@@ -273,10 +270,10 @@ function IngredientsStatusCell({ order }: { order: ManufacturingOrderListRow }) 
         </StatusBlock>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[420px]">
-        <DropdownMenuLabel>Short ingredients</DropdownMenuLabel>
+        <DropdownMenuLabel>Ingredients</DropdownMenuLabel>
         {rows.length === 0 ? (
           <div className="px-(--space-3) py-(--space-4) text-[length:var(--text-sm)] text-muted-foreground">
-            No ingredient shortages.
+            No ingredient demand.
           </div>
         ) : (
           <div className="max-h-[320px] overflow-y-auto">
@@ -285,20 +282,27 @@ function IngredientsStatusCell({ order }: { order: ManufacturingOrderListRow }) 
               <div className="text-right">Needed</div>
               <div className="text-right">Available</div>
             </div>
-            {rows.map((row) => (
-              <div
-                key={row.itemId}
-                className="grid grid-cols-[minmax(0,1fr)_64px_64px] items-start gap-x-(--space-5) border-b border-border/60 px-(--space-3) py-(--space-3) text-[length:var(--text-sm)] last:border-b-0"
-              >
-                <div className="min-w-0 truncate font-medium">{row.itemName}</div>
-                <div className="text-right font-mono text-[length:var(--text-xs)] tabular-nums text-muted-foreground">
-                  {formatQuantity(row.needed)}
+            {rows.map((row) => {
+              const isShort = Number(row.available) < Number(row.needed);
+              const valueClassName = isShort
+                ? "text-destructive"
+                : "text-muted-foreground";
+
+              return (
+                <div
+                  key={row.itemId}
+                  className={`grid grid-cols-[minmax(0,1fr)_64px_64px] items-start gap-x-(--space-5) border-b border-border/60 px-(--space-3) py-(--space-3) text-[length:var(--text-sm)] last:border-b-0 ${isShort ? "text-destructive" : ""}`}
+                >
+                  <div className="min-w-0 truncate font-medium">{row.itemName}</div>
+                  <div className={`text-right font-mono text-[length:var(--text-xs)] tabular-nums ${valueClassName}`}>
+                    {formatQuantity(row.needed)}
+                  </div>
+                  <div className={`text-right font-mono text-[length:var(--text-xs)] tabular-nums ${valueClassName}`}>
+                    {formatQuantity(row.available)}
+                  </div>
                 </div>
-                <div className="text-right font-mono text-[length:var(--text-xs)] tabular-nums text-muted-foreground">
-                  {formatQuantity(row.available)}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </DropdownMenuContent>

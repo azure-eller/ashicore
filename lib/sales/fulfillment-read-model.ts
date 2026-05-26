@@ -551,10 +551,6 @@ function deriveProductionState(
     return "in_progress";
   }
 
-  if (order.linkedManufacturingOrders.some((mo) => mo.productionStatus === "done")) {
-    return "in_progress";
-  }
-
   if (linkedOpenOrders.some((mo) => mo.productionStatus === "not_started")) {
     return "not_started";
   }
@@ -563,10 +559,6 @@ function deriveProductionState(
     hasLinkedManufacturingOrders &&
     order.linkedManufacturingOrders.every((mo) => mo.productionStatus === "done")
   ) {
-    return "done";
-  }
-
-  if (order.productionAllocatedQty > 0) {
     return "done";
   }
 

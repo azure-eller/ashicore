@@ -119,6 +119,7 @@ export type AllocationDemandAdapterRow = {
   priorityRank: number | null;
   priorityDate: string | null;
   priorityLabel: string;
+  minimumLotAgeDays?: number | null;
 };
 
 export type AllocationDemandAdapter = {

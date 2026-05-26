@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowDown01Icon, ArrowUpRight01Icon } from "@hugeicons/core-free-icons";
+import Link from "next/link";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +32,8 @@ export type PickedLotSummary = {
   count: number;
   /** first lot id or shorthand like "LOT-2026-05-15" */
   firstLot: string | null;
+  /** inventory item lots tab for the first lot */
+  firstLotHref?: string | null;
   /** sum of allocated qty */
   totalQty: string | null;
 };
@@ -85,6 +88,17 @@ export function LotStrategyChip({
       : summary.count === 1
         ? `${summary.firstLot ?? ""}${summary.totalQty ? ` (${summary.totalQty})` : ""}`
         : `${summary.firstLot ?? ""} +${summary.count - 1} more`;
+  const canOpenPicker = strategy === "custom";
+  const lotClassName = cn(
+    "inline-flex items-center gap-1.5 border-l border-[var(--color-line)] bg-[var(--color-surface)] px-2",
+    "text-[11.5px] text-[var(--color-ink)]",
+    summary.count === 0 && "text-[var(--color-muted)]",
+    canOpenPicker
+      ? "hover:bg-[var(--color-surface-alt)]"
+      : summary.firstLotHref
+        ? "hover:text-[var(--color-accent)] hover:underline"
+        : "cursor-default",
+  );
 
   return (
     <div className="inline-flex h-6 items-stretch border border-[var(--color-line)]">
@@ -117,28 +131,35 @@ export function LotStrategyChip({
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
-      <button
-        type="button"
-        onClick={() => {
-          if (strategy === "custom") onOpenPicker();
-        }}
-        className={cn(
-          "inline-flex items-center gap-1.5 border-l border-[var(--color-line)] bg-[var(--color-surface)] px-2",
-          "text-[11.5px] text-[var(--color-ink)]",
-          summary.count === 0 && "text-[var(--color-muted)]",
-          strategy === "custom"
-            ? "hover:bg-[var(--color-surface-alt)]"
-            : "cursor-default",
-        )}
-      >
-        <span className="font-mono">{lotText}</span>
-        <HugeiconsIcon
-          icon={ArrowUpRight01Icon}
-          size={12}
-          aria-hidden
-          className="text-[var(--color-accent)]"
-        />
-      </button>
+      {canOpenPicker ? (
+        <button
+          type="button"
+          onClick={onOpenPicker}
+          className={lotClassName}
+        >
+          <span className="font-mono">{lotText}</span>
+          <HugeiconsIcon
+            icon={ArrowUpRight01Icon}
+            size={12}
+            aria-hidden
+            className="text-[var(--color-accent)]"
+          />
+        </button>
+      ) : summary.firstLotHref ? (
+        <Link href={summary.firstLotHref} className={lotClassName}>
+          <span className="font-mono">{lotText}</span>
+          <HugeiconsIcon
+            icon={ArrowUpRight01Icon}
+            size={12}
+            aria-hidden
+            className="text-[var(--color-accent)]"
+          />
+        </Link>
+      ) : (
+        <span className={lotClassName}>
+          <span className="font-mono">{lotText}</span>
+        </span>
+      )}
     </div>
   );
 }

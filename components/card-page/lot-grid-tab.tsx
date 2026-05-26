@@ -121,20 +121,22 @@ function AllocationsCell({ data }: ICellRendererParams<CardLotRow>) {
   }
 
   return (
-    <div className="flex h-full min-w-0 items-center gap-(--space-2)">
+    <div className="flex h-full min-w-0 flex-wrap items-center gap-x-(--space-2) gap-y-(--space-1) overflow-hidden">
       {data.allocations.map((allocation) => (
-        <span
+        <Link
           key={`${data.id}-${allocation.type}-${allocation.label}-${allocation.quantity}`}
-          className="inline-flex min-w-0 items-center gap-(--space-1)"
+          href={allocation.href}
+          className="inline-flex max-w-full items-center gap-(--space-1) overflow-hidden whitespace-nowrap underline-offset-4 hover:underline"
+          title={`${formatQuantity(allocation.quantity)} claimed by ${allocation.label}${allocation.contextLabel ? ` · ${allocation.contextLabel}` : ""}`}
         >
           <span className={styles.mono}>{formatQuantity(allocation.quantity)}</span>
-          <Link href={allocation.href} className="truncate underline-offset-4 hover:underline">
+          <span className="truncate">
             {allocation.label}
-          </Link>
+          </span>
           {allocation.contextLabel ? (
             <span className="truncate text-muted-foreground">{allocation.contextLabel}</span>
           ) : null}
-        </span>
+        </Link>
       ))}
     </div>
   );

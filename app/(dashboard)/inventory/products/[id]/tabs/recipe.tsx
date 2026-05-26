@@ -18,7 +18,11 @@ import { CardSection } from "@/components/card-page/card-page";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
-import { BomEditor, type BomPayloadRow } from "@/app/(dashboard)/inventory/bom-editor";
+import {
+  BomEditor,
+  toBomRevisionPayloadRows,
+  type BomPayloadRow,
+} from "@/app/(dashboard)/inventory/bom-editor";
 import { saveBomRevision, type ItemCardDto } from "@/lib/api/clients/item-cards";
 import styles from "@/components/card-page/card-page.module.css";
 
@@ -80,20 +84,7 @@ export function ProductRecipeTab({
         recipeBasis,
         expectedBatchYield: recipeBasis === "batch" ? expectedBatchYield : null,
         outputQuantity: recipeBasis === "batch" ? expectedBatchYield : "1",
-        bom: rows
-          .filter(
-            (row) =>
-              row.componentId &&
-              row.componentId.trim() !== "" &&
-              row.quantity != null &&
-              row.quantity.trim() !== "",
-          )
-          .map((row) => ({
-            componentId: row.componentId!,
-            quantity: row.quantity!,
-            minimumLotAgeDays: row.minimumLotAgeDays ?? null,
-            alternates: row.alternates ?? [],
-          })),
+        bom: toBomRevisionPayloadRows(rows),
         note: null,
       }),
     onSuccess: () => {
@@ -131,8 +122,6 @@ export function ProductRecipeTab({
     setRows(next);
     setDirty(true);
   };
-
-  const errorMessage = saveMutation.error ? (saveMutation.error as Error).message : null;
 
   return (
     <CardSection title="Recipe / Bill of Materials">
@@ -254,7 +243,7 @@ export function ProductRecipeTab({
           recipeBasis === "batch" ? "Quantity per batch" : "Quantity per unit"
         }
         onRowsChange={handleRowsChange}
-        error={errorMessage}
+        error={saveMutation.error}
       />
 
       <div className={styles.totals}>

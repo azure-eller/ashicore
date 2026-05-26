@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ICellRendererParams } from "ag-grid-community";
 import {
@@ -21,7 +22,6 @@ import {
   type LineField,
 } from "@/components/editable-lines";
 import { DatePicker } from "@/components/ui/date-picker";
-import { StatusBlock, type StatusBlockTone } from "@/components/ui/status-block";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -76,7 +76,6 @@ import type {
 } from "@/app/(dashboard)/manufacturing/types";
 import type {
   ManufacturingLotStrategy,
-  ManufacturingPickStatus,
 } from "@/lib/schemas/manufacturing-orders";
 import styles from "@/components/card-page/card-page.module.css";
 import {
@@ -84,6 +83,7 @@ import {
   ingredientRequirementMultiplier,
   makeDraftIngredient,
   makeDraftManufacturingOrder,
+  multiplyQuantityString,
   resolvePlannedOutputQuantity,
   type ManufacturingOrderDraftController,
 } from "./use-manufacturing-order-draft-controller";
@@ -104,7 +104,21 @@ export type ManufacturingProductOption = {
     unitName: string;
     quantityPerUnit: string;
     defaultQuantityPerUnit: string;
+    alternates: Array<{
+      itemId: string;
+      itemName: string;
+      itemSku: string | null;
+      itemType: string;
+      unitName: string;
+      quantityFactor: string;
+      sortOrder: number;
+    }>;
   }>;
+};
+
+type ManufacturingIngredientOption = InventoryItemComboboxOption & {
+  quantityPerUnit?: string;
+  isAlternate?: boolean;
 };
 
 const MAKE_TO_STOCK_VALUE = "__make_to_stock__";
@@ -583,8 +597,8 @@ function productLabel(option: ManufacturingProductOption) {
 function buildIngredientOptions(
   productOptions: ManufacturingProductOption[],
   currentIngredients: ManufacturingOrderIngredientDetail[],
-): InventoryItemComboboxOption[] {
-  const byId = new Map<string, InventoryItemComboboxOption>();
+): ManufacturingIngredientOption[] {
+  const byId = new Map<string, ManufacturingIngredientOption>();
   for (const ingredient of currentIngredients) {
     if (!ingredient.itemId) continue;
     byId.set(ingredient.itemId, {
@@ -594,7 +608,23 @@ function buildIngredientOptions(
       sku: ingredient.itemSku,
       itemType: ingredient.itemType,
       unitName: ingredient.unitName,
+      quantityPerUnit: ingredient.quantityPerUnit,
     });
+    for (const alternate of ingredient.alternates) {
+      byId.set(alternate.itemId, {
+        id: alternate.itemId,
+        name: alternate.itemName,
+        displayName: alternate.itemName,
+        sku: alternate.itemSku,
+        itemType: alternate.itemType,
+        unitName: alternate.unitName,
+        quantityPerUnit: multiplyQuantityString(
+          ingredient.defaultQuantityPerUnit ?? ingredient.quantityPerUnit,
+          Number(alternate.quantityFactor),
+        ),
+        isAlternate: true,
+      });
+    }
   }
   for (const product of productOptions) {
     for (const ingredient of product.bom) {
@@ -605,7 +635,23 @@ function buildIngredientOptions(
         sku: ingredient.itemSku,
         itemType: ingredient.itemType,
         unitName: ingredient.unitName,
+        quantityPerUnit: ingredient.quantityPerUnit,
       });
+      for (const alternate of ingredient.alternates) {
+        byId.set(alternate.itemId, {
+          id: alternate.itemId,
+          name: alternate.itemName,
+          displayName: alternate.itemName,
+          sku: alternate.itemSku,
+          itemType: alternate.itemType,
+          unitName: alternate.unitName,
+          quantityPerUnit: multiplyQuantityString(
+            ingredient.defaultQuantityPerUnit,
+            Number(alternate.quantityFactor),
+          ),
+          isAlternate: true,
+        });
+      }
     }
   }
   return [...byId.values()].sort((a, b) =>
@@ -614,7 +660,7 @@ function buildIngredientOptions(
 }
 
 function ingredientFromOption(
-  option: InventoryItemComboboxOption,
+  option: ManufacturingIngredientOption,
   requirementMultiplier: string,
   values?: { id?: string; quantityPerUnit?: string; sortOrder?: number },
 ) {
@@ -625,7 +671,8 @@ function ingredientFromOption(
       itemSku: option.sku ?? null,
       itemType: option.itemType ?? "material",
       unitName: option.unitName ?? "",
-      quantityPerUnit: values?.quantityPerUnit ?? "1",
+      quantityPerUnit: values?.quantityPerUnit ?? option.quantityPerUnit ?? "1",
+      alternates: [],
     },
     requirementMultiplier,
     values?.sortOrder ?? 0,
@@ -713,24 +760,6 @@ function getManufacturingOrderEditState(order: ManufacturingOrderDetail | null) 
   };
 }
 
-const INGREDIENT_PICK_STATUS: Record<
-  ManufacturingPickStatus,
-  { label: string; tone: StatusBlockTone }
-> = {
-  not_picked: { label: "Not picked", tone: "muted" },
-  in_progress: { label: "Partial", tone: "warning" },
-  picked: { label: "Picked", tone: "success" },
-};
-
-function IngredientPickStatusBlock({
-  status,
-}: {
-  status: ManufacturingPickStatus;
-}) {
-  const state = INGREDIENT_PICK_STATUS[status];
-  return <StatusBlock tone={state.tone}>{state.label}</StatusBlock>;
-}
-
 function getManufacturingExecutionStartedReason(order: ManufacturingOrderDetail | null) {
   if (!order) return null;
 
@@ -805,6 +834,18 @@ function buildLotPickerTarget(
   };
 }
 
+function inventoryItemHref(ingredient: ManufacturingOrderIngredientDetail) {
+  return ingredient.itemType === "material"
+    ? `/inventory/materials/${ingredient.itemId}`
+    : `/inventory/products/${ingredient.itemId}`;
+}
+
+function inventoryItemLotsHref(ingredient: ManufacturingOrderIngredientDetail) {
+  return ingredient.itemType === "material"
+    ? `/inventory/materials/${ingredient.itemId}`
+    : `/inventory/products/${ingredient.itemId}/lots`;
+}
+
 function IngredientsSection({
   order,
   controller,
@@ -817,7 +858,7 @@ function IngredientsSection({
 }: {
   order: ManufacturingOrderDetail;
   controller: ManufacturingOrderDraftController;
-  ingredientOptions: InventoryItemComboboxOption[];
+  ingredientOptions: ManufacturingIngredientOption[];
   canEditPlanning: boolean;
   planningLockedReason: string | null;
   canEditLotAllocations: boolean;
@@ -864,6 +905,35 @@ function IngredientsSection({
     () => new Map(ingredientOptions.map((option) => [option.id, option])),
     [ingredientOptions],
   );
+  const getApprovedIngredientSelection = useCallback(
+    (row: ManufacturingOrderIngredientDetail, itemId: string) => {
+      if (itemId === row.defaultItemId) {
+        return {
+          itemId: row.defaultItemId,
+          itemName: row.defaultItemName ?? row.itemName,
+          itemSku: row.defaultItemSku,
+          itemType: row.itemType,
+          unitName: row.defaultUnitName ?? row.unitName,
+          quantityPerUnit: row.defaultQuantityPerUnit ?? row.quantityPerUnit,
+        };
+      }
+
+      const alternate = row.alternates.find((candidate) => candidate.itemId === itemId);
+      if (!alternate) return null;
+      return {
+        itemId: alternate.itemId,
+        itemName: alternate.itemName,
+        itemSku: alternate.itemSku,
+        itemType: alternate.itemType,
+        unitName: alternate.unitName,
+        quantityPerUnit: multiplyQuantityString(
+          row.defaultQuantityPerUnit ?? row.quantityPerUnit,
+          Number(alternate.quantityFactor),
+        ),
+      };
+    },
+    [],
+  );
 
   const handleRowsChange = useCallback(
     (
@@ -880,13 +950,27 @@ function IngredientsSection({
       }
       if (change.type === "cell_edit_committed" && change.row && change.field) {
         if (change.field === "itemId") {
+          const selected = getApprovedIngredientSelection(change.row, change.row.itemId);
           const option = optionMap.get(change.row.itemId);
-          if (!option) return;
-          const nextIngredient = ingredientFromOption(option, requirementMultiplier, {
-            id: change.row.id,
-            quantityPerUnit: change.row.quantityPerUnit || "1",
-            sortOrder: change.row.sortOrder,
-          });
+          if (!selected && !option) return;
+          const nextIngredient = selected
+            ? {
+                ...change.row,
+                itemId: selected.itemId,
+                itemName: selected.itemName,
+                itemSku: selected.itemSku,
+                itemType: selected.itemType,
+                unitName: selected.unitName,
+                quantityPerUnit: selected.quantityPerUnit,
+                plannedQuantity: multiplyQuantityString(
+                  selected.quantityPerUnit,
+                  requirementMultiplier,
+                ),
+              }
+            : ingredientFromOption(option!, requirementMultiplier, {
+                id: change.row.id,
+                sortOrder: change.row.sortOrder,
+              });
           if (change.row.id.startsWith("draft-") && !ingredients.some((row) => row.id === change.row?.id)) {
             controller.addIngredient(nextIngredient);
           } else {
@@ -917,7 +1001,14 @@ function IngredientsSection({
         }
       }
     },
-    [controller, ingredients, optionMap, quantityPerUnitFromBasis, requirementMultiplier],
+    [
+      controller,
+      getApprovedIngredientSelection,
+      ingredients,
+      optionMap,
+      quantityPerUnitFromBasis,
+      requirementMultiplier,
+    ],
   );
 
   const columns = useMemo<LineField<ManufacturingOrderIngredientDetail>[]>(
@@ -937,21 +1028,44 @@ function IngredientsSection({
           { href: "/inventory/product", label: "Create product" },
           { href: "/inventory/material", label: "Create material" },
         ],
-        getSecondaryText: (option) =>
-          [option.sku, option.itemType, option.unitName]
+        getSecondaryText: (option) => {
+          const ingredientOption = option as ManufacturingIngredientOption;
+          return [
+            ingredientOption.sku,
+            ingredientOption.itemType,
+            ingredientOption.unitName,
+            ingredientOption.isAlternate ? "alternate" : null,
+          ]
             .filter((part): part is string => part != null && part !== "")
-            .join(" · "),
+            .join(" · ");
+        },
         valueSetter: (params) => {
-          const option = optionMap.get(String(params.newValue ?? ""));
-          if (!option) return false;
-          Object.assign(
-            params.data,
-            ingredientFromOption(option, requirementMultiplier, {
-              id: params.data.id,
-              quantityPerUnit: params.data.quantityPerUnit || "1",
-              sortOrder: params.data.sortOrder,
-            }),
-          );
+          const itemId = String(params.newValue ?? "");
+          const selected = getApprovedIngredientSelection(params.data, itemId);
+          const option = optionMap.get(itemId);
+          if (!selected && !option) return false;
+          if (selected) {
+            Object.assign(params.data, {
+              itemId: selected.itemId,
+              itemName: selected.itemName,
+              itemSku: selected.itemSku,
+              itemType: selected.itemType,
+              unitName: selected.unitName,
+              quantityPerUnit: selected.quantityPerUnit,
+              plannedQuantity: multiplyQuantityString(
+                selected.quantityPerUnit,
+                requirementMultiplier,
+              ),
+            });
+          } else {
+            Object.assign(
+              params.data,
+              ingredientFromOption(option!, requirementMultiplier, {
+                id: params.data.id,
+                sortOrder: params.data.sortOrder,
+              }),
+            );
+          }
           return true;
         },
         cellRenderer: (params: ICellRendererParams<ManufacturingOrderIngredientDetail>) => {
@@ -959,9 +1073,12 @@ function IngredientsSection({
           const sub = [params.data.itemType, params.data.unitName].filter(Boolean).join(" · ");
           return (
             <div className="flex flex-col leading-tight">
-              <span className="text-[13px] font-medium text-[var(--color-ink)]">
+              <Link
+                href={inventoryItemHref(params.data)}
+                className="truncate text-[13px] font-medium text-[var(--color-ink)] hover:text-[var(--color-accent)] hover:underline"
+              >
                 {params.data.itemName}
-              </span>
+              </Link>
               {sub ? (
                 <span className="text-[11px] text-[var(--color-muted)] capitalize">{sub}</span>
               ) : null}
@@ -993,7 +1110,7 @@ function IngredientsSection({
           if (quantityPerUnit === Number.parseFloat(params.data.quantityPerUnit).toString()) {
             return false;
           }
-          params.data.quantityPerUnit = normalizeNumeric(parsed);
+          params.data.quantityPerUnit = quantityPerUnit;
           params.data.plannedQuantity = isBatchMode
             ? normalizeNumeric(parsed * batchCount)
             : normalizeNumeric(parsed * plannedOutputQuantity);
@@ -1011,16 +1128,6 @@ function IngredientsSection({
               <span className={styles.mono}>{formatQuantity(params.data.plannedQuantity)}</span>
               <span className={styles.uom}>{params.data.unitName}</span>
             </span>
-          ) : null,
-      },
-      {
-        field: "pickStatus",
-        headerName: "Status",
-        width: 125,
-        cellClass: "statusBlockCell",
-        cellRenderer: (params: ICellRendererParams<ManufacturingOrderIngredientDetail>) =>
-          params.data ? (
-            <IngredientPickStatusBlock status={params.data.pickStatus} />
           ) : null,
       },
       {
@@ -1051,6 +1158,10 @@ function IngredientsSection({
               lotAllocations[0]?.sourceLabel ??
               lotAllocations[0]?.lotNumber ??
               null,
+            firstLotHref:
+              lotAllocations[0]?.lotId != null
+                ? inventoryItemLotsHref(ingredient)
+                : null,
             totalQty:
               lotAllocations.length > 0
                 ? formatQuantity(normalizeNumeric(totalAllocated))
@@ -1062,7 +1173,18 @@ function IngredientsSection({
                 className="text-[11.5px] text-[var(--color-muted)]"
                 title={lotLockReason ?? undefined}
               >
-                {summary.count} lot{summary.count === 1 ? "" : "s"}
+                {summary.count > 0 ? (
+                  <Link
+                    href={summary.firstLotHref ?? inventoryItemLotsHref(ingredient)}
+                    className="font-mono text-[var(--color-accent)] hover:underline"
+                  >
+                    {summary.count === 1
+                      ? `${summary.firstLot ?? "Lot"}${summary.totalQty ? ` (${summary.totalQty})` : ""}`
+                      : `${summary.firstLot ?? "Lot"} +${summary.count - 1} more`}
+                  </Link>
+                ) : (
+                  "—"
+                )}
               </span>
             );
           }
@@ -1093,6 +1215,7 @@ function IngredientsSection({
       canEditLotAllocations,
       canEditPlanning,
       controller,
+      getApprovedIngredientSelection,
       ingredientOptions,
       batchCount,
       isBatchMode,

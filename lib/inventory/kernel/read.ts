@@ -5,6 +5,7 @@ import {
   inventoryItemBalances,
   inventoryLocations,
   inventoryLotBalances,
+  organization,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 
@@ -36,6 +37,20 @@ export const ON_HAND_EVENT_TYPES = [
 
 function sqlValueList(values: readonly string[]) {
   return sql.join(values.map((value) => sql`${value}`), sql`, `);
+}
+
+function organizationCurrentDateExpr(organizationId: SqlExpression) {
+  return sql`(
+    now() AT TIME ZONE COALESCE(
+      (
+        SELECT ${organization.timeZone}
+        FROM ${organization}
+        WHERE ${organization.id} = ${organizationId}
+        LIMIT 1
+      ),
+      'America/Denver'
+    )
+  )::date`;
 }
 
 function ledgerIncreaseEventExpr(eventType: SqlExpression) {
@@ -341,7 +356,8 @@ export function projectedAgeEligibleAvailableQtyExpr(
 	        AND ${inventoryLotBalances.itemId} = ${itemId}
 	        AND ${inventoryLotBalances.disposition} = 'available'
 	        AND ${inventoryLotBalances.receivedAt}::date <= (
-          CURRENT_DATE - (${minimumLotAgeDays}::int * INTERVAL '1 day')
+          ${organizationCurrentDateExpr(organizationId)}
+          - (${minimumLotAgeDays}::int * INTERVAL '1 day')
         )
     ), 0)
     - ${projectedCommittedQtyExpr(organizationId, itemId)}

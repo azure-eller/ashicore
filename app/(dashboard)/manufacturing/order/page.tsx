@@ -32,6 +32,7 @@ export default async function ManufacturingOrderDraftPage() {
           unitName: row.unitName,
           quantityPerUnit: row.quantityPerUnit,
           defaultQuantityPerUnit: row.defaultQuantityPerUnit,
+          alternates: row.alternates,
         })),
       }))}
     />

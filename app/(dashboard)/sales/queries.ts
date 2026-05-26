@@ -955,6 +955,12 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
       ELSE 'not_started'
     END
   `;
+  const completedBatchCountExpression = sql<number>`(
+    SELECT COUNT(*)::int
+    FROM ${manufacturingOrderBatches}
+    WHERE ${manufacturingOrderBatches.manufacturingOrderId} = ${manufacturingOrders.id}
+      AND ${manufacturingOrderBatches.status} = 'completed'
+  )`;
 
   const headerRows = await tx
     .select({
@@ -967,11 +973,17 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
       plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
         "plannedQuantity"
       ),
+      actualQuantity: trimScaleNullable(manufacturingOrders.actualQuantity).as(
+        "actualQuantity"
+      ),
       unitName: manufacturingOrders.unitName,
       plannedDate: manufacturingOrders.plannedDate,
       priorityRank: manufacturingOrders.priorityRank,
       status: manufacturingOrders.status,
       productionStatus: productionStatusExpression,
+      manufacturingMode: manufacturingOrders.manufacturingMode,
+      numberOfBatches: manufacturingOrders.numberOfBatches,
+      completedBatchCount: completedBatchCountExpression,
       createdAt: manufacturingOrders.createdAt,
     })
     .from(manufacturingOrders)
@@ -994,11 +1006,17 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
       plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
         "plannedQuantity"
       ),
+      actualQuantity: trimScaleNullable(manufacturingOrders.actualQuantity).as(
+        "actualQuantity"
+      ),
       unitName: manufacturingOrders.unitName,
       plannedDate: manufacturingOrders.plannedDate,
       priorityRank: manufacturingOrders.priorityRank,
       status: manufacturingOrders.status,
       productionStatus: productionStatusExpression,
+      manufacturingMode: manufacturingOrders.manufacturingMode,
+      numberOfBatches: manufacturingOrders.numberOfBatches,
+      completedBatchCount: completedBatchCountExpression,
       createdAt: manufacturingOrders.createdAt,
     })
     .from(stockAllocations)
@@ -1021,9 +1039,60 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
       )
     );
 
+  const shipmentAllocationRows = await tx
+    .select({
+      salesOrderId: salesOrderLines.salesOrderId,
+      salesOrderLineId: salesOrderLines.id,
+      id: manufacturingOrders.id,
+      orderNumber: manufacturingOrders.orderNumber,
+      productName: manufacturingOrders.productName,
+      productSku: manufacturingOrders.productSku,
+      plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
+        "plannedQuantity"
+      ),
+      actualQuantity: trimScaleNullable(manufacturingOrders.actualQuantity).as(
+        "actualQuantity"
+      ),
+      unitName: manufacturingOrders.unitName,
+      plannedDate: manufacturingOrders.plannedDate,
+      priorityRank: manufacturingOrders.priorityRank,
+      status: manufacturingOrders.status,
+      productionStatus: productionStatusExpression,
+      manufacturingMode: manufacturingOrders.manufacturingMode,
+      numberOfBatches: manufacturingOrders.numberOfBatches,
+      completedBatchCount: completedBatchCountExpression,
+      createdAt: manufacturingOrders.createdAt,
+    })
+    .from(stockAllocations)
+    .innerJoin(
+      salesShipmentLines,
+      eq(stockAllocations.demandId, salesShipmentLines.id)
+    )
+    .innerJoin(
+      salesOrderLines,
+      eq(salesShipmentLines.salesOrderLineId, salesOrderLines.id)
+    )
+    .innerJoin(
+      manufacturingOrders,
+      eq(stockAllocations.sourceId, manufacturingOrders.id)
+    )
+    .where(
+      and(
+        eq(stockAllocations.demandType, "sales_shipment_line"),
+        eq(stockAllocations.sourceType, "manufacturing_order"),
+        eq(stockAllocations.status, "active"),
+        inArray(salesOrderLines.salesOrderId, uniqueSalesOrderIds),
+        isNull(manufacturingOrders.deletedAt),
+        isNull(manufacturingOrders.cancelledAt)
+      )
+    );
+
   const merged = new Map<string, LinkedManufacturingOrderRead>();
   const addRow = (
-    row: (typeof headerRows)[number] | (typeof allocationRows)[number],
+    row:
+      | (typeof headerRows)[number]
+      | (typeof allocationRows)[number]
+      | (typeof shipmentAllocationRows)[number],
     linkSource: SalesLinkedManufacturingOrder["linkSource"]
   ) => {
     if (!row.salesOrderId) return;
@@ -1037,11 +1106,15 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
       productName: row.productName,
       productSku: row.productSku,
       plannedQuantity: row.plannedQuantity,
+      actualQuantity: row.actualQuantity,
       unitName: row.unitName,
       plannedDate: row.plannedDate,
       priorityRank: row.priorityRank,
       status: row.status as SalesLinkedManufacturingOrder["status"],
       productionStatus: row.productionStatus,
+      manufacturingMode: row.manufacturingMode,
+      numberOfBatches: row.numberOfBatches,
+      completedBatchCount: row.completedBatchCount,
       linkSource: mergeManufacturingLinkSource(existing?.linkSource, linkSource),
       createdAt: row.createdAt,
     });
@@ -1049,6 +1122,7 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
 
   headerRows.forEach((row) => addRow(row, "sales_order"));
   allocationRows.forEach((row) => addRow(row, "output_allocation"));
+  shipmentAllocationRows.forEach((row) => addRow(row, "output_allocation"));
 
   [...merged.values()]
     .toSorted((left, right) => {
@@ -1090,11 +1164,15 @@ function serializeLinkedManufacturingOrder(
     productName: order.productName,
     productSku: order.productSku,
     plannedQuantity: order.plannedQuantity,
+    actualQuantity: order.actualQuantity,
     unitName: order.unitName,
     plannedDate: order.plannedDate,
     priorityRank: order.priorityRank,
     status: order.status,
     productionStatus: order.productionStatus,
+    manufacturingMode: order.manufacturingMode,
+    numberOfBatches: order.numberOfBatches,
+    completedBatchCount: order.completedBatchCount,
     linkSource: order.linkSource,
   };
 }

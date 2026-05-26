@@ -427,6 +427,7 @@ export function makeDraftIngredient(
     unitName: string;
     quantityPerUnit: string;
     defaultQuantityPerUnit?: string | null;
+    alternates?: ManufacturingOrderIngredientDetail["alternates"];
   },
   requirementMultiplier: string,
   sortOrder = 0,
@@ -455,7 +456,7 @@ export function makeDraftIngredient(
     defaultItemSku: input.itemSku,
     defaultUnitName: input.unitName,
     defaultQuantityPerUnit: input.defaultQuantityPerUnit ?? input.quantityPerUnit,
-    alternates: [],
+    alternates: input.alternates ?? [],
   };
 }
 
@@ -745,7 +746,7 @@ function plannedInputValue(order: ManufacturingOrderDetail) {
     : order.requestedQuantity || order.plannedQuantity || "1";
 }
 
-function multiplyQuantityString(left: string, right: string) {
+export function multiplyQuantityString(left: string, right: string | number) {
   const result = Number(left || 0) * Number(right || 0);
   return Number.isFinite(result) ? formatDecimal(result) : "0";
 }

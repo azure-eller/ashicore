@@ -47,7 +47,7 @@ export function getSalesItemsDisplayState(
         tone: "warning",
       };
     case "complete":
-      return { label: "Complete", tone: "success" };
+      return { label: "Available", tone: "success" };
     case "not_available":
     default:
       return { label: "Not available", tone: "destructive" };

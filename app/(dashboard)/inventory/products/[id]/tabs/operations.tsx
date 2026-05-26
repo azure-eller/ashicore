@@ -15,7 +15,10 @@ import { CardSection } from "@/components/card-page/card-page";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
-import type { BomPayloadRow } from "@/app/(dashboard)/inventory/bom-editor";
+import {
+  toBomRevisionPayloadRows,
+  type BomPayloadRow,
+} from "@/app/(dashboard)/inventory/bom-editor";
 import {
   OperationCostEditor,
   type OperationCostPayloadRow,
@@ -83,20 +86,7 @@ export function ProductOperationsTab({
         outputQuantity: currentBomOutputQuantity,
         recipeBasis: currentRecipeBasis,
         expectedBatchYield: currentRecipeBasis === "batch" ? expectedBatchYield : null,
-        bom: currentBomRows
-          .filter(
-            (row) =>
-              row.componentId &&
-              row.componentId.trim() !== "" &&
-              row.quantity != null &&
-              row.quantity.trim() !== "",
-          )
-          .map((row) => ({
-            componentId: row.componentId!,
-            quantity: row.quantity!,
-            minimumLotAgeDays: row.minimumLotAgeDays ?? null,
-            alternates: row.alternates ?? [],
-          })),
+        bom: toBomRevisionPayloadRows(currentBomRows),
         operationCosts: rows
           .filter((row) => !isBlankOperationCost(row))
           .map((row) => ({

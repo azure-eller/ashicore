@@ -140,6 +140,17 @@ function isBlankBomRow(row: BomPayloadRow) {
   return componentId === "" && quantity === "" && minimumLotAgeDays === "";
 }
 
+export function toBomRevisionPayloadRows(rows: BomPayloadRow[]) {
+  return rows
+    .filter((row) => !isBlankBomRow(row))
+    .map((row) => ({
+      componentId: row.componentId ?? "",
+      quantity: row.quantity ?? "",
+      minimumLotAgeDays: row.minimumLotAgeDays ?? null,
+      alternates: row.alternates ?? [],
+    }));
+}
+
 function comparablePayload(rows: BomGridRow[]) {
   return JSON.stringify(
     toPayloadRows(rows)
@@ -173,6 +184,26 @@ function buildErrorState(error: unknown, rows: BomGridRow[]): BomErrorState {
 
   if (topLevelMessage) {
     gridMessages.push(topLevelMessage);
+  }
+
+  const fieldErrors =
+    error && typeof error === "object" && "fieldErrors" in error
+      ? (error as { fieldErrors?: Record<string, string[]> }).fieldErrors
+      : null;
+  if (fieldErrors) {
+    for (const [path, messages] of Object.entries(fieldErrors)) {
+      const match = /^bom\.(\d+)\.(componentId|quantity|minimumLotAgeDays|alternates)$/.exec(
+        path,
+      );
+      if (!match) continue;
+      const row = rows[Number(match[1])];
+      const key = match[2] as BomColumnKey;
+      const message = messages[0];
+      if (!row || !message) continue;
+      const rowMessages = byRowId.get(row.clientRowId) ?? new Map<BomColumnKey, string>();
+      rowMessages.set(key, message);
+      byRowId.set(row.clientRowId, rowMessages);
+    }
   }
 
   const rowErrors = Array.isArray(error) ? error : [];

@@ -32,6 +32,7 @@ import {
   manufacturingOrderIngredients,
   manufacturingOrders,
   manufacturingPickAllocations,
+  organization,
   stockAllocations,
   salesOrderLines,
   salesOrders,
@@ -44,6 +45,7 @@ import {
   normalizeNumeric,
   normalizeNumericScale,
   roundQuantity,
+  todayInTimeZone,
 } from "@/lib/format";
 import { inferItemVisual } from "@/components/inventory-visuals/infer-item-visual";
 import {
@@ -106,6 +108,10 @@ import {
   buildFifoLotPickPlanInTx,
   type LotPickPlanEntry,
 } from "@/lib/inventory/lot-pick-plan";
+import {
+  demandQueueCoverageKey,
+  getDemandQueueCoverageByDemandKeyForItemsInTx,
+} from "@/lib/inventory/allocation/demand-queue";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type {
   CompleteManufacturingBatch,
@@ -416,6 +422,16 @@ function addDays(value: string, days: number) {
   return isoDate(date);
 }
 
+async function getOrganizationTodayInTx(tx: Tx, organizationId: string) {
+  const [row] = await tx
+    .select({ timeZone: organization.timeZone })
+    .from(organization)
+    .where(eq(organization.id, organizationId))
+    .limit(1);
+
+  return todayInTimeZone(row?.timeZone ?? "America/Denver");
+}
+
 function subtractDays(value: string, days: number) {
   return addDays(value, -days);
 }
@@ -534,15 +550,6 @@ function calculatePlannedIngredientQuantity(params: {
       outputQuantity: params.outputQuantity,
     }),
   });
-}
-
-
-function summarizeShortageItems(
-  items: ManufacturingReleaseWarningPayload["ingredients"]
-) {
-  if (items.length === 0) return "ingredients";
-  if (items.length === 1) return items[0].itemName;
-  return `${items[0].itemName} + ${items.length - 1} more`;
 }
 
 async function generateMONumber(tx: Tx) {
@@ -3202,6 +3209,38 @@ async function getExecutionLotPickPlansByIngredientInTx(
   return plans;
 }
 
+function getExecutionLotAllocationsByItemId(
+  rows: Array<{ id: string; itemId: string }>,
+  allocationsByIngredientId: Map<string, ExecutionIngredientLotAllocation[]>
+) {
+  const itemAllocations = new Map<string, ExecutionIngredientLotAllocation[]>();
+
+  for (const row of rows) {
+    const allocations = allocationsByIngredientId.get(row.id) ?? [];
+    if (allocations.length === 0) continue;
+
+    const existingAllocations = itemAllocations.get(row.itemId) ?? [];
+    for (const allocation of allocations) {
+      const existing = existingAllocations.find(
+        (candidate) =>
+          candidate.sourceType === allocation.sourceType &&
+          candidate.sourceId === allocation.sourceId &&
+          candidate.lotId === allocation.lotId
+      );
+      if (existing) {
+        existing.quantity = normalizeNumeric(
+          Number(existing.quantity) + Number(allocation.quantity)
+        );
+      } else {
+        existingAllocations.push({ ...allocation });
+      }
+    }
+    itemAllocations.set(row.itemId, existingAllocations);
+  }
+
+  return itemAllocations;
+}
+
 function aggregateBatchIngredients(
   rows: ExecutionIngredientRow[]
 ): ManufacturingOrderIngredientDetail[] {
@@ -3303,7 +3342,6 @@ function getIngredientReadiness(params: {
 
   if (params.status === "open") {
     if (params.pickProgressStatus === "picked") return "picked";
-    if (params.pickProgressStatus === "in_progress") return "picking";
   }
 
   if (params.ingredients.length === 0) return "not_available";
@@ -3329,97 +3367,8 @@ function getIngredientReadiness(params: {
     return "not_available";
   }
 
-  return hasExpectedCoverage ? "expected" : "in_stock";
-}
-
-function compareManufacturingIngredientPriority(
-  left: Pick<
-    ManufacturingOrderListRow,
-    "priorityRank" | "plannedDate" | "orderNumber" | "id"
-  >,
-  right: Pick<
-    ManufacturingOrderListRow,
-    "priorityRank" | "plannedDate" | "orderNumber" | "id"
-  >
-) {
-  const leftRank = left.priorityRank ?? Number.MAX_SAFE_INTEGER;
-  const rightRank = right.priorityRank ?? Number.MAX_SAFE_INTEGER;
-  const rankCompare = leftRank - rightRank;
-  if (rankCompare !== 0) return rankCompare;
-
-  const dateCompare = (left.plannedDate ?? "9999-12-31").localeCompare(
-    right.plannedDate ?? "9999-12-31"
-  );
-  if (dateCompare !== 0) return dateCompare;
-
-  const orderCompare = left.orderNumber.localeCompare(right.orderNumber, undefined, {
-    numeric: true,
-  });
-  if (orderCompare !== 0) return orderCompare;
-
-  return left.id.localeCompare(right.id);
-}
-
-function consumeManufacturingIngredientCoverage(params: {
-  orders: Array<
-    Pick<
-      ManufacturingOrderListRow,
-      "id" | "priorityRank" | "plannedDate" | "orderNumber"
-    >
-  >;
-  ingredientsByOrder: Map<string, Array<{ itemId: string; plannedQuantity: string }>>;
-  availableByItemId: Map<string, number>;
-  expectedByItemId: Map<string, number>;
-}) {
-  const orderById = new Map(params.orders.map((order) => [order.id, order]));
-  const demandsByItemId = new Map<
-    string,
-    Array<{ orderId: string; itemId: string; plannedQuantity: number }>
-  >();
-
-  for (const [orderId, ingredients] of params.ingredientsByOrder) {
-    for (const ingredient of ingredients) {
-      const plannedQuantity = Number.parseFloat(ingredient.plannedQuantity);
-      if (!Number.isFinite(plannedQuantity) || plannedQuantity <= 0) continue;
-      demandsByItemId.set(ingredient.itemId, [
-        ...(demandsByItemId.get(ingredient.itemId) ?? []),
-        { orderId, itemId: ingredient.itemId, plannedQuantity },
-      ]);
-    }
-  }
-
-  const coverageByOrderItem = new Map<
-    string,
-    { inStockQuantity: number; expectedQuantity: number }
-  >();
-
-  for (const [itemId, demands] of demandsByItemId) {
-    let available = params.availableByItemId.get(itemId) ?? 0;
-    let expected = params.expectedByItemId.get(itemId) ?? 0;
-
-    for (const demand of [...demands].sort((left, right) => {
-      const leftOrder = orderById.get(left.orderId);
-      const rightOrder = orderById.get(right.orderId);
-      if (!leftOrder || !rightOrder) return left.orderId.localeCompare(right.orderId);
-      return compareManufacturingIngredientPriority(leftOrder, rightOrder);
-    })) {
-      const inStockQuantity = Math.min(demand.plannedQuantity, Math.max(0, available));
-      available = normalizeQuantityNumber(available - inStockQuantity);
-
-      const remainingAfterStock = normalizeQuantityNumber(
-        demand.plannedQuantity - inStockQuantity
-      );
-      const expectedQuantity = Math.min(remainingAfterStock, Math.max(0, expected));
-      expected = normalizeQuantityNumber(expected - expectedQuantity);
-
-      coverageByOrderItem.set(`${demand.orderId}:${demand.itemId}`, {
-        inStockQuantity,
-        expectedQuantity,
-      });
-    }
-  }
-
-  return coverageByOrderItem;
+  if (hasExpectedCoverage) return "expected";
+  return params.pickProgressStatus === "in_progress" ? "picking" : "in_stock";
 }
 
 export async function getManufacturingOrders(): Promise<ManufacturingOrderListRow[]> {
@@ -3479,6 +3428,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             | "pickProgressPercent"
             | "ingredientReadiness"
             | "ingredientShortages"
+            | "ingredientCoverage"
             | "operationResources"
             | "completedBatchCount"
             | "actionableBatchCount"
@@ -3501,6 +3451,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
         );
         const ingredientRows = await tx
           .select({
+            id: manufacturingOrderIngredients.id,
             manufacturingOrderId: manufacturingOrderIngredients.manufacturingOrderId,
             manufacturingOrderBatchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
             itemId: manufacturingOrderIngredients.itemId,
@@ -3633,40 +3584,52 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
               .map((ingredient) => ingredient.itemId)
           ),
         ];
-        const availableByItemId = new Map<string, number>();
-        const expectedByItemId = new Map<string, number>();
+        const ingredientCoverageByOrderItem = new Map<
+          string,
+          { inStockQuantity: number; expectedQuantity: number }
+        >();
 
         if (ingredientItemIds.length > 0) {
-          const defaultLocation = await getDefaultInventoryLocationInTx(tx, orgId);
-          const balanceRows = await tx
-            .select({
-              itemId: inventoryItemBalances.itemId,
-              onHandQty: trimScale(inventoryItemBalances.onHandQty).as("onHandQty"),
-              expectedQty: trimScale(inventoryItemBalances.expectedQty).as(
-                "expectedQty"
-              ),
-            })
-            .from(inventoryItemBalances)
-            .where(
-              and(
-                eq(inventoryItemBalances.organizationId, orgId),
-                eq(inventoryItemBalances.locationId, defaultLocation.id),
-                inArray(inventoryItemBalances.itemId, ingredientItemIds)
-              )
-            );
+          const coverageByDemandKey =
+            await getDemandQueueCoverageByDemandKeyForItemsInTx(tx, {
+              organizationId: orgId,
+              itemIds: ingredientItemIds,
+              includeManufacturingDetail: true,
+            });
 
-          for (const row of balanceRows) {
-            availableByItemId.set(row.itemId, Number.parseFloat(row.onHandQty));
-            expectedByItemId.set(row.itemId, Number.parseFloat(row.expectedQty));
+          for (const ingredient of ingredientRows) {
+            const remainingQuantity = getRemainingQuantityNumber(
+              ingredient.plannedQuantity,
+              ingredient.pickedQuantity
+            );
+            if (remainingQuantity <= 0) continue;
+
+            const coverage = coverageByDemandKey.get(
+              demandQueueCoverageKey({
+                demandType: "manufacturing_order_ingredient",
+                demandId: ingredient.id,
+              })
+            );
+            if (!coverage) continue;
+
+            const key = `${ingredient.manufacturingOrderId}:${ingredient.itemId}`;
+            const existing =
+              ingredientCoverageByOrderItem.get(key) ?? {
+                inStockQuantity: 0,
+                expectedQuantity: 0,
+              };
+            ingredientCoverageByOrderItem.set(key, {
+              inStockQuantity: normalizeQuantityNumber(
+                existing.inStockQuantity +
+                  (Number.parseFloat(coverage.inStockQty) || 0)
+              ),
+              expectedQuantity: normalizeQuantityNumber(
+                existing.expectedQuantity +
+                  (Number.parseFloat(coverage.expectedQty) || 0)
+              ),
+            });
           }
         }
-
-        const ingredientCoverageByOrderItem = consumeManufacturingIngredientCoverage({
-          orders,
-          ingredientsByOrder: readinessIngredientsByOrder,
-          availableByItemId,
-          expectedByItemId,
-        });
 
         return orders.map(({ productFamilyName, ...order }) => {
           const batches = batchesByOrder.get(order.id) ?? [];
@@ -3713,6 +3676,20 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
               },
             ];
           });
+          const ingredientCoverage = (
+            readinessIngredientsByOrder.get(order.id) ?? []
+          ).map((ingredient) => {
+            const coverage = ingredientCoverageByOrderItem.get(
+              `${order.id}:${ingredient.itemId}`
+            ) ?? { inStockQuantity: 0, expectedQuantity: 0 };
+
+            return {
+              itemId: ingredient.itemId,
+              itemName: ingredient.itemName,
+              needed: ingredient.plannedQuantity,
+              available: normalizeNumeric(coverage.inStockQuantity),
+            };
+          });
 
           return {
             ...order,
@@ -3738,6 +3715,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
               ),
             }),
             ingredientShortages,
+            ingredientCoverage,
             operationResources: operationResourcesByOrder.get(order.id) ?? [],
             completedBatchCount,
             actionableBatchCount: batches.filter((batch) => batch.status !== "completed").length,
@@ -4223,17 +4201,34 @@ export async function getManufacturingOrder(
         asc(manufacturingOrderOperationCosts.sortOrder),
         asc(manufacturingOrderOperationCosts.createdAt)
       );
+    const lotAllocationsByIngredientId =
+      await getExecutionLotAllocationsByIngredientInTx(
+        tx,
+        (batchIngredientsWithDetails ?? (rawIngredients as ExecutionIngredientRow[])).map(
+          (ingredient) => ingredient.id
+        )
+      );
+    const lotAllocationsByItemId = getExecutionLotAllocationsByItemId(
+      batchIngredientsWithDetails ?? (rawIngredients as ExecutionIngredientRow[]),
+      lotAllocationsByIngredientId
+    );
     const detailIngredients =
-      false
+      order.bomRevisionId
         ? await (async () => {
             const bomRows = await getBomRevisionComponentsInTx(tx, order.bomRevisionId!);
             return ingredients.map((ingredient) => {
               const bomRow = bomRows.find((row) => row.sortOrder === ingredient.sortOrder);
 
-              if (!bomRow) return ingredient;
+              if (!bomRow) {
+                return {
+                  ...ingredient,
+                  lotAllocations: lotAllocationsByItemId.get(ingredient.itemId) ?? [],
+                };
+              }
 
               return {
                 ...ingredient,
+                lotAllocations: lotAllocationsByItemId.get(ingredient.itemId) ?? [],
                 defaultItemId: bomRow.componentId,
                 defaultItemName: bomRow.componentName,
                 defaultItemSku: bomRow.componentSku,
@@ -4251,7 +4246,10 @@ export async function getManufacturingOrder(
               };
             });
           })()
-        : ingredients;
+        : ingredients.map((ingredient) => ({
+            ...ingredient,
+            lotAllocations: lotAllocationsByItemId.get(ingredient.itemId) ?? [],
+          }));
 
     const producedLots =
       batches.length > 0
@@ -6676,44 +6674,6 @@ async function completeDiscreteManufacturingOrder(
       ingredientRows.map((row) => row.itemId)
     );
 
-    const unpickedIngredients = ingredientRows.filter(
-      (ingredient) => getRemainingQuantityNumber(ingredient.plannedQuantity, ingredient.pickedQuantity) > 0
-    );
-
-    if (unpickedIngredients.length > 0) {
-      throw new ManufacturingError(
-        `Cannot complete order. Pick ${summarizeShortageItems(
-          unpickedIngredients.map((ingredient) => ({
-            itemId: ingredient.itemId,
-            itemName: ingredient.itemName,
-            unitName: ingredient.unitName,
-            needed: parseFloat(ingredient.plannedQuantity),
-            available: parseFloat(ingredient.pickedQuantity),
-            shortage: getRemainingQuantityNumber(
-              ingredient.plannedQuantity,
-              ingredient.pickedQuantity
-            ),
-          }))
-        )} first.`,
-        400,
-        {
-          shortage: {
-            ingredients: unpickedIngredients.map((ingredient) => ({
-              itemId: ingredient.itemId,
-              itemName: ingredient.itemName,
-              unitName: ingredient.unitName,
-              needed: parseFloat(ingredient.plannedQuantity),
-              available: parseFloat(ingredient.pickedQuantity),
-              shortage: getRemainingQuantityNumber(
-                ingredient.plannedQuantity,
-                ingredient.pickedQuantity
-              ),
-            })),
-          },
-        }
-      );
-    }
-
     const allocationTotals = await getPickAllocationTotalsInTx(
       tx,
       ingredientRows.map((ingredient) => ingredient.id)
@@ -6723,6 +6683,11 @@ async function completeDiscreteManufacturingOrder(
       payload.ingredientActuals,
       ingredientRows
     );
+    const plannedOutputQuantity = Number(order.plannedQuantity);
+    const actualToPlannedRatio =
+      Number.isFinite(plannedOutputQuantity) && plannedOutputQuantity > 0
+        ? actualQuantity / plannedOutputQuantity
+        : 1;
 
     let totalMaterialCost = 0;
     const produceIngredientRows: Array<{
@@ -6733,7 +6698,12 @@ async function completeDiscreteManufacturingOrder(
 
     for (const ingredient of ingredientRows) {
       const pickedQty = parseFloat(ingredient.pickedQuantity);
-      const suppliedActual = actualsMap.get(ingredient.id);
+      const plannedActualQty = normalizeQuantityNumber(
+        parseFloat(ingredient.plannedQuantity) * actualToPlannedRatio
+      );
+      const suppliedActual =
+        actualsMap.get(ingredient.id) ??
+        (pickedQty < plannedActualQty ? plannedActualQty : null);
       let effectiveQuantity: number;
       let effectiveCost: number;
 
@@ -7447,7 +7417,7 @@ export async function pickManufacturingIngredient(
       (constraint) => constraint.constraintType === LOT_AGE_MIN_DAYS_CONSTRAINT
     );
     const minimumLotAgeDays = getMinimumLotAgeDays(ingredientConstraints);
-    const pickDate = isoDate(new Date());
+    const pickDate = await getOrganizationTodayInTx(tx, orgId);
     const minimumReceivedDate =
       minimumLotAgeDays == null ? null : subtractDays(pickDate, minimumLotAgeDays);
 

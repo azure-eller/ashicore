@@ -380,9 +380,16 @@ function combinationSelectionKey(optionValueIdsByOptionId: Record<string, string
     .join("|");
 }
 
+function activeOptionValues(optionValues: VariantOptionValueDisplay[]) {
+  return optionValues.filter(
+    (value) => value.optionDisabledAt == null && value.valueDisabledAt == null,
+  );
+}
+
 function displayName(familyName: string, optionValues: VariantOptionValueDisplay[]) {
-  if (optionValues.length === 0) return familyName;
-  return `${familyName} / ${optionValues.map((value) => value.valueLabel).join(" / ")}`;
+  const activeValues = activeOptionValues(optionValues);
+  if (activeValues.length === 0) return familyName;
+  return `${familyName} / ${activeValues.map((value) => value.valueLabel).join(" / ")}`;
 }
 
 function duplicateWarnings(variants: Array<{ id: string; optionCombinationKey: string }>) {

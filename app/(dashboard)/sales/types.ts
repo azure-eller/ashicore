@@ -400,11 +400,15 @@ export type SalesLinkedManufacturingOrder = {
   productName: string;
   productSku: string | null;
   plannedQuantity: string;
+  actualQuantity: string | null;
   unitName: string;
   plannedDate: string | null;
   priorityRank: number | null;
   status: "open" | "done";
   productionStatus: SalesLinkedManufacturingProductionStatus;
+  manufacturingMode: string;
+  numberOfBatches: number | null;
+  completedBatchCount: number;
   linkSource: "sales_order" | "output_allocation" | "both";
 };
 

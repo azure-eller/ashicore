@@ -158,6 +158,12 @@ export type ManufacturingOrderListRow = {
     needed: string;
     available: string;
   }>;
+  ingredientCoverage: Array<{
+    itemId: string;
+    itemName: string;
+    needed: string;
+    available: string;
+  }>;
   operationResources: Array<{
     id: string | null;
     name: string;

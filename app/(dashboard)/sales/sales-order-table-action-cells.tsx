@@ -32,10 +32,105 @@ const productionToneToStatusBlockTone: Record<
   warning: "warning",
 };
 
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function getLinkedManufacturingProgress(orders: SalesOrderListRow["linkedManufacturingOrders"]) {
+  if (orders.length === 0) return null;
+
+  const totalBatchCount = orders.reduce(
+    (total, order) => total + (order.manufacturingMode === "batch" ? order.numberOfBatches ?? 0 : 0),
+    0
+  );
+  const completedBatchCount = orders.reduce(
+    (total, order) => total + (order.manufacturingMode === "batch" ? order.completedBatchCount : 0),
+    0
+  );
+
+  if (totalBatchCount > 0) {
+    return {
+      percent: clampPercent((completedBatchCount / totalBatchCount) * 100),
+      completedBatchCount,
+      totalBatchCount,
+      label: `${completedBatchCount}/${totalBatchCount} batches`,
+    };
+  }
+
+  const totalPlanned = orders.reduce((total, order) => {
+    const planned = Number(order.plannedQuantity);
+    return total + (Number.isFinite(planned) ? planned : 0);
+  }, 0);
+  const totalActual = orders.reduce((total, order) => {
+    const planned = Number(order.plannedQuantity);
+    const actual =
+      order.status === "done" ? planned : Number(order.actualQuantity ?? "0");
+    return total + (Number.isFinite(actual) ? actual : 0);
+  }, 0);
+
+  return {
+    percent: totalPlanned > 0 ? clampPercent((totalActual / totalPlanned) * 100) : 0,
+    completedBatchCount: 0,
+    totalBatchCount: 0,
+    label: `${clampPercent(totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0)}%`,
+  };
+}
+
+function LinkedManufacturingProgressBar({
+  orders,
+}: {
+  orders: SalesOrderListRow["linkedManufacturingOrders"];
+}) {
+  const progress = getLinkedManufacturingProgress(orders);
+
+  if (!progress) return null;
+
+  return (
+    <span
+      className="block min-w-0"
+      aria-label={progress.label}
+      title={progress.label}
+    >
+      {progress.totalBatchCount > 1 && progress.totalBatchCount <= 24 ? (
+        <span
+          className="grid h-(--space-2) gap-px"
+          style={{
+            gridTemplateColumns: `repeat(${progress.totalBatchCount}, minmax(0, 1fr))`,
+          }}
+        >
+          {Array.from({ length: progress.totalBatchCount }, (_, index) => (
+            <span
+              key={index}
+              className={
+                index < progress.completedBatchCount
+                  ? "bg-current"
+                  : "bg-[color-mix(in_oklab,currentColor,transparent_78%)]"
+              }
+              aria-hidden="true"
+            />
+          ))}
+        </span>
+      ) : (
+        <span className="block h-(--space-2) bg-[color-mix(in_oklab,currentColor,transparent_78%)]">
+          <span
+            className="block h-full bg-current transition-[width]"
+            style={{ width: `${progress.percent}%` }}
+          />
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function ProductionActionCell({ order, state }: ProductionActionCellProps) {
   const [makeToOrderOpen, setMakeToOrderOpen] = useState(false);
   const isMakeAction = order.status === "open" && state.label === "Make";
   const hasOpenManufacturingOrders = order.openManufacturingOrders.length > 0;
+  const showProgress =
+    hasOpenManufacturingOrders &&
+    state.label !== "Make" &&
+    state.label !== "Done";
   const tone = isMakeAction ? "muted" : productionToneToStatusBlockTone[state.tone];
 
   if (!isMakeAction && !hasOpenManufacturingOrders) {
@@ -54,6 +149,11 @@ export function ProductionActionCell({ order, state }: ProductionActionCellProps
             leadingIcon={isMakeAction ? Add01Icon : undefined}
             onClick={(event) => event.stopPropagation()}
             aria-label={`Production: ${state.label}`}
+            footer={
+              showProgress ? (
+                <LinkedManufacturingProgressBar orders={order.openManufacturingOrders} />
+              ) : undefined
+            }
           >
             {state.label}
           </StatusBlock>

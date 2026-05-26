@@ -28,6 +28,8 @@
     "verify:paonia-loader-data": "tsx scripts/verify-paonia-loader-data.ts",
     "verify:paonia-loader-shipments": "tsx scripts/verify-paonia-loader-shipments.ts",
     "verify:paonia-katana-skus": "tsx scripts/verify-paonia-katana-skus.ts",
+    "paonia:current-source": "tsx scripts/paonia-current-source.ts",
+    "paonia:snapshot": "tsx scripts/paonia-snapshot.ts",
     "verify:schema-helpers": "tsx scripts/verify-schema-helpers.ts",
     "verify:schema-timestamps": "tsx scripts/verify-schema-timestamps.ts",
     "verify:migration-order": "tsx scripts/verify-migration-order.ts",

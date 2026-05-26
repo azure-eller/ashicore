@@ -1,10 +1,15 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
+  manufacturingOrderIngredientConstraints,
   manufacturingOrderIngredients,
   manufacturingOrders,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import {
+  getMinimumLotAgeDays,
+  type BomComponentConstraint,
+} from "@/lib/bom/constraints";
 import { getItemDisplayNamesByIdInTx } from "@/lib/inventory/item-display";
 import type { Tx } from "@/lib/db/with-org-context";
 import type {
@@ -35,6 +40,7 @@ function mapManufacturingIngredientDemandRow(row: {
   sortOrder: number;
   createdAt: Date;
   priorityRank: number | null;
+  minimumLotAgeDays: number | null;
 }): AllocationDemandAdapterRow {
   const plannedQty = toQuantity(row.plannedQuantity);
   const pickedQty = toQuantity(row.pickedQuantity);
@@ -59,6 +65,7 @@ function mapManufacturingIngredientDemandRow(row: {
     priorityRank: row.priorityRank,
     priorityDate: row.plannedDate,
     priorityLabel: row.orderNumber,
+    minimumLotAgeDays: row.minimumLotAgeDays,
   };
 }
 
@@ -102,15 +109,64 @@ async function loadManufacturingIngredientRowsInTx(
     tx,
     rows.map((row) => row.itemId)
   );
+  const constraintsByIngredientId = await getIngredientConstraintsByIngredientIdInTx(
+    tx,
+    rows.map((row) => row.ingredientId)
+  );
 
   return rows
-    .map((row) =>
-      mapManufacturingIngredientDemandRow({
+    .map((row) => {
+      const constraints = constraintsByIngredientId.get(row.ingredientId) ?? [];
+      return mapManufacturingIngredientDemandRow({
         ...row,
         itemName: displayNamesByItemId.get(row.itemId) ?? row.itemName,
-      })
-    )
+        minimumLotAgeDays: getMinimumLotAgeDays(constraints),
+      });
+    })
     .filter((row) => toQuantity(row.openQty) > 0);
+}
+
+async function getIngredientConstraintsByIngredientIdInTx(
+  tx: Tx,
+  ingredientIds: string[]
+) {
+  const uniqueIds = [...new Set(ingredientIds)];
+  const result = new Map<string, BomComponentConstraint[]>();
+  if (uniqueIds.length === 0) return result;
+
+  const rows = await tx
+    .select({
+      id: manufacturingOrderIngredientConstraints.id,
+      manufacturingOrderIngredientId:
+        manufacturingOrderIngredientConstraints.manufacturingOrderIngredientId,
+      constraintType: manufacturingOrderIngredientConstraints.constraintType,
+      config: manufacturingOrderIngredientConstraints.config,
+      sortOrder: manufacturingOrderIngredientConstraints.sortOrder,
+    })
+    .from(manufacturingOrderIngredientConstraints)
+    .where(
+      inArray(
+        manufacturingOrderIngredientConstraints.manufacturingOrderIngredientId,
+        uniqueIds
+      )
+    )
+    .orderBy(
+      asc(manufacturingOrderIngredientConstraints.sortOrder),
+      asc(manufacturingOrderIngredientConstraints.createdAt)
+    );
+
+  for (const row of rows) {
+    const bucket = result.get(row.manufacturingOrderIngredientId) ?? [];
+    bucket.push({
+      id: row.id,
+      constraintType: row.constraintType as BomComponentConstraint["constraintType"],
+      config: row.config,
+      sortOrder: row.sortOrder,
+    });
+    result.set(row.manufacturingOrderIngredientId, bucket);
+  }
+
+  return result;
 }
 
 export const manufacturingOrderIngredientAllocationAdapter: AllocationDemandAdapter = {

@@ -1,9 +1,9 @@
 import "server-only";
 
 import { and, eq } from "drizzle-orm";
-import { stockAllocations } from "@/lib/db/schema";
+import { organization, stockAllocations } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
-import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import { normalizeNumeric, roundQuantity, todayInTimeZone } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
 import { allocationDemandAdapters } from "./adapters";
 import { loadAllocationSourcesForItemInTx } from "./sources";
@@ -45,6 +45,7 @@ export type DemandQueueDemandInput = {
   priorityRank: number | null;
   priorityDate: string | null;
   priorityLabel: string;
+  minimumLotAgeDays?: number | null;
 };
 
 export type DemandQueueCoverageRow = {
@@ -124,8 +125,15 @@ function compareSupplyOrder(
 
 function expectedSupplyCanCoverDemand(
   supply: DemandQueueSupplyChunk,
-  demand: DemandQueueDemandInput
+  demand: DemandQueueDemandInput,
+  today: string
 ) {
+  const minimumLotAgeDays = demand.minimumLotAgeDays ?? null;
+  if (minimumLotAgeDays != null) {
+    if (supply.availableDate == null) return false;
+    return addDays(sourceDate(supply.availableDate), minimumLotAgeDays) <= today;
+  }
+
   if (supply.kind === "on_hand") return true;
   if (supply.availableDate == null) return demand.requiredDate == null;
   if (demand.requiredDate == null) return true;
@@ -165,10 +173,21 @@ function assertCoverageSegmentsMatchTotals(row: DemandQueueCoverageRow) {
   }
 }
 
+function sourceDate(value: string) {
+  return value.slice(0, 10);
+}
+
+function addDays(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 export function computeDemandQueueCoverage(params: {
   supply: DemandQueueSupplyChunk[];
   demands: DemandQueueDemandInput[];
   pins?: DemandQueuePin[];
+  today: string;
 }): DemandQueueCoverageRow[] {
   const supply = params.supply
     .map((chunk) => ({ ...chunk, remaining: roundQuantity(Math.max(0, chunk.quantity)) }))
@@ -235,7 +254,7 @@ export function computeDemandQueueCoverage(params: {
       coverage.remainingNeed = roundQuantity(coverage.remainingNeed - claim);
       coverage.pinnedQty = roundQuantity(coverage.pinnedQty + claim);
 
-      if (expectedSupplyCanCoverDemand(chunk, demand)) {
+      if (expectedSupplyCanCoverDemand(chunk, demand, params.today)) {
         coverage.pinnedDateValidQty = roundQuantity(
           coverage.pinnedDateValidQty + claim
         );
@@ -282,7 +301,7 @@ export function computeDemandQueueCoverage(params: {
     for (const chunk of supply) {
       if (coverage.remainingNeed <= 0) break;
       if (chunk.remaining <= 0) continue;
-      if (!expectedSupplyCanCoverDemand(chunk, demand)) continue;
+      if (!expectedSupplyCanCoverDemand(chunk, demand, params.today)) continue;
       const claim = roundQuantity(Math.min(coverage.remainingNeed, chunk.remaining));
       if (claim <= 0) continue;
 
@@ -340,6 +359,16 @@ export function computeDemandQueueCoverage(params: {
     assertCoverageSegmentsMatchTotals(row);
     return row;
   });
+}
+
+async function getOrganizationTodayInTx(tx: Tx, organizationId: string) {
+  const [row] = await tx
+    .select({ timeZone: organization.timeZone })
+    .from(organization)
+    .where(eq(organization.id, organizationId))
+    .limit(1);
+
+  return todayInTimeZone(row?.timeZone ?? "America/Denver");
 }
 
 function toQuantity(value: string | number | null | undefined) {
@@ -450,7 +479,7 @@ export async function getDemandQueueCoverageForItemInTx(
       sourceType: source.sourceType,
       sourceId: source.sourceId,
       quantity: toQuantity(source.totalQty),
-      availableDate: source.sourceType === "inventory_lot" ? null : source.date,
+      availableDate: source.date,
       label: source.label,
     }));
 
@@ -468,6 +497,7 @@ export async function getDemandQueueCoverageForItemInTx(
     priorityRank: row.priorityRank,
     priorityDate: row.priorityDate,
     priorityLabel: row.priorityLabel,
+    minimumLotAgeDays: row.minimumLotAgeDays ?? null,
   }));
 
   const demandKeys = new Set(demands.map((demand) => demandQueueCoverageKey(demand)));
@@ -514,7 +544,8 @@ export async function getDemandQueueCoverageForItemInTx(
       quantity: toQuantity(row.quantity),
     }));
 
-  const coverage = computeDemandQueueCoverage({ supply, demands, pins });
+  const today = await getOrganizationTodayInTx(tx, params.organizationId);
+  const coverage = computeDemandQueueCoverage({ supply, demands, pins, today });
 
   const onHandQty = supply
     .filter((chunk) => chunk.kind === "on_hand")

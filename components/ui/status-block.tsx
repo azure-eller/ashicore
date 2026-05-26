@@ -109,7 +109,7 @@ function StatusBlockContent({
       <span
         className={cn(
           footer
-            ? "flex min-w-0 flex-1 flex-col justify-center gap-(--space-1) px-(--space-5) py-(--space-2)"
+            ? "relative inline-flex min-w-0 flex-1 items-center px-(--space-5)"
             : "inline-flex items-center px-(--space-5)",
           showActionWell && "pr-(--space-3)",
         )}
@@ -124,7 +124,11 @@ function StatusBlockContent({
           ) : null}
           <span className="truncate">{children}</span>
         </span>
-        {footer ? <span className="min-w-0 normal-case tracking-normal">{footer}</span> : null}
+        {footer ? (
+          <span className="absolute inset-x-(--space-5) bottom-(--space-1) min-w-0 normal-case tracking-normal">
+            {footer}
+          </span>
+        ) : null}
       </span>
       {marker ? (
         <span className="ml-auto inline-flex min-w-(--space-10) items-center justify-center border-l border-[var(--status-block-divider)] px-(--space-2) text-[10px] font-bold">
