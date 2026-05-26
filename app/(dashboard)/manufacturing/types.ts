@@ -8,6 +8,7 @@ import type {
   BomComponentConstraint,
   RequirementViolationPayload,
 } from "@/lib/bom/constraints";
+import type { LotPickPlanEntry } from "@/lib/inventory/lot-pick-plan";
 
 export type ManufacturingProductOption = {
   id: string;
@@ -216,6 +217,7 @@ export type ManufacturingOrderIngredientDetail = {
     sourceId: string | null;
     sourceLabel: string | null;
   }>;
+  lotPickPlan?: LotPickPlanEntry[];
   sortOrder: number;
   constraints: BomComponentConstraint[];
   defaultItemId: string | null;

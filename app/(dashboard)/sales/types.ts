@@ -13,6 +13,7 @@ import type {
   CUSTOMER_PROJECT_STATUSES,
 } from "@/lib/schemas/customer-crm";
 import type { DemandQueueCoverageSegment } from "@/lib/inventory/allocation/demand-queue";
+import type { LotPickPlanEntry } from "@/lib/inventory/lot-pick-plan";
 
 export type PricingSourceType = "base_price" | "schedule_break";
 
@@ -488,6 +489,7 @@ export type SalesOrderDetailLine = {
   demandQueueExpectedQty: string;
   demandQueueShortQty: string;
   demandQueueExpectedDate: string | null;
+  lotPickPlan?: LotPickPlanEntry[];
 };
 
 export type SalesShipmentLine = {
@@ -503,6 +505,7 @@ export type SalesShipmentLine = {
   sourceSummary?: string;
   allocationStatus?: SalesAllocationLineSummary["status"];
   allocationSources?: SalesAllocationLineSummary["sources"];
+  lotPickPlan?: LotPickPlanEntry[];
   sortOrder: number;
 };
 

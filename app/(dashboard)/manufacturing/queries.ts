@@ -43,6 +43,7 @@ import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import {
   normalizeNumeric,
   normalizeNumericScale,
+  roundQuantity,
 } from "@/lib/format";
 import { inferItemVisual } from "@/components/inventory-visuals/infer-item-visual";
 import {
@@ -101,6 +102,10 @@ import {
 } from "@/lib/errors/domain-error";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 import { loadAllocationSourcesForItemInTx } from "@/lib/inventory/allocation/sources";
+import {
+  buildFifoLotPickPlanInTx,
+  type LotPickPlanEntry,
+} from "@/lib/inventory/lot-pick-plan";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type {
   CompleteManufacturingBatch,
@@ -3131,6 +3136,70 @@ async function getExecutionLotAllocationsByIngredientInTx(
   }
 
   return allocations;
+}
+
+async function getExecutionLotPickPlansByIngredientInTx(
+  tx: Tx,
+  organizationId: string,
+  ingredients: ManufacturingOrderIngredientDetail[]
+) {
+  const plans = new Map<string, LotPickPlanEntry[]>();
+
+  for (const ingredient of ingredients) {
+    const existingAllocations = ingredient.lotAllocations ?? [];
+    const lotPlan: LotPickPlanEntry[] = existingAllocations.map((allocation) => ({
+      lotId: allocation.lotId,
+      lotNumber: allocation.lotNumber,
+      quantity: allocation.quantity,
+      unitName: ingredient.unitName,
+      sourceType: allocation.lotId ? ("inventory_lot" as const) : null,
+      sourceId: allocation.sourceId,
+      sourceLabel: allocation.sourceLabel,
+      kind:
+        allocation.sourceType === "picked" || allocation.sourceType === "consumed"
+          ? ("picked" as const)
+          : ("allocated" as const),
+      status: "ready" as const,
+    }));
+
+    const allocatedQuantity = roundQuantity(
+      existingAllocations.reduce(
+        (sum, allocation) => sum + Number(allocation.quantity),
+        0
+      )
+    );
+    const remainingQuantity = getRemainingQuantityNumber(
+      ingredient.plannedQuantity,
+      ingredient.pickedQuantity
+    );
+    const fifoQuantity = roundQuantity(remainingQuantity - allocatedQuantity);
+    if (fifoQuantity > 0) {
+      const unavailableByLotId = new Map<string, number>();
+      for (const allocation of existingAllocations) {
+        if (!allocation.lotId) continue;
+        unavailableByLotId.set(
+          allocation.lotId,
+          roundQuantity(
+            (unavailableByLotId.get(allocation.lotId) ?? 0) +
+              Number(allocation.quantity)
+          )
+        );
+      }
+      lotPlan.push(
+        ...(await buildFifoLotPickPlanInTx(tx, {
+          organizationId,
+          itemId: ingredient.itemId,
+          quantity: fifoQuantity,
+          unitName: ingredient.unitName,
+          unavailableByLotId,
+        }))
+      );
+    }
+
+    plans.set(ingredient.id, lotPlan);
+  }
+
+  return plans;
 }
 
 function aggregateBatchIngredients(
@@ -7611,7 +7680,7 @@ export async function pickRemainingManufacturingIngredients(
 export async function getManufacturingExecutionDetail(
   orderId: string
 ): Promise<ManufacturingExecutionDetail | null> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
     const [order] = await tx
       .select({
         id: manufacturingOrders.id,
@@ -7670,6 +7739,18 @@ export async function getManufacturingExecutionDetail(
       ...ingredient,
       lotAllocations: lotAllocationsByIngredientId.get(ingredient.id) ?? [],
     }));
+    const lotPickPlansByIngredientId =
+      await getExecutionLotPickPlansByIngredientInTx(
+        tx,
+        orgId,
+        ingredientsWithLotAllocations
+      );
+    const ingredientsWithLotGuidance = ingredientsWithLotAllocations.map(
+      (ingredient) => ({
+        ...ingredient,
+        lotPickPlan: lotPickPlansByIngredientId.get(ingredient.id) ?? [],
+      })
+    );
     const recordedOutputQuantity = await getOutputQuantityInTx(tx, {
       manufacturingOrderId: orderId,
       manufacturingOrderBatchId: currentBatch?.id ?? null,
@@ -7682,7 +7763,7 @@ export async function getManufacturingExecutionDetail(
         order.manufacturingMode === "batch"
           ? getBatchPickProgressStatus(batches)
           : getPickProgressStatus(
-              ingredientsWithLotAllocations.map((ingredient) => ({
+              ingredientsWithLotGuidance.map((ingredient) => ({
                 plannedQuantity: ingredient.plannedQuantity,
                 pickedQuantity: ingredient.pickedQuantity,
               }))
@@ -7693,14 +7774,14 @@ export async function getManufacturingExecutionDetail(
           ? true
           : order.manufacturingMode === "batch"
             ? currentBatch != null &&
-              ingredientsWithLotAllocations.every(
+              ingredientsWithLotGuidance.every(
                 (ingredient) =>
                   getRemainingQuantityNumber(
                     ingredient.plannedQuantity,
                     ingredient.pickedQuantity
                   ) <= 0
               )
-            : ingredientsWithLotAllocations.every(
+            : ingredientsWithLotGuidance.every(
                 (ingredient) =>
                   getRemainingQuantityNumber(
                     ingredient.plannedQuantity,
@@ -7710,7 +7791,7 @@ export async function getManufacturingExecutionDetail(
       currentBatchId: currentBatch?.id ?? null,
       currentBatch: currentBatch,
       batches,
-      ingredients: ingredientsWithLotAllocations,
+      ingredients: ingredientsWithLotGuidance,
       recordedOutputQuantity: normalizeNumeric(recordedOutputQuantity),
     };
   });

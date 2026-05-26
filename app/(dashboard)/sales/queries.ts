@@ -26,7 +26,9 @@ import {
   itemFamilies,
   itemVariantValues,
   items,
+  lots,
   manufacturingOrderBatches,
+  manufacturingOrderOutputs,
   manufacturingOrderIngredients,
   manufacturingOrders,
   pricingScheduleBreaks,
@@ -75,6 +77,10 @@ import {
   calculateUnitMarginMetrics,
 } from "@/lib/margin";
 import { measureObservedOperation } from "@/lib/observability/request-log";
+import {
+  buildFifoLotPickPlanInTx,
+  type LotPickPlanEntry,
+} from "@/lib/inventory/lot-pick-plan";
 import { deleteManufacturingOrdersInTx } from "@/app/(dashboard)/manufacturing/queries";
 import { getSalesAllocationReadModelForItemInTx } from "./allocation-service";
 import { reconcileAllocationPinsToReservationsInTx } from "@/lib/inventory/allocation/reservations";
@@ -1423,6 +1429,154 @@ type ShipmentLineState = {
 
 function normalizeShipmentQuantity(value: number) {
   return parseFloat(normalizeNumeric(roundQuantity(value)));
+}
+
+async function getSalesLotPickPlansByLineInTx(
+  tx: Tx,
+  orgId: string,
+  lines: SalesOrderDetailLine[]
+) {
+  const plans = new Map<string, LotPickPlanEntry[]>();
+  const manufacturingSourceIds = [
+    ...new Set(
+      lines.flatMap((line) =>
+        line.allocationSources
+          .filter(
+            (source) => source.sourceType === "manufacturing_order" && source.sourceId
+          )
+          .map((source) => source.sourceId as string)
+      )
+    ),
+  ];
+  const outputRows =
+    manufacturingSourceIds.length === 0
+      ? []
+      : await tx
+          .select({
+            manufacturingOrderId: manufacturingOrderOutputs.manufacturingOrderId,
+            lotId: manufacturingOrderOutputs.lotId,
+            lotNumber: lots.lotNumber,
+            quantity: trimScale(manufacturingOrderOutputs.quantity).as("quantity"),
+          })
+          .from(manufacturingOrderOutputs)
+          .innerJoin(lots, eq(lots.id, manufacturingOrderOutputs.lotId))
+          .where(
+            and(
+              inArray(
+                manufacturingOrderOutputs.manufacturingOrderId,
+                manufacturingSourceIds
+              ),
+              eq(manufacturingOrderOutputs.disposition, "available"),
+              sql`${manufacturingOrderOutputs.quantity} > 0`
+            )
+          )
+          .orderBy(asc(manufacturingOrderOutputs.createdAt));
+  const outputRowsByMoId = new Map<
+    string,
+    Array<(typeof outputRows)[number] & { remainingQuantity: number }>
+  >();
+
+  for (const row of outputRows) {
+    const rows = outputRowsByMoId.get(row.manufacturingOrderId) ?? [];
+    rows.push({
+      ...row,
+      remainingQuantity: Number(row.quantity),
+    });
+    outputRowsByMoId.set(row.manufacturingOrderId, rows);
+  }
+
+  for (const line of lines) {
+    const plan: LotPickPlanEntry[] = [];
+    const unavailableByLotId = new Map<string, number>();
+    let coveredQuantity = 0;
+
+    for (const source of line.allocationSources) {
+      const quantity = Number(source.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) continue;
+      coveredQuantity = roundQuantity(coveredQuantity + quantity);
+
+      if (source.sourceType === "inventory_lot") {
+        if (source.sourceId) {
+          unavailableByLotId.set(
+            source.sourceId,
+            roundQuantity((unavailableByLotId.get(source.sourceId) ?? 0) + quantity)
+          );
+        }
+        plan.push({
+          lotId: source.sourceId,
+          lotNumber: source.label,
+          quantity: source.quantity,
+          unitName: line.unitName,
+          sourceType: "inventory_lot",
+          sourceId: source.sourceId,
+          sourceLabel: source.label,
+          kind: "allocated",
+          status: "ready",
+        });
+        continue;
+      }
+
+      const producedLots = source.sourceId
+        ? outputRowsByMoId.get(source.sourceId) ?? []
+        : [];
+      let remainingSourceQuantity = quantity;
+      for (const producedLot of producedLots) {
+        if (remainingSourceQuantity <= 0) break;
+        const lotQuantity = roundQuantity(
+          Math.min(producedLot.remainingQuantity, remainingSourceQuantity)
+        );
+        if (lotQuantity <= 0) continue;
+        plan.push({
+          lotId: producedLot.lotId,
+          lotNumber: producedLot.lotNumber,
+          quantity: normalizeNumeric(lotQuantity),
+          unitName: line.unitName,
+          sourceType: "manufacturing_order",
+          sourceId: source.sourceId,
+          sourceLabel: source.label,
+          kind: "production",
+          status: "ready",
+        });
+        remainingSourceQuantity = roundQuantity(
+          remainingSourceQuantity - lotQuantity
+        );
+        producedLot.remainingQuantity = roundQuantity(
+          producedLot.remainingQuantity - lotQuantity
+        );
+      }
+      if (remainingSourceQuantity > 0) {
+        plan.push({
+          lotId: null,
+          lotNumber: null,
+          quantity: normalizeNumeric(remainingSourceQuantity),
+          unitName: line.unitName,
+          sourceType: "manufacturing_order",
+          sourceId: source.sourceId,
+          sourceLabel: source.label,
+          kind: "production",
+          status: "waiting",
+        });
+      }
+    }
+
+    const remainingQuantity = Number(line.remainingQuantity);
+    const fifoQuantity = roundQuantity(remainingQuantity - coveredQuantity);
+    if (fifoQuantity > 0) {
+      plan.push(
+        ...(await buildFifoLotPickPlanInTx(tx, {
+          organizationId: orgId,
+          itemId: line.itemId,
+          quantity: fifoQuantity,
+          unitName: line.unitName,
+          unavailableByLotId,
+        }))
+      );
+    }
+
+    plans.set(line.id, plan);
+  }
+
+  return plans;
 }
 
 function summarizeManualReservations(
@@ -6083,6 +6237,15 @@ export async function getSalesOrder(
         )} ${line.unitName} covered`,
       ];
     });
+    const lotPickPlansByLineId = await getSalesLotPickPlansByLineInTx(
+      tx,
+      orgId,
+      linesWithAllocation as SalesOrderDetailLine[]
+    );
+    const linesWithLotGuidance = linesWithAllocation.map((line) => ({
+      ...line,
+      lotPickPlan: lotPickPlansByLineId.get(line.id) ?? [],
+    }));
 
     return {
       ...order,
@@ -6090,7 +6253,7 @@ export async function getSalesOrder(
       xeroPushStatus: order.xeroPushStatus as SalesOrderDetail["xeroPushStatus"],
       xeroEmailStatus:
         order.xeroEmailStatus as SalesOrderDetail["xeroEmailStatus"],
-      lines: linesWithAllocation as SalesOrderDetailLine[],
+      lines: linesWithLotGuidance as SalesOrderDetailLine[],
       shipments,
       marginSummary: orderMarginSummary,
       hasManufacturableLines,
