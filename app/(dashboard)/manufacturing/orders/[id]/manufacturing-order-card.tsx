@@ -589,9 +589,7 @@ function OrderDetailsSection({
 }
 
 function productLabel(option: ManufacturingProductOption) {
-  return option.displayName && option.displayName !== option.name
-    ? `${option.displayName} (${option.name})`
-    : option.name;
+  return option.displayName || option.name;
 }
 
 function buildIngredientOptions(

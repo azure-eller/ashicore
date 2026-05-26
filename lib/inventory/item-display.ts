@@ -14,6 +14,12 @@ type ItemDisplayRow = {
   familyName: string | null;
 };
 
+export type ItemDisplayMetadata = ItemDisplayRow & {
+  displayName: string;
+  masterName: string;
+  optionLabels: string[];
+};
+
 export function formatItemDisplayName(row: {
   name: string;
   familyName: string | null;
@@ -26,6 +32,24 @@ export function formatItemDisplayName(row: {
   return row.familyName ?? row.name;
 }
 
+export function formatItemDisplayMetadata(row: {
+  id: string;
+  name: string;
+  familyName: string | null;
+  optionLabels?: string[];
+}): ItemDisplayMetadata {
+  const optionLabels = row.optionLabels ?? [];
+
+  return {
+    id: row.id,
+    name: row.name,
+    familyName: row.familyName,
+    displayName: formatItemDisplayName({ ...row, optionLabels }),
+    masterName: row.familyName ?? row.name,
+    optionLabels,
+  };
+}
+
 function activeOptionLabels(
   rows: Array<{ label: string; optionDisabledAt: Date | null; valueDisabledAt: Date | null }>,
 ) {
@@ -34,9 +58,9 @@ function activeOptionLabels(
     .map((row) => row.label);
 }
 
-export async function getItemDisplayNamesByIdInTx(tx: Tx, itemIds: string[]) {
+export async function getItemDisplayMetadataByIdInTx(tx: Tx, itemIds: string[]) {
   const uniqueItemIds = [...new Set(itemIds)].filter(Boolean);
-  if (uniqueItemIds.length === 0) return new Map<string, string>();
+  if (uniqueItemIds.length === 0) return new Map<string, ItemDisplayMetadata>();
 
   const [itemRows, optionRows] = await Promise.all([
     tx
@@ -82,10 +106,20 @@ export async function getItemDisplayNamesByIdInTx(tx: Tx, itemIds: string[]) {
   return new Map(
     itemRows.map((row: ItemDisplayRow) => [
       row.id,
-      formatItemDisplayName({
+      formatItemDisplayMetadata({
         ...row,
         optionLabels: activeOptionLabels(optionLabelsByItemId.get(row.id) ?? []),
       }),
+    ])
+  );
+}
+
+export async function getItemDisplayNamesByIdInTx(tx: Tx, itemIds: string[]) {
+  const metadataById = await getItemDisplayMetadataByIdInTx(tx, itemIds);
+  return new Map(
+    [...metadataById.entries()].map(([itemId, metadata]) => [
+      itemId,
+      metadata.displayName,
     ])
   );
 }

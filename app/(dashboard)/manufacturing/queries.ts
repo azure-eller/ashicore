@@ -21,7 +21,6 @@ import {
   inventoryReservationsSummary,
   bomRevisions,
   itemFamilies,
-  itemVariantValues,
   items,
   lots,
   manufacturingOrderBatches,
@@ -37,8 +36,6 @@ import {
   salesOrderLines,
   salesOrders,
   unitDefinitions,
-  variantOptions,
-  variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import {
@@ -113,6 +110,7 @@ import {
   getDemandQueueCoverageByDemandKeyForItemsInTx,
 } from "@/lib/inventory/allocation/demand-queue";
 import { measureObservedOperation } from "@/lib/observability/request-log";
+import { getItemDisplayMetadataByIdInTx } from "@/lib/inventory/item-display";
 import type {
   CompleteManufacturingBatch,
   CompleteManufacturingOrder,
@@ -148,35 +146,6 @@ import type {
   ManufacturingSalesLineOption,
 } from "./types";
 
-async function getManufacturingOptionLabelsByItemIdInTx(tx: Tx, itemIds: string[]) {
-  const uniqueItemIds = [...new Set(itemIds)];
-  if (uniqueItemIds.length === 0) {
-    return new Map<string, string[]>();
-  }
-
-  const rows = await tx
-    .select({
-      itemId: itemVariantValues.itemId,
-      label: variantOptionValues.label,
-    })
-    .from(itemVariantValues)
-    .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
-    .innerJoin(
-      variantOptionValues,
-      eq(itemVariantValues.optionValueId, variantOptionValues.id)
-    )
-    .where(inArray(itemVariantValues.itemId, uniqueItemIds))
-    .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder));
-
-  const byItemId = new Map<string, string[]>();
-  for (const row of rows) {
-    const labels = byItemId.get(row.itemId) ?? [];
-    labels.push(row.label);
-    byItemId.set(row.itemId, labels);
-  }
-  return byItemId;
-}
-
 function shippedSalesOrderLineQuantitySql() {
   return sql<string>`COALESCE((
     SELECT SUM(shipment_lines."quantity")
@@ -205,6 +174,25 @@ type ProductSnapshot = {
   sku: string | null;
   unitName: string;
 };
+
+function uniqueIds(ids: Array<string | null | undefined>) {
+  return [...new Set(ids.filter((id): id is string => Boolean(id)))];
+}
+
+async function getManufacturingItemDisplayMetadataInTx(
+  tx: Tx,
+  itemIds: Array<string | null | undefined>
+) {
+  return getItemDisplayMetadataByIdInTx(tx, uniqueIds(itemIds));
+}
+
+function canonicalItemName(
+  displayByItemId: Awaited<ReturnType<typeof getManufacturingItemDisplayMetadataInTx>>,
+  itemId: string | null | undefined,
+  fallbackName: string
+) {
+  return (itemId ? displayByItemId.get(itemId)?.displayName : null) ?? fallbackName;
+}
 
 type SalesLineSnapshot = {
   salesOrderId: string;
@@ -774,7 +762,12 @@ async function getValidatedProductInTx(
     throw new ManufacturingError("Product not found", 404);
   }
 
-  return product;
+  const displayByItemId = await getManufacturingItemDisplayMetadataInTx(tx, [product.id]);
+
+  return {
+    ...product,
+    name: canonicalItemName(displayByItemId, product.id, product.name),
+  };
 }
 
 async function getCurrentBomIngredientsInTx(tx: Tx, productId: string) {
@@ -941,6 +934,13 @@ async function prepareCreateIngredientsInTx(
     throw new ManufacturingError("The product BOM changed. Reload and try again.", 409);
   }
 
+  const itemDisplayById = await getManufacturingItemDisplayMetadataInTx(tx, [
+    ...bomRows.flatMap((row) => [
+      row.itemId,
+      ...row.alternates.map((alternate) => alternate.itemId),
+    ]),
+  ]);
+
   return {
     bomRevisionId: bomRows[0].bomRevisionId,
     ingredients: bomRows.map((row, index) => {
@@ -952,7 +952,7 @@ async function prepareCreateIngredientsInTx(
         submitted.itemId === row.itemId
           ? {
               itemId: row.itemId,
-              itemName: row.itemName,
+              itemName: canonicalItemName(itemDisplayById, row.itemId, row.itemName),
               itemSku: row.itemSku,
               itemType: row.itemType,
               unitName: row.unitName,
@@ -961,7 +961,11 @@ async function prepareCreateIngredientsInTx(
           : alternate
             ? {
                 itemId: alternate.itemId,
-                itemName: alternate.itemName,
+                itemName: canonicalItemName(
+                  itemDisplayById,
+                  alternate.itemId,
+                  alternate.itemName
+                ),
                 itemSku: alternate.itemSku,
                 itemType: alternate.itemType,
                 unitName: alternate.unitName,
@@ -3445,10 +3449,6 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
         }
 
         const orderIds = orders.map((order) => order.id);
-        const optionLabelsByItemId = await getManufacturingOptionLabelsByItemIdInTx(
-          tx,
-          orders.map((order) => order.productId)
-        );
         const ingredientRows = await tx
           .select({
             id: manufacturingOrderIngredients.id,
@@ -3551,6 +3551,11 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             orderReadiness
           );
         }
+
+        const itemDisplayById = await getManufacturingItemDisplayMetadataInTx(tx, [
+          ...orders.map((order) => order.productId),
+          ...ingredientRows.map((ingredient) => ingredient.itemId),
+        ]);
         const readinessIngredientsByOrder = new Map(
           [...readinessQuantityByOrderItem.entries()].map(([orderId, rows]) => [
             orderId,
@@ -3563,7 +3568,11 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
 
               return {
                 itemId,
-                itemName: matchingIngredient?.itemName ?? "Ingredient",
+                itemName: canonicalItemName(
+                  itemDisplayById,
+                  itemId,
+                  matchingIngredient?.itemName ?? "Ingredient"
+                ),
                 plannedQuantity: normalizeNumeric(plannedQuantity),
               };
             }),
@@ -3642,17 +3651,14 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             (batch) => batch.status === "completed"
           ).length;
           const totalBatchCount = order.numberOfBatches ?? batches.length;
-          const optionLabels = optionLabelsByItemId.get(order.productId) ?? [];
-          const display = {
-            masterName: productFamilyName ?? order.productName,
-            attrs: optionLabels,
-          };
+          const display = itemDisplayById.get(order.productId);
+          const productName = display?.displayName ?? order.productName;
           const itemVisual = inferItemVisual({
             itemType: "product",
             category: order.productCategory,
             unitName: order.unitName,
             sku: order.productSku,
-            name: order.productName,
+            name: productName,
           });
           const ingredientShortages = (
             readinessIngredientsByOrder.get(order.id) ?? []
@@ -3693,8 +3699,9 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
 
           return {
             ...order,
-            productMasterName: display.masterName,
-            productAttrs: display.attrs,
+            productName,
+            productMasterName: display?.masterName ?? productFamilyName ?? productName,
+            productAttrs: display?.optionLabels ?? [],
             itemSpriteKind: itemVisual.kind,
             itemSpriteColor: itemVisual.color,
             pickProgressStatus,
@@ -3867,20 +3874,25 @@ export async function getManufacturingProductTemplates(): Promise<
       tx,
       products.map((product) => product.id)
     );
-    const optionLabelsByItemId = await getManufacturingOptionLabelsByItemIdInTx(
+    const itemDisplayById = await getManufacturingItemDisplayMetadataInTx(
       tx,
-      products.map((product) => product.id)
+      [
+        ...products.map((product) => product.id),
+        ...[...bomByProduct.values()].flatMap((bomRows) =>
+          bomRows.flatMap((row) => [
+            row.componentId,
+            ...row.alternates.map((alternate) => alternate.alternateItemId),
+          ])
+        ),
+      ]
     );
 
     return products
       .filter((product) => (bomByProduct.get(product.id) ?? []).length > 0)
       .map((product) => {
         const bomRows = bomByProduct.get(product.id) ?? [];
-        const optionLabels = optionLabelsByItemId.get(product.id) ?? [];
         const displayName =
-          product.familyName != null && optionLabels.length > 0
-            ? `${product.familyName} / ${optionLabels.join(" / ")}`
-            : product.familyName ?? product.name;
+          itemDisplayById.get(product.id)?.displayName ?? product.familyName ?? product.name;
 
         return {
           id: product.id,
@@ -3893,7 +3905,11 @@ export async function getManufacturingProductTemplates(): Promise<
           expectedBatchYield: product.expectedBatchYield,
           bom: bomRows.map((row) => ({
             itemId: row.componentId,
-            itemName: row.componentName,
+            itemName: canonicalItemName(
+              itemDisplayById,
+              row.componentId,
+              row.componentName
+            ),
             itemSku: row.componentSku,
             itemType: row.componentItemType,
             unitName: row.unitName,
@@ -3901,7 +3917,11 @@ export async function getManufacturingProductTemplates(): Promise<
             defaultQuantityPerUnit: row.quantity ?? "0",
             alternates: row.alternates.map((alternate) => ({
               itemId: alternate.alternateItemId,
-              itemName: alternate.alternateItemName,
+              itemName: canonicalItemName(
+                itemDisplayById,
+                alternate.alternateItemId,
+                alternate.alternateItemName
+              ),
               itemSku: alternate.alternateItemSku,
               itemType: alternate.alternateItemType,
               unitName: alternate.unitName,
@@ -4020,7 +4040,7 @@ export async function getManufacturingSalesLineOptions(
       conditions.push(eq(salesOrderLines.itemId, productId));
     }
 
-    return tx
+    const rows = (await tx
       .select({
         salesOrderId: salesOrders.id,
         salesOrderLineId: salesOrderLines.id,
@@ -4043,9 +4063,17 @@ export async function getManufacturingSalesLineOptions(
       .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
       .innerJoin(items, eq(salesOrderLines.itemId, items.id))
       .where(and(...conditions))
-      .orderBy(desc(salesOrders.createdAt), asc(salesOrderLines.sortOrder)) as Promise<
-        ManufacturingSalesLineOption[]
-      >;
+      .orderBy(desc(salesOrders.createdAt), asc(salesOrderLines.sortOrder))) as ManufacturingSalesLineOption[];
+
+    const itemDisplayById = await getManufacturingItemDisplayMetadataInTx(
+      tx,
+      rows.map((row) => row.itemId)
+    );
+
+    return rows.map((row) => ({
+      ...row,
+      itemName: canonicalItemName(itemDisplayById, row.itemId, row.itemName),
+    }));
   });
 }
 
@@ -4250,6 +4278,33 @@ export async function getManufacturingOrder(
             ...ingredient,
             lotAllocations: lotAllocationsByItemId.get(ingredient.itemId) ?? [],
           }));
+    const itemDisplayById = await getManufacturingItemDisplayMetadataInTx(tx, [
+      order.productId,
+      ...detailIngredients.flatMap((ingredient) => [
+        ingredient.itemId,
+        ingredient.defaultItemId,
+        ...ingredient.alternates.map((alternate) => alternate.itemId),
+      ]),
+    ]);
+    const displayedDetailIngredients = detailIngredients.map((ingredient) => ({
+      ...ingredient,
+      itemName: canonicalItemName(itemDisplayById, ingredient.itemId, ingredient.itemName),
+      defaultItemName: ingredient.defaultItemId
+        ? canonicalItemName(
+            itemDisplayById,
+            ingredient.defaultItemId,
+            ingredient.defaultItemName ?? ingredient.itemName
+          )
+        : ingredient.defaultItemName,
+      alternates: ingredient.alternates.map((alternate) => ({
+        ...alternate,
+        itemName: canonicalItemName(
+          itemDisplayById,
+          alternate.itemId,
+          alternate.itemName
+        ),
+      })),
+    }));
 
     const producedLots =
       batches.length > 0
@@ -4294,6 +4349,7 @@ export async function getManufacturingOrder(
 
     return {
       ...order,
+      productName: canonicalItemName(itemDisplayById, order.productId, order.productName),
       status: order.status as ManufacturingOrderDetail["status"],
       pickProgressStatus:
         order.manufacturingMode === "batch" && batches.length > 0
@@ -4304,7 +4360,7 @@ export async function getManufacturingOrder(
                 pickedQuantity: ingredient.pickedQuantity,
               }))
             ),
-      ingredients: detailIngredients,
+      ingredients: displayedDetailIngredients,
       operationCosts,
       batches,
       producedLots,
@@ -4402,27 +4458,46 @@ export async function getManufacturingOrderEditData(
         : await getBomRevisionComponentsInTx(tx, order.bomRevisionId);
 
     const bomBySortOrder = new Map(bomRows.map((row) => [row.sortOrder, row]));
+    const itemDisplayById = await getManufacturingItemDisplayMetadataInTx(tx, [
+      order.productId,
+      ...editableIngredients.flatMap((ingredient) => [ingredient.itemId]),
+      ...bomRows.flatMap((row) => [
+        row.componentId,
+        ...row.alternates.map((alternate) => alternate.alternateItemId),
+      ]),
+    ]);
 
     return {
       ...order,
+      productName: canonicalItemName(itemDisplayById, order.productId, order.productName),
       ingredients: editableIngredients.map((ingredient) => {
         const bomRow = bomBySortOrder.get(ingredient.sortOrder);
         return {
           id: ingredient.id,
           itemId: ingredient.itemId,
-          itemName: ingredient.itemName,
+          itemName: canonicalItemName(
+            itemDisplayById,
+            ingredient.itemId,
+            ingredient.itemName
+          ),
           itemSku: ingredient.itemSku,
           itemType: ingredient.itemType,
           unitName: ingredient.unitName,
           quantityPerUnit: ingredient.quantityPerUnit,
           defaultItemId: bomRow?.componentId ?? ingredient.itemId,
-          defaultItemName: bomRow?.componentName ?? ingredient.itemName,
+          defaultItemName: bomRow
+            ? canonicalItemName(itemDisplayById, bomRow.componentId, bomRow.componentName)
+            : canonicalItemName(itemDisplayById, ingredient.itemId, ingredient.itemName),
           defaultItemSku: bomRow?.componentSku ?? ingredient.itemSku,
           defaultUnitName: bomRow?.unitName ?? ingredient.unitName,
           defaultQuantityPerUnit: bomRow?.quantity ?? ingredient.quantityPerUnit,
           alternates: (bomRow?.alternates ?? []).map((alternate) => ({
             itemId: alternate.alternateItemId,
-            itemName: alternate.alternateItemName,
+            itemName: canonicalItemName(
+              itemDisplayById,
+              alternate.alternateItemId,
+              alternate.alternateItemName
+            ),
             itemSku: alternate.alternateItemSku,
             itemType: alternate.alternateItemType,
             unitName: alternate.unitName,
@@ -7721,6 +7796,20 @@ export async function getManufacturingExecutionDetail(
         lotPickPlan: lotPickPlansByIngredientId.get(ingredient.id) ?? [],
       })
     );
+    const itemDisplayById = await getManufacturingItemDisplayMetadataInTx(tx, [
+      order.productId,
+      ...ingredientsWithLotGuidance.map((ingredient) => ingredient.itemId),
+    ]);
+    const displayedIngredientsWithLotGuidance = ingredientsWithLotGuidance.map(
+      (ingredient) => ({
+        ...ingredient,
+        itemName: canonicalItemName(
+          itemDisplayById,
+          ingredient.itemId,
+          ingredient.itemName
+        ),
+      })
+    );
     const recordedOutputQuantity = await getOutputQuantityInTx(tx, {
       manufacturingOrderId: orderId,
       manufacturingOrderBatchId: currentBatch?.id ?? null,
@@ -7728,12 +7817,13 @@ export async function getManufacturingExecutionDetail(
 
     return {
       ...order,
+      productName: canonicalItemName(itemDisplayById, order.productId, order.productName),
       status: order.status as ManufacturingOrderStatus,
       pickProgressStatus:
         order.manufacturingMode === "batch"
           ? getBatchPickProgressStatus(batches)
           : getPickProgressStatus(
-              ingredientsWithLotGuidance.map((ingredient) => ({
+              displayedIngredientsWithLotGuidance.map((ingredient) => ({
                 plannedQuantity: ingredient.plannedQuantity,
                 pickedQuantity: ingredient.pickedQuantity,
               }))
@@ -7744,14 +7834,14 @@ export async function getManufacturingExecutionDetail(
           ? true
           : order.manufacturingMode === "batch"
             ? currentBatch != null &&
-              ingredientsWithLotGuidance.every(
+              displayedIngredientsWithLotGuidance.every(
                 (ingredient) =>
                   getRemainingQuantityNumber(
                     ingredient.plannedQuantity,
                     ingredient.pickedQuantity
                   ) <= 0
               )
-            : ingredientsWithLotGuidance.every(
+            : displayedIngredientsWithLotGuidance.every(
                 (ingredient) =>
                   getRemainingQuantityNumber(
                     ingredient.plannedQuantity,
@@ -7761,7 +7851,7 @@ export async function getManufacturingExecutionDetail(
       currentBatchId: currentBatch?.id ?? null,
       currentBatch: currentBatch,
       batches,
-      ingredients: ingredientsWithLotGuidance,
+      ingredients: displayedIngredientsWithLotGuidance,
       recordedOutputQuantity: normalizeNumeric(recordedOutputQuantity),
     };
   });

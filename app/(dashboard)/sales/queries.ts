@@ -81,6 +81,7 @@ import {
   buildFifoLotPickPlanInTx,
   type LotPickPlanEntry,
 } from "@/lib/inventory/lot-pick-plan";
+import { getItemDisplayNamesByIdInTx } from "@/lib/inventory/item-display";
 import { deleteManufacturingOrdersInTx } from "@/app/(dashboard)/manufacturing/queries";
 import { getSalesAllocationReadModelForItemInTx } from "./allocation-service";
 import { reconcileAllocationPinsToReservationsInTx } from "@/lib/inventory/allocation/reservations";
@@ -968,6 +969,7 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
       salesOrderLineId: manufacturingOrders.salesOrderLineId,
       id: manufacturingOrders.id,
       orderNumber: manufacturingOrders.orderNumber,
+      productId: manufacturingOrders.productId,
       productName: manufacturingOrders.productName,
       productSku: manufacturingOrders.productSku,
       plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
@@ -1001,6 +1003,7 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
       salesOrderLineId: salesOrderLines.id,
       id: manufacturingOrders.id,
       orderNumber: manufacturingOrders.orderNumber,
+      productId: manufacturingOrders.productId,
       productName: manufacturingOrders.productName,
       productSku: manufacturingOrders.productSku,
       plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
@@ -1045,6 +1048,7 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
       salesOrderLineId: salesOrderLines.id,
       id: manufacturingOrders.id,
       orderNumber: manufacturingOrders.orderNumber,
+      productId: manufacturingOrders.productId,
       productName: manufacturingOrders.productName,
       productSku: manufacturingOrders.productSku,
       plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
@@ -1088,6 +1092,11 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
     );
 
   const merged = new Map<string, LinkedManufacturingOrderRead>();
+  const productDisplayNamesById = await getItemDisplayNamesByIdInTx(tx, [
+    ...headerRows.map((row) => row.productId),
+    ...allocationRows.map((row) => row.productId),
+    ...shipmentAllocationRows.map((row) => row.productId),
+  ]);
   const addRow = (
     row:
       | (typeof headerRows)[number]
@@ -1103,7 +1112,7 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
       salesOrderLineId: row.salesOrderLineId,
       id: row.id,
       orderNumber: row.orderNumber,
-      productName: row.productName,
+      productName: productDisplayNamesById.get(row.productId) ?? row.productName,
       productSku: row.productSku,
       plannedQuantity: row.plannedQuantity,
       actualQuantity: row.actualQuantity,
@@ -7765,6 +7774,7 @@ async function buildStockWarningPayloadInTx(
       quantity: trimScale(inventoryReservationsSummary.quantity).as("quantity"),
       orderId: manufacturingOrders.id,
       orderNumber: manufacturingOrders.orderNumber,
+      productId: manufacturingOrders.productId,
       productName: manufacturingOrders.productName,
     })
     .from(inventoryReservationsSummary)
@@ -7790,11 +7800,18 @@ async function buildStockWarningPayloadInTx(
       )
     );
 
+  const manufacturingProductNamesById = await getItemDisplayNamesByIdInTx(
+    tx,
+    manufacturingReservationRows.map((row) => row.productId)
+  );
+
   const commitments = [
     ...manufacturingReservationRows.map((row) => ({
       referenceType: "manufacturing_order" as const,
       referenceId: row.orderId,
-      label: `${row.orderNumber} ${row.productName}`,
+      label: `${row.orderNumber} ${
+        manufacturingProductNamesById.get(row.productId) ?? row.productName
+      }`,
       quantity: parseFloat(row.quantity),
       href: `/manufacturing/orders/${row.orderId}`,
     })),
