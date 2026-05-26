@@ -16,7 +16,6 @@ import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/location
 import { consumeSpecificLotInTx } from "./stock-core";
 import { reconcileAllocationPinsToReservationsInTx } from "@/lib/inventory/allocation/reservations";
 import type { AllocationDemandRef } from "@/lib/inventory/allocation/types";
-import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 
 function quantityString(value: number) {
   return normalizeNumeric(roundQuantity(Math.max(0, value)));
@@ -328,37 +327,21 @@ export async function consumeLotAllocationsForDemandInTx(
     const quantity = roundQuantity(Math.min(remaining, parseFloat(row.quantity)));
     if (quantity <= 0) continue;
 
-    let consumed: Awaited<ReturnType<typeof consumeSpecificLotInTx>>;
-    try {
-      consumed = await consumeSpecificLotInTx(tx, {
-        organizationId: params.organizationId,
-        locationId: params.locationId,
-        itemId: params.itemId,
-        lotId: row.sourceId,
-        quantity,
-        eventType: params.eventType,
-        eventSubtype: params.eventSubtype ?? null,
-        referenceType: params.referenceType ?? null,
-        referenceId: params.referenceId ?? null,
-        actorUserId: params.actorUserId ?? null,
-        idempotencyKey: !idempotencyUsed ? params.idempotencyKey ?? null : null,
-        occurredAt: params.occurredAt,
-        metadata: params.metadata ?? null,
-      });
-    } catch (error) {
-      if (!(error instanceof InsufficientStockError)) {
-        throw error;
-      }
-
-      await reduceOrCloseAllocationInTx(tx, {
-        allocationId: row.id,
-        currentQuantity: row.quantity,
-        consumedQuantity: parseFloat(row.quantity),
-        statusWhenClosed: "cancelled",
-        actorUserId: params.actorUserId ?? null,
-      });
-      continue;
-    }
+    const consumed = await consumeSpecificLotInTx(tx, {
+      organizationId: params.organizationId,
+      locationId: params.locationId,
+      itemId: params.itemId,
+      lotId: row.sourceId,
+      quantity,
+      eventType: params.eventType,
+      eventSubtype: params.eventSubtype ?? null,
+      referenceType: params.referenceType ?? null,
+      referenceId: params.referenceId ?? null,
+      actorUserId: params.actorUserId ?? null,
+      idempotencyKey: !idempotencyUsed ? params.idempotencyKey ?? null : null,
+      occurredAt: params.occurredAt,
+      metadata: params.metadata ?? null,
+    });
 
     idempotencyUsed = idempotencyUsed || consumed.eventIds.length > 0;
     eventIds.push(...consumed.eventIds);
