@@ -198,4 +198,74 @@ test.describe("inventory mutation kernel heartbeat", () => {
       .where(sql`${inventoryEvents.metadata}->>'stocktakeId' = ${stocktake.id}`);
     expect(events.some((event) => event.eventType === "stocktake_loss")).toBe(true);
   });
+
+  test("available disposition reductions release excess lot holds", async ({ db }) => {
+    const item = await createItem({
+      itemType: "material",
+      name: `Fast Disposition Allocation ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-DISP-ALLOC-${ts}`,
+      category: `Fast Disposition ${ts}`,
+      description: null,
+      defaultPurchasePrice: "4.00",
+      defaultSellingPrice: null,
+      stock: "10",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(item.status).toBe(201);
+    const itemId = item.body.id as string;
+
+    const [lot] = await db
+      .select({ id: lots.id })
+      .from(lots)
+      .where(eq(lots.itemId, itemId));
+    expect(lot?.id).toBeTruthy();
+
+    const [allocation] = await db
+      .insert(stockAllocations)
+      .values({
+        organizationId: orgId,
+        demandType: "manufacturing_order_ingredient",
+        demandId: randomUUID(),
+        itemId,
+        sourceType: "inventory_lot",
+        sourceId: lot.id,
+        quantity: "8.0000",
+        status: "active",
+      })
+      .returning({ id: stockAllocations.id });
+
+    const response = await testFetch(`/api/items/${itemId}/lots/${lot.id}/disposition`, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "block",
+        fromDisposition: "available",
+        quantity: "7",
+        notes: null,
+      }),
+    });
+    expect(response.status).toBe(200);
+
+    const [availableBalance] = await db
+      .select({ quantity: inventoryLotBalances.quantity })
+      .from(inventoryLotBalances)
+      .where(
+        and(
+          eq(inventoryLotBalances.itemId, itemId),
+          eq(inventoryLotBalances.lotId, lot.id),
+          eq(inventoryLotBalances.disposition, "available")
+        )
+      );
+    expect(availableBalance.quantity).toBe("3.0000");
+
+    const [reducedAllocation] = await db
+      .select({ quantity: stockAllocations.quantity, status: stockAllocations.status })
+      .from(stockAllocations)
+      .where(eq(stockAllocations.id, allocation.id));
+    expect(reducedAllocation).toMatchObject({
+      quantity: "3.0000",
+      status: "active",
+    });
+  });
 });

@@ -82,7 +82,7 @@ function pow10(exponent: number) {
   return BigInt(10) ** BigInt(exponent);
 }
 
-async function releaseExcessLotAllocationsInTx(
+export async function releaseExcessLotAllocationsInTx(
   tx: Tx,
   params: {
     organizationId: string;
