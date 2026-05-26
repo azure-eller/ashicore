@@ -87,9 +87,7 @@ function LotNumberCell({ data }: ICellRendererParams<CardLotRow>) {
   const balances = data.dispositionBalances.filter(
     (balance) => toQuantity(balance.quantity) > 0,
   );
-  const hasNegativeBalance = data.dispositionBalances.some(
-    (balance) => toQuantity(balance.quantity) < 0,
-  );
+  const hasNegativeBalance = toQuantity(data.quantity) < 0;
   return (
     <div className="flex h-full min-w-0 items-center gap-(--space-2)">
       <span className={`${styles.mono} truncate`}>{data.lotNumber}</span>
@@ -219,7 +217,7 @@ export function LotGridTab({
             (sum, allocation) => sum + toQuantity(allocation.quantity),
             0,
           );
-          return quantityValue(Math.max(availableQuantity - claimedQuantity, 0));
+          return quantityValue(availableQuantity - claimedQuantity);
         },
         valueFormatter: ({ value }) => formatQuantity(String(value ?? "0")),
       },

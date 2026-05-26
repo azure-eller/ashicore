@@ -28,7 +28,7 @@ export default async function MaterialDetailPage({
   const [usedInParents, unitOptions, lots, suppliers] = await Promise.all([
     getUsedInParents(id),
     getUnitDefinitions(),
-    getLots(id),
+    getLots(id, { includeNegativeBalances: true }),
     getSuppliers(),
   ]);
 

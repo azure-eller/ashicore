@@ -12,7 +12,7 @@ export default async function ProductLotsPage({
   const [item, card, lots] = await Promise.all([
     getItem(id),
     getItemCard(id),
-    getLots(id),
+    getLots(id, { includeNegativeBalances: true }),
   ]);
 
   if (!item || item.itemType !== "product") redirect("/inventory/products");

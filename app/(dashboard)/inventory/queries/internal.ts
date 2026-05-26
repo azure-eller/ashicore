@@ -1412,7 +1412,10 @@ export async function getCategories(): Promise<string[]> {
   });
 }
 
-export async function getLots(itemId: string) {
+export async function getLots(
+  itemId: string,
+  options: { includeNegativeBalances?: boolean } = {}
+) {
   return withAuthedOrgContext(async (tx) => {
     const allocationRows = await tx
       .select({
@@ -1569,7 +1572,9 @@ export async function getLots(itemId: string) {
           eq(inventoryLotBalances.organizationId, lots.organizationId),
           eq(inventoryLotBalances.itemId, lots.itemId),
           eq(inventoryLotBalances.lotId, lots.id),
-          sql`${inventoryLotBalances.quantity} <> 0`
+          options.includeNegativeBalances
+            ? sql`${inventoryLotBalances.quantity} <> 0`
+            : sql`${inventoryLotBalances.quantity} > 0`
         )
       )
       .where(eq(lots.itemId, itemId))

@@ -425,11 +425,13 @@ function buildDecreaseDraft(lots: CardLotRow[], decreaseQuantity: number) {
   const rows: Array<{ lot: CardLotRow; nextQuantity: string }> = [];
 
   for (const lot of lots) {
+    const current = toNumber(lot.quantity);
+    if (current <= 0) continue;
+
     if (remaining <= 0) {
       rows.push({ lot, nextQuantity: lot.quantity });
       continue;
     }
-    const current = toNumber(lot.quantity);
     const deduction = Math.min(current, remaining);
     rows.push({
       lot,
