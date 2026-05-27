@@ -18,6 +18,7 @@ import {
   markAccountingDocumentPushAttempt,
   persistAccountingDocumentPushFailure,
   persistAccountingDocumentPushSuccess,
+  resetAccountingDocumentPushState,
 } from "@/lib/accounting/sync-state";
 import {
   accountingAuditErrorMetadata,
@@ -358,6 +359,89 @@ export async function findXeroPurchaseBill(
       status ?? 502,
     );
   }
+}
+
+async function getXeroPurchaseBillStatusById(
+  orgId: string,
+  invoiceId: string,
+): Promise<Invoice.StatusEnum | "missing"> {
+  const authed = await getAuthedXeroClient(orgId);
+  try {
+    const response = await authed.client.accountingApi.getInvoices(
+      authed.tenantId,
+      undefined,
+      undefined,
+      undefined,
+      [invoiceId],
+    );
+    const bill = (response.body.invoices ?? []).find(
+      (invoice) =>
+        invoice.type === Invoice.TypeEnum.ACCPAY &&
+        invoice.invoiceID === invoiceId,
+    );
+    if (!bill) {
+      throw new XeroError(
+        "Xero bill status lookup did not return the requested bill.",
+        502,
+      );
+    }
+    if (!bill.status) {
+      throw new XeroError("Xero bill status lookup returned no status.", 502);
+    }
+    return bill.status as Invoice.StatusEnum;
+  } catch (error) {
+    const status = extractXeroStatusCode(error);
+    if (status === 404) return "missing";
+
+    console.error("Xero purchase bill status lookup failed:", redactXeroError(error));
+    throw new XeroError(
+      `Failed to check Xero bill status: ${extractXeroMessage(error)}`,
+      status ?? 502,
+    );
+  }
+}
+
+export async function reconcileXeroPurchaseBillExternalState(
+  orgId: string,
+  orderId: string,
+  invoiceId: string,
+): Promise<{ reset: boolean; externalStatus: string | null }> {
+  const status = await getXeroPurchaseBillStatusById(orgId, invoiceId);
+  const shouldReset =
+    status === "missing" ||
+    status === Invoice.StatusEnum.DELETED ||
+    status === Invoice.StatusEnum.VOIDED;
+
+  if (!shouldReset) {
+    return { reset: false, externalStatus: String(status) };
+  }
+
+  await withOrgContext(orgId, async (tx) => {
+    await resetAccountingDocumentPushState(tx, {
+      organizationId: orgId,
+      provider: ACCOUNTING_PROVIDER_XERO,
+      documentType: ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+      documentId: orderId,
+    });
+  });
+
+  await tryRecordAccountingAuditEvent({
+    organizationId: orgId,
+    actor: { type: "process", processName: "xero_retry_cron" },
+    eventType: "xero_retry",
+    outcome: "success",
+    source: "lib/xero/push-purchase-bill:reconcileXeroPurchaseBillExternalState",
+    provider: ACCOUNTING_PROVIDER_XERO,
+    localEntityType: ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+    localEntityId: orderId,
+    metadata: {
+      externalBillId: invoiceId,
+      externalStatus: status,
+      action: "reset_to_not_billed",
+    },
+  });
+
+  return { reset: true, externalStatus: String(status) };
 }
 
 export async function createPurchaseBillAccountingSync(

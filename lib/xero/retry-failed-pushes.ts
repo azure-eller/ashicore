@@ -4,11 +4,15 @@ import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import {
   accountingDocumentSyncs,
   organization,
+  purchaseOrders,
   salesOrders,
   salesShipments,
   integrationConnections,
 } from "@/lib/db/schema";
-import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
+import {
+  ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+  ACCOUNTING_PROVIDER_XERO,
+} from "@/lib/accounting/sync-state";
 import { db } from "@/lib/db";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { XeroError } from "./errors";
@@ -44,8 +48,14 @@ export type XeroRetryOrgResult = {
     stillFailed: number;
     skipped: number;
   };
+  purchaseBills: {
+    candidates: number;
+    reset: number;
+    active: number;
+    failedChecks: number;
+  };
   errors: Array<{
-    entity: "sales_order" | "sales_shipment" | "purchase_order";
+    entity: "sales_order" | "sales_shipment" | "purchase_order" | "purchase_bill";
     id: string;
     message: string;
   }>;
@@ -143,6 +153,43 @@ async function listFailedSalesShipments(
   });
 }
 
+async function listPushedPurchaseBills(
+  orgId: string
+): Promise<Array<{ orderId: string; externalBillId: string }>> {
+  return withOrgContext(orgId, async (tx) => {
+    const rows = await tx
+      .select({
+        orderId: purchaseOrders.id,
+        externalBillId: accountingDocumentSyncs.externalDocumentId,
+      })
+      .from(purchaseOrders)
+      .innerJoin(
+        accountingDocumentSyncs,
+        and(
+          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(
+            accountingDocumentSyncs.documentType,
+            ACCOUNTING_DOCUMENT_PURCHASE_BILL
+          ),
+          eq(accountingDocumentSyncs.documentId, purchaseOrders.id)
+        )
+      )
+      .where(
+        and(
+          eq(accountingDocumentSyncs.pushStatus, "pushed"),
+          sql`${accountingDocumentSyncs.externalDocumentId} IS NOT NULL`,
+          isNull(purchaseOrders.deletedAt)
+        )
+      )
+      .orderBy(accountingDocumentSyncs.pushedAt, accountingDocumentSyncs.lastPushAttemptAt)
+      .limit(BATCH_SIZE_PER_ORG);
+
+    return rows.flatMap((row) =>
+      row.externalBillId ? [{ orderId: row.orderId, externalBillId: row.externalBillId }] : []
+    );
+  });
+}
+
 /**
  * Retry every failed Xero push across every connected org. Idempotency
  * is guaranteed by the push functions themselves: they reconcile against
@@ -180,6 +227,7 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
         stillFailed: 0,
         skipped: 0,
       },
+      purchaseBills: { candidates: 0, reset: 0, active: 0, failedChecks: 0 },
       errors: [],
     };
 
@@ -268,6 +316,46 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
       }
     }
 
+    let purchaseBillIds: Array<{ orderId: string; externalBillId: string }> = [];
+    try {
+      purchaseBillIds = await listPushedPurchaseBills(orgId);
+    } catch (error) {
+      orgResult.errors.push({
+        entity: "purchase_bill",
+        id: "*",
+        message: `Failed to list candidates: ${(error as Error).message}`,
+      });
+    }
+    orgResult.purchaseBills.candidates = purchaseBillIds.length;
+
+    if (purchaseBillIds.length > 0) {
+      const { reconcileXeroPurchaseBillExternalState } = await import(
+        "./push-purchase-bill"
+      );
+
+      for (const { orderId, externalBillId } of purchaseBillIds) {
+        try {
+          const result = await reconcileXeroPurchaseBillExternalState(
+            orgId,
+            orderId,
+            externalBillId
+          );
+          if (result.reset) {
+            orgResult.purchaseBills.reset += 1;
+          } else {
+            orgResult.purchaseBills.active += 1;
+          }
+        } catch (error) {
+          orgResult.purchaseBills.failedChecks += 1;
+          orgResult.errors.push({
+            entity: "purchase_bill",
+            id: orderId,
+            message: (error as Error).message ?? "unknown",
+          });
+        }
+      }
+    }
+
     await tryRecordAccountingAuditEvent({
       organizationId: orgId,
       actor: { type: "process", processName: "xero_retry_cron" },
@@ -278,6 +366,7 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
         salesOrders: orgResult.salesOrders,
         salesShipments: orgResult.salesShipments,
         purchaseOrders: orgResult.purchaseOrders,
+        purchaseBills: orgResult.purchaseBills,
         errorCount: orgResult.errors.length,
       },
     });

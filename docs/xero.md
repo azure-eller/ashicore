@@ -33,7 +33,9 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   snapshot, uses purchase-unit line economics, and omits additional PO costs in
   v1 after explicit user confirmation. Retry/adoption checks existing ACCPAY
   bills by supplier invoice number, but only links a match when Xero contact,
-  reference, and subtotal match the ERP purchase order.
+  reference, and subtotal match the ERP purchase order. The Xero retry cron
+  also checks pushed purchase bills and resets local bill status to Not billed
+  when the external Xero bill has been deleted, voided, or is no longer found.
 - **PO push retired** — ERP purchase orders are the purchasing source of truth.
   The UI no longer exports ERP purchase orders to Xero or emails Xero-rendered
   PO PDFs. Legacy push routes remain only for old history/retry compatibility
@@ -72,7 +74,9 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   fields, not the long-term model.
 - **Retry cron** — `lib/xero/retry-failed-pushes.ts`, surfaced at
   `GET /api/internal/xero-retry`. Per-org cap of 25 candidates per run,
-  per-row cap of 5 attempts. Creates only — never email.
+  per-row cap of 5 attempts. Creates only — never email. It also reconciles
+  pushed Xero purchase bills so deleted/voided external bills revert to Not
+  billed locally.
 
 ## Token encryption keys
 

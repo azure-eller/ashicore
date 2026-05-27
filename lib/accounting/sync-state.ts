@@ -180,6 +180,40 @@ export async function persistAccountingDocumentPushFailure(
     });
 }
 
+export async function resetAccountingDocumentPushState(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    provider: string;
+    documentType: string;
+    documentId: string;
+  }
+) {
+  await tx
+    .update(accountingDocumentSyncs)
+    .set({
+      externalDocumentId: null,
+      externalDocumentNumber: null,
+      pushStatus: null,
+      pushError: null,
+      pushedAt: null,
+      pushPayloadHash: null,
+      pushPayloadSnapshot: null,
+      providerDocumentType: null,
+      idempotencyKey: null,
+      retryCount: 0,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(accountingDocumentSyncs.organizationId, params.organizationId),
+        eq(accountingDocumentSyncs.provider, params.provider),
+        eq(accountingDocumentSyncs.documentType, params.documentType),
+        eq(accountingDocumentSyncs.documentId, params.documentId)
+      )
+    );
+}
+
 export async function persistAccountingDocumentEmailOutcome(
   tx: Tx,
   params: {
