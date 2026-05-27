@@ -140,25 +140,47 @@ function clampPercent(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
 
+function getOutputProgress(order: ManufacturingOrderListRow) {
+  const planned = Number(order.plannedQuantity);
+  const actual = Number(order.actualQuantity ?? "0");
+  if (!Number.isFinite(planned) || planned <= 0 || !Number.isFinite(actual) || actual <= 0) {
+    return null;
+  }
+
+  return {
+    percent: clampPercent((actual / planned) * 100),
+    label: `${formatQuantity(order.actualQuantity ?? "0")}/${formatQuantity(order.plannedQuantity)} ${order.unitName} produced`,
+  };
+}
+
 function getOrderProgress(order: ManufacturingOrderListRow) {
   if (order.status === "done") {
     return { percent: 100, label: "Complete" };
   }
 
+  const outputProgress = getOutputProgress(order);
+
   if (order.manufacturingMode === "batch") {
     const totalBatchCount = order.numberOfBatches ?? 0;
-    const percent =
+    const batchPercent =
       totalBatchCount > 0
         ? (order.completedBatchCount / totalBatchCount) * 100
         : order.pickProgressPercent;
+    const outputPercent = outputProgress?.percent ?? 0;
+    const useOutputProgress = outputProgress != null && outputPercent > batchPercent;
 
     return {
-      percent: clampPercent(percent),
-      label:
-        totalBatchCount > 0
+      percent: clampPercent(useOutputProgress ? outputPercent : batchPercent),
+      label: useOutputProgress
+        ? outputProgress.label
+        : totalBatchCount > 0
           ? `${order.completedBatchCount}/${totalBatchCount} batches`
           : "Progress",
     };
+  }
+
+  if (outputProgress) {
+    return outputProgress;
   }
 
   if (order.pickProgressStatus === "picked") {
@@ -178,6 +200,14 @@ function ProductionProgressBar({ order }: { order: ManufacturingOrderListRow }) 
   const progress = getOrderProgress(order);
   const batchCount =
     order.manufacturingMode === "batch" ? order.numberOfBatches ?? 0 : 0;
+  const actualQuantity = Number(order.actualQuantity ?? "0");
+  const showBatchSegments =
+    batchCount > 1 &&
+    (!Number.isFinite(actualQuantity) ||
+      actualQuantity <= 0 ||
+      progress.percent <= clampPercent(
+        (order.completedBatchCount / batchCount) * 100
+      ));
 
   return (
     <span
@@ -185,7 +215,7 @@ function ProductionProgressBar({ order }: { order: ManufacturingOrderListRow }) 
       aria-label={progress.label}
       title={progress.label}
     >
-      {batchCount > 1 ? (
+      {showBatchSegments ? (
         <span
           className="grid h-(--space-2) gap-px"
           style={{
@@ -230,6 +260,7 @@ function getProductionState(order: ManufacturingOrderListRow): FulfillmentDispla
   if (order.status === "done") {
     productionState = "done";
   } else if (
+    Number(order.actualQuantity ?? 0) > 0 ||
     order.startedAt != null ||
     order.pickProgressStatus === "in_progress" ||
     order.pickProgressStatus === "picked" ||
@@ -714,6 +745,7 @@ export function OrdersTable({
         enableManagedRowDrag={reorderEnabled}
         suppressMoveWhenRowDragging
         resetRowDataOnUpdate
+        relaxResizableMaxWidth
         persistedGridState={persistedGridState}
         onPersistedGridStateChange={(grid) => {
           setOrdersPreference((current) => ({

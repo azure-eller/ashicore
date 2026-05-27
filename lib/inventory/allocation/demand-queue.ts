@@ -566,9 +566,30 @@ export async function getDemandQueueCoverageForItemInTx(
       sourceId: row.sourceId,
       quantity: toQuantity(row.quantity),
     }));
+  const linkedManufacturingPins: DemandQueuePin[] = supply.flatMap((chunk) =>
+    chunk.sourceType === "manufacturing_order" &&
+    chunk.sourceId &&
+    chunk.linkedDemand &&
+    demandKeys.has(demandQueueCoverageKey(chunk.linkedDemand))
+      ? [
+          {
+            demandType: chunk.linkedDemand.demandType,
+            demandId: chunk.linkedDemand.demandId,
+            sourceType: "manufacturing_order" as const,
+            sourceId: chunk.sourceId,
+            quantity: chunk.quantity,
+          },
+        ]
+      : []
+  );
 
   const today = await getOrganizationTodayInTx(tx, params.organizationId);
-  const coverage = computeDemandQueueCoverage({ supply, demands, pins, today });
+  const coverage = computeDemandQueueCoverage({
+    supply,
+    demands,
+    pins: [...pins, ...linkedManufacturingPins],
+    today,
+  });
 
   const onHandQty = supply
     .filter((chunk) => chunk.kind === "on_hand")

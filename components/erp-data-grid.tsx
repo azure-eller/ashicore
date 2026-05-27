@@ -23,8 +23,6 @@ import {
   type GridStateKey,
   type GridReadyEvent,
   type GetRowIdParams,
-  type HeaderClass,
-  type HeaderClassParams,
   type IRowNode,
   type RowDragEndEvent,
   type RowClassRules,
@@ -118,6 +116,7 @@ export type ERPDataGridProps<TData extends { id: string }> = {
   onRowDragEnd?: (event: RowDragEndEvent<TData>) => void;
   onSortChange?: (hasActiveSort: boolean) => void;
   resetRowDataOnUpdate?: boolean;
+  relaxResizableMaxWidth?: boolean;
   columnHoverHighlight?: boolean;
   rowClassRules?: RowClassRules<TData>;
   suppressColumnVirtualisation?: boolean;
@@ -231,19 +230,23 @@ function getGridVerticalScrollViewport(root: HTMLDivElement | null) {
   );
 }
 
-function resolveHeaderClasses<TData>(
-  headerClass: HeaderClass<TData> | undefined,
-  params: HeaderClassParams<TData>
-) {
-  const classes =
-    typeof headerClass === "function" ? headerClass(params) : headerClass;
+function removeResizableMaxWidth<TData>(
+  column: ColDef<TData> | ColGroupDef<TData>
+): ColDef<TData> | ColGroupDef<TData> {
+  if ("children" in column) {
+    return {
+      ...column,
+      children: column.children.map(removeResizableMaxWidth),
+    };
+  }
 
-  return Array.isArray(classes) ? classes : classes ? [classes] : [];
-}
+  if (column.resizable === false || column.maxWidth == null) {
+    return column;
+  }
 
-function isHeaderMovable<TData>(params: HeaderClassParams<TData>) {
-  const { colDef } = params;
-  return !("suppressMovable" in colDef && colDef.suppressMovable === true);
+  const nextColumn = { ...column };
+  delete nextColumn.maxWidth;
+  return nextColumn;
 }
 
 export function ERPDataGrid<TData extends { id: string }>({
@@ -274,6 +277,7 @@ export function ERPDataGrid<TData extends { id: string }>({
   onRowDragEnd,
   onSortChange,
   resetRowDataOnUpdate = false,
+  relaxResizableMaxWidth = false,
   columnHoverHighlight = false,
   rowClassRules,
   suppressColumnVirtualisation = false,
@@ -307,12 +311,12 @@ export function ERPDataGrid<TData extends { id: string }>({
       sortable: true,
       suppressHeaderMenuButton: true,
       ...defaultColDefOverrides,
-      headerClass: (params) => [
-        ...resolveHeaderClasses(defaultColDefOverrides?.headerClass, params),
-        ...(isHeaderMovable(params) ? ["erp-grid-movable-header"] : []),
-      ],
     }),
     [defaultColDefOverrides]
+  );
+  const resizableColumns = useMemo(
+    () => (relaxResizableMaxWidth ? columns.map(removeResizableMaxWidth) : columns),
+    [columns, relaxResizableMaxWidth]
   );
   const rowSelection = useMemo(
     () =>
@@ -429,7 +433,7 @@ export function ERPDataGrid<TData extends { id: string }>({
     const scrollTop = lastVerticalScrollTopRef.current;
     if (!api || api.isDestroyed() || scrollTop <= 0) return;
 
-    const frame = window.requestAnimationFrame(() => {
+    const restoreScroll = () => {
       if (api.isDestroyed()) return;
 
       const viewport = getGridVerticalScrollViewport(gridRootRef.current);
@@ -441,10 +445,14 @@ export function ERPDataGrid<TData extends { id: string }>({
         viewport.scrollTop = nextScrollTop;
         lastVerticalScrollTopRef.current = nextScrollTop;
       }
-    });
+    };
 
-    return () => window.cancelAnimationFrame(frame);
-  }, [resetRowDataOnUpdate, rows]);
+    const frame = window.requestAnimationFrame(restoreScroll);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [resetRowDataOnUpdate, rows, pinnedTopRows, pinnedBottomRows]);
 
   const getId = (row: TData) => getResolvedRowId(row, getRowId);
 
@@ -574,7 +582,7 @@ export function ERPDataGrid<TData extends { id: string }>({
       >
         <AgGridReact<TData>
           rowData={rows}
-          columnDefs={columns}
+          columnDefs={resizableColumns}
           pinnedTopRowData={pinnedTopRows}
           pinnedBottomRowData={pinnedBottomRows}
           initialState={initialState}

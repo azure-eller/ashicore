@@ -3340,6 +3340,14 @@ function aggregateBatchIngredients(
   return [...ingredientMap.values()].sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
+function defaultManufacturingPlannedDate(shipDate: string | null) {
+  if (!shipDate) return null;
+  const date = new Date(`${shipDate}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
 function getBatchPickProgressStatus(
   batches: Array<Pick<ExecutionBatchRow, "status">>
 ): ManufacturingPickProgressStatus {
@@ -3375,7 +3383,7 @@ function getIngredientReadiness(params: {
     if (params.pickProgressStatus === "picked") return "picked";
   }
 
-  if (params.ingredients.length === 0) return "not_available";
+  if (params.ingredients.length === 0) return "in_stock";
 
   let hasExpectedCoverage = false;
 
@@ -4664,7 +4672,8 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
     );
   }
 
-  const plannedDate = payload.plannedDate ?? order.shipDate ?? null;
+  const plannedDate =
+    payload.plannedDate ?? defaultManufacturingPlannedDate(order.shipDate);
   const selectedLineIds = new Set(payload.salesOrderLineIds);
   const quantityByLineId = new Map(
     payload.lineQuantities?.map((lineQuantity) => [

@@ -13,7 +13,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { StatusBlock, type StatusBlockTone } from "@/components/ui/status-block";
-import { CreateManufacturingOrdersDialog } from "./create-manufacturing-orders-dialog";
+import {
+  CreateManufacturingOrdersDialog,
+  defaultManufacturingPlannedDate,
+} from "./create-manufacturing-orders-dialog";
 import type { SalesOrderListRow } from "./types";
 
 type ProductionActionCellProps = {
@@ -201,7 +204,7 @@ export function ProductionActionCell({ order, state }: ProductionActionCellProps
         onOpenChange={setMakeToOrderOpen}
         showTrigger={false}
         salesOrderLabel={`${order.orderNumber} - ${order.customerName}`}
-        initialPlannedDate={order.shipDate ?? undefined}
+        initialPlannedDate={defaultManufacturingPlannedDate(order.shipDate)}
         openManufacturingOrders={order.openManufacturingOrders.map((mo) => ({
           id: mo.id,
           orderNumber: mo.orderNumber,

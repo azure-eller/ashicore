@@ -67,6 +67,14 @@ function normalizeDecimal(value: number) {
   return value.toFixed(4).replace(/\.?0+$/, "");
 }
 
+export function defaultManufacturingPlannedDate(shipDate: string | null | undefined) {
+  if (!shipDate) return undefined;
+  const date = new Date(`${shipDate}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return undefined;
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
 function isBatchLine(line: ManufacturingSalesOrderPreview["lines"][number]) {
   return line.manufacturingMode === "batch" && Number(line.expectedBatchYield) > 0;
 }
@@ -179,7 +187,9 @@ export function CreateManufacturingOrdersDialog({
         ? formatOpenManufacturingOrders(order.linkedManufacturingOrders)
         : [];
   const effectivePlannedDate =
-    plannedDate ?? initialPlannedDate ?? order?.shipDate ?? "";
+    plannedDate ??
+    initialPlannedDate ??
+    defaultManufacturingPlannedDate(order?.shipDate);
   const creatableLines = useMemo(
     () => previewQuery.data?.lines.filter((line) => line.status === "will_create") ?? [],
     [previewQuery.data]

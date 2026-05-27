@@ -63,8 +63,9 @@ export type ManufacturingSalesOrderPreviewLine = {
     | "non_product"
     | "inactive_product"
     | "no_active_bom"
-    | "stock_on_hand"
     | "existing_active_mo"
+    | "no_remaining_demand"
+    | "order_not_open"
     | null;
   skipMessage: string | null;
 };
@@ -93,8 +94,9 @@ export type ManufacturingOrdersFromSalesOrderResult = {
       | "non_product"
       | "inactive_product"
       | "no_active_bom"
-      | "stock_on_hand"
-      | "existing_active_mo";
+      | "existing_active_mo"
+      | "no_remaining_demand"
+      | "order_not_open";
   }>;
 };
 

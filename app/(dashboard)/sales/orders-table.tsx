@@ -945,6 +945,7 @@ function OrdersTableContent({
           enableManagedRowDrag={reorderEnabled}
           suppressMoveWhenRowDragging
           resetRowDataOnUpdate
+          relaxResizableMaxWidth
           onGridReady={(event) => {
             gridApiRef.current = event.api;
             if (displayedOrders.length > 0 && !hasAutoSizedColumnsRef.current) {

@@ -4,6 +4,8 @@ import {
   inventoryDemandSummary,
   inventoryItemBalances,
   manufacturingOrders,
+  salesShipmentLines,
+  salesShipments,
   salesOrderLines,
   salesOrders,
   stockAllocations,
@@ -13,6 +15,7 @@ import {
   createItem,
   createManufacturingOrder,
   createSalesOrder,
+  getOrgId,
   getUnitId,
   testFetch,
 } from "../../helpers/api";
@@ -203,7 +206,12 @@ test("sales availability treats pinned manufacturing output as expected supply",
   expect(order.status).toBe(201);
 
   const [line] = await db
-    .select({ id: salesOrderLines.id })
+    .select({
+      id: salesOrderLines.id,
+      itemName: salesOrderLines.itemName,
+      itemSku: salesOrderLines.itemSku,
+      unitName: salesOrderLines.unitName,
+    })
     .from(salesOrderLines)
     .where(eq(salesOrderLines.salesOrderId, order.body.id));
   expect(line).toBeTruthy();
@@ -379,4 +387,289 @@ test("linked manufacturing output does not cover unrelated sales demand", async 
   );
   expect(unrelatedReadModel?.fulfillmentSummary?.shortQty).toBe("8");
   expect(unrelatedReadModel?.fulfillmentSummary?.productionState).toBe("make");
+});
+
+test("linked make-to-order output pins sales demand ahead of queue stock", async ({
+  db,
+}) => {
+  const ts = Date.now();
+  const unitId = getUnitId();
+
+  const component = await createItem({
+    itemType: "material",
+    name: `Fast MTO Pin Component ${ts}`,
+    unitDefinitionId: unitId,
+    sku: `FAST-MTO-PIN-COMP-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: null,
+    stock: "1000",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(component.status).toBe(201);
+
+  const product = await createItem({
+    itemType: "product",
+    name: `Fast MTO Pin Product ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-MTO-PIN-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: null,
+    defaultSellingPrice: "10.00",
+    stock: "8",
+    safetyStock: "0",
+    bom: [{ componentId: component.body.id, quantity: "1" }],
+  });
+  expect(product.status).toBe(201);
+  const productId = product.body.id as string;
+
+  const customer = await createCustomer({ name: `Fast MTO Pin Customer ${ts}` });
+  expect(customer.status).toBe(201);
+
+  const linkedOrder = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `MTO-PIN-A-${ts}`,
+    orderDate: "2026-05-10",
+    shipDate: "2026-05-20",
+    lines: [{ itemId: productId, quantity: "8", unitPrice: "10.00" }],
+  });
+  expect(linkedOrder.status).toBe(201);
+
+  const queueOrder = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `MTO-PIN-B-${ts}`,
+    orderDate: "2026-05-11",
+    shipDate: "2026-05-21",
+    lines: [{ itemId: productId, quantity: "8", unitPrice: "10.00" }],
+  });
+  expect(queueOrder.status).toBe(201);
+
+  const [linkedLine] = await db
+    .select({ id: salesOrderLines.id })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.salesOrderId, linkedOrder.body.id));
+  expect(linkedLine).toBeTruthy();
+
+  const linkedMo = await createManufacturingOrder({
+    productId,
+    salesOrderId: linkedOrder.body.id,
+    salesOrderLineId: linkedLine.id,
+    plannedQuantity: "8",
+    plannedDate: "2026-05-19",
+    ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+    confirmShortage: false,
+  });
+  expect(linkedMo.status).toBe(201);
+
+  const salesOrdersResponse = await testFetch("/api/sales-orders");
+  expect(salesOrdersResponse.status).toBe(200);
+  const salesOrderRows = (await salesOrdersResponse.json()) as Array<{
+    id: string;
+    fulfillmentSummary?: {
+      salesItemsState?: string;
+      salesItemsExpectedDate?: string | null;
+    };
+    lines?: Array<{
+      demandQueuePinnedQty?: string;
+      demandQueueQueueCoveredQty?: string;
+      demandQueueInStockQty?: string;
+      demandQueueExpectedQty?: string;
+      demandQueueSegments?: Array<{ kind: string; qty: string }>;
+    }>;
+  }>;
+  const linkedReadModel = salesOrderRows.find(
+    (row) => row.id === linkedOrder.body.id
+  );
+  const queueReadModel = salesOrderRows.find((row) => row.id === queueOrder.body.id);
+  const linkedQueueLine = linkedReadModel?.lines?.[0];
+  const queueLine = queueReadModel?.lines?.[0];
+
+  expect(linkedReadModel?.fulfillmentSummary?.salesItemsState).toBe("expected");
+  expect(linkedReadModel?.fulfillmentSummary?.salesItemsExpectedDate).toBe(
+    "2026-05-19"
+  );
+  expect(Number(linkedQueueLine?.demandQueuePinnedQty ?? 0)).toBe(8);
+  expect(Number(linkedQueueLine?.demandQueueQueueCoveredQty ?? 0)).toBe(0);
+  expect(Number(linkedQueueLine?.demandQueueInStockQty ?? 0)).toBe(0);
+  expect(Number(linkedQueueLine?.demandQueueExpectedQty ?? 0)).toBe(8);
+  expect(
+    linkedQueueLine?.demandQueueSegments?.some(
+      (segment) => segment.kind === "pinned_expected"
+    )
+  ).toBe(true);
+
+  expect(queueReadModel?.fulfillmentSummary?.salesItemsState).toBe("available");
+  expect(Number(queueLine?.demandQueueQueueCoveredQty ?? 0)).toBe(8);
+  expect(Number(queueLine?.demandQueueInStockQty ?? 0)).toBe(8);
+});
+
+test("make-to-order preview ignores queue stock and subtracts linked output only", async ({
+  db,
+}) => {
+  const ts = Date.now();
+  const unitId = getUnitId();
+
+  const component = await createItem({
+    itemType: "material",
+    name: `Fast MTO Qty Component ${ts}`,
+    unitDefinitionId: unitId,
+    sku: `FAST-MTO-QTY-COMP-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: null,
+    stock: "1000",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(component.status).toBe(201);
+
+  const product = await createItem({
+    itemType: "product",
+    name: `Fast MTO Qty Product ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-MTO-QTY-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: null,
+    defaultSellingPrice: "10.00",
+    stock: "8",
+    safetyStock: "0",
+    bom: [{ componentId: component.body.id, quantity: "1" }],
+  });
+  expect(product.status).toBe(201);
+  const productId = product.body.id as string;
+
+  const customer = await createCustomer({ name: `Fast MTO Qty Customer ${ts}` });
+  expect(customer.status).toBe(201);
+
+  const order = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `MTO-QTY-${ts}`,
+    orderDate: "2026-05-10",
+    shipDate: "2026-05-20",
+    lines: [{ itemId: productId, quantity: "8", unitPrice: "10.00" }],
+  });
+  expect(order.status).toBe(201);
+
+  const previewBeforeMoResponse = await testFetch(
+    `/api/sales-orders/${order.body.id}/manufacturing-orders`
+  );
+  expect(previewBeforeMoResponse.status).toBe(200);
+  const previewBeforeMo = (await previewBeforeMoResponse.json()) as {
+    lines: Array<{ status: string; quantity: string }>;
+  };
+  expect(previewBeforeMo.lines[0]).toMatchObject({
+    status: "will_create",
+    quantity: "8",
+  });
+
+  const [line] = await db
+    .select({
+      id: salesOrderLines.id,
+      itemName: salesOrderLines.itemName,
+      itemSku: salesOrderLines.itemSku,
+      unitName: salesOrderLines.unitName,
+    })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.salesOrderId, order.body.id));
+  expect(line).toBeTruthy();
+
+  const linkedMo = await createManufacturingOrder({
+    productId,
+    salesOrderId: order.body.id,
+    salesOrderLineId: line.id,
+    plannedQuantity: "3",
+    plannedDate: "2026-05-19",
+    ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+    confirmShortage: false,
+  });
+  expect(linkedMo.status).toBe(201);
+
+  const previewAfterMoResponse = await testFetch(
+    `/api/sales-orders/${order.body.id}/manufacturing-orders`
+  );
+  expect(previewAfterMoResponse.status).toBe(200);
+  const previewAfterMo = (await previewAfterMoResponse.json()) as {
+    lines: Array<{ status: string; quantity: string }>;
+  };
+  expect(previewAfterMo.lines[0]).toMatchObject({
+    status: "will_create",
+    quantity: "5",
+  });
+
+  const orgId = getOrgId();
+  const [shipment] = await db
+    .insert(salesShipments)
+    .values({
+      organizationId: orgId,
+      salesOrderId: order.body.id,
+      shipmentNumber: `MTO-QTY-SHIP-${ts}`,
+      sequence: 1,
+      status: "shipped",
+      fulfillmentType: "delivery",
+      scheduledDate: "2026-05-12",
+      deliveryDate: "2026-05-12",
+      shippedAt: new Date("2026-05-12T12:00:00.000Z"),
+      orderNumber: `MTO-QTY-${ts}`,
+      customerName: `Fast MTO Qty Customer ${ts}`,
+    })
+    .returning({ id: salesShipments.id });
+  await db.insert(salesShipmentLines).values({
+    salesShipmentId: shipment.id,
+    salesOrderLineId: line.id,
+    itemId: productId,
+    itemName: line.itemName,
+    itemSku: line.itemSku,
+    unitName: line.unitName,
+    quantity: "2",
+    sortOrder: 0,
+  });
+
+  const previewAfterShipmentResponse = await testFetch(
+    `/api/sales-orders/${order.body.id}/manufacturing-orders`
+  );
+  expect(previewAfterShipmentResponse.status).toBe(200);
+  const previewAfterShipment = (await previewAfterShipmentResponse.json()) as {
+    lines: Array<{ status: string; quantity: string }>;
+  };
+  expect(previewAfterShipment.lines[0]).toMatchObject({
+    status: "will_create",
+    quantity: "5",
+  });
+
+  const cancelledOrder = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `MTO-CANCELLED-${ts}`,
+    orderDate: "2026-05-10",
+    shipDate: "2026-05-20",
+    lines: [{ itemId: productId, quantity: "8", unitPrice: "10.00" }],
+  });
+  expect(cancelledOrder.status).toBe(201);
+  const [cancelledLine] = await db
+    .select({ id: salesOrderLines.id })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.salesOrderId, cancelledOrder.body.id));
+  expect(cancelledLine).toBeTruthy();
+  await db
+    .update(salesOrderLines)
+    .set({ cancelledQuantity: "8" })
+    .where(eq(salesOrderLines.id, cancelledLine.id));
+
+  const cancelledPreviewResponse = await testFetch(
+    `/api/sales-orders/${cancelledOrder.body.id}/manufacturing-orders`
+  );
+  expect(cancelledPreviewResponse.status).toBe(200);
+  const cancelledPreview = (await cancelledPreviewResponse.json()) as {
+    lines: Array<{ status: string; skipReason: string | null }>;
+  };
+  expect(cancelledPreview.lines[0]).toMatchObject({
+    status: "skipped",
+    skipReason: "no_remaining_demand",
+  });
 });

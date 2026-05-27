@@ -25,7 +25,10 @@ import { OrderDetailsGrid } from "./order-details-grid";
 import { LineItemsTable } from "./line-items-table";
 import { ShippingFeeSection } from "./shipping-fee-section";
 import { TotalsStrip } from "./totals-strip";
-import { CreateManufacturingOrdersDialog } from "../../create-manufacturing-orders-dialog";
+import {
+  CreateManufacturingOrdersDialog,
+  defaultManufacturingPlannedDate,
+} from "../../create-manufacturing-orders-dialog";
 import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { DetailHeaderTitle } from "@/components/card-page/detail-header-title";
@@ -316,7 +319,7 @@ export function OrderCard({
             onOpenChange={setMakeToOrderOpen}
             showTrigger={false}
             salesOrderLabel={`${order.orderNumber} - ${order.customerName}`}
-            initialPlannedDate={order.shipDate ?? undefined}
+            initialPlannedDate={defaultManufacturingPlannedDate(order.shipDate)}
             openManufacturingOrders={order.linkedManufacturingOrders
               .filter((linkedOrder) => linkedOrder.status === "open")
               .map((linkedOrder) => ({
