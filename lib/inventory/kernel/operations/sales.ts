@@ -18,6 +18,7 @@ import {
 } from "@/lib/inventory/kernel/operations/common";
 import {
   consumeStockFifoInTx,
+  getCurrentAvailableLotBalanceQtyAtLocationInTx,
   getCurrentAvailableQtyAtLocationInTx,
 } from "@/lib/inventory/kernel/operations/stock-core";
 import {
@@ -628,18 +629,21 @@ export async function consumeForShipmentInTx(
   const availableByItem = new Map<string, number>();
 
   for (const line of params.lines) {
-    if (!availableByItem.has(line.itemId)) {
-      availableByItem.set(
-        line.itemId,
-        await getCurrentAvailableQtyAtLocationInTx(tx, {
-          organizationId: params.organizationId,
-          locationId: location.id,
-          itemId: line.itemId,
-        })
-      );
-    }
-
-    const unreservedAvailable = availableByItem.get(line.itemId) ?? 0;
+    const lineIsManaged = managedLineIds.has(line.salesOrderLineId);
+    const currentAvailable = availableByItem.get(line.itemId);
+    const unreservedAvailable =
+      currentAvailable ??
+      (lineIsManaged
+        ? await getCurrentAvailableQtyAtLocationInTx(tx, {
+            organizationId: params.organizationId,
+            locationId: location.id,
+            itemId: line.itemId,
+          })
+        : await getCurrentAvailableLotBalanceQtyAtLocationInTx(tx, {
+            organizationId: params.organizationId,
+            locationId: location.id,
+            itemId: line.itemId,
+          }));
     const ownReservation = reservedByLineId.get(line.salesOrderLineId) ?? 0;
     const { lineAllocations } = getLineAllocationContext(line);
     const ownInventoryLotAllocation = roundQuantity(
@@ -647,9 +651,9 @@ export async function consumeForShipmentInTx(
         .filter((allocation) => allocation.sourceType === "inventory_lot")
         .reduce((sum, allocation) => sum + parseFloat(allocation.quantity), 0)
     );
-    const selfAvailable = roundQuantity(
-      unreservedAvailable + ownReservation + ownInventoryLotAllocation
-    );
+    const selfAvailable = lineIsManaged
+      ? roundQuantity(unreservedAvailable + ownReservation + ownInventoryLotAllocation)
+      : roundQuantity(unreservedAvailable);
 
     if (selfAvailable < line.quantity && !params.allowNegativeStock) {
       throw new InsufficientStockError({
@@ -663,7 +667,9 @@ export async function consumeForShipmentInTx(
       line.itemId,
       roundQuantity(
         unreservedAvailable -
-          Math.max(0, line.quantity - ownReservation - ownInventoryLotAllocation)
+          (lineIsManaged
+            ? Math.max(0, line.quantity - ownReservation - ownInventoryLotAllocation)
+            : line.quantity)
       )
     );
   }
@@ -733,14 +739,16 @@ export async function consumeForShipmentInTx(
         });
       }
 
-      const unavailableByLotId = await getUnavailableLotAllocationQtyByLotIdInTx(tx, {
-        organizationId: params.organizationId,
-        itemId: line.itemId,
-        excludeDemand: {
-          demandType: activeDemandRef.demandType,
-          demandId: activeDemandRef.demandId,
-        },
-      });
+      const unavailableByLotId = params.allowNegativeStock
+        ? undefined
+        : await getUnavailableLotAllocationQtyByLotIdInTx(tx, {
+            organizationId: params.organizationId,
+            itemId: line.itemId,
+            excludeDemand: {
+              demandType: activeDemandRef.demandType,
+              demandId: activeDemandRef.demandId,
+            },
+          });
       const consumed = await consumeStockFifoInTx(tx, {
         organizationId: params.organizationId,
         locationId: location.id,

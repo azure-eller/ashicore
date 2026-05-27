@@ -21,7 +21,6 @@ import {
   accountingDocumentSyncs,
   customers,
   inventoryEvents,
-  inventoryReservationsSummary,
   integrationExternalRecords,
   itemFamilies,
   itemVariantValues,
@@ -7741,48 +7740,56 @@ async function buildStockWarningPayloadInTx(
 ): Promise<NegativeStockWarningPayload> {
   const salesReservationRows = await tx
     .select({
-      referenceId: inventoryReservationsSummary.referenceId,
-      quantity: trimScale(inventoryReservationsSummary.quantity).as("quantity"),
+      referenceId: stockAllocations.demandId,
+      quantity: trimScale(sql`SUM(${stockAllocations.quantity})`).as("quantity"),
       orderId: salesOrders.id,
       orderNumber: salesOrders.orderNumber,
       customerName: salesOrders.customerName,
     })
-    .from(inventoryReservationsSummary)
+    .from(stockAllocations)
     .innerJoin(
       salesOrderLines,
-      eq(salesOrderLines.id, inventoryReservationsSummary.referenceId)
+      eq(salesOrderLines.id, stockAllocations.demandId)
     )
     .innerJoin(salesOrders, eq(salesOrders.id, salesOrderLines.salesOrderId))
     .where(
       and(
-        eq(inventoryReservationsSummary.organizationId, params.organizationId),
-        eq(inventoryReservationsSummary.itemId, params.itemId),
-        eq(inventoryReservationsSummary.referenceType, "sales_order_line"),
+        eq(stockAllocations.organizationId, params.organizationId),
+        eq(stockAllocations.itemId, params.itemId),
+        eq(stockAllocations.demandType, "sales_order_line"),
+        eq(stockAllocations.sourceType, "inventory_lot"),
+        eq(stockAllocations.status, "active"),
         eq(salesOrders.status, "open"),
         isNull(salesOrders.deletedAt),
         params.excludeSalesOrderLineIds.length > 0
           ? notInArray(
-              inventoryReservationsSummary.referenceId,
+              stockAllocations.demandId,
               params.excludeSalesOrderLineIds
             )
           : undefined,
-        sql`${inventoryReservationsSummary.quantity} > 0`
+        sql`${stockAllocations.quantity} > 0`
       )
+    )
+    .groupBy(
+      stockAllocations.demandId,
+      salesOrders.id,
+      salesOrders.orderNumber,
+      salesOrders.customerName
     );
 
   const manufacturingReservationRows = await tx
     .select({
-      referenceId: inventoryReservationsSummary.referenceId,
-      quantity: trimScale(inventoryReservationsSummary.quantity).as("quantity"),
+      referenceId: stockAllocations.demandId,
+      quantity: trimScale(sql`SUM(${stockAllocations.quantity})`).as("quantity"),
       orderId: manufacturingOrders.id,
       orderNumber: manufacturingOrders.orderNumber,
       productId: manufacturingOrders.productId,
       productName: manufacturingOrders.productName,
     })
-    .from(inventoryReservationsSummary)
+    .from(stockAllocations)
     .innerJoin(
       manufacturingOrderIngredients,
-      eq(manufacturingOrderIngredients.id, inventoryReservationsSummary.referenceId)
+      eq(manufacturingOrderIngredients.id, stockAllocations.demandId)
     )
     .innerJoin(
       manufacturingOrders,
@@ -7790,16 +7797,22 @@ async function buildStockWarningPayloadInTx(
     )
     .where(
       and(
-        eq(inventoryReservationsSummary.organizationId, params.organizationId),
-        eq(inventoryReservationsSummary.itemId, params.itemId),
-        eq(
-          inventoryReservationsSummary.referenceType,
-          "manufacturing_order_ingredient"
-        ),
+        eq(stockAllocations.organizationId, params.organizationId),
+        eq(stockAllocations.itemId, params.itemId),
+        eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
+        eq(stockAllocations.sourceType, "inventory_lot"),
+        eq(stockAllocations.status, "active"),
         eq(manufacturingOrders.status, "open"),
         isNull(manufacturingOrders.deletedAt),
-        sql`${inventoryReservationsSummary.quantity} > 0`
+        sql`${stockAllocations.quantity} > 0`
       )
+    )
+    .groupBy(
+      stockAllocations.demandId,
+      manufacturingOrders.id,
+      manufacturingOrders.orderNumber,
+      manufacturingOrders.productId,
+      manufacturingOrders.productName
     );
 
   const manufacturingProductNamesById = await getItemDisplayNamesByIdInTx(

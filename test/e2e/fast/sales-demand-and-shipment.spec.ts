@@ -1,22 +1,29 @@
 import { and, eq } from "drizzle-orm";
 import { test, expect } from "../fixtures";
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import {
   inventoryDemandSummary,
   inventoryEvents,
   inventoryItemBalances,
+  inventoryReservationsSummary,
+  lots,
   salesOrderLines,
   salesOrders,
+  stockAllocations,
 } from "../../../lib/db/schema";
 import {
   createCustomer,
   createItem,
   createSalesOrder,
   fulfillSalesOrder,
+  getOrgId,
   getUnitId,
+  testFetch,
 } from "../../helpers/api";
 
 test.describe("sales demand and shipment heartbeat", () => {
   const ts = Date.now();
+  const orgId = getOrgId();
   const unitId = getUnitId();
 
   async function createStockedProduct(label: string, stock: string) {
@@ -148,5 +155,111 @@ test.describe("sales demand and shipment heartbeat", () => {
       .from(salesOrders)
       .where(eq(salesOrders.id, order.body.id));
     expect(savedOrder.status).toBe("done");
+  });
+
+  test("shipping can consume stock reserved by demand queue for another order", async ({
+    db,
+  }) => {
+    const productId = await createStockedProduct("QueueShip", "50");
+    const customer = await createCustomer({ name: `Fast Queue Ship Customer ${ts}` });
+    expect(customer.status).toBe(201);
+
+    const reservedOrder = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-05",
+      shipDate: "2026-05-10",
+      lines: [{ itemId: productId, quantity: "50", unitPrice: "15.00" }],
+    });
+    expect(reservedOrder.status).toBe(201);
+    const shippingOrder = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-05",
+      shipDate: "2026-05-06",
+      lines: [{ itemId: productId, quantity: "50", unitPrice: "15.00" }],
+    });
+    expect(shippingOrder.status).toBe(201);
+
+    const [reservedLine] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, reservedOrder.body.id));
+    const [reserved] = await db
+      .select({ quantity: inventoryReservationsSummary.quantity })
+      .from(inventoryReservationsSummary)
+      .where(eq(inventoryReservationsSummary.referenceId, reservedLine.id));
+    expect(reserved.quantity).toBe("50.0000");
+
+    const ship = await fulfillSalesOrder(shippingOrder.body.id);
+    expect(ship.status).toBe(200);
+
+    const [savedOrder] = await db
+      .select({ status: salesOrders.status })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, shippingOrder.body.id));
+    expect(savedOrder.status).toBe("done");
+  });
+
+  test("shipping warns before taking stock manually pinned to another order", async ({
+    db,
+  }) => {
+    const productId = await createStockedProduct("PinnedShip", "50");
+    const customer = await createCustomer({ name: `Fast Pinned Ship Customer ${ts}` });
+    expect(customer.status).toBe(201);
+
+    const pinnedOrder = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-07",
+      shipDate: "2026-05-10",
+      lines: [{ itemId: productId, quantity: "50", unitPrice: "15.00" }],
+    });
+    expect(pinnedOrder.status).toBe(201);
+    const shippingOrder = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-07",
+      shipDate: "2026-05-08",
+      lines: [{ itemId: productId, quantity: "50", unitPrice: "15.00" }],
+    });
+    expect(shippingOrder.status).toBe(201);
+
+    const [pinnedLine] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, pinnedOrder.body.id));
+    const [lot] = await db
+      .select({ id: lots.id })
+      .from(lots)
+      .where(eq(lots.itemId, productId));
+    expect(lot?.id).toBeTruthy();
+
+    await db.insert(stockAllocations).values({
+      organizationId: orgId,
+      demandType: "sales_order_line",
+      demandId: pinnedLine.id,
+      itemId: productId,
+      sourceType: "inventory_lot",
+      sourceId: lot.id,
+      quantity: "50.0000",
+      status: "active",
+    });
+
+    const ship = await fulfillSalesOrder(shippingOrder.body.id);
+    expect(ship.status).toBe(409);
+    expect(ship.body.negativeStock).toMatchObject({
+      itemId: productId,
+      reason: "commitment_conflict",
+      committedToOthers: 50,
+    });
+    expect(ship.body.negativeStock.commitments[0]).toMatchObject({
+      referenceType: "sales_order",
+      referenceId: pinnedOrder.body.id,
+      quantity: 50,
+    });
+
+    const confirmedShip = await testFetch(`/api/sales-orders/${shippingOrder.body.id}/ship`, {
+      method: "POST",
+      headers: Object.fromEntries(createIdempotencyHeaders("shipSalesOrder").entries()),
+      body: JSON.stringify({ confirmNegativeStock: true }),
+    });
+    expect(confirmedShip.status).toBe(200);
   });
 });

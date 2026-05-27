@@ -372,7 +372,7 @@ export async function getCurrentAvailableQtyAtLocationInTx(
   );
 }
 
-async function getCurrentAvailableLotBalanceQtyAtLocationInTx(
+export async function getCurrentAvailableLotBalanceQtyAtLocationInTx(
   tx: Tx,
   params: {
     organizationId: string;
