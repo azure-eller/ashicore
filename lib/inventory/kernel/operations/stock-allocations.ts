@@ -425,6 +425,7 @@ export async function consumeLotAllocationsForDemandInTx(
     idempotencyKey?: string | null;
     occurredAt?: Date;
     metadata?: Record<string, unknown> | null;
+    allowNegativeStock?: boolean;
   }
 ) {
   await reconcileInventoryLotAllocationsForItemsInTx(tx, {
@@ -462,8 +463,39 @@ export async function consumeLotAllocationsForDemandInTx(
     if (remaining <= 0) break;
     if (!row.sourceId) continue;
 
-    const quantity = roundQuantity(Math.min(remaining, parseFloat(row.quantity)));
-    if (quantity <= 0) continue;
+    const allocatedQuantity = roundQuantity(Math.min(remaining, parseFloat(row.quantity)));
+    if (allocatedQuantity <= 0) continue;
+
+    let quantity = allocatedQuantity;
+    if (params.allowNegativeStock) {
+      const [balance] = await tx
+        .select({ quantity: inventoryLotBalances.quantity })
+        .from(inventoryLotBalances)
+        .where(
+          and(
+            eq(inventoryLotBalances.organizationId, params.organizationId),
+            eq(inventoryLotBalances.locationId, params.locationId),
+            eq(inventoryLotBalances.itemId, params.itemId),
+            eq(inventoryLotBalances.lotId, row.sourceId),
+            eq(inventoryLotBalances.disposition, "available")
+          )
+        )
+        .for("update");
+      quantity = roundQuantity(
+        Math.min(allocatedQuantity, parseFloat(balance?.quantity ?? "0"))
+      );
+
+      if (quantity <= 0) {
+        await reduceOrCloseAllocationInTx(tx, {
+          allocationId: row.id,
+          currentQuantity: row.quantity,
+          consumedQuantity: allocatedQuantity,
+          statusWhenClosed: "consumed",
+          actorUserId: params.actorUserId ?? null,
+        });
+        continue;
+      }
+    }
 
     const consumed = await consumeSpecificLotInTx(tx, {
       organizationId: params.organizationId,
@@ -489,7 +521,7 @@ export async function consumeLotAllocationsForDemandInTx(
     await reduceOrCloseAllocationInTx(tx, {
       allocationId: row.id,
       currentQuantity: row.quantity,
-      consumedQuantity: quantity,
+      consumedQuantity: params.allowNegativeStock ? allocatedQuantity : quantity,
       statusWhenClosed: "consumed",
       actorUserId: params.actorUserId ?? null,
     });

@@ -713,6 +713,7 @@ export async function consumeForShipmentInTx(
           index === 0 && !idempotencyUsed ? params.idempotencyKey ?? null : null,
         occurredAt: params.shippedAt,
         metadata,
+        allowNegativeStock: params.allowNegativeStock ?? false,
       });
       idempotencyUsed = idempotencyUsed || consumed.eventIds.length > 0;
       remaining = consumed.remainingQuantity;

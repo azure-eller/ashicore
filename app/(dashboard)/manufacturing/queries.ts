@@ -5687,6 +5687,7 @@ export async function recordManufacturingOutput(
             actorUserId: userId,
             idempotencyKey: consumeIdempotencyKey,
             metadata: { manufacturingOrderIngredientId: ingredient.id },
+            allowNegativeStock: payload.confirmNegativeStock === true,
           });
           const unavailableByLotId = await getUnavailableLotAllocationQtyByLotIdInTx(
             tx,

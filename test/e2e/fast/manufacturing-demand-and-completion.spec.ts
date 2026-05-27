@@ -4,8 +4,11 @@ import {
   inventoryDemandSummary,
   inventoryEvents,
   inventoryItemBalances,
+  inventoryLotBalances,
   manufacturingOrderIngredients,
   manufacturingOrders,
+  lots,
+  stockAllocations,
 } from "../../../lib/db/schema";
 import {
   completeManufacturingOrder,
@@ -162,6 +165,96 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, order.body.id));
     expect(savedOrder.status).toBe("done");
+  });
+
+  test("confirmed negative pick can clear stale lot allocation", async ({ db }) => {
+    const fixture = await createBomFixture("StaleAllocation");
+    const order = await createManufacturingOrder({
+      productId: fixture.productId,
+      plannedQuantity: "1",
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "1" }],
+      confirmShortage: false,
+    });
+    expect(order.status).toBe(201);
+    expect((await releaseManufacturingOrder(order.body.id)).status).toBe(200);
+
+    const [ingredient] = await db
+      .select({
+        id: manufacturingOrderIngredients.id,
+        organizationId: manufacturingOrders.organizationId,
+      })
+      .from(manufacturingOrderIngredients)
+      .innerJoin(
+        manufacturingOrders,
+        eq(manufacturingOrders.id, manufacturingOrderIngredients.manufacturingOrderId)
+      )
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, order.body.id));
+    const [lotBalance] = await db
+      .select({ lotId: inventoryLotBalances.lotId })
+      .from(inventoryLotBalances)
+      .where(eq(inventoryLotBalances.itemId, fixture.componentId));
+    expect(lotBalance).toBeTruthy();
+    const [allocation] = await db
+      .insert(stockAllocations)
+      .values({
+        organizationId: ingredient.organizationId,
+        demandType: "manufacturing_order_ingredient",
+        demandId: ingredient.id,
+        itemId: fixture.componentId,
+        sourceType: "inventory_lot",
+        sourceId: lotBalance.lotId,
+        quantity: "1",
+        status: "active",
+      })
+      .returning({ id: stockAllocations.id, lotId: stockAllocations.sourceId });
+
+    await db
+      .update(inventoryLotBalances)
+      .set({ quantity: "0", updatedAt: new Date() })
+      .where(eq(inventoryLotBalances.lotId, allocation.lotId));
+    await db
+      .update(lots)
+      .set({ quantity: "0", updatedAt: new Date() })
+      .where(eq(lots.id, allocation.lotId));
+    await db
+      .update(inventoryItemBalances)
+      .set({ onHandQty: "0", updatedAt: new Date() })
+      .where(eq(inventoryItemBalances.itemId, fixture.componentId));
+
+    const blocked = await testFetch(
+      `/api/manufacturing-orders/${order.body.id}/ingredients/${ingredient.id}/pick`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmNegativeStock: false }),
+      }
+    );
+    expect(blocked.status).toBe(409);
+
+    const confirmed = await testFetch(
+      `/api/manufacturing-orders/${order.body.id}/ingredients/${ingredient.id}/pick`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmNegativeStock: true }),
+      }
+    );
+    expect(confirmed.status).toBe(200);
+
+    const [closedAllocation] = await db
+      .select({ status: stockAllocations.status })
+      .from(stockAllocations)
+      .where(eq(stockAllocations.id, allocation.id));
+    expect(closedAllocation.status).not.toBe("active");
+
+    const [negativeEvent] = await db
+      .select({ metadata: inventoryEvents.metadata })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, fixture.componentId),
+          eq(inventoryEvents.eventType, "manufacturing_ingredient_consumption")
+        )
+      );
+    expect(negativeEvent.metadata).toMatchObject({ negativeStock: true });
   });
 
   test("confirmed completion can consume ingredients into negative stock", async ({

@@ -398,6 +398,7 @@ export async function pickManufacturingIngredientInTx(
     actorUserId: params.actorUserId ?? null,
     idempotencyKey: params.idempotencyKey ?? null,
     metadata: { manufacturingOrderIngredientId: params.ingredientId },
+    allowNegativeStock: params.allowNegativeStock ?? false,
   });
 
   const unavailableByLotId = await getUnavailableLotAllocationQtyByLotIdInTx(tx, {
@@ -918,6 +919,7 @@ export async function reconcileIngredientActualsInTx(
       actorUserId: params.actorUserId ?? null,
       idempotencyKey: params.idempotencyKey ?? null,
       metadata: { manufacturingOrderIngredientId: params.ingredient.id },
+      allowNegativeStock: params.allowNegativeStock ?? false,
     });
     const unavailableByLotId = await getUnavailableLotAllocationQtyByLotIdInTx(tx, {
       organizationId: params.organizationId,
