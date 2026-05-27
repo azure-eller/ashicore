@@ -20,6 +20,26 @@
   align-items: center;
 }
 
+.grid :global(.ag-header-cell.erp-grid-movable-header),
+.grid :global(.ag-header-group-cell.erp-grid-movable-header) {
+  cursor: grab;
+}
+
+.grid :global(.ag-header-cell.erp-grid-movable-header .ag-header-cell-label),
+.grid :global(.ag-header-group-cell.erp-grid-movable-header .ag-header-group-cell-label) {
+  cursor: grab;
+}
+
+.grid :global(.ag-header-cell.erp-grid-movable-header:active),
+.grid :global(.ag-header-group-cell.erp-grid-movable-header:active) {
+  cursor: grabbing;
+}
+
+.grid :global(.ag-header-cell.erp-grid-movable-header .ag-header-cell-label:active),
+.grid :global(.ag-header-group-cell.erp-grid-movable-header .ag-header-group-cell-label:active) {
+  cursor: grabbing;
+}
+
 .grid :global(.ag-header-cell-text) {
   color: var(--color-muted);
   font-size: var(--text-sm);

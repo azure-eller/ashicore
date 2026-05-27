@@ -142,9 +142,9 @@ export function DashboardTopNav({
 
   return (
     <>
-      <header className="flex h-(--height-nav) shrink-0 items-center border-b bg-sidebar text-sidebar-foreground">
+      <header className="flex h-(--height-nav) w-full min-w-0 shrink-0 items-center overflow-hidden border-b bg-sidebar text-sidebar-foreground">
         <div className="flex min-w-0 flex-1 items-center">
-          <div className="mr-(--space-5) flex h-(--height-nav) min-w-0 shrink-0 items-center gap-(--space-5) border-r border-sidebar-border px-(--space-10) pr-(--space-12)">
+          <div className="mr-(--space-5) flex h-(--height-nav) min-w-0 shrink-0 items-center gap-(--space-5) border-r border-sidebar-border px-(--space-10) pr-(--space-12) max-sm:px-(--space-6) max-sm:pr-(--space-8)">
             <NavigationLink
               href="/sales/orders"
               className="flex items-center gap-(--space-5) text-[length:var(--text-lg)] font-semibold tracking-[0] text-sidebar-foreground"
@@ -195,7 +195,7 @@ export function DashboardTopNav({
             })}
           </nav>
 
-          <div className="flex shrink-0 items-center gap-[11px] px-[22px]">
+          <div className="flex min-w-0 shrink-0 items-center gap-[11px] px-[22px] max-sm:gap-[8px] max-sm:px-[12px]">
             {createActions.length > 0 ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -203,14 +203,14 @@ export function DashboardTopNav({
                     id="dashboard-create-menu-trigger"
                     type="button"
                     variant="default"
-                    className="h-[41px] gap-[8px] px-[16px] text-[17px] font-medium text-primary-foreground"
+                    className="h-[41px] gap-[8px] px-[16px] text-[17px] font-medium text-primary-foreground max-sm:px-[11px]"
                   >
                     <HugeiconsIcon
                       icon={AddCircleIcon}
                       strokeWidth={2}
                       className="size-[18px]"
                     />
-                    Create
+                    <span className="max-sm:sr-only">Create</span>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
@@ -241,7 +241,7 @@ export function DashboardTopNav({
             ) : null}
             <Separator
               orientation="vertical"
-              className="mx-[0] h-[41px] bg-sidebar-border/70"
+              className="mx-[0] h-[41px] bg-sidebar-border/70 max-sm:hidden"
             />
             <Popover open={pageSearchOpen} onOpenChange={setPageSearchOpen}>
               <PopoverTrigger asChild>
@@ -442,10 +442,10 @@ export function DashboardTopNav({
             ? `${visibleModule.title} pages`
             : "Section pages"
         }
-        className="flex h-(--height-subnav) shrink-0 items-stretch border-b bg-background px-(--space-10)"
+        className="flex h-(--height-subnav) w-full min-w-0 shrink-0 items-stretch overflow-hidden border-b bg-background px-(--space-10) max-sm:px-(--space-6)"
       >
         {visibleModule ? (
-          <div className="flex min-w-0 items-center gap-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex min-w-0 flex-1 items-center gap-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {visibleModule.items.map((item) => {
               const active = isDashboardPathActive(visiblePathname, item.href);
 

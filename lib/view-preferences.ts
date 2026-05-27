@@ -26,7 +26,6 @@ export const salesOrdersAllocatorPreferenceSchema = z.object({
   collapsedWeeks: z.array(z.string()).default([]),
   unplannedOpen: z.boolean().default(true),
   manufacturingOpen: z.boolean().default(true),
-  grid: gridStateSchema.optional(),
 });
 
 export type SalesOrdersAllocatorPreference = z.infer<

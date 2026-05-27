@@ -23,6 +23,8 @@ import {
   type GridStateKey,
   type GridReadyEvent,
   type GetRowIdParams,
+  type HeaderClass,
+  type HeaderClassParams,
   type IRowNode,
   type RowDragEndEvent,
   type RowClassRules,
@@ -229,6 +231,21 @@ function getGridVerticalScrollViewport(root: HTMLDivElement | null) {
   );
 }
 
+function resolveHeaderClasses<TData>(
+  headerClass: HeaderClass<TData> | undefined,
+  params: HeaderClassParams<TData>
+) {
+  const classes =
+    typeof headerClass === "function" ? headerClass(params) : headerClass;
+
+  return Array.isArray(classes) ? classes : classes ? [classes] : [];
+}
+
+function isHeaderMovable<TData>(params: HeaderClassParams<TData>) {
+  const { colDef } = params;
+  return !("suppressMovable" in colDef && colDef.suppressMovable === true);
+}
+
 export function ERPDataGrid<TData extends { id: string }>({
   rows,
   columns,
@@ -290,6 +307,10 @@ export function ERPDataGrid<TData extends { id: string }>({
       sortable: true,
       suppressHeaderMenuButton: true,
       ...defaultColDefOverrides,
+      headerClass: (params) => [
+        ...resolveHeaderClasses(defaultColDefOverrides?.headerClass, params),
+        ...(isHeaderMovable(params) ? ["erp-grid-movable-header"] : []),
+      ],
     }),
     [defaultColDefOverrides]
   );

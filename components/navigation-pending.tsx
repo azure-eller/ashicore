@@ -267,7 +267,7 @@ export function DashboardNavigationContent({
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col"
+      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       data-testid="optimistic-dashboard-shell"
       aria-busy="true"
       aria-label={`Loading ${optimisticShell.title}`}

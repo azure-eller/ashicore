@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { useSearchParams } from "next/navigation";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import type {
   ColDef,
   ColGroupDef,
@@ -30,16 +30,6 @@ import {
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { ERPDataGrid } from "@/components/erp-data-grid";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -85,8 +75,6 @@ const DEFAULT_ALLOCATOR_PREFERENCE: AllocatorPreference = {
   unplannedOpen: true,
   manufacturingOpen: true,
 };
-
-type RibbonFilter = "late" | "shortLines" | "variantsShort" | "moWait";
 
 type AllocationProduct = AllocatorProduct & {
   stockQty: number;
@@ -214,8 +202,6 @@ type SalesAllocationGridRow =
   | UnplannedHeaderRowData
   | ManufacturingHeaderRowData
   | OrderGridRow;
-
-type BulkAllocationAction = "allocate_fifo" | "unallocate_open";
 
 // ============================================================================
 // Pure helpers
@@ -678,8 +664,8 @@ function getCoverage(products: AllocationProduct[], rows: AllocationRow[]) {
 }
 
 type AllocationMarker = {
-  shape: "circle" | "square" | "triangle";
-  tone: "covered" | "production" | "short" | "none";
+  shape: "circle" | "square";
+  tone: "covered" | "production" | "none";
 };
 
 function getCellStatus(cell: AllocationCell | null) {
@@ -719,9 +705,6 @@ function getCoverageTone(cell: AllocationCell): AllocationMarker["tone"] {
 function getCellMarkers(cell: AllocationCell | null): AllocationMarker[] {
   if (!cell || cell.demand <= 0) return [];
   const markers: AllocationMarker[] = [];
-  if (hasCellShortage(cell)) {
-    markers.push({ shape: "triangle", tone: "short" });
-  }
   if (cell.pinnedQty > 0 || cell.manualAlloc > 0) {
     markers.push({ shape: "square", tone: getCoverageTone(cell) });
   }
@@ -784,59 +767,6 @@ function getFilteredRows(rows: AllocationRow[], search: string) {
       );
     });
   });
-}
-
-function applyRibbonFilter(
-  rows: AllocationRow[],
-  filter: RibbonFilter | null,
-  coverageByProductId: Map<string, ColumnCoverage>
-) {
-  if (!filter) return rows;
-  if (filter === "late") {
-    return rows.filter((row) => getRowLateState(row) != null);
-  }
-  if (filter === "shortLines") {
-    return rows.filter((row) =>
-      [...row.cells.values()].some((cell) => cell.demand > cell.alloc)
-    );
-  }
-  if (filter === "moWait") {
-    return rows.filter((row) =>
-      [...row.cells.values()].some((cell) => getCellStatus(cell) === "waiting")
-    );
-  }
-  if (filter === "variantsShort") {
-    const shortIds = new Set(
-      [...coverageByProductId.entries()]
-        .filter(([, coverage]) => coverage.verdict === "short")
-        .map(([id]) => id)
-    );
-    if (shortIds.size === 0) return rows;
-    return rows.filter((row) =>
-      [...row.cells.values()].some(
-        (cell) => shortIds.has(cell.product.itemId) && cell.demand > cell.alloc
-      )
-    );
-  }
-  return rows;
-}
-
-function cellMatchesRibbonFilter(
-  cell: AllocationCell | null,
-  filter: RibbonFilter | null,
-  coverageByProductId: Map<string, ColumnCoverage>
-) {
-  if (!filter || filter === "late") return true;
-  if (!cell) return false;
-  if (filter === "shortLines") return cell.demand > cell.alloc;
-  if (filter === "moWait") return getCellStatus(cell) === "waiting";
-  if (filter === "variantsShort") {
-    return (
-      coverageByProductId.get(cell.product.itemId)?.verdict === "short" &&
-      cell.demand > cell.alloc
-    );
-  }
-  return true;
 }
 
 function getProductColumnToReveal(
@@ -1260,14 +1190,10 @@ function AllocationProductCell({
   data,
   product,
   selected,
-  activeFilter,
-  coverageByProductId,
   onOpenAllocation,
 }: ICellRendererParams<SalesAllocationGridRow> & {
   product: AllocationProduct;
   selected: { rowId: string; colId: string } | null;
-  activeFilter: RibbonFilter | null;
-  coverageByProductId: Map<string, ColumnCoverage>;
   onOpenAllocation: (row: OrderGridRow, cell: AllocationCell) => void;
 }) {
   if (!data || data.rowType !== "order") return null;
@@ -1275,10 +1201,7 @@ function AllocationProductCell({
   const cell = data.cells.get(product.itemId) ?? null;
   const status = getCellStatus(cell);
 
-  if (
-    status === "empty" ||
-    !cellMatchesRibbonFilter(cell, activeFilter, coverageByProductId)
-  ) {
+  if (status === "empty") {
     return <div className={styles.allocationCellEmpty} aria-hidden="true" />;
   }
 
@@ -1299,6 +1222,9 @@ function AllocationProductCell({
           type="button"
           className={styles.allocationCell}
           data-selected={isSelected ? "true" : undefined}
+          data-production-backed={
+            cell && hasExpectedCoverage(cell) ? "true" : undefined
+          }
           onClick={() => {
             if (cell) onOpenAllocation(data, cell);
           }}
@@ -1433,61 +1359,85 @@ function SectionBannerRow({
 }
 
 // ============================================================================
-// Page chrome components
+// Toolbar components
 // ============================================================================
 
-function AllocationPageHeader({
-  orderCount,
-  shortLines,
-  totalLines,
-  onAllocateFifo,
-  onUnallocate,
+function LegendItem({
+  children,
+  description,
+  marker,
 }: {
-  orderCount: number;
-  shortLines: number;
-  totalLines: number;
-  onAllocateFifo: () => void;
-  onUnallocate: () => void;
+  children: ReactNode;
+  description: string;
+  marker: ReactNode;
 }) {
   return (
-    <div className={styles.pageHeader}>
-      <h1 className={styles.pageTitle}>Allocation</h1>
-      <span className={styles.pageSubtitle}>
-        Pool vs. demand · <b>{orderCount}</b> orders, <b>{shortLines}</b> short
-        of <b>{totalLines}</b> lines
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={styles.legendItem} tabIndex={0}>
+          {marker}
+          {children}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{description}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function AllocationLegend() {
+  return (
+    <span className={styles.allocationLegend} aria-label="Allocation legend">
+      <span className={styles.legendGroup}>
+        <span className={styles.legendGroupLabel}>Type</span>
+        <LegendItem
+          description="Square means the allocation was manually assigned."
+          marker={
+            <span
+              className={styles.legendMarker}
+              data-shape="square"
+              data-tone="allocated"
+              aria-hidden="true"
+            />
+          }
+        >
+          Manual
+        </LegendItem>
+        <LegendItem
+          description="Circle means demand queue coverage."
+          marker={
+            <span
+              className={styles.legendMarker}
+              data-shape="circle"
+              data-tone="allocated"
+              aria-hidden="true"
+            />
+          }
+        >
+          Queue
+        </LegendItem>
       </span>
-      <span className={styles.pageHeaderSpacer} />
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button type="button" className={styles.toolbarAllocate}>
-            Allocate / Unallocate
-            <HugeiconsIcon icon={ArrowDown01Icon} className="size-3" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-60">
-          <DropdownMenuLabel>Bulk allocation</DropdownMenuLabel>
-          <DropdownMenuItem onSelect={onAllocateFifo}>
-            Allocate unallocated FIFO
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={onUnallocate}>
-            Unallocate open orders
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+      <span className={styles.legendDivider} aria-hidden="true" />
+      <LegendItem
+        description="Blue cell shading means the allocation is backed by expected manufacturing output."
+        marker={
+          <span className={styles.legendProduction} aria-hidden="true">
+            <span
+              className={styles.legendMarker}
+              data-shape="circle"
+              data-tone="allocated"
+            />
+          </span>
+        }
+      >
+        MO-backed
+      </LegendItem>
+    </span>
   );
 }
 
 function AllocationToolbar({
   search,
   onSearchChange,
-  lateCount,
-  shortLines,
-  totalLines,
-  variantsShort,
-  moWaitLines,
-  activeFilter,
-  onToggleFilter,
   refreshedAgoMs,
   hiddenFamilies,
   families,
@@ -1499,13 +1449,6 @@ function AllocationToolbar({
 }: {
   search: string;
   onSearchChange: (value: string) => void;
-  lateCount: number;
-  shortLines: number;
-  totalLines: number;
-  variantsShort: number;
-  moWaitLines: number;
-  activeFilter: RibbonFilter | null;
-  onToggleFilter: (filter: RibbonFilter) => void;
   refreshedAgoMs: number | null;
   hiddenFamilies: Set<string>;
   families: string[];
@@ -1521,7 +1464,8 @@ function AllocationToolbar({
   const hiddenFamilyCount = hiddenFamilies.size;
   const hiddenProductCount = hiddenProducts.length;
   const visibleFamilyCount = families.length - hiddenFamilyCount;
-  const columnsButtonLabel =
+  const columnsButtonLabel = "Columns";
+  const columnsButtonDetail =
     hiddenProductCount > 0
       ? `${visibleFamilyCount} of ${families.length} families · ${hiddenProductCount} hidden`
       : hiddenFamilyCount > 0
@@ -1576,74 +1520,7 @@ function AllocationToolbar({
         />
       </label>
       <span className={styles.toolbarDivider} aria-hidden="true" />
-      <button
-        type="button"
-        className={styles.statusStat}
-        data-active={activeFilter === "late" ? "true" : undefined}
-        onClick={() => onToggleFilter("late")}
-        disabled={lateCount === 0}
-        aria-pressed={activeFilter === "late"}
-        aria-label={`Filter by late lines, ${lateCount} lines`}
-      >
-        <span
-          className={styles.statusStatMarker}
-          data-shape="triangle"
-          data-tone="short"
-          aria-hidden="true"
-        />
-        <b>{lateCount}</b> late
-      </button>
-      <button
-        type="button"
-        className={styles.statusStat}
-        data-active={activeFilter === "shortLines" ? "true" : undefined}
-        onClick={() => onToggleFilter("shortLines")}
-        disabled={shortLines === 0}
-        aria-pressed={activeFilter === "shortLines"}
-        aria-label={`Filter by short lines, ${shortLines} of ${totalLines} lines`}
-      >
-        <span
-          className={styles.statusStatMarker}
-          data-shape="triangle"
-          data-tone="short"
-          aria-hidden="true"
-        />
-        <b>{shortLines}</b> short of <b>{totalLines}</b>
-      </button>
-      <button
-        type="button"
-        className={styles.statusStat}
-        data-active={activeFilter === "moWait" ? "true" : undefined}
-        onClick={() => onToggleFilter("moWait")}
-        disabled={moWaitLines === 0}
-        aria-pressed={activeFilter === "moWait"}
-        aria-label={`Filter by expected production wait, ${moWaitLines} lines`}
-      >
-        <span
-          className={styles.statusStatMarker}
-          data-shape="circle"
-          data-tone="production"
-          aria-hidden="true"
-        />
-        <b>{moWaitLines}</b> MO wait
-      </button>
-      <button
-        type="button"
-        className={styles.statusStat}
-        data-active={activeFilter === "variantsShort" ? "true" : undefined}
-        onClick={() => onToggleFilter("variantsShort")}
-        disabled={variantsShort === 0}
-        aria-pressed={activeFilter === "variantsShort"}
-        aria-label={`Filter by variants short, ${variantsShort} variants`}
-      >
-        <span
-          className={styles.statusStatMarker}
-          data-shape="triangle"
-          data-tone="variants"
-          aria-hidden="true"
-        />
-        <b>{variantsShort}</b> variants short
-      </button>
+      <AllocationLegend />
       <span className={styles.toolbarSpacer} />
       <span
         className={styles.toolbarRefreshed}
@@ -1653,7 +1530,12 @@ function AllocationToolbar({
       </span>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" className={styles.toolbarButton}>
+          <button
+            type="button"
+            className={styles.toolbarButton}
+            aria-label={`Columns: ${columnsButtonDetail}`}
+            title={columnsButtonDetail}
+          >
             <HugeiconsIcon icon={LayoutThreeColumnIcon} className="size-3.5" />
             {columnsButtonLabel}
             <HugeiconsIcon icon={ArrowDown01Icon} className="size-3" />
@@ -1765,7 +1647,6 @@ export function SalesAllocationTable({
   organizationId: string;
 }) {
   const searchParams = useSearchParams();
-  const queryClient = useQueryClient();
   const gridApiRef = useRef<GridApi<SalesAllocationGridRow> | null>(null);
 
   const [search, setSearch] = useState("");
@@ -1775,9 +1656,6 @@ export function SalesAllocationTable({
   const [allocationTarget, setAllocationTarget] = useState<AllocationTarget | null>(
     null
   );
-  const [pendingBulkAction, setPendingBulkAction] =
-    useState<BulkAllocationAction | null>(null);
-  const [activeFilter, setActiveFilter] = useState<RibbonFilter | null>(null);
   const [allocatorPreference, setAllocatorPreference] = usePersistentViewState({
     viewKey: SALES_ORDERS_ALLOCATOR_VIEW_KEY,
     defaultValue: DEFAULT_ALLOCATOR_PREFERENCE,
@@ -1822,37 +1700,6 @@ export function SalesAllocationTable({
     () => new Set(hiddenProductIds),
     [hiddenProductIds]
   );
-  const bulkAllocationMutation = useMutation({
-    mutationFn: (action: BulkAllocationAction) =>
-      apiJson<{
-        action: BulkAllocationAction;
-        itemCount: number;
-        lineCount: number;
-        quantity: string;
-      }>("/api/allocation/sales-orders/bulk", {
-        method: "POST",
-        body: { action },
-        fallbackError: "Failed to update sales allocations.",
-      }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
-      void queryClient.invalidateQueries({ queryKey: ["items"] });
-      void queryClient.invalidateQueries({ queryKey: ["allocation-pools"] });
-      void queryClient.invalidateQueries({ queryKey: ["allocation-workspace"] });
-      void queryClient.invalidateQueries({
-        queryKey: ["allocation-manufacturing-demands"],
-      });
-      setPendingBulkAction(null);
-    },
-    onError: (error) => {
-      window.alert(
-        error instanceof Error
-          ? error.message
-          : "Failed to update sales allocations."
-      );
-    },
-  });
-
   const { data: manufacturingDemandRows = initialManufacturingDemandRows } = useQuery({
     queryKey: ["allocation-manufacturing-demands"],
     queryFn: () =>
@@ -1960,28 +1807,6 @@ export function SalesAllocationTable({
     [visibleProducts, searchedRowsInScope]
   );
 
-  // When the user toggles "variants short" we narrow the variant columns to those
-  // products whose pool is short, so the matrix focuses on the supply gap.
-  const displayedProducts = useMemo(() => {
-    if (activeFilter !== "variantsShort") return visibleProducts;
-    return visibleProducts.filter(
-      (product) => coverageById.get(product.itemId)?.verdict === "short"
-    );
-  }, [activeFilter, visibleProducts, coverageById]);
-
-  const filteredRows = useMemo(() => {
-    return applyRibbonFilter(searchedRows, activeFilter, coverageById);
-  }, [searchedRows, activeFilter, coverageById]);
-  const filteredRowsInScope = useMemo(
-    () =>
-      getRowsInScope(
-        filteredRows,
-        collapsedWeeks,
-        manufacturingOpen
-      ),
-    [collapsedWeeks, filteredRows, manufacturingOpen]
-  );
-
   const familiesAll = useMemo(() => {
     const seen = new Set<string>();
     productsWithPools.forEach((product) => seen.add(product.familyLabel));
@@ -1991,61 +1816,15 @@ export function SalesAllocationTable({
   const { topRows, bodyRows } = useMemo(
     () =>
       buildGridRows({
-        rows: filteredRows,
+        rows: searchedRows,
         coverage: coverageById,
         collapsedWeeks,
         unplannedOpen,
         manufacturingOpen,
       }),
-    [filteredRows, coverageById, collapsedWeeks, unplannedOpen, manufacturingOpen]
+    [searchedRows, coverageById, collapsedWeeks, unplannedOpen, manufacturingOpen]
   );
-
-  const orderRowCount = filteredRowsInScope.length;
-  const visibleSalesOrderCount = useMemo(
-    () =>
-      new Set(
-        filteredRowsInScope
-          .filter((row) => row.demandSource === "sales")
-          .map((row) => row.order?.id)
-          .filter(Boolean)
-      ).size,
-    [filteredRowsInScope]
-  );
-  const totals = useMemo(
-    () =>
-      filteredRowsInScope.reduce(
-        (acc, row) => {
-          const progress = rowProgress(row);
-          const late = getRowLateState(row);
-          acc.alloc += progress.alloc;
-          acc.demand += progress.demand;
-          if (late) acc.late += 1;
-          if (progress.state === "complete") acc.complete += 1;
-          row.cells.forEach((cell) => {
-            if (cell.demand > cell.alloc) acc.shortLines += 1;
-            if (getCellStatus(cell) === "waiting") acc.moWaitLines += 1;
-            if (cell.demand > 0) acc.lines += 1;
-          });
-          return acc;
-        },
-        {
-          late: 0,
-          complete: 0,
-          shortLines: 0,
-          moWaitLines: 0,
-          lines: 0,
-          alloc: 0,
-          demand: 0,
-        }
-      ),
-    [filteredRowsInScope]
-  );
-  const variantsShort = useMemo(
-    () =>
-      [...coverageById.values()].filter((coverage) => coverage.verdict === "short")
-        .length,
-    [coverageById]
-  );
+  const orderRowCount = searchedRowsInScope.length;
 
   const refreshedAgoMs = useMemo(() => {
     const persisted = readLocalStorageJson<number | null>(POOL_REFRESHED_AT_KEY, null);
@@ -2128,10 +1907,6 @@ export function SalesAllocationTable({
     }));
   }, [setAllocatorPreference]);
 
-  const toggleRibbonFilter = useCallback((filter: RibbonFilter) => {
-    setActiveFilter((previous) => (previous === filter ? null : filter));
-  }, []);
-
   const toggleFamily = useCallback((family: string) => {
     setHiddenFamilies((previous) => {
       const next = new Set(previous);
@@ -2196,21 +1971,21 @@ export function SalesAllocationTable({
     if (!api) return;
 
     const productId = getProductColumnToReveal(
-      filteredRowsInScope,
+      searchedRowsInScope,
       visibleProducts,
       search
     );
     if (!productId) return;
 
     api.ensureColumnVisible(productColId(productId), "middle");
-  }, [filteredRowsInScope, search, visibleProducts]);
+  }, [searchedRowsInScope, search, visibleProducts]);
 
   const columns = useMemo<
     Array<ColDef<SalesAllocationGridRow> | ColGroupDef<SalesAllocationGridRow>>
   >(
     () => {
       const productGroups = new Map<string, AllocationProduct[]>();
-      for (const product of displayedProducts) {
+      for (const product of visibleProducts) {
         const products = productGroups.get(product.familyLabel) ?? [];
         products.push(product);
         productGroups.set(product.familyLabel, products);
@@ -2244,8 +2019,10 @@ export function SalesAllocationTable({
         ...[...productGroups.entries()].map(
           ([familyLabel, products]): ColGroupDef<SalesAllocationGridRow> => ({
             headerName: familyLabel,
+            groupId: `family:${familyLabel}`,
             marryChildren: true,
             headerGroupComponent: FamilyHeader,
+            headerClass: "erp-grid-movable-header",
             children: products.map(
               (product, index): ColDef<SalesAllocationGridRow> => {
                 const isFamilyEnd = index === products.length - 1;
@@ -2253,8 +2030,7 @@ export function SalesAllocationTable({
                   colId: productColId(product.itemId),
                   headerName: product.variantLabel,
                   width: PRODUCT_COL_WIDTH,
-                  minWidth: 104,
-                  maxWidth: 176,
+                  minWidth: 88,
                   sortable: false,
                   suppressMovable: false,
                   headerComponent: VariantHeader,
@@ -2275,14 +2051,14 @@ export function SalesAllocationTable({
                         {...params}
                         product={product}
                         selected={selected}
-                        activeFilter={activeFilter}
-                        coverageByProductId={coverageById}
                         onOpenAllocation={openAllocation}
                       />
                     );
                   },
                   cellClass: isFamilyEnd ? "fam-end" : undefined,
-                  headerClass: isFamilyEnd ? "fam-end" : undefined,
+                  headerClass: isFamilyEnd
+                    ? "erp-grid-movable-header fam-end"
+                    : "erp-grid-movable-header",
                   getQuickFilterText: () => "",
                 };
               }
@@ -2292,13 +2068,11 @@ export function SalesAllocationTable({
       ];
     },
     [
-      activeFilter,
-      coverageById,
       hideColumn,
       openAllocation,
       orderRowCount,
       selected,
-      displayedProducts,
+      visibleProducts,
     ]
   );
 
@@ -2360,37 +2134,12 @@ export function SalesAllocationTable({
     [highlightedOrderId]
   );
 
-  const bulkActionTitle =
-    pendingBulkAction === "allocate_fifo"
-      ? "Allocate unallocated orders?"
-      : "Unallocate open orders?";
-  const bulkActionDescription =
-    pendingBulkAction === "allocate_fifo"
-      ? "All currently unallocated orders will be attempted to be filled by on-hand stock in FIFO order, based on soonest ship dates for the orders."
-      : "This will unallocate all stock for currently open orders.";
-  const bulkActionLabel =
-    pendingBulkAction === "allocate_fifo" ? "Allocate FIFO" : "Unallocate";
-
   return (
     <>
       <div className={styles.shell}>
-        <AllocationPageHeader
-          orderCount={visibleSalesOrderCount}
-          shortLines={totals.shortLines}
-          totalLines={totals.lines}
-          onAllocateFifo={() => setPendingBulkAction("allocate_fifo")}
-          onUnallocate={() => setPendingBulkAction("unallocate_open")}
-        />
         <AllocationToolbar
           search={search}
           onSearchChange={setSearch}
-          lateCount={totals.late}
-          shortLines={totals.shortLines}
-          totalLines={totals.lines}
-          variantsShort={variantsShort}
-          moWaitLines={totals.moWaitLines}
-          activeFilter={activeFilter}
-          onToggleFilter={toggleRibbonFilter}
           refreshedAgoMs={refreshedAgoMs}
           hiddenFamilies={hiddenFamilies}
           families={familiesAll}
@@ -2402,12 +2151,13 @@ export function SalesAllocationTable({
         />
         <div className={styles.gridShell}>
           <ERPDataGrid
+            className={styles.matrixGrid}
             rows={bodyRows}
             columns={columns}
             pinnedTopRows={topRows}
             getRowId={(row) => row.id}
             emptyMessage="No open sales allocations."
-            height="calc(100dvh - 14.5rem)"
+            height="100%"
             rowHeight={45}
             headerHeight={54}
             groupHeaderHeight={28}
@@ -2420,13 +2170,6 @@ export function SalesAllocationTable({
             rowClassRules={rowClassRules}
             isFullWidthRow={isFullWidthRow}
             fullWidthCellRenderer={fullWidthCellRenderer}
-            persistedGridState={allocatorPreference.grid}
-            onPersistedGridStateChange={(grid) => {
-              setAllocatorPreference((current) => ({
-                ...current,
-                grid,
-              }));
-            }}
             getRowHeight={(row) =>
               row.rowType === "weekHeader" ||
               row.rowType === "unplannedHeader" ||
@@ -2446,39 +2189,6 @@ export function SalesAllocationTable({
           />
         </div>
       </div>
-
-      <AlertDialog
-        open={pendingBulkAction != null}
-        onOpenChange={(open) => {
-          if (!open && !bulkAllocationMutation.isPending) {
-            setPendingBulkAction(null);
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{bulkActionTitle}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {bulkActionDescription} Continue?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={bulkAllocationMutation.isPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={bulkAllocationMutation.isPending}
-              onClick={() => {
-                if (pendingBulkAction) {
-                  bulkAllocationMutation.mutate(pendingBulkAction);
-                }
-              }}
-            >
-              {bulkAllocationMutation.isPending ? "Working..." : bulkActionLabel}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <AllocationSourceDialog
         target={allocationTarget}
