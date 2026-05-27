@@ -869,6 +869,13 @@
       "when": 1779913769874,
       "tag": "0123_pricing_item_category_axis",
       "breakpoints": true
+    },
+    {
+      "idx": 124,
+      "version": "7",
+      "when": 1779915600000,
+      "tag": "0124_pricing_schedule_selected_items",
+      "breakpoints": true
     }
   ]
 }

@@ -2,10 +2,12 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Controller, useForm } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Delete02Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import type {
   CellClassParams,
   ValueSetterParams,
@@ -22,9 +24,12 @@ import {
 } from "@/lib/format";
 import type {
   CustomerCategoryOption,
+  PricingScheduleItemOption,
   PricingScheduleEditData,
 } from "./types";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AffixedInput,
   CreatePageGrid,
@@ -37,6 +42,7 @@ import {
   Dialog,
   DialogClose,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -214,11 +220,11 @@ function normalizePricingBreakSequence(rows: PricingBreakGridRow[]) {
 
 export function PricingScheduleForm({
   customerCategories,
-  itemCategories,
+  itemOptions,
   initialData,
 }: {
   customerCategories: CustomerCategoryOption[];
-  itemCategories: string[];
+  itemOptions: PricingScheduleItemOption[];
   initialData?: PricingScheduleEditData;
 }) {
   const router = useRouter();
@@ -232,6 +238,8 @@ export function PricingScheduleForm({
   const [categoryDescription, setCategoryDescription] = useState("");
   const [categoryError, setCategoryError] = useState<string | null>(null);
   const [previewBasePrice, setPreviewBasePrice] = useState("100");
+  const [isItemPickerOpen, setIsItemPickerOpen] = useState(false);
+  const [itemSearch, setItemSearch] = useState("");
 
   const form = useForm<PricingScheduleFormValues>({
     resolver: zodResolver(insertPricingScheduleSchema),
@@ -240,7 +248,7 @@ export function PricingScheduleForm({
       ? {
           name: initialData.name,
           customerCategoryId: initialData.customerCategoryId,
-          itemCategory: initialData.itemCategory,
+          itemIds: initialData.itemIds,
           notes: initialData.notes,
           breaks: initialData.breaks,
         }
@@ -356,6 +364,42 @@ export function PricingScheduleForm({
     );
   };
   const breaksError = getFieldArrayError(form.formState.errors.breaks);
+  const watchedItemIds = useWatch({
+    control: form.control,
+    name: "itemIds",
+  });
+  const selectedItemIds = useMemo(() => watchedItemIds ?? [], [watchedItemIds]);
+  const selectedItemIdSet = useMemo(
+    () => new Set(selectedItemIds),
+    [selectedItemIds]
+  );
+  const itemOptionsById = useMemo(
+    () => new Map(itemOptions.map((item) => [item.id, item])),
+    [itemOptions]
+  );
+  const selectedItems = selectedItemIds
+    .map((id) => itemOptionsById.get(id))
+    .filter((item): item is PricingScheduleItemOption => item != null);
+  const normalizedItemSearch = itemSearch.trim().toLocaleLowerCase();
+  const filteredItemOptions = itemOptions.filter((item) => {
+    if (!normalizedItemSearch) return true;
+    return [
+      item.displayName,
+      item.name,
+      item.sku,
+      item.unitName,
+    ]
+      .filter((part): part is string => part != null && part.trim() !== "")
+      .join(" ")
+      .toLocaleLowerCase()
+      .includes(normalizedItemSearch);
+  });
+  const itemScopeSummary =
+    selectedItems.length === 0
+      ? "All sellable items"
+      : selectedItems.length === 1
+        ? selectedItems[0].displayName ?? selectedItems[0].name
+        : `${selectedItems.length} selected items`;
   const basePreview = Number(previewBasePrice);
   const breakColumns = useMemo<LineField<PricingBreakGridRow>[]>(
     () => {
@@ -648,31 +692,37 @@ export function PricingScheduleForm({
 
                 <Controller
                   control={form.control}
-                  name="itemCategory"
-                  render={({ field, fieldState }) => (
+                  name="itemIds"
+                  render={({ fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor={field.name}>
-                        <TooltipHeader label="Item Category" tooltip={PRICING_ITEM_CATEGORY_TOOLTIP} />
+                      <FieldLabel>
+                        <TooltipHeader label="Items" tooltip={PRICING_ITEM_CATEGORY_TOOLTIP} />
                       </FieldLabel>
-                      <Input
-                        id={field.name}
-                        name={field.name}
-                        value={field.value ?? ""}
-                        list="pricing-item-categories"
-                        onChange={(event) => field.onChange(event.target.value)}
-                        onBlur={(event) => {
-                          field.onChange(event.target.value.trim() || null);
-                          field.onBlur();
-                        }}
-                        placeholder="All items"
-                        aria-invalid={fieldState.invalid}
-                        autoComplete="off"
-                      />
-                      <datalist id="pricing-item-categories">
-                        {itemCategories.map((category) => (
-                          <option key={category} value={category} />
-                        ))}
-                      </datalist>
+                      <button
+                        type="button"
+                        className="flex min-h-(--height-input-md) w-full items-center justify-between gap-(--space-4) rounded-(--radius-none) border border-input bg-background px-(--space-4) py-(--space-3) text-left text-[length:var(--text-sm)] leading-[var(--leading-sm)] shadow-xs outline-none transition-colors hover:bg-muted focus-visible:shadow-[var(--focus-ring)]"
+                        data-invalid={fieldState.invalid ? "" : undefined}
+                        onClick={() => setIsItemPickerOpen(true)}
+                      >
+                        <span className="min-w-0 truncate">{itemScopeSummary}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          Change
+                        </span>
+                      </button>
+                      {selectedItems.length > 0 ? (
+                        <div className="flex flex-wrap gap-(--space-2)">
+                          {selectedItems.slice(0, 6).map((item) => (
+                            <Badge key={item.id} variant="outline">
+                              {item.displayName ?? item.name}
+                            </Badge>
+                          ))}
+                          {selectedItems.length > 6 ? (
+                            <Badge variant="secondary">
+                              +{selectedItems.length - 6} more
+                            </Badge>
+                          ) : null}
+                        </div>
+                      ) : null}
                       {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
                     </Field>
                   )}
@@ -722,6 +772,125 @@ export function PricingScheduleForm({
         </FieldGroup>
       </form>
       </CreatePageGrid>
+
+      <Dialog open={isItemPickerOpen} onOpenChange={setIsItemPickerOpen}>
+        <DialogContent size="3xl" className="gap-(--space-6)">
+          <DialogHeader>
+            <DialogTitle>Select Items</DialogTitle>
+            <DialogDescription>
+              Leave empty to apply this schedule to every sellable item.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-(--space-5)">
+            <div className="flex flex-col gap-(--space-3) sm:flex-row sm:items-center">
+              <div className="relative flex-1">
+                <HugeiconsIcon
+                  icon={Search01Icon}
+                  className="pointer-events-none absolute left-(--space-4) top-1/2 size-(--space-6) -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
+                />
+                <Input
+                  value={itemSearch}
+                  onChange={(event) => setItemSearch(event.target.value)}
+                  placeholder="Search by item, SKU, variant, or unit"
+                  className="pl-(--space-12)"
+                  autoComplete="off"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  form.setValue("itemIds", [], {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  });
+                }}
+              >
+                All items
+              </Button>
+            </div>
+
+            {selectedItems.length > 0 ? (
+              <div className="flex flex-wrap gap-(--space-2)">
+                {selectedItems.map((item) => (
+                  <Badge key={item.id} variant="outline">
+                    {item.displayName ?? item.name}
+                    <button
+                      type="button"
+                      className="ml-(--space-2) text-muted-foreground hover:text-foreground"
+                      onClick={() => {
+                        form.setValue(
+                          "itemIds",
+                          selectedItemIds.filter((id) => id !== item.id),
+                          { shouldDirty: true, shouldValidate: true }
+                        );
+                      }}
+                      aria-label={`Remove ${item.displayName ?? item.name}`}
+                    >
+                      <HugeiconsIcon icon={Delete02Icon} className="size-(--space-5)" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="max-h-[55vh] overflow-y-auto border border-border">
+              {filteredItemOptions.length === 0 ? (
+                <div className="p-(--space-8) text-sm text-muted-foreground">
+                  No sellable items match that search.
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {filteredItemOptions.map((item) => {
+                    const checked = selectedItemIdSet.has(item.id);
+                    const label = item.displayName ?? item.name;
+                    return (
+                      <label
+                        key={item.id}
+                        className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-(--space-4) px-(--space-5) py-(--space-4) hover:bg-muted"
+                      >
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={(nextChecked) => {
+                            const next = nextChecked
+                              ? [...selectedItemIds, item.id]
+                              : selectedItemIds.filter((id) => id !== item.id);
+                            form.setValue("itemIds", [...new Set(next)], {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            });
+                          }}
+                        />
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium">
+                            {label}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {[item.sku, item.unitName].filter(Boolean).join(" / ")}
+                          </span>
+                        </span>
+                        <Badge variant="secondary">{item.itemType}</Badge>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsItemPickerOpen(false)}
+            >
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={isCategoryDialogOpen}

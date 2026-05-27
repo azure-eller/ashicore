@@ -38,10 +38,12 @@ const columns: ColDef<PricingScheduleRow>[] = [
     flex: 1,
   },
   {
-    field: "itemCategoryLabel",
-    headerName: "Item Category",
+    field: "itemScopeLabel",
+    headerName: "Items",
     headerTooltip: PRICING_ITEM_CATEGORY_TOOLTIP,
-    width: 190,
+    width: 260,
+    minWidth: 190,
+    flex: 1,
   },
   {
     field: "breakSummary",

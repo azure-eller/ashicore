@@ -317,7 +317,7 @@ export const pricingSchedules = salesSchema
       customerCategoryId: uuid("customer_category_id").references(
         () => customerCategories.id
       ),
-      itemCategory: varchar("item_category", { length: 100 }),
+      itemScope: varchar("item_scope", { length: 20 }).notNull().default("all"),
       notes: text("notes"),
       deletedAt: timestamp("deleted_at", { withTimezone: true }),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -331,20 +331,50 @@ export const pricingSchedules = salesSchema
       index("sales_pricing_schedules_customer_category_id_idx").on(
         table.customerCategoryId
       ),
-      index("sales_pricing_schedules_item_category_idx").on(table.itemCategory),
-      uniqueIndex("sales_pricing_schedules_customer_item_uidx")
-        .on(table.organizationId, table.customerCategoryId, table.itemCategory)
-        .where(sql`customer_category_id IS NOT NULL AND item_category IS NOT NULL AND deleted_at IS NULL`),
       uniqueIndex("sales_pricing_schedules_customer_all_items_uidx")
         .on(table.organizationId, table.customerCategoryId)
-        .where(sql`customer_category_id IS NOT NULL AND item_category IS NULL AND deleted_at IS NULL`),
-      uniqueIndex("sales_pricing_schedules_all_customers_item_uidx")
-        .on(table.organizationId, table.itemCategory)
-        .where(sql`customer_category_id IS NULL AND item_category IS NOT NULL AND deleted_at IS NULL`),
+        .where(sql`customer_category_id IS NOT NULL AND item_scope = 'all' AND deleted_at IS NULL`),
       uniqueIndex("sales_pricing_schedules_all_customers_all_items_uidx")
         .on(table.organizationId)
-        .where(sql`customer_category_id IS NULL AND item_category IS NULL AND deleted_at IS NULL`),
+        .where(sql`customer_category_id IS NULL AND item_scope = 'all' AND deleted_at IS NULL`),
       pgPolicy("sales_pricing_schedules_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const pricingScheduleItems = salesSchema
+  .table(
+    "pricing_schedule_items",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      pricingScheduleId: uuid("pricing_schedule_id")
+        .notNull()
+        .references(() => pricingSchedules.id, { onDelete: "cascade" }),
+      customerCategoryId: uuid("customer_category_id").references(
+        () => customerCategories.id
+      ),
+      itemId: uuid("item_id")
+        .notNull()
+        .references(() => items.id),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      index("sales_pricing_schedule_items_org_id_idx").on(table.organizationId),
+      index("sales_pricing_schedule_items_schedule_id_idx").on(
+        table.pricingScheduleId
+      ),
+      index("sales_pricing_schedule_items_item_id_idx").on(table.itemId),
+      uniqueIndex("sales_pricing_schedule_items_schedule_item_uidx").on(
+        table.pricingScheduleId,
+        table.itemId
+      ),
+      pgPolicy("sales_pricing_schedule_items_org_isolation", {
         for: "all",
         to: "public",
         using: sql`organization_id = current_setting('app.current_org_id', true)`,

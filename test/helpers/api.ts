@@ -558,7 +558,7 @@ export async function createCustomerCategory(data: {
 export async function createPricingSchedule(data: {
   name: string;
   customerCategoryId?: string | null;
-  itemCategory?: string | null;
+  itemIds?: string[];
   notes?: string | null;
   breaks: Array<{
     minQuantity: string;
@@ -571,7 +571,7 @@ export async function createPricingSchedule(data: {
     body: JSON.stringify({
       name: data.name,
       customerCategoryId: data.customerCategoryId ?? null,
-      itemCategory: data.itemCategory ?? null,
+      itemIds: data.itemIds ?? [],
       notes: data.notes ?? null,
       breaks: data.breaks.map((pricingBreak) => ({
         minQuantity: pricingBreak.minQuantity,

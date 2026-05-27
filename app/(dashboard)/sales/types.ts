@@ -200,8 +200,8 @@ export type PricingScheduleRow = {
   name: string;
   customerCategoryId: string | null;
   customerScopeLabel: string;
-  itemCategory: string | null;
-  itemCategoryLabel: string;
+  itemIds: string[];
+  itemScopeLabel: string;
   notes: string | null;
   breakCount: number;
   breakSummary: string;
@@ -212,7 +212,7 @@ export type PricingScheduleEditData = {
   id: string;
   name: string;
   customerCategoryId: string | null;
-  itemCategory: string | null;
+  itemIds: string[];
   notes: string | null;
   breaks: Array<{
     minQuantity: string;
@@ -248,6 +248,11 @@ export type SalesOrderItemOption = {
   expectedQty: string;
   safetyStock: string;
 };
+
+export type PricingScheduleItemOption = Pick<
+  SalesOrderItemOption,
+  "id" | "name" | "displayName" | "sku" | "unitName" | "itemType"
+>;
 
 export type SalesOrderListLine = {
   id?: string;

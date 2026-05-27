@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { PricingScheduleForm } from "@/app/(dashboard)/sales/pricing-schedule-form";
 import {
   getCustomerCategoryOptions,
-  getPricingItemCategoryOptions,
+  getPricingScheduleItemOptions,
   getPricingSchedule,
 } from "@/app/(dashboard)/sales/queries";
 
@@ -12,10 +12,10 @@ export default async function EditPricingSchedulePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [pricingSchedule, customerCategories, itemCategories] = await Promise.all([
+  const [pricingSchedule, customerCategories, itemOptions] = await Promise.all([
     getPricingSchedule(id),
     getCustomerCategoryOptions(),
-    getPricingItemCategoryOptions(),
+    getPricingScheduleItemOptions(),
   ]);
 
   if (!pricingSchedule) {
@@ -27,7 +27,7 @@ export default async function EditPricingSchedulePage({
       <PricingScheduleForm
         initialData={pricingSchedule}
         customerCategories={customerCategories}
-        itemCategories={itemCategories}
+        itemOptions={itemOptions}
       />
     </div>
   );

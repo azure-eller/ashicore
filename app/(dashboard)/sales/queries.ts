@@ -31,6 +31,7 @@ import {
   manufacturingOrderIngredients,
   manufacturingOrders,
   pricingScheduleBreaks,
+  pricingScheduleItems,
   pricingSchedules,
   salesOrderLines,
   salesOrders,
@@ -130,6 +131,7 @@ import type {
   CustomerRow,
   NegativeStockWarningPayload,
   PricingScheduleEditData,
+  PricingScheduleItemOption,
   PricingScheduleRow,
   PricingSourceType,
   SalesAllocationLineSummary,
@@ -475,7 +477,7 @@ type PricingScheduleRecord = {
   id: string;
   name: string;
   customerCategoryId: string | null;
-  itemCategory: string | null;
+  itemId: string | null;
 };
 
 type PricingScheduleBreakRecord = {
@@ -494,9 +496,9 @@ type PricingScheduleLookup = {
 
 function pricingScheduleScopeKey(
   customerCategoryId: string | null,
-  itemCategory: string | null
+  itemId: string | null
 ) {
-  return JSON.stringify([customerCategoryId, itemCategory]);
+  return JSON.stringify([customerCategoryId, itemId]);
 }
 
 function formatPricingBreakLabel(
@@ -585,42 +587,94 @@ async function ensurePricingScheduleScopeAvailableInTx(
   tx: Tx,
   values: {
     customerCategoryId: string | null;
-    itemCategory: string | null;
+    itemIds: string[];
   },
   options?: { excludeId?: string }
 ) {
-  const conditions = [
-    isNull(pricingSchedules.deletedAt),
-  ];
+  const itemIds = [...new Set(values.itemIds)];
+  const scheduleConditions = [isNull(pricingSchedules.deletedAt)];
 
   if (values.customerCategoryId == null) {
-    conditions.push(isNull(pricingSchedules.customerCategoryId));
+    scheduleConditions.push(isNull(pricingSchedules.customerCategoryId));
   } else {
-    conditions.push(eq(pricingSchedules.customerCategoryId, values.customerCategoryId));
-  }
-
-  if (values.itemCategory == null) {
-    conditions.push(isNull(pricingSchedules.itemCategory));
-  } else {
-    conditions.push(eq(pricingSchedules.itemCategory, values.itemCategory));
+    scheduleConditions.push(eq(pricingSchedules.customerCategoryId, values.customerCategoryId));
   }
 
   if (options?.excludeId) {
-    conditions.push(sql`${pricingSchedules.id} <> ${options.excludeId}`);
+    scheduleConditions.push(sql`${pricingSchedules.id} <> ${options.excludeId}`);
   }
 
-  const [existingSchedule] = await tx
-    .select({ id: pricingSchedules.id })
-    .from(pricingSchedules)
-    .where(and(...conditions))
-    .limit(1);
+  const [existingAllItemsSchedule] =
+    itemIds.length === 0
+      ? await tx
+          .select({ id: pricingSchedules.id })
+          .from(pricingSchedules)
+          .where(
+            and(
+              ...scheduleConditions,
+              sql`NOT EXISTS (
+                SELECT 1 FROM sales.pricing_schedule_items psi
+                WHERE psi.pricing_schedule_id = ${pricingSchedules.id}
+              )`,
+              eq(pricingSchedules.itemScope, "all")
+            )
+          )
+          .limit(1)
+      : [];
 
-  if (existingSchedule) {
+  if (existingAllItemsSchedule) {
     throw new SalesError("A pricing schedule already exists for this scope.", 400, {
       errors: {
-        itemCategory: [
-          "A pricing schedule already exists for this customer and item category scope.",
+        itemIds: [
+          "A pricing schedule already exists for this customer and all items.",
         ],
+      },
+    });
+  }
+
+  if (itemIds.length > 0) {
+    const [existingItemSchedule] = await tx
+      .select({ id: pricingSchedules.id })
+      .from(pricingSchedules)
+      .innerJoin(
+        pricingScheduleItems,
+        eq(pricingScheduleItems.pricingScheduleId, pricingSchedules.id)
+      )
+      .where(and(...scheduleConditions, inArray(pricingScheduleItems.itemId, itemIds)))
+      .limit(1);
+
+    if (existingItemSchedule) {
+      throw new SalesError("A pricing schedule already exists for this scope.", 400, {
+        errors: {
+          itemIds: [
+            "One or more selected items already has a pricing schedule for this customer scope.",
+          ],
+        },
+      });
+    }
+  }
+}
+
+async function ensurePricingScheduleItemsExistInTx(tx: Tx, itemIds: string[]) {
+  const uniqueIds = [...new Set(itemIds)];
+  if (uniqueIds.length === 0) return;
+
+  const rows = await tx
+    .select({ id: items.id })
+    .from(items)
+    .where(
+      and(
+        inArray(items.id, uniqueIds),
+        eq(items.itemType, "product"),
+        eq(items.sellable, true),
+        isNull(items.deletedAt)
+      )
+    );
+
+  if (rows.length !== uniqueIds.length) {
+    throw new SalesError("One or more selected items are not sellable.", 400, {
+      errors: {
+        itemIds: ["Only active sellable products can be selected."],
       },
     });
   }
@@ -652,16 +706,15 @@ async function getPricingScheduleBreaksInTx(
 async function getPricingScheduleLookupForProductsInTx(
   tx: Tx,
   products: Array<
-    Pick<SalesItemValidationRow, "category" | "defaultSellingPrice">
+    Pick<SalesItemValidationRow, "id" | "defaultSellingPrice">
   >,
   customerCategoryId: string | null
 ): Promise<PricingScheduleLookup> {
-  const itemCategories = [
+  const itemIds = [
     ...new Set(
       products
         .filter((product) => product.defaultSellingPrice != null)
-        .map((product) => product.category)
-        .filter((category): category is string => category != null)
+        .map((product) => product.id)
     ),
   ];
   const schedulesByScope = new Map<string, PricingScheduleRecord>();
@@ -676,16 +729,20 @@ async function getPricingScheduleLookupForProductsInTx(
       id: pricingSchedules.id,
       name: pricingSchedules.name,
       customerCategoryId: pricingSchedules.customerCategoryId,
-      itemCategory: pricingSchedules.itemCategory,
+      itemId: pricingScheduleItems.itemId,
     })
     .from(pricingSchedules)
+    .leftJoin(
+      pricingScheduleItems,
+      eq(pricingScheduleItems.pricingScheduleId, pricingSchedules.id)
+    )
     .where(
       and(
-        itemCategories.length === 0
-          ? isNull(pricingSchedules.itemCategory)
+        itemIds.length === 0
+          ? eq(pricingSchedules.itemScope, "all")
           : or(
-              inArray(pricingSchedules.itemCategory, itemCategories),
-              isNull(pricingSchedules.itemCategory)
+              inArray(pricingScheduleItems.itemId, itemIds),
+              eq(pricingSchedules.itemScope, "all")
             ),
         customerCategoryId == null
           ? isNull(pricingSchedules.customerCategoryId)
@@ -699,7 +756,7 @@ async function getPricingScheduleLookupForProductsInTx(
 
   for (const schedule of scheduleRows) {
     schedulesByScope.set(
-      pricingScheduleScopeKey(schedule.customerCategoryId, schedule.itemCategory),
+      pricingScheduleScopeKey(schedule.customerCategoryId, schedule.itemId),
       schedule
     );
   }
@@ -765,7 +822,7 @@ function resolvePricingForProduct(
   values: {
     customerCategoryId: string | null;
     customerCategoryName: string | null;
-    product: Pick<SalesItemValidationRow, "category" | "defaultSellingPrice">;
+    product: Pick<SalesItemValidationRow, "id" | "defaultSellingPrice">;
     quantity: string | null;
   },
   lookup: PricingScheduleLookup
@@ -789,7 +846,7 @@ function resolvePricingForProduct(
       : lookup.schedulesByScope.get(
           pricingScheduleScopeKey(
             values.customerCategoryId,
-            values.product.category
+            values.product.id
           )
         )) ??
     (values.customerCategoryId == null
@@ -798,7 +855,7 @@ function resolvePricingForProduct(
           pricingScheduleScopeKey(values.customerCategoryId, null)
         )) ??
     lookup.schedulesByScope.get(
-      pricingScheduleScopeKey(null, values.product.category)
+      pricingScheduleScopeKey(null, values.product.id)
     ) ??
     lookup.schedulesByScope.get(
       pricingScheduleScopeKey(null, null)
@@ -853,7 +910,7 @@ async function resolvePricingForProductInTx(
   values: {
     customerCategoryId: string | null;
     customerCategoryName: string | null;
-    product: Pick<SalesItemValidationRow, "category" | "defaultSellingPrice">;
+    product: Pick<SalesItemValidationRow, "id" | "defaultSellingPrice">;
     quantity: string | null;
   }
 ): Promise<Omit<SalesLinePricingResult, "estimatedUnitCost">> {
@@ -3030,16 +3087,18 @@ export async function getCustomerCategoryOptions(): Promise<CustomerCategoryOpti
   });
 }
 
-export async function getPricingItemCategoryOptions(): Promise<string[]> {
-  return withAuthedOrgContext(async (tx) => {
-    const rows = await tx
-      .selectDistinct({ category: items.category })
-      .from(items)
-      .where(and(isNotNull(items.category), isNull(items.deletedAt)))
-      .orderBy(asc(items.category));
-
-    return rows.map((row) => row.category as string);
-  });
+export async function getPricingScheduleItemOptions(): Promise<PricingScheduleItemOption[]> {
+  const options = await getSalesOrderItemOptions();
+  return options
+    .filter((option) => option.itemType === "product")
+    .map(({ id, name, displayName, sku, unitName, itemType }) => ({
+      id,
+      name,
+      displayName,
+      sku,
+      unitName,
+      itemType,
+    }));
 }
 
 export async function getCustomerCategories(): Promise<CustomerCategoryRow[]> {
@@ -3278,7 +3337,6 @@ export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
             name: pricingSchedules.name,
             customerCategoryId: pricingSchedules.customerCategoryId,
             customerCategoryName: customerCategories.name,
-            itemCategory: pricingSchedules.itemCategory,
             notes: pricingSchedules.notes,
             updatedAt: pricingSchedules.updatedAt,
           })
@@ -3290,7 +3348,6 @@ export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
           .where(isNull(pricingSchedules.deletedAt))
           .orderBy(
             asc(customerCategories.name),
-            asc(pricingSchedules.itemCategory),
             asc(pricingSchedules.name)
           );
 
@@ -3299,7 +3356,8 @@ export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
         }
 
         const scheduleIds = rows.map((row) => row.id);
-        const breaks = await tx
+        const [breaks, scheduleItemRows] = await Promise.all([
+          tx
           .select({
             pricingScheduleId: pricingScheduleBreaks.pricingScheduleId,
             minQuantity: trimScale(pricingScheduleBreaks.minQuantity).as("minQuantity"),
@@ -3314,7 +3372,20 @@ export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
           .orderBy(
             asc(pricingScheduleBreaks.sortOrder),
             asc(pricingScheduleBreaks.minQuantity)
-          );
+          ),
+          tx
+            .select({
+              pricingScheduleId: pricingScheduleItems.pricingScheduleId,
+              itemId: pricingScheduleItems.itemId,
+              itemName: items.name,
+              familyName: itemFamilies.name,
+            })
+            .from(pricingScheduleItems)
+            .innerJoin(items, eq(pricingScheduleItems.itemId, items.id))
+            .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
+            .where(inArray(pricingScheduleItems.pricingScheduleId, scheduleIds))
+            .orderBy(asc(itemFamilies.name), asc(items.name)),
+        ]);
 
         const breaksByScheduleId = new Map<
           string,
@@ -3336,6 +3407,19 @@ export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
           breaksByScheduleId.set(pricingBreak.pricingScheduleId, bucket);
         }
 
+        const itemsByScheduleId = new Map<
+          string,
+          Array<{ id: string; label: string }>
+        >();
+        for (const item of scheduleItemRows) {
+          const bucket = itemsByScheduleId.get(item.pricingScheduleId) ?? [];
+          bucket.push({
+            id: item.itemId,
+            label: item.familyName ? `${item.familyName} - ${item.itemName}` : item.itemName,
+          });
+          itemsByScheduleId.set(item.pricingScheduleId, bucket);
+        }
+
         return rows.map((row) => {
           const scheduleBreaks = breaksByScheduleId.get(row.id) ?? [];
           return {
@@ -3343,8 +3427,11 @@ export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
             name: row.name,
             customerCategoryId: row.customerCategoryId,
             customerScopeLabel: row.customerCategoryName ?? "Everyone",
-            itemCategory: row.itemCategory,
-            itemCategoryLabel: row.itemCategory ?? "All items",
+            itemIds: (itemsByScheduleId.get(row.id) ?? []).map((item) => item.id),
+            itemScopeLabel:
+              (itemsByScheduleId.get(row.id) ?? []).length === 0
+                ? "All items"
+                : (itemsByScheduleId.get(row.id) ?? []).map((item) => item.label).join(", "),
             notes: row.notes,
             breakCount: scheduleBreaks.length,
             breakSummary: summarizePricingBreaks(scheduleBreaks),
@@ -3370,7 +3457,6 @@ export async function getPricingSchedule(
         id: pricingSchedules.id,
         name: pricingSchedules.name,
         customerCategoryId: pricingSchedules.customerCategoryId,
-        itemCategory: pricingSchedules.itemCategory,
         notes: pricingSchedules.notes,
       })
       .from(pricingSchedules)
@@ -3380,10 +3466,17 @@ export async function getPricingSchedule(
       return null;
     }
 
-    const breaks = await getPricingScheduleBreaksInTx(tx, id);
+    const [breaks, scheduleItems] = await Promise.all([
+      getPricingScheduleBreaksInTx(tx, id),
+      tx
+        .select({ itemId: pricingScheduleItems.itemId })
+        .from(pricingScheduleItems)
+        .where(eq(pricingScheduleItems.pricingScheduleId, id)),
+    ]);
 
     return {
       ...schedule,
+      itemIds: scheduleItems.map((item) => item.itemId),
       breaks: breaks.map((pricingBreak) => ({
         minQuantity: pricingBreak.minQuantity,
         maxQuantity: pricingBreak.maxQuantity,
@@ -3396,6 +3489,7 @@ export async function getPricingSchedule(
 export async function createPricingSchedule(data: InsertPricingSchedule) {
   return withAuthedOrgContext(async (tx, orgId) => {
     await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
+    await ensurePricingScheduleItemsExistInTx(tx, data.itemIds);
     await ensurePricingScheduleScopeAvailableInTx(tx, data);
 
     const [schedule] = await tx
@@ -3404,10 +3498,21 @@ export async function createPricingSchedule(data: InsertPricingSchedule) {
         organizationId: orgId,
         name: data.name,
         customerCategoryId: data.customerCategoryId,
-        itemCategory: data.itemCategory,
+        itemScope: data.itemIds.length > 0 ? "selected" : "all",
         notes: data.notes,
       })
       .returning({ id: pricingSchedules.id });
+
+    if (data.itemIds.length > 0) {
+      await tx.insert(pricingScheduleItems).values(
+        [...new Set(data.itemIds)].map((itemId) => ({
+          organizationId: orgId,
+          pricingScheduleId: schedule.id,
+          customerCategoryId: data.customerCategoryId,
+          itemId,
+        }))
+      );
+    }
 
     await tx.insert(pricingScheduleBreaks).values(
       data.breaks.map((pricingBreak, index) => ({
@@ -3432,7 +3537,10 @@ export async function updatePricingSchedule(
 ) {
   return withAuthedOrgContext(async (tx) => {
     const [existingSchedule] = await tx
-      .select({ id: pricingSchedules.id })
+      .select({
+        id: pricingSchedules.id,
+        organizationId: pricingSchedules.organizationId,
+      })
       .from(pricingSchedules)
       .where(and(eq(pricingSchedules.id, id), isNull(pricingSchedules.deletedAt)));
 
@@ -3441,6 +3549,7 @@ export async function updatePricingSchedule(
     }
 
     await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
+    await ensurePricingScheduleItemsExistInTx(tx, data.itemIds);
     await ensurePricingScheduleScopeAvailableInTx(tx, data, {
       excludeId: id,
     });
@@ -3450,11 +3559,26 @@ export async function updatePricingSchedule(
       .set({
         name: data.name,
         customerCategoryId: data.customerCategoryId,
-        itemCategory: data.itemCategory,
+        itemScope: data.itemIds.length > 0 ? "selected" : "all",
         notes: data.notes,
         updatedAt: new Date(),
       })
       .where(eq(pricingSchedules.id, id));
+
+    await tx
+      .delete(pricingScheduleItems)
+      .where(eq(pricingScheduleItems.pricingScheduleId, id));
+
+    if (data.itemIds.length > 0) {
+      await tx.insert(pricingScheduleItems).values(
+        [...new Set(data.itemIds)].map((itemId) => ({
+          organizationId: existingSchedule.organizationId,
+          pricingScheduleId: id,
+          customerCategoryId: data.customerCategoryId,
+          itemId,
+        }))
+      );
+    }
 
     await tx
       .delete(pricingScheduleBreaks)
@@ -3482,7 +3606,7 @@ async function softDeletePricingSchedulesInTx(tx: Tx, scheduleIds: string[]) {
     return [];
   }
 
-  return tx
+  const deletedSchedules = await tx
     .update(pricingSchedules)
     .set({
       deletedAt: new Date(),
@@ -3495,6 +3619,15 @@ async function softDeletePricingSchedulesInTx(tx: Tx, scheduleIds: string[]) {
       )
     )
     .returning({ id: pricingSchedules.id });
+
+  const deletedIds = deletedSchedules.map((schedule) => schedule.id);
+  if (deletedIds.length > 0) {
+    await tx
+      .delete(pricingScheduleItems)
+      .where(inArray(pricingScheduleItems.pricingScheduleId, deletedIds));
+  }
+
+  return deletedSchedules;
 }
 
 export async function deletePricingSchedule(id: string) {

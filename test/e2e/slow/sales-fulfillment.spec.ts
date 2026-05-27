@@ -302,25 +302,25 @@ test.describe("sales fulfillment operating story", () => {
       {
         name: `All Customers All Items ${Date.now()}`,
         customerCategoryId: null,
-        itemCategory: null,
+        itemIds: [],
         discountPercent: "10",
       },
       {
         name: `All Customers Compost ${Date.now()}`,
         customerCategoryId: null,
-        itemCategory: "Pricing Compost",
+        itemIds: [compost.id],
         discountPercent: "20",
       },
       {
         name: `Tier All Items ${Date.now()}`,
         customerCategoryId,
-        itemCategory: null,
+        itemIds: [],
         discountPercent: "30",
       },
       {
         name: `Tier Compost ${Date.now()}`,
         customerCategoryId,
-        itemCategory: "Pricing Compost",
+        itemIds: [compost.id],
         discountPercent: "40",
       },
     ];
@@ -329,7 +329,7 @@ test.describe("sales fulfillment operating story", () => {
       const response = await createPricingSchedule({
         name: schedule.name,
         customerCategoryId: schedule.customerCategoryId,
-        itemCategory: schedule.itemCategory,
+        itemIds: schedule.itemIds,
         breaks: [
           {
             minQuantity: "1",
@@ -372,13 +372,13 @@ test.describe("sales fulfillment operating story", () => {
 
     const literalAllProduct = await createSellableProductFixture({
       name: "Pricing Literal All Product",
-      category: "all",
+      category: "Pricing Literal",
       price: "100.00",
     });
-    const literalAllScheduleName = `Literal All Category ${Date.now()}`;
+    const literalAllScheduleName = `Literal Item ${Date.now()}`;
     const literalAllSchedule = await createPricingSchedule({
       name: literalAllScheduleName,
-      itemCategory: "all",
+      itemIds: [literalAllProduct.id],
       breaks: [
         { minQuantity: "1", maxQuantity: null, discountPercent: "55" },
       ],
@@ -410,7 +410,7 @@ test.describe("sales fulfillment operating story", () => {
     const boundarySchedule = await createPricingSchedule({
       name: boundaryScheduleName,
       customerCategoryId: boundaryCategoryResponse.body.id as string,
-      itemCategory: "Pricing Boundary",
+      itemIds: [boundaryProduct.id],
       breaks: [
         { minQuantity: "1", maxQuantity: "5", discountPercent: "10" },
         { minQuantity: "6", maxQuantity: null, discountPercent: "25" },
@@ -444,7 +444,7 @@ test.describe("sales fulfillment operating story", () => {
     });
     const overrideSchedule = await createPricingSchedule({
       name: `Override Pricing ${Date.now()}`,
-      itemCategory: "Pricing Override",
+      itemIds: [overrideProduct.id],
       breaks: [
         { minQuantity: "1", maxQuantity: null, discountPercent: "50" },
       ],
