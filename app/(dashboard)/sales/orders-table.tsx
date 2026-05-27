@@ -199,8 +199,14 @@ function DetailMenuTable({
     item: string;
     needed: string;
     available: string;
+    expected?: string;
   }>;
 }) {
+  const showExpected = rows.some((row) => parseQuantity(row.expected) > 0);
+  const gridTemplate = showExpected
+    ? "grid-cols-[minmax(0,1fr)_64px_64px_92px]"
+    : "grid-cols-[minmax(0,1fr)_64px_64px]";
+
   if (rows.length === 0) {
     return (
       <div className="px-(--space-3) py-(--space-4) text-[length:var(--text-sm)] text-muted-foreground">
@@ -211,15 +217,18 @@ function DetailMenuTable({
 
   return (
     <div className="max-h-[320px] overflow-y-auto">
-      <div className="grid grid-cols-[minmax(0,1fr)_64px_64px] gap-x-(--space-5) border-b border-border px-(--space-3) py-(--space-2) text-[length:var(--text-xs)] font-medium text-muted-foreground">
+      <div
+        className={`grid ${gridTemplate} gap-x-(--space-5) border-b border-border px-(--space-3) py-(--space-2) text-[length:var(--text-xs)] font-medium text-muted-foreground`}
+      >
         <div>Item</div>
         <div className="text-right">Needed</div>
         <div className="text-right">Available</div>
+        {showExpected ? <div className="text-right">Expected</div> : null}
       </div>
       {rows.map((row) => (
         <div
           key={row.id}
-          className="grid grid-cols-[minmax(0,1fr)_64px_64px] items-start gap-x-(--space-5) border-b border-border/60 px-(--space-3) py-(--space-3) text-[length:var(--text-sm)] last:border-b-0"
+          className={`grid ${gridTemplate} items-start gap-x-(--space-5) border-b border-border/60 px-(--space-3) py-(--space-3) text-[length:var(--text-sm)] last:border-b-0`}
         >
           <div className="min-w-0 truncate font-medium">{row.item}</div>
           <div className="text-right font-mono text-[length:var(--text-xs)] tabular-nums text-muted-foreground">
@@ -228,6 +237,11 @@ function DetailMenuTable({
           <div className="text-right font-mono text-[length:var(--text-xs)] tabular-nums text-muted-foreground">
             {row.available}
           </div>
+          {showExpected ? (
+            <div className="min-w-0 text-right font-mono text-[length:var(--text-xs)] tabular-nums text-muted-foreground">
+              {row.expected ?? "0"}
+            </div>
+          ) : null}
         </div>
       ))}
     </div>
@@ -255,6 +269,7 @@ function SalesItemsActionCell({
     item: formatOrderLineItemName(line),
     needed: formatQuantity(line.remainingQty ?? line.quantity),
     available: formatQuantity(line.demandQueueInStockQty ?? "0"),
+    expected: formatQuantity(line.demandQueueExpectedQty ?? "0"),
   }));
 
   return (

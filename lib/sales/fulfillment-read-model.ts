@@ -371,7 +371,10 @@ async function getSalesItemAvailabilityByOrderIdInTx(
     if (quantity <= 0) continue;
     if (row.sourceType === "manufacturing_order") {
       const source = manualManufacturingSourceById.get(row.sourceId);
-      if (!source || source.salesOrderLineId != null) continue;
+      if (!source) continue;
+      if (source.salesOrderLineId != null && source.salesOrderLineId !== row.demandId) {
+        continue;
+      }
       manualSupplyByLineId.set(row.demandId, [
         ...(manualSupplyByLineId.get(row.demandId) ?? []),
         {
@@ -444,12 +447,13 @@ async function getSalesItemAvailabilityByOrderIdInTx(
       expectedDate: row.expectedDate,
       linkedSalesOrderLineId,
     };
-    supplyByItem.set(row.itemId, [...(supplyByItem.get(row.itemId) ?? []), supply]);
     if (supply.linkedSalesOrderLineId) {
       linkedManufacturingSupplyByLineId.set(supply.linkedSalesOrderLineId, [
         ...(linkedManufacturingSupplyByLineId.get(supply.linkedSalesOrderLineId) ?? []),
         supply,
       ]);
+    } else {
+      supplyByItem.set(row.itemId, [...(supplyByItem.get(row.itemId) ?? []), supply]);
     }
   }
 

@@ -3,11 +3,15 @@ import { test, expect } from "../fixtures";
 import {
   inventoryDemandSummary,
   inventoryItemBalances,
+  manufacturingOrders,
+  salesOrderLines,
   salesOrders,
+  stockAllocations,
 } from "../../../lib/db/schema";
 import {
   createCustomer,
   createItem,
+  createManufacturingOrder,
   createSalesOrder,
   getUnitId,
   testFetch,
@@ -146,4 +150,233 @@ test("demand queue allocates scarce stock by rank without overclaiming", async (
     shortageQty: "6.0000",
     availableToPromise: "-6.0000",
   });
+});
+
+test("sales availability treats pinned manufacturing output as expected supply", async ({
+  db,
+}) => {
+  const ts = Date.now();
+  const unitId = getUnitId();
+
+  const component = await createItem({
+    itemType: "material",
+    name: `Fast Pinned MO Component ${ts}`,
+    unitDefinitionId: unitId,
+    sku: `FAST-PINNED-MO-COMP-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: null,
+    stock: "1000",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(component.status).toBe(201);
+
+  const product = await createItem({
+    itemType: "product",
+    name: `Fast Pinned MO Product ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-PINNED-MO-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: null,
+    defaultSellingPrice: "10.00",
+    stock: "0",
+    safetyStock: "0",
+    bom: [{ componentId: component.body.id, quantity: "1" }],
+  });
+  expect(product.status).toBe(201);
+  const productId = product.body.id as string;
+
+  const customer = await createCustomer({ name: `Fast Pinned MO Customer ${ts}` });
+  expect(customer.status).toBe(201);
+
+  const order = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `PINNED-MO-${ts}`,
+    orderDate: "2026-05-25",
+    shipDate: "2026-06-05",
+    lines: [{ itemId: productId, quantity: "450", unitPrice: "10.00" }],
+  });
+  expect(order.status).toBe(201);
+
+  const [line] = await db
+    .select({ id: salesOrderLines.id })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.salesOrderId, order.body.id));
+  expect(line).toBeTruthy();
+
+  const linkedMo = await createManufacturingOrder({
+    productId,
+    salesOrderId: order.body.id,
+    salesOrderLineId: line.id,
+    plannedQuantity: "150",
+    plannedDate: "2026-06-02",
+    ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+    confirmShortage: false,
+  });
+  expect(linkedMo.status).toBe(201);
+
+  const laterMo = await createManufacturingOrder({
+    productId,
+    plannedQuantity: "300",
+    plannedDate: "2026-06-04",
+    ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+    confirmShortage: false,
+  });
+  expect(laterMo.status).toBe(201);
+
+  const [source] = await db
+    .select({ organizationId: manufacturingOrders.organizationId })
+    .from(manufacturingOrders)
+    .where(eq(manufacturingOrders.id, linkedMo.body.id));
+  expect(source).toBeTruthy();
+
+  await db.insert(stockAllocations).values([
+    {
+      organizationId: source.organizationId,
+      demandType: "sales_order_line",
+      demandId: line.id,
+      itemId: productId,
+      sourceType: "manufacturing_order",
+      sourceId: linkedMo.body.id,
+      quantity: "150",
+      status: "active",
+    },
+    {
+      organizationId: source.organizationId,
+      demandType: "sales_order_line",
+      demandId: line.id,
+      itemId: productId,
+      sourceType: "manufacturing_order",
+      sourceId: laterMo.body.id,
+      quantity: "300",
+      status: "active",
+    },
+  ]);
+
+  const salesOrdersResponse = await testFetch("/api/sales-orders");
+  expect(salesOrdersResponse.status).toBe(200);
+  const salesOrderRows = (await salesOrdersResponse.json()) as Array<{
+    id: string;
+    fulfillmentSummary?: {
+      salesItemsState?: string;
+      salesItemsExpectedDate?: string | null;
+    };
+  }>;
+  const readModel = salesOrderRows.find((row) => row.id === order.body.id);
+
+  expect(readModel?.fulfillmentSummary?.salesItemsState).toBe("expected");
+  expect(readModel?.fulfillmentSummary?.salesItemsExpectedDate).toBe("2026-06-04");
+});
+
+test("linked manufacturing output does not cover unrelated sales demand", async ({
+  db,
+}) => {
+  const ts = Date.now();
+  const unitId = getUnitId();
+
+  const component = await createItem({
+    itemType: "material",
+    name: `Fast Linked MO Component ${ts}`,
+    unitDefinitionId: unitId,
+    sku: `FAST-LINKED-MO-COMP-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: null,
+    stock: "1000",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(component.status).toBe(201);
+
+  const product = await createItem({
+    itemType: "product",
+    name: `Fast Linked MO Product ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-LINKED-MO-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: null,
+    defaultSellingPrice: "10.00",
+    stock: "0",
+    safetyStock: "0",
+    bom: [{ componentId: component.body.id, quantity: "1" }],
+  });
+  expect(product.status).toBe(201);
+  const productId = product.body.id as string;
+
+  const customer = await createCustomer({ name: `Fast Linked MO Customer ${ts}` });
+  expect(customer.status).toBe(201);
+
+  const linkedOrder = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `LINKED-MO-A-${ts}`,
+    orderDate: "2026-05-10",
+    shipDate: "2026-05-20",
+    lines: [{ itemId: productId, quantity: "8", unitPrice: "10.00" }],
+  });
+  expect(linkedOrder.status).toBe(201);
+
+  const unrelatedOrder = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `LINKED-MO-B-${ts}`,
+    orderDate: "2026-05-11",
+    shipDate: "2026-05-12",
+    lines: [{ itemId: productId, quantity: "8", unitPrice: "10.00" }],
+  });
+  expect(unrelatedOrder.status).toBe(201);
+
+  const [linkedLine] = await db
+    .select({ id: salesOrderLines.id })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.salesOrderId, linkedOrder.body.id));
+  expect(linkedLine).toBeTruthy();
+
+  const linkedMo = await createManufacturingOrder({
+    productId,
+    salesOrderId: linkedOrder.body.id,
+    salesOrderLineId: linkedLine.id,
+    plannedQuantity: "8",
+    plannedDate: "2026-05-11",
+    ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+    confirmShortage: false,
+  });
+  expect(linkedMo.status).toBe(201);
+
+  const reorder = await testFetch("/api/sales-orders/priority-ranks", {
+    method: "PATCH",
+    body: JSON.stringify({
+      orderIds: [unrelatedOrder.body.id, linkedOrder.body.id],
+    }),
+  });
+  expect(reorder.status).toBe(200);
+
+  const salesOrdersResponse = await testFetch("/api/sales-orders");
+  expect(salesOrdersResponse.status).toBe(200);
+  const salesOrderRows = (await salesOrdersResponse.json()) as Array<{
+    id: string;
+    fulfillmentSummary?: {
+      salesItemsState?: string;
+      productionState?: string;
+      shortQty?: string;
+    };
+  }>;
+  const linkedReadModel = salesOrderRows.find(
+    (row) => row.id === linkedOrder.body.id
+  );
+  const unrelatedReadModel = salesOrderRows.find(
+    (row) => row.id === unrelatedOrder.body.id
+  );
+
+  expect(linkedReadModel?.fulfillmentSummary?.salesItemsState).toBe("expected");
+  expect(unrelatedReadModel?.fulfillmentSummary?.salesItemsState).toBe(
+    "not_available"
+  );
+  expect(unrelatedReadModel?.fulfillmentSummary?.shortQty).toBe("8");
+  expect(unrelatedReadModel?.fulfillmentSummary?.productionState).toBe("make");
 });

@@ -18,6 +18,10 @@ export type DemandQueueSupplyChunk = {
   kind: "on_hand" | "expected_mo";
   sourceType?: "inventory_lot" | "manufacturing_order";
   sourceId?: string;
+  linkedDemand?: {
+    demandType: AllocationDemandType;
+    demandId: string;
+  };
   quantity: number;
   availableDate: string | null;
   label: string | null;
@@ -138,6 +142,17 @@ function expectedSupplyCanCoverDemand(
   if (supply.availableDate == null) return demand.requiredDate == null;
   if (demand.requiredDate == null) return true;
   return supply.availableDate <= demand.requiredDate;
+}
+
+function supplyLinkedToDemand(
+  supply: DemandQueueSupplyChunk,
+  demand: DemandQueueDemandInput
+) {
+  return (
+    supply.linkedDemand == null ||
+    (supply.linkedDemand.demandType === demand.demandType &&
+      supply.linkedDemand.demandId === demand.demandId)
+  );
 }
 
 function segmentQty(row: DemandQueueCoverageRow, kinds: CoverageSegment["kind"][]) {
@@ -301,6 +316,7 @@ export function computeDemandQueueCoverage(params: {
     for (const chunk of supply) {
       if (coverage.remainingNeed <= 0) break;
       if (chunk.remaining <= 0) continue;
+      if (!supplyLinkedToDemand(chunk, demand)) continue;
       if (!expectedSupplyCanCoverDemand(chunk, demand, params.today)) continue;
       const claim = roundQuantity(Math.min(coverage.remainingNeed, chunk.remaining));
       if (claim <= 0) continue;
@@ -481,6 +497,13 @@ export async function getDemandQueueCoverageForItemInTx(
       quantity: toQuantity(source.totalQty),
       availableDate: source.date,
       label: source.label,
+      linkedDemand:
+        source.sourceType === "manufacturing_order" && source.linkedSalesOrderLineId
+          ? {
+              demandType: "sales_order_line",
+              demandId: source.linkedSalesOrderLineId,
+            }
+          : undefined,
     }));
 
   const demands: DemandQueueDemandInput[] = demandRows.map((row) => ({

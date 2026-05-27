@@ -163,6 +163,7 @@ export async function loadAllocationSourcesForItemInTx(
       status: manufacturingOrders.status,
       plannedDate: manufacturingOrders.plannedDate,
       priorityRank: manufacturingOrders.priorityRank,
+      salesOrderLineId: manufacturingOrders.salesOrderLineId,
       remainingExpectedQty: trimScale(sql`GREATEST(
         ${manufacturingOrders.plannedQuantity} - COALESCE(${manufacturingOrders.actualQuantity}, 0),
         0
@@ -221,6 +222,7 @@ export async function loadAllocationSourcesForItemInTx(
       status: mo.status,
       date: mo.plannedDate,
       priorityRank: mo.priorityRank,
+      linkedSalesOrderLineId: mo.salesOrderLineId,
       totalQty: quantityString(totalQty),
       allocatedQty: quantityString(allocatedQty),
       freeQty: quantityString(freeQty),

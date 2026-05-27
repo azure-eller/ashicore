@@ -92,7 +92,9 @@ function LinkedManufacturingProgressBar({
       aria-label={progress.label}
       title={progress.label}
     >
-      {progress.totalBatchCount > 1 && progress.totalBatchCount <= 24 ? (
+      {orders.length === 1 &&
+      progress.totalBatchCount > 1 &&
+      progress.totalBatchCount <= 24 ? (
         <span
           className="grid h-(--space-2) gap-px"
           style={{

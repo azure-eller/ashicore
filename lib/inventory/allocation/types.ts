@@ -66,6 +66,7 @@ export type AllocationSourceRow = AllocationSourceRef & {
   status: string;
   date: string | null;
   priorityRank: number | null;
+  linkedSalesOrderLineId?: string | null;
   totalQty: string;
   allocatedQty: string;
   freeQty: string;
