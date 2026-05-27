@@ -7,8 +7,8 @@ import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import type { ColDef } from "@/components/erp-data-grid";
 import {
   PRICING_BREAKS_TOOLTIP,
+  PRICING_ITEM_CATEGORY_TOOLTIP,
   PRICING_SCOPE_TOOLTIP,
-  PRICING_UNIT_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import type { PricingScheduleRow } from "./types";
 
@@ -38,9 +38,9 @@ const columns: ColDef<PricingScheduleRow>[] = [
     flex: 1,
   },
   {
-    field: "unitLabel",
-    headerName: "Unit",
-    headerTooltip: PRICING_UNIT_TOOLTIP,
+    field: "itemCategoryLabel",
+    headerName: "Item Category",
+    headerTooltip: PRICING_ITEM_CATEGORY_TOOLTIP,
     width: 190,
   },
   {

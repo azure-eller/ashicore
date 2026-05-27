@@ -16,7 +16,6 @@ import {
 import { sql } from "drizzle-orm";
 import { addressEntries } from "./addresses";
 import { items } from "./items";
-import { unitDefinitions } from "./units";
 
 export const salesSchema = pgSchema("sales");
 
@@ -318,9 +317,7 @@ export const pricingSchedules = salesSchema
       customerCategoryId: uuid("customer_category_id").references(
         () => customerCategories.id
       ),
-      unitDefinitionId: uuid("unit_definition_id")
-        .notNull()
-        .references(() => unitDefinitions.id),
+      itemCategory: varchar("item_category", { length: 100 }),
       notes: text("notes"),
       deletedAt: timestamp("deleted_at", { withTimezone: true }),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -334,15 +331,19 @@ export const pricingSchedules = salesSchema
       index("sales_pricing_schedules_customer_category_id_idx").on(
         table.customerCategoryId
       ),
-      index("sales_pricing_schedules_unit_definition_id_idx").on(
-        table.unitDefinitionId
-      ),
-      uniqueIndex("sales_pricing_schedules_scope_uidx")
-        .on(table.organizationId, table.customerCategoryId, table.unitDefinitionId)
-        .where(sql`customer_category_id IS NOT NULL AND deleted_at IS NULL`),
-      uniqueIndex("sales_pricing_schedules_everyone_uidx")
-        .on(table.organizationId, table.unitDefinitionId)
-        .where(sql`customer_category_id IS NULL AND deleted_at IS NULL`),
+      index("sales_pricing_schedules_item_category_idx").on(table.itemCategory),
+      uniqueIndex("sales_pricing_schedules_customer_item_uidx")
+        .on(table.organizationId, table.customerCategoryId, table.itemCategory)
+        .where(sql`customer_category_id IS NOT NULL AND item_category IS NOT NULL AND deleted_at IS NULL`),
+      uniqueIndex("sales_pricing_schedules_customer_all_items_uidx")
+        .on(table.organizationId, table.customerCategoryId)
+        .where(sql`customer_category_id IS NOT NULL AND item_category IS NULL AND deleted_at IS NULL`),
+      uniqueIndex("sales_pricing_schedules_all_customers_item_uidx")
+        .on(table.organizationId, table.itemCategory)
+        .where(sql`customer_category_id IS NULL AND item_category IS NOT NULL AND deleted_at IS NULL`),
+      uniqueIndex("sales_pricing_schedules_all_customers_all_items_uidx")
+        .on(table.organizationId)
+        .where(sql`customer_category_id IS NULL AND item_category IS NULL AND deleted_at IS NULL`),
       pgPolicy("sales_pricing_schedules_org_isolation", {
         for: "all",
         to: "public",

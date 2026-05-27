@@ -15,6 +15,13 @@ const requiredUuidSchema = (label: string) =>
     .min(1, `${label} is required`)
     .uuid(`Invalid ${label.toLowerCase()}`);
 
+const itemCategorySchema = nullableString
+  .transform((value) => value?.trim() || null)
+  .refine(
+    (value) => value == null || value.length <= 100,
+    "Item category must be 100 characters or fewer"
+  );
+
 const quantitySchema = positiveDecimalString("Quantity");
 
 const maxQuantitySchema = nullableString.refine((value) => {
@@ -81,7 +88,7 @@ const pricingScheduleBreaksSchema = z
 const basePricingScheduleSchema = createInsertSchema(pricingSchedules, {
   name: z.string().trim().min(1, "Name is required"),
   customerCategoryId: customerCategoryIdSchema,
-  unitDefinitionId: requiredUuidSchema("Unit"),
+  itemCategory: itemCategorySchema,
   notes: nullableString,
 }).omit({
   id: true,
@@ -111,7 +118,7 @@ export type ResolveSalesLinePricingInput = z.infer<
 export const pricingScheduleDefaultValues: InsertPricingSchedule = {
   name: "",
   customerCategoryId: null,
-  unitDefinitionId: "",
+  itemCategory: null,
   notes: null,
   breaks: [
     {

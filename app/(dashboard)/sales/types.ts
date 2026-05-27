@@ -187,14 +187,6 @@ export type CustomerCategoryRow = {
   updatedAt: Date;
 };
 
-export type PricingUnitOption = {
-  id: string;
-  name: string;
-  size: string;
-  uom: string;
-  label: string;
-};
-
 export type PricingScheduleBreakRow = {
   id: string;
   minQuantity: string;
@@ -208,9 +200,8 @@ export type PricingScheduleRow = {
   name: string;
   customerCategoryId: string | null;
   customerScopeLabel: string;
-  unitDefinitionId: string;
-  unitName: string;
-  unitLabel: string;
+  itemCategory: string | null;
+  itemCategoryLabel: string;
   notes: string | null;
   breakCount: number;
   breakSummary: string;
@@ -221,7 +212,7 @@ export type PricingScheduleEditData = {
   id: string;
   name: string;
   customerCategoryId: string | null;
-  unitDefinitionId: string;
+  itemCategory: string | null;
   notes: string | null;
   breaks: Array<{
     minQuantity: string;

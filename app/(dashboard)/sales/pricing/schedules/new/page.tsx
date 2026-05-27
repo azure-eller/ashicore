@@ -1,14 +1,19 @@
 import { PricingScheduleForm } from "@/app/(dashboard)/sales/pricing-schedule-form";
 import {
   getCustomerCategoryOptions,
-  getPricingUnitOptions,
+  getPricingItemCategoryOptions,
 } from "@/app/(dashboard)/sales/queries";
 
 export default async function NewPricingSchedulePage() {
-  const [customerCategories, units] = await Promise.all([
+  const [customerCategories, itemCategories] = await Promise.all([
     getCustomerCategoryOptions(),
-    getPricingUnitOptions(),
+    getPricingItemCategoryOptions(),
   ]);
 
-  return <PricingScheduleForm customerCategories={customerCategories} units={units} />;
+  return (
+    <PricingScheduleForm
+      customerCategories={customerCategories}
+      itemCategories={itemCategories}
+    />
+  );
 }

@@ -23,7 +23,6 @@ import {
 import type {
   CustomerCategoryOption,
   PricingScheduleEditData,
-  PricingUnitOption,
 } from "./types";
 import { Button } from "@/components/ui/button";
 import {
@@ -67,8 +66,8 @@ import {
   DISCOUNT_PERCENT_TOOLTIP,
   MAX_QTY_TOOLTIP,
   MIN_QTY_TOOLTIP,
+  PRICING_ITEM_CATEGORY_TOOLTIP,
   PRICING_SCOPE_TOOLTIP,
-  PRICING_UNIT_TOOLTIP,
 } from "@/lib/tooltip-copy";
 
 const EVERYONE_SCOPE_VALUE = "__everyone__";
@@ -215,11 +214,11 @@ function normalizePricingBreakSequence(rows: PricingBreakGridRow[]) {
 
 export function PricingScheduleForm({
   customerCategories,
-  units,
+  itemCategories,
   initialData,
 }: {
   customerCategories: CustomerCategoryOption[];
-  units: PricingUnitOption[];
+  itemCategories: string[];
   initialData?: PricingScheduleEditData;
 }) {
   const router = useRouter();
@@ -241,7 +240,7 @@ export function PricingScheduleForm({
       ? {
           name: initialData.name,
           customerCategoryId: initialData.customerCategoryId,
-          unitDefinitionId: initialData.unitDefinitionId,
+          itemCategory: initialData.itemCategory,
           notes: initialData.notes,
           breaks: initialData.breaks,
         }
@@ -649,28 +648,31 @@ export function PricingScheduleForm({
 
                 <Controller
                   control={form.control}
-                  name="unitDefinitionId"
+                  name="itemCategory"
                   render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel>
-                        <TooltipHeader label="Unit / Package Type" tooltip={PRICING_UNIT_TOOLTIP} />
+                      <FieldLabel htmlFor={field.name}>
+                        <TooltipHeader label="Item Category" tooltip={PRICING_ITEM_CATEGORY_TOOLTIP} />
                       </FieldLabel>
-                      <Select
+                      <Input
+                        id={field.name}
                         name={field.name}
                         value={field.value ?? ""}
-                        onValueChange={field.onChange}
-                      >
-                        <SelectTrigger aria-invalid={fieldState.invalid}>
-                          <SelectValue placeholder="Select a unit" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {units.map((unit) => (
-                            <SelectItem key={unit.id} value={unit.id}>
-                              {unit.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        list="pricing-item-categories"
+                        onChange={(event) => field.onChange(event.target.value)}
+                        onBlur={(event) => {
+                          field.onChange(event.target.value.trim() || null);
+                          field.onBlur();
+                        }}
+                        placeholder="All items"
+                        aria-invalid={fieldState.invalid}
+                        autoComplete="off"
+                      />
+                      <datalist id="pricing-item-categories">
+                        {itemCategories.map((category) => (
+                          <option key={category} value={category} />
+                        ))}
+                      </datalist>
                       {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
                     </Field>
                   )}

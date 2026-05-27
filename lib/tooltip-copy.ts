@@ -292,8 +292,8 @@ export const PRICING_BREAKS_TOOLTIP =
 export const PRICING_SCOPE_TOOLTIP =
   "Customers this schedule applies to.";
 
-export const PRICING_UNIT_TOOLTIP =
-  "Unit the price breaks apply to.";
+export const PRICING_ITEM_CATEGORY_TOOLTIP =
+  "Item category this schedule applies to.";
 
 export const MANUFACTURABLE_LINES_TOOLTIP =
   "Lines eligible for manufacturing orders.";

@@ -80,6 +80,7 @@ export async function createSellableProductFixture(params: {
 
 export async function createCustomerFixture(params: {
   name: string;
+  customerCategoryId?: string | null;
   email?: string | null;
   shipLine1?: string | null;
   shipCity?: string | null;
@@ -89,6 +90,7 @@ export async function createCustomerFixture(params: {
   const name = uniqueName(params.name);
   const response = await createCustomer({
     name,
+    customerCategoryId: params.customerCategoryId ?? null,
     email: params.email ?? null,
     phone: null,
     shipLine1: params.shipLine1 ?? "100 Story Lane",

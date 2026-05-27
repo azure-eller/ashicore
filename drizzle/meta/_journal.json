@@ -862,6 +862,13 @@
       "when": 1779600000002,
       "tag": "0122_purchase_bill_sync_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1779913769874,
+      "tag": "0123_pricing_item_category_axis",
+      "breakpoints": true
     }
   ]
 }

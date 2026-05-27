@@ -132,7 +132,6 @@ import type {
   PricingScheduleEditData,
   PricingScheduleRow,
   PricingSourceType,
-  PricingUnitOption,
   SalesAllocationLineSummary,
   SalesOrderFulfillmentSummary,
   SalesOrderDetail,
@@ -451,6 +450,7 @@ type SalesItemValidationRow = {
   familyName: string | null;
   sku: string | null;
   sellable: boolean | null;
+  category: string | null;
   unitDefinitionId: string;
   unitName: string;
   defaultSellingPrice: string | null;
@@ -475,7 +475,7 @@ type PricingScheduleRecord = {
   id: string;
   name: string;
   customerCategoryId: string | null;
-  unitDefinitionId: string;
+  itemCategory: string | null;
 };
 
 type PricingScheduleBreakRecord = {
@@ -488,23 +488,15 @@ type PricingScheduleBreakRecord = {
 };
 
 type PricingScheduleLookup = {
-  schedulesByUnitAndScope: Map<string, PricingScheduleRecord>;
+  schedulesByScope: Map<string, PricingScheduleRecord>;
   breaksByScheduleId: Map<string, PricingScheduleBreakRecord[]>;
 };
 
 function pricingScheduleScopeKey(
-  unitDefinitionId: string,
-  customerCategoryId: string | null
+  customerCategoryId: string | null,
+  itemCategory: string | null
 ) {
-  return `${unitDefinitionId}:${customerCategoryId ?? "all"}`;
-}
-
-function formatPricingUnitLabel(unit: {
-  name: string;
-  size: string;
-  uom: string;
-}) {
-  return `${unit.name} (${formatQuantity(unit.size)} ${unit.uom})`;
+  return JSON.stringify([customerCategoryId, itemCategory]);
 }
 
 function formatPricingBreakLabel(
@@ -589,32 +581,15 @@ async function ensureCustomerCategoryNameAvailableInTx(
   }
 }
 
-async function ensureUnitDefinitionExistsInTx(tx: Tx, unitDefinitionId: string) {
-  const [unitDefinition] = await tx
-    .select({ id: unitDefinitions.id })
-    .from(unitDefinitions)
-    .where(
-      and(
-        eq(unitDefinitions.id, unitDefinitionId),
-        isNull(unitDefinitions.deletedAt)
-      )
-    );
-
-  if (!unitDefinition) {
-    throw new SalesError("Unit not found.", 404);
-  }
-}
-
 async function ensurePricingScheduleScopeAvailableInTx(
   tx: Tx,
   values: {
     customerCategoryId: string | null;
-    unitDefinitionId: string;
+    itemCategory: string | null;
   },
   options?: { excludeId?: string }
 ) {
   const conditions = [
-    eq(pricingSchedules.unitDefinitionId, values.unitDefinitionId),
     isNull(pricingSchedules.deletedAt),
   ];
 
@@ -622,6 +597,12 @@ async function ensurePricingScheduleScopeAvailableInTx(
     conditions.push(isNull(pricingSchedules.customerCategoryId));
   } else {
     conditions.push(eq(pricingSchedules.customerCategoryId, values.customerCategoryId));
+  }
+
+  if (values.itemCategory == null) {
+    conditions.push(isNull(pricingSchedules.itemCategory));
+  } else {
+    conditions.push(eq(pricingSchedules.itemCategory, values.itemCategory));
   }
 
   if (options?.excludeId) {
@@ -637,8 +618,8 @@ async function ensurePricingScheduleScopeAvailableInTx(
   if (existingSchedule) {
     throw new SalesError("A pricing schedule already exists for this scope.", 400, {
       errors: {
-        unitDefinitionId: [
-          "A pricing schedule already exists for this customer scope and unit.",
+        itemCategory: [
+          "A pricing schedule already exists for this customer and item category scope.",
         ],
       },
     });
@@ -671,22 +652,23 @@ async function getPricingScheduleBreaksInTx(
 async function getPricingScheduleLookupForProductsInTx(
   tx: Tx,
   products: Array<
-    Pick<SalesItemValidationRow, "defaultSellingPrice" | "unitDefinitionId">
+    Pick<SalesItemValidationRow, "category" | "defaultSellingPrice">
   >,
   customerCategoryId: string | null
 ): Promise<PricingScheduleLookup> {
-  const unitDefinitionIds = [
+  const itemCategories = [
     ...new Set(
       products
         .filter((product) => product.defaultSellingPrice != null)
-        .map((product) => product.unitDefinitionId)
+        .map((product) => product.category)
+        .filter((category): category is string => category != null)
     ),
   ];
-  const schedulesByUnitAndScope = new Map<string, PricingScheduleRecord>();
+  const schedulesByScope = new Map<string, PricingScheduleRecord>();
   const breaksByScheduleId = new Map<string, PricingScheduleBreakRecord[]>();
 
-  if (unitDefinitionIds.length === 0) {
-    return { schedulesByUnitAndScope, breaksByScheduleId };
+  if (products.every((product) => product.defaultSellingPrice == null)) {
+    return { schedulesByScope, breaksByScheduleId };
   }
 
   const scheduleRows = await tx
@@ -694,12 +676,17 @@ async function getPricingScheduleLookupForProductsInTx(
       id: pricingSchedules.id,
       name: pricingSchedules.name,
       customerCategoryId: pricingSchedules.customerCategoryId,
-      unitDefinitionId: pricingSchedules.unitDefinitionId,
+      itemCategory: pricingSchedules.itemCategory,
     })
     .from(pricingSchedules)
     .where(
       and(
-        inArray(pricingSchedules.unitDefinitionId, unitDefinitionIds),
+        itemCategories.length === 0
+          ? isNull(pricingSchedules.itemCategory)
+          : or(
+              inArray(pricingSchedules.itemCategory, itemCategories),
+              isNull(pricingSchedules.itemCategory)
+            ),
         customerCategoryId == null
           ? isNull(pricingSchedules.customerCategoryId)
           : or(
@@ -711,15 +698,15 @@ async function getPricingScheduleLookupForProductsInTx(
     );
 
   for (const schedule of scheduleRows) {
-    schedulesByUnitAndScope.set(
-      pricingScheduleScopeKey(schedule.unitDefinitionId, schedule.customerCategoryId),
+    schedulesByScope.set(
+      pricingScheduleScopeKey(schedule.customerCategoryId, schedule.itemCategory),
       schedule
     );
   }
 
   const scheduleIds = scheduleRows.map((schedule) => schedule.id);
   if (scheduleIds.length === 0) {
-    return { schedulesByUnitAndScope, breaksByScheduleId };
+    return { schedulesByScope, breaksByScheduleId };
   }
 
   const breakRows = await tx
@@ -746,7 +733,7 @@ async function getPricingScheduleLookupForProductsInTx(
     breaksByScheduleId.set(pricingBreak.pricingScheduleId, bucket);
   }
 
-  return { schedulesByUnitAndScope, breaksByScheduleId };
+  return { schedulesByScope, breaksByScheduleId };
 }
 
 function findMatchingPricingBreak(
@@ -778,7 +765,7 @@ function resolvePricingForProduct(
   values: {
     customerCategoryId: string | null;
     customerCategoryName: string | null;
-    product: Pick<SalesItemValidationRow, "defaultSellingPrice" | "unitDefinitionId">;
+    product: Pick<SalesItemValidationRow, "category" | "defaultSellingPrice">;
     quantity: string | null;
   },
   lookup: PricingScheduleLookup
@@ -799,14 +786,22 @@ function resolvePricingForProduct(
   const pricingSchedule =
     (values.customerCategoryId == null
       ? null
-      : lookup.schedulesByUnitAndScope.get(
+      : lookup.schedulesByScope.get(
           pricingScheduleScopeKey(
-            values.product.unitDefinitionId,
-            values.customerCategoryId
+            values.customerCategoryId,
+            values.product.category
           )
         )) ??
-    lookup.schedulesByUnitAndScope.get(
-      pricingScheduleScopeKey(values.product.unitDefinitionId, null)
+    (values.customerCategoryId == null
+      ? null
+      : lookup.schedulesByScope.get(
+          pricingScheduleScopeKey(values.customerCategoryId, null)
+        )) ??
+    lookup.schedulesByScope.get(
+      pricingScheduleScopeKey(null, values.product.category)
+    ) ??
+    lookup.schedulesByScope.get(
+      pricingScheduleScopeKey(null, null)
     ) ??
     null;
 
@@ -858,7 +853,7 @@ async function resolvePricingForProductInTx(
   values: {
     customerCategoryId: string | null;
     customerCategoryName: string | null;
-    product: Pick<SalesItemValidationRow, "defaultSellingPrice" | "unitDefinitionId">;
+    product: Pick<SalesItemValidationRow, "category" | "defaultSellingPrice">;
     quantity: string | null;
   }
 ): Promise<Omit<SalesLinePricingResult, "estimatedUnitCost">> {
@@ -2836,6 +2831,7 @@ async function getValidatedSalesItemsInTx(
       familyName: itemFamilies.name,
       sku: items.sku,
       sellable: items.sellable,
+      category: items.category,
       unitDefinitionId: items.unitDefinitionId,
       unitName: unitDefinitions.name,
       defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as(
@@ -3034,23 +3030,15 @@ export async function getCustomerCategoryOptions(): Promise<CustomerCategoryOpti
   });
 }
 
-export async function getPricingUnitOptions(): Promise<PricingUnitOption[]> {
+export async function getPricingItemCategoryOptions(): Promise<string[]> {
   return withAuthedOrgContext(async (tx) => {
     const rows = await tx
-      .select({
-        id: unitDefinitions.id,
-        name: unitDefinitions.name,
-        size: trimScale(unitDefinitions.size).as("size"),
-        uom: unitDefinitions.uom,
-      })
-      .from(unitDefinitions)
-      .where(isNull(unitDefinitions.deletedAt))
-      .orderBy(asc(unitDefinitions.name), asc(unitDefinitions.size));
+      .selectDistinct({ category: items.category })
+      .from(items)
+      .where(and(isNotNull(items.category), isNull(items.deletedAt)))
+      .orderBy(asc(items.category));
 
-    return rows.map((row) => ({
-      ...row,
-      label: formatPricingUnitLabel(row),
-    }));
+    return rows.map((row) => row.category as string);
   });
 }
 
@@ -3290,10 +3278,7 @@ export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
             name: pricingSchedules.name,
             customerCategoryId: pricingSchedules.customerCategoryId,
             customerCategoryName: customerCategories.name,
-            unitDefinitionId: unitDefinitions.id,
-            unitName: unitDefinitions.name,
-            unitSize: trimScale(unitDefinitions.size).as("unitSize"),
-            unitUom: unitDefinitions.uom,
+            itemCategory: pricingSchedules.itemCategory,
             notes: pricingSchedules.notes,
             updatedAt: pricingSchedules.updatedAt,
           })
@@ -3302,14 +3287,10 @@ export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
             customerCategories,
             eq(pricingSchedules.customerCategoryId, customerCategories.id)
           )
-          .innerJoin(
-            unitDefinitions,
-            eq(pricingSchedules.unitDefinitionId, unitDefinitions.id)
-          )
           .where(isNull(pricingSchedules.deletedAt))
           .orderBy(
             asc(customerCategories.name),
-            asc(unitDefinitions.name),
+            asc(pricingSchedules.itemCategory),
             asc(pricingSchedules.name)
           );
 
@@ -3362,13 +3343,8 @@ export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
             name: row.name,
             customerCategoryId: row.customerCategoryId,
             customerScopeLabel: row.customerCategoryName ?? "Everyone",
-            unitDefinitionId: row.unitDefinitionId,
-            unitName: row.unitName,
-            unitLabel: formatPricingUnitLabel({
-              name: row.unitName,
-              size: row.unitSize,
-              uom: row.unitUom,
-            }),
+            itemCategory: row.itemCategory,
+            itemCategoryLabel: row.itemCategory ?? "All items",
             notes: row.notes,
             breakCount: scheduleBreaks.length,
             breakSummary: summarizePricingBreaks(scheduleBreaks),
@@ -3394,7 +3370,7 @@ export async function getPricingSchedule(
         id: pricingSchedules.id,
         name: pricingSchedules.name,
         customerCategoryId: pricingSchedules.customerCategoryId,
-        unitDefinitionId: pricingSchedules.unitDefinitionId,
+        itemCategory: pricingSchedules.itemCategory,
         notes: pricingSchedules.notes,
       })
       .from(pricingSchedules)
@@ -3420,7 +3396,6 @@ export async function getPricingSchedule(
 export async function createPricingSchedule(data: InsertPricingSchedule) {
   return withAuthedOrgContext(async (tx, orgId) => {
     await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
-    await ensureUnitDefinitionExistsInTx(tx, data.unitDefinitionId);
     await ensurePricingScheduleScopeAvailableInTx(tx, data);
 
     const [schedule] = await tx
@@ -3429,7 +3404,7 @@ export async function createPricingSchedule(data: InsertPricingSchedule) {
         organizationId: orgId,
         name: data.name,
         customerCategoryId: data.customerCategoryId,
-        unitDefinitionId: data.unitDefinitionId,
+        itemCategory: data.itemCategory,
         notes: data.notes,
       })
       .returning({ id: pricingSchedules.id });
@@ -3466,7 +3441,6 @@ export async function updatePricingSchedule(
     }
 
     await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
-    await ensureUnitDefinitionExistsInTx(tx, data.unitDefinitionId);
     await ensurePricingScheduleScopeAvailableInTx(tx, data, {
       excludeId: id,
     });
@@ -3476,7 +3450,7 @@ export async function updatePricingSchedule(
       .set({
         name: data.name,
         customerCategoryId: data.customerCategoryId,
-        unitDefinitionId: data.unitDefinitionId,
+        itemCategory: data.itemCategory,
         notes: data.notes,
         updatedAt: new Date(),
       })
