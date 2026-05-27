@@ -17,9 +17,32 @@ export {
 } from "@/lib/accounting/constants";
 
 export const ACCOUNTING_DOCUMENT_PURCHASE_ORDER = "purchase_order";
+export const ACCOUNTING_DOCUMENT_PURCHASE_BILL = "purchase_bill";
 export const ATTACHMENT_OWNER_PURCHASE_ORDER = "purchase_order";
 
 type AttachmentFile = typeof attachmentFiles.$inferSelect;
+
+type AccountingDocumentMetadata = {
+  pushStatus?: string;
+  providerDocumentType?: string | null;
+  idempotencyKey?: string | null;
+  payloadSnapshot?: Record<string, unknown> | null;
+};
+
+function accountingDocumentMetadataValues(params: AccountingDocumentMetadata) {
+  return {
+    ...(params.pushStatus !== undefined ? { pushStatus: params.pushStatus } : {}),
+    ...(params.providerDocumentType !== undefined
+      ? { providerDocumentType: params.providerDocumentType }
+      : {}),
+    ...(params.idempotencyKey !== undefined
+      ? { idempotencyKey: params.idempotencyKey }
+      : {}),
+    ...(params.payloadSnapshot !== undefined
+      ? { pushPayloadSnapshot: params.payloadSnapshot }
+      : {}),
+  };
+}
 
 export async function markAccountingDocumentPushAttempt(
   tx: Tx,
@@ -28,8 +51,13 @@ export async function markAccountingDocumentPushAttempt(
     provider: string;
     documentType: string;
     documentId: string;
+    pushStatus?: string;
+    providerDocumentType?: string | null;
+    idempotencyKey?: string | null;
+    payloadSnapshot?: Record<string, unknown> | null;
   }
 ) {
+  const metadataValues = accountingDocumentMetadataValues(params);
   await tx
     .insert(accountingDocumentSyncs)
     .values({
@@ -37,6 +65,7 @@ export async function markAccountingDocumentPushAttempt(
       provider: params.provider,
       documentType: params.documentType,
       documentId: params.documentId,
+      ...metadataValues,
       lastPushAttemptAt: new Date(),
       retryCount: 1,
     })
@@ -50,6 +79,8 @@ export async function markAccountingDocumentPushAttempt(
       set: {
         lastPushAttemptAt: new Date(),
         retryCount: sql`${accountingDocumentSyncs.retryCount} + 1`,
+        pushError: null,
+        ...metadataValues,
         updatedAt: new Date(),
       },
     });
@@ -65,8 +96,12 @@ export async function persistAccountingDocumentPushSuccess(
     externalDocumentId: string;
     externalDocumentNumber: string;
     payloadHash: string;
+    providerDocumentType?: string | null;
+    idempotencyKey?: string | null;
+    payloadSnapshot?: Record<string, unknown> | null;
   }
 ) {
+  const metadataValues = accountingDocumentMetadataValues(params);
   await tx
     .insert(accountingDocumentSyncs)
     .values({
@@ -80,6 +115,7 @@ export async function persistAccountingDocumentPushSuccess(
       pushError: null,
       pushedAt: new Date(),
       pushPayloadHash: params.payloadHash,
+      ...metadataValues,
       retryCount: 0,
     })
     .onConflictDoUpdate({
@@ -96,6 +132,7 @@ export async function persistAccountingDocumentPushSuccess(
         pushError: null,
         pushedAt: new Date(),
         pushPayloadHash: params.payloadHash,
+        ...metadataValues,
         retryCount: 0,
         updatedAt: new Date(),
       },
@@ -110,8 +147,12 @@ export async function persistAccountingDocumentPushFailure(
     documentType: string;
     documentId: string;
     error: string;
+    providerDocumentType?: string | null;
+    idempotencyKey?: string | null;
+    payloadSnapshot?: Record<string, unknown> | null;
   }
 ) {
+  const metadataValues = accountingDocumentMetadataValues(params);
   await tx
     .insert(accountingDocumentSyncs)
     .values({
@@ -121,6 +162,7 @@ export async function persistAccountingDocumentPushFailure(
       documentId: params.documentId,
       pushStatus: "failed",
       pushError: params.error,
+      ...metadataValues,
     })
     .onConflictDoUpdate({
       target: [
@@ -132,6 +174,7 @@ export async function persistAccountingDocumentPushFailure(
       set: {
         pushStatus: "failed",
         pushError: params.error,
+        ...metadataValues,
         updatedAt: new Date(),
       },
     });

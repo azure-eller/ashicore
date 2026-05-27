@@ -855,6 +855,13 @@
       "when": 1779600000001,
       "tag": "0121_retire_shipment_line_allocations",
       "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1779600000002,
+      "tag": "0122_purchase_bill_sync_metadata",
+      "breakpoints": true
     }
   ]
 }

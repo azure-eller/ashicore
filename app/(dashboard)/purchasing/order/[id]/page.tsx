@@ -7,6 +7,7 @@ import {
 } from "@/app/(dashboard)/purchasing/queries";
 import { getAddressEntries } from "@/lib/dal/addresses";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
+import { getXeroConnection } from "@/lib/dal/xero";
 import { hasModuleAccess } from "@/lib/authz";
 import { captureAppError } from "@/lib/observability/sentry";
 
@@ -31,13 +32,15 @@ export default async function PurchaseOrderDetailPage({
   let suppliers;
   let materials;
   let addresses;
+  let xeroConnection;
 
   try {
-    [order, suppliers, materials, addresses] = await Promise.all([
+    [order, suppliers, materials, addresses, xeroConnection] = await Promise.all([
       getEditablePurchaseOrder(id),
       getSuppliers(),
       getPurchaseOrderMaterialOptions(),
       getAddressEntries(),
+      getXeroConnection(),
     ]);
   } catch (error) {
     captureAppError(error, {
@@ -71,6 +74,14 @@ export default async function PurchaseOrderDetailPage({
       orderTitle={order.orderNumber}
       canWrite={canWrite}
       canViewLedger={canViewLedger}
+      xeroBillSetupStatus={
+        !xeroConnection
+          ? "not_connected"
+          : xeroConnection.purchaseOrderDefaultAccountCode ??
+              xeroConnection.defaultAccountCode
+            ? "ready"
+            : "missing_purchase_account"
+      }
     />
   );
 }

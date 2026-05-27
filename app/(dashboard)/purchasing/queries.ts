@@ -22,6 +22,7 @@ import {
 } from "@/lib/db/schema";
 import {
   ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+  ACCOUNTING_DOCUMENT_PURCHASE_BILL,
   ACCOUNTING_PROVIDER_XERO,
   ATTACHMENT_OWNER_PURCHASE_ORDER,
   persistAccountingDocumentPushSuccess,
@@ -49,6 +50,7 @@ import { DomainError, type DomainFieldErrors } from "@/lib/errors/domain-error";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type {
   InsertPurchaseOrder,
+  CreatePurchaseBill,
   PurchaseOrderStatus,
   ReceivePurchaseOrder,
   UpdatePurchaseOrder,
@@ -63,6 +65,10 @@ import type {
   PurchaseOrderMaterialOption,
   SupplierRow,
 } from "./types";
+import { alias } from "drizzle-orm/pg-core";
+
+const purchaseOrderSyncs = alias(accountingDocumentSyncs, "purchase_order_syncs");
+const purchaseBillSyncs = alias(accountingDocumentSyncs, "purchase_bill_syncs");
 
 type PreparedPurchaseOrderLine = {
   itemId: string;
@@ -911,8 +917,21 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
             createdAt: purchaseOrders.createdAt,
             updatedAt: purchaseOrders.updatedAt,
             receivedAt: purchaseOrders.receivedAt,
+            purchaseBillStatus: purchaseBillSyncs.pushStatus,
+            purchaseBillError: purchaseBillSyncs.pushError,
+            purchaseBillExternalId: purchaseBillSyncs.externalDocumentId,
+            purchaseBillExternalNumber: purchaseBillSyncs.externalDocumentNumber,
+            purchaseBillPushedAt: purchaseBillSyncs.pushedAt,
           })
           .from(purchaseOrders)
+          .leftJoin(
+            purchaseBillSyncs,
+            and(
+              eq(purchaseBillSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+              eq(purchaseBillSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_BILL),
+              eq(purchaseBillSyncs.documentId, purchaseOrders.id),
+            ),
+          )
           .where(isNull(purchaseOrders.deletedAt))
           .orderBy(
             desc(purchaseOrders.createdAt),
@@ -954,6 +973,8 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
         return orderRows.map((order) => ({
           ...order,
           status: order.status as PurchaseOrderStatus,
+          purchaseBillStatus:
+            order.purchaseBillStatus as PurchaseOrderListRow["purchaseBillStatus"],
           itemSummary: summarizeItems(linesByOrderId.get(order.id) ?? []),
         }));
       });
@@ -1000,17 +1021,23 @@ export async function getPurchaseOrder(
         orderedAt: purchaseOrders.orderedAt,
         receivedAt: purchaseOrders.receivedAt,
         cancelledAt: purchaseOrders.cancelledAt,
-        xeroPurchaseOrderId: accountingDocumentSyncs.externalDocumentId,
-        xeroPurchaseOrderNumber: accountingDocumentSyncs.externalDocumentNumber,
-        xeroPushStatus: accountingDocumentSyncs.pushStatus,
-        xeroPushError: accountingDocumentSyncs.pushError,
-        xeroPushedAt: accountingDocumentSyncs.pushedAt,
-        xeroPushPayloadHash: accountingDocumentSyncs.pushPayloadHash,
-        xeroLastPushAttemptAt: accountingDocumentSyncs.lastPushAttemptAt,
-        xeroRetryCount: sql<number>`COALESCE(${accountingDocumentSyncs.retryCount}, 0)`,
-        xeroPoEmailStatus: accountingDocumentSyncs.emailStatus,
-        xeroPoEmailError: accountingDocumentSyncs.emailError,
-        xeroPoEmailedAt: accountingDocumentSyncs.emailedAt,
+        xeroPurchaseOrderId: purchaseOrderSyncs.externalDocumentId,
+        xeroPurchaseOrderNumber: purchaseOrderSyncs.externalDocumentNumber,
+        xeroPushStatus: purchaseOrderSyncs.pushStatus,
+        xeroPushError: purchaseOrderSyncs.pushError,
+        xeroPushedAt: purchaseOrderSyncs.pushedAt,
+        xeroPushPayloadHash: purchaseOrderSyncs.pushPayloadHash,
+        xeroLastPushAttemptAt: purchaseOrderSyncs.lastPushAttemptAt,
+        xeroRetryCount: sql<number>`COALESCE(${purchaseOrderSyncs.retryCount}, 0)`,
+        xeroPoEmailStatus: purchaseOrderSyncs.emailStatus,
+        xeroPoEmailError: purchaseOrderSyncs.emailError,
+        xeroPoEmailedAt: purchaseOrderSyncs.emailedAt,
+        purchaseBillExternalId: purchaseBillSyncs.externalDocumentId,
+        purchaseBillExternalNumber: purchaseBillSyncs.externalDocumentNumber,
+        purchaseBillStatus: purchaseBillSyncs.pushStatus,
+        purchaseBillError: purchaseBillSyncs.pushError,
+        purchaseBillPushedAt: purchaseBillSyncs.pushedAt,
+        purchaseBillPayloadSnapshot: purchaseBillSyncs.pushPayloadSnapshot,
         deletedAt: purchaseOrders.deletedAt,
         createdAt: purchaseOrders.createdAt,
         updatedAt: purchaseOrders.updatedAt,
@@ -1018,11 +1045,19 @@ export async function getPurchaseOrder(
       .from(purchaseOrders)
       .leftJoin(suppliers, eq(purchaseOrders.supplierId, suppliers.id))
       .leftJoin(
-        accountingDocumentSyncs,
+        purchaseOrderSyncs,
         and(
-          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
-          eq(accountingDocumentSyncs.documentType, "purchase_order"),
-          eq(accountingDocumentSyncs.documentId, purchaseOrders.id),
+          eq(purchaseOrderSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(purchaseOrderSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_ORDER),
+          eq(purchaseOrderSyncs.documentId, purchaseOrders.id),
+        ),
+      )
+      .leftJoin(
+        purchaseBillSyncs,
+        and(
+          eq(purchaseBillSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(purchaseBillSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_BILL),
+          eq(purchaseBillSyncs.documentId, purchaseOrders.id),
         ),
       )
       .where(and(...conditions));
@@ -1053,6 +1088,8 @@ export async function getPurchaseOrder(
         order.xeroPushStatus as PurchaseOrderDetail["xeroPushStatus"],
       xeroPoEmailStatus:
         order.xeroPoEmailStatus as PurchaseOrderDetail["xeroPoEmailStatus"],
+      purchaseBillStatus:
+        order.purchaseBillStatus as PurchaseOrderDetail["purchaseBillStatus"],
       lines: lines.map((line, index) => {
         const lineCosts = landedCosts.lines[index];
 
@@ -1108,8 +1145,20 @@ export async function getEditablePurchaseOrder(
         shipPostcode: purchaseOrders.shipPostcode,
         shipCountry: purchaseOrders.shipCountry,
         shippingCost: trimScale(purchaseOrders.shippingCost).as("shippingCost"),
+        purchaseBillExternalId: purchaseBillSyncs.externalDocumentId,
+        purchaseBillExternalNumber: purchaseBillSyncs.externalDocumentNumber,
+        purchaseBillStatus: purchaseBillSyncs.pushStatus,
+        purchaseBillError: purchaseBillSyncs.pushError,
       })
       .from(purchaseOrders)
+      .leftJoin(
+        purchaseBillSyncs,
+        and(
+          eq(purchaseBillSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(purchaseBillSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_BILL),
+          eq(purchaseBillSyncs.documentId, purchaseOrders.id),
+        ),
+      )
       .where(
         and(
           eq(purchaseOrders.id, id),
@@ -1137,6 +1186,8 @@ export async function getEditablePurchaseOrder(
     return {
       ...order,
       status: order.status as PurchaseOrderEditData["status"],
+      purchaseBillStatus:
+        order.purchaseBillStatus as PurchaseOrderEditData["purchaseBillStatus"],
       lines: lines.map((line) => ({
         itemId: line.itemId,
         quantityOrdered: line.quantityOrdered,
@@ -1614,6 +1665,30 @@ export async function updatePurchaseOrder(
       return null;
     }
 
+    const [purchaseBillSync] = await tx
+      .select({
+        externalDocumentId: accountingDocumentSyncs.externalDocumentId,
+        pushStatus: accountingDocumentSyncs.pushStatus,
+      })
+      .from(accountingDocumentSyncs)
+      .where(
+        and(
+          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_BILL),
+          eq(accountingDocumentSyncs.documentId, id),
+        ),
+      );
+
+    if (
+      purchaseBillSync?.pushStatus === "pushed" &&
+      purchaseBillSync.externalDocumentId
+    ) {
+      throw new PurchasingError(
+        "This purchase order already has a Xero bill. Void it in Xero before editing the purchase order.",
+        409,
+      );
+    }
+
     const prepared = await preparePurchaseOrderPayload(tx, orgId, data);
     const existingLines = await getPurchaseOrderLinesInTx(tx, id);
     const existingLineByItemId = new Map(
@@ -2021,6 +2096,46 @@ export async function retryXeroEmailForPurchaseOrder(id: string) {
       await import("@/lib/xero/push-purchase-order");
     const result = await emailPurchaseOrderForOrder(orgId, id);
     return { ok: true as const, result };
+  });
+}
+
+export async function createPurchaseBillAccountingSync(
+  id: string,
+  data: CreatePurchaseBill,
+) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const { createPurchaseBillAccountingSync, markXeroPurchaseBillPushFailed } =
+      await import("@/lib/xero/push-purchase-bill");
+    const { XeroError } = await import("@/lib/xero/errors");
+    try {
+      const result = await createPurchaseBillAccountingSync(orgId, id, data);
+      return { ok: true as const, result };
+    } catch (error) {
+      const [sync] = await tx
+        .select({ pushStatus: accountingDocumentSyncs.pushStatus })
+        .from(accountingDocumentSyncs)
+        .where(
+          and(
+            eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+            eq(
+              accountingDocumentSyncs.documentType,
+              ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+            ),
+            eq(accountingDocumentSyncs.documentId, id),
+          ),
+        );
+
+      const isExpectedPreflight =
+        error instanceof XeroError &&
+        (error.status === 404 ||
+          error.message.includes("not connected") ||
+          error.message.includes("already running"));
+
+      if (sync?.pushStatus === "pending" && !isExpectedPreflight) {
+        await markXeroPurchaseBillPushFailed(orgId, id, error);
+      }
+      throw error;
+    }
   });
 }
 

@@ -63,7 +63,7 @@
     "test:fast:sales": "pnpm test:e2e:sales",
     "test:e2e:sales": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/fast/sales-demand-and-shipment.spec.ts --workers=${PLAYWRIGHT_FAST_WORKERS:-2}",
     "test:fast:purchasing": "pnpm test:e2e:purchasing",
-    "test:e2e:purchasing": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/fast/purchasing-supply-and-receipt.spec.ts --workers=${PLAYWRIGHT_FAST_WORKERS:-2}",
+    "test:e2e:purchasing": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/fast/purchasing-supply-and-receipt.spec.ts test/e2e/fast/xero-purchase-bill-gates.spec.ts --workers=${PLAYWRIGHT_FAST_WORKERS:-2}",
     "test:fast:planning": "pnpm test:e2e:planning",
     "test:e2e:planning": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/fast/planning-demand-queue.spec.ts --workers=1",
     "test:slow:planning": "pnpm test:e2e:planning:slow",

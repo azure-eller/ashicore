@@ -27,11 +27,19 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   `InvoiceNumber` before issuing a create. Sales orders can be sent manually
   from the order header; shipped orders can still auto-send when the org
   enables invoice automation.
-- **PO push retired** — Xero is the purchasing source of truth for synced POs.
+- **Purchase bill push** — `lib/xero/push-purchase-bill.ts`. Creates Xero
+  `ACCPAY` draft bills from received ERP purchase orders. The action is manual
+  from the PO bill status, stores a provider-neutral `purchase_bill` sync
+  snapshot, uses purchase-unit line economics, and omits additional PO costs in
+  v1 after explicit user confirmation. Retry/adoption checks existing ACCPAY
+  bills by supplier invoice number, but only links a match when Xero contact,
+  reference, and subtotal match the ERP purchase order.
+- **PO push retired** — ERP purchase orders are the purchasing source of truth.
   The UI no longer exports ERP purchase orders to Xero or emails Xero-rendered
   PO PDFs. Legacy push routes remain only for old history/retry compatibility
   and should not be wired into new workflows.
-- **Contact upsert** — `lib/xero/contacts.ts`. Used by sales invoice push.
+- **Contact upsert** — `lib/xero/contacts.ts`. Used by sales invoice push and
+  purchase bill push.
 - **Contact import** — `lib/xero/import-contacts.ts`. Customer/supplier
   imports preview counts before writing, record `xero_import_runs`, and
   can reset a completed run when imported rows are not referenced by orders.
@@ -143,23 +151,27 @@ After any change in `lib/xero/` or in the sales push hook (`shipSalesOrder`):
    under Business → Invoices, with `xero_push_status='pushed'` and
    `xero_invoice_id` populated locally. If `auto_email_sales_invoices`
    is on, expect `xero_email_status='sent'`.
-2. **Purchase import happy path.** Enable purchase order import or run bulk
+2. **Purchase bill happy path.** Receive an ERP PO, click Create Xero Bill,
+   enter supplier invoice metadata, and confirm any omitted additional costs.
+   Expect a draft payable bill in Xero with purchase-unit quantities and a
+   local `purchase_bill` document sync row.
+3. **Purchase import happy path.** Enable purchase order import or run bulk
    import. Expect open Xero POs to appear in ERP for receiving; received ERP PO
    lines must not be rewritten by later imports.
-3. **Failure path.** Revoke the access token from inside Xero
+4. **Failure path.** Revoke the access token from inside Xero
    (Settings → Connected apps → revoke). Ship another order. Expect
    `xero_push_status='failed'`, the order detail page to show the
    "Retry Xero push" action, and the **Test connection** button to
    surface `Reconnect required`. Reconnect, click Retry — should
    recover.
-4. **Cron path.** Force a few failed rows, then poke the cron:
+5. **Cron path.** Force a few failed rows, then poke the cron:
    ```bash
    curl -H "Authorization: Bearer $CRON_SECRET" \
      http://localhost:3000/api/internal/xero-retry
    ```
    Expect the response JSON to show `recovered > 0` and the rows
    to flip back to `pushed` without a duplicate Xero document.
-5. **Idempotency past the 6-minute window.** Manually delete the
+6. **Idempotency past the 6-minute window.** Manually delete the
    `xero_invoice_id` from a row whose Xero invoice still exists, then
    trigger retry. The push should adopt the existing Xero invoice via
    `findXeroInvoiceForSalesOrder` rather than creating a duplicate.

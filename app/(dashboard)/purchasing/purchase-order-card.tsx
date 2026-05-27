@@ -67,10 +67,12 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { AddressFields } from "@/components/address-fields";
@@ -139,6 +141,11 @@ type PurchaseOrderFormAttachment = {
   syncedAt: Date | string | null;
 };
 
+export type XeroBillSetupStatus =
+  | "not_connected"
+  | "missing_purchase_account"
+  | "ready";
+
 const ADD_DELIVERY_ADDRESS_VALUE = "__add_delivery_address__";
 const EDIT_DELIVERY_ADDRESS_VALUE = "__edit_delivery_address__";
 const EMPTY_DELIVERY_ADDRESS = {
@@ -199,6 +206,13 @@ type PurchaseOrderAdditionalCostColumnKey =
 type PurchaseOrderLinePayloadRow = PurchaseOrderFormValues["lines"][number];
 type PurchaseOrderLineGridRow = PurchaseOrderLinePayloadRow & {
   clientRowId: string;
+};
+type PurchaseBillDialogValues = {
+  invoiceNumber: string;
+  billDate: string;
+  dueDate: string;
+  reference: string;
+  confirmAdditionalCostsOmitted: boolean;
 };
 type PurchaseOrderLineColumnKey =
   | "itemId"
@@ -389,6 +403,57 @@ function lineTotalLabel(
   const cost = parseNonNegative(unitCost);
   if (quantity == null || cost == null) return "\u2014";
   return formatPrice((quantity * cost).toFixed(4)) ?? "\u2014";
+}
+
+function formatQuantityWithUnit(
+  quantity: string | number | null | undefined,
+  unit: string | null | undefined,
+) {
+  const value =
+    typeof quantity === "number"
+      ? normalizeLandedDisplayNumber(quantity)
+      : quantity;
+  return [value, unit].filter(Boolean).join(" ");
+}
+
+function lineUnitConversionLabel(params: {
+  quantityOrdered: string | null | undefined;
+  purchaseUnitName: string | null | undefined;
+  stockQuantityOrdered: string | number | null | undefined;
+  stockingUnitName: string | null | undefined;
+  purchaseToStockFactor: string | null | undefined;
+}) {
+  if (!params.quantityOrdered) return "\u2014";
+  const purchase = formatQuantityWithUnit(
+    params.quantityOrdered,
+    params.purchaseUnitName,
+  );
+  const stock = formatQuantityWithUnit(
+    params.stockQuantityOrdered,
+    params.stockingUnitName,
+  );
+  if (
+    !stock ||
+    params.purchaseUnitName === params.stockingUnitName ||
+    Number(params.purchaseToStockFactor ?? "1") === 1
+  ) {
+    return purchase;
+  }
+  return `${purchase} -> ${stock}`;
+}
+
+function purchaseBillStatusLabel(status: string | null | undefined) {
+  if (status === "pending") return "Syncing";
+  if (status === "pushed") return "Bill created in Xero";
+  if (status === "failed") return "Sync failed";
+  return "Not billed";
+}
+
+function todayIsoDate() {
+  const today = new Date();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${today.getFullYear()}-${month}-${day}`;
 }
 
 function formatBytes(bytes: number) {
@@ -680,6 +745,34 @@ function PurchaseLineTotalCell({
   );
 }
 
+function PurchaseStockQuantityCell({
+  data,
+  node,
+  materialMap,
+  landedCosts,
+}: ICellRendererParams<PurchaseOrderLineGridRow> & {
+  materialMap: Map<string, PurchaseOrderMaterialOption>;
+  landedCosts: LandedCostLineResult[];
+}) {
+  const material = data?.itemId ? materialMap.get(data.itemId) : undefined;
+  const stockQuantity =
+    node.rowIndex == null
+      ? null
+      : landedCosts[node.rowIndex]?.stockQuantityOrdered;
+  return (
+    <span className="block truncate text-muted-foreground">
+      {lineUnitConversionLabel({
+        quantityOrdered: data?.quantityOrdered,
+        purchaseUnitName:
+          material?.purchaseUnitName ?? material?.stockingUnitName,
+        stockQuantityOrdered: stockQuantity,
+        stockingUnitName: material?.stockingUnitName,
+        purchaseToStockFactor: material?.purchaseToStockFactor,
+      })}
+    </span>
+  );
+}
+
 function hasAutosaveMinimum(values: PurchaseOrderFormValues) {
   return Boolean(values.supplierId?.trim());
 }
@@ -758,6 +851,7 @@ export function PurchaseOrderCard({
   orderTitle,
   canWrite = true,
   canViewLedger = false,
+  xeroBillSetupStatus = "not_connected",
 }: {
   suppliers: SupplierOption[];
   materials: PurchaseOrderMaterialOption[];
@@ -767,6 +861,7 @@ export function PurchaseOrderCard({
   orderTitle?: string | null;
   canWrite?: boolean;
   canViewLedger?: boolean;
+  xeroBillSetupStatus?: XeroBillSetupStatus;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -791,6 +886,30 @@ export function PurchaseOrderCard({
   const [attachments, setAttachments] = useState<PurchaseOrderFormAttachment[]>(
     initialData?.attachments ?? [],
   );
+  const [purchaseBillStatus, setPurchaseBillStatus] = useState(
+    initialData?.purchaseBillStatus ?? null,
+  );
+  const [purchaseBillError, setPurchaseBillError] = useState(
+    initialData?.purchaseBillError ?? null,
+  );
+  const [purchaseBillExternalId, setPurchaseBillExternalId] = useState(
+    initialData?.purchaseBillExternalId ?? null,
+  );
+  const [purchaseBillExternalNumber, setPurchaseBillExternalNumber] = useState(
+    initialData?.purchaseBillExternalNumber ?? null,
+  );
+  const [purchaseBillDialogOpen, setPurchaseBillDialogOpen] = useState(false);
+  const [purchaseBillDialogValues, setPurchaseBillDialogValues] =
+    useState<PurchaseBillDialogValues>(() => {
+      const today = todayIsoDate();
+      return {
+        invoiceNumber: "",
+        billDate: today,
+        dueDate: today,
+        reference: initialData?.orderNumber ?? "",
+        confirmAdditionalCostsOmitted: false,
+      };
+    });
   const xeroAccountsQuery = useQuery({
     queryKey: ["xero-accounts"],
     queryFn: async () => {
@@ -836,6 +955,7 @@ export function PurchaseOrderCard({
   );
   const readOnly =
     !canWrite || displayStatus === "received" || displayStatus === "cancelled";
+  const billAffectingReadOnly = readOnly || purchaseBillStatus === "pushed";
   const supplierOptionsSorted = [...suppliers].sort((a, b) =>
     a.name.localeCompare(b.name),
   );
@@ -1025,6 +1145,14 @@ export function PurchaseOrderCard({
   const nonDistributedAdditionalCostTotal =
     landedCostPreview.nonDistributedAdditionalCostTotal;
   const orderTotal = landedCostPreview.orderTotal;
+  const hasAdditionalCostsForBill = additionalCostRows.some(
+    (cost) => !isBlankPurchaseOrderAdditionalCost(cost),
+  );
+  const additionalCostsForBillTotal = additionalCostRows.reduce((sum, cost) => {
+    if (isBlankPurchaseOrderAdditionalCost(cost)) return sum;
+    const amount = parseNonNegative(cost.amount);
+    return sum + (amount ?? 0);
+  }, 0);
   const lineCount = lineGridRows.filter(
     (line) => !isBlankPurchaseOrderLine(line),
   ).length;
@@ -1084,7 +1212,7 @@ export function PurchaseOrderCard({
         headerTooltip: PURCHASE_MATERIAL_TOOLTIP,
         minWidth: 220,
         flex: 1.55,
-        editable: (data) => !readOnly && !receivedMaterialIds.has(data?.itemId ?? ""),
+        editable: (data) => !billAffectingReadOnly && !receivedMaterialIds.has(data?.itemId ?? ""),
         options: materialOptions,
         placeholder: "Search materials...",
         emptyMessage: "No materials found",
@@ -1130,7 +1258,7 @@ export function PurchaseOrderCard({
         headerTooltip: PO_ORDERED_QTY_TOOLTIP,
         minWidth: 116,
         flex: 0.5,
-        editable: !readOnly,
+        editable: !billAffectingReadOnly,
         valueSetter: (
           params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
         ) => {
@@ -1168,13 +1296,30 @@ export function PurchaseOrderCard({
         ) => <PurchaseUnitCell {...params} materialMap={materialMap} />,
       },
       {
+        colId: "stockQuantity",
+        kind: "display",
+        headerName: "Stock Qty",
+        headerTooltip: "Purchase quantity converted to stocking units.",
+        minWidth: 178,
+        flex: 0.85,
+        cellRenderer: (
+          params: ICellRendererParams<PurchaseOrderLineGridRow>,
+        ) => (
+          <PurchaseStockQuantityCell
+            {...params}
+            materialMap={materialMap}
+            landedCosts={landedCostPreview.lines}
+          />
+        ),
+      },
+      {
         field: "unitCost",
         kind: "number",
         headerName: "Unit Cost",
         headerTooltip: PURCHASE_UNIT_COST_TOOLTIP,
         minWidth: 128,
         flex: 0.55,
-        editable: !readOnly,
+        editable: !billAffectingReadOnly,
         valueSetter: (
           params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
         ) => {
@@ -1226,7 +1371,7 @@ export function PurchaseOrderCard({
         headerTooltip: PURCHASE_ACCOUNT_TOOLTIP,
         minWidth: 132,
         flex: 0.55,
-        editable: !readOnly,
+        editable: !billAffectingReadOnly,
         values: ["", ...xeroAccounts.map((account) => account.code)],
         valueFormatter: ({ value }) => {
           if (!value) return "";
@@ -1265,7 +1410,7 @@ export function PurchaseOrderCard({
     materialMap,
     materialOptions,
     receivedMaterialIds,
-    readOnly,
+    billAffectingReadOnly,
     xeroAccounts,
     xeroAccountsByCode,
   ]);
@@ -1330,7 +1475,7 @@ export function PurchaseOrderCard({
         headerTooltip: PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP,
         minWidth: 128,
         flex: 0.75,
-        editable: !readOnly,
+        editable: !billAffectingReadOnly,
         values: Object.keys(ADDITIONAL_COST_TYPE_LABELS),
         valueFormatter: ({
           value,
@@ -1355,7 +1500,7 @@ export function PurchaseOrderCard({
         headerTooltip: PURCHASE_COST_REFERENCE_TOOLTIP,
         minWidth: 172,
         flex: 1.25,
-        editable: !readOnly,
+        editable: !billAffectingReadOnly,
         valueSetter: (
           params: ValueSetterParams<
             PurchaseOrderAdditionalCostGridRow,
@@ -1374,7 +1519,7 @@ export function PurchaseOrderCard({
         headerTooltip: PURCHASE_COST_DISTRIBUTION_TOOLTIP,
         minWidth: 148,
         flex: 0.8,
-        editable: !readOnly,
+        editable: !billAffectingReadOnly,
         values: Object.keys(ADDITIONAL_COST_DISTRIBUTION_LABELS),
         valueFormatter: ({
           value,
@@ -1399,7 +1544,7 @@ export function PurchaseOrderCard({
         headerTooltip: PURCHASE_ACCOUNT_TOOLTIP,
         minWidth: 164,
         flex: 0.95,
-        editable: !readOnly,
+        editable: !billAffectingReadOnly,
         values: ["", ...xeroAccounts.map((account) => account.code)],
         valueFormatter: ({ value }) => {
           if (!value) return "";
@@ -1425,7 +1570,7 @@ export function PurchaseOrderCard({
         headerTooltip: PURCHASE_COST_AMOUNT_TOOLTIP,
         minWidth: 128,
         flex: 0.65,
-        editable: !readOnly,
+        editable: !billAffectingReadOnly,
         valueSetter: (
           params: ValueSetterParams<
             PurchaseOrderAdditionalCostGridRow,
@@ -1462,7 +1607,7 @@ export function PurchaseOrderCard({
   }, [
     additionalCostGridRows,
     fieldErrors.additionalCosts,
-    readOnly,
+    billAffectingReadOnly,
     xeroAccounts,
     xeroAccountsByCode,
   ]);
@@ -1585,6 +1730,52 @@ export function PurchaseOrderCard({
       await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
     },
     onError: (error: Error) => setFormError(error.message),
+  });
+  const purchaseBillMutation = useMutation({
+    mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "purchase-bill"],
+    mutationFn: async (values: PurchaseBillDialogValues) => {
+      if (!savedOrderId) throw new Error("Save the purchase order first.");
+      const response = await fetch(
+        `/api/purchase-orders/${savedOrderId}/accounting-bill`,
+        {
+          method: "POST",
+          headers: createIdempotencyHeaders("purchase-order-bill", {
+            "Content-Type": "application/json",
+          }),
+          body: JSON.stringify(values),
+        },
+      );
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to create Xero bill.");
+      }
+
+      return body as {
+        xeroBillId: string;
+        xeroBillNumber: string;
+        status: "pushed";
+        created: boolean;
+        adopted: boolean;
+      };
+    },
+    onMutate: () => {
+      setFormError(null);
+      setPurchaseBillError(null);
+      setPurchaseBillStatus("pending");
+      return { previousStatus: purchaseBillStatus };
+    },
+    onSuccess: async (result) => {
+      setPurchaseBillStatus("pushed");
+      setPurchaseBillExternalId(result.xeroBillId);
+      setPurchaseBillExternalNumber(result.xeroBillNumber);
+      setPurchaseBillDialogOpen(false);
+      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+    },
+    onError: (error: Error, _values, context) => {
+      setPurchaseBillStatus(context?.previousStatus ?? null);
+      setPurchaseBillError(error.message);
+    },
   });
 
   const ensureSavedOrder = async () => {
@@ -1793,6 +1984,16 @@ export function PurchaseOrderCard({
     const quantity = parsePositive(line.quantityOrdered);
     return sum + (quantity ?? 0);
   }, 0);
+  const billActionDisabledReason =
+    xeroBillSetupStatus === "not_connected"
+      ? "Connect Xero before creating supplier bills."
+      : xeroBillSetupStatus === "missing_purchase_account"
+        ? "Set a purchase account code in Xero settings before creating supplier bills."
+        : displayStatus !== "received"
+          ? "V1 supports Xero bills after full receipt."
+          : purchaseBillStatus === "pending"
+            ? "Xero bill sync is already running."
+            : null;
 
   return (
     <>
@@ -1934,7 +2135,7 @@ export function PurchaseOrderCard({
                     onEdit={openEditAddressDialog}
                     inputClassName={styles.underlineControl}
                     labelClassName={styles.formLabel}
-                    readOnly={readOnly}
+                    readOnly={billAffectingReadOnly}
                   />
                 </div>
               </div>
@@ -1948,7 +2149,7 @@ export function PurchaseOrderCard({
                 createRow={createLineRow}
                 onRowsChange={handleLineRowsChange}
                 addLabel="Add material"
-                readOnly={readOnly}
+                readOnly={billAffectingReadOnly}
                 canDeleteRow={(row) => !receivedMaterialIds.has(row.itemId ?? "")}
                 getDeleteDisabledReason={(row) =>
                   receivedMaterialIds.has(row.itemId ?? "")
@@ -1968,11 +2169,79 @@ export function PurchaseOrderCard({
                 createRow={createAdditionalCostRow}
                 onRowsChange={handleAdditionalCostRowsChange}
                 addLabel="Add cost"
-                readOnly={readOnly}
+                readOnly={billAffectingReadOnly}
                 emptyMessage="No additional costs yet."
                 error={additionalCostsError}
               />
             </CardSection>
+
+            {savedOrderId ? (
+              <CardSection title="Accounting">
+                <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant={
+                          purchaseBillStatus === "failed"
+                            ? "destructive"
+                            : purchaseBillStatus === "pushed"
+                              ? "outline"
+                              : "secondary"
+                        }
+                      >
+                        {purchaseBillStatusLabel(purchaseBillStatus)}
+                      </Badge>
+                      {purchaseBillExternalNumber ? (
+                        <span className="text-sm text-muted-foreground">
+                          {purchaseBillExternalNumber}
+                        </span>
+                      ) : null}
+                    </div>
+                    {purchaseBillError ? (
+                      <p className="text-sm text-destructive">
+                        {purchaseBillError}
+                      </p>
+                    ) : billActionDisabledReason ? (
+                      <p className="text-sm text-muted-foreground">
+                        {billActionDisabledReason}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
+                    {purchaseBillStatus === "pushed" ? (
+                      <Button variant="outline" size="sm" asChild>
+                        <a
+                          href={
+                            purchaseBillExternalId
+                              ? `https://go.xero.com/AccountsPayable/View.aspx?InvoiceID=${encodeURIComponent(purchaseBillExternalId)}`
+                              : "https://go.xero.com/AccountsPayable/"
+                          }
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open in Xero
+                        </a>
+                      </Button>
+                    ) : null}
+                    {purchaseBillStatus !== "pushed" ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPurchaseBillDialogOpen(true)}
+                        disabled={
+                          !canWrite ||
+                          purchaseBillMutation.isPending ||
+                          Boolean(billActionDisabledReason)
+                        }
+                        title={billActionDisabledReason ?? undefined}
+                      >
+                        {purchaseBillStatus === "failed" ? "Retry" : "Create Xero Bill"}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              </CardSection>
+            ) : null}
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
               <CardSection
@@ -2038,6 +2307,128 @@ export function PurchaseOrderCard({
           </>
         </CardPageBody>
       </CardPage>
+      <Dialog
+        open={purchaseBillDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && !purchaseBillMutation.isPending) {
+            setPurchaseBillDialogOpen(false);
+          }
+        }}
+      >
+        <DialogContent size="md">
+          <DialogHeader>
+            <DialogTitle>Create Xero Bill</DialogTitle>
+            <DialogDescription>
+              Creates a draft supplier bill in Xero from this received purchase order.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <Field>
+              <FieldLabel htmlFor="purchase-bill-invoice-number">
+                Supplier invoice number
+              </FieldLabel>
+              <Input
+                id="purchase-bill-invoice-number"
+                value={purchaseBillDialogValues.invoiceNumber}
+                onChange={(event) =>
+                  setPurchaseBillDialogValues((current) => ({
+                    ...current,
+                    invoiceNumber: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="purchase-bill-date">Bill date</FieldLabel>
+                <DatePicker
+                  id="purchase-bill-date"
+                  value={purchaseBillDialogValues.billDate}
+                  onChange={(value) =>
+                    setPurchaseBillDialogValues((current) => ({
+                      ...current,
+                      billDate: value || todayIsoDate(),
+                    }))
+                  }
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="purchase-bill-due-date">Due date</FieldLabel>
+                <DatePicker
+                  id="purchase-bill-due-date"
+                  value={purchaseBillDialogValues.dueDate}
+                  onChange={(value) =>
+                    setPurchaseBillDialogValues((current) => ({
+                      ...current,
+                      dueDate: value || current.billDate,
+                    }))
+                  }
+                />
+              </Field>
+            </div>
+            <Field>
+              <FieldLabel htmlFor="purchase-bill-reference">Reference</FieldLabel>
+              <Input
+                id="purchase-bill-reference"
+                value={purchaseBillDialogValues.reference}
+                onChange={(event) =>
+                  setPurchaseBillDialogValues((current) => ({
+                    ...current,
+                    reference: event.target.value,
+                  }))
+                }
+              />
+            </Field>
+            {hasAdditionalCostsForBill ? (
+              <label className="flex items-start gap-3 border bg-muted/30 p-3 text-sm">
+                <Checkbox
+                  checked={
+                    purchaseBillDialogValues.confirmAdditionalCostsOmitted
+                  }
+                  onCheckedChange={(checked) =>
+                    setPurchaseBillDialogValues((current) => ({
+                      ...current,
+                      confirmAdditionalCostsOmitted: checked === true,
+                    }))
+                  }
+                />
+                <span>
+                  This PO has{" "}
+                  {formatPrice(additionalCostsForBillTotal.toFixed(4)) ??
+                    "$0.00"}{" "}
+                  in additional costs. These affect ERP costing but are not sent
+                  to Xero in v1.
+                </span>
+              </label>
+            ) : null}
+            {purchaseBillMutation.error ? (
+              <FieldError>
+                {(purchaseBillMutation.error as Error).message}
+              </FieldError>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPurchaseBillDialogOpen(false)}
+              disabled={purchaseBillMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => purchaseBillMutation.mutate(purchaseBillDialogValues)}
+              disabled={
+                purchaseBillMutation.isPending ||
+                purchaseBillDialogValues.invoiceNumber.trim() === "" ||
+                (hasAdditionalCostsForBill &&
+                  !purchaseBillDialogValues.confirmAdditionalCostsOmitted)
+              }
+            >
+              {purchaseBillMutation.isPending ? "Creating..." : "Create bill"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={attachmentsOpen} onOpenChange={setAttachmentsOpen}>
         <DialogContent size="2xl">
           <DialogHeader>

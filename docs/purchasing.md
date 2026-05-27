@@ -18,19 +18,35 @@ Purchasing v1 includes:
 - `draft`, `ordered`, `partial`, and `received` statuses
 - partial receiving into lot-backed inventory
 - projection-backed expected supply from active ordered and partially received purchase orders
+- manual supplier bill sync to Xero after full receipt
 
 Purchasing v1 does not include:
 
-- invoices or payments
+- payment reconciliation
 - taxes or discounts
 - alternate vendor units or pack conversions
 - receiving locations
 - supplier lot numbers or expiry dates
 
+## Accounting Integration
+
+ERP purchase orders are the operational source of truth. Purchasing owns supplier
+documents, units, receiving, lots, expected supply, and landed inventory cost.
+Accounting providers receive payable bills, not operational PO exports.
+
+Xero bill sync:
+
+- purchase orders expose a separate bill status: not billed, syncing, billed, or failed
+- `Create Xero Bill` is a manual action, not an automatic receipt side effect
+- v1 only creates Xero bills after the PO is fully received
+- Xero bill lines use received purchase-unit quantity and unit cost; descriptions include the stock-unit conversion when purchase and stocking units differ
+- additional PO costs are not sent to Xero in v1; when present, users must confirm that they will add those costs manually in Xero
+- bill-affecting edits are blocked after a successful bill sync
+
 ## Accounting Purchase Order Import
 
-Official supplier-facing purchase orders are accounting-provider-first. ERP imports
-open provider POs for receiving and expected-supply projection.
+Accounting PO import is a bridge for teams that still create supplier POs in the
+provider. It is not the target purchasing workflow.
 
 - auto-sync imports open provider POs when enabled, but leaves POs for manual
   review if a line would create a new ERP material, multiple provider lines map

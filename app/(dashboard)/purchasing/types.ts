@@ -56,6 +56,11 @@ export type PurchaseOrderListRow = {
   createdAt: Date;
   updatedAt: Date;
   receivedAt: Date | null;
+  purchaseBillStatus: "pending" | "pushed" | "failed" | null;
+  purchaseBillError: string | null;
+  purchaseBillExternalId: string | null;
+  purchaseBillExternalNumber: string | null;
+  purchaseBillPushedAt: Date | null;
 };
 
 export type PurchaseOrderDetailLine = {
@@ -149,6 +154,12 @@ export type PurchaseOrderDetail = {
   xeroPoEmailStatus: "sent" | "failed" | "skipped" | null;
   xeroPoEmailError: string | null;
   xeroPoEmailedAt: Date | null;
+  purchaseBillExternalId: string | null;
+  purchaseBillExternalNumber: string | null;
+  purchaseBillStatus: "pending" | "pushed" | "failed" | null;
+  purchaseBillError: string | null;
+  purchaseBillPushedAt: Date | null;
+  purchaseBillPayloadSnapshot: Record<string, unknown> | null;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -172,6 +183,10 @@ export type PurchaseOrderEditData = {
   shipPostcode: string | null;
   shipCountry: string | null;
   shippingCost: string;
+  purchaseBillExternalId: string | null;
+  purchaseBillExternalNumber: string | null;
+  purchaseBillStatus: "pending" | "pushed" | "failed" | null;
+  purchaseBillError: string | null;
   lines: Array<{
     itemId: string;
     quantityOrdered: string;

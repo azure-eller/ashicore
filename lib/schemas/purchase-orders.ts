@@ -256,6 +256,26 @@ export const receivePurchaseOrderSchema = z
 
 export type ReceivePurchaseOrder = z.infer<typeof receivePurchaseOrderSchema>;
 
+export const createPurchaseBillSchema = z
+  .object({
+    invoiceNumber: z.string().trim().min(1, "Supplier invoice number is required"),
+    billDate: z.string().refine(isValidIsoDate, "Bill date must be a real date in YYYY-MM-DD format"),
+    dueDate: z.string().refine(isValidIsoDate, "Due date must be a real date in YYYY-MM-DD format"),
+    reference: nullableString,
+    confirmAdditionalCostsOmitted: z.boolean().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.dueDate < data.billDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Due date cannot be before bill date",
+        path: ["dueDate"],
+      });
+    }
+  });
+
+export type CreatePurchaseBill = z.infer<typeof createPurchaseBillSchema>;
+
 export const purchaseOrderDefaultValues: InsertPurchaseOrder = {
   supplierId: "",
   expectedDate: null,
