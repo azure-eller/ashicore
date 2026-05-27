@@ -14,6 +14,7 @@ Sales v1 includes:
 
 - customer CRUD
 - account state and priority for landed-customer management
+- customer-category pricing schedules with quantity breaks
 - customer projects/jobs as optional sales-order context
 - multi-line sales orders
 - customer and product snapshots on saved orders
@@ -31,7 +32,6 @@ manufactured lots already include absorbed standard operation cost.
 
 Sales v1 does not include:
 
-- pricing rules
 - returns / unship
 - landed cost
 - Xero freight invoice lines
