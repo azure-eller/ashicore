@@ -111,36 +111,41 @@ export function ProductCard({
   });
 
   const tabs: CardTab[] = useMemo(
-    () => [
-      {
-        value: "general",
-        label: "General info",
-        href: currentItemId ? `/inventory/products/${currentItemId}` : undefined,
-      },
-      {
-        value: "recipe",
-        label: "Recipe",
-        href: currentItemId ? `/inventory/products/${currentItemId}/recipe` : undefined,
-        disabled: !currentItemId,
-        disabledReason: "Enter a product name first.",
-      },
-      {
-        value: "production",
-        label: "Production",
-        href: currentItemId ? `/inventory/products/${currentItemId}/production` : undefined,
-        disabled: !currentItemId,
-        disabledReason: "Enter a product name first.",
-      },
-      {
-        value: "lots",
-        label: "Lots",
-        href: currentItemId ? `/inventory/products/${currentItemId}/lots` : undefined,
-        disabled: !currentItemId,
-        disabledReason: "Enter a product name first.",
-        count: lotsCount || undefined,
-      },
-    ],
-    [currentItemId, lotsCount],
+    () => {
+      const nextTabs: CardTab[] = [
+        {
+          value: "general",
+          label: "General info",
+          href: currentItemId ? `/inventory/products/${currentItemId}` : undefined,
+        },
+        {
+          value: "recipe",
+          label: "Recipe",
+          href: currentItemId ? `/inventory/products/${currentItemId}/recipe` : undefined,
+          disabled: !currentItemId,
+          disabledReason: "Enter a product name first.",
+        },
+        {
+          value: "production",
+          label: "Production",
+          href: currentItemId ? `/inventory/products/${currentItemId}/production` : undefined,
+          disabled: !currentItemId,
+          disabledReason: "Enter a product name first.",
+        },
+        {
+          value: "lots",
+          label: "Lots",
+          href: currentItemId ? `/inventory/products/${currentItemId}/lots` : undefined,
+          disabled: !currentItemId,
+          disabledReason: "Enter a product name first.",
+          count: lotsCount || undefined,
+        },
+      ];
+      return card.family.lotTrackingMode === "tracked"
+        ? nextTabs
+        : nextTabs.filter((tab) => tab.value !== "lots");
+    },
+    [card.family.lotTrackingMode, currentItemId, lotsCount],
   );
 
   const avgIngredientsCost = getAverageIngredientsCost(card);

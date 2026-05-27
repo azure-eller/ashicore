@@ -94,30 +94,35 @@ export function MaterialCard({
   });
 
   const tabs: CardTab[] = useMemo(
-    () => [
-      { value: "general", label: "General info" },
-      {
-        value: "lots",
-        label: "Lots",
-        count: initialLots.length || undefined,
-        disabled: !currentItemId,
-        disabledReason: "Enter a material name first.",
-      },
-      {
-        value: "used-in-boms",
-        label: "Used in BOMs",
-        count: usedInBoms.length || undefined,
-        disabled: !currentItemId,
-        disabledReason: "Enter a material name first.",
-      },
-      {
-        value: "supply",
-        label: "Supply details",
-        disabled: !currentItemId,
-        disabledReason: "Enter a material name first.",
-      },
-    ],
-    [currentItemId, initialLots.length, usedInBoms.length],
+    () => {
+      const nextTabs: CardTab[] = [
+        { value: "general", label: "General info" },
+        {
+          value: "lots",
+          label: "Lots",
+          count: initialLots.length || undefined,
+          disabled: !currentItemId,
+          disabledReason: "Enter a material name first.",
+        },
+        {
+          value: "used-in-boms",
+          label: "Used in BOMs",
+          count: usedInBoms.length || undefined,
+          disabled: !currentItemId,
+          disabledReason: "Enter a material name first.",
+        },
+        {
+          value: "supply",
+          label: "Supply details",
+          disabled: !currentItemId,
+          disabledReason: "Enter a material name first.",
+        },
+      ];
+      return card.family.lotTrackingMode === "tracked"
+        ? nextTabs
+        : nextTabs.filter((tab) => tab.value !== "lots");
+    },
+    [card.family.lotTrackingMode, currentItemId, initialLots.length, usedInBoms.length],
   );
 
   const avgIngredientsCost = getAverageIngredientsCost(card);
@@ -194,14 +199,18 @@ export function MaterialCard({
               onVariantsEnabledChange={setVariantsEnabled}
             />
           ),
-          lots: (
-            <LotGridTab
-              card={card}
-              focusItemId={currentItemId ?? ""}
-              lots={initialLots}
-              unitLabel={card.family.unitName}
-            />
-          ),
+          ...(card.family.lotTrackingMode === "tracked"
+            ? {
+                lots: (
+                  <LotGridTab
+                    card={card}
+                    focusItemId={currentItemId ?? ""}
+                    lots={initialLots}
+                    unitLabel={card.family.unitName}
+                  />
+                ),
+              }
+            : {}),
           "used-in-boms": <MaterialUsedInBomsTab usedInBoms={usedInBoms} />,
           supply: (
             <MaterialSupplyDetailsTab

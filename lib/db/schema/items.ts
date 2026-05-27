@@ -38,6 +38,9 @@ export const itemFamilies = inventorySchema
         precision: 12,
         scale: 4,
       }),
+      lotTrackingMode: varchar("lot_tracking_mode", { length: 20 })
+        .notNull()
+        .default("tracked"),
       deletedAt: timestamp("deleted_at", { withTimezone: true }),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -49,6 +52,10 @@ export const itemFamilies = inventorySchema
         .where(sql`deleted_at IS NULL`),
       index("item_families_default_supplier_id_idx").on(table.defaultSupplierId),
       check("item_families_item_type_check", sql`item_type IN ('product', 'material')`),
+      check(
+        "item_families_lot_tracking_mode_check",
+        sql`lot_tracking_mode IN ('tracked', 'untracked')`
+      ),
       pgPolicy("item_families_org_isolation", {
         for: "all",
         to: "public",

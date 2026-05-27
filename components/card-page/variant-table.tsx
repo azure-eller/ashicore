@@ -149,6 +149,7 @@ function makeEmptyVariant(card: ItemCardDto): ItemCardVariantDto {
 
 function StockQuantityAdjustmentDialog({
   adjustment,
+  lotTracked,
   unitLabel,
   onOpenChange,
   onSaved,
@@ -158,6 +159,7 @@ function StockQuantityAdjustmentDialog({
     nextQuantity: string;
     previousQuantity: string;
   } | null;
+  lotTracked: boolean;
   unitLabel?: string;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
@@ -168,6 +170,7 @@ function StockQuantityAdjustmentDialog({
         {adjustment ? (
           <StockQuantityAdjustmentBody
             adjustment={adjustment}
+            lotTracked={lotTracked}
             unitLabel={unitLabel}
             onCancel={() => onOpenChange(false)}
             onSaved={onSaved}
@@ -180,6 +183,7 @@ function StockQuantityAdjustmentDialog({
 
 function StockQuantityAdjustmentBody({
   adjustment,
+  lotTracked,
   unitLabel,
   onCancel,
   onSaved,
@@ -189,6 +193,7 @@ function StockQuantityAdjustmentBody({
     nextQuantity: string;
     previousQuantity: string;
   };
+  lotTracked: boolean;
   unitLabel?: string;
   onCancel: () => void;
   onSaved: () => void;
@@ -211,7 +216,7 @@ function StockQuantityAdjustmentBody({
       }
       return body as CardLotRow[];
     },
-    enabled: !isIncrease,
+    enabled: !isIncrease && lotTracked,
   });
 
   const draftKey = isIncrease
@@ -246,6 +251,23 @@ function StockQuantityAdjustmentBody({
   const decreaseMutation = useMutation({
     mutationKey: ["item-card-action", adjustment.variant.id, "stock-decrease"],
     mutationFn: async () => {
+      if (!lotTracked) {
+        const response = await fetch(`/api/items/${adjustment.variant.id}/stock-adjustments`, {
+          method: "PUT",
+          headers: createIdempotencyHeaders("variant-stock-adjust", {
+            "Content-Type": "application/json",
+          }),
+          body: JSON.stringify({
+            quantity: adjustment.nextQuantity,
+            note: note.trim() === "" ? null : note.trim(),
+          }),
+        });
+        const body = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(body?.error ?? "Failed to adjust stock.");
+        }
+        return;
+      }
       for (const row of draftLots) {
         if (row.nextQuantity === row.lot.quantity) continue;
         const response = await fetch(
@@ -326,6 +348,24 @@ function StockQuantityAdjustmentBody({
             <Input value={note} onChange={(event) => setNote(event.target.value)} />
           </Field>
         </div>
+      ) : !lotTracked ? (
+        <div className="grid gap-(--space-4)">
+          <Field>
+            <FieldLabel>Quantity after adjustment</FieldLabel>
+            <div className="flex items-center gap-(--space-2)">
+              <Input value={adjustment.nextQuantity} readOnly className={styles.mono} />
+              {unitLabel ? (
+                <span className="text-[length:var(--text-sm)] text-muted-foreground">
+                  {unitLabel}
+                </span>
+              ) : null}
+            </div>
+          </Field>
+          <Field>
+            <FieldLabel>Note</FieldLabel>
+            <Input value={note} onChange={(event) => setNote(event.target.value)} />
+          </Field>
+        </div>
       ) : lotsQuery.isLoading ? (
         <div className="grid min-h-40 place-items-center">
           <Spinner className="text-muted-foreground" />
@@ -396,7 +436,7 @@ function StockQuantityAdjustmentBody({
           disabled={
             increaseMutation.isPending ||
             decreaseMutation.isPending ||
-            (!isIncrease && !decreaseValid)
+            (!isIncrease && lotTracked && !decreaseValid)
           }
           onClick={() => {
             if (isIncrease) {
@@ -939,6 +979,7 @@ export function VariantTable({
 
       <StockQuantityAdjustmentDialog
         adjustment={stockAdjustment}
+        lotTracked={card.family.lotTrackingMode === "tracked"}
         unitLabel={unitName ?? undefined}
         onOpenChange={(open) => {
           if (open) return;

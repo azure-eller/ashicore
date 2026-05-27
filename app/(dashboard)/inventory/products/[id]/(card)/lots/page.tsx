@@ -16,6 +16,9 @@ export default async function ProductLotsPage({
   ]);
 
   if (!item || item.itemType !== "product") redirect("/inventory/products");
+  if (card.family.lotTrackingMode === "untracked") {
+    redirect(`/inventory/products/${id}`);
+  }
 
   return (
     <LotGridTab

@@ -28,7 +28,7 @@ These are non-negotiable repo rules. They are repeated here because violating th
 - **RLS on new tables.** New org-scoped tables need `.enableRLS()` + org-isolation `pgPolicy` in Drizzle, plus `FORCE ROW LEVEL SECURITY` in migration SQL.
 - **Migrations.** Use `pnpm db:generate` + `pnpm drizzle-kit migrate`. Never use `drizzle push`. Generate migrations from fresh `origin/main`.
 - **API routes for mutations.** No server actions.
-- **Inventory kernel.** Stock, lots, costs, commitments, expected supply, dispositions, and allocations must go through canonical inventory/domain paths. Never "just update a quantity."
+- **Inventory kernel.** Stock, lots, costs, commitments, expected supply, dispositions, and allocations must go through canonical inventory/domain paths. Never "just update a quantity." Lot-untracked items still use internal lots for kernel storage, costing, and audit.
 - **Icons.** HugeIcons only. Never Lucide.
 - **Design tokens.** shadcn semantic color classes, V2 raw tokens for spacing/sizing/type. Never hardcode Tailwind colors. Sharp corners.
 - **Testing model.** Playwright is the app test path with real DB assertions. No bug-souvenir tests. Fast tests must protect a listed core mutation seam and avoid incidental UI assertions. Slow tests are operating stories, not bug archives; edge cases belong only when they naturally occur inside that story. Do not add Vitest, unit tests, or mocking frameworks unless explicitly asked.

@@ -104,6 +104,21 @@ export function MaterialGeneralInfoTab({
               onFamilyChange={onFamilyChange}
               onFamilyCommit={onFamilyCommit}
             />
+            <Field>
+              <FieldLabel>Tracking</FieldLabel>
+              <label className="flex items-center gap-(--space-2) text-[length:var(--text-sm)]">
+                <Checkbox
+                  checked={card.family.lotTrackingMode === "tracked"}
+                  disabled={isDraft}
+                  onCheckedChange={(checked) =>
+                    onFamilyCommit({
+                      lotTrackingMode: checked === true ? "tracked" : "untracked",
+                    })
+                  }
+                />
+                <span>Lot tracked</span>
+              </label>
+            </Field>
           </>
         }
       />

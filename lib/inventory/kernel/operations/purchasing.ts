@@ -2,12 +2,14 @@ import { and, eq, inArray } from "drizzle-orm";
 import {
   type InventoryDisposition,
   inventoryExpectedSummary,
+  itemFamilies,
   items,
   purchaseOrderLines,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { trimScaleNullable } from "@/lib/db/numeric";
 import { calculateNextCurrentStockUnitCost } from "@/lib/inventory/cost";
+import { LotTrackingError, type LotTrackingMode } from "@/lib/inventory/lot-tracking";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import {
@@ -320,8 +322,10 @@ export async function receivePurchaseStockInTx(
             currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
               "currentStockUnitCost"
             ),
+            lotTrackingMode: itemFamilies.lotTrackingMode,
           })
           .from(items)
+          .innerJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
           .where(inArray(items.id, itemIds));
   const priorStateByItemId = new Map(
     itemCostRows.map((row) => [
@@ -329,6 +333,7 @@ export async function receivePurchaseStockInTx(
       {
         priorQuantity: 0,
         priorUnitCost: row.currentStockUnitCost,
+        lotTrackingMode: row.lotTrackingMode as LotTrackingMode,
       },
     ])
   );
@@ -337,12 +342,20 @@ export async function receivePurchaseStockInTx(
     const currentState = priorStateByItemId.get(itemId) ?? {
       priorQuantity: 0,
       priorUnitCost: null,
+      lotTrackingMode: "tracked" as LotTrackingMode,
     };
     currentState.priorQuantity = await getCurrentOnHandQtyInTx(tx, itemId);
     priorStateByItemId.set(itemId, currentState);
   }
 
   for (const [index, line] of params.lines.entries()) {
+    if (
+      (line.disposition ?? "available") !== "available" &&
+      priorStateByItemId.get(line.itemId)?.lotTrackingMode === "untracked"
+    ) {
+      throw new LotTrackingError("Untracked items can only be received as available.", 409);
+    }
+
     const incoming = incomingByItemId.get(line.itemId) ?? {
       quantity: 0,
       extendedCost: 0,

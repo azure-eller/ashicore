@@ -287,6 +287,7 @@ export type ManufacturingOrderDetail = {
   productId: string;
   productName: string;
   productSku: string | null;
+  productLotTrackingMode: "tracked" | "untracked";
   unitName: string;
   salesOrderId: string | null;
   salesOrderLineId: string | null;

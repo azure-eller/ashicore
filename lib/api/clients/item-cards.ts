@@ -28,6 +28,8 @@ export class ItemCardApiError extends Error {
 // these being Date instances.
 type DateOrIso = Date | string | null;
 
+export type LotTrackingMode = "tracked" | "untracked";
+
 export type VariantOptionValueDto = {
   id: string;
   label: string;
@@ -80,6 +82,7 @@ export type ItemCardFamilyDto = {
   defaultSupplierId: string | null;
   purchaseUnitDefinitionId: string | null;
   purchaseToStockFactor: string | null;
+  lotTrackingMode: LotTrackingMode;
   deletedAt: DateOrIso;
   createdAt: DateOrIso;
   updatedAt: DateOrIso;
@@ -124,6 +127,7 @@ export type CreateItemCardInput = {
   supplierItemCode?: string | null;
   defaultLeadTimeDays?: number | null;
   minimumOrderQuantity?: string | null;
+  lotTrackingMode?: LotTrackingMode;
 };
 
 export type UpdateItemCardInput = Partial<Omit<CreateItemCardInput, "itemType">>;

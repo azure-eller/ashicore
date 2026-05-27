@@ -20,7 +20,8 @@ Stocktakes support scoped snapshots plus lot-aware counts:
 - the create form uses editable line rows; scope changes auto-fill matching
   items, and users can add, search, or remove items before creating the snapshot
 - count entry happens on the stocktake detail page
-- items with active available lots snapshot those lots and count per lot
+- lot-tracked items with active available lots snapshot those lots and count per lot
+- lot-untracked items are counted at item level; their internal lots remain hidden
 - blank counted quantities mean "leave unchanged"
 - completion automatically sets inventory to counted truth
 
@@ -109,7 +110,7 @@ This keeps stocktakes safe when purchasing, manufacturing, or manual adjustments
 
 Stocktake completion reuses the inventory kernel and reconciles the available bucket only:
 
-- positive deltas create lots
+- positive deltas create internal lots
 - negative deltas FIFO-consume lots
 - positive variance writes `stocktake_gain`
 - negative variance writes `stocktake_loss` per consumed lot

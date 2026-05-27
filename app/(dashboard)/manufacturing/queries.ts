@@ -103,6 +103,7 @@ import {
 } from "@/lib/errors/domain-error";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 import { loadAllocationSourcesForItemInTx } from "@/lib/inventory/allocation/sources";
+import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import {
   buildFifoLotPickPlanInTx,
   type LotPickPlanEntry,
@@ -4124,6 +4125,7 @@ export async function getManufacturingOrder(
         bomRevisionId: manufacturingOrders.bomRevisionId,
         productName: manufacturingOrders.productName,
         productSku: manufacturingOrders.productSku,
+        productLotTrackingMode: itemFamilies.lotTrackingMode,
         unitName: manufacturingOrders.unitName,
         salesOrderId: manufacturingOrders.salesOrderId,
         salesOrderLineId: manufacturingOrders.salesOrderLineId,
@@ -4165,6 +4167,8 @@ export async function getManufacturingOrder(
         updatedAt: manufacturingOrders.updatedAt,
       })
       .from(manufacturingOrders)
+      .leftJoin(items, eq(manufacturingOrders.productId, items.id))
+      .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
       .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)));
 
     if (!order) {
@@ -4385,6 +4389,8 @@ export async function getManufacturingOrder(
     return {
       ...order,
       productName: canonicalItemName(itemDisplayById, order.productId, order.productName),
+      productLotTrackingMode:
+        order.productLotTrackingMode === "untracked" ? "untracked" : "tracked",
       status: order.status as ManufacturingOrderDetail["status"],
       pickProgressStatus:
         order.manufacturingMode === "batch" && batches.length > 0
@@ -5458,6 +5464,16 @@ export async function recordManufacturingOutput(
 
     if (!isOpenManufacturingOrder(order)) {
       throw new ManufacturingError("Only open orders can record output", 400);
+    }
+
+    if (
+      payload.outputDisposition !== "available" &&
+      (await getItemLotTrackingModeInTx(tx, order.productId)) === "untracked"
+    ) {
+      throw new ManufacturingError(
+        "Untracked items can only be produced as available.",
+        400
+      );
     }
 
     const outputQuantity = Number(payload.quantity);

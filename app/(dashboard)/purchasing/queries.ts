@@ -31,6 +31,7 @@ import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
+import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import {
   calculatePurchaseOrderLandedCosts,
   normalizeLandedMoney,
@@ -429,6 +430,7 @@ async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string) {
       itemId: purchaseOrderLines.itemId,
       itemName: purchaseOrderLines.itemName,
       itemSku: purchaseOrderLines.itemSku,
+      lotTrackingMode: sql<"tracked" | "untracked">`COALESCE(${itemFamilies.lotTrackingMode}, 'tracked')`,
       purchaseUnitName: purchaseOrderLines.purchaseUnitName,
       stockingUnitName: purchaseOrderLines.stockingUnitName,
       purchaseToStockFactor: trimScale(
@@ -468,6 +470,8 @@ async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string) {
       updatedAt: purchaseOrderLines.updatedAt,
     })
     .from(purchaseOrderLines)
+    .leftJoin(items, eq(items.id, purchaseOrderLines.itemId))
+    .leftJoin(itemFamilies, eq(itemFamilies.id, items.familyId))
     .where(eq(purchaseOrderLines.purchaseOrderId, purchaseOrderId))
     .orderBy(
       asc(purchaseOrderLines.sortOrder),
@@ -2288,6 +2292,21 @@ export async function receivePurchaseOrder(
       tx,
       existingLines.map((line) => line.itemId),
     );
+
+    for (const [index, entry] of receiveEntries.entries()) {
+      if (
+        entry.disposition !== "available" &&
+        (await getItemLotTrackingModeInTx(tx, entry.line.itemId)) === "untracked"
+      ) {
+        throw new PurchasingError("Untracked items can only be received as available.", 400, {
+          errors: {
+            [`lines.${index}.disposition`]: [
+              "Untracked items can only be received as available.",
+            ],
+          },
+        });
+      }
+    }
 
     const updatedLines = new Map(
       existingLines.map((line) => [line.id, { ...line }]),

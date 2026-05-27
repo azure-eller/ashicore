@@ -12,6 +12,7 @@ import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel";
+import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import type { AllocationDemandRef, AllocationSourceRow } from "./types";
 
 function toQuantity(value: string | number | null | undefined) {
@@ -115,31 +116,34 @@ export async function loadAllocationSourcesForItemInTx(
   }
 
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
-  const lotRows = await tx
-    .select({
-      id: lots.id,
-      lotNumber: lots.lotNumber,
-      quantity: trimScale(inventoryLotBalances.quantity).as("quantity"),
-      receivedAt: inventoryLotBalances.receivedAt,
-      createdAt: lots.createdAt,
-    })
-    .from(inventoryLotBalances)
-    .innerJoin(lots, eq(inventoryLotBalances.lotId, lots.id))
-    .where(
-      and(
-        eq(inventoryLotBalances.organizationId, params.organizationId),
-        eq(inventoryLotBalances.locationId, location.id),
-        eq(inventoryLotBalances.itemId, params.itemId),
-        eq(inventoryLotBalances.disposition, "available"),
-        sql`${inventoryLotBalances.quantity} > 0`
-      )
-    )
-    .orderBy(
-      asc(inventoryLotBalances.receivedAt),
-      asc(lots.createdAt),
-      asc(lots.lotNumber),
-      asc(lots.id)
-    );
+  const lotTracked = (await getItemLotTrackingModeInTx(tx, params.itemId)) === "tracked";
+  const lotRows = lotTracked
+    ? await tx
+        .select({
+          id: lots.id,
+          lotNumber: lots.lotNumber,
+          quantity: trimScale(inventoryLotBalances.quantity).as("quantity"),
+          receivedAt: inventoryLotBalances.receivedAt,
+          createdAt: lots.createdAt,
+        })
+        .from(inventoryLotBalances)
+        .innerJoin(lots, eq(inventoryLotBalances.lotId, lots.id))
+        .where(
+          and(
+            eq(inventoryLotBalances.organizationId, params.organizationId),
+            eq(inventoryLotBalances.locationId, location.id),
+            eq(inventoryLotBalances.itemId, params.itemId),
+            eq(inventoryLotBalances.disposition, "available"),
+            sql`${inventoryLotBalances.quantity} > 0`
+          )
+        )
+        .orderBy(
+          asc(inventoryLotBalances.receivedAt),
+          asc(lots.createdAt),
+          asc(lots.lotNumber),
+          asc(lots.id)
+        )
+    : [];
 
   const manufacturingAllocatedSourceIds = activeRows
     .filter((row) => row.sourceType === "manufacturing_order" && row.sourceId)
