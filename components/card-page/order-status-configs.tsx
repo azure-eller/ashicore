@@ -15,6 +15,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { ManufacturingCompletionDialog } from "@/components/manufacturing/manufacturing-completion-dialog";
 import {
   shipSalesOrder,
@@ -54,15 +64,27 @@ export const salesOrderStatusConfig: OrderStatusControlConfig<SalesOrderStatusCo
   type: "sales",
   options: () => SALES_STATUS_OPTIONS,
   current: ({ order }) => deriveOrderDisplayStatus(order).label,
-  transitionKind: (from, to) => {
+  transitionKind: (from, to, { order }) => {
     if (from === "SHIPPED") return "disabled";
     if (to === from) return "noop";
     if (to === "SHIPPED") return "dialog";
+    if (to === "PARTIALLY SHIPPED" && isSalesOrderDetail(order)) {
+      return order.lines.some((line) => Number(line.remainingQuantity) > 0)
+        ? "dialog"
+        : "disabled";
+    }
     return "disabled";
   },
   renderDialog: ({ to, ctx, onClose, onDone }) => {
-    if (to !== "SHIPPED") return null;
-    return <ShipOrderDialog orderId={ctx.order.id} onClose={onClose} onDone={onDone} />;
+    if (to !== "SHIPPED" && to !== "PARTIALLY SHIPPED") return null;
+    return (
+      <ShipOrderDialog
+        order={ctx.order}
+        mode={to === "PARTIALLY SHIPPED" ? "partial" : "all"}
+        onClose={onClose}
+        onDone={onDone}
+      />
+    );
   },
 };
 
@@ -116,41 +138,208 @@ function useShipMutation(run: (confirmNegativeStock: boolean) => Promise<void>, 
 }
 
 function ShipOrderDialog({
-  orderId,
+  order,
+  mode,
   onClose,
   onDone,
 }: {
-  orderId: string;
+  order: SalesOrderStatusFields;
+  mode: "partial" | "all";
   onClose: () => void;
   onDone: () => void;
 }) {
+  const detail = isSalesOrderDetail(order) ? order : null;
+  const shippableLines = detail
+    ? detail.lines.filter((line) => Number(line.remainingQuantity) > 0)
+    : [];
+  const [rows, setRows] = useState<ShipDialogRow[]>(() =>
+    shippableLines.map((line) => ({
+      salesOrderLineId: line.id,
+      itemName: line.itemName,
+      unitName: line.unitName,
+      remainingQuantity: line.remainingQuantity,
+      selected: true,
+      quantity: line.remainingQuantity,
+    }))
+  );
+  const selectedLines = rows
+    .filter((row) => row.selected)
+    .map((row) => ({
+      salesOrderLineId: row.salesOrderLineId,
+      quantity: normalizeDialogQuantity(row.quantity),
+    }))
+    .filter((line) => {
+      const quantity = Number(line.quantity);
+      return Number.isFinite(quantity) && quantity > 0;
+    });
+  const invalidRows = rows.filter((row) => {
+    if (!row.selected) return false;
+    const quantity = Number(normalizeDialogQuantity(row.quantity));
+    const remaining = Number(row.remainingQuantity);
+    return !Number.isFinite(quantity) || quantity <= 0 || quantity > remaining;
+  });
+
   const { mutation, warning, error } = useShipMutation(
-    (confirm) => shipSalesOrder(orderId, confirm),
+    (confirm) =>
+      shipSalesOrder(
+        order.id,
+        confirm,
+        detail ? selectedLines : undefined
+      ),
     onDone,
   );
+  const canSubmit =
+    !mutation.isPending &&
+    (detail == null || (selectedLines.length > 0 && invalidRows.length === 0));
+
   return (
     <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
-      <DialogContent>
+      <DialogContent size={detail ? "3xl" : "default"}>
         <DialogHeader>
-          <DialogTitle>Mark order shipped?</DialogTitle>
-          <DialogDescription>
-            All remaining allocated quantity will be shipped and the order moves to its
-            shipped state.
-          </DialogDescription>
+          <DialogTitle>
+            {detail
+              ? `Deliver items from ${order.orderNumber}`
+              : "Mark order shipped?"}
+          </DialogTitle>
+          {detail ? null : (
+            <DialogDescription>
+              All remaining allocated quantity will be shipped and the order moves to its
+              shipped state.
+            </DialogDescription>
+          )}
         </DialogHeader>
+        {detail ? (
+          <div className="space-y-(--space-4)">
+            <div className="text-[length:var(--text-sm)] text-muted-foreground">
+              Select which items to deliver
+            </div>
+            <Table containerClassName="border border-[var(--color-line)]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={rows.length > 0 && rows.every((row) => row.selected)}
+                      onCheckedChange={(checked) => {
+                        setRows((current) =>
+                          current.map((row) => ({
+                            ...row,
+                            selected: checked === true,
+                          }))
+                        );
+                      }}
+                      aria-label="Select all items"
+                    />
+                  </TableHead>
+                  <TableHead>Item</TableHead>
+                  <TableHead>Location</TableHead>
+                  <TableHead className="w-44 text-right">Quantity to deliver</TableHead>
+                  <TableHead className="w-44 text-right">Quantity left available</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => {
+                  const quantity = Number(normalizeDialogQuantity(row.quantity));
+                  const remaining = Number(row.remainingQuantity);
+                  const left =
+                    row.selected && Number.isFinite(quantity)
+                      ? Math.max(0, remaining - quantity)
+                      : remaining;
+                  const invalid =
+                    row.selected &&
+                    (!Number.isFinite(quantity) || quantity <= 0 || quantity > remaining);
+                  return (
+                    <TableRow key={row.salesOrderLineId}>
+                      <TableCell>
+                        <Checkbox
+                          checked={row.selected}
+                          onCheckedChange={(checked) => {
+                            setRows((current) =>
+                              current.map((candidate) =>
+                                candidate.salesOrderLineId === row.salesOrderLineId
+                                  ? { ...candidate, selected: checked === true }
+                                  : candidate
+                              )
+                            );
+                          }}
+                          aria-label={`Select ${row.itemName}`}
+                        />
+                      </TableCell>
+                      <TableCell className={row.selected ? "" : "text-muted-foreground"}>
+                        {row.itemName}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">Default</TableCell>
+                      <TableCell className="text-right">
+                        {row.selected ? (
+                          <div className="flex items-center justify-end gap-(--space-2)">
+                            <Input
+                              className="h-(--height-input-sm) w-28 text-right font-mono tabular-nums"
+                              inputMode="decimal"
+                              value={row.quantity}
+                              aria-invalid={invalid}
+                              onChange={(event) => {
+                                const value = event.currentTarget.value;
+                                setRows((current) =>
+                                  current.map((candidate) =>
+                                    candidate.salesOrderLineId === row.salesOrderLineId
+                                      ? { ...candidate, quantity: value }
+                                      : candidate
+                                  )
+                                );
+                              }}
+                            />
+                            <span className="text-muted-foreground">{row.unitName}</span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">Qty to deliver</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right font-mono tabular-nums">
+                        {formatQuantity(String(left))}{" "}
+                        <span className="font-sans text-muted-foreground">{row.unitName}</span>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        ) : null}
         {warning ? <NegativeStockNotice items={[warning]} /> : null}
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>
             Cancel
           </Button>
-          <Button onClick={() => mutation.mutate(warning != null)} disabled={mutation.isPending}>
-            {mutation.isPending ? "Shipping..." : warning ? "Ship anyway" : "Mark shipped"}
+          <Button onClick={() => mutation.mutate(warning != null)} disabled={!canSubmit}>
+            {mutation.isPending
+              ? "Delivering..."
+              : warning
+                ? "Deliver anyway"
+                : mode === "partial"
+                  ? "Deliver selected"
+                  : "Deliver all"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+}
+
+type ShipDialogRow = {
+  salesOrderLineId: string;
+  itemName: string;
+  unitName: string;
+  remainingQuantity: string;
+  selected: boolean;
+  quantity: string;
+};
+
+function isSalesOrderDetail(order: SalesOrderStatusFields): order is SalesOrderDetail {
+  return "lines" in order && Array.isArray(order.lines);
+}
+
+function normalizeDialogQuantity(value: string) {
+  return value.trim();
 }
 
 export type ManufacturingStatusFields = {

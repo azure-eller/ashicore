@@ -149,13 +149,16 @@ The Sales Allocation tab is the authoritative manual allocation surface.
 - a sales order is both the commercial object and the fulfillment target
 - separate planned ship dates require separate sales orders
 - users set `shipDate` on the sales order; no shipment rows are created for new orders
+- each successful order-level ship action creates a shipped shipment history row
+  for the quantities shipped in that action
 - active shipment mutation routes return `410 Gone`
 - `remaining_to_ship = ordered_qty - shipped_qty - cancelled_qty`
 - shipping consumes live lot-backed stock FIFO for the order quantities
 - shipping may warn before recording negative stock; retrying with
   `confirmNegativeStock` continues
 - successful order shipping writes `sales_consumption` inventory events against
-  `referenceType = sales_order`
+  `referenceType = sales_shipment`, with the parent sales order and line IDs
+  preserved in event metadata
 - successful final shipping sets order `status = done` and `shippedAt = now()`
 - legacy shipment tables may still exist for historical reads/BOLs, but they are
   not an active planning or allocation surface

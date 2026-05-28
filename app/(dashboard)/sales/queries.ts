@@ -8306,6 +8306,9 @@ export async function shipSalesOrder(
             salesOrderLineId: state.id,
             itemId: state.itemId,
             itemName: state.itemName,
+            itemSku: state.itemSku,
+            unitName: state.unitName,
+            sortOrder: state.sortOrder,
             quantity,
           };
         });
@@ -8319,6 +8322,9 @@ export async function shipSalesOrder(
             salesOrderLineId: state.id,
             itemId: state.itemId,
             itemName: state.itemName,
+            itemSku: state.itemSku,
+            unitName: state.unitName,
+            sortOrder: state.sortOrder,
             quantity,
           },
         ];
@@ -8330,11 +8336,56 @@ export async function shipSalesOrder(
     }
 
     const shippedAt = new Date();
+    const sequence = await getNextShipmentSequenceInTx(tx, id);
+    const shipmentNumber = `${order.orderNumber}-S${sequence}`;
+    const shipAddress = await resolveShipmentAddressInTx(tx, order);
+    const [shipment] = await tx
+      .insert(salesShipments)
+      .values({
+        organizationId: orgId,
+        salesOrderId: id,
+        shipmentNumber,
+        sequence,
+        status: "shipped",
+        fulfillmentType: "delivery",
+        scheduledDate: order.shipDate ?? shippedAt.toISOString().slice(0, 10),
+        deliveryDate: order.shipDate ?? shippedAt.toISOString().slice(0, 10),
+        shippedAt,
+        notes: null,
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        ...shipAddress,
+        createdAt: shippedAt,
+        updatedAt: shippedAt,
+      })
+      .returning({ id: salesShipments.id });
+    const shipmentLineRows = await tx
+      .insert(salesShipmentLines)
+      .values(
+        linesToShip.map((line) => ({
+          salesShipmentId: shipment.id,
+          salesOrderLineId: line.salesOrderLineId,
+          itemId: line.itemId,
+          itemName: line.itemName,
+          itemSku: line.itemSku,
+          unitName: line.unitName,
+          quantity: normalizeNumeric(line.quantity),
+          sortOrder: line.sortOrder,
+        }))
+      )
+      .returning({
+        id: salesShipmentLines.id,
+        salesOrderLineId: salesShipmentLines.salesOrderLineId,
+      });
+    const shipmentLineIdsBySalesLineId = new Map(
+      shipmentLineRows.map((line) => [line.salesOrderLineId, line.id])
+    );
 
     try {
       await consumeForShipmentInTx(tx, {
         organizationId: orgId,
         salesOrderId: id,
+        salesShipmentId: shipment.id,
         actorUserId: userId,
         idempotencyKey: deriveInventoryIdempotencyKey(
           options?.idempotencyKey,
@@ -8343,6 +8394,8 @@ export async function shipSalesOrder(
         shippedAt,
         allowNegativeStock: options?.confirmNegativeStock === true,
         lines: linesToShip.map((line) => ({
+          salesShipmentLineId:
+            shipmentLineIdsBySalesLineId.get(line.salesOrderLineId) ?? null,
           salesOrderLineId: line.salesOrderLineId,
           itemId: line.itemId,
           quantity: line.quantity,

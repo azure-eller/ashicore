@@ -7,6 +7,8 @@ import {
   pricingSchedules,
   salesOrderLines,
   salesOrders,
+  salesShipmentLines,
+  salesShipments,
 } from "../../../lib/db/schema";
 import {
   createCustomerCategory,
@@ -168,6 +170,27 @@ test.describe("sales fulfillment operating story", () => {
       );
     expect(events.map((event) => event.quantity)).toEqual(["3.0000"]);
 
+    const [shipment] = await db
+      .select({
+        id: salesShipments.id,
+        status: salesShipments.status,
+        shipmentNumber: salesShipments.shipmentNumber,
+      })
+      .from(salesShipments)
+      .where(eq(salesShipments.salesOrderId, orderId));
+    expect(shipment).toMatchObject({
+      status: "shipped",
+      shipmentNumber: `${orderNumber}-S1`,
+    });
+
+    const shipmentLines = await db
+      .select({ quantity: salesShipmentLines.quantity })
+      .from(salesShipmentLines)
+      .where(eq(salesShipmentLines.salesShipmentId, shipment.id));
+    expect(shipmentLines.map((shipmentLine) => shipmentLine.quantity)).toEqual([
+      "3.0000",
+    ]);
+
     const row = await searchOrderList(page, orderNumber);
     await expect(row).toContainText(orderNumber);
   });
@@ -205,6 +228,20 @@ test.describe("sales fulfillment operating story", () => {
         )
       );
     expect(events.map((event) => event.quantity).sort()).toEqual(["3.0000", "3.0000"]);
+
+    const shipments = await db
+      .select({
+        id: salesShipments.id,
+        shipmentNumber: salesShipments.shipmentNumber,
+        status: salesShipments.status,
+      })
+      .from(salesShipments)
+      .where(eq(salesShipments.salesOrderId, orderId));
+    expect(shipments.map((shipment) => shipment.shipmentNumber).sort()).toEqual([
+      `${orderNumber}-S1`,
+      `${orderNumber}-S2`,
+    ]);
+    expect(shipments.every((shipment) => shipment.status === "shipped")).toBe(true);
 
     const [order] = await db
       .select({

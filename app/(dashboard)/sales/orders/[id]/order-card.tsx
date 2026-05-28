@@ -13,10 +13,12 @@ import type {
   CustomerOption,
   SalesAddressOption,
   SalesOrderDetail,
+  SalesOrderDetailLine,
   SalesOrderItemOption,
   SalesOrderTaxRateOption,
+  SalesShipmentRow,
 } from "@/app/(dashboard)/sales/types";
-import { formatDate, formatQuantity } from "@/lib/format";
+import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/format";
 import { OrderStatusControl } from "@/components/card-page/order-status-control";
 import {
   isSalesOrderStatusDisabled,
@@ -107,6 +109,13 @@ export function OrderCard({
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [makeToOrderOpen, setMakeToOrderOpen] = useState(false);
+  const shippedShipments = order.shipments.filter(
+    (shipment) => shipment.status === "shipped" && shipment.lines.length > 0
+  );
+  const hasShippedItems = shippedShipments.length > 0;
+  const remainingLines = order.lines.filter(
+    (line) => Number(line.remainingQuantity) > 0
+  );
 
   const isEditable =
     isDraft ||
@@ -298,12 +307,28 @@ export function OrderCard({
           controller={controller}
         />
 
-        <LineItemsTable
-          order={order}
-          editable={isEditable}
-          itemOptions={itemOptions}
-          controller={controller}
-        />
+        {hasShippedItems ? (
+          <>
+            {remainingLines.length > 0 ? (
+              <RemainingItemsSection lines={remainingLines} />
+            ) : null}
+            {shippedShipments.map((shipment) => (
+              <ShippedItemsSection
+                key={shipment.id}
+                order={order}
+                shipment={shipment}
+                timeZone={timeZone}
+              />
+            ))}
+          </>
+        ) : (
+          <LineItemsTable
+            order={order}
+            editable={isEditable}
+            itemOptions={itemOptions}
+            controller={controller}
+          />
+        )}
 
         <LinkedManufacturingOrdersSection order={order} />
 
@@ -348,6 +373,159 @@ export function OrderCard({
       {deleteConfirm.dialog}
     </CardPage>
   );
+}
+
+function RemainingItemsSection({ lines }: { lines: SalesOrderDetailLine[] }) {
+  const totalQuantity = lines.reduce(
+    (sum, line) => sum + Number(line.remainingQuantity || 0),
+    0
+  );
+
+  return (
+    <CardSection
+      title="Items not shipped"
+      count={`· ${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${formatQuantity(String(totalQuantity))} units`}
+    >
+      <SalesFulfillmentTable>
+        <thead className="bg-[var(--color-surface-muted)] text-[11px] uppercase tracking-normal text-muted-foreground">
+          <tr>
+            <th className="px-(--space-3) py-(--space-2) text-left font-medium">Item</th>
+            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Quantity left</th>
+            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Price per unit</th>
+            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Tax %</th>
+            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Remaining total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((line) => (
+            <tr key={line.id} className="border-t border-[var(--color-line)]">
+              <td className="px-(--space-3) py-(--space-2)">
+                <div className="font-medium">{line.itemName}</div>
+                <div className="text-[length:var(--text-xs)] text-muted-foreground">
+                  {line.unitName}
+                </div>
+              </td>
+              <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums">
+                {formatQuantity(line.remainingQuantity)}{" "}
+                <span className="font-sans text-muted-foreground">{line.unitName}</span>
+              </td>
+              <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums">
+                {formatPrice(line.unitPrice) ?? "—"}
+              </td>
+              <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums">
+                {formatPercent(line.taxRatePercent)}
+              </td>
+              <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums font-semibold">
+                {formatPrice(lineTotalForQuantity(line, line.remainingQuantity)) ?? "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </SalesFulfillmentTable>
+    </CardSection>
+  );
+}
+
+function ShippedItemsSection({
+  order,
+  shipment,
+  timeZone,
+}: {
+  order: SalesOrderDetail;
+  shipment: SalesShipmentRow;
+  timeZone: string;
+}) {
+  const orderLinesById = new Map(order.lines.map((line) => [line.id, line]));
+  const totalQuantity = shipment.lines.reduce(
+    (sum, line) => sum + Number(line.quantity || 0),
+    0
+  );
+  const totalAmount = shipment.lines.reduce((sum, shipmentLine) => {
+    const orderLine = orderLinesById.get(shipmentLine.salesOrderLineId);
+    return sum + Number(lineTotalForQuantity(orderLine, shipmentLine.quantity));
+  }, 0);
+
+  return (
+    <CardSection
+      title="Shipped items"
+      count={`· ${shipment.shipmentNumber} · ${formatQuantity(String(totalQuantity))} units`}
+    >
+      <div className="mb-(--space-3) flex flex-wrap items-center justify-between gap-(--space-4) text-[length:var(--text-xs)] text-muted-foreground">
+        <span>Picked date</span>
+        <span className="font-mono tabular-nums text-foreground">
+          {shipment.shippedAt ? formatDateTime(shipment.shippedAt, timeZone) : "—"}
+        </span>
+      </div>
+      <SalesFulfillmentTable>
+        <thead className="bg-[var(--color-surface-muted)] text-[11px] uppercase tracking-normal text-muted-foreground">
+          <tr>
+            <th className="px-(--space-3) py-(--space-2) text-left font-medium">Item</th>
+            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Quantity</th>
+            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Price per unit</th>
+            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Tax %</th>
+            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Total price</th>
+          </tr>
+        </thead>
+        <tbody>
+          {shipment.lines.map((shipmentLine) => {
+            const orderLine = orderLinesById.get(shipmentLine.salesOrderLineId);
+            return (
+              <tr key={shipmentLine.id} className="border-t border-[var(--color-line)]">
+                <td className="px-(--space-3) py-(--space-2)">
+                  <div className="font-medium">{shipmentLine.itemName}</div>
+                  <div className="text-[length:var(--text-xs)] text-muted-foreground">
+                    {shipmentLine.unitName}
+                  </div>
+                </td>
+                <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums">
+                  {formatQuantity(shipmentLine.quantity)}{" "}
+                  <span className="font-sans text-muted-foreground">{shipmentLine.unitName}</span>
+                </td>
+                <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums">
+                  {formatPrice(orderLine?.unitPrice) ?? "—"}
+                </td>
+                <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums">
+                  {formatPercent(orderLine?.taxRatePercent)}
+                </td>
+                <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums font-semibold">
+                  {formatPrice(lineTotalForQuantity(orderLine, shipmentLine.quantity)) ?? "—"}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </SalesFulfillmentTable>
+      <div className="flex justify-end px-(--space-3) pt-(--space-2) text-[length:var(--text-sm)]">
+        <span className="font-mono tabular-nums font-semibold">
+          Total shipped: {formatPrice(String(totalAmount)) ?? "—"}
+        </span>
+      </div>
+    </CardSection>
+  );
+}
+
+function SalesFulfillmentTable({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="overflow-x-auto border border-[var(--color-line)]">
+      <table className="w-full border-collapse text-sm">{children}</table>
+    </div>
+  );
+}
+
+function lineTotalForQuantity(
+  line: SalesOrderDetailLine | undefined,
+  quantity: string
+) {
+  if (!line) return "0";
+  const subtotal = Number(quantity || 0) * Number(line.unitPrice || 0);
+  const tax = subtotal * (Number(line.taxRatePercent || 0) / 100);
+  return (subtotal + tax).toFixed(2);
+}
+
+function formatPercent(value: string | null | undefined) {
+  const parsed = value == null ? NaN : Number(value);
+  if (!Number.isFinite(parsed)) return "0%";
+  return `${parsed.toFixed(1)}%`;
 }
 
 function LinkedManufacturingOrdersSection({ order }: { order: SalesOrderDetail }) {

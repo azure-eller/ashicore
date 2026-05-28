@@ -107,6 +107,38 @@ const HEADER_DISPLAY_KEYS = [
   "customerProjectName",
 ] as const satisfies ReadonlyArray<keyof SalesOrderDetail>;
 
+const SERVER_OWNED_LINE_KEYS = [
+  "shippedQuantity",
+  "plannedQuantity",
+  "cancelledQuantity",
+  "remainingQuantity",
+  "unplannedRemainingQuantity",
+  "actualUnitCost",
+  "actualCogs",
+  "actualGrossProfit",
+  "actualMarginPercent",
+  "updatedAt",
+  "onHandQty",
+  "availableQty",
+  "allocatedQty",
+  "potential",
+  "shortQty",
+  "sourceSummary",
+  "allocationStatus",
+  "allocationSources",
+  "demandQueuePinnedQty",
+  "demandQueuePinnedDateValidQty",
+  "demandQueuePinnedDateInvalidQty",
+  "demandQueueQueueCoveredQty",
+  "demandQueueSegments",
+  "demandQueueInStockQty",
+  "demandQueueExpectedQty",
+  "demandQueueShortQty",
+  "demandQueueExpectedDate",
+  "fulfillmentSummary",
+  "lotPickPlan",
+] as const satisfies ReadonlyArray<keyof SalesOrderDetailLine>;
+
 type SalesOrderHeaderKey =
   | (typeof PERSISTED_HEADER_KEYS)[number]
   | (typeof HEADER_DISPLAY_KEYS)[number];
@@ -452,7 +484,10 @@ function mergeSalesOrderServerResult(
       (queued) => queued.op.type !== "patchHeader",
     );
     if (savedLineOps.length === 0) {
-      next = { ...next, lines: draft.lines };
+      next = {
+        ...next,
+        lines: mergeServerOwnedLineFields(draft.lines, server.lines),
+      };
     } else if (!hasNewerLineEdits) {
       next = { ...next, lines: server.lines };
     }
@@ -499,9 +534,26 @@ function mergeServerOwnedFields(
     createdAt: server.createdAt,
     updatedAt: server.updatedAt,
     marginSummary: server.marginSummary,
+    lines: mergeServerOwnedLineFields(draft.lines, server.lines),
     shipments: server.shipments,
     linkedManufacturingOrders: server.linkedManufacturingOrders,
   };
+}
+
+function mergeServerOwnedLineFields(
+  draftLines: SalesOrderDetailLine[],
+  serverLines: SalesOrderDetailLine[],
+) {
+  const serverById = new Map(serverLines.map((line) => [line.id, line]));
+  return draftLines.map((draftLine) => {
+    const serverLine = serverById.get(draftLine.id);
+    if (!serverLine) return draftLine;
+    const next = { ...draftLine };
+    for (const key of SERVER_OWNED_LINE_KEYS) {
+      next[key] = serverLine[key] as never;
+    }
+    return next;
+  });
 }
 
 function mergeHeaderPatches(ops: Array<QueuedDraftOp<SalesOrderDraftOp>>) {

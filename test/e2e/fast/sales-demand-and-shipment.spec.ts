@@ -9,6 +9,8 @@ import {
   lots,
   salesOrderLines,
   salesOrders,
+  salesShipmentLines,
+  salesShipments,
   stockAllocations,
 } from "../../../lib/db/schema";
 import {
@@ -138,6 +140,25 @@ test.describe("sales demand and shipment heartbeat", () => {
     expect(events).toHaveLength(1);
     expect(events[0].quantity).toBe("5.0000");
 
+    const [shipment] = await db
+      .select({
+        id: salesShipments.id,
+        status: salesShipments.status,
+        shipmentNumber: salesShipments.shipmentNumber,
+      })
+      .from(salesShipments)
+      .where(eq(salesShipments.salesOrderId, order.body.id));
+    expect(shipment).toMatchObject({
+      status: "shipped",
+      shipmentNumber: expect.stringMatching(/-S1$/),
+    });
+
+    const shipmentLines = await db
+      .select({ quantity: salesShipmentLines.quantity })
+      .from(salesShipmentLines)
+      .where(eq(salesShipmentLines.salesShipmentId, shipment.id));
+    expect(shipmentLines.map((line) => line.quantity)).toEqual(["5.0000"]);
+
     const [balance] = await db
       .select({
         onHandQty: inventoryItemBalances.onHandQty,
@@ -155,6 +176,75 @@ test.describe("sales demand and shipment heartbeat", () => {
       .from(salesOrders)
       .where(eq(salesOrders.id, order.body.id));
     expect(savedOrder.status).toBe("done");
+  });
+
+  test("partial shipping creates shipment history and leaves remaining demand", async ({
+    db,
+  }) => {
+    const productId = await createStockedProduct("PartialShip", "8");
+
+    const customer = await createCustomer({ name: `Fast Partial Ship Customer ${ts}` });
+    expect(customer.status).toBe(201);
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-03",
+      shipDate: "2026-05-04",
+      lines: [{ itemId: productId, quantity: "8", unitPrice: "15.00" }],
+    });
+    expect(order.status).toBe(201);
+
+    const [line] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, order.body.id));
+    const ship = await testFetch(`/api/sales-orders/${order.body.id}/ship`, {
+      method: "POST",
+      headers: Object.fromEntries(createIdempotencyHeaders("shipSalesOrder").entries()),
+      body: JSON.stringify({
+        syncAccounting: false,
+        lines: [{ salesOrderLineId: line.id, quantity: "3" }],
+      }),
+    });
+    expect(ship.status).toBe(200);
+
+    const [savedOrder] = await db
+      .select({ status: salesOrders.status })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, order.body.id));
+    expect(savedOrder.status).toBe("open");
+
+    const [shipment] = await db
+      .select({
+        id: salesShipments.id,
+        status: salesShipments.status,
+        shipmentNumber: salesShipments.shipmentNumber,
+      })
+      .from(salesShipments)
+      .where(eq(salesShipments.salesOrderId, order.body.id));
+    expect(shipment).toMatchObject({
+      status: "shipped",
+      shipmentNumber: expect.stringMatching(/-S1$/),
+    });
+
+    const shipmentLines = await db
+      .select({ quantity: salesShipmentLines.quantity })
+      .from(salesShipmentLines)
+      .where(eq(salesShipmentLines.salesShipmentId, shipment.id));
+    expect(shipmentLines.map((shipmentLine) => shipmentLine.quantity)).toEqual([
+      "3.0000",
+    ]);
+
+    const [balance] = await db
+      .select({
+        onHandQty: inventoryItemBalances.onHandQty,
+        demandQty: inventoryItemBalances.demandQty,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, productId));
+    expect(balance).toMatchObject({
+      onHandQty: "5.0000",
+      demandQty: "5.0000",
+    });
   });
 
   test("shipping can consume stock reserved by demand queue for another order", async ({
