@@ -94,7 +94,7 @@ export function DashboardTopNav({
     salesAllocationMode: allocationMode,
   });
   const activeModule = getActiveDashboardModule(visiblePathname, modules);
-  const visibleModule = activeModule ?? modules[0] ?? null;
+  const visibleModule = activeModule;
   const normalizedPageSearch = pageSearch.trim().toLowerCase();
   const filteredSearchActions = normalizedPageSearch
     ? searchActions.filter(
@@ -414,7 +414,7 @@ export function DashboardTopNav({
                 <DropdownMenuSeparator />
                 <DropdownMenuGroup>
                   <DropdownMenuItem asChild>
-                    <NavigationLink href="/settings">
+                    <NavigationLink href="/settings/account">
                       <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
                       Settings
                     </NavigationLink>
@@ -436,15 +436,11 @@ export function DashboardTopNav({
           </div>
         </div>
       </header>
-      <nav
-        aria-label={
-          visibleModule
-            ? `${visibleModule.title} pages`
-            : "Section pages"
-        }
-        className="flex h-(--height-subnav) w-full min-w-0 shrink-0 items-stretch overflow-hidden border-b bg-background px-(--space-10) max-sm:px-(--space-6)"
-      >
-        {visibleModule ? (
+      {visibleModule ? (
+        <nav
+          aria-label={`${visibleModule.title} pages`}
+          className="flex h-(--height-subnav) w-full min-w-0 shrink-0 items-stretch overflow-hidden border-b bg-background px-(--space-10) max-sm:px-(--space-6)"
+        >
           <div className="flex min-w-0 flex-1 items-center gap-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {visibleModule.items.map((item) => {
               const active = isDashboardPathActive(visiblePathname, item.href);
@@ -465,8 +461,8 @@ export function DashboardTopNav({
               );
             })}
           </div>
-        ) : null}
-      </nav>
+        </nav>
+      ) : null}
     </>
   );
 }

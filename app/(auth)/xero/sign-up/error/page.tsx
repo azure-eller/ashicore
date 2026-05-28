@@ -42,7 +42,7 @@ export default async function XeroSignupErrorPage({
             <a href="/api/xero/sign-up">Try again</a>
           </Button>
           <Button asChild variant="outline">
-            <a href="/settings#integrations">Open settings</a>
+            <a href="/settings/integrations">Open settings</a>
           </Button>
         </FieldGroup>
       </CardContent>

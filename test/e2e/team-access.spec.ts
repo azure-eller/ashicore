@@ -128,7 +128,7 @@ async function acceptInviteAsNewUser(
   email: string,
   name: string,
   password: string,
-  expectedPath = "/settings"
+  expectedPath = "/settings/account"
 ) {
   const { context, page } = await createFreshPage(browser);
   await page.goto(`/accept-invitation?id=${invitationId}`);
@@ -194,7 +194,7 @@ async function ownerApiCall<T>(
   } = {}
 ): Promise<{ status: number; body: T | null }> {
   if (!page.url().startsWith(BASE_URL)) {
-    await page.goto("/settings");
+    await page.goto("/settings/account");
   }
 
   return apiCall<T>(page, path, options);
@@ -286,7 +286,7 @@ test.describe("Team access", () => {
   });
 
   test("owner invite creates a sales operator membership", async ({ browser, db, page }) => {
-    await page.goto("/settings");
+    await page.goto("/settings/team");
     await expect(page.getByRole("heading", { name: "Team" })).toBeVisible();
 
     await page.getByRole("button", { name: "Invite member" }).click();
@@ -452,7 +452,7 @@ test.describe("Team access", () => {
       adminPassword,
       "/sales/orders"
     );
-    await adminPage.goto("/settings");
+    await adminPage.goto("/settings/team");
     await expect(adminPage.getByRole("heading", { name: "Team" })).toBeVisible();
 
     const allowedInvite = await apiCall<{ error?: string }>(

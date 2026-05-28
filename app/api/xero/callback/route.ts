@@ -35,9 +35,8 @@ type XeroIdentityClaims = {
 };
 
 function settingsRedirect(baseUrl: string, error?: string) {
-  const url = new URL("/settings", baseUrl);
+  const url = new URL("/settings/integrations", baseUrl);
   if (error) url.searchParams.set("error", error);
-  url.hash = "integrations";
   return NextResponse.redirect(url);
 }
 

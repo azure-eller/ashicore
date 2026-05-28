@@ -81,7 +81,7 @@ function formatSubjectDate(reportDate: string) {
 }
 
 function buildReportUrl() {
-  return new URL("/settings#reports", getCanonicalAppUrl()).toString();
+  return new URL("/settings/reports", getCanonicalAppUrl()).toString();
 }
 
 function addDays(date: string, days: number) {

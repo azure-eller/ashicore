@@ -377,7 +377,7 @@ export function getDashboardSearchActions(
   actions.push({
     title: "Settings",
     description: "View account and team settings",
-    href: "/settings",
+    href: "/settings/account",
     icon: Settings02Icon,
     group: "Account",
   });

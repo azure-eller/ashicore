@@ -16,7 +16,7 @@ const signupIntentQuery = z.object({
 });
 
 function settingsRedirect() {
-  return "/settings?xero_signup=connected#integrations";
+  return "/settings/integrations?xero_signup=connected";
 }
 
 function mfaSetupRedirect(next: string) {

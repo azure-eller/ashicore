@@ -13,7 +13,7 @@ export default function NoAccessPage() {
         </p>
         <div className="mt-(--space-12) flex justify-center">
           <Button asChild variant="outline">
-            <Link href="/settings">Open account settings</Link>
+            <Link href="/settings/account">Open account settings</Link>
           </Button>
         </div>
       </div>
