@@ -17,5 +17,6 @@ export * from "./purchasing";
 export * from "./attachments";
 export * from "./accounting";
 export * from "./integrations";
+export * from "./tax-settings";
 export * from "./auth";
 export * from "./reports";

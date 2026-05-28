@@ -212,7 +212,7 @@ async function loadPurchaseOrderForBillInTx(
       stockQuantityReceived: purchaseOrderLines.stockQuantityReceived,
       unitCost: purchaseOrderLines.unitCost,
       accountingPurchaseAccountCode: purchaseOrderLines.accountingPurchaseAccountCode,
-      lineTotal: purchaseOrderLines.lineTotal,
+      lineTotal: purchaseOrderLines.lineSubtotal,
     })
     .from(purchaseOrderLines)
     .where(eq(purchaseOrderLines.purchaseOrderId, orderId))

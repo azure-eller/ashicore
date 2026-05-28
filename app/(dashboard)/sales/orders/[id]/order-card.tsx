@@ -14,6 +14,7 @@ import type {
   SalesAddressOption,
   SalesOrderDetail,
   SalesOrderItemOption,
+  SalesOrderTaxRateOption,
 } from "@/app/(dashboard)/sales/types";
 import { formatDate, formatQuantity } from "@/lib/format";
 import { OrderStatusControl } from "@/components/card-page/order-status-control";
@@ -53,6 +54,8 @@ export type OrderCardProps = {
   addressOptions?: SalesAddressOption[];
   canViewLedger?: boolean;
   xeroInvoiceSetupStatus?: XeroInvoiceSetupStatus;
+  taxRates?: SalesOrderTaxRateOption[];
+  defaultTaxRateId?: string | null;
 };
 
 export function OrderCard({
@@ -64,6 +67,8 @@ export function OrderCard({
   addressOptions = [],
   canViewLedger,
   xeroInvoiceSetupStatus,
+  taxRates = initialOrder?.taxRates ?? [],
+  defaultTaxRateId = initialOrder?.defaultTaxRateId ?? null,
 }: OrderCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -74,11 +79,15 @@ export function OrderCard({
     () => makeInitialDraftOrder(timeZone, customerOptions, {
       customerId: initialDraftCustomerId ?? null,
       projectId: initialDraftProjectId ?? null,
+      taxRates,
+      defaultTaxRateId,
     }),
     [
       customerOptions,
       initialDraftCustomerId,
       initialDraftProjectId,
+      taxRates,
+      defaultTaxRateId,
       timeZone,
     ],
   );
@@ -417,9 +426,15 @@ function makeInitialDraftOrder(
   defaults: {
     customerId: string | null;
     projectId: string | null;
+    taxRates: SalesOrderTaxRateOption[];
+    defaultTaxRateId: string | null;
   },
 ) {
-  const draft = makeDraftOrder(timeZone);
+  const draft = {
+    ...makeDraftOrder(timeZone),
+    taxRates: defaults.taxRates,
+    defaultTaxRateId: defaults.defaultTaxRateId,
+  };
   if (!defaults.customerId) {
     return draft;
   }

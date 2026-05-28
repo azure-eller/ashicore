@@ -587,6 +587,7 @@ async function buildPurchaseOrderPayloadInTx(
       itemId: item.id,
       quantityOrdered: normalizeNumeric(line.quantity ?? 0),
       unitCost,
+      taxRateId: null,
       accountingPurchaseAccountCode: line.accountCode,
       shipAddressEntryId: null,
       shipContactName: null,

@@ -41,6 +41,8 @@ export function makeDraftOrder(timeZone: string): SalesOrderDetail {
     shippingFeeDescription: null,
     shippingFeeAmount: "0",
     shippingFeeTaxAmount: "0",
+    subtotalAmount: "0",
+    taxAmount: "0",
     xeroInvoiceId: null,
     xeroInvoiceNumber: null,
     xeroPushStatus: null,
@@ -93,6 +95,8 @@ export function makeDraftOrder(timeZone: string): SalesOrderDetail {
       costStatus: "unknown",
     },
     linkedManufacturingOrders: [],
+    taxRates: [],
+    defaultTaxRateId: null,
   };
 }
 
@@ -104,11 +108,17 @@ export function makeDraftLine(input: {
   unitName: string;
   quantity: string;
   unitPrice: string;
+  taxRateId?: string | null;
+  taxRateName?: string | null;
+  taxRatePercent?: string | null;
   estimatedUnitCost: string | null;
 }): SalesOrderDetailLine {
   const qty = Number(input.quantity) || 0;
   const price = Number(input.unitPrice) || 0;
-  const lineTotal = (qty * price).toFixed(2);
+  const rate = Number(input.taxRatePercent ?? 0) || 0;
+  const lineSubtotal = (qty * price).toFixed(2);
+  const lineTaxAmount = (Number(lineSubtotal) * (rate / 100)).toFixed(2);
+  const lineTotal = (Number(lineSubtotal) + Number(lineTaxAmount)).toFixed(2);
   return {
     id: `draft-${crypto.randomUUID()}`,
     itemId: input.itemId,
@@ -124,11 +134,16 @@ export function makeDraftLine(input: {
     remainingQuantity: input.quantity,
     unplannedRemainingQuantity: input.quantity,
     unitPrice: input.unitPrice,
+    taxRateId: input.taxRateId ?? null,
+    taxRateName: input.taxRateName ?? null,
+    taxRatePercent: input.taxRatePercent ?? "0",
     suggestedUnitPrice: null,
     pricingSourceType: null,
     pricingScheduleName: null,
     pricingBreakLabel: null,
     isPriceOverridden: false,
+    lineSubtotal,
+    lineTaxAmount,
     lineTotal,
     estimatedUnitCost: input.estimatedUnitCost,
     estimatedCogs:
@@ -224,6 +239,7 @@ export function orderToUpdatePayload(
       itemId: line.itemId,
       quantity: line.quantity,
       unitPrice: line.unitPrice,
+      taxRateId: line.taxRateId,
     })),
     shipments: [],
   } as InsertSalesOrder;
@@ -262,6 +278,7 @@ export function draftToInsertPayload(
       itemId: line.itemId,
       quantity: line.quantity,
       unitPrice: line.unitPrice,
+      taxRateId: line.taxRateId,
     })),
     shipments: [],
   } as InsertSalesOrder;

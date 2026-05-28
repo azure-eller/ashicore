@@ -102,6 +102,7 @@ import {
 import type {
   PurchaseOrderEditData,
   PurchaseOrderMaterialOption,
+  PurchaseOrderTaxRateOption,
   SupplierOption,
 } from "./types";
 import { SupplierSelect } from "./supplier-select";
@@ -182,6 +183,7 @@ const blankPurchaseOrderLine = {
   itemId: "",
   quantityOrdered: null,
   unitCost: null,
+  taxRateId: null,
   accountingPurchaseAccountCode: null,
   ...EMPTY_DELIVERY_ADDRESS,
 };
@@ -265,6 +267,7 @@ function toPurchaseOrderLinePayloadRows(
       itemId: row.itemId,
       quantityOrdered: row.quantityOrdered,
       unitCost: row.unitCost,
+      taxRateId: row.taxRateId,
       accountingPurchaseAccountCode: row.accountingPurchaseAccountCode,
       shipAddressEntryId: row.shipAddressEntryId,
       shipContactName: row.shipContactName,
@@ -399,11 +402,24 @@ function parseNonNegative(value: string | null | undefined) {
 function lineTotalLabel(
   quantityOrdered: string | null | undefined,
   unitCost: string | null | undefined,
+  taxRateId: string | null | undefined,
+  taxRateMap: Map<string, PurchaseOrderTaxRateOption>,
+) {
+  const subtotal = lineTotalBeforeTax(quantityOrdered, unitCost);
+  if (subtotal == null) return "\u2014";
+  const taxRate = taxRateId ? taxRateMap.get(taxRateId) : null;
+  const taxAmount = subtotal * (Number(taxRate?.ratePercent ?? 0) / 100);
+  return formatPrice((subtotal + taxAmount).toFixed(4)) ?? "\u2014";
+}
+
+function lineTotalBeforeTax(
+  quantityOrdered: string | null | undefined,
+  unitCost: string | null | undefined,
 ) {
   const quantity = parsePositive(quantityOrdered);
   const cost = parseNonNegative(unitCost);
-  if (quantity == null || cost == null) return "\u2014";
-  return formatPrice((quantity * cost).toFixed(4)) ?? "\u2014";
+  if (quantity == null || cost == null) return null;
+  return quantity * cost;
 }
 
 function formatQuantityWithUnit(
@@ -738,10 +754,18 @@ function PurchaseLandedUnitCell({
 
 function PurchaseLineTotalCell({
   data,
-}: ICellRendererParams<PurchaseOrderLineGridRow>) {
+  taxRateMap,
+}: ICellRendererParams<PurchaseOrderLineGridRow> & {
+  taxRateMap: Map<string, PurchaseOrderTaxRateOption>;
+}) {
   return (
     <span className="font-medium">
-      {lineTotalLabel(data?.quantityOrdered, data?.unitCost)}
+      {lineTotalLabel(
+        data?.quantityOrdered,
+        data?.unitCost,
+        data?.taxRateId,
+        taxRateMap,
+      )}
     </span>
   );
 }
@@ -854,6 +878,8 @@ export function PurchaseOrderCard({
   canViewLedger = false,
   xeroBillSetupStatus = "not_connected",
   xeroPurchaseBillDefaultAccountCode = null,
+  taxRates = initialData?.taxRates ?? [],
+  defaultTaxRateId = initialData?.defaultTaxRateId ?? null,
 }: {
   suppliers: SupplierOption[];
   materials: PurchaseOrderMaterialOption[];
@@ -865,6 +891,8 @@ export function PurchaseOrderCard({
   canViewLedger?: boolean;
   xeroBillSetupStatus?: XeroBillSetupStatus;
   xeroPurchaseBillDefaultAccountCode?: string | null;
+  taxRates?: PurchaseOrderTaxRateOption[];
+  defaultTaxRateId?: string | null;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -966,6 +994,12 @@ export function PurchaseOrderCard({
   const supplierOptionsSorted = [...suppliers].sort((a, b) =>
     a.name.localeCompare(b.name),
   );
+  const taxRateMap = useMemo(
+    () => new Map(taxRates.map((rate) => [rate.id, rate])),
+    [taxRates],
+  );
+  const defaultTaxRate =
+    defaultTaxRateId != null ? taxRateMap.get(defaultTaxRateId) ?? null : null;
   const initialFormValues: PurchaseOrderFormValues = initialData
     ? {
         supplierId: initialData.supplierId,
@@ -983,6 +1017,7 @@ export function PurchaseOrderCard({
           itemId: line.itemId,
           quantityOrdered: line.quantityOrdered,
           unitCost: line.unitCost,
+          taxRateId: line.taxRateId,
           accountingPurchaseAccountCode: line.accountingPurchaseAccountCode,
           ...EMPTY_DELIVERY_ADDRESS,
         })),
@@ -1000,6 +1035,7 @@ export function PurchaseOrderCard({
         lines: (defaultValues ?? purchaseOrderDefaultValues).lines.map(
           (line) => ({
             ...line,
+            taxRateId: line.taxRateId ?? defaultTaxRate?.id ?? null,
             ...EMPTY_DELIVERY_ADDRESS,
           }),
         ),
@@ -1152,6 +1188,12 @@ export function PurchaseOrderCard({
   const nonDistributedAdditionalCostTotal =
     landedCostPreview.nonDistributedAdditionalCostTotal;
   const orderTotal = landedCostPreview.orderTotal;
+  const taxTotal = lineGridRows.reduce((sum, line) => {
+    const lineSubtotal = lineTotalBeforeTax(line.quantityOrdered, line.unitCost);
+    if (lineSubtotal == null) return sum;
+    const taxRate = line.taxRateId ? taxRateMap.get(line.taxRateId) : null;
+    return sum + lineSubtotal * (Number(taxRate?.ratePercent ?? 0) / 100);
+  }, 0);
   const hasAdditionalCostsForBill = additionalCostRows.some(
     (cost) => !isBlankPurchaseOrderAdditionalCost(cost),
   );
@@ -1381,6 +1423,26 @@ export function PurchaseOrderCard({
         ),
       },
       {
+        field: "taxRateId",
+        kind: "select",
+        headerName: "Tax %",
+        minWidth: 120,
+        flex: 0.5,
+        editable: !billAffectingReadOnly,
+        values: ["", ...taxRates.map((rate) => rate.id)],
+        valueFormatter: ({ value }) => {
+          if (!value) return "0%";
+          const rate = taxRateMap.get(String(value));
+          return rate ? `${rate.ratePercent}% - ${rate.name}` : "0%";
+        },
+        valueSetter: (
+          params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
+        ) => {
+          params.data.taxRateId = params.newValue ? String(params.newValue) : null;
+          return true;
+        },
+      },
+      {
         field: "accountingPurchaseAccountCode",
         kind: "select",
         headerName: "Account",
@@ -1416,7 +1478,9 @@ export function PurchaseOrderCard({
         headerTooltip: PO_LINE_TOTAL_TOOLTIP,
         minWidth: 128,
         flex: 0.55,
-        cellRenderer: PurchaseLineTotalCell,
+        cellRenderer: (
+          params: ICellRendererParams<PurchaseOrderLineGridRow>,
+        ) => <PurchaseLineTotalCell {...params} taxRateMap={taxRateMap} />,
       },
     ];
   }, [
@@ -1429,6 +1493,8 @@ export function PurchaseOrderCard({
     billAffectingReadOnly,
     xeroAccounts,
     xeroAccountsByCode,
+    taxRates,
+    taxRateMap,
   ]);
   const handleLineRowsChange = useCallback(
     (rows: PurchaseOrderLineGridRow[]) => {
@@ -1439,7 +1505,10 @@ export function PurchaseOrderCard({
     },
     [commitPurchaseOrderDraft],
   );
-  const createLineRow = useCallback(() => createPurchaseOrderLineRow(), []);
+  const createLineRow = useCallback(
+    () => createPurchaseOrderLineRow({ taxRateId: defaultTaxRate?.id ?? null }),
+    [defaultTaxRate],
+  );
   const getLineRowId = useCallback(
     (row: PurchaseOrderLineGridRow) => row.clientRowId,
     [],
@@ -2309,8 +2378,14 @@ export function PurchaseOrderCard({
                         ) ?? "$0.00",
                     },
                     {
+                      label: "Tax",
+                      value: formatPrice(taxTotal.toFixed(4)) ?? "$0.00",
+                    },
+                    {
                       label: "Total",
-                      value: formatPrice(orderTotal.toFixed(4)) ?? "$0.00",
+                      value:
+                        formatPrice((orderTotal + taxTotal).toFixed(4)) ??
+                        "$0.00",
                       rule: true,
                       emphasis: "total",
                     },

@@ -7,6 +7,7 @@ import {
   isValidIsoDate,
   nullableString,
   nullableStringStrict,
+  nullableStringPreserveUndefined,
   optionalMoneyString,
   positiveMoneyString,
 } from "./shared";
@@ -39,6 +40,7 @@ const rawOrderLineSchema = z.object({
   itemId: z.string().default(""),
   quantity: nullableString,
   unitPrice: nullableString,
+  taxRateId: nullableStringPreserveUndefined,
 });
 
 type RawOrderLine = z.input<typeof rawOrderLineSchema>;
@@ -60,6 +62,7 @@ const cleanedLinesSchema = z
       const itemId = line.itemId.trim();
       const quantity = line.quantity?.trim() ?? "";
       const unitPrice = line.unitPrice?.trim() ?? "";
+      const taxRateId = line.taxRateId?.trim() ?? "";
 
       if (!itemId) {
         ctx.addIssue({
@@ -112,6 +115,14 @@ const cleanedLinesSchema = z
           });
         }
         seen.add(itemId);
+      }
+
+      if (taxRateId && !z.string().uuid().safeParse(taxRateId).success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Invalid tax rate",
+          path: [index, "taxRateId"],
+        });
       }
     });
   });
@@ -268,6 +279,8 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
   customerName: true,
   shippedAt: true,
   priorityRank: true,
+  subtotalAmount: true,
+  taxAmount: true,
   totalAmount: true,
   deletedAt: true,
   createdAt: true,
@@ -407,6 +420,12 @@ export const patchSalesOrderLineSchema = z
   .object({
     quantity: positiveMoneyString().optional(),
     unitPrice: positiveMoneyString().optional(),
+    taxRateId: nullableStringStrict
+      .refine(
+        (value) => value == null || z.string().uuid().safeParse(value).success,
+        "Invalid tax rate",
+      )
+      .optional(),
   })
   .refine(
     (value) => Object.keys(value).length > 0,
@@ -582,6 +601,7 @@ export const salesOrderDefaultValues: InsertSalesOrder = {
       itemId: "",
       quantity: null,
       unitPrice: null,
+      taxRateId: null,
     },
   ],
   shipments: [],

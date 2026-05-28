@@ -890,6 +890,13 @@
       "when": 1779917039752,
       "tag": "0126_item_family_lot_tracking_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1779917039753,
+      "tag": "0127_tax_rates",
+      "breakpoints": true
     }
   ]
 }

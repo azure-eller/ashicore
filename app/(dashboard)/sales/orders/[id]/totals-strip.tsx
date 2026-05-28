@@ -31,10 +31,9 @@ export function TotalsStrip({
   const revenue = parseAmount(marginSummary.productRevenue);
   const discount = calculateDiscountAmount(order, itemMap);
   const grossRevenue = revenue == null ? null : revenue + discount;
-  const shippingFee =
-    (parseAmount(order.shippingFeeAmount) ?? 0) +
-    (parseAmount(order.shippingFeeTaxAmount) ?? 0);
-  const total = (grossRevenue ?? 0) - discount + shippingFee;
+  const shippingFee = parseAmount(order.shippingFeeAmount) ?? 0;
+  const taxAmount = parseAmount(order.taxAmount) ?? 0;
+  const total = parseAmount(order.totalAmount);
 
   return (
     <div className={styles.totalsStrip}>
@@ -65,6 +64,10 @@ export function TotalsStrip({
           {
             label: "Shipping fee",
             value: formatMoney(shippingFee),
+          },
+          {
+            label: "Tax",
+            value: formatMoney(taxAmount),
           },
           {
             label: "Total",

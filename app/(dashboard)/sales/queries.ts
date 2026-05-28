@@ -46,6 +46,10 @@ import {
 import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import {
+  getTaxSettingsInTx,
+  getTaxRatesByIdInTx,
+} from "@/lib/dal/tax-settings";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
   beginInventoryOperationInTx,
@@ -76,6 +80,10 @@ import {
   calculateMarginMetrics,
   calculateUnitMarginMetrics,
 } from "@/lib/margin";
+import {
+  calculateTaxAmount,
+  calculateTaxedLineTotal,
+} from "@/lib/tax/calc";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import {
   buildFifoLotPickPlanInTx,
@@ -432,6 +440,11 @@ type PreparedOrderLineBase = {
   unitName: string;
   quantity: string;
   unitPrice: string;
+  taxRateId: string | null;
+  taxRateName: string | null;
+  taxRatePercent: string;
+  lineSubtotal: string;
+  lineTaxAmount: string;
   lineTotal: string;
   sortOrder: number;
   allocationManagedAt?: Date | null;
@@ -1502,6 +1515,9 @@ async function getOrderLinesInTx(tx: Tx, orderId: string) {
         "cancelledQuantity"
       ),
       unitPrice: trimScale(salesOrderLines.unitPrice).as("unitPrice"),
+      taxRateId: salesOrderLines.taxRateId,
+      taxRateName: salesOrderLines.taxRateName,
+      taxRatePercent: trimScale(salesOrderLines.taxRatePercent).as("taxRatePercent"),
       suggestedUnitPrice: trimScaleNullable(salesOrderLines.suggestedUnitPrice).as(
         "suggestedUnitPrice"
       ),
@@ -1509,6 +1525,8 @@ async function getOrderLinesInTx(tx: Tx, orderId: string) {
       pricingScheduleName: salesOrderLines.pricingScheduleName,
       pricingBreakLabel: salesOrderLines.pricingBreakLabel,
       isPriceOverridden: salesOrderLines.isPriceOverridden,
+      lineSubtotal: trimScale(salesOrderLines.lineSubtotal).as("lineSubtotal"),
+      lineTaxAmount: trimScale(salesOrderLines.lineTaxAmount).as("lineTaxAmount"),
       lineTotal: trimScale(salesOrderLines.lineTotal).as("lineTotal"),
       sortOrder: salesOrderLines.sortOrder,
       createdAt: salesOrderLines.createdAt,
@@ -1546,6 +1564,9 @@ async function getLockedSalesOrderInTx(tx: Tx, id: string) {
       shippingFeeDescription: salesOrders.shippingFeeDescription,
       shippingFeeAmount: trimScale(salesOrders.shippingFeeAmount).as("shippingFeeAmount"),
       shippingFeeTaxAmount: trimScale(salesOrders.shippingFeeTaxAmount).as("shippingFeeTaxAmount"),
+      subtotalAmount: trimScale(salesOrders.subtotalAmount).as("subtotalAmount"),
+      taxAmount: trimScale(salesOrders.taxAmount).as("taxAmount"),
+      totalAmount: trimScale(salesOrders.totalAmount).as("totalAmount"),
     })
     .from(salesOrders)
     .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)))
@@ -2971,6 +2992,7 @@ async function getValidatedSalesItemsInTx(
 
 async function prepareOrderPayload(
   tx: Tx,
+  orgId: string,
   payload: InsertSalesOrder,
   options?: { lockItems?: boolean }
 ): Promise<{
@@ -2996,6 +3018,8 @@ async function prepareOrderPayload(
   shippingFeeDescription: string | null;
   shippingFeeAmount: string;
   shippingFeeTaxAmount: string;
+  subtotalAmount: string;
+  taxAmount: string;
   totalAmount: string;
   preparedLines: PreparedOrderLine[];
   affectedItemIds: string[];
@@ -3008,6 +3032,14 @@ async function prepareOrderPayload(
     payload.customerProjectId
   );
   const itemIds = payload.lines.map((line) => line.itemId);
+  const requestedTaxRateIds = payload.lines
+    .map((line) => line.taxRateId?.trim() ?? "")
+    .filter(Boolean);
+  const taxSettings = await getTaxSettingsInTx(tx, orgId);
+  const defaultSalesTaxRateId = taxSettings.defaultSalesTaxRateId;
+  if (defaultSalesTaxRateId) {
+    requestedTaxRateIds.push(defaultSalesTaxRateId);
+  }
 
   if (options?.lockItems && itemIds.length > 0) {
     await lockItemsInTx(tx, itemIds);
@@ -3021,6 +3053,7 @@ async function prepareOrderPayload(
     [...itemsById.values()],
     customer.customerCategoryId
   );
+  const taxRatesById = await getTaxRatesByIdInTx(tx, requestedTaxRateIds);
 
   const preparedLines = payload.lines.map((line, index) => {
     const item = itemsById.get(line.itemId);
@@ -3041,7 +3074,18 @@ async function prepareOrderPayload(
     const quantity = Number(line.quantity);
     const unitPrice = Number(line.unitPrice);
     const normalizedUnitPrice = normalizeMoney(unitPrice);
-    const lineTotal = quantity * unitPrice;
+    const effectiveTaxRateId =
+      line.taxRateId === undefined ? defaultSalesTaxRateId : line.taxRateId;
+    const selectedTaxRate = effectiveTaxRateId
+      ? taxRatesById.get(effectiveTaxRateId) ?? null
+      : null;
+    const lineSubtotal = quantity * unitPrice;
+    const lineTaxAmount = calculateTaxAmount(
+      lineSubtotal,
+      selectedTaxRate?.ratePercent ?? 0,
+      2,
+    );
+    const lineTotal = calculateTaxedLineTotal(lineSubtotal, lineTaxAmount, 2);
 
     return {
       itemId: item.id,
@@ -3050,6 +3094,9 @@ async function prepareOrderPayload(
       unitName: item.unitName,
       quantity: normalizeNumeric(quantity),
       unitPrice: normalizedUnitPrice,
+      taxRateId: selectedTaxRate?.id ?? null,
+      taxRateName: selectedTaxRate?.name ?? null,
+      taxRatePercent: selectedTaxRate?.ratePercent ?? "0",
       suggestedUnitPrice: pricing.suggestedUnitPrice,
       pricingSourceType: pricing.pricingSourceType,
       pricingScheduleName: pricing.pricingScheduleName,
@@ -3057,17 +3104,24 @@ async function prepareOrderPayload(
       isPriceOverridden:
         pricing.suggestedUnitPrice != null &&
         normalizedUnitPrice !== pricing.suggestedUnitPrice,
-      lineTotal: normalizeMoney(lineTotal),
+      lineSubtotal: normalizeMoney(lineSubtotal),
+      lineTaxAmount,
+      lineTotal,
       sortOrder: index,
     } satisfies PreparedOrderLine;
   });
 
   const shippingFeeAmount = normalizeMoney(Number(payload.shippingFeeAmount ?? 0));
   const shippingFeeTaxAmount = normalizeMoney(Number(payload.shippingFeeTaxAmount ?? 0));
-  const totalAmount = preparedLines.reduce(
-    (sum, line) => sum + parseFloat(line.lineTotal),
+  const subtotalAmount = preparedLines.reduce(
+    (sum, line) => sum + parseFloat(line.lineSubtotal),
     0
-  ) + parseFloat(shippingFeeAmount) + parseFloat(shippingFeeTaxAmount);
+  ) + parseFloat(shippingFeeAmount);
+  const taxAmount = preparedLines.reduce(
+    (sum, line) => sum + parseFloat(line.lineTaxAmount),
+    0
+  ) + parseFloat(shippingFeeTaxAmount);
+  const totalAmount = subtotalAmount + taxAmount;
 
   return {
     customerId: customer.id,
@@ -3092,6 +3146,8 @@ async function prepareOrderPayload(
     shippingFeeDescription: payload.shippingFeeDescription ?? null,
     shippingFeeAmount,
     shippingFeeTaxAmount,
+    subtotalAmount: normalizeMoney(subtotalAmount),
+    taxAmount: normalizeMoney(taxAmount),
     totalAmount: normalizeMoney(totalAmount),
     preparedLines,
     affectedItemIds: preparedLines.map((line) => line.itemId),
@@ -5763,6 +5819,8 @@ export async function getSalesOrder(
         shippingFeeDescription: salesOrders.shippingFeeDescription,
         shippingFeeAmount: trimScale(salesOrders.shippingFeeAmount).as("shippingFeeAmount"),
         shippingFeeTaxAmount: trimScale(salesOrders.shippingFeeTaxAmount).as("shippingFeeTaxAmount"),
+        subtotalAmount: trimScale(salesOrders.subtotalAmount).as("subtotalAmount"),
+        taxAmount: trimScale(salesOrders.taxAmount).as("taxAmount"),
         xeroInvoiceId: accountingDocumentSyncs.externalDocumentId,
         xeroInvoiceNumber: accountingDocumentSyncs.externalDocumentNumber,
         xeroPushStatus: accountingDocumentSyncs.pushStatus,
@@ -5814,6 +5872,9 @@ export async function getSalesOrder(
           "cancelledQuantity"
         ),
         unitPrice: trimScale(salesOrderLines.unitPrice).as("unitPrice"),
+        taxRateId: salesOrderLines.taxRateId,
+        taxRateName: salesOrderLines.taxRateName,
+        taxRatePercent: trimScale(salesOrderLines.taxRatePercent).as("taxRatePercent"),
         suggestedUnitPrice: trimScaleNullable(salesOrderLines.suggestedUnitPrice).as(
           "suggestedUnitPrice"
         ),
@@ -5821,6 +5882,8 @@ export async function getSalesOrder(
         pricingScheduleName: salesOrderLines.pricingScheduleName,
         pricingBreakLabel: salesOrderLines.pricingBreakLabel,
         isPriceOverridden: salesOrderLines.isPriceOverridden,
+        lineSubtotal: trimScale(salesOrderLines.lineSubtotal).as("lineSubtotal"),
+        lineTaxAmount: trimScale(salesOrderLines.lineTaxAmount).as("lineTaxAmount"),
         lineTotal: trimScale(salesOrderLines.lineTotal).as("lineTotal"),
         sortOrder: salesOrderLines.sortOrder,
         createdAt: salesOrderLines.createdAt,
@@ -5851,15 +5914,19 @@ export async function getSalesOrder(
       .where(eq(salesOrderLines.salesOrderId, id))
       .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.createdAt));
 
-    const estimatedUnitCosts = await getEstimatedUnitCostsByItemIdInTx(
-      tx,
-      lineRows.map((line) => line.itemId)
-    );
-    const actualLineCosts = await getActualSalesLineCostsByLineIdInTx(tx, id);
-    const optionLabelsByItemId = await getSalesOptionLabelsByItemIdInTx(
-      tx,
-      lineRows.map((line) => line.itemId)
-    );
+    const [estimatedUnitCosts, actualLineCosts, optionLabelsByItemId, taxSettings] =
+      await Promise.all([
+        getEstimatedUnitCostsByItemIdInTx(
+          tx,
+          lineRows.map((line) => line.itemId),
+        ),
+        getActualSalesLineCostsByLineIdInTx(tx, id),
+        getSalesOptionLabelsByItemIdInTx(
+          tx,
+          lineRows.map((line) => line.itemId),
+        ),
+        getTaxSettingsInTx(tx, orgId),
+      ]);
 
     const lines = lineRows.map(({ familyName, ...rest }) => {
       const optionLabels = optionLabelsByItemId.get(rest.itemId) ?? [];
@@ -5875,8 +5942,8 @@ export async function getSalesOrder(
       });
       const actualCost = actualLineCosts.get(rest.id) ?? null;
       const actualMargin = actualCost
-        ? calculateMarginMetrics({
-            revenue: rest.lineTotal,
+          ? calculateMarginMetrics({
+            revenue: rest.lineSubtotal,
             cogs: actualCost.cogs,
           })
         : null;
@@ -6165,7 +6232,7 @@ export async function getSalesOrder(
           })()
         : buildSalesMarginSummary({
             productRevenue: lines.reduce(
-              (sum, line) => sum + parseMoneyValue(line.lineTotal),
+              (sum, line) => sum + parseMoneyValue(line.lineSubtotal),
               0
             ),
             freightRecovery: orderFreightRecovery,
@@ -6594,6 +6661,8 @@ export async function getSalesOrder(
       xeroEmailStatus:
         order.xeroEmailStatus as SalesOrderDetail["xeroEmailStatus"],
       lines: linesWithLotGuidance as SalesOrderDetailLine[],
+      taxRates: taxSettings.rates,
+      defaultTaxRateId: taxSettings.defaultSalesTaxRateId,
       shipments,
       marginSummary: orderMarginSummary,
       hasManufacturableLines,
@@ -6613,7 +6682,7 @@ export async function getSalesOrder(
 }
 
 export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditData | null> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
     const [order] = await tx
       .select({
         id: salesOrders.id,
@@ -6651,7 +6720,10 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
       return null;
     }
 
-    const lines = await getOrderLinesInTx(tx, id);
+    const [lines, taxSettings] = await Promise.all([
+      getOrderLinesInTx(tx, id),
+      getTaxSettingsInTx(tx, orgId),
+    ]);
     const shipmentRows = await tx
       .select({
         id: salesShipments.id,
@@ -6703,6 +6775,7 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
         itemId: line.itemId,
         quantity: line.quantity,
         unitPrice: line.unitPrice,
+        taxRateId: line.taxRateId,
         suggestedUnitPrice: line.suggestedUnitPrice,
         pricingSourceType: (line.pricingSourceType ??
           "base_price") as PricingSourceType,
@@ -6710,6 +6783,8 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
         pricingBreakLabel: line.pricingBreakLabel,
         isPriceOverridden: line.isPriceOverridden,
       })),
+      taxRates: taxSettings.rates,
+      defaultTaxRateId: taxSettings.defaultSalesTaxRateId,
       shipments: [...shipmentsById.values()],
     };
   });
@@ -6731,7 +6806,7 @@ export async function createSalesOrder(
       return replay.result;
     }
 
-    const prepared = await prepareOrderPayload(tx, data);
+    const prepared = await prepareOrderPayload(tx, orgId, data);
 
     const orderNumber = await resolveSalesOrderNumberInTx(
       tx,
@@ -6766,6 +6841,8 @@ export async function createSalesOrder(
         shippingFeeDescription: prepared.shippingFeeDescription,
         shippingFeeAmount: prepared.shippingFeeAmount,
         shippingFeeTaxAmount: prepared.shippingFeeTaxAmount,
+        subtotalAmount: prepared.subtotalAmount,
+        taxAmount: prepared.taxAmount,
         totalAmount: prepared.totalAmount,
       })
       .returning({ id: salesOrders.id });
@@ -6878,6 +6955,7 @@ export async function duplicateSalesOrder(
         itemId: line.itemId,
         quantity: line.quantity,
         unitPrice: line.unitPrice,
+        taxRateId: line.taxRateId,
       })),
       shipments: [],
       confirmOversell: true,
@@ -6939,7 +7017,7 @@ export async function updateSalesOrder(
       throw new SalesError("Done orders cannot be changed.", 400);
     }
 
-    const prepared = await prepareOrderPayload(tx, data);
+    const prepared = await prepareOrderPayload(tx, orgId, data);
 
     const existingShipmentRows = await tx
       .select({ id: salesShipments.id })
@@ -7071,6 +7149,8 @@ export async function updateSalesOrder(
         shippingFeeDescription: prepared.shippingFeeDescription,
         shippingFeeAmount: prepared.shippingFeeAmount,
         shippingFeeTaxAmount: prepared.shippingFeeTaxAmount,
+        subtotalAmount: prepared.subtotalAmount,
+        taxAmount: prepared.taxAmount,
         totalAmount: prepared.totalAmount,
         updatedAt: new Date(),
       })
@@ -8633,9 +8713,10 @@ export async function patchSalesOrderHeader(
       patch.shippingFeeAmount !== undefined ||
       patch.shippingFeeTaxAmount !== undefined
     ) {
-      const lineTotal = await tx
+      const lineTotals = await tx
         .select({
-          total: sql<string>`COALESCE(SUM(${salesOrderLines.lineTotal}), 0)`,
+          subtotal: sql<string>`COALESCE(SUM(${salesOrderLines.lineSubtotal}), 0)`,
+          tax: sql<string>`COALESCE(SUM(${salesOrderLines.lineTaxAmount}), 0)`,
         })
         .from(salesOrderLines)
         .where(eq(salesOrderLines.salesOrderId, id));
@@ -8647,8 +8728,14 @@ export async function patchSalesOrderHeader(
         patch.shippingFeeTaxAmount !== undefined
           ? Number(patch.shippingFeeTaxAmount ?? 0)
           : Number(existingOrder.shippingFeeTaxAmount ?? 0);
+      updates.subtotalAmount = normalizeMoney(
+        Number(lineTotals[0]?.subtotal ?? 0) + nextShippingFee
+      );
+      updates.taxAmount = normalizeMoney(
+        Number(lineTotals[0]?.tax ?? 0) + nextShippingTax
+      );
       updates.totalAmount = normalizeMoney(
-        Number(lineTotal[0]?.total ?? 0) + nextShippingFee + nextShippingTax
+        Number(updates.subtotalAmount) + Number(updates.taxAmount)
       );
     }
 
@@ -8713,6 +8800,8 @@ export async function patchSalesOrderLine(
         itemId: salesOrderLines.itemId,
         quantity: salesOrderLines.quantity,
         unitPrice: salesOrderLines.unitPrice,
+        taxRateId: salesOrderLines.taxRateId,
+        taxRatePercent: salesOrderLines.taxRatePercent,
         cancelledQuantity: salesOrderLines.cancelledQuantity,
       })
       .from(salesOrderLines)
@@ -8734,6 +8823,23 @@ export async function patchSalesOrderLine(
 
     const nextQuantity = patch.quantity ?? existingLine.quantity;
     const nextUnitPrice = patch.unitPrice ?? existingLine.unitPrice;
+    const taxRate =
+      patch.taxRateId === undefined
+        ? null
+        : patch.taxRateId
+          ? (await getTaxRatesByIdInTx(tx, [patch.taxRateId])).get(patch.taxRateId) ?? null
+          : null;
+    if (patch.taxRateId && !taxRate) {
+      throw new SalesError("Tax rate not found", 404);
+    }
+    const nextTaxRateId =
+      patch.taxRateId === undefined ? existingLine.taxRateId : taxRate?.id ?? null;
+    const nextTaxRateName =
+      patch.taxRateId === undefined ? undefined : taxRate?.name ?? null;
+    const nextTaxRatePercent =
+      patch.taxRateId === undefined
+        ? existingLine.taxRatePercent
+        : taxRate?.ratePercent ?? "0";
     const nextQuantityNumber = parseFloat(nextQuantity);
     const currentQuantityNumber = parseFloat(existingLine.quantity);
 
@@ -8790,9 +8896,23 @@ export async function patchSalesOrderLine(
       quantity: nextQuantity,
     });
     const normalizedUnitPrice = normalizeMoney(Number(nextUnitPrice));
-    const nextLineTotal = normalizeMoney(nextQuantityNumber * Number(nextUnitPrice));
+    const nextLineSubtotal = nextQuantityNumber * Number(nextUnitPrice);
+    const nextLineTaxAmount = calculateTaxAmount(
+      nextLineSubtotal,
+      nextTaxRatePercent,
+      2,
+    );
+    const nextLineTotal = calculateTaxedLineTotal(
+      nextLineSubtotal,
+      nextLineTaxAmount,
+      2,
+    );
 
     const updates: Record<string, unknown> = {
+      taxRateId: nextTaxRateId,
+      taxRatePercent: nextTaxRatePercent,
+      lineSubtotal: normalizeMoney(nextLineSubtotal),
+      lineTaxAmount: nextLineTaxAmount,
       lineTotal: nextLineTotal,
       suggestedUnitPrice: pricing.suggestedUnitPrice,
       pricingSourceType: pricing.pricingSourceType,
@@ -8803,6 +8923,7 @@ export async function patchSalesOrderLine(
         normalizedUnitPrice !== pricing.suggestedUnitPrice,
       updatedAt: new Date(),
     };
+    if (patch.taxRateId !== undefined) updates.taxRateName = nextTaxRateName;
     if (patch.quantity != null) updates.quantity = patch.quantity;
     if (patch.unitPrice != null) updates.unitPrice = normalizedUnitPrice;
 
@@ -8858,9 +8979,13 @@ export async function patchSalesOrderLine(
       }
     }
 
-    // Refresh totalAmount on the order
+    // Refresh order totals from canonical line totals.
     const allLines = await tx
-      .select({ lineTotal: salesOrderLines.lineTotal })
+      .select({
+        lineSubtotal: salesOrderLines.lineSubtotal,
+        lineTaxAmount: salesOrderLines.lineTaxAmount,
+        lineTotal: salesOrderLines.lineTotal,
+      })
       .from(salesOrderLines)
       .where(eq(salesOrderLines.salesOrderId, orderId));
     const total = allLines.reduce(
@@ -8870,6 +8995,14 @@ export async function patchSalesOrderLine(
     await tx
       .update(salesOrders)
       .set({
+        subtotalAmount: normalizeMoney(
+          allLines.reduce((sum, line) => sum + Number(line.lineSubtotal), 0) +
+            Number(existingOrder.shippingFeeAmount ?? 0)
+        ),
+        taxAmount: normalizeMoney(
+          allLines.reduce((sum, line) => sum + Number(line.lineTaxAmount), 0) +
+            Number(existingOrder.shippingFeeTaxAmount ?? 0)
+        ),
         totalAmount: normalizeMoney(
           total +
             Number(existingOrder.shippingFeeAmount ?? 0) +

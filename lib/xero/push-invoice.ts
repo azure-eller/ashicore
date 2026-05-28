@@ -242,7 +242,7 @@ async function loadOrderForPushInTx(
       itemSku: salesOrderLines.itemSku,
       quantity: salesOrderLines.quantity,
       unitPrice: salesOrderLines.unitPrice,
-      lineTotal: salesOrderLines.lineTotal,
+      lineTotal: salesOrderLines.lineSubtotal,
     })
     .from(salesOrderLines)
     .where(eq(salesOrderLines.salesOrderId, orderId))

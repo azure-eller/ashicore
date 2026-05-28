@@ -251,6 +251,11 @@ function toSalesOrderLineInsert(
     unitName: line.unitName,
     quantity: line.quantity,
     unitPrice: line.unitPrice,
+    taxRateId: null,
+    taxRateName: null,
+    taxRatePercent: "0",
+    lineSubtotal: line.lineTotal,
+    lineTaxAmount: "0",
     lineTotal: line.lineTotal,
     sortOrder: line.sortOrder,
   };
@@ -748,6 +753,8 @@ export async function applySalesImportOrdersInTx(
             shipDate: order.shipDate,
             requestedDate: order.requestedDate,
             notes: order.notes,
+            subtotalAmount: order.totalAmount,
+            taxAmount: "0",
             totalAmount: order.totalAmount,
             status: order.status,
             updatedAt: new Date(),
@@ -806,6 +813,8 @@ export async function applySalesImportOrdersInTx(
             shipDate: order.shipDate,
             requestedDate: order.requestedDate,
             notes: order.notes,
+            subtotalAmount: order.totalAmount,
+            taxAmount: "0",
             totalAmount: order.totalAmount,
           })
           .returning({ id: salesOrders.id });

@@ -461,6 +461,11 @@ export type SalesOrderDetailLine = {
   pricingScheduleName: string | null;
   pricingBreakLabel: string | null;
   isPriceOverridden: boolean;
+  taxRateId: string | null;
+  taxRateName: string | null;
+  taxRatePercent: string;
+  lineSubtotal: string;
+  lineTaxAmount: string;
   lineTotal: string;
   estimatedUnitCost: string | null;
   estimatedCogs: string | null;
@@ -587,6 +592,8 @@ export type SalesOrderDetail = {
   shippingFeeDescription: string | null;
   shippingFeeAmount: string;
   shippingFeeTaxAmount: string;
+  subtotalAmount: string;
+  taxAmount: string;
   xeroInvoiceId: string | null;
   xeroInvoiceNumber: string | null;
   xeroPushStatus: "pending" | "pushed" | "failed" | null;
@@ -611,6 +618,14 @@ export type SalesOrderDetail = {
   shipments: SalesShipmentRow[];
   marginSummary: SalesMarginSummary;
   linkedManufacturingOrders: SalesLinkedManufacturingOrder[];
+  taxRates: SalesOrderTaxRateOption[];
+  defaultTaxRateId: string | null;
+};
+
+export type SalesOrderTaxRateOption = {
+  id: string;
+  name: string;
+  ratePercent: string;
 };
 
 export type SalesAllocationSource = {
@@ -755,12 +770,15 @@ export type SalesOrderEditData = {
     itemId: string;
     quantity: string;
     unitPrice: string;
+    taxRateId: string | null;
     suggestedUnitPrice: string | null;
     pricingSourceType: PricingSourceType;
     pricingScheduleName: string | null;
     pricingBreakLabel: string | null;
     isPriceOverridden: boolean;
   }>;
+  taxRates: SalesOrderTaxRateOption[];
+  defaultTaxRateId: string | null;
   shipments: Array<{
     id: string;
     fulfillmentType: "delivery" | "pickup";

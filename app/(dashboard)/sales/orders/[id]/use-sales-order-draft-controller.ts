@@ -33,6 +33,14 @@ export type SalesOrderDraftHeaderPatch = PatchSalesOrderHeader &
     >
   >;
 
+type SalesOrderLinePatch = {
+  quantity?: string;
+  unitPrice?: string;
+  taxRateId?: string | null;
+  taxRateName?: string | null;
+  taxRatePercent?: string;
+};
+
 export type SalesOrderDraftController = {
   draft: SalesOrderDetail;
   currentOrderId: string | null;
@@ -43,7 +51,7 @@ export type SalesOrderDraftController = {
   addLine: (line: SalesOrderDetailLine) => void;
   updateLine: (
     lineId: string,
-    patch: { quantity?: string; unitPrice?: string },
+    patch: SalesOrderLinePatch,
   ) => void;
   removeLine: (lineId: string) => void;
   reorderLines: (orderedIds: string[]) => void;
@@ -60,7 +68,7 @@ type SalesOrderDraftOp =
   | {
       type: "updateLine";
       lineId: string;
-      patch: { quantity?: string; unitPrice?: string };
+      patch: SalesOrderLinePatch;
     }
   | { type: "removeLine"; lineId: string }
   | { type: "reorderLines"; orderedIds: string[] };
@@ -229,7 +237,7 @@ export function useSalesOrderDraftController({
   );
 
   const updateLine = useCallback(
-    (lineId: string, patch: { quantity?: string; unitPrice?: string }) => {
+    (lineId: string, patch: SalesOrderLinePatch) => {
       engine.applyLocalOp(
         { type: "updateLine", lineId, patch },
         QUICK_FLUSH_DELAY_MS,
@@ -333,29 +341,55 @@ function isQuickHeaderPatch(patch: SalesOrderDraftHeaderPatch) {
 
 function patchLine(
   line: SalesOrderDetailLine,
-  patch: { quantity?: string; unitPrice?: string },
+  patch: SalesOrderLinePatch,
 ): SalesOrderDetailLine {
   const quantity = patch.quantity ?? line.quantity;
   const unitPrice = patch.unitPrice ?? line.unitPrice;
+  const taxRate =
+    patch.taxRateId === undefined
+      ? line.taxRateId
+      : patch.taxRateId;
+  const taxPercent = patch.taxRatePercent ?? line.taxRatePercent;
+  const lineSubtotal = (Number(quantity || 0) * Number(unitPrice || 0)).toFixed(2);
+  const lineTaxAmount = (
+    Number(lineSubtotal) *
+    (Number(taxPercent || 0) / 100)
+  ).toFixed(2);
   return {
     ...line,
     quantity,
     unitPrice,
-    lineTotal: (Number(quantity || 0) * Number(unitPrice || 0)).toFixed(2),
+    taxRateId: taxRate,
+    taxRateName:
+      patch.taxRateName === undefined ? line.taxRateName : patch.taxRateName,
+    taxRatePercent: taxPercent,
+    lineSubtotal,
+    lineTaxAmount,
+    lineTotal: (Number(lineSubtotal) + Number(lineTaxAmount)).toFixed(2),
   };
 }
 
 function recomputeDraftTotals(order: SalesOrderDetail): SalesOrderDetail {
   const productRevenue = order.lines
-    .reduce((sum, line) => sum + Number(line.lineTotal || 0), 0)
+    .reduce((sum, line) => sum + Number(line.lineSubtotal || 0), 0)
     .toFixed(2);
+  const lineTax = order.lines
+    .reduce((sum, line) => sum + Number(line.lineTaxAmount || 0), 0)
+    .toFixed(2);
+  const subtotalAmount = (
+    Number(productRevenue) + Number(order.shippingFeeAmount || 0)
+  ).toFixed(2);
+  const taxAmount = (
+    Number(lineTax) + Number(order.shippingFeeTaxAmount || 0)
+  ).toFixed(2);
   const totalAmount = (
-    Number(productRevenue) +
-    Number(order.shippingFeeAmount || 0) +
-    Number(order.shippingFeeTaxAmount || 0)
+    Number(subtotalAmount) +
+    Number(taxAmount)
   ).toFixed(2);
   return {
     ...order,
+    subtotalAmount,
+    taxAmount,
     totalAmount,
     marginSummary: {
       ...order.marginSummary,
@@ -412,6 +446,8 @@ function mergeSalesOrderServerResult(
     );
     if (savedLineOps.length === 0) {
       next = { ...next, lines: draft.lines };
+    } else if (!hasNewerLineEdits) {
+      next = { ...next, lines: server.lines };
     }
   }
 
@@ -492,7 +528,7 @@ function savedHeaderKeys(ops: Array<QueuedDraftOp<SalesOrderDraftOp>>) {
 }
 
 function collapseLineUpdates(ops: Array<QueuedDraftOp<SalesOrderDraftOp>>) {
-  const patches = new Map<string, { quantity?: string; unitPrice?: string }>();
+  const patches = new Map<string, SalesOrderLinePatch>();
   for (const queued of ops) {
     if (queued.op.type !== "updateLine") continue;
     patches.set(queued.op.lineId, {

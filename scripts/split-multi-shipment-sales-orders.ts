@@ -44,6 +44,9 @@ type ShipmentLineRow = {
   unit_name: string;
   quantity: string;
   unit_price: string;
+  tax_rate_id: string | null;
+  tax_rate_name: string | null;
+  tax_rate_percent: string;
   suggested_unit_price: string | null;
   pricing_source_type: string | null;
   pricing_schedule_name: string | null;
@@ -63,6 +66,10 @@ function toNumber(value: string | number | null | undefined) {
 
 function money(quantity: string, unitPrice: string) {
   return (toNumber(quantity) * toNumber(unitPrice)).toFixed(2);
+}
+
+function taxAmount(subtotal: string, ratePercent: string | null | undefined) {
+  return (toNumber(subtotal) * (toNumber(ratePercent) / 100)).toFixed(2);
 }
 
 function quantity(value: string | number) {
@@ -413,6 +420,9 @@ async function main() {
             SELECT
               ssl.*,
               sol.unit_price,
+              sol.tax_rate_id,
+              sol.tax_rate_name,
+              sol.tax_rate_percent,
               sol.suggested_unit_price,
               sol.pricing_source_type,
               sol.pricing_schedule_name,
@@ -443,12 +453,13 @@ async function main() {
                       requested_date, notes, ship_line1, ship_line2, ship_city,
                       ship_region, ship_postcode, ship_country, billing_line1,
                       billing_line2, billing_city, billing_region, billing_postcode,
-                      billing_country, total_amount, created_at, updated_at
+                      billing_country, subtotal_amount, tax_amount, total_amount,
+                      created_at, updated_at
                     )
                     VALUES (
                       $1, $2, $3, $4, $5, 'open', NULL, $6, $7, $8, $9,
                       $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                      $21, $22, now(), now()
+                      $21, $22, $23, $24, now(), now()
                     )
                     RETURNING id
                   `,
@@ -474,9 +485,19 @@ async function main() {
                     order.billing_region,
                     order.billing_postcode,
                     order.billing_country,
-                    lines.rows
-                      .reduce((sum, line) => sum + toNumber(money(line.quantity, line.unit_price)), 0)
-                      .toFixed(2),
+                    lines.rows.reduce((sum, line) => {
+                      return sum + toNumber(money(line.quantity, line.unit_price));
+                    }, 0).toFixed(2),
+                    lines.rows.reduce((sum, line) => {
+                      const subtotal = money(line.quantity, line.unit_price);
+                      return sum + toNumber(taxAmount(subtotal, line.tax_rate_percent));
+                    }, 0).toFixed(2),
+                    lines.rows.reduce((sum, line) => {
+                      const subtotal = money(line.quantity, line.unit_price);
+                      return sum +
+                        toNumber(subtotal) +
+                        toNumber(taxAmount(subtotal, line.tax_rate_percent));
+                    }, 0).toFixed(2),
                   ]
                 )
               ).rows[0].id;
@@ -507,14 +528,17 @@ async function main() {
               `
                 INSERT INTO sales.sales_order_lines (
                   sales_order_id, item_id, item_name, item_sku, unit_name,
-                  quantity, cancelled_quantity, unit_price, suggested_unit_price,
+                  quantity, cancelled_quantity, unit_price,
+                  tax_rate_id, tax_rate_name, tax_rate_percent,
+                  suggested_unit_price,
                   pricing_source_type, pricing_schedule_name, pricing_break_label,
-                  is_price_overridden, line_total, allocation_managed_at,
+                  is_price_overridden, line_subtotal, line_tax_amount, line_total,
+                  allocation_managed_at,
                   allocation_managed_by, sort_order, created_at, updated_at
                 )
                 VALUES (
-                  $1, $2, $3, $4, $5, $6, 0, $7, $8, $9, $10, $11, $12,
-                  $13, $14, $15, $16, now(), now()
+                  $1, $2, $3, $4, $5, $6, 0, $7, $8, $9, $10, $11, $12, $13,
+                  $14, $15, $16, $17, $18, $19, $20, $21, now(), now()
                 )
                 RETURNING id
               `,
@@ -526,12 +550,20 @@ async function main() {
                 line.unit_name,
                 quantity(line.quantity),
                 line.unit_price,
+                line.tax_rate_id,
+                line.tax_rate_name,
+                line.tax_rate_percent,
                 line.suggested_unit_price,
                 line.pricing_source_type,
                 line.pricing_schedule_name,
                 line.pricing_break_label,
                 line.is_price_overridden,
                 money(line.quantity, line.unit_price),
+                taxAmount(money(line.quantity, line.unit_price), line.tax_rate_percent),
+                (
+                  toNumber(money(line.quantity, line.unit_price)) +
+                  toNumber(taxAmount(money(line.quantity, line.unit_price), line.tax_rate_percent))
+                ).toFixed(2),
                 line.allocation_managed_at,
                 line.allocation_managed_by,
                 line.sort_order,
@@ -574,7 +606,9 @@ async function main() {
           UPDATE sales.sales_order_lines sol
           SET quantity = sol.quantity - moved_line_quantities.quantity,
               cancelled_quantity = 0,
-              line_total = (sol.quantity - moved_line_quantities.quantity) * sol.unit_price,
+              line_subtotal = (sol.quantity - moved_line_quantities.quantity) * sol.unit_price,
+              line_tax_amount = ((sol.quantity - moved_line_quantities.quantity) * sol.unit_price) * (sol.tax_rate_percent / 100),
+              line_total = ((sol.quantity - moved_line_quantities.quantity) * sol.unit_price) * (1 + (sol.tax_rate_percent / 100)),
               updated_at = now()
           FROM moved_line_quantities
           WHERE sol.id = moved_line_quantities.sales_order_line_id
@@ -602,9 +636,16 @@ async function main() {
         `,
         [order.id, keepLineIds.rows.map((row) => row.sales_order_line_id)]
       );
-      const originalTotal = await client.query<{ total_amount: string }>(
+      const originalTotal = await client.query<{
+        subtotal_amount: string;
+        tax_amount: string;
+        total_amount: string;
+      }>(
         `
-          SELECT COALESCE(SUM(line_total), 0)::text AS total_amount
+          SELECT
+            COALESCE(SUM(line_subtotal), 0)::text AS subtotal_amount,
+            COALESCE(SUM(line_tax_amount), 0)::text AS tax_amount,
+            COALESCE(SUM(line_total), 0)::text AS total_amount
           FROM sales.sales_order_lines
           WHERE sales_order_id = $1
         `,
@@ -615,7 +656,9 @@ async function main() {
           UPDATE sales.sales_orders
           SET ship_date = planned.scheduled_date,
               requested_date = planned.delivery_date,
-              total_amount = $2,
+              subtotal_amount = $2,
+              tax_amount = $3,
+              total_amount = $4,
               updated_at = now()
           FROM LATERAL (
             SELECT scheduled_date, delivery_date
@@ -627,7 +670,12 @@ async function main() {
           ) planned
           WHERE sales.sales_orders.id = $1
         `,
-        [order.id, originalTotal.rows[0]?.total_amount ?? "0"]
+        [
+          order.id,
+          originalTotal.rows[0]?.subtotal_amount ?? "0",
+          originalTotal.rows[0]?.tax_amount ?? "0",
+          originalTotal.rows[0]?.total_amount ?? "0",
+        ]
       );
     }
 

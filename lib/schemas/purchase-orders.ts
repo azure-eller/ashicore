@@ -1,7 +1,11 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { purchaseOrders } from "@/lib/db/schema";
-import { isValidIsoDate, nullableString } from "./shared";
+import {
+  isValidIsoDate,
+  nullableString,
+  nullableStringPreserveUndefined,
+} from "./shared";
 
 export const PURCHASE_ORDER_STATUSES = [
   "draft",
@@ -33,6 +37,7 @@ const rawLineSchema = z.object({
   itemId: z.string().default(""),
   quantityOrdered: nullableString,
   unitCost: nullableString,
+  taxRateId: nullableStringPreserveUndefined,
   accountingPurchaseAccountCode: nullableString,
   shipAddressEntryId: nullableString,
   shipContactName: nullableString,
@@ -82,6 +87,7 @@ const cleanedLinesSchema = z
       const itemId = line.itemId.trim();
       const quantityOrdered = line.quantityOrdered?.trim() ?? "";
       const unitCost = line.unitCost?.trim() ?? "";
+      const taxRateId = line.taxRateId?.trim() ?? "";
 
       if (!itemId) {
         ctx.addIssue({
@@ -131,6 +137,14 @@ const cleanedLinesSchema = z
             path: [index, "unitCost"],
           });
         }
+      }
+
+      if (taxRateId && !z.string().uuid().safeParse(taxRateId).success) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Invalid tax rate",
+          path: [index, "taxRateId"],
+        });
       }
     });
   });
@@ -193,6 +207,8 @@ const basePurchaseOrderSchema = createInsertSchema(purchaseOrders, {
   orderNumber: true,
   supplierName: true,
   status: true,
+  subtotalAmount: true,
+  taxAmount: true,
   totalAmount: true,
   orderedAt: true,
   receivedAt: true,
@@ -294,6 +310,7 @@ export const purchaseOrderDefaultValues: InsertPurchaseOrder = {
       itemId: "",
       quantityOrdered: null,
       unitCost: null,
+      taxRateId: null,
       accountingPurchaseAccountCode: null,
       shipAddressEntryId: null,
       shipContactName: null,

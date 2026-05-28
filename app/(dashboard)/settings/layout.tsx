@@ -25,10 +25,14 @@ export default async function SettingsLayout({
     "purchasing",
     "operate"
   );
+  const showTaxes =
+    hasModuleAccess(context.assignedRoles, "sales", "operate") ||
+    hasModuleAccess(context.assignedRoles, "purchasing", "operate");
   const sections = getSettingsSections({
     showTeam,
     showAgentAccess: showTeam,
     showIntegrations: canManageSalesXero || canManagePurchasingXero,
+    showTaxes,
     showReports: showTeam,
   });
 

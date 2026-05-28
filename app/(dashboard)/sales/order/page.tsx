@@ -5,6 +5,7 @@ import {
 } from "@/app/(dashboard)/sales/queries";
 import { OrderCard } from "@/app/(dashboard)/sales/orders/[id]/order-card";
 import { getAddressEntries } from "@/lib/dal/addresses";
+import { getTaxSettings } from "@/lib/dal/tax-settings";
 
 export default async function NewSalesOrderPage({
   searchParams,
@@ -13,10 +14,11 @@ export default async function NewSalesOrderPage({
 }) {
   await requireModuleWriteAccess("sales");
   const params = await searchParams;
-  const [customerOptions, itemOptions, addressEntries] = await Promise.all([
+  const [customerOptions, itemOptions, addressEntries, taxSettings] = await Promise.all([
     getSalesOrderCustomerOptions(),
     getSalesOrderItemOptions(),
     getAddressEntries(),
+    getTaxSettings(),
   ]);
   const customerId =
     params.customerId &&
@@ -53,6 +55,8 @@ export default async function NewSalesOrderPage({
         notes: entry.notes,
       }))}
       itemOptions={itemOptions}
+      taxRates={taxSettings.rates}
+      defaultTaxRateId={taxSettings.defaultSalesTaxRateId}
     />
   );
 }

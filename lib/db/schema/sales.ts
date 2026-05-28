@@ -16,6 +16,7 @@ import {
 import { sql } from "drizzle-orm";
 import { addressEntries } from "./addresses";
 import { items } from "./items";
+import { taxRates } from "./tax-settings";
 
 export const salesSchema = pgSchema("sales");
 
@@ -476,6 +477,12 @@ export const salesOrders = salesSchema
       })
         .notNull()
         .default("0"),
+      subtotalAmount: numeric("subtotal_amount", { precision: 12, scale: 2 })
+        .notNull()
+        .default("0"),
+      taxAmount: numeric("tax_amount", { precision: 12, scale: 2 })
+        .notNull()
+        .default("0"),
       totalAmount: numeric("total_amount", { precision: 12, scale: 2 })
         .notNull()
         .default("0"),
@@ -538,6 +545,16 @@ export const salesOrderLines = salesSchema
         .notNull()
         .default("0"),
       unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull(),
+      taxRateId: uuid("tax_rate_id").references(() => taxRates.id, {
+        onDelete: "set null",
+      }),
+      taxRateName: varchar("tax_rate_name", { length: 120 }),
+      taxRatePercent: numeric("tax_rate_percent", {
+        precision: 7,
+        scale: 4,
+      })
+        .notNull()
+        .default("0"),
       suggestedUnitPrice: numeric("suggested_unit_price", {
         precision: 10,
         scale: 2,
@@ -546,6 +563,12 @@ export const salesOrderLines = salesSchema
       pricingScheduleName: varchar("pricing_schedule_name", { length: 255 }),
       pricingBreakLabel: varchar("pricing_break_label", { length: 50 }),
       isPriceOverridden: boolean("is_price_overridden").notNull().default(false),
+      lineSubtotal: numeric("line_subtotal", { precision: 12, scale: 2 })
+        .notNull()
+        .default("0"),
+      lineTaxAmount: numeric("line_tax_amount", { precision: 12, scale: 2 })
+        .notNull()
+        .default("0"),
       lineTotal: numeric("line_total", { precision: 12, scale: 2 }).notNull(),
       allocationManagedAt: timestamp("allocation_managed_at", {
         withTimezone: true,

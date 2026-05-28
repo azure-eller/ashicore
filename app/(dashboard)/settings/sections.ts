@@ -8,11 +8,13 @@ export function getSettingsSections({
   showTeam,
   showAgentAccess,
   showIntegrations,
+  showTaxes,
   showReports,
 }: {
   showTeam: boolean;
   showAgentAccess: boolean;
   showIntegrations: boolean;
+  showTaxes: boolean;
   showReports: boolean;
 }): SettingsSection[] {
   const sections: SettingsSection[] = [
@@ -32,6 +34,14 @@ export function getSettingsSections({
       id: "agent-access",
       title: "Agent API",
       href: "/settings/agent-access",
+    });
+  }
+
+  if (showTaxes) {
+    sections.push({
+      id: "tax-rates",
+      title: "Tax rates",
+      href: "/settings/tax-rates",
     });
   }
 

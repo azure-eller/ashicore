@@ -77,7 +77,24 @@ export function LineItemsTable({
     [itemOptions],
   );
 
-  const applyPatch = (lineId: string, patch: { quantity?: string; unitPrice?: string }) => {
+  const taxRateMap = useMemo(
+    () => new Map(order.taxRates.map((rate) => [rate.id, rate])),
+    [order.taxRates],
+  );
+  const defaultTaxRate = order.defaultTaxRateId
+    ? taxRateMap.get(order.defaultTaxRateId) ?? null
+    : null;
+
+  const applyPatch = (
+    lineId: string,
+    patch: {
+      quantity?: string;
+      unitPrice?: string;
+      taxRateId?: string | null;
+      taxRateName?: string | null;
+      taxRatePercent?: string;
+    },
+  ) => {
     controller.updateLine(lineId, patch);
   };
 
@@ -106,7 +123,7 @@ export function LineItemsTable({
           const itemId = String(params.newValue ?? "");
           const item = itemMap.get(itemId);
           if (!item) return false;
-          Object.assign(params.data, lineFromItem(item, params.data.id));
+          Object.assign(params.data, lineFromItem(item, params.data.id, undefined, defaultTaxRate));
           return true;
         },
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) =>
@@ -186,11 +203,34 @@ export function LineItemsTable({
           const nextUnitPrice = normalizeMoney(baseUnitPrice * (1 - parsed / 100));
           if (nextUnitPrice === normalizeMoney(Number(params.data.unitPrice))) return false;
           params.data.unitPrice = nextUnitPrice;
-          params.data.lineTotal = normalizeMoney(Number(params.data.quantity) * Number(nextUnitPrice));
+          recalculateLineTotals(params.data);
           return true;
         },
         getSuffix: () => "%",
         tooltipValueGetter: ({ data }) => data ? pricingSourceLabel(data) : null,
+      },
+      {
+        field: "taxRateId",
+        kind: "select",
+        headerName: "Tax %",
+        rightAligned: true,
+        width: 130,
+        editable,
+        values: ["", ...order.taxRates.map((rate) => rate.id)],
+        valueFormatter: ({ value }) => {
+          if (!value) return "0%";
+          const rate = taxRateMap.get(String(value));
+          return rate ? `${rate.ratePercent}% - ${rate.name}` : "0%";
+        },
+        valueSetter: (params: ValueSetterParams<SalesOrderDetailLine, string | null>) => {
+          const rateId = params.newValue ? String(params.newValue) : null;
+          const rate = rateId ? taxRateMap.get(rateId) ?? null : null;
+          params.data.taxRateId = rate?.id ?? null;
+          params.data.taxRateName = rate?.name ?? null;
+          params.data.taxRatePercent = rate?.ratePercent ?? "0";
+          recalculateLineTotals(params.data);
+          return true;
+        },
       },
       {
         field: "lineTotal",
@@ -241,7 +281,7 @@ export function LineItemsTable({
           ) : null,
       },
     ],
-    [editable, existingItemIds, itemMap, itemOptions, order.status],
+    [editable, existingItemIds, itemMap, itemOptions, order.status, order.taxRates, taxRateMap, defaultTaxRate],
   );
 
   const handleRowsChange = async (
@@ -272,8 +312,9 @@ export function LineItemsTable({
           quantity: change.row.quantity,
           unitPrice:
             pricingResult.pricing?.suggestedUnitPrice ?? change.row.unitPrice,
+          taxRateId: change.row.taxRateId,
           pricing: pricingResult.pricing,
-        }),
+        }, taxRateMap.get(change.row.taxRateId ?? "") ?? defaultTaxRate ?? null),
       );
       savedDraftLineIdsRef.current.add(change.row.id);
       return;
@@ -283,6 +324,12 @@ export function LineItemsTable({
         applyPatch(change.row.id, { quantity: change.row.quantity });
       } else if (change.field === "unitPrice") {
         applyPatch(change.row.id, { unitPrice: change.row.unitPrice });
+      } else if (change.field === "taxRateId") {
+        applyPatch(change.row.id, {
+          taxRateId: change.row.taxRateId,
+          taxRateName: change.row.taxRateName,
+          taxRatePercent: change.row.taxRatePercent,
+        });
       }
     } else if (
       change.type === "cell_edit_committed" &&
@@ -317,7 +364,7 @@ export function LineItemsTable({
         rows={rows}
         fields={fields}
         getRowId={(row) => row.id}
-        createRow={() => makeBlankLine()}
+        createRow={() => makeBlankLine(defaultTaxRate)}
         onRowsChange={handleRowsChange}
         addLabel="Add line"
         readOnly={!canAddLine}
@@ -384,12 +431,22 @@ export function LineItemsTable({
       const normalized = parsed.toString();
       if (normalized === Number.parseFloat(params.data[field]).toString()) return false;
       params.data[field] = normalized;
+      recalculateLineTotals(params.data);
       return true;
     };
   }
 }
 
-function makeBlankLine() {
+function recalculateLineTotals(line: SalesOrderDetailLine) {
+  const subtotal = Number(line.quantity || 0) * Number(line.unitPrice || 0);
+  line.lineSubtotal = subtotal.toFixed(2);
+  line.lineTaxAmount = (subtotal * (Number(line.taxRatePercent || 0) / 100)).toFixed(2);
+  line.lineTotal = (Number(line.lineSubtotal) + Number(line.lineTaxAmount)).toFixed(2);
+}
+
+function makeBlankLine(
+  defaultTaxRate: { id: string; name: string; ratePercent: string } | null,
+) {
   return makeDraftLine({
     itemId: "",
     itemName: "",
@@ -397,6 +454,9 @@ function makeBlankLine() {
     unitName: "",
     quantity: "1",
     unitPrice: "0",
+    taxRateId: defaultTaxRate?.id ?? null,
+    taxRateName: defaultTaxRate?.name ?? null,
+    taxRatePercent: defaultTaxRate?.ratePercent ?? "0",
     estimatedUnitCost: null,
   });
 }
@@ -407,9 +467,12 @@ function lineFromItem(
   values?: {
     quantity?: string;
     unitPrice?: string;
+    taxRateId?: string | null;
     pricing?: SalesLinePricingResult | null;
   },
+  selectedTaxRate?: { id: string; name: string; ratePercent: string } | null,
 ) {
+  const taxRate = selectedTaxRate ?? null;
   const line = makeDraftLine({
     itemId: item.id,
     itemName: item.displayName || item.name,
@@ -417,6 +480,9 @@ function lineFromItem(
     unitName: item.unitName,
     quantity: values?.quantity ?? "1",
     unitPrice: values?.unitPrice ?? item.defaultSellingPrice ?? "0",
+    taxRateId: values?.taxRateId ?? taxRate?.id ?? null,
+    taxRateName: taxRate?.name ?? null,
+    taxRatePercent: taxRate?.ratePercent ?? "0",
     estimatedUnitCost: item.estimatedUnitCost,
   });
   const pricedLine = values?.pricing
@@ -446,14 +512,15 @@ function isDraftLineSaveAttempt(
   change: EditableLineDataGridChange<SalesOrderDetailLine>,
 ): change is EditableLineDataGridChange<SalesOrderDetailLine> & {
   row: SalesOrderDetailLine;
-  field: "itemId" | "quantity" | "unitPrice";
+    field: "itemId" | "quantity" | "unitPrice" | "taxRateId";
 } {
   return (
     change.type === "cell_edit_committed" &&
     change.row != null &&
     (change.field === "itemId" ||
       change.field === "quantity" ||
-      change.field === "unitPrice") &&
+      change.field === "unitPrice" ||
+      change.field === "taxRateId") &&
     !isPersistedLine(change.row)
   );
 }

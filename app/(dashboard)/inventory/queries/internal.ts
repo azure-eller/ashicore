@@ -455,7 +455,7 @@ async function getRevenue30dByItemIdInTx(tx: Tx, itemIds: string[]) {
   const rows = await tx
     .select({
       itemId: salesOrderLines.itemId,
-      revenue30d: trimScaleNullable(sql`SUM(${salesOrderLines.lineTotal})`).as("revenue30d"),
+      revenue30d: trimScaleNullable(sql`SUM(${salesOrderLines.lineSubtotal})`).as("revenue30d"),
     })
     .from(salesOrderLines)
     .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))

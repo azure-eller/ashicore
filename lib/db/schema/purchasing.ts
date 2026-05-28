@@ -17,6 +17,7 @@ import { sql } from "drizzle-orm";
 import { items } from "./items";
 import { unitDefinitions } from "./units";
 import { addressEntries } from "./addresses";
+import { taxRates } from "./tax-settings";
 
 export const purchasingSchema = pgSchema("purchasing");
 
@@ -137,6 +138,12 @@ export const purchaseOrders = purchasingSchema
       shippingCost: numeric("shipping_cost", { precision: 12, scale: 4 })
         .notNull()
         .default("0"),
+      subtotalAmount: numeric("subtotal_amount", { precision: 12, scale: 4 })
+        .notNull()
+        .default("0"),
+      taxAmount: numeric("tax_amount", { precision: 12, scale: 4 })
+        .notNull()
+        .default("0"),
       totalAmount: numeric("total_amount", { precision: 12, scale: 4 })
         .notNull()
         .default("0"),
@@ -205,6 +212,16 @@ export const purchaseOrderLines = purchasingSchema
         .default("0"),
       unitCost: numeric("unit_cost", { precision: 10, scale: 4 }).notNull(),
       stockUnitCost: numeric("stock_unit_cost", { precision: 18, scale: 6 }).notNull(),
+      taxRateId: uuid("tax_rate_id").references(() => taxRates.id, {
+        onDelete: "set null",
+      }),
+      taxRateName: varchar("tax_rate_name", { length: 120 }),
+      taxRatePercent: numeric("tax_rate_percent", {
+        precision: 7,
+        scale: 4,
+      })
+        .notNull()
+        .default("0"),
       accountingPurchaseAccountCode: varchar("accounting_purchase_account_code", {
         length: 20,
       }),
@@ -221,6 +238,12 @@ export const purchaseOrderLines = purchasingSchema
       shipPostcode: varchar("ship_postcode", { length: 30 }),
       shipCountry: varchar("ship_country", { length: 120 }),
       shipDeliveryInstructions: text("ship_delivery_instructions"),
+      lineSubtotal: numeric("line_subtotal", { precision: 12, scale: 4 })
+        .notNull()
+        .default("0"),
+      lineTaxAmount: numeric("line_tax_amount", { precision: 12, scale: 4 })
+        .notNull()
+        .default("0"),
       lineTotal: numeric("line_total", { precision: 12, scale: 4 }).notNull(),
       sortOrder: integer("sort_order").notNull().default(0),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

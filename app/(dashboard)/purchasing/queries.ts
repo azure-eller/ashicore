@@ -29,6 +29,10 @@ import {
 } from "@/lib/accounting/sync-state";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import {
+  getTaxRatesByIdInTx,
+  getTaxSettingsInTx,
+} from "@/lib/dal/tax-settings";
 import type { Tx } from "@/lib/db/with-org-context";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
@@ -38,6 +42,10 @@ import {
   normalizeLandedQuantity,
   normalizeLandedStockUnitCost,
 } from "@/lib/purchasing/landed-cost";
+import {
+  calculateTaxAmount,
+  calculateTaxedLineTotal,
+} from "@/lib/tax/calc";
 import {
   addExpectedFromPurchaseInTx,
   beginInventoryOperationInTx,
@@ -84,6 +92,9 @@ type PreparedPurchaseOrderLine = {
   stockQuantityReceived: string;
   unitCost: string;
   stockUnitCost: string;
+  taxRateId: string | null;
+  taxRateName: string | null;
+  taxRatePercent: string;
   accountingPurchaseAccountCode: string | null;
   shipAddressEntryId: string | null;
   shipContactName: string | null;
@@ -95,6 +106,8 @@ type PreparedPurchaseOrderLine = {
   shipPostcode: string | null;
   shipCountry: string | null;
   shipDeliveryInstructions: string | null;
+  lineSubtotal: string;
+  lineTaxAmount: string;
   lineTotal: string;
   sortOrder: number;
 };
@@ -452,6 +465,11 @@ async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string) {
       stockUnitCost: trimScale(purchaseOrderLines.stockUnitCost).as(
         "stockUnitCost",
       ),
+      taxRateId: purchaseOrderLines.taxRateId,
+      taxRateName: purchaseOrderLines.taxRateName,
+      taxRatePercent: trimScale(purchaseOrderLines.taxRatePercent).as(
+        "taxRatePercent",
+      ),
       accountingPurchaseAccountCode:
         purchaseOrderLines.accountingPurchaseAccountCode,
       shipAddressEntryId: purchaseOrderLines.shipAddressEntryId,
@@ -464,6 +482,12 @@ async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string) {
       shipPostcode: purchaseOrderLines.shipPostcode,
       shipCountry: purchaseOrderLines.shipCountry,
       shipDeliveryInstructions: purchaseOrderLines.shipDeliveryInstructions,
+      lineSubtotal: trimScale(purchaseOrderLines.lineSubtotal).as(
+        "lineSubtotal",
+      ),
+      lineTaxAmount: trimScale(purchaseOrderLines.lineTaxAmount).as(
+        "lineTaxAmount",
+      ),
       lineTotal: trimScale(purchaseOrderLines.lineTotal).as("lineTotal"),
       sortOrder: purchaseOrderLines.sortOrder,
       createdAt: purchaseOrderLines.createdAt,
@@ -542,6 +566,8 @@ async function preparePurchaseOrderPayload(
   shipPostcode: string | null;
   shipCountry: string | null;
   shippingCost: string;
+  subtotalAmount: string;
+  taxAmount: string;
   totalAmount: string;
   preparedLines: PreparedPurchaseOrderLine[];
   preparedAdditionalCosts: PreparedPurchaseOrderAdditionalCost[];
@@ -551,6 +577,17 @@ async function preparePurchaseOrderPayload(
   const materials = await getValidatedMaterialsInTx(
     tx,
     payload.lines.map((line) => line.itemId),
+  );
+  const taxSettings = await getTaxSettingsInTx(tx, orgId);
+  const defaultPurchaseTaxRateId = taxSettings.defaultPurchaseTaxRateId;
+  const taxRatesById = await getTaxRatesByIdInTx(
+    tx,
+    [
+      ...payload.lines
+        .map((line) => line.taxRateId?.trim() ?? "")
+        .filter(Boolean),
+      ...(defaultPurchaseTaxRateId ? [defaultPurchaseTaxRateId] : []),
+    ],
   );
   const purchaseUnitIds = [
     ...new Set(
@@ -638,6 +675,19 @@ async function preparePurchaseOrderPayload(
       throw new PurchasingError("Unable to calculate landed unit cost.", 400);
     }
 
+    const effectiveTaxRateId =
+      line.taxRateId === undefined ? defaultPurchaseTaxRateId : line.taxRateId;
+    const selectedTaxRate = effectiveTaxRateId
+      ? taxRatesById.get(effectiveTaxRateId) ?? null
+      : null;
+    const lineSubtotal = lineCosts.lineSubtotal;
+    const lineTaxAmount = calculateTaxAmount(
+      lineSubtotal,
+      selectedTaxRate?.ratePercent ?? 0,
+      4,
+    );
+    const lineTotal = calculateTaxedLineTotal(lineSubtotal, lineTaxAmount, 4);
+
     return {
       itemId: material.id,
       itemName: material.name,
@@ -654,6 +704,9 @@ async function preparePurchaseOrderPayload(
       stockQuantityReceived: "0",
       unitCost: normalizeNumeric(unitCost),
       stockUnitCost,
+      taxRateId: selectedTaxRate?.id ?? null,
+      taxRateName: selectedTaxRate?.name ?? null,
+      taxRatePercent: selectedTaxRate?.ratePercent ?? "0",
       accountingPurchaseAccountCode:
         line.accountingPurchaseAccountCode?.trim() ||
         material.accountingPurchaseAccountCode ||
@@ -668,10 +721,19 @@ async function preparePurchaseOrderPayload(
       shipPostcode: lineAddress.postcode,
       shipCountry: lineAddress.country,
       shipDeliveryInstructions: line.shipDeliveryInstructions?.trim() || null,
-      lineTotal: normalizeLandedMoney(lineCosts.lineSubtotal),
+      lineSubtotal: normalizeLandedMoney(lineSubtotal),
+      lineTaxAmount,
+      lineTotal,
       sortOrder: index,
     };
   });
+  const lineTaxTotal = preparedLines.reduce(
+    (sum, line) => sum + Number(line.lineTaxAmount),
+    0,
+  );
+  const subtotalAmount = landedCosts.orderTotal;
+  const taxAmount = lineTaxTotal;
+  const totalAmount = subtotalAmount + taxAmount;
   const address = normalizeAddressFields({
     line1: payload.shipLine1,
     line2: payload.shipLine2,
@@ -695,7 +757,9 @@ async function preparePurchaseOrderPayload(
     shipPostcode: address.postcode,
     shipCountry: address.country,
     shippingCost: normalizeNumeric(shippingCost),
-    totalAmount: normalizeLandedMoney(landedCosts.orderTotal),
+    subtotalAmount: normalizeLandedMoney(subtotalAmount),
+    taxAmount: normalizeLandedMoney(taxAmount),
+    totalAmount: normalizeLandedMoney(totalAmount),
     preparedLines,
     preparedAdditionalCosts,
     affectedItemIds: preparedLines.map((line) => line.itemId),
@@ -995,7 +1059,7 @@ export async function getPurchaseOrder(
   id: string,
   options?: { includeDeleted?: boolean },
 ): Promise<PurchaseOrderDetail | null> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
     const conditions = [eq(purchaseOrders.id, id)];
 
     if (!options?.includeDeleted) {
@@ -1021,6 +1085,8 @@ export async function getPurchaseOrder(
         shipPostcode: purchaseOrders.shipPostcode,
         shipCountry: purchaseOrders.shipCountry,
         shippingCost: trimScale(purchaseOrders.shippingCost).as("shippingCost"),
+        subtotalAmount: trimScale(purchaseOrders.subtotalAmount).as("subtotalAmount"),
+        taxAmount: trimScale(purchaseOrders.taxAmount).as("taxAmount"),
         totalAmount: trimScale(purchaseOrders.totalAmount).as("totalAmount"),
         orderedAt: purchaseOrders.orderedAt,
         receivedAt: purchaseOrders.receivedAt,
@@ -1070,10 +1136,11 @@ export async function getPurchaseOrder(
       return null;
     }
 
-    const [lines, additionalCosts, attachments] = await Promise.all([
+    const [lines, additionalCosts, attachments, taxSettings] = await Promise.all([
       getPurchaseOrderLinesInTx(tx, id),
       getPurchaseOrderAdditionalCostsInTx(tx, id),
       getPurchaseOrderAttachmentsInTx(tx, id),
+      getTaxSettingsInTx(tx, orgId),
     ]);
     const landedCosts = calculatePurchaseOrderLandedCosts({
       lines: lines.map((line) => ({
@@ -1116,6 +1183,8 @@ export async function getPurchaseOrder(
           ),
         };
       }) as PurchaseOrderDetailLine[],
+      taxRates: taxSettings.rates,
+      defaultTaxRateId: taxSettings.defaultPurchaseTaxRateId,
       additionalCosts: additionalCosts.map((cost) => ({
         ...cost,
         costType:
@@ -1131,7 +1200,7 @@ export async function getPurchaseOrder(
 export async function getEditablePurchaseOrder(
   id: string,
 ): Promise<PurchaseOrderEditData | null> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
     const [order] = await tx
       .select({
         id: purchaseOrders.id,
@@ -1181,10 +1250,11 @@ export async function getEditablePurchaseOrder(
       return null;
     }
 
-    const [lines, additionalCosts, attachments] = await Promise.all([
+    const [lines, additionalCosts, attachments, taxSettings] = await Promise.all([
       getPurchaseOrderLinesInTx(tx, id),
       getPurchaseOrderAdditionalCostsInTx(tx, id),
       getPurchaseOrderAttachmentsInTx(tx, id),
+      getTaxSettingsInTx(tx, orgId),
     ]);
 
     return {
@@ -1198,6 +1268,7 @@ export async function getEditablePurchaseOrder(
         quantityReceived: line.quantityReceived,
         stockQuantityReceived: line.stockQuantityReceived,
         unitCost: line.unitCost,
+        taxRateId: line.taxRateId,
         accountingPurchaseAccountCode: line.accountingPurchaseAccountCode,
         shipAddressEntryId: line.shipAddressEntryId,
         shipContactName: line.shipContactName,
@@ -1210,6 +1281,8 @@ export async function getEditablePurchaseOrder(
         shipCountry: line.shipCountry,
         shipDeliveryInstructions: line.shipDeliveryInstructions,
       })),
+      taxRates: taxSettings.rates,
+      defaultTaxRateId: taxSettings.defaultPurchaseTaxRateId,
       additionalCosts: additionalCosts.map((cost) => ({
         costType:
           cost.costType as PurchaseOrderEditData["additionalCosts"][number]["costType"],
@@ -1355,6 +1428,8 @@ export async function createPurchaseOrderInTx(
       shipPostcode: prepared.shipPostcode,
       shipCountry: prepared.shipCountry,
       shippingCost: prepared.shippingCost,
+      subtotalAmount: prepared.subtotalAmount,
+      taxAmount: prepared.taxAmount,
       totalAmount: prepared.totalAmount,
     })
     .returning({
@@ -1521,6 +1596,8 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
       shipPostcode: prepared.shipPostcode,
       shipCountry: prepared.shipCountry,
       shippingCost: hasReceivedLines ? undefined : prepared.shippingCost,
+      subtotalAmount: hasReceivedLines ? undefined : prepared.subtotalAmount,
+      taxAmount: hasReceivedLines ? undefined : prepared.taxAmount,
       totalAmount: hasReceivedLines ? undefined : prepared.totalAmount,
       status: locked.status === "draft" ? "ordered" : undefined,
       orderedAt:
@@ -1636,6 +1713,7 @@ export async function duplicatePurchaseOrder(id: string) {
       itemId: line.itemId,
       quantityOrdered: line.quantityOrdered,
       unitCost: line.unitCost,
+      taxRateId: line.taxRateId,
       accountingPurchaseAccountCode: line.accountingPurchaseAccountCode,
       shipAddressEntryId: line.shipAddressEntryId,
       shipContactName: line.shipContactName,
@@ -1751,6 +1829,9 @@ export async function updatePurchaseOrder(
               stockQuantityOrdered: line.stockQuantityOrdered,
               unitCost: line.unitCost,
               stockUnitCost: line.stockUnitCost,
+              taxRateId: line.taxRateId,
+              taxRateName: line.taxRateName,
+              taxRatePercent: line.taxRatePercent,
               accountingPurchaseAccountCode: line.accountingPurchaseAccountCode,
               shipAddressEntryId: line.shipAddressEntryId,
               shipContactName: line.shipContactName,
@@ -1762,6 +1843,8 @@ export async function updatePurchaseOrder(
               shipPostcode: line.shipPostcode,
               shipCountry: line.shipCountry,
               shipDeliveryInstructions: line.shipDeliveryInstructions,
+              lineSubtotal: line.lineSubtotal,
+              lineTaxAmount: line.lineTaxAmount,
               lineTotal: line.lineTotal,
               sortOrder: line.sortOrder,
               updatedAt: new Date(),
@@ -1868,6 +1951,8 @@ export async function updatePurchaseOrder(
         shipPostcode: prepared.shipPostcode,
         shipCountry: prepared.shipCountry,
         shippingCost: prepared.shippingCost,
+        subtotalAmount: prepared.subtotalAmount,
+        taxAmount: prepared.taxAmount,
         totalAmount: prepared.totalAmount,
         status:
           order.status === "received" &&
@@ -2339,8 +2424,17 @@ export async function receivePurchaseOrder(
       );
       const normalizedOrdered = normalizeNumeric(newQuantityOrdered);
       const normalizedStockOrdered = normalizeNumeric(newStockQuantityOrdered);
-      const normalizedLineTotal = normalizeLandedMoney(
-        newQuantityOrdered * parseFloat(currentLine.unitCost),
+      const lineSubtotal = newQuantityOrdered * parseFloat(currentLine.unitCost);
+      const normalizedLineSubtotal = normalizeLandedMoney(lineSubtotal);
+      const normalizedLineTaxAmount = calculateTaxAmount(
+        lineSubtotal,
+        currentLine.taxRatePercent,
+        4,
+      );
+      const normalizedLineTotal = calculateTaxedLineTotal(
+        lineSubtotal,
+        normalizedLineTaxAmount,
+        4,
       );
 
       await tx
@@ -2350,6 +2444,8 @@ export async function receivePurchaseOrder(
           stockQuantityOrdered: normalizedStockOrdered,
           quantityReceived: normalizedReceived,
           stockQuantityReceived: normalizedStockReceived,
+          lineSubtotal: normalizedLineSubtotal,
+          lineTaxAmount: normalizedLineTaxAmount,
           lineTotal: normalizedLineTotal,
           updatedAt: new Date(),
         })
@@ -2361,6 +2457,8 @@ export async function receivePurchaseOrder(
         stockQuantityReceived: normalizedStockReceived,
         quantityOrdered: normalizedOrdered,
         stockQuantityOrdered: normalizedStockOrdered,
+        lineSubtotal: normalizedLineSubtotal,
+        lineTaxAmount: normalizedLineTaxAmount,
         lineTotal: normalizedLineTotal,
         updatedAt: new Date(),
       });
@@ -2452,13 +2550,21 @@ export async function receivePurchaseOrder(
       (line) =>
         parseFloat(line.quantityReceived) >= parseFloat(line.quantityOrdered),
     );
+    const finalTaxAmount = finalLines.reduce(
+      (sum, line) => sum + Number(line.lineTaxAmount),
+      0,
+    );
 
     await tx
       .update(purchaseOrders)
       .set({
         status: allReceived ? "received" : "partial",
         receivedAt: allReceived ? new Date() : null,
-        totalAmount: normalizeLandedMoney(finalLandedCosts.orderTotal),
+        subtotalAmount: normalizeLandedMoney(finalLandedCosts.orderTotal),
+        taxAmount: normalizeLandedMoney(finalTaxAmount),
+        totalAmount: normalizeLandedMoney(
+          finalLandedCosts.orderTotal + finalTaxAmount,
+        ),
         updatedAt: new Date(),
       })
       .where(eq(purchaseOrders.id, id));

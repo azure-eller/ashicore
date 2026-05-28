@@ -240,7 +240,7 @@ async function loadOrderForPushInTx(
       shipPostcode: purchaseOrderLines.shipPostcode,
       shipCountry: purchaseOrderLines.shipCountry,
       shipDeliveryInstructions: purchaseOrderLines.shipDeliveryInstructions,
-      lineTotal: purchaseOrderLines.lineTotal,
+      lineTotal: purchaseOrderLines.lineSubtotal,
     })
     .from(purchaseOrderLines)
     .where(eq(purchaseOrderLines.purchaseOrderId, orderId))

@@ -2,6 +2,7 @@ import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { PurchaseOrderCard } from "@/app/(dashboard)/purchasing/purchase-order-card";
 import { purchaseOrderDefaultValues } from "@/lib/schemas/purchase-orders";
 import { getAddressEntries } from "@/lib/dal/addresses";
+import { getTaxSettings } from "@/lib/dal/tax-settings";
 import {
   getPurchaseOrderMaterialOptions,
   getSuppliers,
@@ -19,10 +20,11 @@ export default async function PurchaseOrderDraftPage({
 }) {
   await requireModuleWriteAccess("purchasing");
   const params = await searchParams;
-  const [supplierRows, materials, addresses] = await Promise.all([
+  const [supplierRows, materials, addresses, taxSettings] = await Promise.all([
     getSuppliers(),
     getPurchaseOrderMaterialOptions(),
     getAddressEntries(),
+    getTaxSettings(),
   ]);
   const materialIds = [...new Set(getValues(params.itemId))];
   const materialById = new Map(materials.map((material) => [material.id, material]));
@@ -33,6 +35,7 @@ export default async function PurchaseOrderDraftPage({
       itemId: material.id,
       quantityOrdered: null,
       unitCost: material.defaultPurchasePrice,
+      taxRateId: taxSettings.defaultPurchaseTaxRateId,
       accountingPurchaseAccountCode: material.accountingPurchaseAccountCode,
       shipAddressEntryId: null,
       shipContactName: null,
@@ -71,6 +74,8 @@ export default async function PurchaseOrderDraftPage({
       materials={materials}
       addresses={addresses}
       defaultValues={defaultValues}
+      taxRates={taxSettings.rates}
+      defaultTaxRateId={taxSettings.defaultPurchaseTaxRateId}
     />
   );
 }

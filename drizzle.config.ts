@@ -21,6 +21,7 @@ export default defineConfig({
     "purchasing",
     "manufacturing",
     "system",
+    "settings",
     "xero",
     "integrations",
     "agent",

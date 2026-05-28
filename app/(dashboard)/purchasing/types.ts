@@ -81,6 +81,9 @@ export type PurchaseOrderDetailLine = {
   unitCost: string;
   stockUnitCost: string;
   landedCost: string;
+  taxRateId: string | null;
+  taxRateName: string | null;
+  taxRatePercent: string;
   accountingPurchaseAccountCode: string | null;
   shipAddressEntryId: string | null;
   shipContactName: string | null;
@@ -92,6 +95,8 @@ export type PurchaseOrderDetailLine = {
   shipPostcode: string | null;
   shipCountry: string | null;
   shipDeliveryInstructions: string | null;
+  lineSubtotal: string;
+  lineTaxAmount: string;
   lineTotal: string;
   allocatedAdditionalCost: string;
   sortOrder: number;
@@ -140,6 +145,8 @@ export type PurchaseOrderDetail = {
   shipPostcode: string | null;
   shipCountry: string | null;
   shippingCost: string;
+  subtotalAmount: string;
+  taxAmount: string;
   totalAmount: string;
   orderedAt: Date | null;
   receivedAt: Date | null;
@@ -165,8 +172,16 @@ export type PurchaseOrderDetail = {
   createdAt: Date;
   updatedAt: Date;
   lines: PurchaseOrderDetailLine[];
+  taxRates: PurchaseOrderTaxRateOption[];
+  defaultTaxRateId: string | null;
   additionalCosts: PurchaseOrderAdditionalCost[];
   attachments: PurchaseOrderAttachment[];
+};
+
+export type PurchaseOrderTaxRateOption = {
+  id: string;
+  name: string;
+  ratePercent: string;
 };
 
 export type PurchaseOrderEditData = {
@@ -194,6 +209,7 @@ export type PurchaseOrderEditData = {
     quantityReceived: string;
     stockQuantityReceived: string;
     unitCost: string;
+    taxRateId: string | null;
     accountingPurchaseAccountCode: string | null;
     shipAddressEntryId: string | null;
     shipContactName: string | null;
@@ -206,6 +222,8 @@ export type PurchaseOrderEditData = {
     shipCountry: string | null;
     shipDeliveryInstructions: string | null;
   }>;
+  taxRates: PurchaseOrderTaxRateOption[];
+  defaultTaxRateId: string | null;
   additionalCosts: Array<{
     costType: PurchaseOrderAdditionalCostType;
     reference: string | null;
