@@ -194,6 +194,11 @@ function sourceDate(value: string) {
   return value.slice(0, 10);
 }
 
+function isoTimestamp(value: Date | string | null | undefined) {
+  if (value == null) return null;
+  return value instanceof Date ? value.toISOString() : value;
+}
+
 function addDays(value: string, days: number) {
   const date = new Date(`${value}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
@@ -487,7 +492,7 @@ async function getUntrackedOnHandSupplyInTx(
     sourceType: "inventory_lot",
     sourceId: `untracked:${params.itemId}`,
     quantity,
-    availableDate: row?.receivedAt?.toISOString() ?? null,
+    availableDate: isoTimestamp(row?.receivedAt),
     label: null,
   };
 }

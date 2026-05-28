@@ -24,6 +24,11 @@ function quantityString(value: number) {
   return normalizeNumeric(roundQuantity(Math.max(0, value)));
 }
 
+function isoTimestamp(value: Date | string | null | undefined) {
+  if (value == null) return null;
+  return value instanceof Date ? value.toISOString() : value;
+}
+
 function sameDemand(
   row: { demandType: string; demandId: string },
   primaryDemand: AllocationDemandRef | null | undefined
@@ -194,7 +199,7 @@ export async function loadAllocationSourcesForItemInTx(
       label: lot.lotNumber,
       contextLabel: null,
       status: "available",
-      date: lot.receivedAt.toISOString(),
+      date: isoTimestamp(lot.receivedAt),
       priorityRank: null,
       totalQty: quantityString(totalQty),
       allocatedQty: quantityString(allocatedQty),
