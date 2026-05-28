@@ -1,0 +1,141 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Add01Icon } from "@hugeicons/core-free-icons";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { FieldError } from "@/components/ui/field";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { buildStocktakeModeName } from "./types";
+import type { StocktakeCreationMode } from "@/lib/schemas/stocktakes";
+
+const MODE_OPTIONS: Array<{
+  mode: StocktakeCreationMode;
+  title: string;
+  description: string;
+}> = [
+  {
+    mode: "empty",
+    title: "Empty",
+    description: "Start with no rows and add items as you count.",
+  },
+  {
+    mode: "in_stock",
+    title: "Items in stock",
+    description: "Start with items that have physical stock on hand.",
+  },
+  {
+    mode: "all",
+    title: "All items",
+    description: "Start with every active material and product.",
+  },
+];
+
+export function CreateStocktakeDialog() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<StocktakeCreationMode>("in_stock");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (searchParams.get("create") === "1") {
+      setOpen(true);
+      router.replace(pathname);
+    }
+  }, [searchParams, pathname, router]);
+
+  const createMode = async () => {
+    setPending(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/stocktakes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: buildStocktakeModeName(mode),
+          scope: mode,
+          creationMode: mode,
+          notes: null,
+        }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error ?? "Failed to create stocktake.");
+      router.push(`/inventory/stocktakes/${body.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create stocktake.");
+      setPending(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) {
+          setError(null);
+          setPending(false);
+        }
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button aria-label="New Stocktake">
+          <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
+          New Stocktake
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New stocktake</DialogTitle>
+        </DialogHeader>
+
+        {error ? <FieldError>{error}</FieldError> : null}
+
+        <RadioGroup
+          value={mode}
+          onValueChange={(value) => setMode(value as StocktakeCreationMode)}
+        >
+          {MODE_OPTIONS.map((option) => (
+            <label
+              key={option.mode}
+              htmlFor={`stocktake-mode-${option.mode}`}
+              className="flex cursor-pointer items-start gap-(--space-3)"
+            >
+              <RadioGroupItem
+                id={`stocktake-mode-${option.mode}`}
+                value={option.mode}
+                className="mt-(--space-1)"
+              />
+              <span className="flex flex-col gap-(--space-1)">
+                <span className="text-[length:var(--text-sm)] font-medium leading-none">
+                  {option.title}
+                </span>
+                <span className="text-[length:var(--text-sm)] text-muted-foreground">
+                  {option.description}
+                </span>
+              </span>
+            </label>
+          ))}
+        </RadioGroup>
+
+        <DialogFooter>
+          <Button onClick={createMode} disabled={pending}>
+            {pending ? "Creating..." : "Create stocktake"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -146,6 +146,7 @@ export const updateStocktakeSchema = z
       .optional(),
     scope: stocktakeScopeSchema.optional(),
     notes: nullableString.optional(),
+    reason: nullableString.optional(),
     itemIds: z.array(z.string().uuid()).optional(),
     lines: z.array(rawCountLineSchema).optional().default([]),
     lotLines: z.array(rawCountLotLineSchema).optional().default([]),
@@ -206,10 +207,11 @@ export const updateStocktakeSchema = z
       }
     });
   })
-  .transform(({ lines, lotLines, name, scope, notes, itemIds }) => ({
+  .transform(({ lines, lotLines, name, scope, notes, reason, itemIds }) => ({
     name,
     scope,
     notes,
+    reason,
     itemIds,
     lines: lines.map((line) => ({
       lineId: line.lineId,

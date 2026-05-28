@@ -20,6 +20,7 @@ export async function reconcileStocktakeCountInTx(
   params: {
     organizationId: string;
     stocktakeId: string;
+    reason?: string | null;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
     lines: Array<{
@@ -49,6 +50,10 @@ export async function reconcileStocktakeCountInTx(
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
   const eventIds: string[] = [];
   const now = new Date();
+  const reason = params.reason?.trim() || null;
+  const metadata = reason
+    ? { stocktakeId: params.stocktakeId, reason }
+    : { stocktakeId: params.stocktakeId };
 
   for (const [index, line] of params.lines.entries()) {
     const variance = roundQuantity(line.variance);
@@ -71,7 +76,7 @@ export async function reconcileStocktakeCountInTx(
         actorUserId: params.actorUserId ?? null,
         idempotencyKey: index === 0 ? params.idempotencyKey ?? null : null,
         occurredAt: line.countedAt,
-        metadata: { stocktakeId: params.stocktakeId },
+        metadata,
       };
       const created = line.lotId
         ? await appendPositiveStockToExistingLotInTx(tx, {
@@ -93,7 +98,7 @@ export async function reconcileStocktakeCountInTx(
         actorUserId: params.actorUserId ?? null,
         idempotencyKey: index === 0 ? params.idempotencyKey ?? null : null,
         occurredAt: line.countedAt,
-        metadata: { stocktakeId: params.stocktakeId },
+        metadata,
       };
       if (line.lotId) {
         const consumed = await decrementExistingLotStockInTx(tx, {
@@ -119,7 +124,7 @@ export async function reconcileStocktakeCountInTx(
           actorUserId: params.actorUserId ?? null,
           idempotencyKey: index === 0 ? params.idempotencyKey ?? null : null,
           occurredAt: line.countedAt ?? now,
-          metadata: { stocktakeId: params.stocktakeId },
+          metadata,
         })
         .returning({ id: inventoryEvents.id });
       eventIds.push(event.id);

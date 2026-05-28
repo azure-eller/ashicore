@@ -911,6 +911,13 @@
       "when": 1779994897393,
       "tag": "0129_tax_rates_forward_repair",
       "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1780000365022,
+      "tag": "0130_stocktake_reason",
+      "breakpoints": true
     }
   ]
 }
