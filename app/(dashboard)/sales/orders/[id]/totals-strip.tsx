@@ -129,7 +129,7 @@ function calculateDiscountAmount(
   itemMap: Map<string, SalesOrderItemOption>,
 ) {
   return order.lines.reduce((total, line) => {
-    const baseUnitPrice = itemMap.get(line.itemId)?.defaultSellingPrice;
+    const baseUnitPrice = line.listUnitPrice ?? itemMap.get(line.itemId)?.defaultSellingPrice;
     const base = baseUnitPrice == null ? NaN : Number(baseUnitPrice);
     const unitPrice = Number(line.unitPrice);
     const quantity = Number(

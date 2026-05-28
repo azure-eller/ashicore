@@ -897,6 +897,13 @@
       "when": 1779917039753,
       "tag": "0127_tax_rates",
       "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1779990389318,
+      "tag": "0128_sales_order_line_pricing_snapshots",
+      "breakpoints": true
     }
   ]
 }

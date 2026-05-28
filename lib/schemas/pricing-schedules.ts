@@ -3,6 +3,8 @@ import { z } from "zod";
 import { pricingSchedules } from "@/lib/db/schema";
 import { nullableString, positiveDecimalString } from "./shared";
 
+export const PRICING_SOURCE_TYPES = ["base_price", "schedule_break"] as const;
+
 const customerCategoryIdSchema = nullableString.refine(
   (value) => value == null || z.string().uuid().safeParse(value).success,
   "Invalid customer category"

@@ -196,13 +196,15 @@ export function LineItemsTable({
         valueGetter: ({ data }) => data ? lineDiscountPercent(data, itemMap) : null,
         valueFormatter: ({ value }) => formatPercent(value),
         valueSetter: (params: ValueSetterParams<SalesOrderDetailLine>) => {
-          const parsed = Number.parseFloat(String(params.newValue).trim());
+          const text = String(params.newValue ?? "").trim();
+          const parsed = text === "" ? 0 : Number.parseFloat(text);
           if (!Number.isFinite(parsed) || parsed < 0 || parsed >= 100) return false;
           const baseUnitPrice = lineBaseUnitPrice(params.data, itemMap);
           if (baseUnitPrice == null || baseUnitPrice <= 0) return false;
           const nextUnitPrice = normalizeMoney(baseUnitPrice * (1 - parsed / 100));
           if (nextUnitPrice === normalizeMoney(Number(params.data.unitPrice))) return false;
           params.data.unitPrice = nextUnitPrice;
+          params.data.discountPercent = normalizeMoney(parsed);
           recalculateLineTotals(params.data);
           return true;
         },
@@ -217,6 +219,11 @@ export function LineItemsTable({
         width: 130,
         editable,
         values: ["", ...order.taxRates.map((rate) => rate.id)],
+        getSelectLabel: (value) => {
+          if (!value) return "0%";
+          const rate = taxRateMap.get(value);
+          return rate ? `${rate.ratePercent}% - ${rate.name}` : "0%";
+        },
         valueFormatter: ({ value }) => {
           if (!value) return "0%";
           const rate = taxRateMap.get(String(value));
@@ -488,6 +495,13 @@ function lineFromItem(
   const pricedLine = values?.pricing
     ? {
         ...line,
+        listUnitPrice: values.pricing.baseUnitPrice ?? line.unitPrice,
+        discountPercent: normalizeMoney(
+          lineDiscountPercentFromPrices(
+            values.pricing.baseUnitPrice ?? line.unitPrice,
+            line.unitPrice,
+          ) ?? 0,
+        ),
         suggestedUnitPrice: values.pricing.suggestedUnitPrice,
         pricingSourceType: values.pricing.pricingSourceType,
         pricingScheduleName: values.pricing.pricingScheduleName,
@@ -622,7 +636,7 @@ function lineBaseUnitPrice(
   line: SalesOrderDetailLine,
   itemMap: Map<string, SalesOrderItemOption>,
 ) {
-  const itemBasePrice = itemMap.get(line.itemId)?.defaultSellingPrice;
+  const itemBasePrice = line.listUnitPrice ?? itemMap.get(line.itemId)?.defaultSellingPrice;
   const parsed = itemBasePrice == null ? NaN : Number(itemBasePrice);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -647,12 +661,19 @@ function lineDiscountPercent(
   line: SalesOrderDetailLine,
   itemMap: Map<string, SalesOrderItemOption>,
 ) {
-  const baseUnitPrice = lineBaseUnitPrice(line, itemMap);
-  const unitPrice = Number(line.unitPrice);
-  if (baseUnitPrice == null || baseUnitPrice <= 0 || !Number.isFinite(unitPrice)) {
-    return null;
-  }
-  return Math.max(0, ((baseUnitPrice - unitPrice) / baseUnitPrice) * 100);
+  const parsed = Number(line.discountPercent);
+  if (Number.isFinite(parsed)) return parsed;
+  return lineDiscountPercentFromPrices(lineBaseUnitPrice(line, itemMap), line.unitPrice);
+}
+
+function lineDiscountPercentFromPrices(
+  baseUnitPrice: number | string | null,
+  unitPriceValue: string,
+) {
+  const base = baseUnitPrice == null ? NaN : Number(baseUnitPrice);
+  const unitPrice = Number(unitPriceValue);
+  if (base <= 0 || !Number.isFinite(base) || !Number.isFinite(unitPrice)) return null;
+  return Math.max(0, ((base - unitPrice) / base) * 100);
 }
 
 function pricingSourceLabel(line: SalesOrderDetailLine) {

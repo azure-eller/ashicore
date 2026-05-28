@@ -18,6 +18,7 @@ const CELL_EDITOR_FILE_ALLOWED = new Set([
 
 const SHARED_CELL_EDITORS = new Set([
   "InventoryItemLineCellEditor",
+  "SelectLineCellEditor",
   "TextLineCellEditor",
   "AgGridDateCellEditor",
 ]);

@@ -262,7 +262,7 @@ test.describe("sales fulfillment operating story", () => {
     expect(componentAfter.committedQty).toBe("0.0000");
   });
 
-  test("resolves item-category pricing schedules by specificity and quantity break", async ({ db }) => {
+  test("resolves sales pricing schedules by best price and quantity break", async ({ db }) => {
     await db
       .update(pricingSchedules)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
@@ -392,6 +392,86 @@ test.describe("sales fulfillment operating story", () => {
       pricingScheduleName: literalAllScheduleName,
     });
 
+    const favorableProduct = await createSellableProductFixture({
+      name: "Pricing Favorable Product",
+      category: "Pricing Favorable",
+      price: "100.00",
+    });
+    const specificButWorseSchedule = await createPricingSchedule({
+      name: `Specific But Worse ${Date.now()}`,
+      itemIds: [favorableProduct.id],
+      breaks: [
+        { minQuantity: "1", maxQuantity: null, discountPercent: "5" },
+      ],
+    });
+    expect(specificButWorseSchedule.status).toBe(201);
+    await expectSuggestedPrice({
+      customerId: openCustomer.id,
+      itemId: favorableProduct.id,
+      quantity: "2",
+      suggestedUnitPrice: "90.00",
+      pricingScheduleName: schedules[0].name,
+    });
+
+    const snapshotProduct = await createSellableProductFixture({
+      name: "Pricing Snapshot Product",
+      category: "Pricing Snapshot",
+      price: "100.00",
+    });
+    const snapshotScheduleName = `Snapshot Pricing ${Date.now()}`;
+    const snapshotSchedule = await createPricingSchedule({
+      name: snapshotScheduleName,
+      itemIds: [snapshotProduct.id],
+      breaks: [
+        { minQuantity: "1", maxQuantity: null, discountPercent: "25" },
+      ],
+    });
+    expect(snapshotSchedule.status).toBe(201);
+    const snapshotOrder = await createSalesOrder({
+      customerId: openCustomer.id,
+      status: "open",
+      lines: [
+        {
+          itemId: snapshotProduct.id,
+          quantity: "2",
+          unitPrice: "75.00",
+        },
+      ],
+    });
+    expect(snapshotOrder.status).toBe(201);
+    const snapshotLine = await readSalesOrderLine(
+      db,
+      snapshotOrder.body.id as string,
+      snapshotProduct.id
+    );
+    expect(snapshotLine.listUnitPrice).toBe("100.00");
+    expect(snapshotLine.discountPercent).toBe("25.00");
+
+    const updateSnapshotSchedule = await testFetch(
+      `/api/pricing-schedules/${snapshotSchedule.body.id}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          name: snapshotScheduleName,
+          customerCategoryId: null,
+          itemIds: [snapshotProduct.id],
+          notes: null,
+          breaks: [
+            { minQuantity: "1", maxQuantity: null, discountPercent: "40" },
+          ],
+        }),
+      }
+    );
+    expect(updateSnapshotSchedule.status).toBe(200);
+    const unchangedSnapshotLine = await readSalesOrderLine(
+      db,
+      snapshotOrder.body.id as string,
+      snapshotProduct.id
+    );
+    expect(unchangedSnapshotLine.unitPrice).toBe("75.00");
+    expect(unchangedSnapshotLine.listUnitPrice).toBe("100.00");
+    expect(unchangedSnapshotLine.discountPercent).toBe("25.00");
+
     const boundaryCategory = `Boundary Tier ${Date.now()}`;
     const boundaryCategoryResponse = await createCustomerCategory({
       name: boundaryCategory,
@@ -412,7 +492,7 @@ test.describe("sales fulfillment operating story", () => {
       customerCategoryId: boundaryCategoryResponse.body.id as string,
       itemIds: [boundaryProduct.id],
       breaks: [
-        { minQuantity: "1", maxQuantity: "5", discountPercent: "10" },
+        { minQuantity: "1", maxQuantity: "5", discountPercent: "20" },
         { minQuantity: "6", maxQuantity: null, discountPercent: "25" },
       ],
     });
@@ -423,7 +503,7 @@ test.describe("sales fulfillment operating story", () => {
         customerId: boundaryCustomer.id,
         itemId: boundaryProduct.id,
         quantity,
-        suggestedUnitPrice: "90.00",
+        suggestedUnitPrice: "80.00",
         pricingScheduleName: boundaryScheduleName,
       });
     }
@@ -494,6 +574,34 @@ test.describe("sales fulfillment operating story", () => {
       unitPrice: "70.00",
       suggestedUnitPrice: "50.00",
       isPriceOverridden: true,
+    });
+
+    await db
+      .update(salesOrderLines)
+      .set({ listUnitPrice: null, discountPercent: "0" })
+      .where(eq(salesOrderLines.id, overrideLine.id));
+
+    const legacyPatch = await testFetch(
+      `/api/sales-orders/${overrideOrder.body.id}/lines/${overrideLine.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ unitPrice: "80.00" }),
+      }
+    );
+    expect(legacyPatch.status).toBe(200);
+
+    const [legacyPatchedLine] = await db
+      .select({
+        listUnitPrice: salesOrderLines.listUnitPrice,
+        unitPrice: salesOrderLines.unitPrice,
+        discountPercent: salesOrderLines.discountPercent,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.id, overrideLine.id));
+    expect(legacyPatchedLine).toMatchObject({
+      listUnitPrice: "100.00",
+      unitPrice: "80.00",
+      discountPercent: "20.00",
     });
   });
 });

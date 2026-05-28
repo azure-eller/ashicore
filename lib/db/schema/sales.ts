@@ -544,6 +544,7 @@ export const salesOrderLines = salesSchema
       })
         .notNull()
         .default("0"),
+      listUnitPrice: numeric("list_unit_price", { precision: 10, scale: 2 }),
       unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull(),
       taxRateId: uuid("tax_rate_id").references(() => taxRates.id, {
         onDelete: "set null",
@@ -552,6 +553,12 @@ export const salesOrderLines = salesSchema
       taxRatePercent: numeric("tax_rate_percent", {
         precision: 7,
         scale: 4,
+      })
+        .notNull()
+        .default("0"),
+      discountPercent: numeric("discount_percent", {
+        precision: 5,
+        scale: 2,
       })
         .notNull()
         .default("0"),

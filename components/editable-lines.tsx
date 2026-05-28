@@ -56,6 +56,7 @@ type LineFieldBase<TData> = {
   valueSetter?: (params: ValueSetterParams<TData>) => boolean;
   cellRenderer?: ColDef<TData>["cellRenderer"];
   values?: string[];
+  getSelectLabel?: (value: string) => string;
   options?: InventoryItemComboboxOption[];
   placeholder?: string;
   emptyMessage?: string;
@@ -155,8 +156,11 @@ function buildLineColumns<TData>(fields: LineField<TData>[]): ColDef<TData>[] {
     if (kind === "select") {
       return {
         ...base,
-        cellEditor: "agSelectCellEditor",
-        cellEditorParams: { values: field.values ?? [] },
+        cellEditor: SelectLineCellEditor,
+        cellEditorParams: {
+          values: field.values ?? [],
+          getSelectLabel: field.getSelectLabel,
+        },
       };
     }
     if (kind === "date") {
@@ -403,6 +407,47 @@ type TextLineCellEditorProps<TData> = CustomCellEditorProps<TData, string | null
   getValidationErrorsForValue?: (value: string | null, row: TData) => string[] | null;
 };
 
+type SelectLineCellEditorProps<TData> = CustomCellEditorProps<TData, string | null> & {
+  values: string[];
+  getSelectLabel?: (value: string) => string;
+};
+
+export function SelectLineCellEditor<TData>(props: SelectLineCellEditorProps<TData>) {
+  const editorRef = useRef<HTMLSelectElement>(null);
+  const [value, setValue] = useState(props.value ?? "");
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      editorRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  useGridCellEditor({
+    getValidationElement: () => editorRef.current ?? props.eGridCell,
+  });
+
+  return (
+    <select
+      ref={editorRef}
+      value={value}
+      onChange={(event) => {
+        const next = event.target.value;
+        setValue(next);
+        props.onValueChange(next);
+        props.stopEditing();
+      }}
+      className="h-full w-full min-w-0 border-0 bg-transparent px-0 shadow-none outline-none"
+    >
+      {props.values.map((option) => (
+        <option key={option} value={option}>
+          {props.getSelectLabel?.(option) ?? props.formatValue?.(option) ?? option}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export function TextLineCellEditor<TData>(props: TextLineCellEditorProps<TData>) {
   const editorRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -447,6 +492,7 @@ export function TextLineCellEditor<TData>(props: TextLineCellEditorProps<TData>)
 }
 
 allowedCustomCellEditors.add(InventoryItemLineCellEditor);
+allowedCustomCellEditors.add(SelectLineCellEditor);
 allowedCustomCellEditors.add(TextLineCellEditor);
 allowedCustomCellEditors.add(AgGridDateCellEditor);
 

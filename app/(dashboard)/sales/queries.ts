@@ -439,10 +439,12 @@ type PreparedOrderLineBase = {
   itemSku: string | null;
   unitName: string;
   quantity: string;
+  listUnitPrice: string | null;
   unitPrice: string;
   taxRateId: string | null;
   taxRateName: string | null;
   taxRatePercent: string;
+  discountPercent: string;
   lineSubtotal: string;
   lineTaxAmount: string;
   lineTotal: string;
@@ -503,16 +505,9 @@ type PricingScheduleBreakRecord = {
 };
 
 type PricingScheduleLookup = {
-  schedulesByScope: Map<string, PricingScheduleRecord>;
+  schedules: PricingScheduleRecord[];
   breaksByScheduleId: Map<string, PricingScheduleBreakRecord[]>;
 };
-
-function pricingScheduleScopeKey(
-  customerCategoryId: string | null,
-  itemId: string | null
-) {
-  return JSON.stringify([customerCategoryId, itemId]);
-}
 
 function formatPricingBreakLabel(
   minQuantity: string,
@@ -524,6 +519,24 @@ function formatPricingBreakLabel(
   }
 
   return `${min}-${formatQuantity(maxQuantity)}`;
+}
+
+function discountPercentFromPrices(
+  listUnitPrice: string | null,
+  unitPrice: string
+) {
+  const list = listUnitPrice == null ? NaN : Number(listUnitPrice);
+  const unit = Number(unitPrice);
+  if (!Number.isFinite(list) || !Number.isFinite(unit) || list <= 0 || unit >= list) {
+    return "0.00";
+  }
+  return normalizeMoney(((list - unit) / list) * 100);
+}
+
+function normalizeOptionalLineMoney(value: string | null | undefined) {
+  if (value == null || value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? normalizeMoney(parsed) : null;
 }
 
 function summarizePricingBreaks(
@@ -730,11 +743,11 @@ async function getPricingScheduleLookupForProductsInTx(
         .map((product) => product.id)
     ),
   ];
-  const schedulesByScope = new Map<string, PricingScheduleRecord>();
+  const schedules: PricingScheduleRecord[] = [];
   const breaksByScheduleId = new Map<string, PricingScheduleBreakRecord[]>();
 
   if (products.every((product) => product.defaultSellingPrice == null)) {
-    return { schedulesByScope, breaksByScheduleId };
+    return { schedules, breaksByScheduleId };
   }
 
   const scheduleRows = await tx
@@ -767,16 +780,11 @@ async function getPricingScheduleLookupForProductsInTx(
       )
     );
 
-  for (const schedule of scheduleRows) {
-    schedulesByScope.set(
-      pricingScheduleScopeKey(schedule.customerCategoryId, schedule.itemId),
-      schedule
-    );
-  }
+  schedules.push(...scheduleRows);
 
   const scheduleIds = scheduleRows.map((schedule) => schedule.id);
   if (scheduleIds.length === 0) {
-    return { schedulesByScope, breaksByScheduleId };
+    return { schedules, breaksByScheduleId };
   }
 
   const breakRows = await tx
@@ -803,7 +811,7 @@ async function getPricingScheduleLookupForProductsInTx(
     breaksByScheduleId.set(pricingBreak.pricingScheduleId, bucket);
   }
 
-  return { schedulesByScope, breaksByScheduleId };
+  return { schedules, breaksByScheduleId };
 }
 
 function findMatchingPricingBreak(
@@ -853,66 +861,54 @@ function resolvePricingForProduct(
     };
   }
 
-  const pricingSchedule =
-    (values.customerCategoryId == null
-      ? null
-      : lookup.schedulesByScope.get(
-          pricingScheduleScopeKey(
-            values.customerCategoryId,
-            values.product.id
-          )
-        )) ??
-    (values.customerCategoryId == null
-      ? null
-      : lookup.schedulesByScope.get(
-          pricingScheduleScopeKey(values.customerCategoryId, null)
-        )) ??
-    lookup.schedulesByScope.get(
-      pricingScheduleScopeKey(null, values.product.id)
-    ) ??
-    lookup.schedulesByScope.get(
-      pricingScheduleScopeKey(null, null)
-    ) ??
-    null;
+  const candidates = lookup.schedules
+    .map((pricingSchedule) => {
+      const pricingBreaks = lookup.breaksByScheduleId.get(pricingSchedule.id) ?? [];
+      const matchingBreak = findMatchingPricingBreak(pricingBreaks, values.quantity);
+      if (!matchingBreak) return null;
 
-  if (!pricingSchedule) {
-    return {
-      baseUnitPrice,
-      suggestedUnitPrice: baseUnitPrice,
-      pricingSourceType: "base_price",
-      pricingScheduleName: null,
-      pricingBreakLabel: null,
-      customerCategoryName: values.customerCategoryName,
-    };
-  }
+      const suggestedUnitPrice = normalizeMoney(
+        Number(baseUnitPrice) *
+          (1 - Number(matchingBreak.discountPercent) / 100)
+      );
 
-  const pricingBreaks = lookup.breaksByScheduleId.get(pricingSchedule.id) ?? [];
-  const matchingBreak = findMatchingPricingBreak(pricingBreaks, values.quantity);
+      return {
+        pricingSchedule,
+        matchingBreak,
+        suggestedUnitPrice,
+      };
+    })
+    .filter((candidate): candidate is NonNullable<typeof candidate> => candidate != null);
 
-  if (!matchingBreak) {
-    return {
-      baseUnitPrice,
-      suggestedUnitPrice: baseUnitPrice,
-      pricingSourceType: "base_price",
-      pricingScheduleName: null,
-      pricingBreakLabel: null,
-      customerCategoryName: values.customerCategoryName,
-    };
-  }
-
-  const suggestedUnitPrice = normalizeMoney(
-    Number(baseUnitPrice) *
-      (1 - Number(matchingBreak.discountPercent) / 100)
+  const best = candidates.reduce<(typeof candidates)[number] | null>(
+    (current, candidate) => {
+      if (!current) return candidate;
+      return Number(candidate.suggestedUnitPrice) < Number(current.suggestedUnitPrice)
+        ? candidate
+        : current;
+    },
+    null
   );
+
+  if (!best) {
+    return {
+      baseUnitPrice,
+      suggestedUnitPrice: baseUnitPrice,
+      pricingSourceType: "base_price",
+      pricingScheduleName: null,
+      pricingBreakLabel: null,
+      customerCategoryName: values.customerCategoryName,
+    };
+  }
 
   return {
     baseUnitPrice,
-    suggestedUnitPrice,
+    suggestedUnitPrice: best.suggestedUnitPrice,
     pricingSourceType: "schedule_break",
-    pricingScheduleName: pricingSchedule.name,
+    pricingScheduleName: best.pricingSchedule.name,
     pricingBreakLabel: formatPricingBreakLabel(
-      matchingBreak.minQuantity,
-      matchingBreak.maxQuantity
+      best.matchingBreak.minQuantity,
+      best.matchingBreak.maxQuantity
     ),
     customerCategoryName: values.customerCategoryName,
   };
@@ -1514,10 +1510,16 @@ async function getOrderLinesInTx(tx: Tx, orderId: string) {
       cancelledQuantity: trimScale(salesOrderLines.cancelledQuantity).as(
         "cancelledQuantity"
       ),
+      listUnitPrice: trimScaleNullable(salesOrderLines.listUnitPrice).as(
+        "listUnitPrice"
+      ),
       unitPrice: trimScale(salesOrderLines.unitPrice).as("unitPrice"),
       taxRateId: salesOrderLines.taxRateId,
       taxRateName: salesOrderLines.taxRateName,
       taxRatePercent: trimScale(salesOrderLines.taxRatePercent).as("taxRatePercent"),
+      discountPercent: trimScale(salesOrderLines.discountPercent).as(
+        "discountPercent"
+      ),
       suggestedUnitPrice: trimScaleNullable(salesOrderLines.suggestedUnitPrice).as(
         "suggestedUnitPrice"
       ),
@@ -3079,6 +3081,25 @@ async function prepareOrderPayload(
     const selectedTaxRate = effectiveTaxRateId
       ? taxRatesById.get(effectiveTaxRateId) ?? null
       : null;
+    const listUnitPrice =
+      normalizeOptionalLineMoney(line.listUnitPrice) ??
+      pricing.baseUnitPrice ??
+      normalizedUnitPrice;
+    const suggestedUnitPrice =
+      normalizeOptionalLineMoney(line.suggestedUnitPrice) ??
+      pricing.suggestedUnitPrice;
+    const pricingSourceType = line.pricingSourceType ?? pricing.pricingSourceType;
+    const pricingScheduleName =
+      line.pricingScheduleName !== undefined
+        ? line.pricingScheduleName
+        : pricing.pricingScheduleName;
+    const pricingBreakLabel =
+      line.pricingBreakLabel !== undefined
+        ? line.pricingBreakLabel
+        : pricing.pricingBreakLabel;
+    const discountPercent =
+      normalizeOptionalLineMoney(line.discountPercent) ??
+      discountPercentFromPrices(listUnitPrice, normalizedUnitPrice);
     const lineSubtotal = quantity * unitPrice;
     const lineTaxAmount = calculateTaxAmount(
       lineSubtotal,
@@ -3093,17 +3114,19 @@ async function prepareOrderPayload(
       itemSku: item.sku,
       unitName: item.unitName,
       quantity: normalizeNumeric(quantity),
+      listUnitPrice,
       unitPrice: normalizedUnitPrice,
       taxRateId: selectedTaxRate?.id ?? null,
       taxRateName: selectedTaxRate?.name ?? null,
       taxRatePercent: selectedTaxRate?.ratePercent ?? "0",
-      suggestedUnitPrice: pricing.suggestedUnitPrice,
-      pricingSourceType: pricing.pricingSourceType,
-      pricingScheduleName: pricing.pricingScheduleName,
-      pricingBreakLabel: pricing.pricingBreakLabel,
+      discountPercent,
+      suggestedUnitPrice,
+      pricingSourceType,
+      pricingScheduleName,
+      pricingBreakLabel,
       isPriceOverridden:
-        pricing.suggestedUnitPrice != null &&
-        normalizedUnitPrice !== pricing.suggestedUnitPrice,
+        line.isPriceOverridden ??
+        (suggestedUnitPrice != null && normalizedUnitPrice !== suggestedUnitPrice),
       lineSubtotal: normalizeMoney(lineSubtotal),
       lineTaxAmount,
       lineTotal,
@@ -5871,10 +5894,16 @@ export async function getSalesOrder(
         cancelledQuantity: trimScale(salesOrderLines.cancelledQuantity).as(
           "cancelledQuantity"
         ),
+        listUnitPrice: trimScaleNullable(salesOrderLines.listUnitPrice).as(
+          "listUnitPrice"
+        ),
         unitPrice: trimScale(salesOrderLines.unitPrice).as("unitPrice"),
         taxRateId: salesOrderLines.taxRateId,
         taxRateName: salesOrderLines.taxRateName,
         taxRatePercent: trimScale(salesOrderLines.taxRatePercent).as("taxRatePercent"),
+        discountPercent: trimScale(salesOrderLines.discountPercent).as(
+          "discountPercent"
+        ),
         suggestedUnitPrice: trimScaleNullable(salesOrderLines.suggestedUnitPrice).as(
           "suggestedUnitPrice"
         ),
@@ -6774,8 +6803,10 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
       lines: lines.map((line) => ({
         itemId: line.itemId,
         quantity: line.quantity,
+        listUnitPrice: line.listUnitPrice,
         unitPrice: line.unitPrice,
         taxRateId: line.taxRateId,
+        discountPercent: line.discountPercent,
         suggestedUnitPrice: line.suggestedUnitPrice,
         pricingSourceType: (line.pricingSourceType ??
           "base_price") as PricingSourceType,
@@ -8637,7 +8668,7 @@ export async function patchSalesOrderHeader(
   patch: PatchSalesOrderHeader,
   options?: { idempotencyKey?: string }
 ) {
-  return withAuthedOrgContext(async (tx, orgId) => {
+  const result = await withAuthedOrgContext(async (tx, orgId) => {
     const replay = await beginInventoryOperationInTx<{ ok: true } | null>(tx, {
       organizationId: orgId,
       operationName: "patchSalesOrderHeader",
@@ -8645,7 +8676,7 @@ export async function patchSalesOrderHeader(
       payload: { id, patch },
     });
     if (replay.replayed) {
-      return replay.result === null ? null : await getSalesOrder(id);
+      return replay.result === null ? null : { ok: true };
     }
 
     const existingOrder = await getLockedSalesOrderInTx(tx, id);
@@ -8753,8 +8784,9 @@ export async function patchSalesOrderHeader(
       result: { ok: true },
     });
 
-    return await getSalesOrder(id);
+    return { ok: true };
   });
+  return result === null ? null : await getSalesOrder(id);
 }
 
 /**
@@ -8770,7 +8802,7 @@ export async function patchSalesOrderLine(
   patch: PatchSalesOrderLine,
   options?: { idempotencyKey?: string }
 ) {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
+  const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
     const replay = await beginInventoryOperationInTx<{ ok: true } | null>(tx, {
       organizationId: orgId,
       operationName: "patchSalesOrderLine",
@@ -8778,7 +8810,7 @@ export async function patchSalesOrderLine(
       payload: { orderId, lineId, patch },
     });
     if (replay.replayed) {
-      return replay.result === null ? null : await getSalesOrder(orderId);
+      return replay.result === null ? null : { ok: true };
     }
 
     const existingOrder = await getLockedSalesOrderInTx(tx, orderId);
@@ -8799,9 +8831,16 @@ export async function patchSalesOrderLine(
         id: salesOrderLines.id,
         itemId: salesOrderLines.itemId,
         quantity: salesOrderLines.quantity,
+        listUnitPrice: salesOrderLines.listUnitPrice,
         unitPrice: salesOrderLines.unitPrice,
         taxRateId: salesOrderLines.taxRateId,
         taxRatePercent: salesOrderLines.taxRatePercent,
+        discountPercent: salesOrderLines.discountPercent,
+        suggestedUnitPrice: salesOrderLines.suggestedUnitPrice,
+        pricingSourceType: salesOrderLines.pricingSourceType,
+        pricingScheduleName: salesOrderLines.pricingScheduleName,
+        pricingBreakLabel: salesOrderLines.pricingBreakLabel,
+        isPriceOverridden: salesOrderLines.isPriceOverridden,
         cancelledQuantity: salesOrderLines.cancelledQuantity,
       })
       .from(salesOrderLines)
@@ -8882,19 +8921,6 @@ export async function patchSalesOrderLine(
     }
 
     await lockItemsInTx(tx, [existingLine.itemId]);
-    const customer = await getValidatedCustomerInTx(tx, existingOrder.customerId);
-    const item = (await getValidatedSalesItemsInTx(tx, [existingLine.itemId])).get(
-      existingLine.itemId
-    );
-    if (!item) {
-      throw new SalesError("Item not found", 404);
-    }
-    const pricing = await resolvePricingForProductInTx(tx, {
-      customerCategoryId: customer.customerCategoryId,
-      customerCategoryName: customer.customerCategoryName,
-      product: item,
-      quantity: nextQuantity,
-    });
     const normalizedUnitPrice = normalizeMoney(Number(nextUnitPrice));
     const nextLineSubtotal = nextQuantityNumber * Number(nextUnitPrice);
     const nextLineTaxAmount = calculateTaxAmount(
@@ -8907,6 +8933,25 @@ export async function patchSalesOrderLine(
       nextLineTaxAmount,
       2,
     );
+    let listUnitPrice =
+      existingLine.listUnitPrice == null
+        ? null
+        : normalizeMoney(Number(existingLine.listUnitPrice));
+    if (patch.unitPrice != null && listUnitPrice == null) {
+      const item = (await getValidatedSalesItemsInTx(tx, [existingLine.itemId])).get(
+        existingLine.itemId
+      );
+      if (!item) {
+        throw new SalesError("Item not found", 404);
+      }
+      listUnitPrice =
+        normalizeOptionalLineMoney(item.defaultSellingPrice) ??
+        normalizeMoney(Number(existingLine.unitPrice));
+    }
+    const nextDiscountPercent =
+      patch.unitPrice != null
+        ? discountPercentFromPrices(listUnitPrice, normalizedUnitPrice)
+        : existingLine.discountPercent;
 
     const updates: Record<string, unknown> = {
       taxRateId: nextTaxRateId,
@@ -8914,18 +8959,24 @@ export async function patchSalesOrderLine(
       lineSubtotal: normalizeMoney(nextLineSubtotal),
       lineTaxAmount: nextLineTaxAmount,
       lineTotal: nextLineTotal,
-      suggestedUnitPrice: pricing.suggestedUnitPrice,
-      pricingSourceType: pricing.pricingSourceType,
-      pricingScheduleName: pricing.pricingScheduleName,
-      pricingBreakLabel: pricing.pricingBreakLabel,
+      discountPercent: nextDiscountPercent,
+      suggestedUnitPrice: existingLine.suggestedUnitPrice,
+      pricingSourceType: existingLine.pricingSourceType,
+      pricingScheduleName: existingLine.pricingScheduleName,
+      pricingBreakLabel: existingLine.pricingBreakLabel,
       isPriceOverridden:
-        pricing.suggestedUnitPrice != null &&
-        normalizedUnitPrice !== pricing.suggestedUnitPrice,
+        patch.unitPrice != null
+          ? existingLine.suggestedUnitPrice != null &&
+            normalizedUnitPrice !== normalizeMoney(Number(existingLine.suggestedUnitPrice))
+          : existingLine.isPriceOverridden,
       updatedAt: new Date(),
     };
     if (patch.taxRateId !== undefined) updates.taxRateName = nextTaxRateName;
     if (patch.quantity != null) updates.quantity = patch.quantity;
     if (patch.unitPrice != null) updates.unitPrice = normalizedUnitPrice;
+    if (patch.unitPrice != null && existingLine.listUnitPrice == null) {
+      updates.listUnitPrice = listUnitPrice;
+    }
 
     await tx
       .update(salesOrderLines)
@@ -9018,8 +9069,9 @@ export async function patchSalesOrderLine(
       result: { ok: true },
     });
 
-    return await getSalesOrder(orderId);
+    return { ok: true };
   });
+  return result === null ? null : await getSalesOrder(orderId);
 }
 
 export async function deleteSalesOrder(

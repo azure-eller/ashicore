@@ -11,6 +11,7 @@ import {
   optionalMoneyString,
   positiveMoneyString,
 } from "./shared";
+import { PRICING_SOURCE_TYPES } from "./pricing-schedules";
 
 export const SALES_ORDER_STATUSES = ["open", "done"] as const;
 export type SalesOrderStatus = (typeof SALES_ORDER_STATUSES)[number];
@@ -39,8 +40,15 @@ export type SalesShipmentCostStatus =
 const rawOrderLineSchema = z.object({
   itemId: z.string().default(""),
   quantity: nullableString,
+  listUnitPrice: nullableString.optional(),
   unitPrice: nullableString,
   taxRateId: nullableStringPreserveUndefined,
+  discountPercent: nullableString.optional(),
+  suggestedUnitPrice: nullableString.optional(),
+  pricingSourceType: z.enum(PRICING_SOURCE_TYPES).nullable().optional(),
+  pricingScheduleName: nullableString.optional(),
+  pricingBreakLabel: nullableString.optional(),
+  isPriceOverridden: z.boolean().optional(),
 });
 
 type RawOrderLine = z.input<typeof rawOrderLineSchema>;

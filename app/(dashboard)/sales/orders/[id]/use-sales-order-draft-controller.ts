@@ -355,6 +355,12 @@ function patchLine(
     Number(lineSubtotal) *
     (Number(taxPercent || 0) / 100)
   ).toFixed(2);
+  const list = line.listUnitPrice == null ? NaN : Number(line.listUnitPrice);
+  const unit = Number(unitPrice);
+  const discountPercent =
+    patch.unitPrice == null || !Number.isFinite(list) || !Number.isFinite(unit) || list <= 0
+      ? line.discountPercent
+      : Math.max(0, ((list - unit) / list) * 100).toFixed(2);
   return {
     ...line,
     quantity,
@@ -363,6 +369,7 @@ function patchLine(
     taxRateName:
       patch.taxRateName === undefined ? line.taxRateName : patch.taxRateName,
     taxRatePercent: taxPercent,
+    discountPercent,
     lineSubtotal,
     lineTaxAmount,
     lineTotal: (Number(lineSubtotal) + Number(lineTaxAmount)).toFixed(2),

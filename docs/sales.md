@@ -106,11 +106,19 @@ Invalid transitions:
 - orders store `customerName`
 - orders may link to a customer project/job with `customerProjectId`
 - lines store `itemName`, `itemSku`, and `unitName`
+- lines store point-in-time pricing snapshots: list unit price, discount percent,
+  suggested unit price, and pricing source
 - list/detail pages render snapshots so renamed or deleted records do not break history
 - customers are the managed account; projects/jobs are the work context; sales orders remain the commercial object
 - project links are optional, and orders without a project must keep working
 - products and customers used by active open sales orders cannot be soft-deleted
 - shipped orders rely on snapshots for history and do not block customer or product soft delete
+
+## Pricing
+
+- sales-order line creation applies the most favorable applicable pricing schedule
+- schedule changes do not retroactively reprice existing sales-order lines
+- manual price or discount edits update the line snapshot, not the source schedule
 
 ## Oversell Behavior
 

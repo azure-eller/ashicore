@@ -455,7 +455,9 @@ export type SalesOrderDetailLine = {
   cancelledQuantity: string;
   remainingQuantity: string;
   unplannedRemainingQuantity: string;
+  listUnitPrice: string | null;
   unitPrice: string;
+  discountPercent: string;
   suggestedUnitPrice: string | null;
   pricingSourceType: PricingSourceType | null;
   pricingScheduleName: string | null;
@@ -769,8 +771,10 @@ export type SalesOrderEditData = {
   lines: Array<{
     itemId: string;
     quantity: string;
+    listUnitPrice: string | null;
     unitPrice: string;
     taxRateId: string | null;
+    discountPercent: string;
     suggestedUnitPrice: string | null;
     pricingSourceType: PricingSourceType;
     pricingScheduleName: string | null;
