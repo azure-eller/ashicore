@@ -24,6 +24,7 @@ export const stocktakes = inventorySchema
       scope: varchar("scope", { length: 255 }).notNull().default("all"),
       status: varchar("status", { length: 20 }).notNull().default("draft"),
       notes: text("notes"),
+      reason: text("reason"),
       completedAt: timestamp("completed_at", { withTimezone: true }),
       cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

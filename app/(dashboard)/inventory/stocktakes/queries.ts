@@ -58,6 +58,7 @@ import type {
 type LockedStocktake = {
   id: string;
   status: string;
+  reason: string | null;
 };
 
 type SnapshotItem = {
@@ -136,6 +137,7 @@ async function getLockedStocktakeInTx(tx: Tx, id: string): Promise<LockedStockta
     .select({
       id: stocktakes.id,
       status: stocktakes.status,
+      reason: stocktakes.reason,
     })
     .from(stocktakes)
     .where(eq(stocktakes.id, id))
@@ -640,6 +642,7 @@ export async function getStocktake(id: string): Promise<StocktakeDetail | null> 
         scope: stocktakes.scope,
         status: stocktakes.status,
         notes: stocktakes.notes,
+        reason: stocktakes.reason,
         completedAt: stocktakes.completedAt,
         cancelledAt: stocktakes.cancelledAt,
         createdAt: stocktakes.createdAt,
@@ -940,6 +943,7 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
         ...(data.name !== undefined ? { name: data.name } : {}),
         ...(data.scope !== undefined ? { scope: data.scope } : {}),
         ...(data.notes !== undefined ? { notes: data.notes } : {}),
+        ...(data.reason !== undefined ? { reason: data.reason } : {}),
         updatedAt: new Date(),
       })
       .where(eq(stocktakes.id, id));
@@ -1073,6 +1077,7 @@ export async function completeStocktake(
     await reconcileStocktakeCountInTx(tx, {
       organizationId: orgId,
       stocktakeId: id,
+      reason: stocktake.reason,
       actorUserId: userId,
       idempotencyKey: deriveInventoryIdempotencyKey(
         options?.idempotencyKey,

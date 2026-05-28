@@ -25,6 +25,7 @@ import {
   STOCKTAKE_VARIANCE_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { StocktakeStatusBadge } from "./status-badge";
+import { CreateStocktakeDialog } from "./create-stocktake-dialog";
 import {
   formatCloneSkippedItemsWarning,
   formatScope,
@@ -127,8 +128,7 @@ export function StocktakesTable({ initialData }: { initialData: StocktakeListRow
         return response.json();
       }}
       searchAriaLabel="Search stocktakes"
-      addHref="/inventory/stocktakes/new"
-      addAriaLabel="New Stocktake"
+      actions={<CreateStocktakeDialog />}
       emptyMessage="No stocktakes yet."
       deleteAction={{
         endpoint: "/api/stocktakes",

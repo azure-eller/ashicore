@@ -37,6 +37,8 @@ import {
   type ColDef,
   type EditableLineDataGridChange,
 } from "@/components/editable-line-data-grid";
+import { InventoryItemLineCellEditor } from "@/components/editable-lines";
+import type { InventoryItemComboboxOption } from "@/components/inventory-item-combobox";
 import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
 import { StocktakeStatusBadge } from "./status-badge";
 import {
@@ -135,7 +137,7 @@ export function StocktakeDetail({
     useState<StocktakeCompletionPreview | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewConfirmStale, setReviewConfirmStale] = useState(false);
-  const [stocktakeNotes, setStocktakeNotes] = useState(stocktake.notes ?? "");
+  const [stocktakeReason, setStocktakeReason] = useState(stocktake.reason ?? "");
   const canEditCounts = stocktake.status === "draft";
 
   const refreshStocktakeQueries = async () => {
@@ -307,6 +309,19 @@ export function StocktakeDetail({
     [previewItems]
   );
 
+  const itemOptions = useMemo<InventoryItemComboboxOption[]>(
+    () =>
+      previewItems.map((item) => ({
+        id: item.id,
+        name: item.name,
+        displayName: item.displayName,
+        sku: item.sku,
+        itemType: item.itemType,
+        unitName: item.unitName,
+      })),
+    [previewItems]
+  );
+
   const commitStocktakePatch = useCallback(
     (payload: StocktakeUpdatePayload) => {
       if (!canEditCounts) return;
@@ -453,7 +468,6 @@ export function StocktakeDetail({
     </div>
   );
   const columns = useMemo<ColDef<StocktakeDisplayRow>[]>(() => {
-    const selectableItemIds = previewItems.map((item) => item.id);
     const baseColumns: ColDef<StocktakeDisplayRow>[] = [
       {
         field: "itemId",
@@ -462,9 +476,17 @@ export function StocktakeDetail({
         flex: 1.5,
         editable: (params) =>
           canEditCounts && (params.data ? !isLotDisplayRow(params.data) : false),
-        cellEditor: "agSelectCellEditor",
+        cellEditor: InventoryItemLineCellEditor,
         cellEditorParams: {
-          values: selectableItemIds,
+          options: itemOptions,
+          placeholder: "Search items...",
+          emptyMessage: "No items found.",
+          requiredMessage: "Select an item.",
+          isRowBlank: (row: StocktakeDisplayRow) =>
+            isLotDisplayRow(row) ? true : !row.itemId,
+          showTypeBadge: true,
+          getSecondaryText: (option: InventoryItemComboboxOption) =>
+            option.sku ?? null,
         },
         valueFormatter: ({ value }) =>
           previewItemMap.get(String(value))?.displayName ?? "",
@@ -597,7 +619,7 @@ export function StocktakeDetail({
         valueFormatter: ({ value }) => (value == null ? "" : formatQuantity(value)),
       },
     ];
-  }, [canEditCounts, previewItemMap, previewItems]);
+  }, [canEditCounts, itemOptions, previewItemMap]);
 
   const createBlankRow = useCallback((): StocktakeDisplayRow => {
     const now = new Date();
@@ -839,6 +861,24 @@ export function StocktakeDetail({
                 <div className={styles.readOnlyFieldValue}>{rows.length}</div>
               </CellShell>
             </div>
+            <div className={styles.formRow}>
+              <CellShell label="Reason">
+                <Input
+                  aria-label="Reason"
+                  className={styles.underlineControl}
+                  placeholder="Why is this count being made?"
+                  value={stocktakeReason}
+                  disabled={!canEditCounts}
+                  onChange={(event) => setStocktakeReason(event.target.value)}
+                  onBlur={(event) => {
+                    const reason = event.currentTarget.value.trim();
+                    if (reason !== (stocktake.reason ?? "")) {
+                      commitStocktakePatch({ reason: reason || null });
+                    }
+                  }}
+                />
+              </CellShell>
+            </div>
           </CardSection>
 
           {actionError ? (
@@ -877,23 +917,6 @@ export function StocktakeDetail({
               getDeleteDisabledReason={(row) =>
                 isLotDisplayRow(row) ? "Delete the item row to remove its lots." : null
               }
-              minHeight={180}
-            />
-          </CardSection>
-
-          <CardSection title="Notes">
-            <textarea
-              aria-label="Notes"
-              className="min-h-32 w-full resize-y border-0 bg-transparent p-0 text-[length:var(--text-sm)] outline-none disabled:text-muted-foreground"
-              value={stocktakeNotes}
-              disabled={!canEditCounts}
-              onChange={(event) => setStocktakeNotes(event.target.value)}
-              onBlur={(event) => {
-                const notes = event.currentTarget.value;
-                if (notes !== (stocktake.notes ?? "")) {
-                  commitStocktakePatch({ notes: notes || null });
-                }
-              }}
             />
           </CardSection>
         </CardPageBody>

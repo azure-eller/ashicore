@@ -129,6 +129,7 @@ export type StocktakeDetail = {
   scope: StocktakeScope;
   status: StocktakeStatus;
   notes: string | null;
+  reason: string | null;
   completedAt: Date | null;
   cancelledAt: Date | null;
   createdAt: Date;

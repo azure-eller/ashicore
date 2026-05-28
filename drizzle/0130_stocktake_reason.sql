@@ -1,0 +1,1 @@
+ALTER TABLE "inventory"."stocktakes" ADD COLUMN IF NOT EXISTS "reason" text;

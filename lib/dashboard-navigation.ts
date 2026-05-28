@@ -140,7 +140,11 @@ const dashboardCreateActions: DashboardCreateAction[] = [
   { title: "Customer", href: "/sales/customer", module: "sales" },
   { title: "Material", href: "/inventory/material", module: "inventory" },
   { title: "Product", href: "/inventory/product", module: "inventory" },
-  { title: "Stocktake", href: "/inventory/stocktakes/new", module: "inventory" },
+  {
+    title: "Stocktake",
+    href: "/inventory/stocktakes?create=1",
+    module: "inventory",
+  },
   {
     title: "Purchase Order",
     href: "/purchasing/order",
@@ -245,7 +249,7 @@ export function getDashboardSearchActions(
       {
         title: "New Stocktake",
         description: "Create a new stocktake",
-        href: "/inventory/stocktakes/new",
+        href: "/inventory/stocktakes?create=1",
         icon: Add01Icon,
         group: "Inventory",
       },
