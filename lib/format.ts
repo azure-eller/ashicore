@@ -149,7 +149,11 @@ export function getInitials(value: string | null | undefined): string {
  */
 export function formatQuantity(value: string | null | undefined): string {
   if (value == null) return "\u2014";
-  return parseFloat(value).toString();
+  // Round to the canonical quantity scale (4 dp) before display. This strips
+  // trailing zeros AND absorbs JS float artifacts (e.g. "10.700000000000001"
+  // -> "10.7"), so a computed number stringified upstream can never leak its
+  // binary representation to the screen.
+  return normalizeNumericScale(parseFloat(value), 4);
 }
 
 type UnitDisplayInput = {
@@ -232,7 +236,9 @@ export function formatCompactUnitLabel(unit: UnitDisplayInput): string | null {
 }
 
 export function normalizeNumericScale(value: number, scale: number): string {
-  return value.toFixed(scale).replace(/\.?0+$/, "");
+  const result = value.toFixed(scale).replace(/\.?0+$/, "");
+  // A tiny negative float artifact (e.g. -5.5e-17) rounds to "-0"; collapse it.
+  return result === "-0" ? "0" : result;
 }
 
 /**

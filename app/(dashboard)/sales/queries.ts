@@ -164,6 +164,7 @@ import {
   getSalesFulfillmentReadModelsInTx,
   getAvailabilityLabel,
   type SalesFulfillmentDemandLine,
+  type SalesIngredientShortageSummary,
 } from "@/lib/sales/fulfillment-read-model";
 import {
   getDemandQueueCoverageByDemandKeyForItemsInTx,
@@ -192,6 +193,21 @@ const expectedQtySubquery = projectedExpectedQty(
   items.organizationId,
   items.id
 ).as("expectedQty");
+
+/**
+ * `availableQty` is derived here in the data layer so components never do
+ * quantity arithmetic (which leaks float artifacts to the screen).
+ */
+function serializeIngredientShortage(shortage: SalesIngredientShortageSummary) {
+  return {
+    ...shortage,
+    requiredQty: normalizeNumeric(roundQuantity(shortage.requiredQty)),
+    shortQty: normalizeNumeric(roundQuantity(shortage.shortQty)),
+    availableQty: normalizeNumeric(
+      roundQuantity(Math.max(0, shortage.requiredQty - shortage.shortQty))
+    ),
+  };
+}
 
 async function getSalesOptionLabelsByItemIdInTx(tx: Tx, itemIds: string[]) {
   const uniqueItemIds = [...new Set(itemIds)];
@@ -5633,13 +5649,9 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 ingredientsExpectedDate:
                   fulfillmentReadModel?.ingredientsExpectedDate ?? null,
                 ingredientShortages:
-                  fulfillmentReadModel?.ingredientShortages.map((shortage) => ({
-                    ...shortage,
-                    requiredQty: normalizeNumeric(
-                      roundQuantity(shortage.requiredQty)
-                    ),
-                    shortQty: normalizeNumeric(roundQuantity(shortage.shortQty)),
-                  })) ?? [],
+                  fulfillmentReadModel?.ingredientShortages.map(
+                    serializeIngredientShortage
+                  ) ?? [],
                 productionState:
                   fulfillmentReadModel?.productionState ?? "not_applicable",
               };
@@ -6528,11 +6540,9 @@ export async function getSalesOrder(
       ingredientsState: fulfillmentReadModel?.ingredientsState ?? "not_applicable",
       ingredientsExpectedDate: fulfillmentReadModel?.ingredientsExpectedDate ?? null,
       ingredientShortages:
-        fulfillmentReadModel?.ingredientShortages.map((shortage) => ({
-          ...shortage,
-          requiredQty: normalizeNumeric(roundQuantity(shortage.requiredQty)),
-          shortQty: normalizeNumeric(roundQuantity(shortage.shortQty)),
-        })) ?? [],
+        fulfillmentReadModel?.ingredientShortages.map(
+          serializeIngredientShortage
+        ) ?? [],
       productionState: fulfillmentReadModel?.productionState ?? "not_applicable",
     };
     const manufacturingLinesByLineId = new Map(
@@ -6641,11 +6651,7 @@ export async function getSalesOrder(
         ingredientsState: readModel?.ingredientsState ?? "not_applicable",
         ingredientsExpectedDate: readModel?.ingredientsExpectedDate ?? null,
         ingredientShortages:
-          readModel?.ingredientShortages.map((shortage) => ({
-            ...shortage,
-            requiredQty: normalizeNumeric(roundQuantity(shortage.requiredQty)),
-            shortQty: normalizeNumeric(roundQuantity(shortage.shortQty)),
-          })) ?? [],
+          readModel?.ingredientShortages.map(serializeIngredientShortage) ?? [],
         productionState: readModel?.productionState ?? "not_applicable",
       });
     }

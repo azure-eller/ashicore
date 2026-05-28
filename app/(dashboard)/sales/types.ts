@@ -361,6 +361,7 @@ export type SalesOrderFulfillmentSummary = {
     unitName: string;
     requiredQty: string;
     shortQty: string;
+    availableQty: string;
   }>;
   productionState:
     | "not_applicable"

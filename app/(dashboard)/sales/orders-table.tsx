@@ -172,23 +172,6 @@ function formatOrderLineItemName(line: SalesOrderListRow["lines"][number]) {
     : line.masterName;
 }
 
-function getStockCoverage({
-  requiredQty,
-  shortQty,
-}: {
-  requiredQty: string;
-  shortQty: string;
-}) {
-  const required = parseQuantity(requiredQty);
-  const short = parseQuantity(shortQty);
-  const available = Math.max(0, required - short);
-
-  return {
-    needed: formatQuantity(requiredQty),
-    available: formatQuantity(String(available)),
-  };
-}
-
 function DetailMenuTable({
   emptyMessage,
   rows,
@@ -311,10 +294,8 @@ function IngredientsStatusCell({ order }: { order: SalesOrderListRow }) {
   const rows = order.fulfillmentSummary.ingredientShortages.map((shortage) => ({
     id: shortage.itemId,
     item: shortage.itemName,
-    ...getStockCoverage({
-      requiredQty: shortage.requiredQty,
-      shortQty: shortage.shortQty,
-    }),
+    needed: formatQuantity(shortage.requiredQty),
+    available: formatQuantity(shortage.availableQty),
   }));
 
   return (
