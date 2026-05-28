@@ -52,17 +52,18 @@ export default async function SettingsPage({
   const requestHeaders = await headers();
   const context = await getAuthedMemberContext();
   const showTeam = canManageTeam(context.assignedRoles);
-  const canManageXero = hasModuleAccess(
+  const canManageSalesXero = hasModuleAccess(
     context.assignedRoles,
     "sales",
     "operate"
   );
-  const canImportSuppliers = hasModuleAccess(
+  const canManagePurchasingXero = hasModuleAccess(
     context.assignedRoles,
     "purchasing",
     "operate"
   );
-  const showIntegrations = canManageXero || canImportSuppliers;
+  const canManageXero = canManageSalesXero || canManagePurchasingXero;
+  const showIntegrations = canManageXero;
 
   const showReports = showTeam;
   const showAgentAccess = showTeam;
@@ -126,7 +127,7 @@ export default async function SettingsPage({
     showIntegrations ? getRecentXeroSyncEvents() : [],
     showIntegrations
       ? getRecentXeroExports({
-          includeSales: canManageXero,
+          includeSales: canManageSalesXero,
           includePurchasing: false,
         })
       : [],
@@ -154,9 +155,11 @@ export default async function SettingsPage({
               exportRows={xeroExports}
               purchaseOrderSyncConfigured={purchaseOrderSyncConfigured}
               error={resolvedSearchParams.error}
-              canManageConnection={canManageXero}
-              canImportCustomers={canManageXero}
-              canImportSuppliers={canImportSuppliers}
+              canManageConnection={canManageSalesXero}
+              canManageSalesXero={canManageSalesXero}
+              canManagePurchasingXero={canManagePurchasingXero}
+              canImportCustomers={canManageSalesXero}
+              canImportSuppliers={canManagePurchasingXero}
             />
           ) : null}
         </div>

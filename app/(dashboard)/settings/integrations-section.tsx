@@ -351,7 +351,8 @@ function PostingDefaultsSummary({
   onEdit,
   onHistory,
   onToggleAutoPush,
-  canManageConnection,
+  canManageSalesXero,
+  canManagePurchasingXero,
   purchaseOrderSyncConfigured,
 }: {
   connection: XeroConnectionSummary;
@@ -363,11 +364,15 @@ function PostingDefaultsSummary({
       | "autoSyncPurchaseOrdersFromAccounting",
     value: boolean
   ) => void;
-  canManageConnection: boolean;
+  canManageSalesXero: boolean;
+  canManagePurchasingXero: boolean;
   purchaseOrderSyncConfigured: boolean;
 }) {
   const salesAccount = connection.defaultAccountCode;
   const salesTax = connection.defaultTaxType;
+  const purchaseAccount = connection.purchaseOrderDefaultAccountCode;
+  const purchaseTax =
+    connection.purchaseOrderDefaultTaxType ?? connection.defaultTaxType;
   const showPoSyncConfigWarning =
     connection.autoSyncPurchaseOrdersFromAccounting &&
     !purchaseOrderSyncConfigured;
@@ -387,7 +392,7 @@ function PostingDefaultsSummary({
             >
               <HugeiconsIcon icon={TimelineListIcon} strokeWidth={2} />
             </Button>
-            {canManageConnection ? (
+            {canManageSalesXero || canManagePurchasingXero ? (
               <Button variant="outline" size="sm" onClick={onEdit}>
                 <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
                 Defaults
@@ -400,7 +405,7 @@ function PostingDefaultsSummary({
       <div className="mt-2">
         <AutomationRow
           checked={connection.autoPushSalesInvoices}
-          disabled={!canManageConnection}
+          disabled={!canManageSalesXero}
           onCheckedChange={(value) =>
             onToggleAutoPush("autoPushSalesInvoices", value)
           }
@@ -419,9 +424,28 @@ function PostingDefaultsSummary({
             </DefaultChip>
         </AutomationRow>
 
+        <div className="grid gap-(--space-3) border-t py-(--space-3) first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+          <span className="min-w-0">
+            <span className="block text-[length:var(--text-sm)] font-medium text-foreground">
+              Purchase bills
+            </span>
+            <span className="text-[length:var(--text-xs)] text-muted-foreground">
+              Default ledger account for Xero bills created from ERP purchase orders.
+            </span>
+          </span>
+          <div className="flex flex-wrap items-center gap-(--space-2) text-[length:var(--text-xs)] text-muted-foreground sm:justify-end">
+            <DefaultChip>
+              <span className="font-mono">{purchaseAccount ?? "Account"}</span>
+            </DefaultChip>
+            <DefaultChip>
+              <FriendlyTax value={purchaseTax} />
+            </DefaultChip>
+          </div>
+        </div>
+
         <AutomationRow
           checked={connection.autoSyncPurchaseOrdersFromAccounting}
-          disabled={!canManageConnection}
+          disabled={!canManagePurchasingXero}
           onCheckedChange={(value) =>
             onToggleAutoPush("autoSyncPurchaseOrdersFromAccounting", value)
           }
@@ -476,6 +500,8 @@ function XeroRow({
   connection,
   error,
   canManageConnection,
+  canManageSalesXero,
+  canManagePurchasingXero,
   canImportCustomers,
   canImportSuppliers,
   importRuns,
@@ -486,6 +512,8 @@ function XeroRow({
   connection: XeroConnectionSummary | null;
   error?: string;
   canManageConnection: boolean;
+  canManageSalesXero: boolean;
+  canManagePurchasingXero: boolean;
   canImportCustomers: boolean;
   canImportSuppliers: boolean;
   importRuns: XeroImportRunSummary[];
@@ -637,7 +665,8 @@ function XeroRow({
         <>
           <PostingDefaultsSummary
             connection={connection}
-            canManageConnection={canManageConnection}
+            canManageSalesXero={canManageSalesXero}
+            canManagePurchasingXero={canManagePurchasingXero}
             onEdit={() => setOpenDialog("defaults")}
             onHistory={() => setOpenDialog("history")}
             purchaseOrderSyncConfigured={purchaseOrderSyncConfigured}
@@ -660,6 +689,8 @@ function XeroRow({
             <PostingDefaultsDialog
               open
               connection={connection}
+              canManageSalesXero={canManageSalesXero}
+              canManagePurchasingXero={canManagePurchasingXero}
               onOpenChange={(open) => setOpenDialog(open ? "defaults" : null)}
             />
           ) : null}
@@ -870,15 +901,22 @@ function QuickBooksRow({
 function PostingDefaultsDialog({
   open,
   connection,
+  canManageSalesXero,
+  canManagePurchasingXero,
   onOpenChange,
 }: {
   open: boolean;
   connection: XeroConnectionSummary;
+  canManageSalesXero: boolean;
+  canManagePurchasingXero: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
   const [accountCode, setAccountCode] = useState(
     connection.defaultAccountCode ?? ""
+  );
+  const [purchaseAccountCode, setPurchaseAccountCode] = useState(
+    connection.purchaseOrderDefaultAccountCode ?? ""
   );
   const [taxType, setTaxType] = useState(connection.defaultTaxType ?? "");
   const [invoiceStatus, setInvoiceStatus] = useState<"DRAFT" | "AUTHORISED">(
@@ -921,7 +959,7 @@ function PostingDefaultsDialog({
             connection.autoSyncPurchaseOrdersFromAccounting,
           autoEmailSalesInvoices: connection.autoEmailSalesInvoices,
           autoEmailPurchaseOrders: false,
-          purchaseOrderDefaultAccountCode: connection.purchaseOrderDefaultAccountCode,
+          purchaseOrderDefaultAccountCode: purchaseAccountCode.trim() || null,
           purchaseOrderDefaultTaxType: connection.purchaseOrderDefaultTaxType,
           purchaseOrderStatusPreference: connection.purchaseOrderStatusPreference,
         }),
@@ -950,76 +988,115 @@ function PostingDefaultsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="2xl">
         <DialogHeader>
-          <DialogTitle>Invoice defaults</DialogTitle>
+          <DialogTitle>Xero defaults</DialogTitle>
           <DialogDescription>
-            Defaults applied when sales invoices are sent to Xero.
+            Defaults applied when invoices and purchase bills are sent to Xero.
           </DialogDescription>
         </DialogHeader>
 
         {formError ? <FieldError>{formError}</FieldError> : null}
 
         <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="xero-account-code">Account code</FieldLabel>
-            {accounts.length > 0 ? (
-              <Select value={accountCode} onValueChange={setAccountCode}>
-                <SelectTrigger id="xero-account-code" className="w-full">
-                  <SelectValue placeholder="Choose account" />
-                </SelectTrigger>
-                <SelectContent>
-                  {accounts.map((account) => (
-                    <SelectItem key={account.code} value={account.code}>
-                      {accountLabel(account.code)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Input
-                id="xero-account-code"
-                value={accountCode}
-                onChange={(event) => setAccountCode(event.target.value)}
-                placeholder={accountsQuery.isLoading ? "Loading accounts..." : "200"}
-              />
-            )}
-          </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
+          {canManageSalesXero ? (
             <Field>
-              <FieldLabel htmlFor="xero-tax-type">Tax treatment</FieldLabel>
-              <TaxSelect
-                id="xero-tax-type"
-                value={taxType}
-                options={SALES_TAX_OPTIONS}
-                onValueChange={setTaxType}
-              />
+              <FieldLabel htmlFor="xero-account-code">
+                Sales invoice account
+              </FieldLabel>
+              {accounts.length > 0 ? (
+                <Select value={accountCode} onValueChange={setAccountCode}>
+                  <SelectTrigger id="xero-account-code" className="w-full">
+                    <SelectValue placeholder="Choose account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.map((account) => (
+                      <SelectItem key={account.code} value={account.code}>
+                        {accountLabel(account.code)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  id="xero-account-code"
+                  value={accountCode}
+                  onChange={(event) => setAccountCode(event.target.value)}
+                  placeholder={accountsQuery.isLoading ? "Loading accounts..." : "200"}
+                />
+              )}
             </Field>
+          ) : null}
+          {canManagePurchasingXero ? (
             <Field>
-              <FieldLabel htmlFor="xero-invoice-status">Send as</FieldLabel>
-              <Select
-                value={invoiceStatus}
-                onValueChange={(value) =>
-                  setInvoiceStatus(value as "DRAFT" | "AUTHORISED")
-                }
-              >
-                <SelectTrigger id="xero-invoice-status">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="DRAFT">Draft</SelectItem>
-                  <SelectItem value="AUTHORISED">Approved</SelectItem>
-                </SelectContent>
-              </Select>
+              <FieldLabel htmlFor="xero-purchase-account-code">
+                Purchase bill account
+              </FieldLabel>
+              {accounts.length > 0 ? (
+                <Select
+                  value={purchaseAccountCode}
+                  onValueChange={setPurchaseAccountCode}
+                >
+                  <SelectTrigger id="xero-purchase-account-code" className="w-full">
+                    <SelectValue placeholder="Choose account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.map((account) => (
+                      <SelectItem key={account.code} value={account.code}>
+                        {accountLabel(account.code)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  id="xero-purchase-account-code"
+                  value={purchaseAccountCode}
+                  onChange={(event) => setPurchaseAccountCode(event.target.value)}
+                  placeholder={accountsQuery.isLoading ? "Loading accounts..." : "500"}
+                />
+              )}
             </Field>
-          </div>
+          ) : null}
+          {canManageSalesXero ? (
+            <div className="grid gap-(--space-4) sm:grid-cols-2">
+              <Field>
+                <FieldLabel htmlFor="xero-tax-type">Tax treatment</FieldLabel>
+                <TaxSelect
+                  id="xero-tax-type"
+                  value={taxType}
+                  options={SALES_TAX_OPTIONS}
+                  onValueChange={setTaxType}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="xero-invoice-status">Send as</FieldLabel>
+                <Select
+                  value={invoiceStatus}
+                  onValueChange={(value) =>
+                    setInvoiceStatus(value as "DRAFT" | "AUTHORISED")
+                  }
+                >
+                  <SelectTrigger id="xero-invoice-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="DRAFT">Draft</SelectItem>
+                    <SelectItem value="AUTHORISED">Approved</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+          ) : null}
         </FieldGroup>
 
-        <div className="border bg-muted p-(--space-6) text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground">
-          <p>{TAX_DESCRIPTIONS[taxType] ?? "Xero tax code saved as entered."}</p>
-          <p className="mt-1">
-            {STATUS_DESCRIPTIONS[invoiceStatus] ??
-              "Xero export status saved as selected."}
-          </p>
-        </div>
+        {canManageSalesXero ? (
+          <div className="border bg-muted p-(--space-6) text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground">
+            <p>{TAX_DESCRIPTIONS[taxType] ?? "Xero tax code saved as entered."}</p>
+            <p className="mt-1">
+              {STATUS_DESCRIPTIONS[invoiceStatus] ??
+                "Xero export status saved as selected."}
+            </p>
+          </div>
+        ) : null}
 
         <DialogFooter className="items-center justify-between sm:justify-between">
           <p className="flex items-center gap-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
@@ -1522,6 +1599,8 @@ export function IntegrationsSection({
   quickBooksConnection,
   error,
   canManageConnection,
+  canManageSalesXero,
+  canManagePurchasingXero,
   canImportCustomers,
   canImportSuppliers,
   importRuns,
@@ -1533,6 +1612,8 @@ export function IntegrationsSection({
   quickBooksConnection: AccountingConnectionSummary | null;
   error?: string;
   canManageConnection: boolean;
+  canManageSalesXero: boolean;
+  canManagePurchasingXero: boolean;
   canImportCustomers: boolean;
   canImportSuppliers: boolean;
   importRuns: XeroImportRunSummary[];
@@ -1548,6 +1629,8 @@ export function IntegrationsSection({
           connection={connection}
           error={error}
           canManageConnection={canManageConnection}
+          canManageSalesXero={canManageSalesXero}
+          canManagePurchasingXero={canManagePurchasingXero}
           canImportCustomers={canImportCustomers}
           canImportSuppliers={canImportSuppliers}
           importRuns={importRuns}

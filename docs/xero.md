@@ -30,9 +30,12 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
 - **Purchase bill push** — `lib/xero/push-purchase-bill.ts`. Creates Xero
   `ACCPAY` draft bills from received ERP purchase orders. The action is manual
   from the PO bill status, stores a provider-neutral `purchase_bill` sync
-  snapshot, uses purchase-unit line economics, and omits additional PO costs in
-  v1 after explicit user confirmation. Inventory lots and lot-tracking mode are
-  operational ERP state and are not sent to Xero. Retry/adoption checks existing ACCPAY
+  snapshot, uses purchase-unit line economics, uses the selected bill-dialog
+  account as the default Xero account for bill lines without a line account,
+  defaults that field from the configured purchase-bill account with legacy
+  default-account fallback, and omits additional PO costs in v1 after explicit
+  user confirmation. Inventory lots and lot-tracking mode are operational ERP
+  state and are not sent to Xero. Retry/adoption checks existing ACCPAY
   bills by supplier invoice number, but only links a match when Xero contact,
   reference, and subtotal match the ERP purchase order. The Xero retry cron
   also checks pushed purchase bills and resets local bill status to Not billed
@@ -120,8 +123,8 @@ everything until you need a final pilot-tenant pass.
 2. On Xero's consent screen, pick **Demo Company** as the organisation
    to grant access to.
 3. Approve all requested scopes.
-4. Set `defaultAccountCode` (e.g. `200`) and tax type in the panel —
-   the Demo Company comes pre-loaded with a real chart of accounts.
+4. Set the sales invoice account, purchase bill account, and tax type in the
+   panel — the Demo Company comes pre-loaded with a real chart of accounts.
 5. Confirm with the **Test connection** button — should say `Connected`.
 
 Demo Company properties:

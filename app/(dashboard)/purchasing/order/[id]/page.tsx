@@ -77,10 +77,12 @@ export default async function PurchaseOrderDetailPage({
       xeroBillSetupStatus={
         !xeroConnection
           ? "not_connected"
-          : xeroConnection.purchaseOrderDefaultAccountCode ??
-              xeroConnection.defaultAccountCode
-            ? "ready"
-            : "missing_purchase_account"
+          : "ready"
+      }
+      xeroPurchaseBillDefaultAccountCode={
+        xeroConnection?.purchaseOrderDefaultAccountCode ??
+        xeroConnection?.defaultAccountCode ??
+        null
       }
     />
   );

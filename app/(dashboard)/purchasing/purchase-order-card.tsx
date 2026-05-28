@@ -127,6 +127,7 @@ type XeroAccountOption = {
   code: string;
   name: string;
   type: string | null;
+  class: string | null;
 };
 
 type PurchaseOrderFormAttachment = {
@@ -143,7 +144,6 @@ type PurchaseOrderFormAttachment = {
 
 export type XeroBillSetupStatus =
   | "not_connected"
-  | "missing_purchase_account"
   | "ready";
 
 const ADD_DELIVERY_ADDRESS_VALUE = "__add_delivery_address__";
@@ -212,6 +212,7 @@ type PurchaseBillDialogValues = {
   billDate: string;
   dueDate: string;
   reference: string;
+  accountingPurchaseAccountCode: string;
   confirmAdditionalCostsOmitted: boolean;
 };
 type PurchaseOrderLineColumnKey =
@@ -852,6 +853,7 @@ export function PurchaseOrderCard({
   canWrite = true,
   canViewLedger = false,
   xeroBillSetupStatus = "not_connected",
+  xeroPurchaseBillDefaultAccountCode = null,
 }: {
   suppliers: SupplierOption[];
   materials: PurchaseOrderMaterialOption[];
@@ -862,6 +864,7 @@ export function PurchaseOrderCard({
   canWrite?: boolean;
   canViewLedger?: boolean;
   xeroBillSetupStatus?: XeroBillSetupStatus;
+  xeroPurchaseBillDefaultAccountCode?: string | null;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -907,6 +910,10 @@ export function PurchaseOrderCard({
         billDate: today,
         dueDate: today,
         reference: initialData?.orderNumber ?? "",
+        accountingPurchaseAccountCode:
+          initialData?.accountingPurchaseAccountCode ??
+          xeroPurchaseBillDefaultAccountCode ??
+          "",
         confirmAdditionalCostsOmitted: false,
       };
     });
@@ -1163,6 +1170,15 @@ export function PurchaseOrderCard({
   const xeroAccountsByCode = useMemo(
     () => new Map(xeroAccounts.map((account) => [account.code, account])),
     [xeroAccounts],
+  );
+  const xeroAccountLabel = useCallback(
+    (code: string) => {
+      const account = xeroAccountsByCode.get(code);
+      if (!account) return code;
+      const metadata = [account.type, account.class].filter(Boolean).join(" · ");
+      return `${account.code} - ${account.name}${metadata ? ` (${metadata})` : ""}`;
+    },
+    [xeroAccountsByCode],
   );
   const lineColumns = useMemo<LineField<PurchaseOrderLineGridRow>[]>(() => {
     const nonBlankRows = lineGridRows.filter(
@@ -1987,13 +2003,11 @@ export function PurchaseOrderCard({
   const billActionDisabledReason =
     xeroBillSetupStatus === "not_connected"
       ? "Connect Xero before creating supplier bills."
-      : xeroBillSetupStatus === "missing_purchase_account"
-        ? "Set a purchase account code in Xero settings before creating supplier bills."
-        : displayStatus !== "received"
-          ? "V1 supports Xero bills after full receipt."
-          : purchaseBillStatus === "pending"
-            ? "Xero bill sync is already running."
-            : null;
+      : displayStatus !== "received"
+        ? "V1 supports Xero bills after full receipt."
+        : purchaseBillStatus === "pending"
+          ? "Xero bill sync is already running."
+          : null;
 
   return (
     <>
@@ -2379,6 +2393,52 @@ export function PurchaseOrderCard({
                 }
               />
             </Field>
+            <Field>
+              <FieldLabel htmlFor="purchase-bill-account">Default account</FieldLabel>
+              {xeroAccounts.length > 0 ? (
+                <Combobox
+                  items={xeroAccounts.map((account) => account.code)}
+                  value={purchaseBillDialogValues.accountingPurchaseAccountCode}
+                  onValueChange={(value) =>
+                    setPurchaseBillDialogValues((current) => ({
+                      ...current,
+                      accountingPurchaseAccountCode: value ?? "",
+                    }))
+                  }
+                  itemToStringLabel={xeroAccountLabel}
+                >
+                  <ComboboxInput
+                    id="purchase-bill-account"
+                    placeholder="Choose account"
+                    className="w-full min-w-0"
+                  />
+                  <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
+                    <ComboboxEmpty>No accounts found</ComboboxEmpty>
+                    <ComboboxList>
+                      {(code: string) => (
+                        <ComboboxItem key={code} value={code}>
+                          {xeroAccountLabel(code)}
+                        </ComboboxItem>
+                      )}
+                    </ComboboxList>
+                  </ComboboxContent>
+                </Combobox>
+              ) : (
+                <Input
+                  id="purchase-bill-account"
+                  value={purchaseBillDialogValues.accountingPurchaseAccountCode}
+                  onChange={(event) =>
+                    setPurchaseBillDialogValues((current) => ({
+                      ...current,
+                      accountingPurchaseAccountCode: event.target.value,
+                    }))
+                  }
+                  placeholder={
+                    xeroAccountsQuery.isLoading ? "Loading accounts..." : "500"
+                  }
+                />
+              )}
+            </Field>
             {hasAdditionalCostsForBill ? (
               <label className="flex items-start gap-3 border bg-muted/30 p-3 text-sm">
                 <Checkbox
@@ -2420,6 +2480,7 @@ export function PurchaseOrderCard({
               disabled={
                 purchaseBillMutation.isPending ||
                 purchaseBillDialogValues.invoiceNumber.trim() === "" ||
+                purchaseBillDialogValues.accountingPurchaseAccountCode.trim() === "" ||
                 (hasAdditionalCostsForBill &&
                   !purchaseBillDialogValues.confirmAdditionalCostsOmitted)
               }

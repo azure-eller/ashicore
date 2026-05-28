@@ -262,6 +262,7 @@ export const createPurchaseBillSchema = z
     billDate: z.string().refine(isValidIsoDate, "Bill date must be a real date in YYYY-MM-DD format"),
     dueDate: z.string().refine(isValidIsoDate, "Due date must be a real date in YYYY-MM-DD format"),
     reference: nullableString,
+    accountingPurchaseAccountCode: z.string().trim().min(1, "Account is required"),
     confirmAdditionalCostsOmitted: z.boolean().optional(),
   })
   .superRefine((data, ctx) => {

@@ -263,7 +263,7 @@ function buildSnapshot(params: {
   input: CreatePurchaseBill;
   data: NonNullable<Awaited<ReturnType<typeof loadPurchaseOrderForBillInTx>>>;
   lineItems: LineItem[];
-  fallbackAccountCode: string;
+  defaultAccountCode: string;
   taxType: string | null;
 }) {
   const omittedAdditionalCostTotal = additionalCostTotal(params.data.additionalCosts);
@@ -284,7 +284,7 @@ function buildSnapshot(params: {
     lineAmountTypes: TAX_MODE,
     taxMode: "exclusive",
     taxType: params.taxType,
-    fallbackAccountCode: params.fallbackAccountCode,
+    defaultAccountCode: params.defaultAccountCode,
     lineItems: params.lineItems.map((line) => ({
       itemCode: line.itemCode ?? null,
       description: line.description ?? null,
@@ -511,15 +511,7 @@ export async function createPurchaseBillAccountingSync(
   const connection = authed.connection;
   const accountingApi = authed.client.accountingApi;
   const taxType = connection.purchaseOrderDefaultTaxType ?? connection.defaultTaxType;
-  const fallbackAccountCode =
-    connection.purchaseOrderDefaultAccountCode ?? connection.defaultAccountCode;
-
-  if (!fallbackAccountCode) {
-    throw new XeroError(
-      "Set a purchase account code in Xero settings before creating supplier bills.",
-      400,
-    );
-  }
+  const defaultAccountCode = input.accountingPurchaseAccountCode;
 
   const locked = await withOrgContext(orgId, async (tx) => {
     const loaded = await loadPurchaseOrderForBillInTx(tx, orderId);
@@ -573,14 +565,14 @@ export async function createPurchaseBillAccountingSync(
     description: lineDescription(line),
     quantity: Number(line.quantityReceived),
     unitAmount: Number(line.unitCost),
-    accountCode: line.accountingPurchaseAccountCode ?? fallbackAccountCode,
+    accountCode: line.accountingPurchaseAccountCode?.trim() || defaultAccountCode,
     taxType: taxType ?? undefined,
   }));
   const snapshot = buildSnapshot({
     input,
     data: currentData,
     lineItems,
-    fallbackAccountCode,
+    defaultAccountCode,
     taxType,
   });
   const payloadHash = hashXeroPayload(snapshot);

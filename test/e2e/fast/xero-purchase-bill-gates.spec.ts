@@ -47,6 +47,7 @@ function billPayload() {
     billDate: "2026-05-27",
     dueDate: "2026-05-27",
     reference: null,
+    accountingPurchaseAccountCode: "500",
   };
 }
 
