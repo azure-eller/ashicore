@@ -1577,9 +1577,34 @@ async function getSalesLotPickPlansByLineInTx(
   lines: SalesOrderDetailLine[]
 ) {
   const plans = new Map<string, LotPickPlanEntry[]>();
+  const itemIds = [...new Set(lines.map((line) => line.itemId))];
+  const lotTrackedItemIds =
+    itemIds.length === 0
+      ? new Set<string>()
+      : new Set(
+          (
+            await tx
+              .select({ itemId: items.id })
+              .from(items)
+              .innerJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
+              .where(
+                and(
+                  eq(items.organizationId, orgId),
+                  inArray(items.id, itemIds),
+                  eq(itemFamilies.lotTrackingMode, "tracked")
+                )
+              )
+          ).map((row) => row.itemId)
+        );
+  const lotTrackedLines = lines.filter((line) => lotTrackedItemIds.has(line.itemId));
+  for (const line of lines) {
+    if (!lotTrackedItemIds.has(line.itemId)) {
+      plans.set(line.id, []);
+    }
+  }
   const manufacturingSourceIds = [
     ...new Set(
-      lines.flatMap((line) =>
+      lotTrackedLines.flatMap((line) =>
         line.allocationSources
           .filter(
             (source) => source.sourceType === "manufacturing_order" && source.sourceId
@@ -1625,7 +1650,7 @@ async function getSalesLotPickPlansByLineInTx(
     outputRowsByMoId.set(row.manufacturingOrderId, rows);
   }
 
-  for (const line of lines) {
+  for (const line of lotTrackedLines) {
     const plan: LotPickPlanEntry[] = [];
     const unavailableByLotId = new Map<string, number>();
     let coveredQuantity = 0;
