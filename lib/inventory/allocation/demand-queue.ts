@@ -3,6 +3,7 @@ import "server-only";
 import { and, eq, sql } from "drizzle-orm";
 import { inventoryLotBalances, organization, stockAllocations } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
+import { serializeDbTimestamp } from "@/lib/db/timestamps";
 import { normalizeNumeric, roundQuantity, todayInTimeZone } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel";
@@ -192,11 +193,6 @@ function assertCoverageSegmentsMatchTotals(row: DemandQueueCoverageRow) {
 
 function sourceDate(value: string) {
   return value.slice(0, 10);
-}
-
-function isoTimestamp(value: Date | string | null | undefined) {
-  if (value == null) return null;
-  return value instanceof Date ? value.toISOString() : value;
 }
 
 function addDays(value: string, days: number) {
@@ -492,7 +488,7 @@ async function getUntrackedOnHandSupplyInTx(
     sourceType: "inventory_lot",
     sourceId: `untracked:${params.itemId}`,
     quantity,
-    availableDate: isoTimestamp(row?.receivedAt),
+    availableDate: serializeDbTimestamp(row?.receivedAt),
     label: null,
   };
 }

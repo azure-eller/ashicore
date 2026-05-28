@@ -124,12 +124,20 @@ test("demand queue allocates scarce stock by rank without overclaiming", async (
   expect(salesOrdersResponse.status).toBe(200);
   const salesOrderRows = (await salesOrdersResponse.json()) as Array<{
     id: string;
+    lines: Array<{
+      demandQueueInStockQty?: string;
+      demandQueueShortQty?: string;
+    }>;
     fulfillmentSummary?: { salesItemsState?: string };
   }>;
   const firstReadModel = salesOrderRows.find((order) => order.id === firstOrder!.id);
   const secondReadModel = salesOrderRows.find((order) => order.id === secondOrder!.id);
   expect(firstReadModel?.fulfillmentSummary?.salesItemsState).toBe("available");
   expect(secondReadModel?.fulfillmentSummary?.salesItemsState).toBe("not_available");
+  expect(Number(firstReadModel?.lines[0]?.demandQueueInStockQty ?? 0)).toBe(8);
+  expect(Number(firstReadModel?.lines[0]?.demandQueueShortQty ?? 0)).toBe(0);
+  expect(Number(secondReadModel?.lines[0]?.demandQueueInStockQty ?? 0)).toBe(2);
+  expect(Number(secondReadModel?.lines[0]?.demandQueueShortQty ?? 0)).toBe(6);
 
   const [demand] = await db
     .select({ total: sql<string>`COALESCE(SUM(${inventoryDemandSummary.quantity}), 0)` })
