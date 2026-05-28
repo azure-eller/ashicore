@@ -45,6 +45,20 @@ Run this:
 
 Never merge `main` into your branch — always rebase so history stays linear.
 
+`pnpm lint` and `pnpm build` run `pnpm preflight`, which fetches `origin/main`
+and fails if the current branch does not contain it. This check is intentionally
+non-mutating beyond updating the local `origin/main` ref; it tells you to rebase
+instead of rebasing for you.
+
+The same preflight also fails local validation when:
+
+- the repo root checkout is on anything other than `main`
+- the current checkout is on `main`
+- the checkout is detached
+
+Use `ERP_ALLOW_UNSAFE_WORKTREE=1` only for explicit maintainer/root-maintenance
+work, never as a way to get a feature branch through validation.
+
 ## Cleanup after merge
 
 After a PR merges, agents MUST run `pnpm worktree:cleanup <branch>` from the repo root to drop the local DB and remove the worktree.
