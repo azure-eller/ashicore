@@ -17,12 +17,16 @@ function Row({
   action: React.ReactNode;
 }) {
   return (
-    <div className="grid gap-(--space-4) border-t px-(--space-12) py-(--space-8) first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-      <div className="grid min-w-0 gap-(--space-2) sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-center">
-        <span className="w-[calc(var(--space-20)*2)] shrink-0 text-[length:var(--text-sm)] text-muted-foreground">{label}</span>
-        <span className="truncate text-[length:var(--text-sm)]">{value}</span>
+    <div className="border-t px-(--space-12) py-(--space-5) first:border-t-0">
+      <div className="grid max-w-3xl gap-(--space-4) sm:grid-cols-[9rem_minmax(12rem,24rem)_auto] sm:items-center">
+        <span className="text-[length:var(--text-sm)] text-muted-foreground">
+          {label}
+        </span>
+        <span className="min-w-0 truncate text-[length:var(--text-sm)]">
+          {value}
+        </span>
+        <div className="sm:justify-self-start">{action}</div>
       </div>
-      <div className="sm:justify-self-end">{action}</div>
     </div>
   );
 }
