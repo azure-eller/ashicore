@@ -9,6 +9,7 @@ import {
   stockAllocations,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
+import { serializeDbTimestamp } from "@/lib/db/timestamps";
 import type { Tx } from "@/lib/db/with-org-context";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel";
@@ -194,7 +195,7 @@ export async function loadAllocationSourcesForItemInTx(
       label: lot.lotNumber,
       contextLabel: null,
       status: "available",
-      date: lot.receivedAt.toISOString(),
+      date: serializeDbTimestamp(lot.receivedAt),
       priorityRank: null,
       totalQty: quantityString(totalQty),
       allocatedQty: quantityString(allocatedQty),

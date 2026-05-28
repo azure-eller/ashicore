@@ -3,6 +3,7 @@ import "server-only";
 import { and, eq, sql } from "drizzle-orm";
 import { inventoryLotBalances, organization, stockAllocations } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
+import { serializeDbTimestamp } from "@/lib/db/timestamps";
 import { normalizeNumeric, roundQuantity, todayInTimeZone } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel";
@@ -487,7 +488,7 @@ async function getUntrackedOnHandSupplyInTx(
     sourceType: "inventory_lot",
     sourceId: `untracked:${params.itemId}`,
     quantity,
-    availableDate: row?.receivedAt?.toISOString() ?? null,
+    availableDate: serializeDbTimestamp(row?.receivedAt),
     label: null,
   };
 }

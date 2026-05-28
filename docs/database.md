@@ -118,6 +118,10 @@ Formatting rules:
 - `formatDateTime(value, organizationTimeZone)` is only for exact instants. It requires an explicit IANA timezone.
 - Operational ERP timestamps display in the organization timezone by default.
 - Personal/session/security timestamps may use browser/user timezone only when explicitly intended.
+- Computed SQL timestamp expressions can arrive from the driver as either `Date`
+  or string even when annotated as `sql<Date>`. At DAL/read-model boundaries,
+  serialize them with `serializeDbTimestamp()` from `lib/db/timestamps.ts` before
+  returning them to pages, API responses, or client components.
 
 Defaulting rules:
 
