@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { hasModuleAccess } from "@/lib/authz";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
-import { getStocktake, getStocktakePreviewItems, getStocktakeScopeOptions } from "../queries";
+import { getStocktake, getStocktakePreviewItems } from "../queries";
 import { StocktakeDetail } from "../stocktake-detail";
 
 export default async function StocktakeDetailPage({
@@ -11,9 +11,8 @@ export default async function StocktakeDetailPage({
 }) {
   const context = await requireModuleReadAccess("inventory");
   const { id } = await params;
-  const [stocktake, scopeGroups, previewItems] = await Promise.all([
+  const [stocktake, previewItems] = await Promise.all([
     getStocktake(id),
-    getStocktakeScopeOptions(),
     getStocktakePreviewItems(),
   ]);
 
@@ -36,7 +35,6 @@ export default async function StocktakeDetailPage({
         )
         .join("|")}
       stocktake={stocktake}
-      scopeGroups={scopeGroups}
       previewItems={previewItems}
       canViewLedger={hasModuleAccess(context.assignedRoles, "inventory", "read")}
     />

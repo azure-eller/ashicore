@@ -12,17 +12,22 @@ read_when:
 
 Stocktakes are an **inventory-native** reconciliation workflow.
 
-Stocktakes support scoped snapshots plus lot-aware counts:
+Stocktakes support creation-mode snapshots plus lot-aware blind counts:
 
-- a stocktake snapshots all active items in one scope chosen from one grouped dropdown:
-  - quick scopes: `all`, `material`, or `product`
-  - category scopes: one category inside `material` or `product`
-- the create form uses editable line rows; scope changes auto-fill matching
-  items, and users can add, search, or remove items before creating the snapshot
-- count entry happens on the stocktake detail page
+- new stocktakes start from one creation mode:
+  - `empty`: header only; users add rows while counting
+  - `in_stock`: non-deleted material/product variants with physical `onHandQty > 0`
+  - `all`: all non-deleted material/product variants
+- category-scoped creation is no longer exposed for new stocktakes; old category
+  scopes remain readable
+- users can copy any visible stocktake into a fresh draft; copy preserves item
+  rows and order only, not counts or notes
+- count entry happens on the stocktake detail page and is blind: draft UIs do
+  not show expected/current stock or variance
 - items with active available lots snapshot those lots and count per lot
 - blank counted quantities mean "leave unchanged"
-- completion automatically sets inventory to counted truth
+- completion review reveals current live stock, counted truth, and variance
+  before posting
 
 Stocktakes reconcile the `available` disposition. Blocked and rejected stock remains managed by disposition actions and is not collapsed into available by a stocktake. Location-specific counting is still not exposed in the UI; lot count rows reconcile the default location's available lot balance.
 
@@ -30,15 +35,13 @@ Stocktakes use the current inventory lot unit cost as valuation context. For
 manufactured lots completed after standard operation costs are enabled, that lot
 unit cost includes absorbed standard operation cost.
 
-Category scopes must encode both the item type and the category name in `inventory.stocktakes.scope`, for example `material:category:Soil`. This avoids ambiguous category names shared by both materials and products while keeping list/detail labels readable.
-
 `product` scopes include all made items, including non-sellable internal products.
 
 ## Data Model
 
 - `inventory.stocktakes` stores the header and workflow state
-- `inventory.stocktake_items` stores copied item snapshots plus expected, counted, variance, and applied-delta quantities
-- `inventory.stocktake_lot_items` stores copied lot snapshots plus expected, counted, variance, and applied-delta quantities
+- `inventory.stocktake_items` stores copied item snapshots plus expected, counted, variance, applied-delta, and note fields
+- `inventory.stocktake_lot_items` stores copied lot snapshots plus expected, counted, variance, applied-delta, and note fields
 
 Snapshot rows must keep:
 
@@ -58,21 +61,23 @@ Draft stocktakes can be deleted without mutating inventory. Completed
 stocktakes cannot be deleted because stocktake adjustment history must be
 preserved.
 
-### Create preview
+### Creation, add, and copy
 
-The new-stocktake page previews the proposed snapshot before creation:
+The new-stocktake page creates a draft from a creation mode:
 
-- scope seeds the preview lines
-- users may remove seeded rows
-- users may add any active item before creating
-- `POST /api/stocktakes` receives the final selected `itemIds`
-- after creation, snapshot rows are fixed; count entry does not add/remove rows
+- `POST /api/stocktakes` accepts `creationMode`
+- `creationMode: "all"` is the friendly alias for existing `scope: "all"`
+- draft users may add or remove rows after creation
+- mid-draft adds snapshot expected stock at add time
+- copy creates fresh snapshot rows at copy time and returns skipped deleted or
+  ineligible source rows for UI warnings
 
 ### Saving counts
 
 Saving counts updates only the stocktake snapshot rows:
 
 - `countedQty`
+- line/lot `notes`
 - `varianceQty = countedQty - expectedQty`
 
 Saving counts must not mutate live stock.
@@ -87,11 +92,17 @@ For items with lot rows, the item counted total is derived from counted lot rows
 
 ### Snapshot locking
 
-Draft stocktake creation must lock the candidate `inventory.items` rows before inserting snapshot rows. Item soft-delete flows must lock those same rows before checking for draft stocktake references.
+Draft stocktake creation, mid-draft add, and copy must lock the candidate `inventory.items` rows before inserting snapshot rows. Item soft-delete flows must lock those same rows before checking for draft stocktake references.
 
 This keeps stocktake creation and item deletion from racing each other into a state where a hidden soft-deleted item still exists inside a draft stocktake.
 
 ### Completing
+
+`GET /api/stocktakes/:id/completion-preview` returns a non-mutating review
+payload for counted rows. It uses current live available stock so the displayed
+variance matches what completion will attempt to post. If completion returns a
+stale `409`, clients must fetch preview again, show the updated variance, and
+require the user to confirm again.
 
 Completion applies counted truth from **current live stock**, not from the old snapshot:
 

@@ -8,7 +8,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
 import type { z } from "zod";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
-import { Badge } from "@/components/ui/badge";
 import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import type { CardSaveState } from "@/components/card-page/card-save-status";
@@ -17,36 +16,22 @@ import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation"
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import {
-  formatDateTime,
-  formatQuantity,
-  normalizeNumeric,
-} from "@/lib/format";
-import { useOrganizationTimeZone } from "@/components/time-zone-provider";
+import { formatQuantity, normalizeNumeric } from "@/lib/format";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import {
   updateStocktakeCountsSchema,
-  type StocktakeScope,
-  parseStocktakeScope,
 } from "@/lib/schemas/stocktakes";
-import {
-  ITEM_TYPE_TOOLTIP,
-  STOCKTAKE_COUNT_QTY_TOOLTIP,
-  STOCKTAKE_CURRENT_QTY_TOOLTIP,
-  STOCKTAKE_LINE_VARIANCE_TOOLTIP,
-  UNIT_TOOLTIP,
-} from "@/lib/tooltip-copy";
+import { STOCKTAKE_COUNT_QTY_TOOLTIP } from "@/lib/tooltip-copy";
 import { TooltipHeader } from "@/components/tooltip-header";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import {
   EditableLineDataGrid,
   type ColDef,
@@ -55,11 +40,12 @@ import {
 import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
 import { StocktakeStatusBadge } from "./status-badge";
 import {
-  buildStocktakeName,
   formatScope,
+  formatCloneSkippedItemsWarning,
+  type StocktakeCompletionPreview,
+  type CloneStocktakeResult,
   type StocktakePreviewItem,
   type StocktakeDetail as StocktakeDetailType,
-  type StocktakeScopeOptionGroup,
 } from "./types";
 import styles from "@/components/card-page/card-page.module.css";
 
@@ -131,16 +117,13 @@ function asItemDisplayRow(row: StocktakeGridRow): StocktakeItemDisplayRow {
 
 export function StocktakeDetail({
   stocktake,
-  scopeGroups,
   previewItems,
   canViewLedger = false,
 }: {
   stocktake: StocktakeDetailType;
-  scopeGroups: StocktakeScopeOptionGroup[];
   previewItems: StocktakePreviewItem[];
   canViewLedger?: boolean;
 }) {
-  const timeZone = useOrganizationTimeZone();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
@@ -148,7 +131,10 @@ export function StocktakeDetail({
   const [lineSearch, setLineSearch] = useState("");
   const [rows, setRows] = useState<StocktakeGridRow[]>(stocktake.lines);
   const [stocktakeName, setStocktakeName] = useState(stocktake.name);
-  const [stocktakeScope, setStocktakeScope] = useState<StocktakeScope>(stocktake.scope);
+  const [reviewPreview, setReviewPreview] =
+    useState<StocktakeCompletionPreview | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewConfirmStale, setReviewConfirmStale] = useState(false);
   const [stocktakeNotes, setStocktakeNotes] = useState(stocktake.notes ?? "");
   const canEditCounts = stocktake.status === "draft";
 
@@ -225,13 +211,36 @@ export function StocktakeDetail({
     },
     onError: (error: ApiError) => {
       setActionError(error.error ?? "Failed to complete stocktake.");
+      if (error.status === 409) {
+        void openCompletionReview(true);
+      }
     },
   });
 
-  const handleComplete = async () => {
+  const openCompletionReview = async (confirmStale = false) => {
     try {
       await saveEngine.flush();
-      await completeMutation.mutateAsync(false);
+      const response = await fetch(`/api/stocktakes/${stocktake.id}/completion-preview`);
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        setActionError(body?.error ?? "Failed to prepare completion review.");
+        return;
+      }
+      setReviewPreview(body as StocktakeCompletionPreview);
+      setReviewConfirmStale(confirmStale);
+      setReviewOpen(true);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Failed to prepare completion review.");
+      return;
+    }
+  };
+
+  const handleComplete = openCompletionReview;
+
+  const confirmCompletion = async () => {
+    try {
+      await completeMutation.mutateAsync(reviewConfirmStale);
+      setReviewOpen(false);
     } catch {
       return;
     }
@@ -271,6 +280,26 @@ export function StocktakeDetail({
     pendingLabel: "Deleting...",
     cancelLabel: "Back",
     mutation: deleteMutation,
+  });
+
+  const cloneMutation = useMutation<CloneStocktakeResult, ApiError>({
+    mutationFn: async () => {
+      const response = await fetch(`/api/stocktakes/${stocktake.id}/clone`, {
+        method: "POST",
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw { error: body?.error ?? "Failed to copy stocktake." } satisfies ApiError;
+      }
+      return body as CloneStocktakeResult;
+    },
+    onSuccess: async (created) => {
+      await refreshStocktakeQueries();
+      const warning = formatCloneSkippedItemsWarning(created);
+      if (warning) window.alert(warning);
+      router.push(`/inventory/stocktakes/${created.id}`);
+    },
+    onError: (error) => setActionError(error.error ?? "Failed to copy stocktake."),
   });
 
   const previewItemMap = useMemo(
@@ -383,6 +412,7 @@ export function StocktakeDetail({
             countedQty: lot.countedQty,
             varianceQty: lot.varianceQty,
             appliedDeltaQty: lot.appliedDeltaQty,
+            notes: lot.notes,
             createdAt: lot.createdAt,
             updatedAt: lot.updatedAt,
           })),
@@ -424,7 +454,7 @@ export function StocktakeDetail({
   );
   const columns = useMemo<ColDef<StocktakeDisplayRow>[]>(() => {
     const selectableItemIds = previewItems.map((item) => item.id);
-    return [
+    const baseColumns: ColDef<StocktakeDisplayRow>[] = [
       {
         field: "itemId",
         headerName: "Item",
@@ -446,6 +476,7 @@ export function StocktakeDetail({
           params.data.itemName = item.name;
           params.data.itemSku = item.sku;
           params.data.itemType = item.itemType;
+          params.data.category = item.category;
           params.data.unitName = item.unitName;
           params.data.expectedQty = item.currentQty;
           params.data.countedQty = null;
@@ -456,19 +487,6 @@ export function StocktakeDetail({
         cellRenderer: ({ data }: ICellRendererParams<StocktakeDisplayRow>) => {
           if (!data?.itemId) {
             return <span className="text-muted-foreground">Select item</span>;
-          }
-
-          if (isLotDisplayRow(data)) {
-            return (
-              <div className="flex min-w-0 items-center gap-(--space-3) pl-(--space-6)">
-                <span className="font-mono text-[length:var(--text-sm)]">
-                  {data.lot.lotNumber}
-                </span>
-                <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
-                  {formatDateTime(data.lot.receivedAt, timeZone)}
-                </span>
-              </div>
-            );
           }
 
           return (
@@ -487,41 +505,49 @@ export function StocktakeDetail({
         },
       },
       {
-        field: "itemType",
-        headerName: "Type",
-        headerComponent: () => <TooltipHeader label="Type" tooltip={ITEM_TYPE_TOOLTIP} />,
-        minWidth: 100,
-        flex: 0.45,
-        cellRenderer: ({ data, value }: ICellRendererParams<StocktakeDisplayRow>) =>
-          data && isLotDisplayRow(data) ? (
-            <span className="text-muted-foreground">Lot</span>
-          ) : value ? (
-            <Badge variant="outline">{value}</Badge>
-          ) : null,
+        field: "category",
+        headerName: "Category",
+        minWidth: 150,
+        flex: 0.6,
+        valueFormatter: ({ value }) => value ?? "",
       },
       {
-        field: "unitName",
-        headerName: "Unit",
-        headerComponent: () => <TooltipHeader label="Unit" tooltip={UNIT_TOOLTIP} />,
-        minWidth: 92,
-        flex: 0.4,
-      },
-      {
-        field: "expectedQty",
-        headerName: "Current count",
-        headerComponent: () => (
-          <TooltipHeader label="Current count" tooltip={STOCKTAKE_CURRENT_QTY_TOOLTIP} />
-        ),
-        minWidth: 148,
+        colId: "lot",
+        headerName: "Lot",
+        minWidth: 150,
         flex: 0.55,
-        cellClass: "text-right",
-        valueFormatter: ({ value }) => formatQuantity(value),
+        cellClass: ({ data }) => data && !isLotDisplayRow(data) ? "text-muted-foreground" : "",
+        valueGetter: ({ data }) => data && isLotDisplayRow(data) ? data.lot.lotNumber : "",
+      },
+      {
+        field: "notes",
+        headerName: "Notes",
+        minWidth: 190,
+        flex: 0.8,
+        editable: (params) =>
+          canEditCounts &&
+          Boolean(params.data) &&
+          (isLotDisplayRow(params.data!) || params.data!.lots.length === 0),
+        cellEditor: "agTextCellEditor",
+        valueGetter: ({ data }) => {
+          if (!data) return "";
+          return isLotDisplayRow(data) ? data.lot.notes ?? "" : data.notes ?? "";
+        },
+        valueSetter: (params: ValueSetterParams<StocktakeDisplayRow, string | null>) => {
+          const notes = params.newValue?.trim() || null;
+          if (isLotDisplayRow(params.data)) {
+            params.data.lot.notes = notes;
+          } else {
+            params.data.notes = notes;
+          }
+          return true;
+        },
       },
       {
         field: "countedQty",
-        headerName: "New count",
+        headerName: "Counted quantity",
         headerComponent: () => (
-          <TooltipHeader label="New count" tooltip={STOCKTAKE_COUNT_QTY_TOOLTIP} />
+          <TooltipHeader label="Counted quantity" tooltip={STOCKTAKE_COUNT_QTY_TOOLTIP} />
         ),
         minWidth: 140,
         flex: 0.55,
@@ -543,29 +569,35 @@ export function StocktakeDetail({
         },
         valueFormatter: ({ value }) => (value == null ? "" : formatQuantity(value)),
       },
+    ];
+    if (canEditCounts) return baseColumns;
+    return [
+      ...baseColumns.slice(0, 4),
+      {
+        field: "expectedQty",
+        headerName: "Expected",
+        minWidth: 120,
+        flex: 0.45,
+        cellClass: "text-right",
+        valueFormatter: ({ value }) => formatQuantity(value),
+      },
+      ...baseColumns.slice(4),
       {
         colId: "variance",
         headerName: "Variance",
-        headerComponent: () => (
-          <TooltipHeader label="Variance" tooltip={STOCKTAKE_LINE_VARIANCE_TOOLTIP} />
-        ),
-        minWidth: 150,
-        flex: 0.55,
+        minWidth: 120,
+        flex: 0.45,
         cellClass: "text-right",
         valueGetter: ({ data }) => {
           if (!data) return null;
-          if (isLotDisplayRow(data)) {
-            if (!data.countedQty) return null;
-            return normalizeNumeric(Number(data.countedQty) - Number(data.expectedQty));
-          }
+          if (isLotDisplayRow(data)) return data.varianceQty;
           if (data.lots.length > 0) return getLotBackedVarianceQty(data.lots);
-          if (!data.countedQty) return null;
-          return normalizeNumeric(Number(data.countedQty) - parseFloat(data.expectedQty));
+          return data.varianceQty;
         },
         valueFormatter: ({ value }) => (value == null ? "" : formatQuantity(value)),
       },
     ];
-  }, [canEditCounts, previewItemMap, previewItems, timeZone]);
+  }, [canEditCounts, previewItemMap, previewItems]);
 
   const createBlankRow = useCallback((): StocktakeDisplayRow => {
     const now = new Date();
@@ -577,11 +609,13 @@ export function StocktakeDetail({
       itemName: "",
       itemSku: null,
       itemType: "material",
+      category: null,
       unitName: "",
       expectedQty: "0",
       countedQty: null,
       varianceQty: null,
       appliedDeltaQty: null,
+      notes: null,
       sortOrder: rows.length,
       lots: [],
       createdAt: now,
@@ -689,44 +723,39 @@ export function StocktakeDetail({
           ],
         });
       }
+
+      if (
+        change.field === "notes" &&
+        change.row &&
+        !change.row.isNew &&
+        (isLotDisplayRow(change.row) || change.row.lots.length === 0)
+      ) {
+        if (isLotDisplayRow(change.row)) {
+          commitStocktakePatch({
+            lotLines: [
+              {
+                lotLineId: change.row.lot.id,
+                countedQty: normalizeCountedQtyInput(change.row.lot.countedQty),
+                notes: change.row.lot.notes ?? null,
+              },
+            ],
+          });
+          return;
+        }
+
+        commitStocktakePatch({
+          lines: [
+            {
+              lineId: change.row.id,
+              countedQty: normalizeCountedQtyInput(change.row.countedQty),
+              notes: change.row.notes ?? null,
+            },
+          ],
+        });
+      }
     },
     [commitItemIds, commitStocktakePatch, filteredLines, handleLotCountChange, rows]
   );
-
-  const applyScope = (scope: StocktakeScope) => {
-    const nextName = buildStocktakeName(scope);
-    const nextRows = previewItems
-      .filter((item) => itemMatchesScope(item, scope))
-      .map((item, index) => {
-        const existing = rows.find((row) => row.itemId === item.id);
-        const now = new Date();
-        return {
-          id: existing?.id ?? `new-${item.id}`,
-          isNew: existing == null,
-          itemId: item.id,
-          itemName: item.name,
-          itemSku: item.sku,
-          itemType: item.itemType,
-          unitName: item.unitName,
-          expectedQty: existing?.expectedQty ?? item.currentQty,
-          countedQty: existing?.countedQty ?? null,
-          varianceQty: existing?.varianceQty ?? null,
-          appliedDeltaQty: existing?.appliedDeltaQty ?? null,
-          sortOrder: index,
-          lots: existing?.lots ?? [],
-          createdAt: existing?.createdAt ?? now,
-          updatedAt: existing?.updatedAt ?? now,
-        };
-      });
-    setStocktakeScope(scope);
-    setStocktakeName(nextName);
-    setRows(nextRows);
-    commitStocktakePatch({
-      name: nextName,
-      scope,
-      itemIds: nextRows.map((row) => row.itemId),
-    });
-  };
 
   return (
     <>
@@ -760,6 +789,11 @@ export function StocktakeDetail({
                       },
                     ]
                   : []),
+                {
+                  label: cloneMutation.isPending ? "Copying..." : "Copy stocktake",
+                  onClick: () => cloneMutation.mutate(),
+                  disabled: cloneMutation.isPending,
+                },
                 {
                   label: "Print",
                   onClick: () => window.print(),
@@ -798,31 +832,11 @@ export function StocktakeDetail({
                   }}
                 />
               </CellShell>
-              <CellShell label="Scope">
-                <Select
-                  value={stocktakeScope}
-                  disabled={!canEditCounts}
-                  onValueChange={(value) => applyScope(value as StocktakeScope)}
-                >
-                  <SelectTrigger className={styles.underlineControl}>
-                    <SelectValue placeholder="Select scope" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {scopeGroups.map((group) => (
-                      <SelectGroup key={group.label}>
-                        <SelectLabel>{group.label}</SelectLabel>
-                        {group.options.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <CellShell label="Created from">
+                <div className={styles.readOnlyFieldValue}>{formatScope(stocktake.scope)}</div>
               </CellShell>
-              <CellShell label="Status">
-                <div className={styles.readOnlyFieldValue}>{formatScope(stocktakeScope)}</div>
+              <CellShell label="Lines">
+                <div className={styles.readOnlyFieldValue}>{rows.length}</div>
               </CellShell>
             </div>
           </CardSection>
@@ -885,19 +899,60 @@ export function StocktakeDetail({
         </CardPageBody>
       </CardPage>
 
+      <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
+        <DialogContent size="2xl">
+          <DialogHeader>
+            <DialogTitle>Review stocktake</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto border border-border">
+            <table className="w-full border-collapse text-[length:var(--text-sm)]">
+              <thead className="bg-muted text-left">
+                <tr>
+                  <th className="border-b border-border p-(--space-3)">Item</th>
+                  <th className="border-b border-border p-(--space-3)">Lot</th>
+                  <th className="border-b border-border p-(--space-3) text-right">Current</th>
+                  <th className="border-b border-border p-(--space-3) text-right">Counted</th>
+                  <th className="border-b border-border p-(--space-3) text-right">Variance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {reviewPreview?.lines.flatMap((line) =>
+                  line.lots.length
+                    ? line.lots.map((lot) => (
+                        <tr key={lot.lotLineId}>
+                          <td className="border-b border-border p-(--space-3)">{line.itemName}</td>
+                          <td className="border-b border-border p-(--space-3) font-mono">{lot.lotNumber}</td>
+                          <td className="border-b border-border p-(--space-3) text-right">{formatQuantity(lot.currentQty)} {line.unitName}</td>
+                          <td className="border-b border-border p-(--space-3) text-right">{formatQuantity(lot.countedQty)} {line.unitName}</td>
+                          <td className="border-b border-border p-(--space-3) text-right">{formatQuantity(lot.varianceQty)} {line.unitName}</td>
+                        </tr>
+                      ))
+                    : [
+                        <tr key={line.lineId}>
+                          <td className="border-b border-border p-(--space-3)">{line.itemName}</td>
+                          <td className="border-b border-border p-(--space-3)" />
+                          <td className="border-b border-border p-(--space-3) text-right">{formatQuantity(line.currentQty)} {line.unitName}</td>
+                          <td className="border-b border-border p-(--space-3) text-right">{formatQuantity(line.countedQty)} {line.unitName}</td>
+                          <td className="border-b border-border p-(--space-3) text-right">{formatQuantity(line.varianceQty)} {line.unitName}</td>
+                        </tr>,
+                      ]
+                )}
+              </tbody>
+            </table>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReviewOpen(false)}>
+              Back
+            </Button>
+            <Button onClick={confirmCompletion} disabled={completeMutation.isPending}>
+              {completeMutation.isPending ? "Completing..." : "Complete stocktake"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {deleteConfirm.dialog}
     </>
-  );
-}
-
-function itemMatchesScope(item: StocktakePreviewItem, scope: StocktakeScope) {
-  const parsedScope = parseStocktakeScope(scope);
-
-  if (parsedScope.kind === "all") return true;
-  if (parsedScope.kind === "type") return item.stocktakeType === parsedScope.itemType;
-  return (
-    item.stocktakeType === parsedScope.itemType &&
-    item.category === parsedScope.category
   );
 }
 

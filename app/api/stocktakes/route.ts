@@ -12,7 +12,13 @@ import {
 
 export const GET = apiHandler(async (request) => {
   await assertModuleReadAccess("inventory", request.headers);
-  const data = await getStocktakes();
+  const { searchParams } = new URL(request.url);
+  const limitParam = searchParams.get("limit");
+  const limit = limitParam ? Math.min(Math.max(Number(limitParam) || 25, 1), 100) : null;
+  const data = await getStocktakes({
+    search: searchParams.get("search"),
+    limit,
+  });
   return NextResponse.json(data);
 });
 
