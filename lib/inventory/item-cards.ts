@@ -657,7 +657,8 @@ async function assertCanDisableLotTrackingInTx(tx: Tx, familyId: string) {
   const variantRows = await tx
     .select({ id: items.id })
     .from(items)
-    .where(and(eq(items.familyId, familyId), isNull(items.deletedAt)));
+    .where(and(eq(items.familyId, familyId), isNull(items.deletedAt)))
+    .for("update");
   const itemIds = variantRows.map((row) => row.id);
 
   if (itemIds.length === 0) return;

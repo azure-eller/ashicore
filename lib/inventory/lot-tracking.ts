@@ -22,6 +22,12 @@ export async function getItemLotTrackingModeInTx(
     .innerJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
     .where(and(eq(items.id, itemId), isNull(itemFamilies.deletedAt)));
 
+  if (!row) {
+    console.warn("Lot tracking mode resolution failed; defaulting to tracked.", {
+      itemId,
+    });
+  }
+
   return (row?.lotTrackingMode as LotTrackingMode | undefined) ?? "tracked";
 }
 

@@ -1,10 +1,12 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
-import { organization, stockAllocations } from "@/lib/db/schema";
+import { and, eq, sql } from "drizzle-orm";
+import { inventoryLotBalances, organization, stockAllocations } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { normalizeNumeric, roundQuantity, todayInTimeZone } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
+import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel";
+import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import { allocationDemandAdapters } from "./adapters";
 import { loadAllocationSourcesForItemInTx } from "./sources";
 import type { AllocationDemandType } from "./types";
@@ -453,6 +455,43 @@ function isDemandQueuePinSourceType(
   return value === "inventory_lot" || value === "manufacturing_order";
 }
 
+async function getUntrackedOnHandSupplyInTx(
+  tx: Tx,
+  params: { organizationId: string; itemId: string }
+): Promise<DemandQueueSupplyChunk | null> {
+  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  const [row] = await tx
+    .select({
+      quantity: trimScale(sql`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`).as(
+        "quantity"
+      ),
+      receivedAt: sql<Date | null>`MIN(${inventoryLotBalances.receivedAt})`.as(
+        "receivedAt"
+      ),
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, location.id),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.disposition, "available")
+      )
+    );
+
+  const quantity = toQuantity(row?.quantity);
+  if (quantity <= 0) return null;
+
+  return {
+    kind: "on_hand",
+    sourceType: "inventory_lot",
+    sourceId: `untracked:${params.itemId}`,
+    quantity,
+    availableDate: row?.receivedAt?.toISOString() ?? null,
+    label: null,
+  };
+}
+
 export async function getDemandQueueCoverageForItemInTx(
   tx: Tx,
   params: {
@@ -482,29 +521,42 @@ export async function getDemandQueueCoverageForItemInTx(
     organizationId: params.organizationId,
     itemId: params.itemId,
   });
+  const lotTrackingMode = await getItemLotTrackingModeInTx(tx, params.itemId);
+  const untrackedOnHandSupply =
+    lotTrackingMode === "untracked"
+      ? await getUntrackedOnHandSupplyInTx(tx, {
+          organizationId: params.organizationId,
+          itemId: params.itemId,
+        })
+      : null;
   // Demand-queue planning uses physical/projected quantity (totalQty), never the
   // manual-allocation-aware freeQty. Expected supply = open MO remaining output.
-  const supply: DemandQueueSupplyChunk[] = sources
-    .filter(
-      (source) =>
-        toQuantity(source.totalQty) > 0 &&
-        (source.sourceType === "inventory_lot" || source.canAllocate)
-    )
-    .map((source) => ({
-      kind: source.sourceType === "inventory_lot" ? "on_hand" : "expected_mo",
-      sourceType: source.sourceType,
-      sourceId: source.sourceId,
-      quantity: toQuantity(source.totalQty),
-      availableDate: source.date,
-      label: source.label,
-      linkedDemand:
-        source.sourceType === "manufacturing_order" && source.linkedSalesOrderLineId
-          ? {
-              demandType: "sales_order_line",
-              demandId: source.linkedSalesOrderLineId,
-            }
-          : undefined,
-    }));
+  const supply: DemandQueueSupplyChunk[] = [
+    ...(untrackedOnHandSupply ? [untrackedOnHandSupply] : []),
+    ...sources
+      .filter(
+        (source) =>
+          toQuantity(source.totalQty) > 0 &&
+          (source.sourceType === "inventory_lot" || source.canAllocate)
+      )
+      .map((source) => ({
+        kind: (source.sourceType === "inventory_lot"
+          ? "on_hand"
+          : "expected_mo") as DemandQueueSupplyChunk["kind"],
+        sourceType: source.sourceType,
+        sourceId: source.sourceId,
+        quantity: toQuantity(source.totalQty),
+        availableDate: source.date,
+        label: source.label,
+        linkedDemand:
+          source.sourceType === "manufacturing_order" && source.linkedSalesOrderLineId
+            ? {
+                demandType: "sales_order_line" as const,
+                demandId: source.linkedSalesOrderLineId,
+              }
+            : undefined,
+      })),
+  ];
 
   const demands: DemandQueueDemandInput[] = demandRows.map((row) => ({
     demandType: row.demandType,

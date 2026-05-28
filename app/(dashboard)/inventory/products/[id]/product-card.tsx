@@ -27,6 +27,7 @@ export type ProductCardProps = {
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
   activeTab?: ProductCardTab;
   lotsCount?: number;
+  canAdminInventory?: boolean;
   children?: ReactNode;
 };
 
@@ -36,6 +37,7 @@ export function ProductCard({
   unitOptions,
   activeTab,
   lotsCount,
+  canAdminInventory = false,
   children,
 }: ProductCardProps) {
   const router = useRouter();
@@ -223,6 +225,7 @@ export function ProductCard({
             onFlush={controller.flush}
             variantsEnabled={variantsEnabled}
             onVariantsEnabledChange={setVariantsEnabled}
+            canAdminInventory={canAdminInventory}
           />
         ) : (
           children

@@ -34,6 +34,7 @@ export type MaterialCardProps = {
   unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
   supplierOptions: SupplierOption[];
   initialLots: CardLotRow[];
+  canAdminInventory?: boolean;
 };
 
 export function MaterialCard({
@@ -43,6 +44,7 @@ export function MaterialCard({
   unitOptions,
   supplierOptions,
   initialLots,
+  canAdminInventory = false,
 }: MaterialCardProps) {
   const router = useRouter();
   const [configOpen, setConfigOpen] = useState(false);
@@ -197,6 +199,7 @@ export function MaterialCard({
               onFlush={controller.flush}
               variantsEnabled={variantsEnabled}
               onVariantsEnabledChange={setVariantsEnabled}
+              canAdminInventory={canAdminInventory}
             />
           ),
           ...(card.family.lotTrackingMode === "tracked"

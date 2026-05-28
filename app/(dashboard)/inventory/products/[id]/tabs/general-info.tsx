@@ -42,6 +42,7 @@ export type ProductGeneralInfoTabProps = {
   onFlush: () => Promise<void>;
   variantsEnabled: boolean;
   onVariantsEnabledChange: (enabled: boolean) => void;
+  canAdminInventory: boolean;
 };
 
 export function ProductGeneralInfoTab({
@@ -57,6 +58,7 @@ export function ProductGeneralInfoTab({
   onFlush,
   variantsEnabled,
   onVariantsEnabledChange,
+  canAdminInventory,
 }: ProductGeneralInfoTabProps) {
   const hasOptions = card.options.some((option) => option.disabledAt == null);
   const visibleVariantCount = card.variants.filter((variant) => variant.deletedAt == null)
@@ -130,7 +132,7 @@ export function ProductGeneralInfoTab({
               <label className="flex items-center gap-(--space-2) text-[length:var(--text-sm)]">
                 <Checkbox
                   checked={card.family.lotTrackingMode === "tracked"}
-                  disabled={isDraft}
+                  disabled={isDraft || !canAdminInventory}
                   onCheckedChange={(checked) =>
                     onFamilyCommit({
                       lotTrackingMode: checked === true ? "tracked" : "untracked",
