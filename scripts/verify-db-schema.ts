@@ -23,6 +23,208 @@ type ExpectedColumn = {
 
 const expectedColumns: ExpectedColumn[] = [
   {
+    schema: "settings",
+    table: "tax_rates",
+    column: "id",
+    dataType: "uuid",
+    isNullable: "NO",
+  },
+  {
+    schema: "settings",
+    table: "tax_rates",
+    column: "organization_id",
+    dataType: "text",
+    isNullable: "NO",
+  },
+  {
+    schema: "settings",
+    table: "tax_rates",
+    column: "name",
+    dataType: "character varying",
+    isNullable: "NO",
+  },
+  {
+    schema: "settings",
+    table: "tax_rates",
+    column: "rate_percent",
+    dataType: "numeric",
+    numericPrecision: 7,
+    numericScale: 4,
+    isNullable: "NO",
+  },
+  {
+    schema: "settings",
+    table: "tax_rates",
+    column: "deleted_at",
+    dataType: "timestamp with time zone",
+  },
+  {
+    schema: "settings",
+    table: "tax_rates",
+    column: "created_at",
+    dataType: "timestamp with time zone",
+    isNullable: "NO",
+  },
+  {
+    schema: "settings",
+    table: "tax_rates",
+    column: "updated_at",
+    dataType: "timestamp with time zone",
+    isNullable: "NO",
+  },
+  {
+    schema: "settings",
+    table: "organization_tax_settings",
+    column: "organization_id",
+    dataType: "text",
+    isNullable: "NO",
+  },
+  {
+    schema: "settings",
+    table: "organization_tax_settings",
+    column: "default_sales_tax_rate_id",
+    dataType: "uuid",
+  },
+  {
+    schema: "settings",
+    table: "organization_tax_settings",
+    column: "default_purchase_tax_rate_id",
+    dataType: "uuid",
+  },
+  {
+    schema: "settings",
+    table: "organization_tax_settings",
+    column: "created_at",
+    dataType: "timestamp with time zone",
+    isNullable: "NO",
+  },
+  {
+    schema: "settings",
+    table: "organization_tax_settings",
+    column: "updated_at",
+    dataType: "timestamp with time zone",
+    isNullable: "NO",
+  },
+  {
+    schema: "sales",
+    table: "sales_orders",
+    column: "subtotal_amount",
+    dataType: "numeric",
+    numericPrecision: 12,
+    numericScale: 2,
+    isNullable: "NO",
+    columnDefaultIncludes: "0",
+  },
+  {
+    schema: "sales",
+    table: "sales_orders",
+    column: "tax_amount",
+    dataType: "numeric",
+    numericPrecision: 12,
+    numericScale: 2,
+    isNullable: "NO",
+    columnDefaultIncludes: "0",
+  },
+  { schema: "sales", table: "sales_order_lines", column: "tax_rate_id", dataType: "uuid" },
+  {
+    schema: "sales",
+    table: "sales_order_lines",
+    column: "tax_rate_name",
+    dataType: "character varying",
+  },
+  {
+    schema: "sales",
+    table: "sales_order_lines",
+    column: "tax_rate_percent",
+    dataType: "numeric",
+    numericPrecision: 7,
+    numericScale: 4,
+    isNullable: "NO",
+    columnDefaultIncludes: "0",
+  },
+  {
+    schema: "sales",
+    table: "sales_order_lines",
+    column: "line_subtotal",
+    dataType: "numeric",
+    numericPrecision: 12,
+    numericScale: 2,
+    isNullable: "NO",
+    columnDefaultIncludes: "0",
+  },
+  {
+    schema: "sales",
+    table: "sales_order_lines",
+    column: "line_tax_amount",
+    dataType: "numeric",
+    numericPrecision: 12,
+    numericScale: 2,
+    isNullable: "NO",
+    columnDefaultIncludes: "0",
+  },
+  {
+    schema: "purchasing",
+    table: "purchase_orders",
+    column: "subtotal_amount",
+    dataType: "numeric",
+    numericPrecision: 12,
+    numericScale: 4,
+    isNullable: "NO",
+    columnDefaultIncludes: "0",
+  },
+  {
+    schema: "purchasing",
+    table: "purchase_orders",
+    column: "tax_amount",
+    dataType: "numeric",
+    numericPrecision: 12,
+    numericScale: 4,
+    isNullable: "NO",
+    columnDefaultIncludes: "0",
+  },
+  {
+    schema: "purchasing",
+    table: "purchase_order_lines",
+    column: "tax_rate_id",
+    dataType: "uuid",
+  },
+  {
+    schema: "purchasing",
+    table: "purchase_order_lines",
+    column: "tax_rate_name",
+    dataType: "character varying",
+  },
+  {
+    schema: "purchasing",
+    table: "purchase_order_lines",
+    column: "tax_rate_percent",
+    dataType: "numeric",
+    numericPrecision: 7,
+    numericScale: 4,
+    isNullable: "NO",
+    columnDefaultIncludes: "0",
+  },
+  {
+    schema: "purchasing",
+    table: "purchase_order_lines",
+    column: "line_subtotal",
+    dataType: "numeric",
+    numericPrecision: 12,
+    numericScale: 4,
+    isNullable: "NO",
+    columnDefaultIncludes: "0",
+  },
+  {
+    schema: "purchasing",
+    table: "purchase_order_lines",
+    column: "line_tax_amount",
+    dataType: "numeric",
+    numericPrecision: 12,
+    numericScale: 4,
+    isNullable: "NO",
+    columnDefaultIncludes: "0",
+  },
+  {
     schema: "purchasing",
     table: "purchase_orders",
     column: "shipping_cost",
@@ -193,7 +395,12 @@ async function assertColumn(client: Client, expected: ExpectedColumn) {
   }
 }
 
-async function assertAdditionalCostTableSecurity(client: Client) {
+async function assertTableSecurity(
+  client: Client,
+  schema: string,
+  tableName: string,
+  policyName: string
+) {
   const table = await client.query<{
     relrowsecurity: boolean;
     relforcerowsecurity: boolean;
@@ -202,35 +409,33 @@ async function assertAdditionalCostTableSecurity(client: Client) {
       SELECT relrowsecurity, relforcerowsecurity
       FROM pg_class
       JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
-      WHERE pg_namespace.nspname = 'purchasing'
-        AND pg_class.relname = 'purchase_order_additional_costs'
-    `
+      WHERE pg_namespace.nspname = $1
+        AND pg_class.relname = $2
+    `,
+    [schema, tableName]
   );
 
   if (table.rowCount !== 1) {
-    throw new Error("Missing table purchasing.purchase_order_additional_costs.");
+    throw new Error(`Missing table ${schema}.${tableName}.`);
   }
 
   if (!table.rows[0].relrowsecurity || !table.rows[0].relforcerowsecurity) {
-    throw new Error(
-      "purchasing.purchase_order_additional_costs must have RLS and FORCE RLS enabled."
-    );
+    throw new Error(`${schema}.${tableName} must have RLS and FORCE RLS enabled.`);
   }
 
   const policy = await client.query(
     `
       SELECT 1
       FROM pg_policies
-      WHERE schemaname = 'purchasing'
-        AND tablename = 'purchase_order_additional_costs'
-        AND policyname = 'purchase_order_additional_costs_org_isolation'
-    `
+      WHERE schemaname = $1
+        AND tablename = $2
+        AND policyname = $3
+    `,
+    [schema, tableName, policyName]
   );
 
   if (policy.rowCount !== 1) {
-    throw new Error(
-      "Missing policy purchasing.purchase_order_additional_costs_org_isolation."
-    );
+    throw new Error(`Missing policy ${schema}.${policyName}.`);
   }
 }
 
@@ -278,7 +483,19 @@ async function main() {
       await assertColumn(client, column);
     }
 
-    await assertAdditionalCostTableSecurity(client);
+    await assertTableSecurity(
+      client,
+      "purchasing",
+      "purchase_order_additional_costs",
+      "purchase_order_additional_costs_org_isolation"
+    );
+    await assertTableSecurity(client, "settings", "tax_rates", "tax_rates_org_isolation");
+    await assertTableSecurity(
+      client,
+      "settings",
+      "organization_tax_settings",
+      "organization_tax_settings_org_isolation"
+    );
   } finally {
     await client.end();
   }

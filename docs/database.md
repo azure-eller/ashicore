@@ -485,6 +485,7 @@ defaultValues: {
 pnpm db:generate            # generates SQL migration file (wraps drizzle-kit + idempotency rewriter)
 pnpm db:check-migrations    # verifies idempotency and migration ordering
 pnpm verify:migration-order # verifies journal idx/when/tag order against origin/main
+pnpm verify:production-migration-order # verifies new migrations will not be skipped by production
 pnpm drizzle-kit migrate    # applies pending migrations
 ```
 
@@ -513,7 +514,14 @@ DATABASE_URL=<production-owner-url> pnpm verify:production-schema
 
 This is read-only. It verifies the latest repo migration is recorded in
 `drizzle.__drizzle_migrations` and checks critical tables/columns, including the
-purchase-order repair columns/table.
+tax settings objects and purchase-order repair columns/table. Vercel runs this
+after `pnpm drizzle-kit migrate` and before `next build`, so a migration that
+Drizzle skips because production has a newer ledger row blocks deployment instead
+of shipping runtime code against a missing table.
+
+PR CI also runs `pnpm verify:production-migration-order` when the repository has
+a `PRODUCTION_DATABASE_URL` secret configured. Without that secret, deployment
+schema verification is still the hard production gate.
 
 When a module generates human-readable document numbers with `nextval()` in the DAL, patch the migration SQL to create and grant the backing sequence explicitly. Drizzle does not currently keep these sequence definitions in the schema files we use for sales/manufacturing/purchasing, so the SQL migration is the source of truth.
 

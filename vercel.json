@@ -1,5 +1,5 @@
 {
-  "buildCommand": "pnpm drizzle-kit migrate && next build",
+  "buildCommand": "pnpm drizzle-kit migrate && pnpm verify:production-schema && next build",
   "crons": [
     {
       "path": "/api/internal/inventory-reconciliation",

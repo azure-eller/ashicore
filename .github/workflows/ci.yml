@@ -52,6 +52,40 @@ jobs:
       - name: Verify migration order
         run: pnpm verify:migration-order
 
+  production-migration-order:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == false && contains(github.event.pull_request.labels.*.name, 'ci:ready') && github.event.pull_request.head.repo.full_name == github.repository }}
+    env:
+      PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify PR migrations against production ledger
+        run: |
+          if [ -z "$PRODUCTION_DATABASE_URL" ]; then
+            echo "::notice::PRODUCTION_DATABASE_URL is not configured; skipping production migration order verification."
+            exit 0
+          fi
+          pnpm verify:production-migration-order
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
