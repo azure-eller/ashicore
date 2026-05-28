@@ -37,6 +37,7 @@ import { DomainError } from "@/lib/errors/domain-error";
 import {
   beginInventoryOperationInTx,
   finishInventoryOperationInTx,
+  getDefaultInventoryLocationInTx,
 } from "@/lib/inventory/kernel";
 import {
   nullableStringPreserveUndefined,
@@ -50,6 +51,7 @@ import {
   LOT_TRACKING_MODES,
   type LotTrackingMode,
 } from "@/lib/inventory/lot-tracking";
+import { consolidateUntrackedFamilyLotsInTx } from "@/lib/inventory/untracked-lot-consolidation";
 import type { Tx } from "@/lib/db/with-org-context";
 import type {
   DuplicateCombinationWarning,
@@ -713,6 +715,24 @@ async function assertCanDisableLotTrackingInTx(tx: Tx, familyId: string) {
     );
   }
 
+  const [negativeAvailableBalance] = await tx
+    .select({ lotId: inventoryLotBalances.lotId })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        inArray(inventoryLotBalances.itemId, itemIds),
+        eq(inventoryLotBalances.disposition, "available"),
+        sql`${inventoryLotBalances.quantity} < 0`
+      )
+    )
+    .limit(1);
+  if (negativeAvailableBalance) {
+    throw new ItemCardError(
+      "Lot tracking cannot be turned off while tracked lots have negative stock.",
+      409
+    );
+  }
+
   const [openPickAllocation] = await tx
     .select({ id: manufacturingPickAllocations.id })
     .from(manufacturingPickAllocations)
@@ -897,7 +917,7 @@ export async function updateItemCard(
   data: z.infer<typeof itemCardUpdateSchema>,
   options?: { idempotencyKey?: string | null },
 ) {
-  return withAuthedOrgContext(async (tx, orgId) => {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
     const replay = await beginInventoryOperationInTx<ItemCardDto>(tx, {
       organizationId: orgId,
       operationName: "updateItemCard",
@@ -930,6 +950,19 @@ export async function updateItemCard(
         data.purchaseToStockFactor !== undefined)
     ) {
       throw new ItemCardError("Purchase defaults are only supported for material cards.");
+    }
+
+    if (
+      data.lotTrackingMode === "untracked" &&
+      family.lotTrackingMode !== "untracked"
+    ) {
+      const location = await getDefaultInventoryLocationInTx(tx, orgId);
+      await consolidateUntrackedFamilyLotsInTx(tx, {
+        organizationId: orgId,
+        locationId: location.id,
+        familyId,
+        actorUserId: userId,
+      });
     }
 
     await tx

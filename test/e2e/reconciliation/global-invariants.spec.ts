@@ -3,6 +3,7 @@ import {
   inventoryItemBalances,
   lots,
 } from "@/lib/db/schema";
+import { INTERNAL_UNTRACKED_LOT_NUMBER } from "@/lib/inventory/kernel";
 import { test, expect } from "../fixtures";
 import { getOrgId } from "../../helpers/api";
 
@@ -47,7 +48,7 @@ test.describe("global inventory and manufacturing invariants", () => {
     db,
   }) => {
     // Per-lot: ordinary lots must never be negative. Intentional negative-stock
-    // overrides live in the dedicated debt lot; those are valid so the
+    // overrides live in dedicated internal lots; those are valid so the
     // conservation check below covers them.
     const negativeLots = await db
       .select({ id: lots.id, itemId: lots.itemId, quantity: lots.quantity })
@@ -57,6 +58,7 @@ test.describe("global inventory and manufacturing invariants", () => {
           eq(lots.organizationId, orgId),
           sql`${lots.lotNumber} NOT LIKE 'NEG-%'`,
           sql`${lots.lotNumber} <> 'UNBATCHED-NEGATIVE-STOCK'`,
+          sql`${lots.lotNumber} <> ${INTERNAL_UNTRACKED_LOT_NUMBER}`,
           sql`${lots.quantity}::numeric < 0`
         )
       );

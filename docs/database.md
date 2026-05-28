@@ -202,6 +202,14 @@ Auto-created inventory lots use the received business date as their display numb
 
 Use explicit `lotNumber` only when preserving an external/source lot identifier. Normal purchase receipts, manufacturing output, manual gains, stocktake gains, and loader opening balances should let the inventory kernel generate the date lot number from `receivedAt` / `occurredAt`.
 
+Lot-untracked items are still stored through the lot-backed inventory kernel,
+but active stock uses one hidden canonical lot per item: `INTERNAL-UNTRACKED`.
+Positive stock appends to that lot, FIFO consumption deducts from that lot, and
+negative untracked stock is represented by that same lot going below zero.
+Historical zero-quantity lots can remain after the normal app toggle for audit
+history; owner-level repair scripts may collapse those references when needed.
+Normal operator UI must not expose this lot number.
+
 ## Concurrent Stock Writes
 
 Use Postgres row locks to serialize stock-facing writes for the same item.

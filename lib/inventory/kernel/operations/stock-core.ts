@@ -28,6 +28,10 @@ import {
   MissingCostBasisError,
 } from "@/lib/inventory/kernel/errors";
 import {
+  getItemLotTrackingModeInTx,
+  LotTrackingError,
+} from "@/lib/inventory/lot-tracking";
+import {
   normalizeStockUnitCost,
   resolveStockUnitCostFromDefaultPurchasePrice,
 } from "@/lib/inventory/cost";
@@ -53,6 +57,7 @@ type RestockEventType = "unpick_restock" | "manufacturing_variance_gain";
 const DEFAULT_DISPOSITION: InventoryDisposition = "available";
 // Lot master identity is per org+item; per-location debt lives in lot balances.
 const NEGATIVE_STOCK_LOT_NUMBER = "UNBATCHED-NEGATIVE-STOCK";
+export const INTERNAL_UNTRACKED_LOT_NUMBER = "INTERNAL-UNTRACKED";
 
 export type FifoAllocation = {
   lotId: string;
@@ -82,6 +87,58 @@ function decimalDigits(value: string) {
 
 function pow10(exponent: number) {
   return BigInt(10) ** BigInt(exponent);
+}
+
+function stockEventMetadata(
+  lotNumber: string,
+  metadata: Record<string, unknown> | null | undefined
+) {
+  if (lotNumber === INTERNAL_UNTRACKED_LOT_NUMBER) {
+    const safeMetadata = { ...(metadata ?? {}) };
+    delete safeMetadata.lotNumber;
+    delete safeMetadata.internalUntrackedLot;
+    return {
+      ...safeMetadata,
+      internalUntrackedLot: true,
+    };
+  }
+
+  return {
+    lotNumber,
+    ...(metadata ?? {}),
+  };
+}
+
+export async function getOrCreateInternalUntrackedLotInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    itemId: string;
+    occurredAt?: Date | null;
+  }
+) {
+  const occurredAt = params.occurredAt ?? new Date();
+  const [lot] = await tx
+    .insert(lots)
+    .values({
+      organizationId: params.organizationId,
+      itemId: params.itemId,
+      lotNumber: INTERNAL_UNTRACKED_LOT_NUMBER,
+      quantity: "0",
+      receivedAt: occurredAt,
+      updatedAt: occurredAt,
+    })
+    .onConflictDoUpdate({
+      target: [lots.organizationId, lots.itemId, lots.lotNumber],
+      set: { updatedAt: lots.updatedAt },
+    })
+    .returning({
+      id: lots.id,
+      lotNumber: lots.lotNumber,
+      receivedAt: lots.receivedAt,
+    });
+
+  return lot;
 }
 
 export async function releaseExcessLotAllocationsInTx(
@@ -594,6 +651,30 @@ export async function createPositiveStockEventInTx(
   const extendedCost = calculateExtendedCost(quantity, unitCost);
   const disposition = params.disposition ?? DEFAULT_DISPOSITION;
   const receivedAt = params.receivedAt ?? params.occurredAt ?? new Date();
+  const lotTrackingMode = await getItemLotTrackingModeInTx(tx, params.itemId);
+
+  if (lotTrackingMode === "untracked") {
+    if (disposition !== DEFAULT_DISPOSITION) {
+      throw new LotTrackingError("Untracked items can only use available stock.", 409);
+    }
+
+    const internalLot = await getOrCreateInternalUntrackedLotInTx(tx, {
+      organizationId: params.organizationId,
+      itemId: params.itemId,
+      occurredAt: receivedAt,
+    });
+
+    return appendPositiveStockToExistingLotInTx(tx, {
+      ...params,
+      disposition,
+      lotId: internalLot.id,
+      metadata: {
+        internalUntrackedLot: true,
+        ...(params.metadata ?? {}),
+      },
+    });
+  }
+
   const lotNumber =
     params.lotNumber?.trim() ||
     (await generateDateLotNumberInTx(tx, {
@@ -635,10 +716,7 @@ export async function createPositiveStockEventInTx(
       actorUserId: params.actorUserId ?? null,
       idempotencyKey: params.idempotencyKey ?? null,
       occurredAt: params.occurredAt,
-      metadata: {
-        lotNumber,
-        ...(params.metadata ?? {}),
-      },
+      metadata: stockEventMetadata(lotNumber, params.metadata),
     },
   ]);
 
@@ -695,6 +773,20 @@ export async function appendPositiveStockToExistingLotInTx(
   await lockItemsInTx(tx, [params.itemId]);
 
   const disposition = params.disposition ?? DEFAULT_DISPOSITION;
+  const lotTrackingMode = await getItemLotTrackingModeInTx(tx, params.itemId);
+  if (lotTrackingMode === "untracked" && disposition !== DEFAULT_DISPOSITION) {
+    throw new LotTrackingError("Untracked items can only use available stock.", 409);
+  }
+  const effectiveLotId =
+    lotTrackingMode === "untracked"
+      ? (
+          await getOrCreateInternalUntrackedLotInTx(tx, {
+            organizationId: params.organizationId,
+            itemId: params.itemId,
+            occurredAt: params.occurredAt,
+          })
+        ).id
+      : params.lotId;
   const quantity = normalizeNumeric(params.quantity);
   const [lot] = await tx
     .select({
@@ -707,13 +799,13 @@ export async function appendPositiveStockToExistingLotInTx(
       and(
         eq(lots.organizationId, params.organizationId),
         eq(lots.itemId, params.itemId),
-        eq(lots.id, params.lotId)
+        eq(lots.id, effectiveLotId)
       )
     )
     .for("update");
 
   if (!lot) {
-    throw new Error(`Lot ${params.lotId} was not found.`);
+    throw new Error(`Lot ${effectiveLotId} was not found.`);
   }
 
   const unitCost = normalizeNumericScale(parseFloat(params.unitCost), 6);
@@ -730,7 +822,7 @@ export async function appendPositiveStockToExistingLotInTx(
         eq(inventoryLotBalances.organizationId, params.organizationId),
         eq(inventoryLotBalances.locationId, params.locationId),
         eq(inventoryLotBalances.itemId, params.itemId),
-        eq(inventoryLotBalances.lotId, params.lotId),
+        eq(inventoryLotBalances.lotId, effectiveLotId),
         eq(inventoryLotBalances.disposition, disposition)
       )
     )
@@ -741,7 +833,9 @@ export async function appendPositiveStockToExistingLotInTx(
   const addedQuantity = parseFloat(quantity);
   const nextQuantity = currentQuantity + addedQuantity;
   const nextUnitCost =
-    nextQuantity > 0
+    currentQuantity <= 0
+      ? unitCost
+      : nextQuantity > 0
       ? normalizeNumericScale(
           (currentQuantity * currentUnitCost + addedQuantity * parseFloat(unitCost)) /
             nextQuantity,
@@ -755,7 +849,7 @@ export async function appendPositiveStockToExistingLotInTx(
       quantity: sql`${lots.quantity} + ${quantity}`,
       updatedAt: new Date(),
     })
-    .where(eq(lots.id, params.lotId));
+    .where(eq(lots.id, effectiveLotId));
 
   const [event] = await insertInventoryEventsInTx(tx, [
     {
@@ -764,7 +858,7 @@ export async function appendPositiveStockToExistingLotInTx(
       eventType: params.eventType,
       eventSubtype: params.eventSubtype ?? null,
       itemId: params.itemId,
-      lotId: params.lotId,
+      lotId: effectiveLotId,
       quantity,
       unitCost,
       extendedCost,
@@ -775,10 +869,7 @@ export async function appendPositiveStockToExistingLotInTx(
       actorUserId: params.actorUserId ?? null,
       idempotencyKey: params.idempotencyKey ?? null,
       occurredAt: params.occurredAt,
-      metadata: {
-        lotNumber: lot.lotNumber,
-        ...(params.metadata ?? {}),
-      },
+      metadata: stockEventMetadata(lot.lotNumber, params.metadata),
     },
   ]);
 
@@ -786,7 +877,7 @@ export async function appendPositiveStockToExistingLotInTx(
     {
       organizationId: params.organizationId,
       locationId: params.locationId,
-      lotId: params.lotId,
+      lotId: effectiveLotId,
       itemId: params.itemId,
       disposition,
       quantityDelta: addedQuantity,
@@ -807,7 +898,7 @@ export async function appendPositiveStockToExistingLotInTx(
         eq(inventoryLotBalances.organizationId, params.organizationId),
         eq(inventoryLotBalances.locationId, params.locationId),
         eq(inventoryLotBalances.itemId, params.itemId),
-        eq(inventoryLotBalances.lotId, params.lotId),
+        eq(inventoryLotBalances.lotId, effectiveLotId),
         eq(inventoryLotBalances.disposition, disposition)
       )
     );
@@ -825,6 +916,145 @@ export async function appendPositiveStockToExistingLotInTx(
     eventId: event.id,
     lotId: lot.id,
     lotNumber: lot.lotNumber,
+  };
+}
+
+async function consumeInternalUntrackedStockInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    locationId: string;
+    itemId: string;
+    quantity: number;
+    eventType: NegativeStockEventType;
+    eventSubtype?: string | null;
+    referenceType?: string | null;
+    referenceId?: string | null;
+    actorUserId?: string | null;
+    idempotencyKey?: string | null;
+    occurredAt?: Date;
+    metadata?: Record<string, unknown> | null;
+    allowNegativeStock?: boolean;
+    unavailableByLotId?: Map<string, number>;
+  }
+) {
+  const occurredAt = params.occurredAt ?? new Date();
+  const lot = await getOrCreateInternalUntrackedLotInTx(tx, {
+    organizationId: params.organizationId,
+    itemId: params.itemId,
+    occurredAt,
+  });
+  const protectedQty = params.unavailableByLotId?.get(lot.id) ?? 0;
+  const [currentBalance] = await tx
+    .select({
+      quantity: inventoryLotBalances.quantity,
+      unitCost: inventoryLotBalances.unitCost,
+      receivedAt: inventoryLotBalances.receivedAt,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.lotId, lot.id),
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION)
+      )
+    )
+    .for("update");
+
+  const available = roundQuantity(
+    parseFloat(currentBalance?.quantity ?? "0") - protectedQty
+  );
+  if (available < params.quantity && !params.allowNegativeStock) {
+    throw new InsufficientStockError({
+      itemId: params.itemId,
+      available,
+      requested: params.quantity,
+    });
+  }
+
+  const unitCost = currentBalance?.unitCost
+    ? normalizeNumericScale(parseFloat(currentBalance.unitCost), 6)
+    : await resolvePositiveStockUnitCostInTx(tx, {
+        itemId: params.itemId,
+        reason: "negative_stock_cost_policy",
+      });
+  const quantity = normalizeNumeric(params.quantity);
+  const [event] = await insertInventoryEventsInTx(tx, [
+    {
+      organizationId: params.organizationId,
+      locationId: params.locationId,
+      eventType: params.eventType,
+      eventSubtype: params.eventSubtype ?? null,
+      itemId: params.itemId,
+      lotId: lot.id,
+      quantity,
+      unitCost,
+      extendedCost: calculateExtendedCost(quantity, unitCost),
+      disposition: DEFAULT_DISPOSITION,
+      fromDisposition: DEFAULT_DISPOSITION,
+      referenceType: params.referenceType ?? null,
+      referenceId: params.referenceId ?? null,
+      actorUserId: params.actorUserId ?? null,
+      idempotencyKey: params.idempotencyKey ?? null,
+      occurredAt,
+      metadata: stockEventMetadata(lot.lotNumber, {
+        ...(params.metadata ?? {}),
+        ...(available < params.quantity
+          ? {
+              negativeStock: true,
+              requestedQuantity: roundQuantity(params.quantity),
+              availableQuantity: roundQuantity(Math.max(0, available)),
+              shortageQuantity: roundQuantity(params.quantity - Math.max(0, available)),
+            }
+          : {}),
+      }),
+    },
+  ]);
+
+  await tx
+    .update(lots)
+    .set({
+      quantity: sql`${lots.quantity} - ${quantity}`,
+      updatedAt: occurredAt,
+    })
+    .where(eq(lots.id, lot.id));
+
+  await applyLotBalanceDeltasInTx(tx, [
+    {
+      organizationId: params.organizationId,
+      locationId: params.locationId,
+      itemId: params.itemId,
+      lotId: lot.id,
+      quantityDelta: -parseFloat(quantity),
+      unitCost,
+      receivedAt: currentBalance?.receivedAt ?? lot.receivedAt,
+      originEventId: event.id,
+      disposition: DEFAULT_DISPOSITION,
+    },
+  ]);
+
+  await applyItemBalanceDeltasInTx(tx, [
+    {
+      organizationId: params.organizationId,
+      locationId: params.locationId,
+      itemId: params.itemId,
+      onHandDelta: -parseFloat(quantity),
+    },
+  ]);
+
+  return {
+    allocations: [
+      {
+        lotId: lot.id,
+        lotNumber: lot.lotNumber,
+        quantity: parseFloat(quantity),
+        unitCost: parseFloat(unitCost),
+        receivedAt: currentBalance?.receivedAt ?? lot.receivedAt,
+      },
+    ],
+    eventIds: [event.id],
   };
 }
 
@@ -851,6 +1081,22 @@ export async function decrementExistingLotStockInTx(
   await lockItemsInTx(tx, [params.itemId]);
 
   const disposition = params.disposition ?? DEFAULT_DISPOSITION;
+  const lotTrackingMode = await getItemLotTrackingModeInTx(tx, params.itemId);
+  if (lotTrackingMode === "untracked") {
+    if (disposition !== DEFAULT_DISPOSITION) {
+      throw new LotTrackingError("Untracked items can only use available stock.", 409);
+    }
+    const consumed = await consumeInternalUntrackedStockInTx(tx, {
+      ...params,
+      allowNegativeStock: false,
+    });
+    return {
+      eventId: consumed.eventIds[0],
+      lotId: consumed.allocations[0]?.lotId ?? params.lotId,
+      lotNumber: consumed.allocations[0]?.lotNumber ?? INTERNAL_UNTRACKED_LOT_NUMBER,
+    };
+  }
+
   const quantity = normalizeNumeric(params.quantity);
   const [lot] = await tx
     .select({
@@ -1052,6 +1298,11 @@ export async function consumeStockFifoInTx(
   }
 ) {
   await lockItemsInTx(tx, [params.itemId]);
+
+  const lotTrackingMode = await getItemLotTrackingModeInTx(tx, params.itemId);
+  if (lotTrackingMode === "untracked") {
+    return consumeInternalUntrackedStockInTx(tx, params);
+  }
 
   const lotsForUpdate = await getLockedFifoLotsInTx(tx, params);
   const totalAvailable = lotsForUpdate.reduce((sum, lot) => {
@@ -1381,6 +1632,14 @@ export async function consumeSpecificLotInTx(
 ) {
   await lockItemsInTx(tx, [params.itemId]);
 
+  const lotTrackingMode = await getItemLotTrackingModeInTx(tx, params.itemId);
+  if (lotTrackingMode === "untracked") {
+    return consumeInternalUntrackedStockInTx(tx, {
+      ...params,
+      allowNegativeStock: false,
+    });
+  }
+
   const [lot] = await tx
     .select({
       lotId: inventoryLotBalances.lotId,
@@ -1520,6 +1779,20 @@ export async function restockExistingLotInTx(
 ) {
   await lockItemsInTx(tx, [params.itemId]);
   const disposition = params.disposition ?? DEFAULT_DISPOSITION;
+  const lotTrackingMode = await getItemLotTrackingModeInTx(tx, params.itemId);
+  if (lotTrackingMode === "untracked" && disposition !== DEFAULT_DISPOSITION) {
+    throw new LotTrackingError("Untracked items can only use available stock.", 409);
+  }
+  const effectiveLot =
+    lotTrackingMode === "untracked"
+      ? await getOrCreateInternalUntrackedLotInTx(tx, {
+          organizationId: params.organizationId,
+          itemId: params.itemId,
+          occurredAt: params.occurredAt,
+        })
+      : null;
+  const effectiveLotId = effectiveLot?.id ?? params.lotId;
+  const effectiveLotNumber = effectiveLot?.lotNumber ?? null;
 
   await tx
     .update(lots)
@@ -1527,7 +1800,7 @@ export async function restockExistingLotInTx(
       quantity: sql`${lots.quantity} + ${params.quantity}`,
       updatedAt: new Date(),
     })
-    .where(eq(lots.id, params.lotId));
+    .where(eq(lots.id, effectiveLotId));
 
   const [event] = await insertInventoryEventsInTx(tx, [
     {
@@ -1536,7 +1809,7 @@ export async function restockExistingLotInTx(
       eventType: params.eventType ?? "unpick_restock",
       eventSubtype: params.eventSubtype ?? null,
       itemId: params.itemId,
-      lotId: params.lotId,
+      lotId: effectiveLotId,
       quantity: normalizeNumeric(params.quantity),
       unitCost: normalizeNumericScale(parseFloat(params.unitCost), 6),
       extendedCost: calculateExtendedCost(
@@ -1551,7 +1824,10 @@ export async function restockExistingLotInTx(
       actorUserId: params.actorUserId ?? null,
       idempotencyKey: params.idempotencyKey ?? null,
       occurredAt: params.occurredAt,
-      metadata: params.metadata ?? null,
+      metadata:
+        effectiveLotNumber === INTERNAL_UNTRACKED_LOT_NUMBER
+          ? stockEventMetadata(effectiveLotNumber, params.metadata)
+          : params.metadata ?? null,
     },
   ]);
 
@@ -1559,10 +1835,13 @@ export async function restockExistingLotInTx(
     {
       organizationId: params.organizationId,
       locationId: params.locationId,
-      lotId: params.lotId,
+      lotId: effectiveLotId,
       itemId: params.itemId,
       disposition,
       quantityDelta: params.quantity,
+      unitCost: normalizeNumericScale(parseFloat(params.unitCost), 6),
+      receivedAt: effectiveLot?.receivedAt ?? params.occurredAt ?? new Date(),
+      originEventId: event.id,
     },
   ]);
 
@@ -1587,6 +1866,16 @@ export async function decrementPhysicalLotQuantityInTx(
     quantity: number;
   }
 ) {
+  const lotTrackingMode = await getItemLotTrackingModeInTx(tx, params.itemId);
+  if (lotTrackingMode === "untracked") {
+    const canonical = await getOrCreateInternalUntrackedLotInTx(tx, {
+      organizationId: params.organizationId,
+      itemId: params.itemId,
+      occurredAt: new Date(),
+    });
+    if (canonical.id !== params.lotId) return false;
+  }
+
   const [updated] = await tx
     .update(lots)
     .set({

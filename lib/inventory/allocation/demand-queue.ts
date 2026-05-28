@@ -1,12 +1,15 @@
 import "server-only";
 
 import { and, eq, sql } from "drizzle-orm";
-import { inventoryLotBalances, organization, stockAllocations } from "@/lib/db/schema";
+import { inventoryLotBalances, lots, organization, stockAllocations } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { serializeDbTimestamp } from "@/lib/db/timestamps";
 import { normalizeNumeric, roundQuantity, todayInTimeZone } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
-import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel";
+import {
+  getDefaultInventoryLocationInTx,
+  INTERNAL_UNTRACKED_LOT_NUMBER,
+} from "@/lib/inventory/kernel";
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import { allocationDemandAdapters } from "./adapters";
 import { loadAllocationSourcesForItemInTx } from "./sources";
@@ -469,8 +472,13 @@ async function getUntrackedOnHandSupplyInTx(
       receivedAt: sql<Date | null>`MIN(${inventoryLotBalances.receivedAt})`.as(
         "receivedAt"
       ),
+      sourceId: sql<string | null>`COALESCE(
+        MAX(${inventoryLotBalances.lotId}::text) FILTER (WHERE ${lots.lotNumber} = ${INTERNAL_UNTRACKED_LOT_NUMBER}),
+        MIN(${inventoryLotBalances.lotId}::text)
+      )`.as("sourceId"),
     })
     .from(inventoryLotBalances)
+    .innerJoin(lots, eq(lots.id, inventoryLotBalances.lotId))
     .where(
       and(
         eq(inventoryLotBalances.organizationId, params.organizationId),
@@ -486,7 +494,7 @@ async function getUntrackedOnHandSupplyInTx(
   return {
     kind: "on_hand",
     sourceType: "inventory_lot",
-    sourceId: `untracked:${params.itemId}`,
+    sourceId: row?.sourceId ?? `untracked:${params.itemId}`,
     quantity,
     availableDate: serializeDbTimestamp(row?.receivedAt),
     label: null,

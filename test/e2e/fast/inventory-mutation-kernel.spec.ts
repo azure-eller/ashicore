@@ -18,6 +18,7 @@ import {
 import {
   consumeStockFifoInTx,
   createPositiveStockEventInTx,
+  INTERNAL_UNTRACKED_LOT_NUMBER,
 } from "../../../lib/inventory/kernel";
 import { buildStocktakeCategoryScope } from "../../../lib/schemas/stocktakes";
 import { createItem, getOrgId, getUnitId, testFetch } from "../../helpers/api";
@@ -296,6 +297,282 @@ test.describe("inventory mutation kernel heartbeat", () => {
       onHandQty: "4.0000",
       availableToPromise: "4.0000",
     });
+  });
+
+  test("untracked stock uses one hidden internal lot even when negative", async ({
+    db,
+  }) => {
+    const itemName = `Fast Untracked Internal Lot ${ts}`;
+    const category = `Fast Untracked Internal ${ts}`;
+    const item = await createItem({
+      itemType: "material",
+      name: itemName,
+      unitDefinitionId: unitId,
+      sku: `FAST-UNTRACKED-INT-${ts}`,
+      category,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(item.status).toBe(201);
+    const itemId = item.body.id as string;
+
+    const modeResponse = await testFetch(`/api/item-cards/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: itemName,
+        category,
+        description: null,
+        unitDefinitionId: unitId,
+        lotTrackingMode: "untracked",
+      }),
+    });
+    expect(
+      modeResponse.status,
+      JSON.stringify(await modeResponse.json().catch(() => null))
+    ).toBe(200);
+
+    const [location] = await db
+      .select({ id: inventoryLocations.id })
+      .from(inventoryLocations)
+      .where(
+        and(
+          eq(inventoryLocations.organizationId, orgId),
+          eq(inventoryLocations.isDefault, true)
+        )
+      );
+    if (!location?.id) throw new Error("Default inventory location not found.");
+
+    await db.transaction(async (tx) => {
+      await createPositiveStockEventInTx(tx, {
+        organizationId: orgId,
+        locationId: location.id,
+        itemId,
+        quantity: 5,
+        unitCost: "2.00",
+        eventType: "manual_adjustment_increase",
+        eventSubtype: "fast_untracked_internal",
+        referenceType: "item",
+        referenceId: itemId,
+        metadata: {
+          lotNumber: "SHOULD-NOT-LEAK",
+          internalUntrackedLot: false,
+        },
+      });
+      await createPositiveStockEventInTx(tx, {
+        organizationId: orgId,
+        locationId: location.id,
+        itemId,
+        quantity: 3,
+        unitCost: "4.00",
+        eventType: "manual_adjustment_increase",
+        eventSubtype: "fast_untracked_internal",
+        referenceType: "item",
+        referenceId: itemId,
+      });
+      await consumeStockFifoInTx(tx, {
+        organizationId: orgId,
+        locationId: location.id,
+        itemId,
+        quantity: 10,
+        eventType: "manual_adjustment_decrease",
+        eventSubtype: "fast_untracked_internal",
+        referenceType: "item",
+        referenceId: itemId,
+        allowNegativeStock: true,
+      });
+    });
+
+    let lotRows = await db
+      .select({
+        id: lots.id,
+        lotNumber: lots.lotNumber,
+        quantity: lots.quantity,
+      })
+      .from(lots)
+      .where(eq(lots.itemId, itemId));
+
+    expect(lotRows).toEqual([
+      expect.objectContaining({
+        lotNumber: INTERNAL_UNTRACKED_LOT_NUMBER,
+        quantity: "-2.0000",
+      }),
+    ]);
+
+    let [itemBalance] = await db
+      .select({
+        onHandQty: inventoryItemBalances.onHandQty,
+        availableToPromise: inventoryItemBalances.availableToPromise,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, itemId));
+    expect(itemBalance).toMatchObject({
+      onHandQty: "-2.0000",
+      availableToPromise: "0.0000",
+    });
+
+    const eventRows = await db
+      .select({
+        lotId: inventoryEvents.lotId,
+        metadata: inventoryEvents.metadata,
+      })
+      .from(inventoryEvents)
+      .where(eq(inventoryEvents.itemId, itemId));
+    expect(eventRows).toHaveLength(3);
+    expect(new Set(eventRows.map((event) => event.lotId))).toEqual(
+      new Set([lotRows[0].id])
+    );
+    expect(eventRows.every((event) => event.metadata?.internalUntrackedLot === true)).toBe(
+      true
+    );
+    expect(eventRows.some((event) => "lotNumber" in (event.metadata ?? {}))).toBe(false);
+
+    await db.transaction(async (tx) => {
+      await createPositiveStockEventInTx(tx, {
+        organizationId: orgId,
+        locationId: location.id,
+        itemId,
+        quantity: 5,
+        unitCost: "3.00",
+        eventType: "manual_adjustment_increase",
+        eventSubtype: "fast_untracked_internal",
+        referenceType: "item",
+        referenceId: itemId,
+      });
+    });
+
+    lotRows = await db
+      .select({
+        id: lots.id,
+        lotNumber: lots.lotNumber,
+        quantity: lots.quantity,
+      })
+      .from(lots)
+      .where(eq(lots.itemId, itemId));
+    expect(lotRows).toEqual([
+      expect.objectContaining({
+        lotNumber: INTERNAL_UNTRACKED_LOT_NUMBER,
+        quantity: "3.0000",
+      }),
+    ]);
+
+    [itemBalance] = await db
+      .select({
+        onHandQty: inventoryItemBalances.onHandQty,
+        availableToPromise: inventoryItemBalances.availableToPromise,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, itemId));
+    expect(itemBalance).toMatchObject({
+      onHandQty: "3.0000",
+      availableToPromise: "3.0000",
+    });
+  });
+
+  test("turning off lot tracking consolidates existing lots", async ({ db }) => {
+    const itemName = `Fast Disable Lot Tracking ${ts}`;
+    const category = `Fast Disable Lot Tracking ${ts}`;
+    const item = await createItem({
+      itemType: "material",
+      name: itemName,
+      unitDefinitionId: unitId,
+      sku: `FAST-DISABLE-LOTS-${ts}`,
+      category,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(item.status).toBe(201);
+    const itemId = item.body.id as string;
+
+    const [location] = await db
+      .select({ id: inventoryLocations.id })
+      .from(inventoryLocations)
+      .where(
+        and(
+          eq(inventoryLocations.organizationId, orgId),
+          eq(inventoryLocations.isDefault, true)
+        )
+      );
+    if (!location?.id) throw new Error("Default inventory location not found.");
+
+    await db.transaction(async (tx) => {
+      await createPositiveStockEventInTx(tx, {
+        organizationId: orgId,
+        locationId: location.id,
+        itemId,
+        quantity: 4,
+        unitCost: "2.00",
+        eventType: "manual_adjustment_increase",
+        eventSubtype: "fast_disable_lots",
+        referenceType: "item",
+        referenceId: itemId,
+      });
+      await createPositiveStockEventInTx(tx, {
+        organizationId: orgId,
+        locationId: location.id,
+        itemId,
+        quantity: 6,
+        unitCost: "2.00",
+        eventType: "manual_adjustment_increase",
+        eventSubtype: "fast_disable_lots",
+        referenceType: "item",
+        referenceId: itemId,
+      });
+    });
+
+    const beforeLots = await db
+      .select({ lotNumber: lots.lotNumber })
+      .from(lots)
+      .where(eq(lots.itemId, itemId));
+    expect(beforeLots).toHaveLength(2);
+
+    const modeResponse = await testFetch(`/api/item-cards/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: itemName,
+        category,
+        description: null,
+        unitDefinitionId: unitId,
+        lotTrackingMode: "untracked",
+      }),
+    });
+    expect(
+      modeResponse.status,
+      JSON.stringify(await modeResponse.json().catch(() => null))
+    ).toBe(200);
+
+    const lotRows = await db
+      .select({
+        id: lots.id,
+        lotNumber: lots.lotNumber,
+        quantity: lots.quantity,
+      })
+      .from(lots)
+      .where(eq(lots.itemId, itemId));
+    // The app-role toggle preserves historical zero lots for audit; only active
+    // stock must live on the canonical internal lot.
+    const activeLotRows = lotRows.filter((lot) => Number(lot.quantity) !== 0);
+    expect(activeLotRows).toEqual([
+      expect.objectContaining({
+        lotNumber: INTERNAL_UNTRACKED_LOT_NUMBER,
+        quantity: "10.0000",
+      }),
+    ]);
+
+    const eventRows = await db
+      .select({ lotId: inventoryEvents.lotId })
+      .from(inventoryEvents)
+      .where(eq(inventoryEvents.itemId, itemId));
+    expect(new Set(eventRows.map((event) => event.lotId))).toEqual(
+      new Set(lotRows.map((lot) => lot.id))
+    );
   });
 
   test("stocktake count becomes authoritative stock truth", async ({ db }) => {

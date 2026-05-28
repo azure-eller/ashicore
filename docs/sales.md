@@ -152,8 +152,8 @@ The Sales Allocation tab is the authoritative manual allocation surface.
 - legacy shipment tables may still exist for historical reads/BOLs, but they are
   not an active planning or allocation surface
 
-Lot-untracked products still consume internal lots FIFO. Sales UI and allocation
-contracts should not ask operators to choose or inspect those lots.
+Lot-untracked products consume the hidden `INTERNAL-UNTRACKED` lot. Sales UI and
+allocation contracts should not ask operators to choose or inspect that lot.
 
 ## Shipping Fees and Margin
 

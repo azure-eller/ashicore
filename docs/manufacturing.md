@@ -246,8 +246,8 @@ One-shot completion remains available as the complete-all path:
 - the order stores `actualQuantity`, `actualMaterialCost`, and `actualCostPerUnit`
 
 For lot-untracked finished products, output still creates an internal lot for
-costing and audit, but blocked output is rejected and the normal UI must not
-show lot controls.
+costing and audit, but all outputs append to the hidden `INTERNAL-UNTRACKED`
+lot. Blocked output is rejected and the normal UI must not show lot controls.
 
 Discrete completion should hard-block with a domain error if any ingredient remains unpicked.
 

@@ -179,9 +179,10 @@ Receiving is lot-backed and positive-only:
 - receiving also emits `expected_release` for the received remainder and flushes the item/expected projections in the same transaction
 
 Materials can be marked lot-untracked on the item card. Untracked materials
-still create internal receipt lots for costing and FIFO audit, but receiving
-must force `available` disposition and hide lot/disposition controls from normal
-operators. Xero bill sync does not receive or send lot identifiers.
+append receipts to one hidden `INTERNAL-UNTRACKED` lot for costing and FIFO
+audit. Receiving must force `available` disposition and hide lot/disposition
+controls from normal operators. Xero bill sync does not receive or send lot
+identifiers.
 
 Blank receive inputs are ignored. Received quantity must be greater than zero and no greater than the current line remainder.
 

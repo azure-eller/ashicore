@@ -79,6 +79,8 @@ const GUARDS: Guard[] = [
     allowed: [
       "lib/db/schema/inventory-projections.ts",
       "lib/db/schema/stocktakes.ts",
+      "lib/inventory/untracked-lot-consolidation.ts",
+      "scripts/consolidate-untracked-internal-lots.ts",
       "scripts/verify-inventory-kernel.ts",
       "test/e2e/reconciliation/global-invariants.spec.ts",
     ],

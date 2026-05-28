@@ -1,8 +1,9 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
   inventoryDemandSummary,
   inventoryItemBalances,
+  lots,
   manufacturingOrders,
   salesShipmentLines,
   salesShipments,
@@ -10,6 +11,7 @@ import {
   salesOrders,
   stockAllocations,
 } from "../../../lib/db/schema";
+import { INTERNAL_UNTRACKED_LOT_NUMBER } from "../../../lib/inventory/kernel";
 import {
   createCustomer,
   createItem,
@@ -286,6 +288,114 @@ test("sales availability treats pinned manufacturing output as expected supply",
 
   expect(readModel?.fulfillmentSummary?.salesItemsState).toBe("expected");
   expect(readModel?.fulfillmentSummary?.salesItemsExpectedDate).toBe("2026-06-04");
+});
+
+test("untracked on-hand coverage matches canonical lot pins", async ({ db }) => {
+  const ts = Date.now();
+  const unitId = getUnitId();
+  const orgId = getOrgId();
+
+  const component = await createItem({
+    itemType: "material",
+    name: `Fast Untracked Pin Component ${ts}`,
+    unitDefinitionId: unitId,
+    sku: `FAST-UNTRACKED-PIN-COMP-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "4.00",
+    defaultSellingPrice: null,
+    stock: "100",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(component.status).toBe(201);
+
+  const product = await createItem({
+    itemType: "product",
+    name: `Fast Untracked Pinned Product ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-UNTRACKED-PIN-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: null,
+    defaultSellingPrice: "10.00",
+    stock: "12",
+    safetyStock: "0",
+    bom: [{ componentId: component.body.id, quantity: "1" }],
+  });
+  expect(product.status).toBe(201);
+  const productId = product.body.id as string;
+
+  const modeResponse = await testFetch(`/api/item-cards/${productId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: `Fast Untracked Pinned Product ${ts}`,
+      category: `Fast Planning ${ts}`,
+      description: null,
+      unitDefinitionId: unitId,
+      lotTrackingMode: "untracked",
+    }),
+  });
+  expect(modeResponse.status).toBe(200);
+
+  const customer = await createCustomer({ name: `Fast Untracked Pin Customer ${ts}` });
+  expect(customer.status).toBe(201);
+
+  const order = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `UNTRACKED-PIN-${ts}`,
+    orderDate: "2026-05-25",
+    shipDate: "2026-06-05",
+    lines: [{ itemId: productId, quantity: "5", unitPrice: "10.00" }],
+  });
+  expect(order.status).toBe(201);
+
+  const [line] = await db
+    .select({ id: salesOrderLines.id })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.salesOrderId, order.body.id));
+  expect(line).toBeTruthy();
+
+  const [canonicalLot] = await db
+    .select({ id: lots.id })
+    .from(lots)
+    .where(
+      and(
+        eq(lots.itemId, productId),
+        eq(lots.lotNumber, INTERNAL_UNTRACKED_LOT_NUMBER)
+      )
+    );
+  expect(canonicalLot).toBeTruthy();
+
+  await db.insert(stockAllocations).values({
+    organizationId: orgId,
+    demandType: "sales_order_line",
+    demandId: line.id,
+    itemId: productId,
+    sourceType: "inventory_lot",
+    sourceId: canonicalLot.id,
+    quantity: "5",
+    status: "active",
+  });
+
+  const salesOrdersResponse = await testFetch("/api/sales-orders");
+  expect(salesOrdersResponse.status).toBe(200);
+  const salesOrderRows = (await salesOrdersResponse.json()) as Array<{
+    id: string;
+    lines: Array<{
+      demandQueueInStockQty?: string;
+      demandQueuePinnedQty?: string;
+      demandQueueShortQty?: string;
+    }>;
+  }>;
+  const readModel = salesOrderRows.find((row) => row.id === order.body.id);
+
+  expect(readModel?.lines[0]).toMatchObject({
+    demandQueueInStockQty: "5",
+    demandQueuePinnedQty: "5",
+    demandQueueShortQty: "0",
+  });
 });
 
 test("linked manufacturing output does not cover unrelated sales demand", async ({

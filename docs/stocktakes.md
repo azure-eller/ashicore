@@ -25,7 +25,8 @@ Stocktakes support creation-mode snapshots plus lot-aware blind counts:
 - count entry happens on the stocktake detail page and is blind: draft UIs do
   not show expected/current stock or variance
 - lot-tracked items with active available lots snapshot those lots and count per lot
-- lot-untracked items are counted at item level; their internal lots remain hidden
+- lot-untracked items are counted at item level; their single `INTERNAL-UNTRACKED`
+  storage lot remains hidden
 - blank counted quantities mean "leave unchanged"
 - completion review reveals current live stock, counted truth, and variance
   before posting
@@ -121,8 +122,8 @@ This keeps stocktakes safe when purchasing, manufacturing, or manual adjustments
 
 Stocktake completion reuses the inventory kernel and reconciles the available bucket only:
 
-- positive deltas create internal lots
-- negative deltas FIFO-consume lots
+- positive deltas create tracked date lots or append to `INTERNAL-UNTRACKED`
+- negative deltas FIFO-consume tracked lots or deduct from `INTERNAL-UNTRACKED`
 - positive variance writes `stocktake_gain`
 - negative variance writes `stocktake_loss` per consumed lot
 - zero variance writes `stocktake_verification` so the ledger can answer "when was this item last physically verified?"
