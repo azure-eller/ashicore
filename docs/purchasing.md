@@ -18,7 +18,7 @@ Purchasing v1 includes:
 - `draft`, `ordered`, `partial`, and `received` statuses
 - partial receiving into lot-backed inventory
 - projection-backed expected supply from active ordered and partially received purchase orders
-- manual supplier bill sync to Xero after full receipt
+- manual supplier bill sync to Xero after submit and before or after receipt
 
 Purchasing v1 does not include:
 
@@ -38,8 +38,9 @@ Xero bill sync:
 
 - purchase orders expose a separate bill status: not billed, syncing, billed, or failed
 - `Create Xero Bill` is a manual action, not an automatic receipt side effect
-- v1 only creates Xero bills after the PO is fully received
-- Xero bill lines use received purchase-unit quantity and unit cost; descriptions include the stock-unit conversion when purchase and stocking units differ
+- Xero bills can be created after submit and before or after receipt, but only one full bill is created per PO
+- Xero bill lines use ordered purchase-unit quantity and unit cost; descriptions include the stock-unit conversion when purchase and stocking units differ
+- Xero bill lines use the account selected in the bill dialog
 - additional PO costs are not sent to Xero in v1; when present, users must confirm that they will add those costs manually in Xero
 - bill-affecting edits are blocked after a successful bill sync
 

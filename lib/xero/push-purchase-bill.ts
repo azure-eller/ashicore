@@ -80,10 +80,7 @@ type LineForBill = {
   purchaseToStockFactor: string;
   quantityOrdered: string;
   stockQuantityOrdered: string;
-  quantityReceived: string;
-  stockQuantityReceived: string;
   unitCost: string;
-  accountingPurchaseAccountCode: string | null;
   lineTotal: string;
 };
 
@@ -208,10 +205,7 @@ async function loadPurchaseOrderForBillInTx(
       purchaseToStockFactor: purchaseOrderLines.purchaseToStockFactor,
       quantityOrdered: purchaseOrderLines.quantityOrdered,
       stockQuantityOrdered: purchaseOrderLines.stockQuantityOrdered,
-      quantityReceived: purchaseOrderLines.quantityReceived,
-      stockQuantityReceived: purchaseOrderLines.stockQuantityReceived,
       unitCost: purchaseOrderLines.unitCost,
-      accountingPurchaseAccountCode: purchaseOrderLines.accountingPurchaseAccountCode,
       lineTotal: purchaseOrderLines.lineSubtotal,
     })
     .from(purchaseOrderLines)
@@ -234,7 +228,7 @@ function conversionSummary(line: LineForBill) {
     return null;
   }
 
-  return `${normalizeNumeric(Number(line.quantityReceived))} x ${line.purchaseUnitName} = ${normalizeNumeric(Number(line.stockQuantityReceived))} ${line.stockingUnitName} stock`;
+  return `${normalizeNumeric(Number(line.quantityOrdered))} x ${line.purchaseUnitName} = ${normalizeNumeric(Number(line.stockQuantityOrdered))} ${line.stockingUnitName} stock`;
 }
 
 function lineDescription(line: LineForBill) {
@@ -247,7 +241,7 @@ function additionalCostTotal(additionalCosts: AdditionalCostForBill[]) {
 }
 
 function billLineAmount(line: LineForBill) {
-  return Number(line.quantityReceived) * Number(line.unitCost);
+  return Number(line.quantityOrdered) * Number(line.unitCost);
 }
 
 function isRecentPending(order: OrderForBill) {
@@ -257,6 +251,21 @@ function isRecentPending(order: OrderForBill) {
     Date.now() - order.xeroBillLastPushAttemptAt.getTime() <
     STALE_PENDING_MS
   );
+}
+
+function assertBillablePurchaseOrder(data: {
+  order: OrderForBill;
+  lines: LineForBill[];
+}) {
+  if (data.order.status === "draft") {
+    throw new XeroError("Submit the purchase order before creating a Xero bill.", 409);
+  }
+  if (data.order.status === "cancelled") {
+    throw new XeroError("Cancelled purchase orders cannot be billed.", 409);
+  }
+  if (data.lines.length === 0) {
+    throw new XeroError("Add at least one line before creating a Xero bill.", 409);
+  }
 }
 
 function buildSnapshot(params: {
@@ -459,9 +468,7 @@ export async function createPurchaseBillAccountingSync(
   const data = await withOrgContext(orgId, async (tx) => {
     const loaded = await loadPurchaseOrderForBillInTx(tx, orderId);
     if (!loaded) return null;
-    if (loaded.order.status !== "received") {
-      throw new XeroError("V1 supports Xero bills after full receipt.", 409);
-    }
+    assertBillablePurchaseOrder(loaded);
     if (
       loaded.additionalCosts.length > 0 &&
       input.confirmAdditionalCostsOmitted !== true
@@ -516,6 +523,7 @@ export async function createPurchaseBillAccountingSync(
   const locked = await withOrgContext(orgId, async (tx) => {
     const loaded = await loadPurchaseOrderForBillInTx(tx, orderId);
     if (!loaded) return null;
+    assertBillablePurchaseOrder(loaded);
     if (isRecentPending(loaded.order)) {
       throw new XeroError("Xero bill sync is already running.", 409);
     }
@@ -563,9 +571,9 @@ export async function createPurchaseBillAccountingSync(
   const lineItems: LineItem[] = currentData.lines.map((line) => ({
     itemCode: line.itemSku ?? undefined,
     description: lineDescription(line),
-    quantity: Number(line.quantityReceived),
+    quantity: Number(line.quantityOrdered),
     unitAmount: Number(line.unitCost),
-    accountCode: line.accountingPurchaseAccountCode?.trim() || defaultAccountCode,
+    accountCode: defaultAccountCode,
     taxType: taxType ?? undefined,
   }));
   const snapshot = buildSnapshot({

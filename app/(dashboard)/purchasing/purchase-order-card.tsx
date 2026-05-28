@@ -88,7 +88,6 @@ import { type CardSaveState } from "@/components/card-page/card-save-status";
 import { underlineControlClass } from "@/components/card-page/form-cell";
 import {
   PO_LINE_TOTAL_TOOLTIP,
-  PURCHASE_ACCOUNT_TOOLTIP,
   PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP,
   PURCHASE_COST_AMOUNT_TOOLTIP,
   PURCHASE_COST_DISTRIBUTION_TOOLTIP,
@@ -220,8 +219,7 @@ type PurchaseBillDialogValues = {
 type PurchaseOrderLineColumnKey =
   | "itemId"
   | "quantityOrdered"
-  | "unitCost"
-  | "accountingPurchaseAccountCode";
+  | "unitCost";
 
 function isBlankPurchaseOrderLine(
   line: PurchaseOrderFormValues["lines"][number] | undefined,
@@ -229,14 +227,7 @@ function isBlankPurchaseOrderLine(
   const itemId = line?.itemId?.trim() ?? "";
   const quantityOrdered = line?.quantityOrdered?.trim() ?? "";
   const unitCost = line?.unitCost?.trim() ?? "";
-  const accountingPurchaseAccountCode =
-    line?.accountingPurchaseAccountCode?.trim() ?? "";
-  return (
-    itemId === "" &&
-    quantityOrdered === "" &&
-    unitCost === "" &&
-    accountingPurchaseAccountCode === ""
-  );
+  return itemId === "" && quantityOrdered === "" && unitCost === "";
 }
 
 function createPurchaseOrderLineRow(
@@ -268,7 +259,7 @@ function toPurchaseOrderLinePayloadRows(
       quantityOrdered: row.quantityOrdered,
       unitCost: row.unitCost,
       taxRateId: row.taxRateId,
-      accountingPurchaseAccountCode: row.accountingPurchaseAccountCode,
+      accountingPurchaseAccountCode: null,
       shipAddressEntryId: row.shipAddressEntryId,
       shipContactName: row.shipContactName,
       shipContactPhone: row.shipContactPhone,
@@ -288,15 +279,12 @@ function isBlankPurchaseOrderAdditionalCost(
     | undefined,
 ) {
   const reference = cost?.reference?.trim() ?? "";
-  const accountingPurchaseAccountCode =
-    cost?.accountingPurchaseAccountCode?.trim() ?? "";
   const amount = cost?.amount?.trim() ?? "";
   return (
     (cost?.costType == null || cost.costType === "shipping") &&
     (cost?.distributionMethod == null ||
       cost.distributionMethod === "by_value") &&
     reference === "" &&
-    accountingPurchaseAccountCode === "" &&
     amount === ""
   );
 }
@@ -330,17 +318,11 @@ function toPurchaseOrderAdditionalCostPayloadRows(
   return rows
     .filter((row) => !isBlankPurchaseOrderAdditionalCost(row))
     .map(
-      ({
+      ({ costType, reference, distributionMethod, amount }) => ({
         costType,
         reference,
         distributionMethod,
-        accountingPurchaseAccountCode,
-        amount,
-      }) => ({
-        costType,
-        reference,
-        distributionMethod,
-        accountingPurchaseAccountCode,
+        accountingPurchaseAccountCode: null,
         amount,
       }),
     );
@@ -1294,11 +1276,9 @@ export function PurchaseOrderCard({
           params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
         ) => {
           const materialId = normalizeGridText(params.newValue);
-          const material = materialMap.get(materialId);
           params.data.itemId = materialId;
-          params.data.unitCost = material?.defaultPurchasePrice ?? "0";
-          params.data.accountingPurchaseAccountCode =
-            material?.accountingPurchaseAccountCode ?? null;
+          params.data.unitCost =
+            materialMap.get(materialId)?.defaultPurchasePrice ?? "0";
           return true;
         },
         cellRenderer: (
@@ -1443,35 +1423,6 @@ export function PurchaseOrderCard({
         },
       },
       {
-        field: "accountingPurchaseAccountCode",
-        kind: "select",
-        headerName: "Account",
-        headerTooltip: PURCHASE_ACCOUNT_TOOLTIP,
-        minWidth: 132,
-        flex: 0.55,
-        editable: !billAffectingReadOnly,
-        values: ["", ...xeroAccounts.map((account) => account.code)],
-        valueFormatter: ({ value }) => {
-          if (!value) return "";
-          const account = xeroAccountsByCode.get(value);
-          return account ? `${account.code} - ${account.name}` : value;
-        },
-        valueSetter: (
-          params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
-        ) => {
-          params.data.accountingPurchaseAccountCode = normalizeNullableGridText(
-            params.newValue,
-          );
-          return true;
-        },
-        cellClassRules: {
-          "erp-editable-grid-cell-error": hasCellError(
-            "accountingPurchaseAccountCode",
-          ),
-        },
-        tooltipValueGetter: cellTooltip("accountingPurchaseAccountCode"),
-      },
-      {
         colId: "lineTotal",
         kind: "display",
         headerName: "Line Total",
@@ -1491,8 +1442,6 @@ export function PurchaseOrderCard({
     materialOptions,
     receivedMaterialIds,
     billAffectingReadOnly,
-    xeroAccounts,
-    xeroAccountsByCode,
     taxRates,
     taxRateMap,
   ]);
@@ -1623,32 +1572,6 @@ export function PurchaseOrderCard({
         },
       },
       {
-        field: "accountingPurchaseAccountCode",
-        kind: "select",
-        headerName: "Accounting Account",
-        headerTooltip: PURCHASE_ACCOUNT_TOOLTIP,
-        minWidth: 164,
-        flex: 0.95,
-        editable: !billAffectingReadOnly,
-        values: ["", ...xeroAccounts.map((account) => account.code)],
-        valueFormatter: ({ value }) => {
-          if (!value) return "";
-          const account = xeroAccountsByCode.get(value);
-          return account ? `${account.code} - ${account.name}` : value;
-        },
-        valueSetter: (
-          params: ValueSetterParams<
-            PurchaseOrderAdditionalCostGridRow,
-            string | null
-          >,
-        ) => {
-          params.data.accountingPurchaseAccountCode = normalizeNullableGridText(
-            params.newValue,
-          );
-          return true;
-        },
-      },
-      {
         field: "amount",
         kind: "number",
         headerName: "Amount",
@@ -1693,8 +1616,6 @@ export function PurchaseOrderCard({
     additionalCostGridRows,
     fieldErrors.additionalCosts,
     billAffectingReadOnly,
-    xeroAccounts,
-    xeroAccountsByCode,
   ]);
   const handleAdditionalCostRowsChange = useCallback(
     (rows: PurchaseOrderAdditionalCostGridRow[]) => {
@@ -2072,11 +1993,17 @@ export function PurchaseOrderCard({
   const billActionDisabledReason =
     xeroBillSetupStatus === "not_connected"
       ? "Connect Xero before creating supplier bills."
-      : displayStatus !== "received"
-        ? "V1 supports Xero bills after full receipt."
-        : purchaseBillStatus === "pending"
-          ? "Xero bill sync is already running."
-          : null;
+      : cardSaveState === "saving" ||
+          cardSaveState === "not_saved" ||
+          cardSaveState === "failed"
+        ? "Save changes before creating a supplier bill."
+        : displayStatus === "draft"
+          ? "Submit the purchase order before creating a Xero bill."
+          : displayStatus === "cancelled"
+            ? "Cancelled purchase orders cannot be billed."
+            : purchaseBillStatus === "pending"
+              ? "Xero bill sync is already running."
+              : null;
 
   return (
     <>
@@ -2408,7 +2335,7 @@ export function PurchaseOrderCard({
           <DialogHeader>
             <DialogTitle>Create Xero Bill</DialogTitle>
             <DialogDescription>
-              Creates a draft supplier bill in Xero from this received purchase order.
+              Creates a draft supplier bill in Xero for all purchase order lines.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">

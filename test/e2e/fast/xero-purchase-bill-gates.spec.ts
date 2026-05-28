@@ -100,7 +100,28 @@ async function receiveOrderLine(db: ReturnType<typeof createAuthDb>, orderId: st
 }
 
 test.describe("Xero purchase bill gates", () => {
-  test("blocks bill creation before the PO is fully received", async () => {
+  test("does not block submitted POs before receipt", async () => {
+    const ts = Date.now();
+    const { materialId, supplierId } = await createMaterialAndSupplier(ts);
+    const order = await createPurchaseOrder({
+      supplierId,
+      expectedDate: "2026-05-27",
+      lines: [{ itemId: materialId, quantityOrdered: "5", unitCost: "4.00" }],
+    });
+    expect(order.status).toBe(201);
+    expect((await submitPurchaseOrder(order.body.id)).status).toBe(200);
+
+    const response = await testFetch(
+      `/api/purchase-orders/${order.body.id}/accounting-bill`,
+      { method: "POST", body: JSON.stringify(billPayload()) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error).toBe("Xero is not connected for this organization.");
+  });
+
+  test("blocks bill creation for draft purchase orders", async () => {
     const ts = Date.now();
     const { materialId, supplierId } = await createMaterialAndSupplier(ts);
     const order = await createPurchaseOrder({
@@ -117,7 +138,9 @@ test.describe("Xero purchase bill gates", () => {
     const body = await response.json();
 
     expect(response.status).toBe(409);
-    expect(body.error).toBe("V1 supports Xero bills after full receipt.");
+    expect(body.error).toBe(
+      "Submit the purchase order before creating a Xero bill.",
+    );
   });
 
   test("requires confirmation when additional costs will be omitted", async ({ db }) => {
@@ -166,6 +189,32 @@ test.describe("Xero purchase bill gates", () => {
     expect(body.error).toBe(
       "Confirm that additional costs will be added manually in Xero.",
     );
+  });
+
+  test("blocks bill creation for cancelled purchase orders", async () => {
+    const ts = Date.now();
+    const { materialId, supplierId } = await createMaterialAndSupplier(ts);
+    const order = await createPurchaseOrder({
+      supplierId,
+      expectedDate: "2026-05-27",
+      lines: [{ itemId: materialId, quantityOrdered: "5", unitCost: "4.00" }],
+    });
+    expect(order.status).toBe(201);
+
+    const cancelResponse = await testFetch(
+      `/api/purchase-orders/${order.body.id}/status`,
+      { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) },
+    );
+    expect(cancelResponse.status).toBe(200);
+
+    const response = await testFetch(
+      `/api/purchase-orders/${order.body.id}/accounting-bill`,
+      { method: "POST", body: JSON.stringify(billPayload()) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error).toBe("Cancelled purchase orders cannot be billed.");
   });
 
   test("blocks retry while a bill sync is recently pending", async ({ db }) => {

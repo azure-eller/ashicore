@@ -28,10 +28,10 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   from the order header; shipped orders can still auto-send when the org
   enables invoice automation.
 - **Purchase bill push** — `lib/xero/push-purchase-bill.ts`. Creates Xero
-  `ACCPAY` draft bills from received ERP purchase orders. The action is manual
+  `ACCPAY` draft bills from submitted ERP purchase orders before or after receipt. The action is manual
   from the PO bill status, stores a provider-neutral `purchase_bill` sync
-  snapshot, uses purchase-unit line economics, uses the selected bill-dialog
-  account as the default Xero account for bill lines without a line account,
+  snapshot, uses ordered purchase-unit line economics, uses the selected bill-dialog
+  account for all bill lines,
   defaults that field from the configured purchase-bill account with legacy
   default-account fallback, and omits additional PO costs in v1 after explicit
   user confirmation. Inventory lots and lot-tracking mode are operational ERP
@@ -159,9 +159,9 @@ After any change in `lib/xero/` or in the sales push hook (`shipSalesOrder`):
    under Business → Invoices, with `xero_push_status='pushed'` and
    `xero_invoice_id` populated locally. If `auto_email_sales_invoices`
    is on, expect `xero_email_status='sent'`.
-2. **Purchase bill happy path.** Receive an ERP PO, click Create Xero Bill,
+2. **Purchase bill happy path.** Create or receive an ERP PO, click Create Xero Bill,
    enter supplier invoice metadata, and confirm any omitted additional costs.
-   Expect a draft payable bill in Xero with purchase-unit quantities and a
+   Expect a draft payable bill in Xero with ordered purchase-unit quantities and a
    local `purchase_bill` document sync row.
 3. **Purchase import happy path.** Enable purchase order import or run bulk
    import. Expect open Xero POs to appear in ERP for receiving; received ERP PO
