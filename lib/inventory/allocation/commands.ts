@@ -26,9 +26,17 @@ import type {
   AllocationDemandType,
   AllocationDemandRef,
   AllocationSourceType,
+  AllocationWorkspace,
   SaveAllocationsForDemandInput,
 } from "./types";
 import { sourceKey } from "./types";
+
+const ALLOCATION_SAVE_RESULT = { ok: true } as const;
+
+type AllocationOperationResult =
+  | AllocationWorkspace
+  | typeof ALLOCATION_SAVE_RESULT
+  | null;
 
 function toQuantity(value: string | number | null | undefined) {
   return toAllocationQuantity(value);
@@ -228,7 +236,7 @@ export async function saveAllocationsForDemandInTx(
     }
   }
 
-  const replay = await beginInventoryOperationInTx<null>(tx, {
+  const replay = await beginInventoryOperationInTx<AllocationOperationResult>(tx, {
     organizationId: input.organizationId,
     operationName: "saveAllocationWorkspace",
     idempotencyKey: input.idempotencyKey ?? null,
@@ -342,7 +350,7 @@ export async function saveAllocationsForDemandInTx(
     await finishInventoryOperationInTx(tx, {
       organizationId: input.organizationId,
       idempotencyKey: input.idempotencyKey ?? null,
-      result: null,
+      result: ALLOCATION_SAVE_RESULT,
     });
     return null;
   }
@@ -358,7 +366,7 @@ export async function saveAllocationsForDemandInTx(
   await finishInventoryOperationInTx(tx, {
     organizationId: input.organizationId,
     idempotencyKey: input.idempotencyKey ?? null,
-    result: null,
+    result: result ?? ALLOCATION_SAVE_RESULT,
   });
   return result;
 }
@@ -513,7 +521,7 @@ export async function saveAllocationsForManufacturingIngredientGroupInTx(
     }
   }
 
-  const replay = await beginInventoryOperationInTx<null>(tx, {
+  const replay = await beginInventoryOperationInTx<AllocationOperationResult>(tx, {
     organizationId: input.organizationId,
     operationName: "saveManufacturingIngredientGroupAllocationWorkspace",
     idempotencyKey: input.idempotencyKey ?? null,
@@ -601,7 +609,7 @@ export async function saveAllocationsForManufacturingIngredientGroupInTx(
   await finishInventoryOperationInTx(tx, {
     organizationId: input.organizationId,
     idempotencyKey: input.idempotencyKey ?? null,
-    result: null,
+    result: result ?? ALLOCATION_SAVE_RESULT,
   });
   return result;
 }
