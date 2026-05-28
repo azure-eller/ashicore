@@ -2,10 +2,12 @@ import {
   Body,
   Head,
   Html,
+  Img,
   Preview,
 } from "@react-email/components";
 import type { CSSProperties } from "react";
 import type { DailyManufacturingReportPayload } from "@/lib/reports/daily-manufacturing-schema";
+import { buildSparklineUrl, sparklineImageSize } from "@/lib/reports/sparkline";
 import { formatQuantity } from "@/lib/format";
 
 type TrendPoint = {
@@ -56,8 +58,8 @@ export function DailyManufacturingReportEmail({
                 >
                   <tbody>
                     <Header payload={payload} date={date} />
-                    <ProductTypeSection rows={payload.outputByProductType} />
-                    <OutputSection rows={payload.outputByProduct} />
+                    <ProductTypeSection rows={payload.outputByProductType} baseUrl={payload.erpUrl} />
+                    <OutputSection rows={payload.outputByProduct} baseUrl={payload.erpUrl} />
                     <Footer generatedAt={generatedAt} dashboardUrl={payload.erpUrl} />
                   </tbody>
                 </table>
@@ -102,8 +104,10 @@ function Header({
 
 function ProductTypeSection({
   rows,
+  baseUrl,
 }: {
   rows: DailyManufacturingReportPayload["outputByProductType"];
+  baseUrl: string;
 }) {
   return (
     <tr>
@@ -114,7 +118,7 @@ function ProductTypeSection({
             {rows.map((row, index) => (
               <tr key={row.category}>
                 <td style={index === rows.length - 1 ? chartCardCellLast : chartCardCell}>
-                  <ChartCard row={row} />
+                  <ChartCard row={row} baseUrl={baseUrl} />
                 </td>
               </tr>
             ))}
@@ -127,8 +131,10 @@ function ProductTypeSection({
 
 function ChartCard({
   row,
+  baseUrl,
 }: {
   row: DailyManufacturingReportPayload["outputByProductType"][number];
+  baseUrl: string;
 }) {
   const series = toNumericPoints(row.ninetyDayTrend);
   const last30 = sumPoints(series.slice(-30));
@@ -166,7 +172,13 @@ function ChartCard({
                 </tr>
                 <tr>
                   <td colSpan={2} style={chartArea}>
-                    <StaticChart data={series} color={row.color} />
+                    <SparklineImage
+                      baseUrl={baseUrl}
+                      data={series}
+                      color={row.color}
+                      width={520}
+                      height={124}
+                    />
                   </td>
                 </tr>
               </tbody>
@@ -197,8 +209,10 @@ function StatCell({
 
 function OutputSection({
   rows,
+  baseUrl,
 }: {
   rows: DailyManufacturingReportPayload["outputByProduct"];
+  baseUrl: string;
 }) {
   const productMeta = `${rows.length} ${rows.length === 1 ? "product" : "products"} · 30-day trend`;
 
@@ -225,7 +239,7 @@ function OutputSection({
                     <div style={todayUnit}>{row.unit}</div>
                   </td>
                   <td align="right" className="hide-sm" style={sparkCell(index === rows.length - 1)}>
-                    <ProductSparkline row={row} />
+                    <ProductSparkline row={row} baseUrl={baseUrl} />
                   </td>
                 </tr>
               ))
@@ -243,8 +257,10 @@ function OutputSection({
 
 function ProductSparkline({
   row,
+  baseUrl,
 }: {
   row: DailyManufacturingReportPayload["outputByProduct"][number];
+  baseUrl: string;
 }) {
   const series = toNumericPoints(row.thirtyDayTrend);
   const delta = splitWindowDelta(series);
@@ -254,7 +270,13 @@ function ProductSparkline({
       <tbody>
         <tr>
           <td style={sparklineSvgCell}>
-            <Sparkline data={series} color={row.color} />
+            <SparklineImage
+              baseUrl={baseUrl}
+              data={series}
+              color={row.color}
+              width={sparklineImageSize.width}
+              height={sparklineImageSize.height}
+            />
           </td>
           <td align="right" style={{ ...sparkDelta, ...deltaText(delta, true) }}>
             {formatPercent(delta)}
@@ -305,125 +327,34 @@ function Footer({
   );
 }
 
-function StaticChart({ data, color }: { data: NumericPoint[]; color: string }) {
+function SparklineImage({
+  baseUrl,
+  data,
+  color,
+  width,
+  height,
+}: {
+  baseUrl: string;
+  data: NumericPoint[];
+  color: string;
+  width: number;
+  height: number;
+}) {
   const values = data.map((point) => point.value);
-  const yMax = niceCeil(Math.max(...values, 1));
-  const average = values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
-  const width = 1000;
-  const height = 200;
-  const padLeft = 44;
-  const padRight = 56;
-  const padTop = 16;
-  const padBottom = 28;
-  const innerWidth = width - padLeft - padRight;
-  const innerHeight = height - padTop - padBottom;
-  const lastIndex = Math.max(data.length - 1, 0);
-  const xFor = (index: number) => padLeft + (index / Math.max(lastIndex, 1)) * innerWidth;
-  const yFor = (value: number) => padTop + innerHeight - (value / yMax) * innerHeight;
-  const yTicks = Array.from({ length: 5 }, (_, index) => (yMax / 4) * index);
-  const monthIndices = getMonthIndices(data);
-  const linePath = values
-    .map((value, index) => `${index === 0 ? "M" : "L"}${round(xFor(index))} ${round(yFor(value))}`)
-    .join(" ");
-  const areaPath = `${linePath} L${round(xFor(lastIndex))} ${height - padBottom} L${round(xFor(0))} ${height - padBottom} Z`;
-  const peakIndex = values.reduce(
-    (maxIndex, value, index) => (value > values[maxIndex] ? index : maxIndex),
-    0
-  );
-
+  const src = buildSparklineUrl({ baseUrl, values, color });
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
-      width="100%"
+    <Img
+      src={src}
+      width={width}
       height={height}
-      style={svgBlock}
-    >
-      {yTicks.map((tick, index) => (
-        <g key={`y-${index}`}>
-          <line
-            x1={padLeft}
-            x2={width - padRight}
-            y1={yFor(tick)}
-            y2={yFor(tick)}
-            stroke="#E6E8EC"
-            strokeWidth="1"
-            shapeRendering="crispEdges"
-          />
-          <text x={padLeft - 8} y={yFor(tick) + 4} fontSize="11" fill="#8A8F99" textAnchor="end" fontFamily={sansStack}>
-            {formatNumber(tick)}
-          </text>
-        </g>
-      ))}
-      {monthIndices.map((index) => (
-        <text key={`m-${index}`} x={xFor(index)} y={height - 8} fontSize="11" fill="#8A8F99" textAnchor="start" fontFamily={sansStack}>
-          {formatMonth(data[index]?.date)}
-        </text>
-      ))}
-      <line
-        x1={padLeft}
-        x2={width - padRight}
-        y1={yFor(average)}
-        y2={yFor(average)}
-        stroke={color}
-        strokeOpacity="0.45"
-        strokeWidth="1"
-        strokeDasharray="3 4"
-      />
-      <text x={width - padRight + 6} y={yFor(average) + 4} fontSize="10" fill={color} fillOpacity="0.7" fontFamily={sansStack}>
-        avg {formatNumber(average)}
-      </text>
-      <path d={areaPath} fill={color} fillOpacity="0.08" />
-      <path d={linePath} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
-      {peakIndex !== lastIndex ? (
-        <g>
-          <circle cx={xFor(peakIndex)} cy={yFor(values[peakIndex] ?? 0)} r="3" fill="white" stroke={color} strokeWidth="1.5" />
-          <text
-            x={xFor(peakIndex)}
-            y={yFor(values[peakIndex] ?? 0) - 8}
-            fontSize="10"
-            fill="#475569"
-            textAnchor={peakIndex > data.length * 0.85 ? "end" : "middle"}
-            fontFamily={sansStack}
-            fontWeight="500"
-          >
-            peak {formatNumber(values[peakIndex] ?? 0)}
-          </text>
-        </g>
-      ) : null}
-      <g>
-        <circle cx={xFor(lastIndex)} cy={yFor(values[lastIndex] ?? 0)} r="4" fill={color} stroke="white" strokeWidth="1.6" />
-        <text x={xFor(lastIndex) + 8} y={yFor(values[lastIndex] ?? 0) + 4} fontSize="11" fill={color} fontWeight="600" fontFamily={sansStack}>
-          {formatNumber(values[lastIndex] ?? 0)}
-        </text>
-      </g>
-    </svg>
-  );
-}
-
-function Sparkline({ data, color }: { data: NumericPoint[]; color: string }) {
-  const width = 120;
-  const height = 32;
-  const pad = 2;
-  const innerWidth = width - pad * 2;
-  const innerHeight = height - pad * 2;
-  const values = data.length > 0 ? data.map((point) => point.value) : [0];
-  const max = Math.max(...values, 1);
-  const points = values.map((value, index) => {
-    const x = pad + (index / Math.max(values.length - 1, 1)) * innerWidth;
-    const y = pad + innerHeight - (value / max) * innerHeight;
-    return { x, y };
-  });
-  const linePath = points
-    .map((point, index) => `${index === 0 ? "M" : "L"}${round(point.x)} ${round(point.y)}`)
-    .join(" ");
-  const areaPath = `${linePath} L${round(points[points.length - 1].x)} ${height - pad} L${round(points[0].x)} ${height - pad} Z`;
-
-  return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={svgBlock}>
-      <path d={areaPath} fill={color} fillOpacity="0.08" stroke="none" />
-      <path d={linePath} fill="none" stroke={color} strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
+      alt=""
+      style={{
+        display: "block",
+        height,
+        maxWidth: "100%",
+        width,
+      }}
+    />
   );
 }
 
@@ -485,41 +416,6 @@ function formatGeneratedAt(value: string, timeZone: string) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
-}
-
-function formatMonth(value: string | undefined) {
-  if (!value) return "";
-  const [year, month, day] = value.split("-").map(Number);
-  return new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(
-    new Date(Date.UTC(year, month - 1, day))
-  );
-}
-
-function getMonthIndices(data: NumericPoint[]) {
-  const indices: number[] = [];
-  let previousMonth = "";
-
-  data.forEach((point, index) => {
-    const month = point.date.slice(0, 7);
-    if (month !== previousMonth) {
-      indices.push(index);
-      previousMonth = month;
-    }
-  });
-
-  return indices;
-}
-
-function niceCeil(value: number) {
-  if (value <= 0) return 1;
-  const exponent = 10 ** Math.floor(Math.log10(value));
-  const fraction = value / exponent;
-  const nice = fraction <= 1 ? 1 : fraction <= 2 ? 2 : fraction <= 2.5 ? 2.5 : fraction <= 5 ? 5 : 10;
-  return nice * exponent;
-}
-
-function round(value: number) {
-  return Math.round(value * 10) / 10;
 }
 
 const sansStack = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
@@ -808,9 +704,4 @@ const footerLink: CSSProperties = {
   color: "#1E3A8A",
   fontWeight: 500,
   textDecoration: "none",
-};
-
-const svgBlock: CSSProperties = {
-  display: "block",
-  overflow: "visible",
 };

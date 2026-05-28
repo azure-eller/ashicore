@@ -10,7 +10,7 @@ export function parseSparklineValues(value: string | null) {
 
   return value
     .split(",")
-    .slice(0, 14)
+    .slice(0, 90)
     .map((entry) => Number(entry.trim()))
     .filter((entry) => Number.isFinite(entry));
 }

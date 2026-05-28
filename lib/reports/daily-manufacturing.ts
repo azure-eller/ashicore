@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import {
+  items,
   manufacturingOrderIngredients,
   manufacturingOrderOutputConsumptions,
   manufacturingOrderOutputs,
@@ -126,26 +127,35 @@ function getFallbackProductTypeGraphs(
   trendRows: Array<{
     productName: string;
     productSku: string | null;
+    productCategory: string | null;
     unit: string;
     quantity: string;
   }>
 ): DailyManufacturingProductTypeGraphConfig[] {
-  const totalsByUnit = new Map<string, { unitName: string; quantity: number }>();
+  const totalsByType = new Map<
+    string,
+    { label: string; unitName: string; quantity: number }
+  >();
 
   for (const row of trendRows) {
-    const key = row.unit.trim().toLowerCase();
-    const existing = totalsByUnit.get(key) ?? { unitName: row.unit, quantity: 0 };
+    const label = row.productCategory?.trim() || `${row.unit.trim()} products`;
+    const key = `${label.toLowerCase()}|${row.unit.trim().toLowerCase()}`;
+    const existing = totalsByType.get(key) ?? {
+      label,
+      unitName: row.unit,
+      quantity: 0,
+    };
     const quantity = Number(row.quantity);
     if (Number.isFinite(quantity)) existing.quantity += quantity;
-    totalsByUnit.set(key, existing);
+    totalsByType.set(key, existing);
   }
 
-  return Array.from(totalsByUnit.values())
-    .sort((a, b) => b.quantity - a.quantity || a.unitName.localeCompare(b.unitName))
+  return Array.from(totalsByType.values())
+    .sort((a, b) => b.quantity - a.quantity || a.label.localeCompare(b.label))
     .slice(0, 2)
     .map((row, index) => ({
-      id: graphSlug(row.unitName, `unit-${index + 1}`),
-      label: row.unitName,
+      id: graphSlug(row.label, `type-${index + 1}`),
+      label: row.label,
       unitName: row.unitName,
       productTextIncludes: null,
       color: dailyManufacturingGraphColors[index % dailyManufacturingGraphColors.length],
@@ -306,7 +316,8 @@ async function buildDailyManufacturingReportPayloadInTx(
       manufacturingOrders,
       eq(manufacturingOrderOutputs.manufacturingOrderId, manufacturingOrders.id)
     )
-    .where(windowWhere)
+    .innerJoin(items, eq(manufacturingOrders.productId, items.id))
+    .where(and(windowWhere, eq(items.sellable, true)))
     .groupBy(
       manufacturingOrders.productName,
       manufacturingOrders.productSku,
@@ -330,20 +341,25 @@ async function buildDailyManufacturingReportPayloadInTx(
     SELECT
       mo.product_name AS "productName",
       mo.product_sku AS "productSku",
+      i.category AS "productCategory",
       mo.unit_name AS "unit",
       (moo.created_at AT TIME ZONE ${params.timeZone})::date::text AS "date",
       trim_scale(COALESCE(SUM(moo.quantity), 0)) AS "quantity"
     FROM manufacturing.manufacturing_order_outputs moo
     INNER JOIN manufacturing.manufacturing_orders mo
       ON moo.manufacturing_order_id = mo.id
+    INNER JOIN inventory.items i
+      ON i.id = mo.product_id
     WHERE moo.created_at >= ${new Date(trendWindowRow.startAt)}
       AND moo.created_at < ${new Date(trendWindowRow.endAt)}
       AND moo.quantity > 0
-    GROUP BY mo.product_name, mo.product_sku, mo.unit_name, 4
+      AND i.sellable IS TRUE
+    GROUP BY mo.product_name, mo.product_sku, i.category, mo.unit_name, 5
   `);
   const trendRows = toRows<{
     productName: string;
     productSku: string | null;
+    productCategory: string | null;
     unit: string;
     date: string;
     quantity: string;
@@ -420,8 +436,9 @@ async function buildDailyManufacturingReportPayloadInTx(
       manufacturingOrders,
       eq(manufacturingOrderOutputs.manufacturingOrderId, manufacturingOrders.id)
     )
+    .innerJoin(items, eq(manufacturingOrders.productId, items.id))
     .leftJoin(user, eq(manufacturingOrderOutputs.createdBy, user.id))
-    .where(windowWhere)
+    .where(and(windowWhere, eq(items.sellable, true)))
     .groupBy(
       manufacturingOrderOutputs.createdBy,
       user.name,
@@ -463,9 +480,11 @@ async function buildDailyManufacturingReportPayloadInTx(
       manufacturingOrders,
       eq(manufacturingOrderOutputs.manufacturingOrderId, manufacturingOrders.id)
     )
+    .innerJoin(items, eq(manufacturingOrders.productId, items.id))
     .where(
       and(
         windowWhere,
+        eq(items.sellable, true),
         sql`${manufacturingOrderOutputs.manufacturingOrderBatchId} IS NOT NULL`,
         eq(manufacturingOrders.manufacturingMode, "batch")
       )
@@ -501,7 +520,12 @@ async function buildDailyManufacturingReportPayloadInTx(
         manufacturingOrderIngredients.id
       )
     )
-    .where(windowWhere)
+    .innerJoin(
+      manufacturingOrders,
+      eq(manufacturingOrderOutputs.manufacturingOrderId, manufacturingOrders.id)
+    )
+    .innerJoin(items, eq(manufacturingOrders.productId, items.id))
+    .where(and(windowWhere, eq(items.sellable, true)))
     .groupBy(
       manufacturingOrderIngredients.itemName,
       manufacturingOrderIngredients.itemSku,
