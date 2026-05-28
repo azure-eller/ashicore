@@ -1,7 +1,7 @@
 ## Project
 
 Multi-module ERP: inventory, manufacturing, sales, purchasing.
-Android companion app at `~/Projects/erp-android` — check it when changing REST contracts or mobile workflows.
+Android companion app at `~/Projects/erp-android`.
 
 ## Stack
 
@@ -29,6 +29,7 @@ These are non-negotiable repo rules. They are repeated here because violating th
 - **Migrations.** Use `pnpm db:generate` + `pnpm drizzle-kit migrate`. Never use `drizzle push`. Generate migrations from fresh `origin/main`.
 - **API routes for mutations.** No server actions.
 - **Inventory kernel.** Stock, lots, costs, commitments, expected supply, dispositions, and allocations must go through canonical inventory/domain paths. Never "just update a quantity." Lot-untracked items still use internal lots for kernel storage, costing, and audit.
+- **Mobile contract.** The Android app (`~/Projects/erp-android`) consumes this app's REST API and mirrors its behavior — assume any change here can reach it. Before finishing work that could affect what the app sees or relies on, spawn a subagent to assess mobile impact: it MUST read `~/Projects/erp-android/CLAUDE.md` first (sibling-repo memory does not auto-load), then trace the affected surface in that repo. Judge by whether the app's assumptions could have shifted, not by which files you changed.
 - **Icons.** HugeIcons only. Never Lucide.
 - **Design tokens.** shadcn semantic color classes, V2 raw tokens for spacing/sizing/type. Never hardcode Tailwind colors. Sharp corners.
 - **Testing model.** Playwright is the app test path with real DB assertions. No bug-souvenir tests. Fast tests must protect a listed core mutation seam and avoid incidental UI assertions. Slow tests are operating stories, not bug archives; edge cases belong only when they naturally occur inside that story. Do not add Vitest, unit tests, or mocking frameworks unless explicitly asked.
