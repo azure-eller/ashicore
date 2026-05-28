@@ -9,6 +9,10 @@ import { trimScale } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import { roundQuantity } from "@/lib/format";
+import {
+  beginInventoryOperationInTx,
+  finishInventoryOperationInTx,
+} from "@/lib/inventory/kernel/operations/common";
 import { assertTrackedItemInTx, LotTrackingError } from "@/lib/inventory/lot-tracking";
 import { AllocationError } from "./errors";
 import { getAllocationDemandAdapter } from "./adapters";
@@ -134,6 +138,7 @@ export async function saveAllocationsForDemandInTx(
   tx: Tx,
   input: SaveAllocationsForDemandInput & {
     organizationId: string;
+    idempotencyKey?: string | null;
     returnWorkspace?: boolean;
   }
 ) {
@@ -222,6 +227,19 @@ export async function saveAllocationsForDemandInTx(
       );
     }
   }
+
+  const replay = await beginInventoryOperationInTx<null>(tx, {
+    organizationId: input.organizationId,
+    operationName: "saveAllocationWorkspace",
+    idempotencyKey: input.idempotencyKey ?? null,
+    payload: {
+      demandType: input.demandType,
+      demandId: input.demandId,
+      itemId: input.itemId,
+      allocations: input.allocations,
+    },
+  });
+  if (replay.replayed) return replay.result;
 
   const now = new Date();
   const submittedKeys = new Set<string>(
@@ -321,10 +339,15 @@ export async function saveAllocationsForDemandInTx(
   });
 
   if (input.returnWorkspace === false) {
+    await finishInventoryOperationInTx(tx, {
+      organizationId: input.organizationId,
+      idempotencyKey: input.idempotencyKey ?? null,
+      result: null,
+    });
     return null;
   }
 
-  return getAllocationWorkspaceInTx(tx, {
+  const result = await getAllocationWorkspaceInTx(tx, {
     organizationId: input.organizationId,
     primaryDemand: {
       demandType: input.demandType,
@@ -332,6 +355,12 @@ export async function saveAllocationsForDemandInTx(
     },
     itemId: input.itemId,
   });
+  await finishInventoryOperationInTx(tx, {
+    organizationId: input.organizationId,
+    idempotencyKey: input.idempotencyKey ?? null,
+    result: null,
+  });
+  return result;
 }
 
 export async function saveAllocationsForManufacturingIngredientGroupInTx(
@@ -339,6 +368,7 @@ export async function saveAllocationsForManufacturingIngredientGroupInTx(
   input: Omit<SaveAllocationsForDemandInput, "demandType" | "demandId"> & {
     demandIds: string[];
     organizationId: string;
+    idempotencyKey?: string | null;
   }
 ) {
   const demandIds = [...new Set(input.demandIds)].filter(Boolean);
@@ -483,6 +513,18 @@ export async function saveAllocationsForManufacturingIngredientGroupInTx(
     }
   }
 
+  const replay = await beginInventoryOperationInTx<null>(tx, {
+    organizationId: input.organizationId,
+    operationName: "saveManufacturingIngredientGroupAllocationWorkspace",
+    idempotencyKey: input.idempotencyKey ?? null,
+    payload: {
+      demandIds: input.demandIds,
+      itemId: input.itemId,
+      allocations: input.allocations,
+    },
+  });
+  if (replay.replayed) return replay.result;
+
   const now = new Date();
   await tx
     .update(stockAllocations)
@@ -551,11 +593,17 @@ export async function saveAllocationsForManufacturingIngredientGroupInTx(
     releaseUnpinnedAffectedDemands: true,
   });
 
-  return getAllocationWorkspaceInTx(tx, {
+  const result = await getAllocationWorkspaceInTx(tx, {
     organizationId: input.organizationId,
     primaryDemands,
     itemId: input.itemId,
   });
+  await finishInventoryOperationInTx(tx, {
+    organizationId: input.organizationId,
+    idempotencyKey: input.idempotencyKey ?? null,
+    result: null,
+  });
+  return result;
 }
 
 export async function saveAllocationsForDemand(input: SaveAllocationsForDemandInput) {

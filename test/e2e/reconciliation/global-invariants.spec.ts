@@ -5,7 +5,7 @@ import {
 } from "@/lib/db/schema";
 import { INTERNAL_UNTRACKED_LOT_NUMBER } from "@/lib/inventory/kernel";
 import { test, expect } from "../fixtures";
-import { getOrgId } from "../../helpers/api";
+import { createItem, getOrgId, getUnitId } from "../../helpers/api";
 
 // -----------------------------------------------------------------------
 // 5 global invariants derived from the so-mo-linkage scenario pack
@@ -243,10 +243,25 @@ test.describe("global inventory and manufacturing invariants", () => {
   test("invariant: active shipment-line stock allocation inserts are rejected", async ({
     db,
   }) => {
+    const item = await createItem({
+      itemType: "material",
+      name: `Recon Shipment Allocation Guard ${Date.now()}`,
+      unitDefinitionId: getUnitId(),
+      sku: `RECON-SHIP-ALLOC-GUARD-${Date.now()}`,
+      category: "Reconciliation",
+      description: null,
+      defaultPurchasePrice: "1.00",
+      defaultSellingPrice: null,
+      stock: "1",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(item.status).toBe(201);
+
     const [lot] = await db
       .select({ id: lots.id, itemId: lots.itemId })
       .from(lots)
-      .where(eq(lots.organizationId, orgId));
+      .where(eq(lots.itemId, item.body.id as string));
     expect(lot).toBeTruthy();
     const orgLiteral = orgId.replace(/'/g, "''");
     const itemId = lot!.itemId;

@@ -19,6 +19,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Spinner } from "@/components/ui/spinner";
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { apiJson } from "@/lib/client/api";
 import { formatDate, formatQuantity } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -397,6 +398,7 @@ function AllocationSourceEditor({
     mutationFn: async () =>
       apiJson<{ ok: true }>("/api/allocation/save", {
         method: "POST",
+        headers: createIdempotencyHeaders("saveAllocationWorkspace"),
         body: {
           demandType: target.demandType,
           demandId: target.line.id,

@@ -98,6 +98,28 @@ const GUARDS: Guard[] = [
 ];
 
 function listFilesForPattern(pattern: string) {
+  const searchWithGitGrep = () => {
+    const output = execFileSync(
+      "git",
+      ["grep", "-l", "-F", pattern, "--", ...SEARCH_ROOTS],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    ).trim();
+
+    if (!output) {
+      return [];
+    }
+
+    return output
+      .split("\n")
+      .filter(Boolean)
+      .filter((file) => !file.startsWith("test/scenarios/"))
+      .sort();
+  };
+
   try {
     const output = execFileSync(
       "rg",
@@ -121,10 +143,31 @@ function listFilesForPattern(pattern: string) {
 
     return output.split("\n").filter(Boolean).sort();
   } catch (error) {
+    const code =
+      typeof error === "object" && error && "code" in error
+        ? (error as { code?: string }).code
+        : undefined;
     const exitCode =
       typeof error === "object" && error && "status" in error
         ? (error as { status?: number }).status
         : undefined;
+
+    if (code === "ENOENT") {
+      try {
+        return searchWithGitGrep();
+      } catch (gitGrepError) {
+        const gitGrepExitCode =
+          typeof gitGrepError === "object" && gitGrepError && "status" in gitGrepError
+            ? (gitGrepError as { status?: number }).status
+            : undefined;
+
+        if (gitGrepExitCode === 1) {
+          return [];
+        }
+
+        throw gitGrepError;
+      }
+    }
 
     if (exitCode === 1) {
       return [];

@@ -19,13 +19,14 @@ export async function getAllocationWorkspace(params: {
 
 export async function saveAllocationWorkspace(
   input: SaveAllocationsForDemandInput,
-  options: { returnWorkspace?: boolean } = {}
+  options: { idempotencyKey?: string | null; returnWorkspace?: boolean } = {}
 ) {
   return withAuthedOrgContext((tx, organizationId, actorUserId) =>
     saveAllocationsForDemandInTx(tx, {
       ...input,
       organizationId,
       actorUserId,
+      idempotencyKey: options.idempotencyKey ?? null,
       returnWorkspace: options.returnWorkspace,
     })
   );
@@ -35,13 +36,14 @@ export async function saveManufacturingIngredientGroupAllocationWorkspace(
   input: Omit<SaveAllocationsForDemandInput, "demandType" | "demandId"> & {
     demandIds: string[];
   },
-  options: { returnWorkspace?: boolean } = {}
+  options: { idempotencyKey?: string | null; returnWorkspace?: boolean } = {}
 ) {
   return withAuthedOrgContext(async (tx, organizationId, actorUserId) => {
     const workspace = await saveAllocationsForManufacturingIngredientGroupInTx(tx, {
       ...input,
       organizationId,
       actorUserId,
+      idempotencyKey: options.idempotencyKey ?? null,
     });
     return options.returnWorkspace === false ? null : workspace;
   });

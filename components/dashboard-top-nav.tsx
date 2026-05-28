@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
@@ -78,6 +79,7 @@ export function DashboardTopNav({
   assignedRoles,
 }: DashboardTopNavProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { pathname, optimisticPathname, navigate } = useNavigationPending();
   const [hydratedPathname, setHydratedPathname] = useState<string | null>(null);
   const visiblePathname = optimisticPathname ?? hydratedPathname ?? "";
@@ -136,6 +138,7 @@ export function DashboardTopNav({
       return;
     }
 
+    queryClient.clear();
     router.refresh();
     setSwitchingOrgId(null);
   }

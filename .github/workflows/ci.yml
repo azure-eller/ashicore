@@ -546,6 +546,9 @@ jobs:
           cat /tmp/erp-dev.log
           exit 1
 
+      - name: Run reconciliation Playwright suite
+        run: pnpm test:reconciliation
+
       - name: Run fast Playwright suite
         run: pnpm test
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   cancelPurchaseOrder,
@@ -15,15 +15,9 @@ const statusSchema = z.object({
   status: z.enum(PURCHASE_ORDER_STATUSES),
 });
 
-function idempotencyKey(request: Request, action: string, id: string) {
-  return (
-    request.headers.get("Idempotency-Key") ??
-    `purchase-order-status:${action}:${id}:${crypto.randomUUID()}`
-  );
-}
-
 export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("purchasing", request.headers);
+  const idempotencyKey = requireIdempotencyKey(request, "purchaseOrderStatus");
   const { id } = await (ctx as RouteContext).params;
   const { status } = statusSchema.parse(await request.json());
   const order = await getPurchaseOrder(id);
@@ -42,7 +36,7 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   try {
     if (status === "ordered") {
       const result = await submitPurchaseOrder(id, {
-        idempotencyKey: idempotencyKey(request, "submit", id),
+        idempotencyKey: `${idempotencyKey}:submit`,
         syncAccounting: false,
         sendEmail: false,
       });
@@ -71,7 +65,7 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
       const result = await receivePurchaseOrder(
         id,
         { lines: receivableLines, confirmOverReceipt: false },
-        { idempotencyKey: idempotencyKey(request, "receive", id) },
+        { idempotencyKey: `${idempotencyKey}:receive` },
       );
       if (!result) {
         return NextResponse.json(
@@ -84,7 +78,7 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
 
     if (status === "cancelled") {
       const result = await cancelPurchaseOrder(id, {
-        idempotencyKey: idempotencyKey(request, "cancel", id),
+        idempotencyKey: `${idempotencyKey}:cancel`,
       });
       if (!result) {
         return NextResponse.json(

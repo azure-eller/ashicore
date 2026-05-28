@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { apiHandler } from "@/lib/api/handler";
+import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { AllocationError } from "@/lib/inventory/allocation/errors";
 import {
@@ -36,6 +36,7 @@ const saveSchema = z.object({
 
 export const POST = apiHandler(async (request: Request) => {
   const input = saveSchema.parse(await request.json());
+  const idempotencyKey = requireIdempotencyKey(request, "saveAllocationWorkspace");
   await assertModuleWriteAccess(
     input.demandType === "manufacturing_order_ingredient" ? "manufacturing" : "sales",
     request.headers
@@ -53,10 +54,10 @@ export const POST = apiHandler(async (request: Request) => {
           demandIds: input.demandIds,
           allocations: input.allocations,
         },
-        { returnWorkspace: false }
+        { idempotencyKey, returnWorkspace: false }
       );
     } else {
-      await saveAllocationWorkspace(input, { returnWorkspace: false });
+      await saveAllocationWorkspace(input, { idempotencyKey, returnWorkspace: false });
     }
     return NextResponse.json({ ok: true });
   } catch (error) {

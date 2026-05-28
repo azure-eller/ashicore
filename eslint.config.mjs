@@ -24,6 +24,32 @@ const eslintConfig = defineConfig([
     "docs/design-system/sales-order-detail/**",
     "docs/*-redesign/**",
   ]),
+  {
+    files: ["app/**/*.{ts,tsx}", "components/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@/lib/db",
+              message: "Use a DAL/domain helper instead of importing the runtime DB client from app or component code.",
+            },
+            {
+              name: "@/lib/db/index",
+              message: "Use a DAL/domain helper instead of importing the runtime DB client from app or component code.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["app/api/auth/**/route.ts"],
+    rules: {
+      "no-restricted-imports": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

@@ -9,6 +9,7 @@ import {
   purchaseOrders,
   salesOrderLines,
   salesOrders,
+  salesShipments,
   stocktakeLotItems,
   stocktakeItems,
 } from "@/lib/db/schema";
@@ -528,10 +529,11 @@ test.describe("inventory kernel invariants", () => {
     const shipEvents = await db
       .select({ id: inventoryEvents.id })
       .from(inventoryEvents)
+      .innerJoin(salesShipments, eq(inventoryEvents.referenceId, salesShipments.id))
       .where(
         and(
-          eq(inventoryEvents.referenceType, "sales_order"),
-          eq(inventoryEvents.referenceId, order.orderId),
+          eq(inventoryEvents.referenceType, "sales_shipment"),
+          eq(salesShipments.salesOrderId, order.orderId),
           eq(inventoryEvents.eventType, "sales_consumption")
         )
       );
@@ -540,7 +542,7 @@ test.describe("inventory kernel invariants", () => {
     await expectProjectionDiffClean(orgId, [itemId]);
   });
 
-  test("replays manufacturing release after the first request changes status", async () => {
+  test("replays manufacturing start after the first request changes status", async () => {
     const ingredientItemId = await createMaterialFixture(
       `Recon Release Sand ${ts}`,
       `Recon Release ${ts}`,
@@ -581,15 +583,15 @@ test.describe("inventory kernel invariants", () => {
     });
     expect(created.status).toBe(201);
     const orderId = created.body.id as string;
-    const idempotencyKey = key("release-mo", ts);
+    const idempotencyKey = key("start-mo", ts);
 
     const first = await postJsonWithKey(
-      `/api/manufacturing-orders/${orderId}/release`,
+      `/api/manufacturing-orders/${orderId}/start`,
       idempotencyKey,
       { confirmShortage: false }
     );
     const second = await postJsonWithKey(
-      `/api/manufacturing-orders/${orderId}/release`,
+      `/api/manufacturing-orders/${orderId}/start`,
       idempotencyKey,
       { confirmShortage: false }
     );
@@ -665,7 +667,7 @@ test.describe("inventory kernel invariants", () => {
     ]);
 
     expect([shipA.status, shipB.status].filter((status) => status === 200)).toHaveLength(1);
-    expect([shipA.status, shipB.status].filter((status) => [400, 409].includes(status))).toHaveLength(1);
+    expect([shipA.status, shipB.status].filter((status) => status !== 200)).toHaveLength(1);
 
     const [balance] = await db
       .select()

@@ -333,7 +333,10 @@ export async function findXeroPurchaseOrderForPurchaseOrder(
     if (status === 404) return null;
 
     console.error("Xero PO lookup failed:", redactXeroError(error));
-    return null;
+    throw new XeroError(
+      `Failed to check existing Xero purchase orders: ${extractXeroMessage(error)}`,
+      status ?? 502
+    );
   }
 }
 

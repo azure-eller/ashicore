@@ -18,6 +18,7 @@ import { getAuthedXeroClient } from "./client";
 import {
   XeroError,
   extractXeroMessage,
+  extractXeroStatusCode,
   redactXeroError,
 } from "./errors";
 import { upsertXeroContact, type XeroContactInput } from "./contacts";
@@ -488,8 +489,14 @@ export async function findXeroInvoiceForSalesOrder(
       invoiceNumber: accrec.invoiceNumber ?? null,
     };
   } catch (error) {
+    const status = extractXeroStatusCode(error);
+    if (status === 404) return null;
+
     console.error("Xero invoice lookup failed:", redactXeroError(error));
-    return null;
+    throw new XeroError(
+      `Failed to check existing Xero invoices: ${extractXeroMessage(error)}`,
+      status ?? 502
+    );
   }
 }
 
