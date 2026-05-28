@@ -9,6 +9,7 @@ import {
   purchaseOrders,
   salesOrderLines,
   salesOrders,
+  stocktakeLotItems,
   stocktakeItems,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -757,10 +758,19 @@ test.describe("inventory kernel invariants", () => {
 
     expect(line).toBeTruthy();
 
+    const [lotLine] = await db
+      .select({
+        id: stocktakeLotItems.id,
+      })
+      .from(stocktakeLotItems)
+      .where(eq(stocktakeLotItems.stocktakeItemId, line.id));
+
+    expect(lotLine).toBeTruthy();
+
     const savedCounts = await testFetch(`/api/stocktakes/${stocktakeId}`, {
       method: "PUT",
       body: JSON.stringify({
-        lines: [{ lineId: line.id, countedQty: "5" }],
+        lotLines: [{ lotLineId: lotLine.id, countedQty: "5" }],
       }),
     });
     expect(savedCounts.status).toBe(200);

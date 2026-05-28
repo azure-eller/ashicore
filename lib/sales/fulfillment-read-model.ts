@@ -611,22 +611,40 @@ function coverageForNeeds(
     let consumedExpected = false;
     const supplies = supplyByItemId.get(need.itemId) ?? [];
 
-    for (const supply of supplies) {
+    for (const supply of supplies.filter((slice) => slice.expectedDate == null)) {
       if (remaining <= 0) break;
       if (supply.quantity <= 0) continue;
 
       const consumed = Math.min(remaining, supply.quantity);
       supply.quantity = roundQuantity(supply.quantity - consumed);
       remaining = roundQuantity(remaining - consumed);
+    }
 
-      if (supply.expectedDate != null) {
-        consumedExpected = true;
-        expectedDate =
-          [expectedDate, supply.expectedDate]
-            .filter((date): date is string => date != null)
-            .sort()
-            .at(-1) ?? null;
-      }
+    const currentShortQty = remaining;
+    if (currentShortQty > 0) {
+      shortages.push({
+        itemId: need.itemId,
+        itemName: need.itemName,
+        itemSku: need.itemSku,
+        unitName: need.unitName,
+        requiredQty: need.quantity,
+        shortQty: currentShortQty,
+      });
+    }
+
+    for (const supply of supplies.filter((slice) => slice.expectedDate != null)) {
+      if (remaining <= 0) break;
+      if (supply.quantity <= 0) continue;
+
+      const consumed = Math.min(remaining, supply.quantity);
+      supply.quantity = roundQuantity(supply.quantity - consumed);
+      remaining = roundQuantity(remaining - consumed);
+      consumedExpected = true;
+      expectedDate =
+        [expectedDate, supply.expectedDate]
+          .filter((date): date is string => date != null)
+          .sort()
+          .at(-1) ?? null;
     }
 
     if (remaining <= 0 && !consumedExpected) {
@@ -640,14 +658,6 @@ function coverageForNeeds(
     }
 
     coverages.push({ state: "not_available", expectedDate: null });
-    shortages.push({
-      itemId: need.itemId,
-      itemName: need.itemName,
-      itemSku: need.itemSku,
-      unitName: need.unitName,
-      requiredQty: need.quantity,
-      shortQty: remaining,
-    });
   }
 
   return { coverages, shortages };

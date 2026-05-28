@@ -6,7 +6,13 @@ import { nullableString } from "./shared";
 export const STOCKTAKE_SCOPE_ITEM_TYPES = ["material", "product"] as const;
 export type StocktakeScopeItemType = (typeof STOCKTAKE_SCOPE_ITEM_TYPES)[number];
 
-export const STOCKTAKE_SCOPES = ["all", ...STOCKTAKE_SCOPE_ITEM_TYPES] as const;
+export const STOCKTAKE_CREATION_MODES = ["empty", "in_stock", "all"] as const;
+export type StocktakeCreationMode = (typeof STOCKTAKE_CREATION_MODES)[number];
+
+export const STOCKTAKE_SCOPES = [
+  ...STOCKTAKE_CREATION_MODES,
+  ...STOCKTAKE_SCOPE_ITEM_TYPES,
+] as const;
 export type StocktakeBaseScope = (typeof STOCKTAKE_SCOPES)[number];
 export type StocktakeCategoryScope =
   `${StocktakeScopeItemType}:category:${string}`;
@@ -47,8 +53,18 @@ export function isStocktakeScope(value: string): value is StocktakeScope {
 
 export function parseStocktakeScope(scope: StocktakeScope):
   | { kind: "all" }
+  | { kind: "empty" }
+  | { kind: "in_stock" }
   | { kind: "type"; itemType: StocktakeScopeItemType }
   | { kind: "category"; itemType: StocktakeScopeItemType; category: string } {
+  if (scope === "empty") {
+    return { kind: "empty" };
+  }
+
+  if (scope === "in_stock") {
+    return { kind: "in_stock" };
+  }
+
   if (scope === "all") {
     return { kind: "all" };
   }
@@ -77,6 +93,8 @@ const stocktakeScopeSchema = z
   .transform(normalizeStocktakeScope)
   .refine(isStocktakeScope, "Choose a valid scope");
 
+export const stocktakeCreationModeSchema = z.enum(STOCKTAKE_CREATION_MODES);
+
 export const insertStocktakeSchema = createInsertSchema(stocktakes, {
   name: z
     .string()
@@ -94,6 +112,7 @@ export const insertStocktakeSchema = createInsertSchema(stocktakes, {
   createdAt: true,
   updatedAt: true,
 }).extend({
+  creationMode: stocktakeCreationModeSchema.optional(),
   itemIds: z.array(z.string().min(1)).min(1, "Choose at least one item").optional(),
 });
 
@@ -108,11 +127,13 @@ export type CreateStocktake = z.infer<typeof createStocktakeSchema>;
 const rawCountLineSchema = z.object({
   lineId: z.string().min(1),
   countedQty: nullableString,
+  notes: nullableString.optional(),
 });
 
 const rawCountLotLineSchema = z.object({
   lotLineId: z.string().min(1),
   countedQty: nullableString,
+  notes: nullableString.optional(),
 });
 
 export const updateStocktakeSchema = z
@@ -193,10 +214,12 @@ export const updateStocktakeSchema = z
     lines: lines.map((line) => ({
       lineId: line.lineId,
       countedQty: line.countedQty?.trim() ?? null,
+      ...(line.notes !== undefined ? { notes: line.notes?.trim() ?? null } : {}),
     })),
     lotLines: lotLines.map((line) => ({
       lotLineId: line.lotLineId,
       countedQty: line.countedQty?.trim() ?? null,
+      ...(line.notes !== undefined ? { notes: line.notes?.trim() ?? null } : {}),
     })),
   }));
 
@@ -212,5 +235,6 @@ export type CompleteStocktake = z.infer<typeof completeStocktakeSchema>;
 export const stocktakeDefaultValues: InsertStocktake = {
   name: "",
   scope: "all",
+  creationMode: "all",
   notes: null,
 };

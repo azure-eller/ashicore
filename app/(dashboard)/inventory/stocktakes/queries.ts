@@ -1,7 +1,7 @@
 import "server-only";
 
 import { normalizeNumeric } from "@/lib/format";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import {
   inventoryLotBalances,
   itemFamilies,
@@ -21,6 +21,8 @@ import {
   finishInventoryOperationInTx,
   lockItemsInTx,
   projectedOnHandQty,
+  projectedOnHandQtyExpr,
+  projectedReservableOnHandQtyExpr,
   reconcileInventoryLotAllocationsForItemsInTx,
   reconcileStocktakeCountInTx,
 } from "@/lib/inventory/kernel";
@@ -32,6 +34,7 @@ import { measureObservedOperation } from "@/lib/observability/request-log";
 import type {
   CompleteStocktake,
   InsertStocktake,
+  StocktakeCreationMode,
   StocktakeScope,
   StocktakeScopeItemType,
   UpdateStocktakeCounts,
@@ -43,6 +46,8 @@ import {
 import type {
   StocktakeDetail,
   StocktakeDetailLine,
+  StocktakeCompletionPreview,
+  CloneStocktakeResult,
   StocktakeListRow,
   StocktakePreviewItem,
   StocktakeScopeOption,
@@ -60,6 +65,7 @@ type SnapshotItem = {
   name: string;
   sku: string | null;
   itemType: string;
+  category: string | null;
   unitName: string;
   currentQty: string;
 };
@@ -113,6 +119,18 @@ function sumQuantities(values: Array<string | null | undefined>) {
   return normalizeNumeric(values.reduce((sum, value) => sum + Number(value ?? 0), 0));
 }
 
+function stocktakeEligibleItemConditions() {
+  return [
+    isNull(items.deletedAt),
+    isNotNull(items.familyId),
+    inArray(items.itemType, ["material", "product"]),
+  ];
+}
+
+function modeScope(mode: StocktakeCreationMode | undefined, fallback: StocktakeScope) {
+  return mode ?? fallback;
+}
+
 async function getLockedStocktakeInTx(tx: Tx, id: string): Promise<LockedStocktake | null> {
   const [stocktake] = await tx
     .select({
@@ -132,7 +150,9 @@ async function getStocktakeLinesInTx(
   options?: { liveCurrent?: boolean }
 ): Promise<StocktakeDetailLine[]> {
   const expectedQty = options?.liveCurrent
-    ? projectedOnHandQty(items.organizationId, items.id).as("expectedQty")
+    ? trimScale(projectedReservableOnHandQtyExpr(items.organizationId, items.id)).as(
+        "expectedQty"
+      )
     : trimScale(stocktakeItems.expectedQty).as("expectedQty");
   const rows = await tx
     .select({
@@ -141,11 +161,13 @@ async function getStocktakeLinesInTx(
       itemName: stocktakeItems.itemName,
       itemSku: stocktakeItems.itemSku,
       itemType: stocktakeItems.itemType,
+      category: items.category,
       unitName: stocktakeItems.unitName,
       expectedQty,
       countedQty: trimScaleNullable(stocktakeItems.countedQty).as("countedQty"),
       varianceQty: trimScaleNullable(stocktakeItems.varianceQty).as("varianceQty"),
       appliedDeltaQty: trimScaleNullable(stocktakeItems.appliedDeltaQty).as("appliedDeltaQty"),
+      notes: stocktakeItems.notes,
       sortOrder: stocktakeItems.sortOrder,
       createdAt: stocktakeItems.createdAt,
       updatedAt: stocktakeItems.updatedAt,
@@ -171,6 +193,7 @@ async function getStocktakeLinesInTx(
       countedQty: trimScaleNullable(stocktakeLotItems.countedQty).as("countedQty"),
       varianceQty: trimScaleNullable(stocktakeLotItems.varianceQty).as("varianceQty"),
       appliedDeltaQty: trimScaleNullable(stocktakeLotItems.appliedDeltaQty).as("appliedDeltaQty"),
+      notes: stocktakeLotItems.notes,
       receivedAt: stocktakeLotItems.receivedAt,
       sortOrder: stocktakeLotItems.sortOrder,
       createdAt: stocktakeLotItems.createdAt,
@@ -195,6 +218,7 @@ async function getStocktakeLinesInTx(
       stocktakeLotItems.countedQty,
       stocktakeLotItems.varianceQty,
       stocktakeLotItems.appliedDeltaQty,
+      stocktakeLotItems.notes,
       stocktakeLotItems.receivedAt,
       stocktakeLotItems.sortOrder,
       stocktakeLotItems.createdAt,
@@ -253,8 +277,16 @@ async function getAvailableLotRowsForItemIdsInTx(tx: Tx, itemIds: string[]) {
 }
 
 async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
-  const conditions = [isNull(items.deletedAt)];
+  const conditions = stocktakeEligibleItemConditions();
   const parsedScope = parseStocktakeScope(scope);
+
+  if (parsedScope.kind === "empty") {
+    return [];
+  }
+
+  if (parsedScope.kind === "in_stock") {
+    conditions.push(sql`${projectedOnHandQtyExpr(items.organizationId, items.id)} > 0`);
+  }
 
   if (parsedScope.kind === "type") {
     conditions.push(eq(items.itemType, parsedScope.itemType));
@@ -282,6 +314,7 @@ async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
       name: items.name,
       sku: items.sku,
       itemType: items.itemType,
+      category: items.category,
       unitName: unitDefinitions.name,
       currentQty: projectedOnHandQty(items.organizationId, items.id).as("currentQty"),
     })
@@ -309,7 +342,7 @@ async function getSnapshotItemsForItemIdsInTx(tx: Tx, itemIds: string[]) {
   const lockedRows = await tx
     .select({ id: items.id })
     .from(items)
-    .where(and(isNull(items.deletedAt), inArray(items.id, uniqueIds)))
+    .where(and(...stocktakeEligibleItemConditions(), inArray(items.id, uniqueIds)))
     .orderBy(asc(items.id))
     .for("update");
 
@@ -327,6 +360,7 @@ async function getSnapshotItemsForItemIdsInTx(tx: Tx, itemIds: string[]) {
       name: items.name,
       sku: items.sku,
       itemType: items.itemType,
+      category: items.category,
       unitName: unitDefinitions.name,
       currentQty: projectedOnHandQty(items.organizationId, items.id).as("currentQty"),
     })
@@ -339,6 +373,60 @@ async function getSnapshotItemsForItemIdsInTx(tx: Tx, itemIds: string[]) {
     const row = rowById.get(id);
     return row ? [row] : [];
   });
+}
+
+async function insertStocktakeSnapshotLinesInTx(
+  tx: Tx,
+  stocktakeId: string,
+  snapshotItems: SnapshotItem[],
+  sortOrderByItemId?: Map<string, number>
+) {
+  if (snapshotItems.length === 0) return [];
+
+  const stocktakeLines = await tx.insert(stocktakeItems).values(
+    snapshotItems.map((item, index) => ({
+      stocktakeId,
+      itemId: item.id,
+      itemName: item.name,
+      itemSku: item.sku,
+      itemType: item.itemType,
+      unitName: item.unitName,
+      expectedQty: normalizeNumeric(parseFloat(item.currentQty)),
+      countedQty: null,
+      varianceQty: null,
+      appliedDeltaQty: null,
+      notes: null,
+      sortOrder: sortOrderByItemId?.get(item.id) ?? index,
+    }))
+  ).returning({ id: stocktakeItems.id, itemId: stocktakeItems.itemId });
+
+  const lotRows = await getAvailableLotRowsForItemIdsInTx(
+    tx,
+    stocktakeLines.map((line) => line.itemId)
+  );
+  const lineIdByItemId = new Map(stocktakeLines.map((line) => [line.itemId, line.id]));
+  if (lotRows.length > 0) {
+    await tx.insert(stocktakeLotItems).values(
+      lotRows.flatMap((lot, index) => {
+        const stocktakeItemId = lineIdByItemId.get(lot.itemId);
+        if (!stocktakeItemId) return [];
+        return {
+          stocktakeItemId,
+          lotId: lot.lotId,
+          lotNumber: lot.lotNumber,
+          expectedQty: normalizeNumeric(parseFloat(lot.expectedQty)),
+          countedQty: null,
+          varianceQty: null,
+          appliedDeltaQty: null,
+          notes: null,
+          receivedAt: lot.receivedAt,
+          sortOrder: index,
+        };
+      })
+    );
+  }
+
+  return stocktakeLines;
 }
 
 export async function getStocktakePreviewItems(): Promise<StocktakePreviewItem[]> {
@@ -447,12 +535,21 @@ export async function getStocktakeScopeOptions(): Promise<StocktakeScopeOptionGr
   });
 }
 
-export async function getStocktakes(): Promise<StocktakeListRow[]> {
+export async function getStocktakes(options?: {
+  search?: string | null;
+  limit?: number | null;
+}): Promise<StocktakeListRow[]> {
   return measureObservedOperation(
     "inventory.get_stocktakes",
     async () => {
       return withAuthedOrgContext(async (tx) => {
-        const rows = await tx
+        const search = options?.search?.trim();
+        const limit = options?.limit ?? null;
+        const whereConditions = [
+          sql`${stocktakes.status} NOT IN ('cancelled', 'deleted')`,
+          ...(search ? [ilike(stocktakes.name, `%${search}%`)] : []),
+        ];
+        const rowsQuery = tx
           .select({
             id: stocktakes.id,
             name: stocktakes.name,
@@ -465,14 +562,17 @@ export async function getStocktakes(): Promise<StocktakeListRow[]> {
             updatedAt: stocktakes.updatedAt,
           })
           .from(stocktakes)
-          .where(sql`${stocktakes.status} NOT IN ('cancelled', 'deleted')`)
-          .orderBy(desc(stocktakes.createdAt), asc(stocktakes.name), asc(stocktakes.id));
+          .where(and(...whereConditions))
+          .orderBy(desc(stocktakes.createdAt), asc(stocktakes.name), asc(stocktakes.id))
+          .$dynamic();
 
-        if (rows.length === 0) {
+        const filteredRows = limit == null ? await rowsQuery : await rowsQuery.limit(limit);
+
+        if (filteredRows.length === 0) {
           return [];
         }
 
-        const ids = rows.map((row) => row.id);
+        const ids = filteredRows.map((row) => row.id);
         const lineRows = await tx
           .select({
             stocktakeId: stocktakeItems.stocktakeId,
@@ -507,7 +607,7 @@ export async function getStocktakes(): Promise<StocktakeListRow[]> {
           counts.set(line.stocktakeId, bucket);
         });
 
-        return rows.map((row) => {
+        return filteredRows.map((row) => {
           const bucket = counts.get(row.id) ?? {
             itemCount: 0,
             countedCount: 0,
@@ -552,9 +652,7 @@ export async function getStocktake(id: string): Promise<StocktakeDetail | null> 
       return null;
     }
 
-    const lines = await getStocktakeLinesInTx(tx, id, {
-      liveCurrent: stocktake.status === "draft",
-    });
+    const lines = await getStocktakeLinesInTx(tx, id);
 
     return {
       ...stocktake,
@@ -565,13 +663,110 @@ export async function getStocktake(id: string): Promise<StocktakeDetail | null> 
   });
 }
 
+export async function getStocktakeCompletionPreview(
+  id: string
+): Promise<StocktakeCompletionPreview | null> {
+  return withAuthedOrgContext(async (tx) => {
+    const [stocktake] = await tx
+      .select({
+        id: stocktakes.id,
+        name: stocktakes.name,
+        status: stocktakes.status,
+      })
+      .from(stocktakes)
+      .where(and(eq(stocktakes.id, id), sql`${stocktakes.status} NOT IN ('cancelled', 'deleted')`));
+
+    if (!stocktake) return null;
+    if (stocktake.status !== "draft") {
+      throw new StocktakeError("Only draft stocktakes can be previewed.", 400);
+    }
+
+    const snapshotLines = await getStocktakeLinesInTx(tx, id, { liveCurrent: false });
+    const liveLines = await getStocktakeLinesInTx(tx, id, { liveCurrent: true });
+    const liveLineById = new Map(liveLines.map((line) => [line.id, line]));
+    const countedLines = snapshotLines.filter((line) =>
+      line.lots.length > 0
+        ? line.lots.some((lot) => lot.countedQty != null)
+        : line.countedQty != null
+    );
+
+    if (countedLines.length === 0) {
+      throw new StocktakeError("Enter at least one count before reviewing.", 400);
+    }
+
+    return {
+      id: stocktake.id,
+      name: stocktake.name,
+      status: stocktake.status as StocktakeCompletionPreview["status"],
+      lines: countedLines.map((line) => {
+        const liveLine = liveLineById.get(line.id);
+        if (line.lots.length > 0) {
+          const liveLotsById = new Map(
+            (liveLine?.lots ?? []).map((lot) => [lot.id, lot])
+          );
+          const lots = line.lots
+            .filter((lot) => lot.countedQty != null)
+            .map((lot) => {
+              const currentQty = liveLotsById.get(lot.id)?.expectedQty ?? "0";
+              const countedQty = lot.countedQty ?? "0";
+              return {
+                lotLineId: lot.id,
+                lotId: lot.lotId,
+                lotNumber: lot.lotNumber,
+                expectedQty: lot.expectedQty,
+                currentQty,
+                countedQty,
+                varianceQty: normalizeNumeric(Number(countedQty) - Number(currentQty)),
+                notes: lot.notes,
+              };
+            });
+          const currentQty = sumQuantities(lots.map((lot) => lot.currentQty));
+          const countedQty = sumQuantities(lots.map((lot) => lot.countedQty));
+          return {
+            lineId: line.id,
+            itemId: line.itemId,
+            itemName: line.itemName,
+            itemSku: line.itemSku,
+            category: line.category,
+            unitName: line.unitName,
+            expectedQty: line.expectedQty,
+            currentQty,
+            countedQty,
+            varianceQty: normalizeNumeric(Number(countedQty) - Number(currentQty)),
+            notes: line.notes,
+            lots,
+          };
+        }
+
+        const currentQty = liveLine?.expectedQty ?? "0";
+        const countedQty = line.countedQty ?? "0";
+        return {
+          lineId: line.id,
+          itemId: line.itemId,
+          itemName: line.itemName,
+          itemSku: line.itemSku,
+          category: line.category,
+          unitName: line.unitName,
+          expectedQty: line.expectedQty,
+          currentQty,
+          countedQty,
+          varianceQty: normalizeNumeric(Number(countedQty) - Number(currentQty)),
+          notes: line.notes,
+          lots: [],
+        };
+      }),
+    };
+  });
+}
+
 export async function createStocktake(data: InsertStocktake) {
   return withAuthedOrgContext(async (tx, orgId) => {
-    const snapshotItems = (data.itemIds?.length
+    const scope = modeScope(data.creationMode, data.scope);
+    const snapshotItems = (data.itemIds !== undefined
       ? await getSnapshotItemsForItemIdsInTx(tx, data.itemIds)
-      : await getSnapshotItemsForScopeInTx(tx, data.scope)) as SnapshotItem[];
+      : await getSnapshotItemsForScopeInTx(tx, scope)) as SnapshotItem[];
 
-    if (snapshotItems.length === 0) {
+    if (snapshotItems.length === 0 && scope !== "empty") {
       throw new StocktakeError("No active items are selected.", 400, {
         errors: {
           itemIds: ["Choose at least one active item"],
@@ -584,51 +779,13 @@ export async function createStocktake(data: InsertStocktake) {
       .values({
         organizationId: orgId,
         name: data.name,
-        scope: data.scope,
+        scope,
         status: "draft",
         notes: data.notes,
       })
       .returning({ id: stocktakes.id });
 
-    const stocktakeLines = await tx.insert(stocktakeItems).values(
-      snapshotItems.map((item, index) => ({
-        stocktakeId: stocktake.id,
-        itemId: item.id,
-        itemName: item.name,
-        itemSku: item.sku,
-        itemType: item.itemType,
-        unitName: item.unitName,
-        expectedQty: normalizeNumeric(parseFloat(item.currentQty)),
-        countedQty: null,
-        varianceQty: null,
-        appliedDeltaQty: null,
-        sortOrder: index,
-      }))
-    ).returning({ id: stocktakeItems.id, itemId: stocktakeItems.itemId });
-    const lotRows = await getAvailableLotRowsForItemIdsInTx(
-      tx,
-      stocktakeLines.map((line) => line.itemId)
-    );
-    const lineIdByItemId = new Map(stocktakeLines.map((line) => [line.itemId, line.id]));
-    if (lotRows.length > 0) {
-      await tx.insert(stocktakeLotItems).values(
-        lotRows.flatMap((lot, index) => {
-          const stocktakeItemId = lineIdByItemId.get(lot.itemId);
-          if (!stocktakeItemId) return [];
-          return {
-            stocktakeItemId,
-            lotId: lot.lotId,
-            lotNumber: lot.lotNumber,
-            expectedQty: normalizeNumeric(parseFloat(lot.expectedQty)),
-            countedQty: null,
-            varianceQty: null,
-            appliedDeltaQty: null,
-            receivedAt: lot.receivedAt,
-            sortOrder: index,
-          };
-        })
-      );
-    }
+    await insertStocktakeSnapshotLinesInTx(tx, stocktake.id, snapshotItems);
 
     return stocktake;
   });
@@ -646,7 +803,7 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
       throw new StocktakeError("Only draft stocktakes can be updated.", 400);
     }
 
-    const existingLines = await getStocktakeLinesInTx(tx, id, { liveCurrent: true });
+    const existingLines = await getStocktakeLinesInTx(tx, id);
     const lineMap = new Map(existingLines.map((line) => [line.id, line]));
 
     if (data.itemIds) {
@@ -676,42 +833,12 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
           });
         }
 
-        const addedLines = await tx.insert(stocktakeItems).values(
-          snapshotItems.map((item) => ({
-            stocktakeId: id,
-            itemId: item.id,
-            itemName: item.name,
-            itemSku: item.sku,
-            itemType: item.itemType,
-            unitName: item.unitName,
-            expectedQty: normalizeNumeric(parseFloat(item.currentQty)),
-            countedQty: null,
-            varianceQty: null,
-            appliedDeltaQty: null,
-            sortOrder: uniqueItemIds.indexOf(item.id),
-          }))
-        ).returning({ id: stocktakeItems.id, itemId: stocktakeItems.itemId });
-        const lotRows = await getAvailableLotRowsForItemIdsInTx(tx, addedItemIds);
-        const lineIdByItemId = new Map(addedLines.map((line) => [line.itemId, line.id]));
-        if (lotRows.length > 0) {
-          await tx.insert(stocktakeLotItems).values(
-            lotRows.flatMap((lot, index) => {
-              const stocktakeItemId = lineIdByItemId.get(lot.itemId);
-              if (!stocktakeItemId) return [];
-              return {
-                stocktakeItemId,
-                lotId: lot.lotId,
-                lotNumber: lot.lotNumber,
-                expectedQty: normalizeNumeric(parseFloat(lot.expectedQty)),
-                countedQty: null,
-                varianceQty: null,
-                appliedDeltaQty: null,
-                receivedAt: lot.receivedAt,
-                sortOrder: index,
-              };
-            })
-          );
-        }
+        await insertStocktakeSnapshotLinesInTx(
+          tx,
+          id,
+          snapshotItems,
+          new Map(uniqueItemIds.map((itemId, index) => [itemId, index]))
+        );
       }
 
       for (const [index, itemId] of uniqueItemIds.entries()) {
@@ -744,6 +871,7 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
           expectedQty: existingLine.expectedQty,
           countedQty,
           varianceQty,
+          ...(line.notes !== undefined ? { notes: line.notes } : {}),
           updatedAt: new Date(),
         })
         .where(eq(stocktakeItems.id, existingLine.id));
@@ -776,6 +904,7 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
           expectedQty: existing.lot.expectedQty,
           countedQty,
           varianceQty,
+          ...(lotLine.notes !== undefined ? { notes: lotLine.notes } : {}),
           updatedAt: new Date(),
         })
         .where(eq(stocktakeLotItems.id, existing.lot.id));
@@ -851,13 +980,36 @@ export async function completeStocktake(
       throw new StocktakeError("Only draft stocktakes can be completed.", 400);
     }
 
-    const existingLines = await getStocktakeLinesInTx(tx, id, { liveCurrent: true });
+    const snapshotLines = await getStocktakeLinesInTx(tx, id);
+    const liveLines = await getStocktakeLinesInTx(tx, id, { liveCurrent: true });
+    const liveLineById = new Map(liveLines.map((line) => [line.id, line]));
     const countedLines: CountedStocktakeCompletionLine[] = [];
-    for (const line of existingLines) {
+    const staleItems: StocktakeStaleWarningPayload["items"] = [];
+
+    for (const line of snapshotLines) {
+      const liveLine = liveLineById.get(line.id);
       if (line.lots.length > 0) {
+        const liveLotsById = new Map(
+          (liveLine?.lots ?? []).map((lot) => [lot.id, lot])
+        );
         for (const lot of line.lots) {
           if (lot.countedQty == null) {
             continue;
+          }
+
+          const currentQty = liveLotsById.get(lot.id)?.expectedQty ?? "0";
+          if (Number(currentQty) !== Number(lot.expectedQty)) {
+            staleItems.push({
+              lineId: line.id,
+              lotLineId: lot.id,
+              itemId: line.itemId,
+              itemName: line.itemName,
+              lotNumber: lot.lotNumber,
+              unitName: line.unitName,
+              expectedQty: lot.expectedQty,
+              currentQty,
+              countedQty: lot.countedQty,
+            });
           }
 
           countedLines.push({
@@ -865,7 +1017,7 @@ export async function completeStocktake(
             stocktakeItemId: line.id,
             itemId: line.itemId,
             lotId: lot.lotId,
-            expectedQty: lot.expectedQty,
+            expectedQty: currentQty,
             countedQty: lot.countedQty,
           });
         }
@@ -876,18 +1028,41 @@ export async function completeStocktake(
         continue;
       }
 
+      const currentQty = liveLine?.expectedQty ?? "0";
+      if (Number(currentQty) !== Number(line.expectedQty)) {
+        staleItems.push({
+          lineId: line.id,
+          lotLineId: null,
+          itemId: line.itemId,
+          itemName: line.itemName,
+          lotNumber: null,
+          unitName: line.unitName,
+          expectedQty: line.expectedQty,
+          currentQty,
+          countedQty: line.countedQty,
+        });
+      }
+
       countedLines.push({
         stocktakeLineId: line.id,
         stocktakeItemId: line.id,
         itemId: line.itemId,
         lotId: null,
-        expectedQty: line.expectedQty,
+        expectedQty: currentQty,
         countedQty: line.countedQty,
       });
     }
 
     if (countedLines.length === 0) {
       throw new StocktakeError("Enter at least one count before completing.", 400);
+    }
+
+    if (!confirmStale && staleItems.length > 0) {
+      throw new StocktakeError(
+        "Stock changed since this stocktake was started. Review updated variances before completing.",
+        409,
+        { stale: { items: staleItems } }
+      );
     }
 
     await lockItemsInTx(
@@ -1015,7 +1190,7 @@ export async function deleteStocktake(id: string) {
   return { deleted: result.deletedCount > 0, error: result.error };
 }
 
-export async function cloneStocktake(id: string) {
+export async function cloneStocktake(id: string): Promise<CloneStocktakeResult | null> {
   return withAuthedOrgContext(async (tx) => {
     const [source] = await tx
       .select({
@@ -1031,17 +1206,43 @@ export async function cloneStocktake(id: string) {
     }
 
     const sourceLines = await tx
-      .select({ itemId: stocktakeItems.itemId })
+      .select({
+        itemId: stocktakeItems.itemId,
+        itemName: stocktakeItems.itemName,
+        itemSku: stocktakeItems.itemSku,
+      })
       .from(stocktakeItems)
       .where(eq(stocktakeItems.stocktakeId, id))
       .orderBy(asc(stocktakeItems.sortOrder));
 
-    return createStocktake({
-      name: `${source.name} Copy`,
-      scope: source.scope as StocktakeScope,
+    const activeRows = sourceLines.length
+      ? await tx
+          .select({ id: items.id })
+          .from(items)
+          .where(
+            and(
+              ...stocktakeEligibleItemConditions(),
+              inArray(items.id, sourceLines.map((line) => line.itemId))
+            )
+          )
+      : [];
+    const activeIds = new Set(activeRows.map((row) => row.id));
+    const itemIds = sourceLines
+      .map((line) => line.itemId)
+      .filter((itemId) => activeIds.has(itemId));
+    const skippedItems = sourceLines
+      .filter((line) => !activeIds.has(line.itemId))
+      .map((line) => ({ itemName: line.itemName, itemSku: line.itemSku }));
+    const dateToken = new Date().toISOString().slice(0, 10);
+
+    const created = await createStocktake({
+      name: `Copy of ${source.name} - ${dateToken}`,
+      scope: (itemIds.length === 0 ? "empty" : "all") as StocktakeScope,
       notes: null,
-      itemIds: sourceLines.map((line) => line.itemId),
+      itemIds,
     });
+
+    return { id: created.id, skippedItems };
   });
 }
 

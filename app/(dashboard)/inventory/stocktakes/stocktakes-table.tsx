@@ -25,7 +25,12 @@ import {
   STOCKTAKE_VARIANCE_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { StocktakeStatusBadge } from "./status-badge";
-import { formatScope, type StocktakeListRow } from "./types";
+import {
+  formatCloneSkippedItemsWarning,
+  formatScope,
+  type CloneStocktakeResult,
+  type StocktakeListRow,
+} from "./types";
 
 const columns: ColDef<StocktakeListRow>[] = [
   {
@@ -144,13 +149,15 @@ function StocktakeRowActions({ stocktake }: { stocktake: StocktakeListRow }) {
   const queryClient = useQueryClient();
   const cloneMutation = useMutation({
     mutationFn: () =>
-      apiJson<{ id: string }>(`/api/stocktakes/${stocktake.id}/clone`, {
+      apiJson<CloneStocktakeResult>(`/api/stocktakes/${stocktake.id}/clone`, {
         method: "POST",
         idempotencyKey: "stocktake-clone",
         fallbackError: "Failed to clone stocktake.",
       }),
     onSuccess: async (created) => {
       await queryClient.invalidateQueries({ queryKey: ["stocktakes"] });
+      const warning = formatCloneSkippedItemsWarning(created);
+      if (warning) window.alert(warning);
       router.push(`/inventory/stocktakes/${created.id}`);
     },
   });
