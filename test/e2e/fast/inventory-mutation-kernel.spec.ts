@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
   inventoryEvents,
@@ -7,6 +7,10 @@ import {
   inventoryLocations,
   inventoryLotBalances,
   inventoryReservationsSummary,
+  bomRevisions,
+  itemFamilies,
+  itemVariantValues,
+  items,
   lots,
   manufacturingOrderIngredients,
   manufacturingOrders,
@@ -14,6 +18,8 @@ import {
   stocktakeItems,
   stocktakeLotItems,
   stocktakes,
+  variantOptionValues,
+  variantOptions,
 } from "../../../lib/db/schema";
 import {
   consumeStockFifoInTx,
@@ -987,5 +993,143 @@ test.describe("inventory mutation kernel heartbeat", () => {
 
     expect(Number(reservation.quantity)).toBe(0);
     expect(Number(balance.committedQty)).toBe(0);
+  });
+
+  test("item card clone copies variant structure without stock or BOM history", async ({
+    db,
+  }) => {
+    const component = await createItem({
+      itemType: "material",
+      name: `Fast Clone Component ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-CLONE-COMP-${ts}`,
+      category: `Fast Clone ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(component.status).toBe(201);
+
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Clone Product ${ts}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-CLONE-PROD-${ts}`,
+      category: `Fast Clone ${ts}`,
+      description: "Clone source",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "12.00",
+      registeredBarcode: `REG-${ts}`,
+      internalBarcode: `INT-${ts}`,
+      stock: "7",
+      safetyStock: "3",
+      bom: [{ componentId: component.body.id, quantity: "2" }],
+    });
+    expect(product.status).toBe(201);
+    const sourceItemId = product.body.id as string;
+
+    const configResponse = await testFetch(
+      `/api/item-cards/${sourceItemId}/variant-config`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          options: [
+            {
+              name: "Size",
+              code: "size",
+              values: [
+                { label: "Small", code: "small" },
+                { label: "Large", code: "large" },
+              ],
+            },
+          ],
+        }),
+      },
+    );
+    expect(configResponse.status).toBe(200);
+
+    const generateResponse = await testFetch(
+      `/api/item-cards/${sourceItemId}/variants/generate`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      },
+    );
+    expect(generateResponse.status).toBe(201);
+
+    const cloneResponse = await testFetch(`/api/item-cards/${sourceItemId}/clone`, {
+      method: "POST",
+    });
+    expect(cloneResponse.status).toBe(201);
+    const cloneBody = await cloneResponse.json();
+    const clonedItemId = cloneBody.itemId as string;
+    expect(clonedItemId).not.toBe(sourceItemId);
+
+    const clonedCardResponse = await testFetch(`/api/item-cards/${clonedItemId}`);
+    expect(clonedCardResponse.status).toBe(200);
+    const clonedCard = await clonedCardResponse.json();
+
+    expect(clonedCard.family.name).toBe(`Copy of Fast Clone Product ${ts}`);
+    expect(clonedCard.family.category).toBe(`Fast Clone ${ts}`);
+    expect(clonedCard.options).toHaveLength(1);
+    expect(clonedCard.options[0].values).toHaveLength(2);
+    expect(clonedCard.variants).toHaveLength(2);
+    expect(
+      clonedCard.variants.every(
+        (variant: {
+          sku: string | null;
+          registeredBarcode: string | null;
+          internalBarcode: string | null;
+          optionValues: unknown[];
+        }) =>
+          variant.sku === null &&
+          variant.registeredBarcode === null &&
+          variant.internalBarcode === null &&
+          variant.optionValues.length === 1,
+      ),
+    ).toBe(true);
+
+    const clonedVariantIds = clonedCard.variants.map(
+      (variant: { id: string }) => variant.id,
+    );
+    const [clonedStock] = await db
+      .select({
+        onHandQty: sql<string>`COALESCE(SUM(${inventoryItemBalances.onHandQty}), 0)`,
+      })
+      .from(inventoryItemBalances)
+      .where(inArray(inventoryItemBalances.itemId, clonedVariantIds));
+    expect(Number(clonedStock.onHandQty)).toBe(0);
+
+    const clonedBomRows = await db
+      .select({ id: bomRevisions.id })
+      .from(bomRevisions)
+      .where(inArray(bomRevisions.productId, clonedVariantIds));
+    expect(clonedBomRows).toEqual([]);
+
+    const [clonedFamily] = await db
+      .select({ id: itemFamilies.id })
+      .from(items)
+      .innerJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
+      .where(eq(items.id, clonedItemId));
+    const clonedOptions = await db
+      .select({ id: variantOptions.id })
+      .from(variantOptions)
+      .where(eq(variantOptions.familyId, clonedFamily.id));
+    const clonedValues = await db
+      .select({ id: variantOptionValues.id })
+      .from(variantOptionValues)
+      .innerJoin(variantOptions, eq(variantOptionValues.optionId, variantOptions.id))
+      .where(eq(variantOptions.familyId, clonedFamily.id));
+    const clonedAssignments = await db
+      .select({ itemId: itemVariantValues.itemId })
+      .from(itemVariantValues)
+      .where(inArray(itemVariantValues.itemId, clonedVariantIds));
+    expect(clonedOptions).toHaveLength(1);
+    expect(clonedValues).toHaveLength(2);
+    expect(clonedAssignments).toHaveLength(2);
   });
 });

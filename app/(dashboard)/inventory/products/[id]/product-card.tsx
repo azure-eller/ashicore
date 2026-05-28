@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CardPage } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CardTabs, type CardTab } from "@/components/card-page/card-tabs";
@@ -10,6 +10,7 @@ import { useCardSaveStatus } from "@/components/card-page/use-card-save-status";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import {
+  cloneItemCard,
   deleteItemCard,
   getItemCard,
   type ItemCardDto,
@@ -41,6 +42,7 @@ export function ProductCard({
   children,
 }: ProductCardProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [configOpen, setConfigOpen] = useState(false);
@@ -111,6 +113,14 @@ export function ProductCard({
     pendingLabel: "Deleting...",
     mutation: deleteCardMutation,
   });
+  const cloneCardMutation = useMutation({
+    mutationKey: ["item-card-action", currentItemId ?? "__draft__", "clone-card"],
+    mutationFn: () => cloneItemCard(currentItemId as string),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["item-cards"] });
+      router.push(`/inventory/products/${result.itemId}`);
+    },
+  });
 
   const tabs: CardTab[] = useMemo(
     () => {
@@ -153,9 +163,13 @@ export function ProductCard({
   const avgIngredientsCost = getAverageIngredientsCost(card);
   const resolvedActiveTab = activeTab ?? getProductCardTabFromPath(pathname);
   const effectiveSaveStatus =
-    controller.status === "saving" || actionSaveStatus.status === "saving"
+    controller.status === "saving" ||
+    actionSaveStatus.status === "saving" ||
+    cloneCardMutation.isPending
       ? "saving"
-      : controller.status === "error" || actionSaveStatus.status === "error"
+      : controller.status === "error" ||
+          actionSaveStatus.status === "error" ||
+          cloneCardMutation.isError
         ? "error"
         : controller.status;
   const saveState: CardSaveState = isDraft
@@ -171,7 +185,10 @@ export function ProductCard({
         : effectiveSaveStatus === "dirty"
           ? "not_saved"
           : "saved";
-  const saveMessage = controller.error ?? actionSaveStatus.errorMessage;
+  const saveMessage =
+    controller.error ??
+    actionSaveStatus.errorMessage ??
+    (cloneCardMutation.error instanceof Error ? cloneCardMutation.error.message : null);
 
   return (
     <CardPage>
@@ -192,6 +209,11 @@ export function ProductCard({
           ...(isDraft
             ? []
             : [
+                {
+                  label: cloneCardMutation.isPending ? "Cloning..." : "Clone product",
+                  onClick: () => cloneCardMutation.mutate(),
+                  disabled: cloneCardMutation.isPending,
+                },
                 {
                   label: "Delete product",
                   onClick: () => deleteConfirm.trigger(undefined),
