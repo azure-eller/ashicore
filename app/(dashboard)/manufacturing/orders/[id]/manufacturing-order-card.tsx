@@ -1227,6 +1227,13 @@ function IngredientsSection({
         cellRenderer: (params: ICellRendererParams<ManufacturingOrderIngredientDetail>) => {
           if (!params.data || !controller.hasPersistedOrder) return null;
           const ingredient = params.data;
+          if (ingredient.lotTrackingMode === "untracked") {
+            return (
+              <span className="text-[11.5px] text-[var(--color-muted)]">
+                FIFO
+              </span>
+            );
+          }
           const picked = Number(ingredient.pickedQuantity);
           const canEditIngredientLots =
             canEditLotAllocations &&

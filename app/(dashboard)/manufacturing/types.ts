@@ -208,6 +208,7 @@ export type ManufacturingOrderIngredientDetail = {
   itemName: string;
   itemSku: string | null;
   itemType: string;
+  lotTrackingMode: "tracked" | "untracked";
   unitName: string;
   quantityPerUnit: string;
   plannedQuantity: string;

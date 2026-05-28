@@ -3027,6 +3027,7 @@ async function releaseRemainingExpectedOutputInTx(
 function toIngredientDetail(ingredient: ExecutionIngredientRow): ManufacturingOrderIngredientDetail {
   return {
     ...ingredient,
+    lotTrackingMode: "tracked",
     remainingQuantity: getRemainingQuantityString(
       ingredient.plannedQuantity,
       ingredient.pickedQuantity
@@ -3040,6 +3041,62 @@ function toIngredientDetail(ingredient: ExecutionIngredientRow): ManufacturingOr
   };
 }
 
+async function getLotTrackedItemIdsInTx(tx: Tx, itemIds: string[]) {
+  const uniqueItemIds = [...new Set(itemIds)];
+  if (uniqueItemIds.length === 0) return new Set<string>();
+
+  const rows = await tx
+    .select({ itemId: items.id })
+    .from(items)
+    .innerJoin(itemFamilies, eq(itemFamilies.id, items.familyId))
+    .where(
+      and(
+        inArray(items.id, uniqueItemIds),
+        eq(itemFamilies.lotTrackingMode, "tracked")
+      )
+    );
+
+  return new Set(rows.map((row) => row.itemId));
+}
+
+async function getLotTrackingModeByItemIdInTx(tx: Tx, itemIds: string[]) {
+  const uniqueItemIds = [...new Set(itemIds)];
+  const modes = new Map<string, "tracked" | "untracked">();
+  if (uniqueItemIds.length === 0) return modes;
+
+  const rows = await tx
+    .select({
+      itemId: items.id,
+      lotTrackingMode: itemFamilies.lotTrackingMode,
+    })
+    .from(items)
+    .innerJoin(itemFamilies, eq(itemFamilies.id, items.familyId))
+    .where(inArray(items.id, uniqueItemIds));
+
+  for (const row of rows) {
+    modes.set(
+      row.itemId,
+      row.lotTrackingMode === "untracked" ? "untracked" : "tracked"
+    );
+  }
+
+  return modes;
+}
+
+async function withIngredientLotTrackingModesInTx<
+  T extends { itemId: string },
+>(tx: Tx, ingredients: T[]) {
+  const modes = await getLotTrackingModeByItemIdInTx(
+    tx,
+    ingredients.map((ingredient) => ingredient.itemId)
+  );
+
+  return ingredients.map((ingredient) => ({
+    ...ingredient,
+    lotTrackingMode: modes.get(ingredient.itemId) ?? "tracked",
+  }));
+}
+
 async function getExecutionLotAllocationsByIngredientInTx(
   tx: Tx,
   ingredientIds: string[]
@@ -3047,6 +3104,22 @@ async function getExecutionLotAllocationsByIngredientInTx(
   const uniqueIds = [...new Set(ingredientIds)];
   const allocations = new Map<string, ExecutionIngredientLotAllocation[]>();
   if (uniqueIds.length === 0) {
+    return allocations;
+  }
+
+  const trackedIngredientRows = await tx
+    .select({ id: manufacturingOrderIngredients.id })
+    .from(manufacturingOrderIngredients)
+    .innerJoin(items, eq(items.id, manufacturingOrderIngredients.itemId))
+    .innerJoin(itemFamilies, eq(itemFamilies.id, items.familyId))
+    .where(
+      and(
+        inArray(manufacturingOrderIngredients.id, uniqueIds),
+        eq(itemFamilies.lotTrackingMode, "tracked")
+      )
+    );
+  const trackedIngredientIds = trackedIngredientRows.map((row) => row.id);
+  if (trackedIngredientIds.length === 0) {
     return allocations;
   }
 
@@ -3062,7 +3135,10 @@ async function getExecutionLotAllocationsByIngredientInTx(
     .from(manufacturingOrderOutputConsumptions)
     .innerJoin(lots, eq(manufacturingOrderOutputConsumptions.lotId, lots.id))
     .where(
-      inArray(manufacturingOrderOutputConsumptions.manufacturingOrderIngredientId, uniqueIds)
+      inArray(
+        manufacturingOrderOutputConsumptions.manufacturingOrderIngredientId,
+        trackedIngredientIds
+      )
     )
     .groupBy(
       manufacturingOrderOutputConsumptions.manufacturingOrderIngredientId,
@@ -3084,7 +3160,7 @@ async function getExecutionLotAllocationsByIngredientInTx(
     allocations.set(row.ingredientId, rows);
   }
 
-  const unconsumedIngredientIds = uniqueIds.filter((id) => !allocations.has(id));
+  const unconsumedIngredientIds = trackedIngredientIds.filter((id) => !allocations.has(id));
   if (unconsumedIngredientIds.length === 0) {
     return allocations;
   }
@@ -3183,8 +3259,17 @@ async function getExecutionLotPickPlansByIngredientInTx(
   ingredients: ManufacturingOrderIngredientDetail[]
 ) {
   const plans = new Map<string, LotPickPlanEntry[]>();
+  const lotTrackedItemIds = await getLotTrackedItemIdsInTx(
+    tx,
+    ingredients.map((ingredient) => ingredient.itemId)
+  );
 
   for (const ingredient of ingredients) {
+    if (!lotTrackedItemIds.has(ingredient.itemId)) {
+      plans.set(ingredient.id, []);
+      continue;
+    }
+
     const existingAllocations = ingredient.lotAllocations ?? [];
     const lotPlan: LotPickPlanEntry[] = existingAllocations.map((allocation) => ({
       lotId: allocation.lotId,
@@ -3287,6 +3372,7 @@ function aggregateBatchIngredients(
         itemName: row.itemName,
         itemSku: row.itemSku,
         itemType: row.itemType,
+        lotTrackingMode: "tracked",
         unitName: row.unitName,
         quantityPerUnit: row.quantityPerUnit,
         plannedQuantity: row.plannedQuantity,
@@ -4325,25 +4411,28 @@ export async function getManufacturingOrder(
         ...ingredient.alternates.map((alternate) => alternate.itemId),
       ]),
     ]);
-    const displayedDetailIngredients = detailIngredients.map((ingredient) => ({
-      ...ingredient,
-      itemName: canonicalItemName(itemDisplayById, ingredient.itemId, ingredient.itemName),
-      defaultItemName: ingredient.defaultItemId
-        ? canonicalItemName(
+    const displayedDetailIngredients = await withIngredientLotTrackingModesInTx(
+      tx,
+      detailIngredients.map((ingredient) => ({
+        ...ingredient,
+        itemName: canonicalItemName(itemDisplayById, ingredient.itemId, ingredient.itemName),
+        defaultItemName: ingredient.defaultItemId
+          ? canonicalItemName(
+              itemDisplayById,
+              ingredient.defaultItemId,
+              ingredient.defaultItemName ?? ingredient.itemName
+            )
+          : ingredient.defaultItemName,
+        alternates: ingredient.alternates.map((alternate) => ({
+          ...alternate,
+          itemName: canonicalItemName(
             itemDisplayById,
-            ingredient.defaultItemId,
-            ingredient.defaultItemName ?? ingredient.itemName
-          )
-        : ingredient.defaultItemName,
-      alternates: ingredient.alternates.map((alternate) => ({
-        ...alternate,
-        itemName: canonicalItemName(
-          itemDisplayById,
-          alternate.itemId,
-          alternate.itemName
-        ),
-      })),
-    }));
+            alternate.itemId,
+            alternate.itemName
+          ),
+        })),
+      }))
+    );
 
     const producedLots =
       batches.length > 0
@@ -7859,15 +7948,16 @@ export async function getManufacturingExecutionDetail(
       order.productId,
       ...ingredientsWithLotGuidance.map((ingredient) => ingredient.itemId),
     ]);
-    const displayedIngredientsWithLotGuidance = ingredientsWithLotGuidance.map(
-      (ingredient) => ({
+    const displayedIngredientsWithLotGuidance = await withIngredientLotTrackingModesInTx(
+      tx,
+      ingredientsWithLotGuidance.map((ingredient) => ({
         ...ingredient,
         itemName: canonicalItemName(
           itemDisplayById,
           ingredient.itemId,
           ingredient.itemName
         ),
-      })
+      }))
     );
     const recordedOutputQuantity = await getOutputQuantityInTx(tx, {
       manufacturingOrderId: orderId,

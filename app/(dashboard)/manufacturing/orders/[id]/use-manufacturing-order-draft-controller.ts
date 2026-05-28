@@ -440,6 +440,7 @@ export function makeDraftIngredient(
     itemName: input.itemName,
     itemSku: input.itemSku,
     itemType: input.itemType,
+    lotTrackingMode: "tracked",
     unitName: input.unitName,
     quantityPerUnit: input.quantityPerUnit,
     plannedQuantity,
