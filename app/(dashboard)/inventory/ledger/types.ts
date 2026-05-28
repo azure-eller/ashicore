@@ -19,6 +19,7 @@ export type InventoryLedgerItemOption = {
   displayName: string;
   sku: string | null;
   itemType: ItemType;
+  lotTrackingMode: "tracked" | "untracked";
 };
 
 export type InventoryLedgerRow = {

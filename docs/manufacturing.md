@@ -181,6 +181,9 @@ lot quantities are held. Automatic FIFO lot holding is opt-in through
 must omit it or send `false`. Sales-order bulk MO creation does not silently hold
 ingredient lots because that flow has no lot review step.
 
+Lot-untracked ingredients do not expose manual lot allocation. They still consume
+internal available lots FIFO through the inventory kernel when picked.
+
 For batch-mode orders, expected supply is remaining unfinished output only:
 
 - released order contribution = `plannedQuantity - completed actual quantity`
@@ -242,6 +245,10 @@ One-shot completion remains available as the complete-all path:
 - completion releases the output-side expected supply
 - the order stores `actualQuantity`, `actualMaterialCost`, and `actualCostPerUnit`
 
+For lot-untracked finished products, output still creates an internal lot for
+costing and audit, but blocked output is rejected and the normal UI must not
+show lot controls.
+
 Discrete completion should hard-block with a domain error if any ingredient remains unpicked.
 
 ### Batch Orders
@@ -260,6 +267,9 @@ Each completed batch:
 - creates one finished-product lot with `available` or `blocked` disposition
 - writes one `manufacturing_output` event
 - stores the batch’s actual quantity
+
+Lot-untracked batch outputs follow the same internal-lot rule as discrete
+outputs: available-only, hidden from normal lot UI, and FIFO-backed downstream.
 
 The parent order:
 

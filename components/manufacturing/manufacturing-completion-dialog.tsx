@@ -103,6 +103,8 @@ function CompletionDialogForm({
   const [disposition, setDisposition] = useState<OutputDisposition>("available");
   const [shortage, setShortage] = useState<ManufacturingReleaseWarningPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const dispositionOptions: OutputDisposition[] =
+    order.productLotTrackingMode === "untracked" ? ["available"] : ["available", "blocked"];
 
   const quantity = useMemo(() => {
     return rawQuantity.trim();
@@ -234,8 +236,11 @@ function CompletionDialogForm({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="available">Available</SelectItem>
-                <SelectItem value="blocked">Blocked</SelectItem>
+                {dispositionOptions.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {option === "available" ? "Available" : "Blocked"}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

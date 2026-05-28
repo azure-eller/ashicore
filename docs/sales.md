@@ -128,7 +128,8 @@ The Sales Allocation tab is the authoritative manual allocation surface.
 - draft sales orders must not hold allocation rows or trigger allocation takeover behavior during confirmation
 - sales order line demand is the allocation bucket: `remaining_to_ship`
 - legacy planned shipment rows do not own allocation demand
-- available inventory-lot sources come from current available lot balances
+- available inventory-lot sources come from current available lot balances for
+  lot-tracked products; lot-untracked products expose item-level FIFO supply
 - manufacturing-order sources are allocatable only after the MO is `released`
 - draft MOs are planning work only; they are not allocatable supply
 - allocation writes go through `/api/allocation/save` with `demandType = "sales_order_line"` for sales demand
@@ -150,6 +151,9 @@ The Sales Allocation tab is the authoritative manual allocation surface.
 - successful final shipping sets order `status = done` and `shippedAt = now()`
 - legacy shipment tables may still exist for historical reads/BOLs, but they are
   not an active planning or allocation surface
+
+Lot-untracked products still consume internal lots FIFO. Sales UI and allocation
+contracts should not ask operators to choose or inspect those lots.
 
 ## Shipping Fees and Margin
 

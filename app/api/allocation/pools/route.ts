@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { apiHandler } from "@/lib/api/handler";
 import { getAuthedApiMemberContext, withAuthedOrgContext } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
 import {
+  inventoryLotBalances,
   inventoryReservationsSummary,
   salesOrderLines,
   salesOrders,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { getAllocationWorkspaceInTx } from "@/lib/inventory/allocation/read-model";
+import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
+import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel";
 
 function toQuantity(value: string | number | null | undefined) {
   const parsed = Number(value ?? 0);
@@ -101,9 +104,28 @@ export const GET = apiHandler(async (request) => {
         continue;
       }
 
-      const stockQty = workspace.sources
+      let stockQty = workspace.sources
         .filter((source) => source.sourceType === "inventory_lot")
         .reduce((sum, source) => sum + toQuantity(source.totalQty), 0);
+      if (stockQty === 0 && (await getItemLotTrackingModeInTx(tx, itemId)) === "untracked") {
+        const location = await getDefaultInventoryLocationInTx(tx, orgId);
+        const [available] = await tx
+          .select({
+            quantity: trimScale(sql`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`).as(
+              "quantity"
+            ),
+          })
+          .from(inventoryLotBalances)
+          .where(
+            and(
+              eq(inventoryLotBalances.organizationId, orgId),
+              eq(inventoryLotBalances.locationId, location.id),
+              eq(inventoryLotBalances.itemId, itemId),
+              eq(inventoryLotBalances.disposition, "available")
+            )
+          );
+        stockQty = toQuantity(available?.quantity);
+      }
       const incomingQty = workspace.sources
         .filter((source) => source.sourceType === "manufacturing_order")
         .reduce((sum, source) => sum + toQuantity(source.totalQty), 0);

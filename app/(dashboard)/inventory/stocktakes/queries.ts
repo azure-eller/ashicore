@@ -4,6 +4,7 @@ import { normalizeNumeric } from "@/lib/format";
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import {
   inventoryLotBalances,
+  itemFamilies,
   items,
   lots,
   stocktakeLotItems,
@@ -247,9 +248,12 @@ async function getAvailableLotRowsForItemIdsInTx(tx: Tx, itemIds: string[]) {
     })
     .from(inventoryLotBalances)
     .innerJoin(lots, eq(lots.id, inventoryLotBalances.lotId))
+    .innerJoin(items, eq(items.id, inventoryLotBalances.itemId))
+    .innerJoin(itemFamilies, eq(itemFamilies.id, items.familyId))
     .where(
       and(
         inArray(inventoryLotBalances.itemId, itemIds),
+        eq(itemFamilies.lotTrackingMode, "tracked"),
         eq(inventoryLotBalances.disposition, "available"),
         sql`${inventoryLotBalances.quantity} > 0`,
         sql`NOT EXISTS (

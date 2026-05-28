@@ -9,10 +9,14 @@ import {
   items,
   inventoryItemBalances,
   inventoryEvents,
+  inventoryLotBalances,
   bomRevisionComponents,
+  bomRevisionComponentConstraints,
   bomRevisions,
   lots,
+  manufacturingPickAllocations,
   manufacturingOrderIngredients,
+  manufacturingOrderOutputs,
   manufacturingOrders,
   purchaseOrderLines,
   purchaseOrders,
@@ -20,6 +24,7 @@ import {
   salesOrders,
   stockAllocations,
   stocktakeItems,
+  stocktakeLotItems,
   stocktakes,
   supplierItems,
   unitDefinitions,
@@ -41,6 +46,10 @@ import {
 import { normalizeNumeric } from "@/lib/format";
 import { projectedOnHandQty } from "@/lib/inventory/kernel/read";
 import { getEstimatedRecipeCostSummariesByItemIdInTx } from "@/lib/inventory/estimated-cost";
+import {
+  LOT_TRACKING_MODES,
+  type LotTrackingMode,
+} from "@/lib/inventory/lot-tracking";
 import type { Tx } from "@/lib/db/with-org-context";
 import type {
   DuplicateCombinationWarning,
@@ -84,6 +93,8 @@ const patchPositiveOptionalDecimalString = (label: string) =>
     .transform((value) =>
       value == null ? value : normalizeNumeric(Number(value)),
     );
+
+const lotTrackingModeSchema = z.enum(LOT_TRACKING_MODES);
 
 const variantOptionValueInputSchema = z.object({
   id: z.string().uuid().optional(),
@@ -132,6 +143,7 @@ export const itemCardCreateSchema = z.object({
   supplierItemCode: nullableText,
   defaultLeadTimeDays: z.number().int().nonnegative().nullable().optional(),
   minimumOrderQuantity: positiveOptionalDecimalString("Minimum order quantity"),
+  lotTrackingMode: lotTrackingModeSchema.optional(),
 }).superRefine((data, ctx) => {
   if (data.itemType === "product") {
     for (const field of [
@@ -170,6 +182,7 @@ export const itemCardUpdateSchema = z.object({
   defaultSupplierId: z.string().uuid().nullable().optional(),
   purchaseUnitDefinitionId: z.string().uuid().nullable().optional(),
   purchaseToStockFactor: patchPositiveOptionalDecimalString("Purchase-to-stock factor"),
+  lotTrackingMode: lotTrackingModeSchema.optional(),
 }).superRefine((data, ctx) => {
   if (
     data.purchaseUnitDefinitionId &&
@@ -317,6 +330,7 @@ export type ItemCardDto = {
     defaultSupplierId: string | null;
     purchaseUnitDefinitionId: string | null;
     purchaseToStockFactor: string | null;
+    lotTrackingMode: LotTrackingMode;
     deletedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
@@ -517,6 +531,7 @@ async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
         purchaseToStockFactor: trimScaleNullable(itemFamilies.purchaseToStockFactor).as(
           "purchaseToStockFactor",
         ),
+        lotTrackingMode: itemFamilies.lotTrackingMode,
         deletedAt: itemFamilies.deletedAt,
         createdAt: itemFamilies.createdAt,
         updatedAt: itemFamilies.updatedAt,
@@ -617,6 +632,7 @@ async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
       family: {
         ...family,
         itemType: family.itemType as ItemType,
+        lotTrackingMode: family.lotTrackingMode as LotTrackingMode,
         unitName: family.unitName ?? null,
       },
       options,
@@ -635,6 +651,142 @@ async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
         };
       }),
     };
+}
+
+async function assertCanDisableLotTrackingInTx(tx: Tx, familyId: string) {
+  const variantRows = await tx
+    .select({ id: items.id })
+    .from(items)
+    .where(and(eq(items.familyId, familyId), isNull(items.deletedAt)))
+    .for("update");
+  const itemIds = variantRows.map((row) => row.id);
+
+  if (itemIds.length === 0) return;
+
+  const [activeAllocation] = await tx
+    .select({ id: stockAllocations.id })
+    .from(stockAllocations)
+    .where(
+      and(
+        inArray(stockAllocations.itemId, itemIds),
+        eq(stockAllocations.sourceType, "inventory_lot"),
+        eq(stockAllocations.status, "active")
+      )
+    )
+    .limit(1);
+  if (activeAllocation) {
+    throw new ItemCardError(
+      "Lot tracking cannot be turned off while active lot allocations exist.",
+      409
+    );
+  }
+
+  const [draftStocktakeLot] = await tx
+    .select({ id: stocktakeLotItems.id })
+    .from(stocktakeLotItems)
+    .innerJoin(stocktakeItems, eq(stocktakeLotItems.stocktakeItemId, stocktakeItems.id))
+    .innerJoin(stocktakes, eq(stocktakeItems.stocktakeId, stocktakes.id))
+    .where(and(inArray(stocktakeItems.itemId, itemIds), eq(stocktakes.status, "draft")))
+    .limit(1);
+  if (draftStocktakeLot) {
+    throw new ItemCardError(
+      "Lot tracking cannot be turned off while draft stocktake lot counts exist.",
+      409
+    );
+  }
+
+  const [nonAvailableBalance] = await tx
+    .select({ lotId: inventoryLotBalances.lotId })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        inArray(inventoryLotBalances.itemId, itemIds),
+        sql`${inventoryLotBalances.disposition} <> 'available'`,
+        sql`${inventoryLotBalances.quantity} <> 0`
+      )
+    )
+    .limit(1);
+  if (nonAvailableBalance) {
+    throw new ItemCardError(
+      "Lot tracking cannot be turned off while blocked or rejected stock exists.",
+      409
+    );
+  }
+
+  const [openPickAllocation] = await tx
+    .select({ id: manufacturingPickAllocations.id })
+    .from(manufacturingPickAllocations)
+    .innerJoin(
+      manufacturingOrderIngredients,
+      eq(
+        manufacturingPickAllocations.manufacturingOrderIngredientId,
+        manufacturingOrderIngredients.id
+      )
+    )
+    .innerJoin(
+      manufacturingOrders,
+      eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrders.id)
+    )
+    .where(
+      and(
+        inArray(manufacturingOrderIngredients.itemId, itemIds),
+        eq(manufacturingOrders.status, "open"),
+        isNull(manufacturingOrders.deletedAt)
+      )
+    )
+    .limit(1);
+  if (openPickAllocation) {
+    throw new ItemCardError(
+      "Lot tracking cannot be turned off while open manufacturing picks reference lots.",
+      409
+    );
+  }
+
+  const [openOutput] = await tx
+    .select({ id: manufacturingOrderOutputs.id })
+    .from(manufacturingOrderOutputs)
+    .innerJoin(
+      manufacturingOrders,
+      eq(manufacturingOrderOutputs.manufacturingOrderId, manufacturingOrders.id)
+    )
+    .where(
+      and(
+        inArray(manufacturingOrders.productId, itemIds),
+        eq(manufacturingOrders.status, "open"),
+        isNull(manufacturingOrders.deletedAt)
+      )
+    )
+    .limit(1);
+  if (openOutput) {
+    throw new ItemCardError(
+      "Lot tracking cannot be turned off while open manufacturing outputs reference lots.",
+      409
+    );
+  }
+
+  const [lotAgeConstraint] = await tx
+    .select({ id: bomRevisionComponentConstraints.id })
+    .from(bomRevisionComponentConstraints)
+    .innerJoin(
+      bomRevisionComponents,
+      eq(
+        bomRevisionComponentConstraints.bomRevisionComponentId,
+        bomRevisionComponents.id
+      )
+    )
+    .where(
+      and(
+        inArray(bomRevisionComponents.componentId, itemIds),
+        eq(bomRevisionComponentConstraints.constraintType, "lot_age_min_days")
+      )
+    )
+    .limit(1);
+  if (lotAgeConstraint) {
+    throw new ItemCardError(
+      "Lot tracking cannot be turned off while recipes require minimum lot age.",
+      409
+    );
+  }
 }
 
 export const getItemCard = cache(async (itemId: string): Promise<ItemCardDto> => {
@@ -693,6 +845,7 @@ export async function createItemCard(
           data.itemType === "material" ? data.purchaseUnitDefinitionId ?? null : null,
         purchaseToStockFactor:
           data.itemType === "material" ? data.purchaseToStockFactor ?? null : null,
+        lotTrackingMode: data.lotTrackingMode ?? "tracked",
       })
       .returning({ id: itemFamilies.id });
 
@@ -755,12 +908,21 @@ export async function updateItemCard(
 
     const familyId = await resolveFamilyIdInTx(tx, itemId);
     const [family] = await tx
-      .select({ itemType: itemFamilies.itemType })
+      .select({
+        itemType: itemFamilies.itemType,
+        lotTrackingMode: itemFamilies.lotTrackingMode,
+      })
       .from(itemFamilies)
       .where(eq(itemFamilies.id, familyId))
       .for("update");
 
     if (!family) throw new ItemCardError("Item card not found", 404);
+    if (
+      data.lotTrackingMode === "untracked" &&
+      family.lotTrackingMode !== "untracked"
+    ) {
+      await assertCanDisableLotTrackingInTx(tx, familyId);
+    }
     if (
       family.itemType !== "material" &&
       (data.defaultSupplierId !== undefined ||
@@ -783,6 +945,7 @@ export async function updateItemCard(
           family.itemType === "material" ? data.purchaseUnitDefinitionId : undefined,
         purchaseToStockFactor:
           family.itemType === "material" ? data.purchaseToStockFactor : undefined,
+        lotTrackingMode: data.lotTrackingMode,
         updatedAt: new Date(),
       })
       .where(eq(itemFamilies.id, familyId));

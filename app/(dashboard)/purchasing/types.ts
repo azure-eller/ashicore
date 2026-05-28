@@ -68,6 +68,7 @@ export type PurchaseOrderDetailLine = {
   itemId: string;
   itemName: string;
   itemSku: string | null;
+  lotTrackingMode: "tracked" | "untracked";
   purchaseUnitName: string;
   stockingUnitName: string;
   purchaseToStockFactor: string;

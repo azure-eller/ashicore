@@ -39,6 +39,7 @@ import {
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import type { Tx } from "@/lib/db/with-org-context";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import {
   ON_HAND_EVENT_TYPES,
@@ -197,6 +198,23 @@ function countNeedsExpandedJoins(filters: InventoryLedgerFilters) {
     filters.documentType === "manufacturing_order" ||
     filters.documentType === "stocktake"
   );
+}
+
+async function shouldSuppressLotFilterInTx(
+  tx: Tx,
+  filters: InventoryLedgerFilters
+) {
+  if (!filters.itemId || !filters.lot) {
+    return false;
+  }
+
+  const [row] = await tx
+    .select({ lotTrackingMode: itemFamilies.lotTrackingMode })
+    .from(items)
+    .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
+    .where(eq(items.id, filters.itemId));
+
+  return row?.lotTrackingMode === "untracked";
 }
 
 function buildLedgerWhere(filters: InventoryLedgerFilters, organizationId: string) {
@@ -547,13 +565,15 @@ export async function getInventoryLedger(
   return measureObservedOperation(
     "inventory.get_ledger",
     async () => withAuthedOrgContext(async (tx, orgId) => {
-    const where = buildLedgerWhere(filters, orgId);
+    const suppressLotFilter = await shouldSuppressLotFilterInTx(tx, filters);
+    const effectiveFilters = suppressLotFilter ? { ...filters, lot: undefined } : filters;
+    const where = buildLedgerWhere(effectiveFilters, orgId);
     const offset = (filters.page - 1) * filters.pageSize;
     const countSelection = {
       totalCount: sql<number>`count(*)`,
     };
 
-    const countRows = countNeedsExpandedJoins(filters)
+    const countRows = countNeedsExpandedJoins(effectiveFilters)
       ? await tx
           .select(countSelection)
           .from(inventoryEvents)
@@ -662,7 +682,7 @@ export async function getInventoryLedger(
           )
           .leftJoin(stocktakeDocs, eq(stocktakeLineRefs.stocktakeId, stocktakeDocs.id))
           .where(where)
-      : filters.lot
+      : effectiveFilters.lot
         ? await tx
             .select(countSelection)
             .from(inventoryEvents)
@@ -681,8 +701,8 @@ export async function getInventoryLedger(
       inArray(inventoryEvents.eventType, ON_HAND_EVENT_TYPES),
     ];
 
-    if (filters.itemId) {
-      balanceConditions.push(eq(inventoryEvents.itemId, filters.itemId));
+    if (effectiveFilters.itemId) {
+      balanceConditions.push(eq(inventoryEvents.itemId, effectiveFilters.itemId));
     }
 
     const balanceRows = tx
@@ -735,6 +755,7 @@ export async function getInventoryLedger(
         itemSku: items.sku,
         itemType: items.itemType,
         familyName: itemFamilies.name,
+        lotTrackingMode: itemFamilies.lotTrackingMode,
         lotId: lots.id,
         lotNumber: lots.lotNumber,
         actorUserId: inventoryEvents.actorUserId,
@@ -938,7 +959,7 @@ export async function getInventoryLedger(
         onHandAfter: row.onHandAfter,
         balanceDimension: getInventoryLedgerBalanceDimension(eventType),
         lot:
-          row.lotId && row.lotNumber
+          row.lotTrackingMode !== "untracked" && row.lotId && row.lotNumber
             ? {
                 id: row.lotId,
                 number: row.lotNumber,
@@ -963,7 +984,7 @@ export async function getInventoryLedger(
       totalPages: Math.max(1, Math.ceil(totalCount / filters.pageSize)),
       resolvedFilters: {
         itemLabel: filters.itemId ? await resolveItemFilterLabel(tx, filters.itemId) : null,
-        documentLabel: await resolveDocumentFilterLabel(tx, filters),
+        documentLabel: await resolveDocumentFilterLabel(tx, effectiveFilters),
       },
     };
     }),
@@ -1037,6 +1058,7 @@ export async function getInventoryLedgerItemOptions(): Promise<
             sku: items.sku,
             itemType: items.itemType,
             familyName: itemFamilies.name,
+            lotTrackingMode: itemFamilies.lotTrackingMode,
           })
           .from(inventoryEvents)
           .innerJoin(items, eq(inventoryEvents.itemId, items.id))
@@ -1063,6 +1085,8 @@ export async function getInventoryLedgerItemOptions(): Promise<
           }),
           sku: row.sku,
           itemType: row.itemType as ItemType,
+          lotTrackingMode:
+            row.lotTrackingMode === "untracked" ? "untracked" : "tracked",
         }));
       });
     },

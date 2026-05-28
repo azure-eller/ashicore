@@ -192,6 +192,7 @@ export type AgentOpenPurchaseOrderContext = {
 export type AgentInventoryContext = {
   itemId: string;
   itemName: string;
+  lotTrackingMode: "tracked" | "untracked";
   unitName: string | null;
   onHandQty: string;
   /** Current usable on-hand after reservations; not projected future availability. */

@@ -31,7 +31,8 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   `ACCPAY` draft bills from received ERP purchase orders. The action is manual
   from the PO bill status, stores a provider-neutral `purchase_bill` sync
   snapshot, uses purchase-unit line economics, and omits additional PO costs in
-  v1 after explicit user confirmation. Retry/adoption checks existing ACCPAY
+  v1 after explicit user confirmation. Inventory lots and lot-tracking mode are
+  operational ERP state and are not sent to Xero. Retry/adoption checks existing ACCPAY
   bills by supplier invoice number, but only links a match when Xero contact,
   reference, and subtotal match the ERP purchase order. The Xero retry cron
   also checks pushed purchase bills and resets local bill status to Not billed

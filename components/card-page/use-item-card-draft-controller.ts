@@ -97,6 +97,7 @@ export function useItemCardDraftController({
           itemType === "material" ? draft.family.purchaseUnitDefinitionId : undefined,
         purchaseToStockFactor:
           itemType === "material" ? draft.family.purchaseToStockFactor : undefined,
+        lotTrackingMode: draft.family.lotTrackingMode,
       }),
     [itemType],
   );

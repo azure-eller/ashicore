@@ -883,6 +883,13 @@
       "when": 1779917039751,
       "tag": "0125_stocktake_line_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1779917039752,
+      "tag": "0126_item_family_lot_tracking_mode",
+      "breakpoints": true
     }
   ]
 }

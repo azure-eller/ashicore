@@ -11,6 +11,7 @@ import type { Tx } from "@/lib/db/with-org-context";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import { normalizeNumericScale } from "@/lib/format";
+import { assertTrackedItemInTx } from "@/lib/inventory/lot-tracking";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import {
   applyDemandReferenceDeltasInTx,
@@ -649,6 +650,14 @@ export async function produceManufacturedStockInTx(
 
   if (replay.replayed) {
     return replay.result;
+  }
+
+  if ((params.outputDisposition ?? "available") !== "available") {
+    await assertTrackedItemInTx(
+      tx,
+      params.productId,
+      "Untracked items can only be produced as available."
+    );
   }
 
   const ingredientCostTotal = params.ingredientRows.reduce(

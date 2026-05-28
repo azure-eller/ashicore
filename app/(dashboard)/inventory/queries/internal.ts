@@ -51,6 +51,7 @@ import {
   createLotAgeMinDaysConstraint,
   getMinimumLotAgeDays,
 } from "@/lib/bom/constraints";
+import { assertTrackedItemInTx, getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import { getAuthedMemberContext, withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
@@ -593,6 +594,19 @@ export async function createBomRevisionInTx(
     const inputBySortOrder = new Map(
       params.bom.map((input, sortOrder) => [sortOrder, input])
     );
+
+    for (const component of insertedComponents) {
+      const input = inputBySortOrder.get(component.sortOrder);
+      if (
+        input?.minimumLotAgeDays != null &&
+        (await getItemLotTrackingModeInTx(tx, component.componentId)) === "untracked"
+      ) {
+        throw new InventoryError(
+          "Minimum lot age requirements are only available for lot-tracked components.",
+          400
+        );
+      }
+    }
 
     const constraintRows = insertedComponents.flatMap((component) => {
       const input = inputBySortOrder.get(component.sortOrder);
@@ -1420,6 +1434,10 @@ export async function getLots(
   options: { includeNegativeBalances?: boolean } = {}
 ) {
   return withAuthedOrgContext(async (tx) => {
+    if ((await getItemLotTrackingModeInTx(tx, itemId)) === "untracked") {
+      return [];
+    }
+
     const allocationRows = await tx
       .select({
         lotId: stockAllocations.sourceId,
@@ -1677,6 +1695,11 @@ export async function applyLotDispositionAction(
   options?: { idempotencyKey?: string }
 ) {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
+    await assertTrackedItemInTx(
+      tx,
+      itemId,
+      "Lot disposition changes are not available for untracked items."
+    );
     const quantity = Number(action.quantity);
     const toDisposition = dispositionForAction(action.action);
 
@@ -1714,6 +1737,11 @@ export async function adjustLotQuantity(
   options?: { idempotencyKey?: string }
 ) {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
+    await assertTrackedItemInTx(
+      tx,
+      itemId,
+      "Lot quantity adjustments are not available for untracked items."
+    );
     await lockItemsInTx(tx, [itemId]);
 
     const [lockedLot] = await tx

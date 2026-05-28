@@ -18,6 +18,7 @@ function emptyCard(itemType: "material", unitDefinitionId: string): ItemCardDto 
       defaultSupplierId: null,
       purchaseUnitDefinitionId: null,
       purchaseToStockFactor: null,
+      lotTrackingMode: "tracked",
       deletedAt: null,
       createdAt: null,
       updatedAt: null,

@@ -9,6 +9,7 @@ import { trimScale } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import { roundQuantity } from "@/lib/format";
+import { assertTrackedItemInTx, LotTrackingError } from "@/lib/inventory/lot-tracking";
 import { AllocationError } from "./errors";
 import { getAllocationDemandAdapter } from "./adapters";
 import { getAllocationWorkspaceInTx } from "./read-model";
@@ -56,6 +57,18 @@ async function validateSourceInTx(
   }
 ) {
   if (params.sourceType === "inventory_lot") {
+    try {
+      await assertTrackedItemInTx(
+        tx,
+        params.itemId,
+        "Manual lot allocations are not available for untracked items."
+      );
+    } catch (error) {
+      if (error instanceof LotTrackingError) {
+        throw new AllocationError(error.message, error.status);
+      }
+      throw error;
+    }
     const [row] = await tx
       .select({
         quantity: trimScale(sql`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`).as(

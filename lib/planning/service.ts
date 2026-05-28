@@ -246,10 +246,13 @@ async function getAvailableLotFactsInTx(
       receivedAt: inventoryLotBalances.receivedAt,
     })
     .from(inventoryLotBalances)
+    .innerJoin(items, eq(items.id, inventoryLotBalances.itemId))
+    .innerJoin(itemFamilies, eq(itemFamilies.id, items.familyId))
     .where(
       and(
         eq(inventoryLotBalances.organizationId, orgId),
         eq(inventoryLotBalances.locationId, locationId),
+        eq(itemFamilies.lotTrackingMode, "tracked"),
         eq(inventoryLotBalances.disposition, "available"),
         sql`${inventoryLotBalances.quantity} > 0`
       )

@@ -556,6 +556,10 @@ export function LedgerTable({
       : initialSearchValue;
   const lotValue =
     lotState.urlValue === initialLotValue ? lotState.value : initialLotValue;
+  const selectedItem = initialFilters.itemId
+    ? itemOptions.find((item) => item.id === initialFilters.itemId)
+    : null;
+  const showLotColumn = selectedItem?.lotTrackingMode !== "untracked";
 
   useEffect(() => {
     return () => {
@@ -610,7 +614,7 @@ export function LedgerTable({
   const getDraftFilters = () => ({
     ...initialFilters,
     q: normalizeOptionalValue(searchValue),
-    lot: normalizeOptionalValue(lotValue),
+    lot: showLotColumn ? normalizeOptionalValue(lotValue) : undefined,
   });
 
   const navigate = (filters: InventoryLedgerFilters) => {
@@ -662,7 +666,6 @@ export function LedgerTable({
       .join(" · "),
     searchLabel: `${item.displayName} ${item.sku ?? ""}`,
   }));
-
   const handleSearchChange = (value: string) => {
     setSearchState({
       urlValue: initialSearchValue,
@@ -815,32 +818,37 @@ export function LedgerTable({
         );
       },
     },
-    {
-      colId: "lot",
-      minWidth: 130,
-      flex: 0.8,
-      headerComponent: () => (
-        <TextFilterHeader
-          label="Lot"
-          tooltip={LEDGER_LOT_TOOLTIP}
-          value={initialFilters.lot}
-          inputLabel="Lot filter value"
-          placeholder="Lot number"
-          debounceRef={lotDebounceRef}
-          onInputChange={(value) =>
-            setLotState({
-              urlValue: initialLotValue,
-              value,
-            })
-          }
-          onValueChange={(value) => updateColumnFilter({ lot: value })}
-        />
-      ),
-      valueGetter: ({ data }) => data?.lot?.number ?? "",
-      cellClass: "font-mono",
-      cellRenderer: ({ data }: { data?: InventoryLedgerRow }) =>
-        data?.lot?.number ?? <span className="text-muted-foreground">—</span>,
-    },
+    ...(showLotColumn
+      ? [
+          {
+            colId: "lot",
+            minWidth: 130,
+            flex: 0.8,
+            headerComponent: () => (
+              <TextFilterHeader
+                label="Lot"
+                tooltip={LEDGER_LOT_TOOLTIP}
+                value={initialFilters.lot}
+                inputLabel="Lot filter value"
+                placeholder="Lot number"
+                debounceRef={lotDebounceRef}
+                onInputChange={(value) =>
+                  setLotState({
+                    urlValue: initialLotValue,
+                    value,
+                  })
+                }
+                onValueChange={(value) => updateColumnFilter({ lot: value })}
+              />
+            ),
+            valueGetter: ({ data }: { data?: InventoryLedgerRow }) =>
+              data?.lot?.number ?? "",
+            cellClass: "font-mono",
+            cellRenderer: ({ data }: { data?: InventoryLedgerRow }) =>
+              data?.lot?.number ?? <span className="text-muted-foreground">—</span>,
+          } satisfies ColDef<InventoryLedgerRow>,
+        ]
+      : []),
     {
       colId: "change",
       minWidth: 125,

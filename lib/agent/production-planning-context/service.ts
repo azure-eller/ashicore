@@ -962,6 +962,7 @@ async function loadRelevantInventoryContextInTx(
       itemId: items.id,
       name: items.name,
       familyName: itemFamilies.name,
+      lotTrackingMode: itemFamilies.lotTrackingMode,
       itemType: items.itemType,
       sellable: items.sellable,
       unitName: unitDefinitions.name,
@@ -990,6 +991,7 @@ async function loadRelevantInventoryContextInTx(
       items.id,
       items.name,
       itemFamilies.name,
+      itemFamilies.lotTrackingMode,
       items.itemType,
       items.sellable,
       unitDefinitions.name
@@ -1072,8 +1074,14 @@ async function loadRelevantInventoryContextInTx(
         )
     : [];
 
+  const lotTrackedItemIds = new Set(
+    itemRows
+      .filter((row) => row.lotTrackingMode !== "untracked")
+      .map((row) => row.itemId)
+  );
   const lotsByItemId = new Map<string, AgentInventoryContext["lots"]>();
   for (const row of lotRows) {
+    if (!lotTrackedItemIds.has(row.itemId)) continue;
     const allocatedQty =
       row.disposition === "available" ? allocatedByLot.get(row.lotId) ?? 0 : 0;
     const quantity = toQuantity(row.quantity);
@@ -1107,6 +1115,7 @@ async function loadRelevantInventoryContextInTx(
     return {
       itemId: row.itemId,
       itemName: itemDisplayName(row),
+      lotTrackingMode: row.lotTrackingMode === "untracked" ? "untracked" : "tracked",
       unitName: row.unitName,
       onHandQty,
       availableQty:
