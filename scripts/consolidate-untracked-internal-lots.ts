@@ -344,14 +344,20 @@ async function consolidateItem(
           FROM inventory.inventory_lot_balances
           WHERE organization_id = $1
             AND item_id = $2
-            AND (lot_id = $3 OR lot_id = ANY($4::uuid[]))
+            -- Only the superseded lots are merged into the canonical lot. The
+            -- canonical lot's own balance must stay out of this set: the DELETE
+            -- and ON CONFLICT DO UPDATE below would otherwise hit the same row
+            -- twice in one statement (unsupported by Postgres) and double-count
+            -- the canonical stock. ON CONFLICT folds the old totals into the
+            -- surviving canonical row instead.
+            AND lot_id = ANY($4::uuid[])
           GROUP BY organization_id, location_id, item_id, disposition
         ),
         deleted AS (
           DELETE FROM inventory.inventory_lot_balances
           WHERE organization_id = $1
             AND item_id = $2
-            AND (lot_id = $3 OR lot_id = ANY($4::uuid[]))
+            AND lot_id = ANY($4::uuid[])
           RETURNING 1
         )
         INSERT INTO inventory.inventory_lot_balances (
@@ -379,6 +385,39 @@ async function consolidateItem(
         FROM source_balances
         WHERE quantity <> 0
            OR origin_event_id IS NOT NULL
+        ON CONFLICT (organization_id, item_id, location_id, lot_id, disposition)
+        DO UPDATE SET
+          quantity = inventory.inventory_lot_balances.quantity + EXCLUDED.quantity,
+          unit_cost = CASE
+            WHEN (
+              GREATEST(inventory.inventory_lot_balances.quantity, 0)
+              + GREATEST(EXCLUDED.quantity, 0)
+            ) > 0
+              THEN ROUND(
+                (
+                  GREATEST(inventory.inventory_lot_balances.quantity, 0)
+                  * COALESCE(inventory.inventory_lot_balances.unit_cost, 0)
+                  + GREATEST(EXCLUDED.quantity, 0) * COALESCE(EXCLUDED.unit_cost, 0)
+                )
+                / (
+                  GREATEST(inventory.inventory_lot_balances.quantity, 0)
+                  + GREATEST(EXCLUDED.quantity, 0)
+                ),
+                6
+              )
+            ELSE COALESCE(inventory.inventory_lot_balances.unit_cost, EXCLUDED.unit_cost)
+          END,
+          received_at = LEAST(
+            inventory.inventory_lot_balances.received_at,
+            EXCLUDED.received_at
+          ),
+          origin_event_id = COALESCE(
+            inventory.inventory_lot_balances.origin_event_id,
+            EXCLUDED.origin_event_id
+          ),
+          still_active = (
+            inventory.inventory_lot_balances.quantity + EXCLUDED.quantity
+          ) > 0
       `,
       [organizationId, itemId, canonicalLotId, oldLotIds]
     );

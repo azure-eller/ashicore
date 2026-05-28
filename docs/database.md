@@ -206,8 +206,16 @@ Lot-untracked items are still stored through the lot-backed inventory kernel,
 but active stock uses one hidden canonical lot per item: `INTERNAL-UNTRACKED`.
 Positive stock appends to that lot, FIFO consumption deducts from that lot, and
 negative untracked stock is represented by that same lot going below zero.
-Historical zero-quantity lots can remain after the normal app toggle for audit
-history; owner-level repair scripts may collapse those references when needed.
+When lot tracking is turned off, the app toggle consolidates existing tracked
+lots into the canonical hidden lot, rewrites historical lot references to that
+lot, and removes the superseded lot rows. That canonicalization may rewrite
+`lot_id` or source-lot references in inventory events, quality disposition
+events, manufacturing rows, stock allocations, and stocktake lot rows; it must
+not change event quantities, costs, dispositions, statuses, or occurrence times.
+Turning lot tracking back on converts that hidden lot back to a visible date lot
+when no draft stocktakes, open manufacturing picks, open manufacturing outputs,
+negative stock, blocked stock, or rejected stock would make the transition
+ambiguous.
 Normal operator UI must not expose this lot number.
 
 ## Concurrent Stock Writes
@@ -358,7 +366,9 @@ This keeps future FIFO allocations from being consumed at zero cost.
 
 Inventory truth now lives in:
 
-- `inventory.inventory_events` — append-only ledger
+- `inventory.inventory_events` — append-only for stock economics; `lot_id`
+  references and metadata may be canonicalized during lot tracking mode
+  transitions without changing event quantities, costs, or occurrence times
 - `inventory.inventory_lot_balances` — hot-path lot projection
 - `inventory.inventory_item_balances` — hot-path item projection
 - `inventory.inventory_reservations_summary` — open reservation rows

@@ -502,6 +502,16 @@ test.describe("inventory mutation kernel heartbeat", () => {
       );
     if (!location?.id) throw new Error("Default inventory location not found.");
 
+    const [otherLocation] = await db
+      .insert(inventoryLocations)
+      .values({
+        organizationId: orgId,
+        name: `Overflow ${ts}`,
+        code: `overflow-${ts}`,
+        isDefault: false,
+      })
+      .returning({ id: inventoryLocations.id });
+
     await db.transaction(async (tx) => {
       await createPositiveStockEventInTx(tx, {
         organizationId: orgId,
@@ -525,13 +535,24 @@ test.describe("inventory mutation kernel heartbeat", () => {
         referenceType: "item",
         referenceId: itemId,
       });
+      await createPositiveStockEventInTx(tx, {
+        organizationId: orgId,
+        locationId: otherLocation.id,
+        itemId,
+        quantity: 9,
+        unitCost: "2.00",
+        eventType: "manual_adjustment_increase",
+        eventSubtype: "fast_disable_lots_other_location",
+        referenceType: "item",
+        referenceId: itemId,
+      });
     });
 
     const beforeLots = await db
       .select({ lotNumber: lots.lotNumber })
       .from(lots)
       .where(eq(lots.itemId, itemId));
-    expect(beforeLots).toHaveLength(2);
+    expect(beforeLots).toHaveLength(3);
 
     const modeResponse = await testFetch(`/api/item-cards/${itemId}`, {
       method: "PATCH",
@@ -548,7 +569,7 @@ test.describe("inventory mutation kernel heartbeat", () => {
       JSON.stringify(await modeResponse.json().catch(() => null))
     ).toBe(200);
 
-    const lotRows = await db
+    let lotRows = await db
       .select({
         id: lots.id,
         lotNumber: lots.lotNumber,
@@ -556,13 +577,10 @@ test.describe("inventory mutation kernel heartbeat", () => {
       })
       .from(lots)
       .where(eq(lots.itemId, itemId));
-    // The app-role toggle preserves historical zero lots for audit; only active
-    // stock must live on the canonical internal lot.
-    const activeLotRows = lotRows.filter((lot) => Number(lot.quantity) !== 0);
-    expect(activeLotRows).toEqual([
+    expect(lotRows).toEqual([
       expect.objectContaining({
         lotNumber: INTERNAL_UNTRACKED_LOT_NUMBER,
-        quantity: "10.0000",
+        quantity: "19.0000",
       }),
     ]);
 
@@ -571,8 +589,56 @@ test.describe("inventory mutation kernel heartbeat", () => {
       .from(inventoryEvents)
       .where(eq(inventoryEvents.itemId, itemId));
     expect(new Set(eventRows.map((event) => event.lotId))).toEqual(
-      new Set(lotRows.map((lot) => lot.id))
+      new Set([lotRows[0].id])
     );
+
+    const untrackedBalances = await db
+      .select({
+        locationId: inventoryLotBalances.locationId,
+        quantity: inventoryLotBalances.quantity,
+      })
+      .from(inventoryLotBalances)
+      .where(
+        and(
+          eq(inventoryLotBalances.itemId, itemId),
+          eq(inventoryLotBalances.lotId, lotRows[0].id),
+          eq(inventoryLotBalances.disposition, "available")
+        )
+      )
+      .orderBy(inventoryLotBalances.locationId);
+    expect(untrackedBalances).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ locationId: location.id, quantity: "10.0000" }),
+        expect.objectContaining({ locationId: otherLocation.id, quantity: "9.0000" }),
+      ])
+    );
+
+    const trackedModeResponse = await testFetch(`/api/item-cards/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: itemName,
+        category,
+        description: null,
+        unitDefinitionId: unitId,
+        lotTrackingMode: "tracked",
+      }),
+    });
+    expect(
+      trackedModeResponse.status,
+      JSON.stringify(await trackedModeResponse.json().catch(() => null))
+    ).toBe(200);
+
+    lotRows = await db
+      .select({
+        id: lots.id,
+        lotNumber: lots.lotNumber,
+        quantity: lots.quantity,
+      })
+      .from(lots)
+      .where(eq(lots.itemId, itemId));
+    expect(lotRows).toHaveLength(1);
+    expect(lotRows[0]?.lotNumber).toMatch(/^LOT-\d{4}-\d{2}-\d{2}/);
+    expect(lotRows[0]?.quantity).toBe("19.0000");
   });
 
   test("stocktake count becomes authoritative stock truth", async ({ db }) => {

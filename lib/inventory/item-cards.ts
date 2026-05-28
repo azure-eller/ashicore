@@ -37,7 +37,6 @@ import { DomainError } from "@/lib/errors/domain-error";
 import {
   beginInventoryOperationInTx,
   finishInventoryOperationInTx,
-  getDefaultInventoryLocationInTx,
 } from "@/lib/inventory/kernel";
 import {
   nullableStringPreserveUndefined,
@@ -51,7 +50,10 @@ import {
   LOT_TRACKING_MODES,
   type LotTrackingMode,
 } from "@/lib/inventory/lot-tracking";
-import { consolidateUntrackedFamilyLotsInTx } from "@/lib/inventory/untracked-lot-consolidation";
+import {
+  consolidateUntrackedFamilyLotsInTx,
+  convertUntrackedFamilyLotsToTrackedInTx,
+} from "@/lib/inventory/untracked-lot-consolidation";
 import type { Tx } from "@/lib/db/with-org-context";
 import type {
   DuplicateCombinationWarning,
@@ -809,6 +811,82 @@ async function assertCanDisableLotTrackingInTx(tx: Tx, familyId: string) {
   }
 }
 
+async function assertCanEnableLotTrackingInTx(tx: Tx, familyId: string) {
+  const variantRows = await tx
+    .select({ id: items.id })
+    .from(items)
+    .where(and(eq(items.familyId, familyId), isNull(items.deletedAt)))
+    .for("update");
+  const itemIds = variantRows.map((row) => row.id);
+
+  if (itemIds.length === 0) return;
+
+  const [draftStocktakeLot] = await tx
+    .select({ id: stocktakeLotItems.id })
+    .from(stocktakeLotItems)
+    .innerJoin(stocktakeItems, eq(stocktakeLotItems.stocktakeItemId, stocktakeItems.id))
+    .innerJoin(stocktakes, eq(stocktakeItems.stocktakeId, stocktakes.id))
+    .where(and(inArray(stocktakeItems.itemId, itemIds), eq(stocktakes.status, "draft")))
+    .limit(1);
+  if (draftStocktakeLot) {
+    throw new ItemCardError(
+      "Lot tracking cannot be turned on while draft stocktake lot counts exist.",
+      409
+    );
+  }
+
+  const [openPickAllocation] = await tx
+    .select({ id: manufacturingPickAllocations.id })
+    .from(manufacturingPickAllocations)
+    .innerJoin(
+      manufacturingOrderIngredients,
+      eq(
+        manufacturingPickAllocations.manufacturingOrderIngredientId,
+        manufacturingOrderIngredients.id
+      )
+    )
+    .innerJoin(
+      manufacturingOrders,
+      eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrders.id)
+    )
+    .where(
+      and(
+        inArray(manufacturingOrderIngredients.itemId, itemIds),
+        eq(manufacturingOrders.status, "open"),
+        isNull(manufacturingOrders.deletedAt)
+      )
+    )
+    .limit(1);
+  if (openPickAllocation) {
+    throw new ItemCardError(
+      "Lot tracking cannot be turned on while open manufacturing picks reference lots.",
+      409
+    );
+  }
+
+  const [openOutput] = await tx
+    .select({ id: manufacturingOrderOutputs.id })
+    .from(manufacturingOrderOutputs)
+    .innerJoin(
+      manufacturingOrders,
+      eq(manufacturingOrderOutputs.manufacturingOrderId, manufacturingOrders.id)
+    )
+    .where(
+      and(
+        inArray(manufacturingOrders.productId, itemIds),
+        eq(manufacturingOrders.status, "open"),
+        isNull(manufacturingOrders.deletedAt)
+      )
+    )
+    .limit(1);
+  if (openOutput) {
+    throw new ItemCardError(
+      "Lot tracking cannot be turned on while open manufacturing outputs reference lots.",
+      409
+    );
+  }
+}
+
 export const getItemCard = cache(async (itemId: string): Promise<ItemCardDto> => {
   return withAuthedOrgContext((tx) => getItemCardInTx(tx, itemId));
 });
@@ -956,12 +1034,20 @@ export async function updateItemCard(
       data.lotTrackingMode === "untracked" &&
       family.lotTrackingMode !== "untracked"
     ) {
-      const location = await getDefaultInventoryLocationInTx(tx, orgId);
       await consolidateUntrackedFamilyLotsInTx(tx, {
         organizationId: orgId,
-        locationId: location.id,
         familyId,
         actorUserId: userId,
+      });
+    }
+    if (
+      data.lotTrackingMode === "tracked" &&
+      family.lotTrackingMode === "untracked"
+    ) {
+      await assertCanEnableLotTrackingInTx(tx, familyId);
+      await convertUntrackedFamilyLotsToTrackedInTx(tx, {
+        organizationId: orgId,
+        familyId,
       });
     }
 
