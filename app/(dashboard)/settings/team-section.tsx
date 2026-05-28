@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
+import type { ICellRendererParams } from "ag-grid-community";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Controller, useForm } from "react-hook-form";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -9,6 +10,7 @@ import { Add01Icon, PencilEdit02Icon, RefreshIcon } from "@hugeicons/core-free-i
 import {
   formatAccessLevelLabel,
   formatAccessPresetLabel,
+  formatRoleLabel,
   formatModuleLabel,
   getAccessPresetKeys,
   getAccessPresetModuleAccess,
@@ -18,6 +20,7 @@ import {
   type ModuleAccessLevel,
 } from "@/lib/authz";
 import { DateTimeText } from "@/components/date-time-text";
+import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
 import { createTeamInvitationSchema, moduleAccessSchema } from "@/lib/schemas/team";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -39,7 +42,7 @@ import {
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { TeamRoleBadge } from "./team-role-badge";
-import type { TeamMemberRow, TeamPageData } from "./types";
+import type { PendingInviteRow, TeamMemberRow, TeamPageData } from "./types";
 import { SettingsPanel, SettingsPanelHeader } from "./settings-panel";
 
 type InviteFormValues = {
@@ -51,6 +54,30 @@ type UpdateMemberPayload = {
   memberId: string;
   moduleAccess: TeamMemberRow["moduleAccess"];
 };
+
+type TeamGridRow =
+  | {
+      id: string;
+      kind: "member";
+      name: string;
+      email: string;
+      accessLabel: string;
+      roleLabel: string;
+      statusLabel: string;
+      member: TeamMemberRow;
+      invite: null;
+    }
+  | {
+      id: string;
+      kind: "invite";
+      name: string;
+      email: string;
+      accessLabel: string;
+      roleLabel: string;
+      statusLabel: string;
+      member: null;
+      invite: PendingInviteRow;
+    };
 
 const FULL_ACCESS_OPTIONS: ModuleAccessLevel[] = ["none", "read", "operate", "admin"];
 const ACCESS_PRESET_KEYS = getAccessPresetKeys();
@@ -69,6 +96,25 @@ function AccessPresetBadge({ presetKey }: { presetKey: DerivedAccessPresetKey })
   }
 
   return <Badge variant="outline">{formatAccessPresetLabel(presetKey)}</Badge>;
+}
+
+function TeamStatusBadge({ row }: { row: TeamGridRow }) {
+  if (row.kind === "invite") {
+    return (
+      <div className="flex min-w-0 items-center gap-(--space-3)">
+        <Badge variant="secondary">Pending</Badge>
+        <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+          expires <DateTimeText value={row.invite.expiresAt} />
+        </span>
+      </div>
+    );
+  }
+
+  if (row.member.isCurrentUser) {
+    return <Badge variant="secondary">You</Badge>;
+  }
+
+  return <Badge variant="outline">Active</Badge>;
 }
 
 function InviteMemberDialog({
@@ -372,6 +418,7 @@ function CustomizeAccessDialog({
 export function TeamSection({ initialData }: { initialData: TeamPageData }) {
   const queryClient = useQueryClient();
   const [actionError, setActionError] = useState<string | null>(null);
+  const [searchValue, setSearchValue] = useState("");
   const [customizingMember, setCustomizingMember] = useState<TeamMemberRow | null>(null);
 
   const { data = initialData } = useQuery<TeamPageData>({
@@ -480,6 +527,165 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
 
   const memberCount = data.members.length;
   const pendingCount = data.pendingInvites.length;
+  const rows = useMemo<TeamGridRow[]>(
+    () => [
+      ...data.members.map((member) => ({
+        id: `member-${member.id}`,
+        kind: "member" as const,
+        name: member.name,
+        email: member.email,
+        accessLabel: member.presetKey
+          ? formatAccessPresetLabel(member.presetKey)
+          : "",
+        roleLabel: formatRoleLabel(member.role),
+        statusLabel: member.isCurrentUser ? "You" : "Active",
+        member,
+        invite: null,
+      })),
+      ...data.pendingInvites.map((invite) => ({
+        id: `invite-${invite.id}`,
+        kind: "invite" as const,
+        name: "Pending invite",
+        email: invite.email,
+        accessLabel: formatAccessPresetLabel(invite.presetKey),
+        roleLabel: "",
+        statusLabel: "Pending",
+        member: null,
+        invite,
+      })),
+    ],
+    [data.members, data.pendingInvites]
+  );
+  const columns = useMemo<ColDef<TeamGridRow>[]>(
+    () => [
+      {
+        field: "name",
+        headerName: "Name",
+        minWidth: 180,
+        flex: 1,
+        cellRenderer: ({ data: row }: ICellRendererParams<TeamGridRow>) => {
+          if (!row) return null;
+
+          return row.kind === "member" ? (
+            <span className="min-w-0 truncate font-medium text-foreground">
+              {row.name}
+              {row.member.isCurrentUser ? (
+                <span className="ml-(--space-2) text-[length:var(--text-xs)] font-normal text-muted-foreground">
+                  (You)
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">Pending invite</span>
+          );
+        },
+      },
+      {
+        field: "email",
+        headerName: "Email",
+        minWidth: 230,
+        flex: 1.35,
+      },
+      {
+        field: "accessLabel",
+        headerName: "Access",
+        width: 150,
+        minWidth: 130,
+        cellRenderer: ({ data: row }: ICellRendererParams<TeamGridRow>) =>
+          row?.kind === "member" && row.member.presetKey ? (
+            <AccessPresetBadge presetKey={row.member.presetKey} />
+          ) : row?.kind === "invite" ? (
+            <AccessPresetBadge presetKey={row.invite.presetKey} />
+          ) : (
+            "—"
+          ),
+      },
+      {
+        field: "roleLabel",
+        headerName: "Role",
+        width: 120,
+        minWidth: 100,
+        cellRenderer: ({ data: row }: ICellRendererParams<TeamGridRow>) =>
+          row?.kind === "member" ? (
+            <TeamRoleBadge role={row.member.role} />
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          ),
+      },
+      {
+        field: "statusLabel",
+        headerName: "Status",
+        width: 220,
+        minWidth: 180,
+        cellRenderer: ({ data: row }: ICellRendererParams<TeamGridRow>) =>
+          row ? <TeamStatusBadge row={row} /> : null,
+      },
+      {
+        colId: "actions",
+        headerName: "",
+        width: 176,
+        minWidth: 150,
+        maxWidth: 210,
+        sortable: false,
+        resizable: false,
+        cellRenderer: ({ data: row }: ICellRendererParams<TeamGridRow>) => {
+          if (!row) return null;
+
+          if (row.kind === "invite") {
+            return (
+              <div className="flex h-full items-center justify-end gap-(--space-3)">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  disabled={mutationPending}
+                  onClick={() => resendMutation.mutate(row.invite.id)}
+                  aria-label={`Resend invite to ${row.email}`}
+                >
+                  <HugeiconsIcon icon={RefreshIcon} />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={mutationPending}
+                  onClick={() => cancelInviteMutation.mutate(row.invite.id)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            );
+          }
+
+          const manageable = row.member.canManage && !row.member.isCurrentUser;
+
+          return manageable ? (
+            <div className="flex h-full items-center justify-end">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                disabled={mutationPending}
+                onClick={() => setCustomizingMember(row.member)}
+                className="bg-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label={`Edit ${row.member.name}`}
+              >
+                <HugeiconsIcon icon={PencilEdit02Icon} />
+              </Button>
+            </div>
+          ) : null;
+        },
+        getQuickFilterText: () => "",
+      },
+    ],
+    [
+      cancelInviteMutation,
+      mutationPending,
+      resendMutation,
+      setCustomizingMember,
+    ]
+  );
+  const gridHeight = Math.max(160, Math.min(680, 40 + rows.length * 34));
 
   return (
     <>
@@ -501,92 +707,18 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
           </div>
         ) : null}
 
-        <div className="divide-y">
-          {data.members.map((member) => {
-            const manageable = member.canManage && !member.isCurrentUser;
-
-            return (
-              <div
-                key={member.id}
-                data-email={member.email}
-                className="group grid gap-(--space-6) px-(--space-12) py-(--space-8) md:grid-cols-[minmax(0,1fr)_minmax(8rem,auto)_2rem] md:items-center"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium text-foreground">
-                    {member.name}
-                    {member.isCurrentUser ? (
-                      <span className="ml-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">(You)</span>
-                    ) : null}
-                  </div>
-                  <div className="truncate text-[length:var(--text-sm)] text-muted-foreground">
-                    {member.email}
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-(--space-4) md:justify-end">
-                  {member.presetKey ? <AccessPresetBadge presetKey={member.presetKey} /> : null}
-                  {member.role === "owner" ? (
-                    <TeamRoleBadge role={member.role} />
-                  ) : null}
-                </div>
-
-                {manageable ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={mutationPending}
-                    onClick={() => setCustomizingMember(member)}
-                    className="justify-self-start bg-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:justify-self-end md:opacity-0 md:transition-opacity md:hover:bg-transparent md:focus-visible:opacity-100 md:group-hover:opacity-100"
-                    aria-label={`Edit ${member.name}`}
-                  >
-                    <HugeiconsIcon icon={PencilEdit02Icon} />
-                  </Button>
-                ) : (
-                  <span aria-hidden="true" className="h-8 w-8" />
-                )}
-              </div>
-            );
-          })}
-
-          {data.pendingInvites.map((invite) => (
-            <div
-              key={invite.id}
-              data-email={invite.email}
-              data-pending="true"
-              className="grid gap-(--space-6) px-(--space-12) py-(--space-8) opacity-70 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-medium text-foreground">{invite.email}</div>
-                <div className="text-[length:var(--text-sm)] text-muted-foreground">
-                  pending · expires <DateTimeText value={invite.expiresAt} />
-                </div>
-              </div>
-
-              <div className="flex shrink-0 flex-wrap items-center gap-(--space-4)">
-                <AccessPresetBadge presetKey={invite.presetKey} />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={mutationPending}
-                  onClick={() => resendMutation.mutate(invite.id)}
-                >
-                  <HugeiconsIcon icon={RefreshIcon} data-icon="inline-start" />
-                  Resend
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={mutationPending}
-                  onClick={() => cancelInviteMutation.mutate(invite.id)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          ))}
+        <div className="p-(--space-8)">
+          <ERPDataGrid
+            rows={rows}
+            columns={columns}
+            height={gridHeight}
+            rowHeight={34}
+            headerHeight={32}
+            emptyMessage="No team members found."
+            searchValue={searchValue}
+            onSearchChange={setSearchValue}
+            searchAriaLabel="Search team"
+          />
         </div>
       </SettingsPanel>
 

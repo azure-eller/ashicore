@@ -7,7 +7,15 @@ import {
   type EditableLineDataGridChange,
   type LineField,
 } from "@/components/editable-lines";
-import { SettingsPanel } from "./settings-panel";
+import { Field, FieldLabel } from "@/components/ui/field";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { SettingsPanel, SettingsPanelHeader } from "./settings-panel";
 
 type TaxRateRow = {
   id: string;
@@ -20,6 +28,8 @@ export type TaxRatesSectionData = {
   defaultSalesTaxRateId: string | null;
   defaultPurchaseTaxRateId: string | null;
 };
+
+const NO_TAX_VALUE = "none";
 
 export function TaxRatesSection({ initialData }: { initialData: TaxRatesSectionData }) {
   const [rates, setRates] = useState<TaxRateRow[]>(initialData.rates);
@@ -101,68 +111,66 @@ export function TaxRatesSection({ initialData }: { initialData: TaxRatesSectionD
   }, [defaultPurchaseTaxRateId, defaultSalesTaxRateId, rates, saveTaxSettings]);
 
   const options = rates.filter((rate) => rate.name.trim().length > 0);
+  const saveStatus = mutation.isPending
+    ? "Saving…"
+    : mutation.isError
+      ? "Changes not saved"
+      : "All changes saved";
 
   return (
-    <SettingsPanel id="tax-rates" className="border-0 bg-transparent">
-      <div className="px-(--space-0) py-(--space-0)">
-        <h2 className="text-[length:var(--text-lg)] leading-[var(--leading-lg)] font-semibold">
-          Tax rates
-        </h2>
-        <p className="mt-(--space-5) max-w-[72rem] text-[length:var(--text-sm)] leading-[var(--leading-md)]">
-          Set and edit tax rates for products and transactions to ensure accurate tax calculations and compliance. Tax rates are applied to items on sales and purchase orders to calculate the total price or cost of items on the order with taxes.{" "}
-          <a className="text-primary underline-offset-2 hover:underline" href="#">
-            Learn more
-          </a>
-        </p>
+    <SettingsPanel id="tax-rates">
+      <SettingsPanelHeader
+        title="Tax rates"
+        meta="Applied to sales and purchase order items to calculate tax totals."
+        action={
+          <span className="text-[length:var(--text-xs)] text-muted-foreground">
+            {saveStatus}
+          </span>
+        }
+      />
 
-        <div className="mt-(--space-10) grid gap-(--space-12) lg:grid-cols-[minmax(28rem,34rem)_minmax(18rem,34rem)]">
-          <div>
-            <MutableLines<TaxRateRow>
-              rows={rates}
-              fields={fields}
-              getRowId={(row) => row.id}
-              createRow={() => ({
-                id: crypto.randomUUID(),
-                ratePercent: "0",
-                name: "",
-              })}
-              onRowsChange={(
-                nextRows: TaxRateRow[],
-                change: EditableLineDataGridChange<TaxRateRow>,
-              ) => {
-                setRates(nextRows);
-                if (change.type === "row_deleted" && change.row) {
-                  if (change.row.id === defaultSalesTaxRateId) {
-                    setDefaultSalesTaxRateId(null);
-                  }
-                  if (change.row.id === defaultPurchaseTaxRateId) {
-                    setDefaultPurchaseTaxRateId(null);
-                  }
-                }
-              }}
-              addLabel="Add row"
-              initializeBlankRow={false}
-              emptyMessage="No tax rates yet."
-            />
-          </div>
+      <div className="grid gap-(--space-12) p-(--space-8) lg:grid-cols-[minmax(0,1fr)_minmax(15rem,20rem)]">
+        <MutableLines<TaxRateRow>
+          rows={rates}
+          fields={fields}
+          getRowId={(row) => row.id}
+          createRow={() => ({
+            id: crypto.randomUUID(),
+            ratePercent: "0",
+            name: "",
+          })}
+          onRowsChange={(
+            nextRows: TaxRateRow[],
+            change: EditableLineDataGridChange<TaxRateRow>,
+          ) => {
+            setRates(nextRows);
+            if (change.type === "row_deleted" && change.row) {
+              if (change.row.id === defaultSalesTaxRateId) {
+                setDefaultSalesTaxRateId(null);
+              }
+              if (change.row.id === defaultPurchaseTaxRateId) {
+                setDefaultPurchaseTaxRateId(null);
+              }
+            }
+          }}
+          addLabel="Add row"
+          initializeBlankRow={false}
+          emptyMessage="No tax rates yet."
+        />
 
-          <div className="flex flex-col gap-(--space-8)">
-            <DefaultTaxSelect
-              label="Default tax on Sales order"
-              value={defaultSalesTaxRateId}
-              rates={options}
-              onChange={setDefaultSalesTaxRateId}
-            />
-            <DefaultTaxSelect
-              label="Default tax on Purchase order"
-              value={defaultPurchaseTaxRateId}
-              rates={options}
-              onChange={setDefaultPurchaseTaxRateId}
-            />
-            <div className="text-[length:var(--text-xs)] text-muted-foreground">
-              {mutation.isPending ? "Saving..." : mutation.isError ? "Changes not saved" : "All changes saved"}
-            </div>
-          </div>
+        <div className="flex flex-col gap-(--space-8)">
+          <DefaultTaxSelect
+            label="Default tax on sales orders"
+            value={defaultSalesTaxRateId}
+            rates={options}
+            onChange={setDefaultSalesTaxRateId}
+          />
+          <DefaultTaxSelect
+            label="Default tax on purchase orders"
+            value={defaultPurchaseTaxRateId}
+            rates={options}
+            onChange={setDefaultPurchaseTaxRateId}
+          />
         </div>
       </div>
     </SettingsPanel>
@@ -181,22 +189,24 @@ function DefaultTaxSelect({
   onChange: (value: string | null) => void;
 }) {
   return (
-    <label className="block">
-      <span className="block text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground">
-        {label}
-      </span>
-      <select
-        className="mt-(--space-1) h-(--height-input-md) w-full border-0 border-b border-border bg-transparent px-0 text-[length:var(--text-sm)] outline-none focus:border-primary"
-        value={value ?? ""}
-        onChange={(event) => onChange(event.target.value || null)}
+    <Field>
+      <FieldLabel>{label}</FieldLabel>
+      <Select
+        value={value ?? NO_TAX_VALUE}
+        onValueChange={(next) => onChange(next === NO_TAX_VALUE ? null : next)}
       >
-        {value == null ? <option value="">0% - Tax Exempt</option> : null}
-        {rates.map((rate) => (
-          <option key={rate.id} value={rate.id}>
-            {rate.ratePercent}% - {rate.name}
-          </option>
-        ))}
-      </select>
-    </label>
+        <SelectTrigger className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_TAX_VALUE}>0% — Tax exempt</SelectItem>
+          {rates.map((rate) => (
+            <SelectItem key={rate.id} value={rate.id}>
+              {rate.ratePercent}% — {rate.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </Field>
   );
 }

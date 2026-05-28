@@ -35,10 +35,6 @@ export default async function SettingsAgentAccessPage() {
         mcpServerUrl: agentMcpServerUrl,
         claudeInstallUrl: claudeInstallUrl.toString(),
         chatGptBuilderUrl: "https://chatgpt.com/gpts/editor",
-        claudePluginDownloadUrl: new URL(
-          "/downloads/ashicore-claude-plugin.zip",
-          requestOrigin
-        ).toString(),
       }}
     />
   );

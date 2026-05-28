@@ -5,7 +5,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
-  ApiIcon,
   Copy01Icon,
   Delete02Icon,
   Key01Icon,
@@ -195,15 +194,7 @@ function ClaudeConnectDialog({
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button className="h-auto justify-start gap-(--space-4) px-(--space-5) py-(--space-4)">
-          <ProviderMark label="C" />
-          <span className="grid text-left">
-            <span>Connect Claude</span>
-            <span className="text-[length:var(--text-xs)] font-normal text-primary-foreground/80">
-              Remote MCP
-            </span>
-          </span>
-        </Button>
+        <Button className="w-full">Connect Claude</Button>
       </DialogTrigger>
       <DialogContent size="md">
         <DialogHeader>
@@ -260,17 +251,8 @@ function ChatGptConnectDialog({
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button
-          variant="outline"
-          className="h-auto justify-start gap-(--space-4) px-(--space-5) py-(--space-4)"
-        >
-          <ProviderMark label="GPT" />
-          <span className="grid text-left">
-            <span>Set up ChatGPT</span>
-            <span className="text-[length:var(--text-xs)] font-normal text-muted-foreground">
-              Custom GPT Action
-            </span>
-          </span>
+        <Button variant="outline" className="w-full">
+          Set up ChatGPT
         </Button>
       </DialogTrigger>
       <DialogContent size="md">
@@ -320,48 +302,45 @@ function ChatGptConnectDialog({
   );
 }
 
-function ClaudePluginDialog({ downloadUrl }: { downloadUrl: string }) {
+function ConnectCard({
+  mark,
+  title,
+  subtitle,
+  description,
+  children,
+}: {
+  mark: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  children: React.ReactNode;
+}) {
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button
-          variant="outline"
-          className="h-auto justify-start gap-(--space-4) px-(--space-5) py-(--space-4)"
-        >
-          <ProviderMark label="ZIP" />
-          <span className="grid text-left">
-            <span>Download Claude plugin</span>
-            <span className="text-[length:var(--text-xs)] font-normal text-muted-foreground">
-              Skill + MCP
-            </span>
-          </span>
-        </Button>
-      </DialogTrigger>
-      <DialogContent size="md">
-        <DialogHeader>
-          <DialogTitle>Download Claude plugin</DialogTitle>
-          <DialogDescription>
-            This plugin adds a small production schedule skill and references
-            the Ashicore MCP server.
-          </DialogDescription>
-        </DialogHeader>
+    <div className="flex flex-col gap-(--space-6) border bg-card p-(--space-8)">
+      <div className="flex items-center gap-(--space-4)">
+        <ProviderMark label={mark} />
+        <div className="min-w-0">
+          <div className="text-[length:var(--text-sm)] font-medium text-foreground">
+            {title}
+          </div>
+          <div className="text-[length:var(--text-xs)] text-muted-foreground">
+            {subtitle}
+          </div>
+        </div>
+      </div>
+      <p className="text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
+        {description}
+      </p>
+      <div className="mt-auto">{children}</div>
+    </div>
+  );
+}
 
-        <ol className="grid list-decimal gap-(--space-2) pl-(--space-6) text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
-          <li>Download the plugin zip.</li>
-          <li>Install it in Claude Code or a Claude client that supports plugins.</li>
-          <li>Connect Ashicore when Claude asks for MCP access.</li>
-        </ol>
-
-        <DialogFooter>
-          <Button asChild>
-            <a href={downloadUrl}>
-              <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
-              Download plugin
-            </a>
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+function SubHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <h3 className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-muted-foreground uppercase">
+      {children}
+    </h3>
   );
 }
 
@@ -421,7 +400,7 @@ export function AgentAccessSection({
     <SettingsPanel id="agent-access">
       <SettingsPanelHeader
         title="Agent API"
-        meta={`${enabledCount > 0 ? "Enabled" : "Not enabled"} · ${enabledCount} active ${enabledCount === 1 ? "token" : "tokens"}`}
+        meta="Let Claude or ChatGPT read your production planning data."
       />
 
       {actionError ? (
@@ -430,75 +409,50 @@ export function AgentAccessSection({
         </div>
       ) : null}
 
-        <div className="grid gap-(--space-8) p-(--space-8)">
-        <div className="grid gap-(--space-6) border bg-muted/20 p-(--space-8) md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
-          <div className="min-w-0">
-            <div className="flex items-center gap-(--space-4) text-[length:var(--text-sm)] font-medium">
-              <HugeiconsIcon icon={ApiIcon} className="size-(--space-7)" />
-              Ashicore MCP
-              <Badge variant={enabledCount > 0 ? "default" : "outline"}>
-                {enabledCount > 0 ? "Enabled" : "Disabled"}
-              </Badge>
-            </div>
-          </div>
-          <div className="grid gap-(--space-4) sm:grid-cols-3">
+      <div className="border-t px-(--space-12) py-(--space-10)">
+        <SubHeader>Connect an assistant</SubHeader>
+        <div className="mt-(--space-6) grid gap-(--space-6) sm:grid-cols-2">
+          <ConnectCard
+            mark="C"
+            title="Claude"
+            subtitle="Remote MCP"
+            description="Add Ashicore as a custom connector. No token needed — Claude signs in with OAuth."
+          >
             <ClaudeConnectDialog
               installUrl={data.claudeInstallUrl}
               serverUrl={data.mcpServerUrl}
             />
+          </ConnectCard>
+          <ConnectCard
+            mark="GPT"
+            title="ChatGPT"
+            subtitle="Custom GPT action"
+            description="Create an API token, then import the OpenAPI schema as a GPT action."
+          >
             <ChatGptConnectDialog
               builderUrl={data.chatGptBuilderUrl}
               openApiUrl={data.openApiUrl}
               onCreated={refreshData}
             />
-            <ClaudePluginDialog downloadUrl={data.claudePluginDownloadUrl} />
+          </ConnectCard>
+        </div>
+      </div>
+
+      <div className="border-t px-(--space-12) py-(--space-10)">
+        <div className="flex flex-wrap items-center justify-between gap-(--space-6)">
+          <div className="min-w-0">
+            <SubHeader>API tokens</SubHeader>
+            <p className="mt-(--space-1) text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground">
+              {enabledCount} active {enabledCount === 1 ? "token" : "tokens"}
+            </p>
           </div>
+          <AgentTokenDialog triggerLabel="Create token" onCreated={refreshData} />
         </div>
 
-        <details className="grid gap-(--space-4) border p-(--space-6)">
-          <summary className="cursor-pointer text-[length:var(--text-sm)] font-medium">
-            Connection details
-          </summary>
-          <div className="mt-(--space-5) grid gap-(--space-4)">
-          <div className="grid gap-(--space-4) md:grid-cols-[7rem_minmax(0,1fr)]">
-            <div className="text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-muted-foreground">
-              Claude MCP
-            </div>
-            <code className="break-all font-mono text-[length:var(--text-xs)] text-foreground">
-              {data.mcpServerUrl}
-            </code>
-          </div>
-          <div className="grid gap-(--space-4) md:grid-cols-[7rem_minmax(0,1fr)]">
-            <div className="text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-muted-foreground">
-              OpenAPI
-            </div>
-            <code className="break-all font-mono text-[length:var(--text-xs)] text-foreground">
-              {data.openApiUrl}
-            </code>
-          </div>
-          <div className="grid gap-(--space-4) md:grid-cols-[7rem_minmax(0,1fr)]">
-            <div className="text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-muted-foreground">
-              Scope
-            </div>
-            <div className="text-[length:var(--text-sm)] text-foreground">
-              production_planning:read
-            </div>
-          </div>
-          <div className="grid gap-(--space-4) md:grid-cols-[7rem_minmax(0,1fr)]">
-            <div className="text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-muted-foreground">
-              OAuth
-            </div>
-            <div className="text-[length:var(--text-sm)] text-muted-foreground">
-              Leave Claude client ID and client secret blank.
-            </div>
-          </div>
-          </div>
-        </details>
-
-        <div className="border">
+        <div className="mt-(--space-6) border">
           {data.tokens.length === 0 ? (
             <div className="px-(--space-8) py-(--space-10) text-[length:var(--text-sm)] text-muted-foreground">
-              No agent API tokens yet.
+              No tokens yet. Create one to connect ChatGPT or another agent.
             </div>
           ) : (
             <div className="divide-y">
