@@ -23,7 +23,7 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui (radix-nova / stone)
 
 These are non-negotiable repo rules. They are repeated here because violating them is expensive, even when the principles already imply them.
 
-- **Worktrees for code changes.** Never edit on `main` or in the repo root checkout unless explicitly asked.
+- **Worktrees for code changes.** Never edit on `main` or in the repo root checkout unless explicitly asked. `pnpm lint` and `pnpm build` run a preflight that fetches `origin/main`, blocks stale branches, blocks local `main`, and blocks a repo-root checkout that is not `main`.
 - **DAL only.** Never import `db` directly in pages, components, or API routes.
 - **RLS on new tables.** New org-scoped tables need `.enableRLS()` + org-isolation `pgPolicy` in Drizzle, plus `FORCE ROW LEVEL SECURITY` in migration SQL.
 - **Migrations.** Use `pnpm db:generate` + `pnpm drizzle-kit migrate`. Never use `drizzle push`. Generate migrations from fresh `origin/main`.
@@ -40,6 +40,7 @@ These are non-negotiable repo rules. They are repeated here because violating th
 - `pnpm dev` — start dev server
 - `pnpm build` — production build (catch type errors)
 - `pnpm lint` — ESLint
+- `pnpm preflight` — local worktree safety check; fetches `origin/main` and fails on stale/non-worktree/main checkouts
 - `pnpm test` / `pnpm test:fast` — heartbeat fast Playwright lane (dev server must be running)
 - `pnpm test:fast:<domain>` — heartbeat domain lanes (`sales`, `inventory`, `purchasing`, `manufacturing`, `planning`)
 - `pnpm test:slow:<domain>` — slow domain lanes (`sales`, `purchasing`, `manufacturing`, `planning`, `stocktake`, `auth`)

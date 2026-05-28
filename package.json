@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "NODE_OPTIONS=--max-old-space-size=4096 next dev --disable-source-maps",
-    "build": "next build",
+    "preflight": "tsx scripts/verify-worktree-safety.ts",
+    "build": "pnpm preflight && next build",
     "start": "next start",
-    "lint": "eslint && pnpm verify:editable-lines && pnpm verify:schema-timestamps && pnpm verify:migration-order && pnpm verify:paonia-loader-shipments && pnpm verify:fast-heartbeat && pnpm verify:slow-stories && pnpm --filter @ashicore/www lint",
+    "lint": "pnpm preflight && eslint && pnpm verify:editable-lines && pnpm verify:schema-timestamps && pnpm verify:migration-order && pnpm verify:paonia-loader-shipments && pnpm verify:fast-heartbeat && pnpm verify:slow-stories && pnpm --filter @ashicore/www lint",
     "db:local:start": "tsx scripts/local-db-cli.ts start",
     "db:local:stop": "tsx scripts/local-db-cli.ts stop",
     "db:local:setup": "tsx scripts/setup-local-db.ts",
