@@ -2,35 +2,39 @@
 
 import { useState } from "react";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { HelpCircleIcon } from "@hugeicons/core-free-icons";
 import { TotalsSummary } from "@/components/card-page/totals-summary";
 import { formatPrice } from "@/lib/format";
 import { displaySalesOrderNotes } from "@/lib/sales/import-notes";
-import type { SalesOrderDetail } from "@/app/(dashboard)/sales/types";
+import type {
+  SalesOrderDetail,
+  SalesOrderItemOption,
+} from "@/app/(dashboard)/sales/types";
 import type { SalesOrderDraftController } from "./use-sales-order-draft-controller";
 import styles from "./order-card.module.css";
 
 export type TotalsStripProps = {
   order: SalesOrderDetail;
+  itemOptions: SalesOrderItemOption[];
   notesEditable: boolean;
   controller: SalesOrderDraftController;
 };
 
-export function TotalsStrip({ order, notesEditable, controller }: TotalsStripProps) {
+export function TotalsStrip({
+  order,
+  itemOptions,
+  notesEditable,
+  controller,
+}: TotalsStripProps) {
   const notesValue = displaySalesOrderNotes(order.notes) ?? "";
   const { marginSummary } = order;
+  const itemMap = new Map(itemOptions.map((item) => [item.id, item]));
   const revenue = parseAmount(marginSummary.productRevenue);
-  const cogs = parseAmount(marginSummary.productCogs);
-  const shipmentCosts = parseAmount(marginSummary.shipmentCosts);
-  const total = (revenue ?? 0) - (cogs ?? 0) - (shipmentCosts ?? 0);
-  const marginPct = marginSummary.marginPercent
-    ? Number.parseFloat(marginSummary.marginPercent)
-    : null;
-  const contributionMargin = marginSummary.contributionMargin
-    ? Number.parseFloat(marginSummary.contributionMargin)
-    : null;
+  const discount = calculateDiscountAmount(order, itemMap);
+  const grossRevenue = revenue == null ? null : revenue + discount;
+  const shippingFee =
+    (parseAmount(order.shippingFeeAmount) ?? 0) +
+    (parseAmount(order.shippingFeeTaxAmount) ?? 0);
+  const total = (grossRevenue ?? 0) - discount + shippingFee;
 
   return (
     <div className={styles.totalsStrip}>
@@ -52,21 +56,15 @@ export function TotalsStrip({ order, notesEditable, controller }: TotalsStripPro
       <TotalsSummary
         className={styles.totalsRight}
         rows={[
-          { label: "Product revenue", value: formatMoney(revenue) },
+          { label: "Product revenue", value: formatMoney(grossRevenue) },
           {
-            label: (
-              <span className="inline-flex items-center gap-1">
-                COGS
-                {cogs == null ? <CostsEstimateMark /> : null}
-              </span>
-            ),
-            value: cogs == null ? "—" : formatMoney(cogs),
-            minusPrefix: !isZeroAmount(cogs),
+            label: "Discount",
+            value: formatMoney(discount),
+            minusPrefix: !isZeroAmount(discount),
           },
           {
-            label: "Shipping costs",
-            value: shipmentCosts == null ? "—" : formatMoney(shipmentCosts),
-            minusPrefix: !isZeroAmount(shipmentCosts),
+            label: "Shipping fee",
+            value: formatMoney(shippingFee),
           },
           {
             label: "Total",
@@ -74,34 +72,9 @@ export function TotalsStrip({ order, notesEditable, controller }: TotalsStripPro
             rule: true,
             emphasis: "total",
           },
-          {
-            label: "Contribution margin",
-            value: marginPct != null ? `${marginPct.toFixed(1)}%` : "—",
-            subValue: contributionMargin != null ? formatMoney(contributionMargin) : null,
-            emphasis: "success",
-          },
         ]}
       />
     </div>
-  );
-}
-
-function CostsEstimateMark() {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex text-[var(--color-muted)] hover:text-[var(--color-ink)]"
-          aria-label="COGS not yet realized"
-        >
-          <HugeiconsIcon icon={HelpCircleIcon} size={12} />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top">
-        COGS finalizes when the order ships and consumes inventory.
-      </TooltipContent>
-    </Tooltip>
   );
 }
 
@@ -146,4 +119,27 @@ function formatMoney(value: number | string | null | undefined): string {
 
 function isZeroAmount(value: number | null | undefined) {
   return value === 0;
+}
+
+function calculateDiscountAmount(
+  order: SalesOrderDetail,
+  itemMap: Map<string, SalesOrderItemOption>,
+) {
+  return order.lines.reduce((total, line) => {
+    const baseUnitPrice = itemMap.get(line.itemId)?.defaultSellingPrice;
+    const base = baseUnitPrice == null ? NaN : Number(baseUnitPrice);
+    const unitPrice = Number(line.unitPrice);
+    const quantity = Number(
+      order.status === "done" ? line.shippedQuantity : line.quantity
+    );
+    if (
+      !Number.isFinite(base) ||
+      !Number.isFinite(unitPrice) ||
+      !Number.isFinite(quantity) ||
+      base <= unitPrice
+    ) {
+      return total;
+    }
+    return total + (base - unitPrice) * quantity;
+  }, 0);
 }

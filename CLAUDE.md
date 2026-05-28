@@ -89,3 +89,4 @@ This file is a constitution + map. Deep reference lives in `docs/` — read the 
 3. PR body records the local validation that ran
 4. Correct `ci:slow:*` label is set, then `ci:ready` is added last
 5. PR is opened ready for review, not draft
+6. UI changes are left running on a dev server seeded with Paonia data, opened to a page that shows the change

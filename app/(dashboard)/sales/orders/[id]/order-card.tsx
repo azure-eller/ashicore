@@ -306,6 +306,7 @@ export function OrderCard({
 
         <TotalsStrip
           order={order}
+          itemOptions={itemOptions}
           notesEditable={isEditable}
           controller={controller}
         />

@@ -21,9 +21,16 @@ import {
   type LineField,
 } from "@/components/editable-lines";
 import { CardSection } from "@/components/card-page/card-page";
-import { cn } from "@/lib/utils";
+import { StatusBlock, type StatusBlockTone } from "@/components/ui/status-block";
 import { formatPrice, formatQuantity, normalizeMoney } from "@/lib/format";
+import {
+  getIngredientsDisplayState,
+  getProductionDisplayState,
+  getSalesItemsDisplayState,
+  type FulfillmentDisplayState,
+} from "@/lib/sales/fulfillment-status";
 import type {
+  SalesLinePricingResult,
   SalesOrderDetail,
   SalesOrderDetailLine,
   SalesOrderItemOption,
@@ -45,6 +52,7 @@ export function LineItemsTable({
   controller,
 }: LineItemsTableProps) {
   const [confirmDelete, setConfirmDelete] = useState<SalesOrderDetailLine | null>(null);
+  const [pricingLookupError, setPricingLookupError] = useState<string | null>(null);
   const [rows, setRows] = useState(order.lines);
   const savedDraftLineIdsRef = useRef(new Set<string>());
 
@@ -59,7 +67,6 @@ export function LineItemsTable({
 
   const nonBlankRows = rows.filter((line) => !isBlankSalesOrderLine(line));
   const totalQuantity = sumNumeric(nonBlankRows.map((line) => line.quantity));
-  const totalLineAmount = sumNumeric(nonBlankRows.map((line) => line.lineTotal));
   const canAddLine = editable && itemOptions != null;
   const existingItemIds = useMemo(
     () => new Set(rows.filter((line) => !isBlankSalesOrderLine(line)).map((line) => line.itemId)),
@@ -151,65 +158,93 @@ export function LineItemsTable({
         valueSetter: numericSetter("quantity", (value, line) => value >= minimumLineQuantity(line)),
       },
       {
-        field: "estimatedUnitCost",
-        kind: "display",
-        headerName: "Unit cost",
-        rightAligned: true,
-        width: 110,
-        mono: true,
-        muted: true,
-        valueGetter: ({ data }) =>
-          data ? (data.actualUnitCost ?? data.estimatedUnitCost) : null,
-        valueFormatter: ({ value }) =>
-          value == null ? "—" : (formatPrice(String(value)) ?? "—"),
-      },
-      {
         field: "unitPrice",
         kind: "number",
-        headerName: "Unit price",
-        rightAligned: true,
-        width: 110,
-        editable,
-        mono: true,
-        valueFormatter: ({ value }) => formatPrice(String(value ?? "0")) ?? "—",
-        valueSetter: numericSetter("unitPrice", (value) => value >= 0),
-      },
-      {
-        colId: "unitMargin",
-        kind: "display",
-        headerName: "Unit margin",
+        headerName: "Price per unit",
         rightAligned: true,
         width: 130,
-        cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) => {
-          if (!data) return null;
-          const margin = lineMarginParts(data, order.status);
-          return (
-            <div className="flex flex-col items-end leading-tight py-(--space-1) font-mono tabular-nums">
-              <span className={cn("font-semibold", marginToneClass(margin.marginPercent))}>
-                {formatMarginPercent(margin.marginPercent)}
-              </span>
-              <span className="text-[length:var(--text-xs)] text-muted-foreground">
-                {money(margin.unitMargin)} · {margin.statusLabel}
-              </span>
-            </div>
-          );
+        editable: false,
+        mono: true,
+        valueGetter: ({ data }) => data ? lineDisplayUnitPrice(data, itemMap) : null,
+        valueFormatter: ({ value }) => formatPrice(String(value ?? "0")) ?? "—",
+      },
+      {
+        colId: "discountPercent",
+        kind: "number",
+        headerName: "Discount",
+        rightAligned: true,
+        width: 130,
+        editable,
+        mono: true,
+        valueGetter: ({ data }) => data ? lineDiscountPercent(data, itemMap) : null,
+        valueFormatter: ({ value }) => formatPercent(value),
+        valueSetter: (params: ValueSetterParams<SalesOrderDetailLine>) => {
+          const parsed = Number.parseFloat(String(params.newValue).trim());
+          if (!Number.isFinite(parsed) || parsed < 0 || parsed >= 100) return false;
+          const baseUnitPrice = lineBaseUnitPrice(params.data, itemMap);
+          if (baseUnitPrice == null || baseUnitPrice <= 0) return false;
+          const nextUnitPrice = normalizeMoney(baseUnitPrice * (1 - parsed / 100));
+          if (nextUnitPrice === normalizeMoney(Number(params.data.unitPrice))) return false;
+          params.data.unitPrice = nextUnitPrice;
+          params.data.lineTotal = normalizeMoney(Number(params.data.quantity) * Number(nextUnitPrice));
+          return true;
         },
+        getSuffix: () => "%",
+        tooltipValueGetter: ({ data }) => data ? pricingSourceLabel(data) : null,
       },
       {
         field: "lineTotal",
         kind: "display",
-        headerName: "Line total",
+        headerName: "Total price",
         rightAligned: true,
         width: 120,
         mono: true,
         strong: true,
         valueFormatter: ({ value }) => formatPrice(String(value ?? "0")) ?? "—",
       },
+      {
+        colId: "salesItemsState",
+        kind: "display",
+        headerName: "Sales items",
+        width: 140,
+        cellClass: "statusBlockCell",
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) =>
+          data ? <FulfillmentStatusBlock state={lineSalesItemsState(data, order.status)} /> : null,
+      },
+      {
+        colId: "ingredientsState",
+        kind: "display",
+        headerName: "Ingredients",
+        width: 150,
+        cellClass: "statusBlockCell",
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) =>
+          data ? (
+            <FulfillmentStatusBlock
+              state={getIngredientsDisplayState(
+                data.fulfillmentSummary.ingredientsState,
+                data.fulfillmentSummary.ingredientsExpectedDate,
+              )}
+            />
+          ) : null,
+      },
+      {
+        colId: "productionState",
+        kind: "display",
+        headerName: "Production",
+        width: 140,
+        cellClass: "statusBlockCell",
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) =>
+          data ? (
+            <FulfillmentStatusBlock
+              state={getProductionDisplayState(data.fulfillmentSummary.productionState)}
+            />
+          ) : null,
+      },
     ],
     [editable, existingItemIds, itemMap, itemOptions, order.status],
   );
 
-  const handleRowsChange = (
+  const handleRowsChange = async (
     nextRows: SalesOrderDetailLine[],
     change: EditableLineDataGridChange<SalesOrderDetailLine>,
   ) => {
@@ -226,13 +261,21 @@ export function LineItemsTable({
       if (savedDraftLineIdsRef.current.has(change.row.id)) {
         return;
       }
-      savedDraftLineIdsRef.current.add(change.row.id);
+      const pricingResult = await resolveLinePricing({
+        customerId: order.customerId,
+        itemId: picked.id,
+        quantity: change.row.quantity,
+      });
+      setPricingLookupError(pricingResult.error);
       controller.addLine(
         lineFromItem(picked, change.row.id, {
           quantity: change.row.quantity,
-          unitPrice: change.row.unitPrice,
+          unitPrice:
+            pricingResult.pricing?.suggestedUnitPrice ?? change.row.unitPrice,
+          pricing: pricingResult.pricing,
         }),
       );
+      savedDraftLineIdsRef.current.add(change.row.id);
       return;
     }
     if (change.type === "cell_edit_committed" && change.row && change.field && isPersistedLine(change.row)) {
@@ -241,6 +284,13 @@ export function LineItemsTable({
       } else if (change.field === "unitPrice") {
         applyPatch(change.row.id, { unitPrice: change.row.unitPrice });
       }
+    } else if (
+      change.type === "cell_edit_committed" &&
+      change.row &&
+      change.colId === "discountPercent" &&
+      isPersistedLine(change.row)
+    ) {
+      applyPatch(change.row.id, { unitPrice: change.row.unitPrice });
     }
   };
 
@@ -286,17 +336,11 @@ export function LineItemsTable({
         }}
       />
 
-      <div className="flex justify-end gap-(--space-8) px-(--space-3) pt-(--space-2) text-[length:var(--text-sm)]">
-        <span className="text-muted-foreground uppercase tracking-wide text-[length:var(--text-xs)] font-medium">
-          Total
-        </span>
-        <span className="font-mono tabular-nums">
-          {formatQuantity(String(totalQuantity))} units
-        </span>
-        <span className="font-mono tabular-nums font-semibold">
-          {money(String(totalLineAmount))}
-        </span>
-      </div>
+      {pricingLookupError ? (
+        <div className="px-(--space-3) pt-(--space-2) text-[length:var(--text-sm)] text-destructive">
+          {pricingLookupError}
+        </div>
+      ) : null}
 
       <AlertDialog
         open={confirmDelete != null}
@@ -360,7 +404,11 @@ function makeBlankLine() {
 function lineFromItem(
   item: SalesOrderItemOption,
   id?: string,
-  values?: { quantity?: string; unitPrice?: string },
+  values?: {
+    quantity?: string;
+    unitPrice?: string;
+    pricing?: SalesLinePricingResult | null;
+  },
 ) {
   const line = makeDraftLine({
     itemId: item.id,
@@ -371,7 +419,19 @@ function lineFromItem(
     unitPrice: values?.unitPrice ?? item.defaultSellingPrice ?? "0",
     estimatedUnitCost: item.estimatedUnitCost,
   });
-  return id ? { ...line, id } : line;
+  const pricedLine = values?.pricing
+    ? {
+        ...line,
+        suggestedUnitPrice: values.pricing.suggestedUnitPrice,
+        pricingSourceType: values.pricing.pricingSourceType,
+        pricingScheduleName: values.pricing.pricingScheduleName,
+        pricingBreakLabel: values.pricing.pricingBreakLabel,
+        isPriceOverridden:
+          values.pricing.suggestedUnitPrice != null &&
+          normalizeMoney(Number(line.unitPrice)) !== values.pricing.suggestedUnitPrice,
+      }
+    : line;
+  return id ? { ...pricedLine, id } : pricedLine;
 }
 
 function isBlankSalesOrderLine(line: SalesOrderDetailLine | undefined) {
@@ -433,23 +493,55 @@ function deleteLineLockedReason(line: SalesOrderDetailLine) {
   return null;
 }
 
-function money(value: string | null | undefined): string {
-  if (value == null || value === "") return "—";
-  return formatPrice(String(value ?? "")) ?? "—";
-}
-
-function marginToneClass(value: string | null | undefined): string {
-  const parsed = value == null ? NaN : Number(value);
-  if (!Number.isFinite(parsed)) return "text-muted-foreground";
-  if (parsed < 10) return "text-destructive";
-  if (parsed < 30) return "text-[color:var(--color-warning)]";
-  return "text-success";
-}
-
-function formatMarginPercent(value: string | null | undefined): string {
+function formatPercent(value: unknown): string {
   const parsed = value == null ? NaN : Number(value);
   if (!Number.isFinite(parsed)) return "—";
   return `${parsed.toFixed(1)}%`;
+}
+
+const fulfillmentToneToStatusBlockTone: Record<
+  FulfillmentDisplayState["tone"],
+  StatusBlockTone
+> = {
+  destructive: "danger",
+  muted: "muted",
+  secondary: "warning",
+  success: "success",
+  warning: "warning",
+};
+
+function FulfillmentStatusBlock({ state }: { state: FulfillmentDisplayState }) {
+  return (
+    <StatusBlock
+      tone={fulfillmentToneToStatusBlockTone[state.tone]}
+      className="w-full justify-center"
+    >
+      {state.label}
+    </StatusBlock>
+  );
+}
+
+function lineSalesItemsState(
+  line: SalesOrderDetailLine,
+  orderStatus: SalesOrderDetail["status"],
+): FulfillmentDisplayState {
+  if (orderStatus === "done") {
+    return { label: "Complete", tone: "success" };
+  }
+
+  if (Number(line.remainingQuantity) <= 0) {
+    return getSalesItemsDisplayState("complete", null);
+  }
+
+  if (Number(line.demandQueueShortQty) > 0) {
+    return getSalesItemsDisplayState("not_available", null);
+  }
+
+  if (Number(line.demandQueueExpectedQty) > 0) {
+    return getSalesItemsDisplayState("expected", line.demandQueueExpectedDate);
+  }
+
+  return getSalesItemsDisplayState("available", null);
 }
 
 function sumNumeric(values: Array<string | null | undefined>): number {
@@ -459,22 +551,83 @@ function sumNumeric(values: Array<string | null | undefined>): number {
   }, 0);
 }
 
-function lineMarginParts(
+function lineBaseUnitPrice(
   line: SalesOrderDetailLine,
-  orderStatus: SalesOrderDetail["status"],
+  itemMap: Map<string, SalesOrderItemOption>,
 ) {
-  const hasActualMargin = line.actualCogs != null;
-  const unitCost = hasActualMargin ? line.actualUnitCost : line.estimatedUnitCost;
+  const itemBasePrice = itemMap.get(line.itemId)?.defaultSellingPrice;
+  const parsed = itemBasePrice == null ? NaN : Number(itemBasePrice);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function lineDisplayUnitPrice(
+  line: SalesOrderDetailLine,
+  itemMap: Map<string, SalesOrderItemOption>,
+) {
+  const baseUnitPrice = lineBaseUnitPrice(line, itemMap);
   const unitPrice = Number(line.unitPrice);
-  const parsedUnitCost = unitCost == null ? NaN : Number(unitCost);
-  const unitMargin =
-    Number.isFinite(unitPrice) && Number.isFinite(parsedUnitCost)
-      ? normalizeMoney(unitPrice - parsedUnitCost)
-      : null;
-  return {
-    unitCost,
-    unitMargin,
-    marginPercent: hasActualMargin ? line.actualMarginPercent : line.estimatedMarginPercent,
-    statusLabel: hasActualMargin || orderStatus === "done" ? "Actual" : "Estimated",
-  };
+  if (
+    baseUnitPrice != null &&
+    Number.isFinite(unitPrice) &&
+    baseUnitPrice > unitPrice
+  ) {
+    return baseUnitPrice;
+  }
+  return line.unitPrice;
+}
+
+function lineDiscountPercent(
+  line: SalesOrderDetailLine,
+  itemMap: Map<string, SalesOrderItemOption>,
+) {
+  const baseUnitPrice = lineBaseUnitPrice(line, itemMap);
+  const unitPrice = Number(line.unitPrice);
+  if (baseUnitPrice == null || baseUnitPrice <= 0 || !Number.isFinite(unitPrice)) {
+    return null;
+  }
+  return Math.max(0, ((baseUnitPrice - unitPrice) / baseUnitPrice) * 100);
+}
+
+function pricingSourceLabel(line: SalesOrderDetailLine) {
+  if (line.pricingSourceType === "schedule_break" && line.pricingScheduleName) {
+    return `${line.pricingScheduleName}${line.pricingBreakLabel ? ` · ${line.pricingBreakLabel}` : ""}`;
+  }
+  if (line.isPriceOverridden) return "Manual price override";
+  return "Base price";
+}
+
+async function resolveLinePricing({
+  customerId,
+  itemId,
+  quantity,
+}: {
+  customerId: string;
+  itemId: string;
+  quantity: string;
+}): Promise<{ pricing: SalesLinePricingResult | null; error: string | null }> {
+  if (!customerId || !itemId) return { pricing: null, error: null };
+  try {
+    const response = await fetch("/api/sales-orders/price", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customerId, itemId, quantity }),
+    });
+    if (!response.ok) {
+      return {
+        pricing: null,
+        error:
+          "Could not check customer pricing. The line was added at list price; review the discount.",
+      };
+    }
+    return {
+      pricing: (await response.json()) as SalesLinePricingResult,
+      error: null,
+    };
+  } catch {
+    return {
+      pricing: null,
+      error:
+        "Could not check customer pricing. The line was added at list price; review the discount.",
+    };
+  }
 }

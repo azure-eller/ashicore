@@ -490,6 +490,7 @@ export type SalesOrderDetailLine = {
   demandQueueExpectedQty: string;
   demandQueueShortQty: string;
   demandQueueExpectedDate: string | null;
+  fulfillmentSummary: SalesOrderFulfillmentSummary;
   lotPickPlan?: LotPickPlanEntry[];
 };
 

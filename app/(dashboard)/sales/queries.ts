@@ -6439,6 +6439,120 @@ export async function getSalesOrder(
         })) ?? [],
       productionState: fulfillmentReadModel?.productionState ?? "not_applicable",
     };
+    const manufacturingLinesByLineId = new Map(
+      (manufacturingSummary?.lines ?? []).map((line) => [
+        line.salesOrderLineId,
+        line,
+      ])
+    );
+    const lineFulfillmentDemandLines = linesWithAllocation.flatMap((line) => {
+      const remainingQty = Number(line.remainingQuantity);
+      if (
+        order.status !== "open" ||
+        !Number.isFinite(remainingQty) ||
+        remainingQty <= 0
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          salesOrderId: line.id,
+          salesOrderLineId: line.id,
+          itemId: line.itemId,
+          requiredDate: order.shipDate,
+          quantity: remainingQty,
+          priorityRank: order.priorityRank,
+          orderDate: order.orderDate,
+          orderNumber: order.orderNumber,
+          sortOrder: line.sortOrder,
+        } satisfies SalesFulfillmentDemandLine,
+      ];
+    });
+    const lineFulfillmentReadModels = await getSalesFulfillmentReadModelsInTx(
+      tx,
+      orgId,
+      linesWithAllocation.map((line) => {
+        const manufacturingLine = manufacturingLinesByLineId.get(line.id);
+        const linkedLineManufacturingOrders = linkedManufacturingOrders.filter(
+          (linkedOrder) => linkedOrder.salesOrderLineId === line.id
+        );
+        const productionAllocatedQty = line.allocationSources
+          .filter((source) => source.sourceType === "manufacturing_order")
+          .reduce((sum, source) => sum + Number(source.quantity), 0);
+
+        return {
+          id: line.id,
+          status: order.status,
+          hasManufacturableLines: manufacturingLine?.status === "will_create",
+          shortQty: Number(line.demandQueueShortQty),
+          productionAllocatedQty,
+          linkedManufacturingOrders: linkedLineManufacturingOrders,
+          manufacturableLines: manufacturingLine
+            ? [
+                {
+                  ...manufacturingLine,
+                  salesOrderId: line.id,
+                },
+              ]
+            : [],
+        };
+      }),
+      lineFulfillmentDemandLines
+    );
+    const lineFulfillmentSummariesByLineId = new Map<
+      string,
+      SalesOrderFulfillmentSummary
+    >();
+    for (const line of linesWithAllocation) {
+      const readModel = lineFulfillmentReadModels.get(line.id);
+      const remainingQty = Number(line.remainingQuantity);
+      const allocatedQty = roundQuantity(
+        Number(line.demandQueueInStockQty) + Number(line.demandQueueExpectedQty)
+      );
+      const shortQty = Number(line.demandQueueShortQty);
+      const productionAllocatedQty = roundQuantity(
+        line.allocationSources
+          .filter((source) => source.sourceType === "manufacturing_order")
+          .reduce((sum, source) => sum + Number(source.quantity), 0)
+      );
+      const manualReservation = summarizeManualReservations([
+        allocationSummaryByLineId.get(line.id),
+      ]);
+      const lineSalesItemsState: SalesOrderFulfillmentSummary["salesItemsState"] =
+        remainingQty <= 0
+          ? "complete"
+          : readModel?.salesItemsState ?? "not_available";
+      const lineSalesItemsExpectedDate =
+        lineSalesItemsState === "expected"
+          ? readModel?.salesItemsExpectedDate ?? null
+          : null;
+
+      lineFulfillmentSummariesByLineId.set(line.id, {
+        remainingQty: normalizeNumeric(roundQuantity(remainingQty)),
+        allocatedQty: normalizeNumeric(allocatedQty),
+        shortQty: normalizeNumeric(roundQuantity(shortQty)),
+        productionAllocatedQty: normalizeNumeric(productionAllocatedQty),
+        manualReservationQty: normalizeNumeric(
+          roundQuantity(manualReservation.quantity)
+        ),
+        manualReservationSummary: manualReservation.summary,
+        availabilityState: lineSalesItemsState,
+        expectedDate: lineSalesItemsExpectedDate,
+        label: getAvailabilityLabel(lineSalesItemsState, lineSalesItemsExpectedDate),
+        salesItemsState: lineSalesItemsState,
+        salesItemsExpectedDate: lineSalesItemsExpectedDate,
+        ingredientsState: readModel?.ingredientsState ?? "not_applicable",
+        ingredientsExpectedDate: readModel?.ingredientsExpectedDate ?? null,
+        ingredientShortages:
+          readModel?.ingredientShortages.map((shortage) => ({
+            ...shortage,
+            requiredQty: normalizeNumeric(roundQuantity(shortage.requiredQty)),
+            shortQty: normalizeNumeric(roundQuantity(shortage.shortQty)),
+          })) ?? [],
+        productionState: readModel?.productionState ?? "not_applicable",
+      });
+    }
     const stockBlockers = linesWithAllocation.flatMap((line) => {
       const shortQty = Number(line.demandQueueShortQty);
 
@@ -6458,12 +6572,17 @@ export async function getSalesOrder(
         )} ${line.unitName} covered`,
       ];
     });
+    const linesWithLineFulfillment = linesWithAllocation.map((line) => ({
+      ...line,
+      fulfillmentSummary:
+        lineFulfillmentSummariesByLineId.get(line.id) ?? fulfillmentSummary,
+    })) as SalesOrderDetailLine[];
     const lotPickPlansByLineId = await getSalesLotPickPlansByLineInTx(
       tx,
       orgId,
-      linesWithAllocation as SalesOrderDetailLine[]
+      linesWithLineFulfillment
     );
-    const linesWithLotGuidance = linesWithAllocation.map((line) => ({
+    const linesWithLotGuidance = linesWithLineFulfillment.map((line) => ({
       ...line,
       lotPickPlan: lotPickPlansByLineId.get(line.id) ?? [],
     }));

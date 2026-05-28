@@ -164,6 +164,23 @@ export function makeDraftLine(input: {
     demandQueueExpectedQty: "0",
     demandQueueShortQty: input.quantity,
     demandQueueExpectedDate: null,
+    fulfillmentSummary: {
+      remainingQty: input.quantity,
+      allocatedQty: "0",
+      shortQty: input.quantity,
+      productionAllocatedQty: "0",
+      manualReservationQty: "0",
+      manualReservationSummary: null,
+      availabilityState: "not_available",
+      expectedDate: null,
+      label: "Not available",
+      salesItemsState: "not_available",
+      salesItemsExpectedDate: null,
+      ingredientsState: "not_applicable",
+      ingredientsExpectedDate: null,
+      ingredientShortages: [],
+      productionState: "not_applicable",
+    },
   };
 }
 
