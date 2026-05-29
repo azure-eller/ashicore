@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import {
   type OrderStatusControlConfig,
@@ -45,6 +45,8 @@ import {
 import type {
   NegativeStockWarningPayload,
   SalesOrderDetail,
+  SalesOrderDetailLine,
+  SalesOrderListLine,
   SalesOrderListRow,
 } from "@/app/(dashboard)/sales/types";
 import type { ManufacturingPickProgressStatus } from "@/app/(dashboard)/manufacturing/types";
@@ -68,10 +70,8 @@ export const salesOrderStatusConfig: OrderStatusControlConfig<SalesOrderStatusCo
     if (from === "SHIPPED") return "disabled";
     if (to === from) return "noop";
     if (to === "SHIPPED") return "dialog";
-    if (to === "PARTIALLY SHIPPED" && isSalesOrderDetail(order)) {
-      return order.lines.some((line) => Number(line.remainingQuantity) > 0)
-        ? "dialog"
-        : "disabled";
+    if (to === "PARTIALLY SHIPPED") {
+      return getShippableRows(order).length > 0 ? "dialog" : "disabled";
     }
     return "disabled";
   },
@@ -122,12 +122,18 @@ function useShipMutation(run: (confirmNegativeStock: boolean) => Promise<void>, 
   const [warning, setWarning] = useState<NegativeStockWarningPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const mutation = useMutation({
-    mutationFn: (confirmNegativeStock: boolean) => run(confirmNegativeStock),
+    mutationFn: (confirmNegativeStock: boolean) => {
+      if (confirmNegativeStock) {
+        setWarning(null);
+      }
+      return run(confirmNegativeStock);
+    },
     onSuccess: () => onDone(),
     onError: (err) => {
       if (err instanceof SalesOrderApiError && err.status === 409 && err.negativeStock) {
         setWarning(err.negativeStock);
         setError(null);
+        mutation.reset();
         return;
       }
       setWarning(null);
@@ -148,16 +154,10 @@ function ShipOrderDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const detail = isSalesOrderDetail(order) ? order : null;
-  const shippableLines = detail
-    ? detail.lines.filter((line) => Number(line.remainingQuantity) > 0)
-    : [];
+  const autoSubmittedRef = useRef(false);
   const [rows, setRows] = useState<ShipDialogRow[]>(() =>
-    shippableLines.map((line) => ({
-      salesOrderLineId: line.id,
-      itemName: line.itemName,
-      unitName: line.unitName,
-      remainingQuantity: line.remainingQuantity,
+    getShippableRows(order).map((line) => ({
+      ...line,
       selected: true,
       quantity: line.remainingQuantity,
     }))
@@ -184,35 +184,51 @@ function ShipOrderDialog({
       shipSalesOrder(
         order.id,
         confirm,
-        detail ? selectedLines : undefined
+        mode === "partial" ? selectedLines : undefined
       ),
     onDone,
   );
   const canSubmit =
     !mutation.isPending &&
-    (detail == null || (selectedLines.length > 0 && invalidRows.length === 0));
+    (mode === "all" || (selectedLines.length > 0 && invalidRows.length === 0));
+
+  useEffect(() => {
+    if (mode !== "all" || autoSubmittedRef.current) return;
+    autoSubmittedRef.current = true;
+    mutation.mutate(false);
+  }, [mode, mutation]);
+
+  if (mode === "all" && !warning && !error) {
+    return null;
+  }
 
   return (
     <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
-      <DialogContent size={detail ? "3xl" : "default"}>
+      <DialogContent size={mode === "partial" ? "3xl" : "default"}>
         <DialogHeader>
           <DialogTitle>
-            {detail
-              ? `Deliver items from ${order.orderNumber}`
-              : "Mark order shipped?"}
+            {warning
+              ? stockWarningTitle(warning)
+              : mode === "partial"
+                ? `Deliver items from ${order.orderNumber}`
+                : "Could not ship order"}
           </DialogTitle>
-          {detail ? null : (
+          {mode === "partial" ? (
             <DialogDescription>
-              All remaining allocated quantity will be shipped and the order moves to its
-              shipped state.
+              Select which items to deliver.
+            </DialogDescription>
+          ) : warning ? (
+            <DialogDescription>
+              Review the shortage before shipping this order.
+            </DialogDescription>
+          ) : (
+            <DialogDescription>
+              Fix the issue below, then try again.
             </DialogDescription>
           )}
         </DialogHeader>
-        {detail ? (
+        {mode === "partial" ? (
           <div className="space-y-(--space-4)">
-            <div className="text-[length:var(--text-sm)] text-muted-foreground">
-              Select which items to deliver
-            </div>
             <Table containerClassName="border border-[var(--color-line)]">
               <TableHeader>
                 <TableRow>
@@ -334,8 +350,46 @@ type ShipDialogRow = {
   quantity: string;
 };
 
-function isSalesOrderDetail(order: SalesOrderStatusFields): order is SalesOrderDetail {
-  return "lines" in order && Array.isArray(order.lines);
+function getShippableRows(order: SalesOrderStatusFields): Omit<ShipDialogRow, "selected" | "quantity">[] {
+  return order.lines.flatMap((line) => {
+    const row = toShippableRow(line);
+    if (!row || Number(row.remainingQuantity) <= 0) return [];
+    return [row];
+  });
+}
+
+function toShippableRow(
+  line: SalesOrderDetailLine | SalesOrderListLine,
+): Omit<ShipDialogRow, "selected" | "quantity"> | null {
+  if (isSalesOrderDetailLine(line)) {
+    return {
+      salesOrderLineId: line.id,
+      itemName: line.itemName,
+      unitName: line.unitName,
+      remainingQuantity: line.remainingQuantity,
+    };
+  }
+
+  const salesOrderLineId = line.id ?? line.salesOrderLineId;
+  if (!salesOrderLineId) return null;
+
+  return {
+    salesOrderLineId,
+    itemName:
+      line.attrs.length > 0
+        ? `${line.attrs.join(" / ")} ${line.masterName}`
+        : line.masterName,
+    unitName: line.unitName,
+    remainingQuantity:
+      line.remainingQty ??
+      String(Math.max(0, Number(line.quantity) - Number(line.shippedQuantity ?? "0"))),
+  };
+}
+
+function isSalesOrderDetailLine(
+  line: SalesOrderDetailLine | SalesOrderListLine,
+): line is SalesOrderDetailLine {
+  return "remainingQuantity" in line;
 }
 
 function normalizeDialogQuantity(value: string) {

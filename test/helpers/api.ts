@@ -558,6 +558,7 @@ export async function createCustomerCategory(data: {
 export async function createPricingSchedule(data: {
   name: string;
   customerCategoryId?: string | null;
+  itemScope?: "all" | "category" | "variant" | "selected";
   itemIds?: string[];
   notes?: string | null;
   breaks: Array<{
@@ -571,6 +572,9 @@ export async function createPricingSchedule(data: {
     body: JSON.stringify({
       name: data.name,
       customerCategoryId: data.customerCategoryId ?? null,
+      itemScope:
+        data.itemScope ??
+        ((data.itemIds?.length ?? 0) > 0 ? "selected" : "all"),
       itemIds: data.itemIds ?? [],
       notes: data.notes ?? null,
       breaks: data.breaks.map((pricingBreak) => ({
