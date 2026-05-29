@@ -16,7 +16,6 @@ import {
   user,
 } from "@/lib/db/schema";
 import { REPORT_TYPES } from "@/lib/reports/constants";
-import { normalizeDailyManufacturingReportConfig } from "@/lib/reports/daily-manufacturing-config";
 import type { UpdateDailyManufacturingReportScheduleInput } from "@/lib/schemas/reports";
 
 export type ReportScheduleMember = {
@@ -67,7 +66,7 @@ export async function getDailyManufacturingReportSchedule() {
     return {
       schedule: {
         ...schedule,
-        config: normalizeDailyManufacturingReportConfig(schedule.config),
+        config: {},
       },
       members: memberRows,
       recipientUserIds: recipientRows.map((row) => row.userId),
@@ -88,9 +87,6 @@ export async function updateDailyManufacturingReportSchedule(
 ) {
   const actor = await assertTeamManagementAccess(requestHeaders);
   const sendTime = `${input.localSendTime}:00`;
-  const config = normalizeDailyManufacturingReportConfig({
-    productTypeGraphs: input.productTypeGraphs,
-  });
 
   return withAuthedOrgContext(async (tx, orgId) => {
     const validRecipients = await tx
@@ -115,7 +111,6 @@ export async function updateDailyManufacturingReportSchedule(
         emailEnabled: input.emailEnabled,
         localSendTime: sendTime,
         timeZone: input.timeZone || actor.organizationTimeZone,
-        config,
       })
       .onConflictDoUpdate({
         target: [reportSchedules.organizationId, reportSchedules.reportType],
@@ -124,7 +119,6 @@ export async function updateDailyManufacturingReportSchedule(
           emailEnabled: input.emailEnabled,
           localSendTime: sendTime,
           timeZone: input.timeZone,
-          config,
           updatedAt: new Date(),
         },
       })
@@ -160,7 +154,7 @@ export async function updateDailyManufacturingReportSchedule(
     return {
       schedule: {
         ...schedule,
-        config: normalizeDailyManufacturingReportConfig(schedule.config),
+        config: {},
       },
       members: memberRows,
       recipientUserIds: recipientRows.map((row) => row.userId),
