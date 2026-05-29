@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX IF NOT EXISTS "stocktake_lot_items_found_item_lot_uidx" ON "inventory"."stocktake_lot_items" USING btree ("stocktake_item_id","lot_number") WHERE is_found;

@@ -27,6 +27,7 @@ export async function reconcileStocktakeCountInTx(
       stocktakeLineId: string;
       itemId: string;
       lotId?: string | null;
+      foundLotNumber?: string | null;
       variance: number;
       countedAt?: Date;
       costPolicy?: "default";
@@ -83,7 +84,14 @@ export async function reconcileStocktakeCountInTx(
             ...eventParams,
             lotId: line.lotId,
           })
-        : await createPositiveStockEventInTx(tx, eventParams);
+        : await createPositiveStockEventInTx(tx, {
+            ...eventParams,
+            // Found lots have no lotId yet; the kernel creates (or upserts) the
+            // lot from this operator-supplied number and posts the gain to it
+            // atomically and audited. When no number is given (untracked /
+            // adjustment), the kernel generates one.
+            lotNumber: line.foundLotNumber ?? null,
+          });
       eventIds.push(created.eventId);
     } else if (variance < 0) {
       const eventParams = {

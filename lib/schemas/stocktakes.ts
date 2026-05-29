@@ -136,6 +136,25 @@ const rawCountLotLineSchema = z.object({
   notes: nullableString.optional(),
 });
 
+const rawFoundLotLineSchema = z.object({
+  isFound: z.literal(true),
+  stocktakeItemId: z.string().min(1),
+  lotNumber: z.string(),
+  countedQty: nullableString,
+  notes: nullableString.optional(),
+});
+
+const rawLotLineSchema = z.union([
+  rawFoundLotLineSchema,
+  rawCountLotLineSchema,
+]);
+
+function isFoundLotLine(
+  line: z.infer<typeof rawLotLineSchema>
+): line is z.infer<typeof rawFoundLotLineSchema> {
+  return "isFound" in line && line.isFound === true;
+}
+
 export const updateStocktakeSchema = z
   .object({
     name: z
@@ -149,11 +168,12 @@ export const updateStocktakeSchema = z
     reason: nullableString.optional(),
     itemIds: z.array(z.string().uuid()).optional(),
     lines: z.array(rawCountLineSchema).optional().default([]),
-    lotLines: z.array(rawCountLotLineSchema).optional().default([]),
+    lotLines: z.array(rawLotLineSchema).optional().default([]),
   })
   .superRefine((data, ctx) => {
     const seen = new Set<string>();
     const seenLots = new Set<string>();
+    const seenFoundLots = new Set<string>();
 
     data.lines.forEach((line, index) => {
       if (seen.has(line.lineId)) {
@@ -182,6 +202,46 @@ export const updateStocktakeSchema = z
     });
 
     data.lotLines.forEach((line, index) => {
+      if (isFoundLotLine(line)) {
+        const trimmedLotNumber = line.lotNumber.trim();
+        if (trimmedLotNumber.length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Lot number is required",
+            path: ["lotLines", index, "lotNumber"],
+          });
+        } else {
+          const foundKey = `${line.stocktakeItemId}:${trimmedLotNumber}`;
+          if (seenFoundLots.has(foundKey)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Each found lot can only be submitted once",
+              path: ["lotLines", index, "lotNumber"],
+            });
+          } else {
+            seenFoundLots.add(foundKey);
+          }
+        }
+
+        if (line.countedQty == null || line.countedQty.trim().length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Counted quantity is required",
+            path: ["lotLines", index, "countedQty"],
+          });
+        } else {
+          const parsed = Number(line.countedQty);
+          if (!Number.isFinite(parsed) || parsed < 0) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Counted quantity must be 0 or greater",
+              path: ["lotLines", index, "countedQty"],
+            });
+          }
+        }
+        return;
+      }
+
       if (seenLots.has(line.lotLineId)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -218,11 +278,26 @@ export const updateStocktakeSchema = z
       countedQty: line.countedQty?.trim() ?? null,
       ...(line.notes !== undefined ? { notes: line.notes?.trim() ?? null } : {}),
     })),
-    lotLines: lotLines.map((line) => ({
-      lotLineId: line.lotLineId,
-      countedQty: line.countedQty?.trim() ?? null,
-      ...(line.notes !== undefined ? { notes: line.notes?.trim() ?? null } : {}),
-    })),
+    lotLines: lotLines
+      .filter((line) => !isFoundLotLine(line))
+      .map((line) => {
+        const existing = line as z.infer<typeof rawCountLotLineSchema>;
+        return {
+          lotLineId: existing.lotLineId,
+          countedQty: existing.countedQty?.trim() ?? null,
+          ...(existing.notes !== undefined
+            ? { notes: existing.notes?.trim() ?? null }
+            : {}),
+        };
+      }),
+    foundLotLines: lotLines
+      .filter(isFoundLotLine)
+      .map((line) => ({
+        stocktakeItemId: line.stocktakeItemId,
+        lotNumber: line.lotNumber.trim(),
+        countedQty: line.countedQty?.trim() ?? null,
+        ...(line.notes !== undefined ? { notes: line.notes?.trim() ?? null } : {}),
+      })),
   }));
 
 export const updateStocktakeCountsSchema = updateStocktakeSchema;

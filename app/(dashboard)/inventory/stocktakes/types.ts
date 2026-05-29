@@ -110,7 +110,8 @@ export type StocktakeDetailLine = {
 
 export type StocktakeDetailLotLine = {
   id: string;
-  lotId: string;
+  lotId: string | null;
+  isFound: boolean;
   lotNumber: string;
   expectedQty: string;
   countedQty: string | null;
@@ -169,7 +170,8 @@ export type StocktakeCompletionPreview = {
     notes: string | null;
     lots: Array<{
       lotLineId: string;
-      lotId: string;
+      lotId: string | null;
+      isFound: boolean;
       lotNumber: string;
       expectedQty: string;
       currentQty: string;
