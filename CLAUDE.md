@@ -42,6 +42,7 @@ These are non-negotiable repo rules. They are repeated here because violating th
 - `pnpm boot` — start/resume worktree dev env (DB, migrate, session, background server)
 - `pnpm test:scratch` — run the throwaway per-change scratch suite
 - `pnpm review <path> --slow <domains>` — validate, seed review data, open browser, open PR
+- `pnpm sandbox [path]` — triage start: dev server + live Paonia production copy + authenticated browser
 - `pnpm build` — production build (catch type errors)
 - `pnpm lint` — ESLint
 - `pnpm preflight` — local worktree safety check; fetches `origin/main` and fails on stale/non-worktree/main checkouts

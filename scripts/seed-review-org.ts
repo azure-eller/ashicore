@@ -29,6 +29,80 @@ function resolveSourceEnvFile(): string | null {
   return candidates.find((path) => existsSync(path)) ?? null;
 }
 
+// Ensure the review user/org/session exists, writing the REVIEW env files only
+// (the test-org session used by automated tests is left untouched). Returns the
+// review organization id. Does NOT touch the snapshot data.
+export async function ensureReviewSession(options: {
+  baseUrl: string;
+  log?: (message: string) => void;
+}): Promise<string> {
+  const log = options.log ?? console.log;
+
+  // Force the review org — must NOT be `??=`. If TEST_ORG_SLUG were already set
+  // (e.g. by a prior boot in the same process), `??=` would silently target the
+  // wrong org. ensureTestAccount is dynamically imported so these take effect.
+  process.env.TEST_ORG = REVIEW_ORG_NAME;
+  process.env.TEST_ORG_SLUG = REVIEW_ORG_SLUG;
+  process.env.TEST_BASE_URL = options.baseUrl;
+
+  const { ensureTestAccount, REVIEW_ENV_PATH, REVIEW_STORAGE_STATE_PATH } =
+    await import("../test/helpers/test-account-setup");
+
+  const result = await ensureTestAccount({
+    baseUrl: options.baseUrl,
+    log,
+    envPath: REVIEW_ENV_PATH,
+    storageStatePath: REVIEW_STORAGE_STATE_PATH,
+  });
+
+  return result.organizationId;
+}
+
+// True when the review org already holds snapshot data (mirrors the
+// hasSeededSalesOrders signal in seed-dev-user.ts). Used by `pnpm sandbox` to
+// preserve a triage session instead of re-importing.
+export async function isReviewOrgSeeded(): Promise<boolean> {
+  const connectionString =
+    process.env.DATABASE_URL ?? process.env.DATABASE_URL_APP;
+  if (!connectionString) {
+    return false;
+  }
+
+  let orgId: string | undefined;
+  try {
+    // Import from test-env (a pure paths module), NOT test-account-setup: the
+    // latter transitively loads test-account.ts, whose org-slug constant freezes
+    // to process.env.TEST_ORG_SLUG at first import. Loading it here — before
+    // ensureReviewSession sets the slug — would poison the review session.
+    const { REVIEW_ENV_PATH } = await import("../test/helpers/test-env");
+    orgId = JSON.parse(readFileSync(REVIEW_ENV_PATH, "utf8")).TEST_ORG_ID;
+  } catch {
+    return false;
+  }
+  if (!orgId) {
+    return false;
+  }
+
+  const { Client } = await import("pg");
+  const client = new Client({ connectionString });
+  await client.connect();
+  try {
+    // Seeded if the org holds any core Paonia data. Check several tables so the
+    // signal doesn't depend on the snapshot populating one specific table.
+    const result = await client.query<{ seeded: boolean }>(
+      `SELECT (
+         EXISTS (SELECT 1 FROM inventory.items WHERE organization_id = $1)
+         OR EXISTS (SELECT 1 FROM sales.customers WHERE organization_id = $1)
+         OR EXISTS (SELECT 1 FROM sales.sales_orders WHERE organization_id = $1)
+       ) AS seeded`,
+      [orgId]
+    );
+    return result.rows[0]?.seeded === true;
+  } finally {
+    await client.end();
+  }
+}
+
 export async function seedReviewOrg(options: {
   baseUrl: string;
   cached: boolean;
@@ -99,24 +173,8 @@ export async function seedReviewOrg(options: {
     );
   }
 
-  // Ensure the review user/org/session exists, writing to the REVIEW env files
-  // so the test-org session used by automated tests is left untouched.
-  // Force the review org — must NOT be `??=`. If TEST_ORG_SLUG were already set
-  // (e.g. by a prior boot in the same process), `??=` would silently seed the
-  // wrong org. ensureTestAccount is dynamically imported below so these take effect.
-  process.env.TEST_ORG = REVIEW_ORG_NAME;
-  process.env.TEST_ORG_SLUG = REVIEW_ORG_SLUG;
-  process.env.TEST_BASE_URL = options.baseUrl;
-
-  const { ensureTestAccount, REVIEW_ENV_PATH, REVIEW_STORAGE_STATE_PATH } =
-    await import("../test/helpers/test-account-setup");
-
-  await ensureTestAccount({
-    baseUrl: options.baseUrl,
-    log,
-    envPath: REVIEW_ENV_PATH,
-    storageStatePath: REVIEW_STORAGE_STATE_PATH,
-  });
+  // Ensure the review user/org/session exists before importing into it.
+  await ensureReviewSession({ baseUrl: options.baseUrl, log });
 
   log(
     `Importing snapshot into ${REVIEW_ORG_SLUG} (review org only — does NOT touch test-org). Replaces existing review rows.`
