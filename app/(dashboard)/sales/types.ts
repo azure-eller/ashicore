@@ -200,6 +200,10 @@ export type PricingScheduleRow = {
   name: string;
   customerCategoryId: string | null;
   customerScopeLabel: string;
+  itemScope: "all" | "category" | "variant" | "selected";
+  itemCategory: string | null;
+  itemVariantOptionCode: string | null;
+  itemVariantValueCode: string | null;
   itemIds: string[];
   itemScopeLabel: string;
   notes: string | null;
@@ -212,6 +216,10 @@ export type PricingScheduleEditData = {
   id: string;
   name: string;
   customerCategoryId: string | null;
+  itemScope: "all" | "category" | "variant" | "selected";
+  itemCategory: string | null;
+  itemVariantOptionCode: string | null;
+  itemVariantValueCode: string | null;
   itemIds: string[];
   notes: string | null;
   breaks: Array<{
@@ -237,6 +245,7 @@ export type SalesOrderItemOption = {
   name: string;
   displayName: string;
   sku: string | null;
+  category: string | null;
   unitName: string;
   defaultSellingPrice: string | null;
   estimatedUnitCost: string | null;
@@ -247,11 +256,24 @@ export type SalesOrderItemOption = {
   availableQty: string;
   expectedQty: string;
   safetyStock: string;
+  variantValues: Array<{
+    optionName: string;
+    optionCode: string;
+    valueLabel: string;
+    valueCode: string;
+  }>;
 };
 
 export type PricingScheduleItemOption = Pick<
   SalesOrderItemOption,
-  "id" | "name" | "displayName" | "sku" | "unitName" | "itemType"
+  | "id"
+  | "name"
+  | "displayName"
+  | "sku"
+  | "category"
+  | "unitName"
+  | "itemType"
+  | "variantValues"
 >;
 
 export type SalesOrderListLine = {

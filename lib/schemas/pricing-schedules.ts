@@ -18,6 +18,9 @@ const requiredUuidSchema = (label: string) =>
     .uuid(`Invalid ${label.toLowerCase()}`);
 
 const itemIdsSchema = z.array(z.string().uuid("Invalid item")).default([]);
+const itemScopeSchema = z.enum(["all", "category", "variant", "selected"]).default("all");
+const itemCategorySchema = nullableString;
+const itemVariantCodeSchema = nullableString;
 
 const quantitySchema = positiveDecimalString("Quantity");
 
@@ -90,12 +93,59 @@ const basePricingScheduleSchema = createInsertSchema(pricingSchedules, {
   id: true,
   organizationId: true,
   itemScope: true,
+  itemCategory: true,
+  itemVariantOptionCode: true,
+  itemVariantValueCode: true,
   deletedAt: true,
   createdAt: true,
   updatedAt: true,
 }).extend({
+  itemScope: itemScopeSchema,
+  itemCategory: itemCategorySchema,
+  itemVariantOptionCode: itemVariantCodeSchema,
+  itemVariantValueCode: itemVariantCodeSchema,
   itemIds: itemIdsSchema,
   breaks: pricingScheduleBreaksSchema,
+}).superRefine((value, ctx) => {
+  if (value.itemScope === "category" && value.itemCategory == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Item category is required",
+      path: ["itemCategory"],
+    });
+  }
+
+  if (value.itemScope === "variant" && value.itemVariantOptionCode == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Variant option is required",
+      path: ["itemVariantOptionCode"],
+    });
+  }
+
+  if (value.itemScope === "variant" && value.itemVariantValueCode == null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Variant value is required",
+      path: ["itemVariantValueCode"],
+    });
+  }
+
+  if (value.itemScope !== "selected" && value.itemIds.length > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Selected items only apply to selected-item schedules",
+      path: ["itemIds"],
+    });
+  }
+
+  if (value.itemScope === "selected" && value.itemIds.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Select at least one item",
+      path: ["itemIds"],
+    });
+  }
 });
 
 export const insertPricingScheduleSchema = basePricingScheduleSchema;
@@ -116,6 +166,10 @@ export type ResolveSalesLinePricingInput = z.infer<
 export const pricingScheduleDefaultValues: InsertPricingSchedule = {
   name: "",
   customerCategoryId: null,
+  itemScope: "all",
+  itemCategory: null,
+  itemVariantOptionCode: null,
+  itemVariantValueCode: null,
   itemIds: [],
   notes: null,
   breaks: [

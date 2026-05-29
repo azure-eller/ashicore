@@ -116,7 +116,9 @@ Invalid transitions:
 
 ## Pricing
 
-- sales-order line creation applies the most favorable applicable pricing schedule
+- a pricing schedule has an item scope: all sellable items, an item category, a variant value, or specific selected items
+- a sales-order line considers every schedule whose customer scope and item scope both match the product — these scopes can overlap (a product may match an `all`, a `category`, a `variant`, and a `selected` schedule at once)
+- when several schedules match, the most favorable (lowest resulting unit price) wins; there is no scope-specificity precedence, so a broad category or variant schedule can undercut a price set on a specific item
 - schedule changes do not retroactively reprice existing sales-order lines
 - manual price or discount edits update the line snapshot, not the source schedule
 

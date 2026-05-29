@@ -238,6 +238,56 @@ async function getSalesOptionLabelsByItemIdInTx(tx: Tx, itemIds: string[]) {
   return byItemId;
 }
 
+type SalesVariantValue = {
+  optionName: string;
+  optionCode: string;
+  valueLabel: string;
+  valueCode: string;
+};
+
+async function getSalesVariantValuesByItemIdInTx(tx: Tx, itemIds: string[]) {
+  const uniqueItemIds = [...new Set(itemIds)];
+  if (uniqueItemIds.length === 0) {
+    return new Map<string, SalesVariantValue[]>();
+  }
+
+  const rows = await tx
+    .select({
+      itemId: itemVariantValues.itemId,
+      optionName: variantOptions.name,
+      optionCode: variantOptions.code,
+      valueLabel: variantOptionValues.label,
+      valueCode: variantOptionValues.code,
+    })
+    .from(itemVariantValues)
+    .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
+    .innerJoin(
+      variantOptionValues,
+      eq(itemVariantValues.optionValueId, variantOptionValues.id)
+    )
+    .where(
+      and(
+        inArray(itemVariantValues.itemId, uniqueItemIds),
+        isNull(variantOptions.disabledAt),
+        isNull(variantOptionValues.disabledAt)
+      )
+    )
+    .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder));
+
+  const byItemId = new Map<string, SalesVariantValue[]>();
+  for (const row of rows) {
+    const values = byItemId.get(row.itemId) ?? [];
+    values.push({
+      optionName: row.optionName,
+      optionCode: row.optionCode,
+      valueLabel: row.valueLabel,
+      valueCode: row.valueCode,
+    });
+    byItemId.set(row.itemId, values);
+  }
+  return byItemId;
+}
+
 function formatSalesItemDisplayName(
   itemName: string,
   familyName: string | null,
@@ -486,6 +536,7 @@ type SalesItemValidationRow = {
   category: string | null;
   unitDefinitionId: string;
   unitName: string;
+  variantValues: SalesVariantValue[];
   defaultSellingPrice: string | null;
   stock: string;
   committedQty: string;
@@ -508,6 +559,10 @@ type PricingScheduleRecord = {
   id: string;
   name: string;
   customerCategoryId: string | null;
+  itemScope: string;
+  itemCategory: string | null;
+  itemVariantOptionCode: string | null;
+  itemVariantValueCode: string | null;
   itemId: string | null;
 };
 
@@ -629,6 +684,10 @@ async function ensurePricingScheduleScopeAvailableInTx(
   tx: Tx,
   values: {
     customerCategoryId: string | null;
+    itemScope: "all" | "category" | "variant" | "selected";
+    itemCategory: string | null;
+    itemVariantOptionCode: string | null;
+    itemVariantValueCode: string | null;
     itemIds: string[];
   },
   options?: { excludeId?: string }
@@ -647,20 +706,11 @@ async function ensurePricingScheduleScopeAvailableInTx(
   }
 
   const [existingAllItemsSchedule] =
-    itemIds.length === 0
+    values.itemScope === "all"
       ? await tx
           .select({ id: pricingSchedules.id })
           .from(pricingSchedules)
-          .where(
-            and(
-              ...scheduleConditions,
-              sql`NOT EXISTS (
-                SELECT 1 FROM sales.pricing_schedule_items psi
-                WHERE psi.pricing_schedule_id = ${pricingSchedules.id}
-              )`,
-              eq(pricingSchedules.itemScope, "all")
-            )
-          )
+          .where(and(...scheduleConditions, eq(pricingSchedules.itemScope, "all")))
           .limit(1)
       : [];
 
@@ -674,7 +724,72 @@ async function ensurePricingScheduleScopeAvailableInTx(
     });
   }
 
-  if (itemIds.length > 0) {
+  if (values.itemScope === "category") {
+    if (values.itemCategory == null) {
+      throw new SalesError("Item category is required", 400, {
+        errors: {
+          itemCategory: ["Item category is required"],
+        },
+      });
+    }
+
+    const [existingCategorySchedule] = await tx
+      .select({ id: pricingSchedules.id })
+      .from(pricingSchedules)
+      .where(
+        and(
+          ...scheduleConditions,
+          eq(pricingSchedules.itemScope, "category"),
+          eq(pricingSchedules.itemCategory, values.itemCategory)
+        )
+      )
+      .limit(1);
+
+    if (existingCategorySchedule) {
+      throw new SalesError("A pricing schedule already exists for this scope.", 400, {
+        errors: {
+          itemCategory: [
+            "A pricing schedule already exists for this customer and item category.",
+          ],
+        },
+      });
+    }
+  }
+
+  if (values.itemScope === "variant") {
+    if (values.itemVariantOptionCode == null || values.itemVariantValueCode == null) {
+      throw new SalesError("Variant value is required", 400, {
+        errors: {
+          itemVariantValueCode: ["Choose a variant value."],
+        },
+      });
+    }
+
+    const [existingVariantSchedule] = await tx
+      .select({ id: pricingSchedules.id })
+      .from(pricingSchedules)
+      .where(
+        and(
+          ...scheduleConditions,
+          eq(pricingSchedules.itemScope, "variant"),
+          eq(pricingSchedules.itemVariantOptionCode, values.itemVariantOptionCode),
+          eq(pricingSchedules.itemVariantValueCode, values.itemVariantValueCode)
+        )
+      )
+      .limit(1);
+
+    if (existingVariantSchedule) {
+      throw new SalesError("A pricing schedule already exists for this scope.", 400, {
+        errors: {
+          itemVariantValueCode: [
+            "A pricing schedule already exists for this customer and variant value.",
+          ],
+        },
+      });
+    }
+  }
+
+  if (values.itemScope === "selected") {
     const [existingItemSchedule] = await tx
       .select({ id: pricingSchedules.id })
       .from(pricingSchedules)
@@ -694,6 +809,80 @@ async function ensurePricingScheduleScopeAvailableInTx(
         },
       });
     }
+  }
+}
+
+async function ensurePricingScheduleVariantValueExistsInTx(
+  tx: Tx,
+  itemScope: "all" | "category" | "variant" | "selected",
+  itemVariantOptionCode: string | null,
+  itemVariantValueCode: string | null
+) {
+  if (itemScope !== "variant") return;
+  if (itemVariantOptionCode == null || itemVariantValueCode == null) return;
+
+  const [variantValue] = await tx
+    .select({
+      itemId: items.id,
+    })
+    .from(items)
+    .innerJoin(itemVariantValues, eq(itemVariantValues.itemId, items.id))
+    .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
+    .innerJoin(
+      variantOptionValues,
+      eq(itemVariantValues.optionValueId, variantOptionValues.id)
+    )
+    .where(
+      and(
+        eq(items.itemType, "product"),
+        eq(items.sellable, true),
+        isNull(items.deletedAt),
+        isNull(variantOptions.disabledAt),
+        isNull(variantOptionValues.disabledAt),
+        eq(variantOptions.code, itemVariantOptionCode),
+        eq(variantOptionValues.code, itemVariantValueCode)
+      )
+    )
+    .limit(1);
+
+  if (!variantValue) {
+    throw new SalesError("Variant value not found", 400, {
+      errors: {
+        itemVariantValueCode: ["Choose a variant value used by an active sellable product."],
+      },
+    });
+  }
+}
+
+async function ensurePricingScheduleItemCategoryExistsInTx(
+  tx: Tx,
+  itemScope: "all" | "category" | "variant" | "selected",
+  itemCategory: string | null
+) {
+  if (itemScope !== "category") return;
+
+  const [category] = await tx
+    .select({
+      category: sql<string | null>`COALESCE(${itemFamilies.category}, ${items.category})`,
+    })
+    .from(items)
+    .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
+    .where(
+      and(
+        eq(items.itemType, "product"),
+        eq(items.sellable, true),
+        isNull(items.deletedAt),
+        eq(sql`COALESCE(${itemFamilies.category}, ${items.category})`, itemCategory)
+      )
+    )
+    .limit(1);
+
+  if (!category) {
+    throw new SalesError("Item category not found", 400, {
+      errors: {
+        itemCategory: ["Choose an active sellable product category."],
+      },
+    });
   }
 }
 
@@ -748,7 +937,10 @@ async function getPricingScheduleBreaksInTx(
 async function getPricingScheduleLookupForProductsInTx(
   tx: Tx,
   products: Array<
-    Pick<SalesItemValidationRow, "id" | "defaultSellingPrice">
+    Pick<
+      SalesItemValidationRow,
+      "id" | "category" | "variantValues" | "defaultSellingPrice"
+    >
   >,
   customerCategoryId: string | null
 ): Promise<PricingScheduleLookup> {
@@ -757,6 +949,23 @@ async function getPricingScheduleLookupForProductsInTx(
       products
         .filter((product) => product.defaultSellingPrice != null)
         .map((product) => product.id)
+    ),
+  ];
+  const variantKeys = new Set(
+    products
+      .filter((product) => product.defaultSellingPrice != null)
+      .flatMap((product) =>
+        product.variantValues.map(
+          (value) => `${value.optionCode}\u0000${value.valueCode}`
+        )
+      )
+  );
+  const itemCategories = [
+    ...new Set(
+      products
+        .filter((product) => product.defaultSellingPrice != null && product.category != null)
+        .map((product) => product.category)
+        .filter((category): category is string => category != null)
     ),
   ];
   const schedules: PricingScheduleRecord[] = [];
@@ -771,6 +980,10 @@ async function getPricingScheduleLookupForProductsInTx(
       id: pricingSchedules.id,
       name: pricingSchedules.name,
       customerCategoryId: pricingSchedules.customerCategoryId,
+      itemScope: pricingSchedules.itemScope,
+      itemCategory: pricingSchedules.itemCategory,
+      itemVariantOptionCode: pricingSchedules.itemVariantOptionCode,
+      itemVariantValueCode: pricingSchedules.itemVariantValueCode,
       itemId: pricingScheduleItems.itemId,
     })
     .from(pricingSchedules)
@@ -784,7 +997,14 @@ async function getPricingScheduleLookupForProductsInTx(
           ? eq(pricingSchedules.itemScope, "all")
           : or(
               inArray(pricingScheduleItems.itemId, itemIds),
-              eq(pricingSchedules.itemScope, "all")
+              eq(pricingSchedules.itemScope, "all"),
+              itemCategories.length > 0
+                ? and(
+                    eq(pricingSchedules.itemScope, "category"),
+                    inArray(pricingSchedules.itemCategory, itemCategories)
+                  )
+                : undefined,
+              eq(pricingSchedules.itemScope, "variant")
             ),
         customerCategoryId == null
           ? isNull(pricingSchedules.customerCategoryId)
@@ -796,9 +1016,22 @@ async function getPricingScheduleLookupForProductsInTx(
       )
     );
 
-  schedules.push(...scheduleRows);
+  schedules.push(
+    ...scheduleRows.filter((schedule) => {
+      if (schedule.itemScope !== "variant") return true;
+      if (
+        schedule.itemVariantOptionCode == null ||
+        schedule.itemVariantValueCode == null
+      ) {
+        return false;
+      }
+      return variantKeys.has(
+        `${schedule.itemVariantOptionCode}\u0000${schedule.itemVariantValueCode}`
+      );
+    })
+  );
 
-  const scheduleIds = scheduleRows.map((schedule) => schedule.id);
+  const scheduleIds = schedules.map((schedule) => schedule.id);
   if (scheduleIds.length === 0) {
     return { schedules, breaksByScheduleId };
   }
@@ -859,7 +1092,10 @@ function resolvePricingForProduct(
   values: {
     customerCategoryId: string | null;
     customerCategoryName: string | null;
-    product: Pick<SalesItemValidationRow, "id" | "defaultSellingPrice">;
+    product: Pick<
+      SalesItemValidationRow,
+      "id" | "category" | "variantValues" | "defaultSellingPrice"
+    >;
     quantity: string | null;
   },
   lookup: PricingScheduleLookup
@@ -878,6 +1114,26 @@ function resolvePricingForProduct(
   }
 
   const candidates = lookup.schedules
+    .filter((pricingSchedule) => {
+      if (pricingSchedule.itemScope === "all") return true;
+      if (pricingSchedule.itemScope === "selected") {
+        return pricingSchedule.itemId === values.product.id;
+      }
+      if (pricingSchedule.itemScope === "category") {
+        return (
+          values.product.category != null &&
+          pricingSchedule.itemCategory === values.product.category
+        );
+      }
+      if (pricingSchedule.itemScope === "variant") {
+        return values.product.variantValues.some(
+          (variantValue) =>
+            variantValue.optionCode === pricingSchedule.itemVariantOptionCode &&
+            variantValue.valueCode === pricingSchedule.itemVariantValueCode
+        );
+      }
+      return false;
+    })
     .map((pricingSchedule) => {
       const pricingBreaks = lookup.breaksByScheduleId.get(pricingSchedule.id) ?? [];
       const matchingBreak = findMatchingPricingBreak(pricingBreaks, values.quantity);
@@ -935,7 +1191,10 @@ async function resolvePricingForProductInTx(
   values: {
     customerCategoryId: string | null;
     customerCategoryName: string | null;
-    product: Pick<SalesItemValidationRow, "id" | "defaultSellingPrice">;
+    product: Pick<
+      SalesItemValidationRow,
+      "id" | "category" | "variantValues" | "defaultSellingPrice"
+    >;
     quantity: string | null;
   }
 ): Promise<Omit<SalesLinePricingResult, "estimatedUnitCost">> {
@@ -2952,7 +3211,7 @@ async function getValidatedSalesItemsInTx(
       familyName: itemFamilies.name,
       sku: items.sku,
       sellable: items.sellable,
-      category: items.category,
+      category: sql<string | null>`COALESCE(${itemFamilies.category}, ${items.category})`,
       unitDefinitionId: items.unitDefinitionId,
       unitName: unitDefinitions.name,
       defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as(
@@ -2977,7 +3236,10 @@ async function getValidatedSalesItemsInTx(
       )
     );
 
-  const optionLabelsByItemId = await getSalesOptionLabelsByItemIdInTx(tx, uniqueIds);
+  const [optionLabelsByItemId, variantValuesByItemId] = await Promise.all([
+    getSalesOptionLabelsByItemIdInTx(tx, uniqueIds),
+    getSalesVariantValuesByItemIdInTx(tx, uniqueIds),
+  ]);
 
   const itemMap = new Map(
     rows.map((row) => {
@@ -2996,6 +3258,7 @@ async function getValidatedSalesItemsInTx(
         {
           ...row,
           displayName,
+          variantValues: variantValuesByItemId.get(row.id) ?? [],
         } as SalesItemValidationRow & { displayName: string },
       ];
     })
@@ -3211,13 +3474,15 @@ export async function getPricingScheduleItemOptions(): Promise<PricingScheduleIt
   const options = await getSalesOrderItemOptions();
   return options
     .filter((option) => option.itemType === "product")
-    .map(({ id, name, displayName, sku, unitName, itemType }) => ({
+    .map(({ id, name, displayName, sku, category, unitName, itemType, variantValues }) => ({
       id,
       name,
       displayName,
       sku,
+      category,
       unitName,
       itemType,
+      variantValues,
     }));
 }
 
@@ -3457,6 +3722,10 @@ export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
             name: pricingSchedules.name,
             customerCategoryId: pricingSchedules.customerCategoryId,
             customerCategoryName: customerCategories.name,
+            itemScope: pricingSchedules.itemScope,
+            itemCategory: pricingSchedules.itemCategory,
+            itemVariantOptionCode: pricingSchedules.itemVariantOptionCode,
+            itemVariantValueCode: pricingSchedules.itemVariantValueCode,
             notes: pricingSchedules.notes,
             updatedAt: pricingSchedules.updatedAt,
           })
@@ -3547,11 +3816,21 @@ export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
             name: row.name,
             customerCategoryId: row.customerCategoryId,
             customerScopeLabel: row.customerCategoryName ?? "Everyone",
+            itemScope: row.itemScope as PricingScheduleRow["itemScope"],
+            itemCategory: row.itemCategory,
+            itemVariantOptionCode: row.itemVariantOptionCode,
+            itemVariantValueCode: row.itemVariantValueCode,
             itemIds: (itemsByScheduleId.get(row.id) ?? []).map((item) => item.id),
             itemScopeLabel:
-              (itemsByScheduleId.get(row.id) ?? []).length === 0
+              row.itemScope === "all"
                 ? "All items"
-                : (itemsByScheduleId.get(row.id) ?? []).map((item) => item.label).join(", "),
+                : row.itemScope === "category"
+                  ? row.itemCategory ?? "Item category"
+                  : row.itemScope === "variant"
+                  ? row.itemVariantOptionCode && row.itemVariantValueCode
+                    ? `${row.itemVariantOptionCode}: ${row.itemVariantValueCode}`
+                    : "Variant value"
+                  : (itemsByScheduleId.get(row.id) ?? []).map((item) => item.label).join(", "),
             notes: row.notes,
             breakCount: scheduleBreaks.length,
             breakSummary: summarizePricingBreaks(scheduleBreaks),
@@ -3577,6 +3856,10 @@ export async function getPricingSchedule(
         id: pricingSchedules.id,
         name: pricingSchedules.name,
         customerCategoryId: pricingSchedules.customerCategoryId,
+        itemScope: pricingSchedules.itemScope,
+        itemCategory: pricingSchedules.itemCategory,
+        itemVariantOptionCode: pricingSchedules.itemVariantOptionCode,
+        itemVariantValueCode: pricingSchedules.itemVariantValueCode,
         notes: pricingSchedules.notes,
       })
       .from(pricingSchedules)
@@ -3596,6 +3879,7 @@ export async function getPricingSchedule(
 
     return {
       ...schedule,
+      itemScope: schedule.itemScope as PricingScheduleEditData["itemScope"],
       itemIds: scheduleItems.map((item) => item.itemId),
       breaks: breaks.map((pricingBreak) => ({
         minQuantity: pricingBreak.minQuantity,
@@ -3609,7 +3893,21 @@ export async function getPricingSchedule(
 export async function createPricingSchedule(data: InsertPricingSchedule) {
   return withAuthedOrgContext(async (tx, orgId) => {
     await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
-    await ensurePricingScheduleItemsExistInTx(tx, data.itemIds);
+    await ensurePricingScheduleItemCategoryExistsInTx(
+      tx,
+      data.itemScope,
+      data.itemCategory
+    );
+    await ensurePricingScheduleVariantValueExistsInTx(
+      tx,
+      data.itemScope,
+      data.itemVariantOptionCode,
+      data.itemVariantValueCode
+    );
+    await ensurePricingScheduleItemsExistInTx(
+      tx,
+      data.itemScope === "selected" ? data.itemIds : []
+    );
     await ensurePricingScheduleScopeAvailableInTx(tx, data);
 
     const [schedule] = await tx
@@ -3618,12 +3916,17 @@ export async function createPricingSchedule(data: InsertPricingSchedule) {
         organizationId: orgId,
         name: data.name,
         customerCategoryId: data.customerCategoryId,
-        itemScope: data.itemIds.length > 0 ? "selected" : "all",
+        itemScope: data.itemScope,
+        itemCategory: data.itemScope === "category" ? data.itemCategory : null,
+        itemVariantOptionCode:
+          data.itemScope === "variant" ? data.itemVariantOptionCode : null,
+        itemVariantValueCode:
+          data.itemScope === "variant" ? data.itemVariantValueCode : null,
         notes: data.notes,
       })
       .returning({ id: pricingSchedules.id });
 
-    if (data.itemIds.length > 0) {
+    if (data.itemScope === "selected" && data.itemIds.length > 0) {
       await tx.insert(pricingScheduleItems).values(
         [...new Set(data.itemIds)].map((itemId) => ({
           organizationId: orgId,
@@ -3669,7 +3972,21 @@ export async function updatePricingSchedule(
     }
 
     await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
-    await ensurePricingScheduleItemsExistInTx(tx, data.itemIds);
+    await ensurePricingScheduleItemCategoryExistsInTx(
+      tx,
+      data.itemScope,
+      data.itemCategory
+    );
+    await ensurePricingScheduleVariantValueExistsInTx(
+      tx,
+      data.itemScope,
+      data.itemVariantOptionCode,
+      data.itemVariantValueCode
+    );
+    await ensurePricingScheduleItemsExistInTx(
+      tx,
+      data.itemScope === "selected" ? data.itemIds : []
+    );
     await ensurePricingScheduleScopeAvailableInTx(tx, data, {
       excludeId: id,
     });
@@ -3679,7 +3996,12 @@ export async function updatePricingSchedule(
       .set({
         name: data.name,
         customerCategoryId: data.customerCategoryId,
-        itemScope: data.itemIds.length > 0 ? "selected" : "all",
+        itemScope: data.itemScope,
+        itemCategory: data.itemScope === "category" ? data.itemCategory : null,
+        itemVariantOptionCode:
+          data.itemScope === "variant" ? data.itemVariantOptionCode : null,
+        itemVariantValueCode:
+          data.itemScope === "variant" ? data.itemVariantValueCode : null,
         notes: data.notes,
         updatedAt: new Date(),
       })
@@ -3689,7 +4011,7 @@ export async function updatePricingSchedule(
       .delete(pricingScheduleItems)
       .where(eq(pricingScheduleItems.pricingScheduleId, id));
 
-    if (data.itemIds.length > 0) {
+    if (data.itemScope === "selected" && data.itemIds.length > 0) {
       await tx.insert(pricingScheduleItems).values(
         [...new Set(data.itemIds)].map((itemId) => ({
           organizationId: existingSchedule.organizationId,
@@ -5011,6 +5333,7 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
         familyName: itemFamilies.name,
         sellable: items.sellable,
         sku: items.sku,
+        category: sql<string | null>`COALESCE(${itemFamilies.category}, ${items.category})`,
         unitName: unitDefinitions.name,
         defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as(
           "defaultSellingPrice"
@@ -5036,10 +5359,11 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
       )
       .orderBy(asc(items.name));
 
-    const optionLabelsByItemId = await getSalesOptionLabelsByItemIdInTx(
-      tx,
-      rows.map((row) => row.id)
-    );
+    const rowIds = rows.map((row) => row.id);
+    const [optionLabelsByItemId, variantValuesByItemId] = await Promise.all([
+      getSalesOptionLabelsByItemIdInTx(tx, rowIds),
+      getSalesVariantValuesByItemIdInTx(tx, rowIds),
+    ]);
 
     return rows
       .map((row) => {
@@ -5055,7 +5379,9 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
           name: row.name,
           displayName,
           sku: row.sku,
+          category: row.category,
           unitName: row.unitName,
+          variantValues: variantValuesByItemId.get(row.id) ?? [],
           defaultSellingPrice: row.defaultSellingPrice,
           estimatedUnitCost: null,
           stock: row.stock,
