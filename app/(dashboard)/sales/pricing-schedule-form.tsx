@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Delete02Icon, Search01Icon } from "@hugeicons/core-free-icons";
+import { Search01Icon } from "@hugeicons/core-free-icons";
 import type {
   CellClassParams,
   ValueSetterParams,
@@ -29,7 +29,6 @@ import type {
 } from "./types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   AffixedInput,
   CreatePageGrid,
@@ -63,7 +62,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { TooltipHeader } from "@/components/tooltip-header";
+import { cn } from "@/lib/utils";
 import {
   MutableLines,
   type LineField,
@@ -240,6 +241,10 @@ export function PricingScheduleForm({
   const [previewBasePrice, setPreviewBasePrice] = useState("100");
   const [isItemPickerOpen, setIsItemPickerOpen] = useState(false);
   const [itemSearch, setItemSearch] = useState("");
+  const [pickerTab, setPickerTab] = useState<"category" | "variant" | "selected">(
+    "selected"
+  );
+  const [itemAnchorIndex, setItemAnchorIndex] = useState<number | null>(null);
 
   const form = useForm<PricingScheduleFormValues>({
     resolver: zodResolver(insertPricingScheduleSchema),
@@ -463,14 +468,117 @@ export function PricingScheduleForm({
     itemScope === "all"
       ? "All sellable items"
       : itemScope === "category"
-        ? watchedItemCategory ?? "Choose category"
+        ? watchedItemCategory
+          ? `Category: ${watchedItemCategory}`
+          : "Choose items…"
         : itemScope === "variant"
-        ? selectedVariantScope
-          ? `${selectedVariantScope.optionName}: ${selectedVariantScope.valueLabel}`
-          : "Choose variant value"
-        : selectedItems.length === 1
-          ? selectedItems[0].displayName ?? selectedItems[0].name
-          : `${selectedItems.length} selected items`;
+          ? selectedVariantScope
+            ? `${selectedVariantScope.optionName}: ${selectedVariantScope.valueLabel}`
+            : "Choose items…"
+          : selectedItems.length === 1
+            ? selectedItems[0].displayName ?? selectedItems[0].name
+            : selectedItems.length > 0
+              ? `${selectedItems.length} items`
+              : "Choose items…";
+
+  const itemScopeInvalid = Boolean(
+    form.formState.errors.itemScope ||
+      form.formState.errors.itemCategory ||
+      form.formState.errors.itemVariantOptionCode ||
+      form.formState.errors.itemVariantValueCode ||
+      form.formState.errors.itemIds
+  );
+
+  const filteredCategoryOptions = itemCategoryOptions.filter(
+    (category) =>
+      !normalizedItemSearch ||
+      category.toLocaleLowerCase().includes(normalizedItemSearch)
+  );
+  const filteredVariantOptions = variantScopeOptions.filter(
+    (option) =>
+      !normalizedItemSearch ||
+      `${option.optionName}: ${option.valueLabel}`
+        .toLocaleLowerCase()
+        .includes(normalizedItemSearch)
+  );
+
+  const openItemPicker = useCallback(() => {
+    setPickerTab(itemScope === "all" ? "category" : itemScope);
+    setItemSearch("");
+    setItemAnchorIndex(null);
+    setIsItemPickerOpen(true);
+  }, [itemScope]);
+
+  const applyAllItemsScope = () => {
+    form.setValue("itemScope", "all", { shouldDirty: true, shouldValidate: true });
+    form.setValue("itemCategory", null, { shouldDirty: true });
+    form.setValue("itemVariantOptionCode", null, { shouldDirty: true });
+    form.setValue("itemVariantValueCode", null, { shouldDirty: true });
+    form.setValue("itemIds", [], { shouldDirty: true });
+  };
+
+  const selectCategoryScope = (category: string) => {
+    form.setValue("itemScope", "category", { shouldDirty: true, shouldValidate: true });
+    form.setValue("itemCategory", category, { shouldDirty: true, shouldValidate: true });
+    form.setValue("itemVariantOptionCode", null, { shouldDirty: true });
+    form.setValue("itemVariantValueCode", null, { shouldDirty: true });
+    form.setValue("itemIds", [], { shouldDirty: true });
+  };
+
+  const selectVariantScope = (optionCode: string, valueCode: string) => {
+    form.setValue("itemScope", "variant", { shouldDirty: true, shouldValidate: true });
+    form.setValue("itemVariantOptionCode", optionCode, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    form.setValue("itemVariantValueCode", valueCode, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    form.setValue("itemCategory", null, { shouldDirty: true });
+    form.setValue("itemIds", [], { shouldDirty: true });
+  };
+
+  const commitSelectedItemIds = (nextIds: string[]) => {
+    form.setValue("itemScope", "selected", { shouldDirty: true, shouldValidate: true });
+    form.setValue("itemIds", [...new Set(nextIds)], {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    form.setValue("itemCategory", null, { shouldDirty: true });
+    form.setValue("itemVariantOptionCode", null, { shouldDirty: true });
+    form.setValue("itemVariantValueCode", null, { shouldDirty: true });
+  };
+
+  const handleItemRowSelect = (
+    index: number,
+    event: MouseEvent | KeyboardEvent
+  ) => {
+    const clickedId = filteredItemOptions[index]?.id;
+    if (!clickedId) return;
+    const extendRange = event.shiftKey && itemAnchorIndex !== null;
+    const toggle = event.metaKey || event.ctrlKey;
+
+    if (extendRange) {
+      const low = Math.min(itemAnchorIndex, index);
+      const high = Math.max(itemAnchorIndex, index);
+      commitSelectedItemIds(
+        filteredItemOptions.slice(low, high + 1).map((item) => item.id)
+      );
+      return;
+    }
+
+    setItemAnchorIndex(index);
+    if (toggle && itemScope === "selected") {
+      commitSelectedItemIds(
+        selectedItemIdSet.has(clickedId)
+          ? selectedItemIds.filter((id) => id !== clickedId)
+          : [...selectedItemIds, clickedId]
+      );
+      return;
+    }
+    commitSelectedItemIds([clickedId]);
+  };
   const basePreview = Number(previewBasePrice);
   const breakColumns = useMemo<LineField<PricingBreakGridRow>[]>(
     () => {
@@ -761,170 +869,21 @@ export function PricingScheduleForm({
                   )}
                 />
 
-                <Controller
-                  control={form.control}
-                  name="itemScope"
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel>
-                        <TooltipHeader label="Items" tooltip={PRICING_ITEM_CATEGORY_TOOLTIP} />
-                      </FieldLabel>
-                      <Select
-                        name={field.name}
-                        value={field.value}
-                        onValueChange={(value) => {
-                          const nextScope = value as PricingScheduleFormValues["itemScope"];
-                          field.onChange(nextScope);
-                          if (nextScope !== "category") {
-                            form.setValue("itemCategory", null, {
-                              shouldDirty: true,
-                              shouldValidate: true,
-                            });
-                          }
-                          if (nextScope !== "variant") {
-                            form.setValue("itemVariantOptionCode", null, {
-                              shouldDirty: true,
-                              shouldValidate: true,
-                            });
-                            form.setValue("itemVariantValueCode", null, {
-                              shouldDirty: true,
-                              shouldValidate: true,
-                            });
-                          }
-                          if (nextScope !== "selected") {
-                            form.setValue("itemIds", [], {
-                              shouldDirty: true,
-                              shouldValidate: true,
-                            });
-                          }
-                        }}
-                      >
-                        <SelectTrigger aria-invalid={fieldState.invalid}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All sellable items</SelectItem>
-                          <SelectItem value="category">Item category</SelectItem>
-                          <SelectItem value="variant">Variant value</SelectItem>
-                          <SelectItem value="selected">Selected items</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <div className="text-xs text-muted-foreground">{itemScopeSummary}</div>
-                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                    </Field>
-                  )}
-                />
+                <Field data-invalid={itemScopeInvalid ? "" : undefined}>
+                  <FieldLabel>
+                    <TooltipHeader label="Items" tooltip={PRICING_ITEM_CATEGORY_TOOLTIP} />
+                  </FieldLabel>
+                  <button
+                    type="button"
+                    className="flex min-h-(--height-input-md) w-full items-center justify-between gap-(--space-4) rounded-(--radius-none) border border-input bg-background px-(--space-4) py-(--space-3) text-left text-[length:var(--text-sm)] leading-[var(--leading-sm)] shadow-xs outline-none transition-colors hover:bg-muted focus-visible:shadow-[var(--focus-ring)]"
+                    data-invalid={itemScopeInvalid ? "" : undefined}
+                    onClick={openItemPicker}
+                  >
+                    <span className="min-w-0 truncate">{itemScopeSummary}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">Change</span>
+                  </button>
+                </Field>
               </FieldGroup>
-
-              {itemScope === "category" ? (
-                <Controller
-                  control={form.control}
-                  name="itemCategory"
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel>Item Category</FieldLabel>
-                      <Select
-                        name={field.name}
-                        value={field.value ?? undefined}
-                        onValueChange={field.onChange}
-                      >
-                        <SelectTrigger aria-invalid={fieldState.invalid}>
-                          <SelectValue placeholder="Choose an item category" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {itemCategoryOptions.map((category) => (
-                            <SelectItem key={category} value={category}>
-                              {category}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                    </Field>
-                  )}
-                />
-              ) : null}
-
-              {itemScope === "variant" ? (
-                <Controller
-                  control={form.control}
-                  name="itemVariantValueCode"
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel>Variant Value</FieldLabel>
-                      <Select
-                        name={field.name}
-                        value={
-                          watchedItemVariantOptionCode && field.value
-                            ? `${watchedItemVariantOptionCode}\u0000${field.value}`
-                            : undefined
-                        }
-                        onValueChange={(value) => {
-                          const [optionCode, valueCode] = value.split("\u0000");
-                          form.setValue("itemVariantOptionCode", optionCode, {
-                            shouldDirty: true,
-                            shouldValidate: true,
-                          });
-                          field.onChange(valueCode);
-                        }}
-                      >
-                        <SelectTrigger aria-invalid={fieldState.invalid}>
-                          <SelectValue placeholder="Choose a variant value" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {variantScopeOptions.map((option) => (
-                            <SelectItem
-                              key={`${option.optionCode}:${option.valueCode}`}
-                              value={`${option.optionCode}\u0000${option.valueCode}`}
-                            >
-                              {option.optionName}: {option.valueLabel}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                    </Field>
-                  )}
-                />
-              ) : null}
-
-              {itemScope === "selected" ? (
-                <Controller
-                  control={form.control}
-                  name="itemIds"
-                  render={({ fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel>Selected Items</FieldLabel>
-                      <button
-                        type="button"
-                        className="flex min-h-(--height-input-md) w-full items-center justify-between gap-(--space-4) rounded-(--radius-none) border border-input bg-background px-(--space-4) py-(--space-3) text-left text-[length:var(--text-sm)] leading-[var(--leading-sm)] shadow-xs outline-none transition-colors hover:bg-muted focus-visible:shadow-[var(--focus-ring)]"
-                        data-invalid={fieldState.invalid ? "" : undefined}
-                        onClick={() => setIsItemPickerOpen(true)}
-                      >
-                        <span className="min-w-0 truncate">{itemScopeSummary}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          Change
-                        </span>
-                      </button>
-                      {selectedItems.length > 0 ? (
-                        <div className="flex flex-wrap gap-(--space-2)">
-                          {selectedItems.slice(0, 6).map((item) => (
-                            <Badge key={item.id} variant="outline">
-                              {item.displayName ?? item.name}
-                            </Badge>
-                          ))}
-                          {selectedItems.length > 6 ? (
-                            <Badge variant="secondary">
-                              +{selectedItems.length - 6} more
-                            </Badge>
-                          ) : null}
-                        </div>
-                      ) : null}
-                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                    </Field>
-                  )}
-                />
-              ) : null}
 
               <Controller
                 control={form.control}
@@ -973,98 +932,143 @@ export function PricingScheduleForm({
       <Dialog open={isItemPickerOpen} onOpenChange={setIsItemPickerOpen}>
         <DialogContent size="3xl" className="gap-(--space-6)">
           <DialogHeader>
-            <DialogTitle>Select Items</DialogTitle>
+            <DialogTitle>Select items</DialogTitle>
             <DialogDescription>
-              Selected-item schedules stay fixed until edited.
+              {pickerTab === "selected"
+                ? "Click to select. Ctrl/Cmd-click to toggle, Shift-click for a range."
+                : pickerTab === "category"
+                  ? "Pick one category. The schedule applies to every sellable product in it."
+                  : "Pick one variant value. The schedule applies to every product with that value."}
             </DialogDescription>
           </DialogHeader>
 
           <div className="grid gap-(--space-5)">
-            <div className="flex flex-col gap-(--space-3) sm:flex-row sm:items-center">
-              <div className="relative flex-1">
-                <HugeiconsIcon
-                  icon={Search01Icon}
-                  className="pointer-events-none absolute left-(--space-4) top-1/2 size-(--space-6) -translate-y-1/2 text-muted-foreground"
-                  aria-hidden
-                />
-                <Input
-                  value={itemSearch}
-                  onChange={(event) => setItemSearch(event.target.value)}
-                  placeholder="Search by item, SKU, variant, or unit"
-                  className="pl-(--space-12)"
-                  autoComplete="off"
-                />
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  form.setValue("itemScope", "all", {
-                    shouldDirty: true,
-                    shouldValidate: true,
-                  });
-                  form.setValue("itemIds", [], {
-                    shouldDirty: true,
-                    shouldValidate: true,
-                  });
-                  setIsItemPickerOpen(false);
-                }}
-              >
-                All items
-              </Button>
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              value={pickerTab}
+              onValueChange={(value) => {
+                if (!value) return;
+                setPickerTab(value as typeof pickerTab);
+                setItemAnchorIndex(null);
+              }}
+            >
+              <ToggleGroupItem value="category">Categories</ToggleGroupItem>
+              <ToggleGroupItem value="variant">Variant values</ToggleGroupItem>
+              <ToggleGroupItem value="selected">Specific items</ToggleGroupItem>
+            </ToggleGroup>
+
+            <div className="relative">
+              <HugeiconsIcon
+                icon={Search01Icon}
+                className="pointer-events-none absolute left-(--space-4) top-1/2 size-(--space-6) -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <Input
+                value={itemSearch}
+                onChange={(event) => setItemSearch(event.target.value)}
+                placeholder={
+                  pickerTab === "category"
+                    ? "Search categories"
+                    : pickerTab === "variant"
+                      ? "Search variant values"
+                      : "Search by item, SKU, or unit"
+                }
+                className="pl-(--space-12)"
+                autoComplete="off"
+              />
             </div>
 
-            {selectedItems.length > 0 ? (
-              <div className="flex flex-wrap gap-(--space-2)">
-                {selectedItems.map((item) => (
-                  <Badge key={item.id} variant="outline">
-                    {item.displayName ?? item.name}
-                    <button
-                      type="button"
-                      className="ml-(--space-2) text-muted-foreground hover:text-foreground"
-                      onClick={() => {
-                        form.setValue(
-                          "itemIds",
-                          selectedItemIds.filter((id) => id !== item.id),
-                          { shouldDirty: true, shouldValidate: true }
-                        );
-                      }}
-                      aria-label={`Remove ${item.displayName ?? item.name}`}
-                    >
-                      <HugeiconsIcon icon={Delete02Icon} className="size-(--space-5)" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-            ) : null}
-
             <div className="max-h-[55vh] overflow-y-auto border border-border">
-              {filteredItemOptions.length === 0 ? (
+              {pickerTab === "category" ? (
+                filteredCategoryOptions.length === 0 ? (
+                  <div className="p-(--space-8) text-sm text-muted-foreground">
+                    No categories match that search.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {filteredCategoryOptions.map((category) => {
+                      const selected =
+                        itemScope === "category" && watchedItemCategory === category;
+                      return (
+                        <button
+                          key={category}
+                          type="button"
+                          data-selected={selected ? "" : undefined}
+                          className={cn(
+                            "flex w-full items-center px-(--space-5) py-(--space-4) text-left text-sm font-medium outline-none hover:bg-muted focus-visible:bg-muted",
+                            selected &&
+                              "bg-accent text-accent-foreground hover:bg-accent"
+                          )}
+                          onClick={() => selectCategoryScope(category)}
+                        >
+                          <span className="min-w-0 truncate">{category}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )
+              ) : pickerTab === "variant" ? (
+                filteredVariantOptions.length === 0 ? (
+                  <div className="p-(--space-8) text-sm text-muted-foreground">
+                    No variant values match that search.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-border">
+                    {filteredVariantOptions.map((option) => {
+                      const selected =
+                        itemScope === "variant" &&
+                        watchedItemVariantOptionCode === option.optionCode &&
+                        watchedItemVariantValueCode === option.valueCode;
+                      return (
+                        <button
+                          key={`${option.optionCode}:${option.valueCode}`}
+                          type="button"
+                          data-selected={selected ? "" : undefined}
+                          className={cn(
+                            "flex w-full items-center px-(--space-5) py-(--space-4) text-left text-sm font-medium outline-none hover:bg-muted focus-visible:bg-muted",
+                            selected &&
+                              "bg-accent text-accent-foreground hover:bg-accent"
+                          )}
+                          onClick={() =>
+                            selectVariantScope(option.optionCode, option.valueCode)
+                          }
+                        >
+                          <span className="min-w-0 truncate">
+                            {option.optionName}: {option.valueLabel}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )
+              ) : filteredItemOptions.length === 0 ? (
                 <div className="p-(--space-8) text-sm text-muted-foreground">
                   No sellable items match that search.
                 </div>
               ) : (
                 <div className="divide-y divide-border">
-                  {filteredItemOptions.map((item) => {
-                    const checked = selectedItemIdSet.has(item.id);
+                  {filteredItemOptions.map((item, index) => {
+                    const selected =
+                      itemScope === "selected" && selectedItemIdSet.has(item.id);
                     const label = item.displayName ?? item.name;
                     return (
-                      <label
+                      <button
                         key={item.id}
-                        className="grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-(--space-4) px-(--space-5) py-(--space-4) hover:bg-muted"
+                        type="button"
+                        data-selected={selected ? "" : undefined}
+                        className={cn(
+                          "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-(--space-4) px-(--space-5) py-(--space-4) text-left outline-none select-none hover:bg-muted focus-visible:bg-muted",
+                          selected && "bg-accent text-accent-foreground hover:bg-accent"
+                        )}
+                        onClick={(event) => handleItemRowSelect(index, event)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            handleItemRowSelect(index, event);
+                          }
+                        }}
                       >
-                        <Checkbox
-                          checked={checked}
-                          onCheckedChange={(nextChecked) => {
-                            const next = nextChecked
-                              ? [...selectedItemIds, item.id]
-                              : selectedItemIds.filter((id) => id !== item.id);
-                            form.setValue("itemIds", [...new Set(next)], {
-                              shouldDirty: true,
-                              shouldValidate: true,
-                            });
-                          }}
-                        />
                         <span className="min-w-0">
                           <span className="block truncate text-sm font-medium">
                             {label}
@@ -1074,7 +1078,7 @@ export function PricingScheduleForm({
                           </span>
                         </span>
                         <Badge variant="secondary">{item.itemType}</Badge>
-                      </label>
+                      </button>
                     );
                   })}
                 </div>
@@ -1082,12 +1086,18 @@ export function PricingScheduleForm({
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="sm:justify-between">
             <Button
               type="button"
               variant="outline"
-              onClick={() => setIsItemPickerOpen(false)}
+              onClick={() => {
+                applyAllItemsScope();
+                setIsItemPickerOpen(false);
+              }}
             >
+              Apply to all sellable items
+            </Button>
+            <Button type="button" onClick={() => setIsItemPickerOpen(false)}>
               Done
             </Button>
           </DialogFooter>
