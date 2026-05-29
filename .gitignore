@@ -17,6 +17,8 @@
 /playwright-report/
 /test/.test-env.json
 /test/.auth/
+/test/e2e/scratch/
+/test/.review-env.json
 /.agent-uploads/
 
 # next.js
