@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "NODE_OPTIONS=--max-old-space-size=4096 next dev --disable-source-maps",
     "preflight": "tsx scripts/verify-worktree-safety.ts",
+    "boot": "tsx scripts/agent-up.ts",
     "build": "pnpm preflight && next build",
     "start": "next start",
     "lint": "pnpm preflight && eslint && pnpm verify:editable-lines && pnpm verify:schema-timestamps && pnpm verify:migration-order && pnpm verify:drizzle-snapshots && pnpm verify:inventory-kernel && pnpm verify:paonia-loader-shipments && pnpm verify:fast-heartbeat && pnpm verify:slow-stories && pnpm --filter @ashicore/www lint",

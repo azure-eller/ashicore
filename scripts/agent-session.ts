@@ -17,6 +17,8 @@ export interface AgentSession {
   updatedAt: string;
 }
 
+export const REVIEW_ORG_SLUG = "test-paonia-soil-co";
+
 export const AGENT_SESSION_PATH = path.resolve(
   getGitTopLevel(),
   ".tmp",
