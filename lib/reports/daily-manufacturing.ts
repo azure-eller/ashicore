@@ -30,12 +30,6 @@ import { DailyManufacturingReportEmail } from "@/lib/email/components/daily-manu
 import { formatDate, todayInTimeZone } from "@/lib/format";
 import { AuthorizationError } from "@/lib/authz";
 import {
-  dailyManufacturingGraphColors,
-  normalizeDailyManufacturingReportConfig,
-  type DailyManufacturingProductTypeGraphConfig,
-  type DailyManufacturingReportScheduleConfig,
-} from "./daily-manufacturing-config";
-import {
   DAILY_MANUFACTURING_REPORT_PAYLOAD_VERSION,
   NOTIFICATION_ENTITY_TYPES,
   NOTIFICATION_TYPES,
@@ -83,74 +77,6 @@ function formatSubjectDate(reportDate: string) {
 
 function buildReportUrl() {
   return new URL("/settings/reports", getCanonicalAppUrl()).toString();
-}
-
-function addDays(date: string, days: number) {
-  const [year, month, day] = date.split("-").map(Number);
-  const next = new Date(Date.UTC(year, month - 1, day + days));
-  return next.toISOString().slice(0, 10);
-}
-
-function graphMatchesProduct(
-  graph: DailyManufacturingProductTypeGraphConfig,
-  row: { productName: string; productSku: string | null; unit: string }
-) {
-  if (row.unit.trim().toLowerCase() !== graph.unitName.trim().toLowerCase()) {
-    return false;
-  }
-
-  if (!graph.productTextIncludes) return true;
-
-  const productText = `${row.productName} ${row.productSku ?? ""}`.toLowerCase();
-  return productText.includes(graph.productTextIncludes.toLowerCase());
-}
-
-function graphSlug(value: string, fallback: string) {
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-
-  return slug || fallback;
-}
-
-function getFallbackProductTypeGraphs(
-  trendRows: Array<{
-    productName: string;
-    productSku: string | null;
-    productCategory: string | null;
-    unit: string;
-    quantity: string;
-  }>
-): DailyManufacturingProductTypeGraphConfig[] {
-  const totalsByType = new Map<
-    string,
-    { label: string; unitName: string; quantity: number }
-  >();
-
-  for (const row of trendRows) {
-    const label = row.productCategory?.trim() || `${row.unit.trim()} products`;
-    const key = `${label.toLowerCase()}|${row.unit.trim().toLowerCase()}`;
-    const existing = totalsByType.get(key) ?? {
-      label,
-      unitName: row.unit,
-      quantity: 0,
-    };
-    const quantity = Number(row.quantity);
-    if (Number.isFinite(quantity)) existing.quantity += quantity;
-    totalsByType.set(key, existing);
-  }
-
-  return Array.from(totalsByType.values())
-    .sort((a, b) => b.quantity - a.quantity || a.label.localeCompare(b.label))
-    .slice(0, 2)
-    .map((row, index) => ({
-      id: graphSlug(row.label, `type-${index + 1}`),
-      label: row.label,
-      unitName: row.unitName,
-      productTextIncludes: null,
-      color: dailyManufacturingGraphColors[index % dailyManufacturingGraphColors.length],
-    }));
 }
 
 async function getReportWindowInTx(
@@ -278,7 +204,6 @@ async function buildDailyManufacturingReportPayloadInTx(
     reportDate: string;
     timeZone: string;
     window: ReportWindow;
-    scheduleConfig?: DailyManufacturingReportScheduleConfig | null;
   }
 ): Promise<DailyManufacturingReportPayload> {
   const windowWhere = and(
@@ -316,82 +241,6 @@ async function buildDailyManufacturingReportPayloadInTx(
     )
     .orderBy(asc(manufacturingOrders.productName));
 
-  const trendStartDate = addDays(params.reportDate, -89);
-  const trendWindow = await tx.execute(sql`
-    SELECT
-      (${trendStartDate}::date::timestamp AT TIME ZONE ${params.timeZone}) AS "startAt",
-      ((${params.reportDate}::date + interval '1 day')::timestamp AT TIME ZONE ${params.timeZone}) AS "endAt"
-  `);
-  const [trendWindowRow] = toRows<{ startAt: Date; endAt: Date }>(trendWindow);
-
-  if (!trendWindowRow) {
-    throw new Error("Unable to resolve report trend window.");
-  }
-
-  const trendResult = await tx.execute(sql`
-    SELECT
-      mo.product_name AS "productName",
-      mo.product_sku AS "productSku",
-      i.category AS "productCategory",
-      mo.unit_name AS "unit",
-      (moo.created_at AT TIME ZONE ${params.timeZone})::date::text AS "date",
-      trim_scale(COALESCE(SUM(moo.quantity), 0)) AS "quantity"
-    FROM manufacturing.manufacturing_order_outputs moo
-    INNER JOIN manufacturing.manufacturing_orders mo
-      ON moo.manufacturing_order_id = mo.id
-    INNER JOIN inventory.items i
-      ON i.id = mo.product_id
-    WHERE moo.created_at >= ${new Date(trendWindowRow.startAt)}
-      AND moo.created_at < ${new Date(trendWindowRow.endAt)}
-      AND moo.quantity > 0
-      AND i.sellable IS TRUE
-    GROUP BY mo.product_name, mo.product_sku, i.category, mo.unit_name, 5
-  `);
-  const trendRows = toRows<{
-    productName: string;
-    productSku: string | null;
-    productCategory: string | null;
-    unit: string;
-    date: string;
-    quantity: string;
-  }>(trendResult);
-  const trendDates = Array.from({ length: 90 }, (_, index) =>
-    addDays(params.reportDate, index - 89)
-  );
-  const trendByProductKey = new Map<string, Map<string, string>>();
-
-  for (const row of trendRows) {
-    const key = `${row.productName}|${row.productSku ?? ""}|${row.unit}`;
-    const byDate = trendByProductKey.get(key) ?? new Map<string, string>();
-    byDate.set(row.date, row.quantity);
-    trendByProductKey.set(key, byDate);
-  }
-  const normalizedConfig = normalizeDailyManufacturingReportConfig(
-    params.scheduleConfig
-  );
-  const configuredGraphs = normalizedConfig.productTypeGraphs ?? [];
-  const productTypeGraphs =
-    configuredGraphs.length > 0
-      ? configuredGraphs
-      : getFallbackProductTypeGraphs(trendRows);
-  const outputByProductWithTrend = outputByProduct.map((row) => {
-    const key = `${row.productName}|${row.productSku ?? ""}|${row.unit}`;
-    const byDate = trendByProductKey.get(key) ?? new Map<string, string>();
-    const ninetyDayTrend = trendDates.map((date) => ({
-      date,
-      quantity: byDate.get(date) ?? "0",
-    }));
-    const graph = productTypeGraphs.find((candidate) =>
-      graphMatchesProduct(candidate, row)
-    );
-
-    return {
-      ...row,
-      color: graph?.color ?? dailyManufacturingGraphColors[2],
-      sevenDayTrend: ninetyDayTrend.slice(-7),
-      thirtyDayTrend: ninetyDayTrend.slice(-30),
-    };
-  });
   const outputByRecordedByRows = await tx
     .select({
       userId: manufacturingOrderOutputs.createdBy,
@@ -537,17 +386,17 @@ async function buildDailyManufacturingReportPayloadInTx(
     windowEndAt: params.window.endAt.toISOString(),
     generatedAt: new Date().toISOString(),
     summary: {
-      outputEventsRecorded: outputByProductWithTrend.reduce(
+      outputEventsRecorded: outputByProduct.reduce(
         (sum, row) => sum + row.outputEvents,
         0
       ),
       completedBatches: completedBatches.reduce((sum, row) => sum + row.batchCount, 0),
-      productsWithRecordedOutput: outputByProductWithTrend.length,
+      productsWithRecordedOutput: outputByProduct.length,
       materialsConsumedFromRecordedOutputs: materialsConsumed.length,
       shipmentsShipped: shipmentSummary?.shipmentsShipped ?? 0,
       shippedLineValue: shipmentSummary?.shippedLineValue ?? "0",
     },
-    outputByProduct: outputByProductWithTrend,
+    outputByProduct,
     outputByRecordedBy,
     completedBatches,
     materialsConsumed,
@@ -644,7 +493,6 @@ export async function generateDailyManufacturingReportForOrg(params: {
   timeZone: string;
   scheduleId: string;
   emailEnabled: boolean;
-  scheduleConfig?: DailyManufacturingReportScheduleConfig | null;
   recipientsOverride?: ReportRecipient[];
 }) {
   const claim = await withOrgContext(params.organizationId, (tx) =>
@@ -664,7 +512,6 @@ export async function generateDailyManufacturingReportForOrg(params: {
           reportDate: params.reportDate,
           timeZone: params.timeZone,
           window: claim.window,
-          scheduleConfig: params.scheduleConfig,
         });
         const recipients =
           params.recipientsOverride ?? (await getRecipientsInTx(tx, params.scheduleId));
@@ -737,7 +584,6 @@ export async function generateDueDailyManufacturingReports(now = new Date()) {
           emailEnabled: reportSchedules.emailEnabled,
           localSendTime: reportSchedules.localSendTime,
           timeZone: reportSchedules.timeZone,
-          config: reportSchedules.config,
         })
         .from(reportSchedules)
         .where(eq(reportSchedules.reportType, REPORT_TYPES.DAILY_MANUFACTURING))
@@ -763,9 +609,8 @@ export async function generateDueDailyManufacturingReports(now = new Date()) {
         reportDate,
         timeZone: schedule.timeZone,
         scheduleId: schedule.id,
-          emailEnabled: schedule.emailEnabled,
-          scheduleConfig: schedule.config,
-        });
+        emailEnabled: schedule.emailEnabled,
+      });
 
       if (result.generated) {
         summary.generated += 1;
@@ -794,7 +639,6 @@ export async function manualSendDailyManufacturingReportForOrg(params: {
       .select({
         id: reportSchedules.id,
         timeZone: reportSchedules.timeZone,
-        config: reportSchedules.config,
       })
       .from(reportSchedules)
       .where(eq(reportSchedules.reportType, REPORT_TYPES.DAILY_MANUFACTURING))
@@ -924,7 +768,6 @@ export async function manualSendDailyManufacturingReportForOrg(params: {
     timeZone: existingRun.schedule.timeZone,
     scheduleId: existingRun.schedule.id,
     emailEnabled: true,
-    scheduleConfig: existingRun.schedule.config,
     recipientsOverride: existingRun.recipients,
   });
 

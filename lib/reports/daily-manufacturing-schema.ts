@@ -6,11 +6,6 @@ const quantitySummarySchema = z.object({
   quantity: z.string(),
 });
 
-const trendPointSchema = z.object({
-  date: z.string(),
-  quantity: z.string(),
-});
-
 export const dailyManufacturingReportPayloadSchema = z.object({
   version: z.literal(DAILY_MANUFACTURING_REPORT_PAYLOAD_VERSION),
   reportType: z.literal("daily_manufacturing"),
@@ -32,12 +27,9 @@ export const dailyManufacturingReportPayloadSchema = z.object({
     z.object({
       productName: z.string(),
       productSku: z.string().nullable(),
-      color: z.string(),
       quantity: z.string(),
       unit: z.string(),
       outputEvents: z.number().int().nonnegative(),
-      sevenDayTrend: z.array(trendPointSchema).default([]),
-      thirtyDayTrend: z.array(trendPointSchema).default([]),
     })
   ),
   outputByRecordedBy: z.array(
