@@ -55,6 +55,17 @@ import {
   convertUntrackedFamilyLotsToTrackedInTx,
 } from "@/lib/inventory/untracked-lot-consolidation";
 import type { Tx } from "@/lib/db/with-org-context";
+import { createBomRevisionInTx } from "@/app/(dashboard)/inventory/queries/internal";
+import type {
+  BomInputRow,
+  BomOperationCostInputRow,
+} from "@/app/(dashboard)/inventory/queries/bom-write";
+import { getMinimumLotAgeDays } from "@/lib/bom/constraints";
+import {
+  getCurrentBomComponentsInTx,
+  getCurrentBomRevisionInTx,
+} from "@/lib/bom/revisions";
+import { getCurrentBomOperationCostsInTx } from "@/lib/bom/operation-costs";
 import type {
   DuplicateCombinationWarning,
   ItemType,
@@ -74,6 +85,13 @@ const nullableText = z
   .transform((value) => (value != null ? value.trim() || null : null));
 
 const patchNullableText = nullableStringPreserveUndefined;
+const CLONE_NAME_PREFIX = "Copy of ";
+const ITEM_NAME_MAX_LENGTH = 255;
+
+function cloneName(name: string) {
+  const maxSourceLength = ITEM_NAME_MAX_LENGTH - CLONE_NAME_PREFIX.length;
+  return `${CLONE_NAME_PREFIX}${name.slice(0, maxSourceLength).trimEnd()}`;
+}
 
 const positiveOptionalDecimalString = (label: string) =>
   optionalNonNegativeDecimalString(label).refine(
@@ -895,7 +913,7 @@ export async function cloneItemCard(
   sourceItemId: string,
   options?: { idempotencyKey?: string | null },
 ) {
-  return withAuthedOrgContext(async (tx, orgId) => {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
     const replay = await beginInventoryOperationInTx<{
       itemId: string;
       card: ItemCardDto;
@@ -930,7 +948,7 @@ export async function cloneItemCard(
       .values({
         organizationId: orgId,
         itemType: sourceFamily.itemType,
-        name: `Copy of ${sourceFamily.name}`,
+        name: cloneName(sourceFamily.name),
         category: sourceFamily.category,
         description: sourceFamily.description,
         unitDefinitionId: sourceFamily.unitDefinitionId,
@@ -949,7 +967,7 @@ export async function cloneItemCard(
           organizationId: orgId,
           familyId: clonedFamily.id,
           optionCombinationKey: source.optionCombinationKey,
-          name: `Copy of ${source.name}`,
+          name: cloneName(source.name),
           description: source.description,
           sku: null,
           category: source.category,
@@ -959,7 +977,7 @@ export async function cloneItemCard(
           purchaseToStockFactor: source.purchaseToStockFactor,
           safetyStock: source.safetyStock,
           defaultPurchasePrice: source.defaultPurchasePrice,
-          currentStockUnitCost: source.currentStockUnitCost,
+          currentStockUnitCost: null,
           defaultSellingPrice: source.defaultSellingPrice,
           sellable: source.sellable,
           manufacturingMode: source.manufacturingMode,
@@ -980,9 +998,7 @@ export async function cloneItemCard(
     const sourceOptions = await tx
       .select()
       .from(variantOptions)
-      .where(
-        and(eq(variantOptions.familyId, sourceFamilyId), isNull(variantOptions.disabledAt)),
-      )
+      .where(eq(variantOptions.familyId, sourceFamilyId))
       .orderBy(asc(variantOptions.sortOrder), asc(variantOptions.name));
     const clonedOptionIdsBySourceId = new Map<string, string>();
     for (const sourceOption of sourceOptions) {
@@ -994,6 +1010,7 @@ export async function cloneItemCard(
           name: sourceOption.name,
           code: sourceOption.code,
           sortOrder: sourceOption.sortOrder,
+          disabledAt: sourceOption.disabledAt,
         })
         .returning({ id: variantOptions.id });
       clonedOptionIdsBySourceId.set(sourceOption.id, clonedOption.id);
@@ -1004,12 +1021,7 @@ export async function cloneItemCard(
       const sourceValues = await tx
         .select()
         .from(variantOptionValues)
-        .where(
-          and(
-            inArray(variantOptionValues.optionId, sourceOptionIds),
-            isNull(variantOptionValues.disabledAt),
-          ),
-        )
+        .where(inArray(variantOptionValues.optionId, sourceOptionIds))
         .orderBy(asc(variantOptionValues.sortOrder), asc(variantOptionValues.label));
       const clonedValueIdsBySourceId = new Map<string, string>();
       for (const sourceValue of sourceValues) {
@@ -1024,6 +1036,7 @@ export async function cloneItemCard(
             label: sourceValue.label,
             code: sourceValue.code,
             sortOrder: sourceValue.sortOrder,
+            disabledAt: sourceValue.disabledAt,
           })
           .returning({ id: variantOptionValues.id });
         clonedValueIdsBySourceId.set(sourceValue.id, clonedValue.id);
@@ -1051,6 +1064,50 @@ export async function cloneItemCard(
       });
       if (clonedAssignments.length > 0) {
         await tx.insert(itemVariantValues).values(clonedAssignments);
+      }
+    }
+
+    if (sourceFamily.itemType === "product") {
+      for (const source of sourceVariants) {
+        const clonedProductId = clonedVariantIdsBySourceId.get(source.id);
+        if (!clonedProductId) continue;
+
+        const sourceRevision = await getCurrentBomRevisionInTx(tx, source.id);
+        if (!sourceRevision) continue;
+
+        const sourceBom = await getCurrentBomComponentsInTx(tx, source.id);
+        const sourceOperationCosts = await getCurrentBomOperationCostsInTx(tx, source.id);
+        const bom: BomInputRow[] = sourceBom.map((row) => ({
+          componentId: clonedVariantIdsBySourceId.get(row.componentId) ?? row.componentId,
+          quantity: row.quantity,
+          minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
+          alternates: row.alternates.map((alternate) => ({
+            itemId:
+              clonedVariantIdsBySourceId.get(alternate.alternateItemId) ??
+              alternate.alternateItemId,
+          })),
+        }));
+        const operationCosts: BomOperationCostInputRow[] = sourceOperationCosts.map(
+          (row) => ({
+            operationName: row.operationName,
+            resourceId: row.resourceId,
+            costScalingMode: row.costScalingMode,
+            crewSize: row.crewSize,
+            plannedMinutes: row.plannedMinutes,
+            loadedCostPerHour: row.loadedCostPerHour,
+          }),
+        );
+
+        await createBomRevisionInTx(tx, {
+          orgId,
+          userId,
+          productId: clonedProductId,
+          note: sourceRevision.note ?? `Copied from ${source.id}`,
+          outputQuantity: sourceRevision.outputQuantity,
+          recipeBasis: sourceRevision.recipeBasis === "batch" ? "batch" : "unit",
+          bom,
+          operationCosts,
+        });
       }
     }
 

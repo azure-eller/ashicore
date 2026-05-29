@@ -7,6 +7,8 @@ import {
   inventoryLocations,
   inventoryLotBalances,
   inventoryReservationsSummary,
+  bomRevisionComponents,
+  bomRevisionOperationCosts,
   bomRevisions,
   itemFamilies,
   itemVariantValues,
@@ -14,6 +16,7 @@ import {
   lots,
   manufacturingOrderIngredients,
   manufacturingOrders,
+  manufacturingResources,
   stockAllocations,
   stocktakeItems,
   stocktakeLotItems,
@@ -995,9 +998,19 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(Number(balance.committedQty)).toBe(0);
   });
 
-  test("item card clone copies variant structure without stock or BOM history", async ({
+  test("item card clone copies variant structure and current recipe without stock", async ({
     db,
   }) => {
+    const [resource] = await db
+      .insert(manufacturingResources)
+      .values({
+        organizationId: orgId,
+        name: `Fast Clone Labor ${ts}`,
+        resourceType: "labor",
+        loadedCostPerHour: "60.000000",
+      })
+      .returning({ id: manufacturingResources.id });
+
     const component = await createItem({
       itemType: "material",
       name: `Fast Clone Component ${ts}`,
@@ -1028,6 +1041,16 @@ test.describe("inventory mutation kernel heartbeat", () => {
       stock: "7",
       safetyStock: "3",
       bom: [{ componentId: component.body.id, quantity: "2" }],
+      operationCosts: [
+        {
+          operationName: "Assembly",
+          resourceId: resource.id,
+          costScalingMode: "per_output_unit",
+          crewSize: "1",
+          plannedMinutes: "10",
+          loadedCostPerHour: "60",
+        },
+      ],
     });
     expect(product.status).toBe(201);
     const sourceItemId = product.body.id as string;
@@ -1061,13 +1084,23 @@ test.describe("inventory mutation kernel heartbeat", () => {
     );
     expect(generateResponse.status).toBe(201);
 
+    const cloneIdempotencyKey = `fast-clone-card:${ts}:${sourceItemId}`;
     const cloneResponse = await testFetch(`/api/item-cards/${sourceItemId}/clone`, {
       method: "POST",
+      headers: { "Idempotency-Key": cloneIdempotencyKey },
     });
     expect(cloneResponse.status).toBe(201);
     const cloneBody = await cloneResponse.json();
     const clonedItemId = cloneBody.itemId as string;
     expect(clonedItemId).not.toBe(sourceItemId);
+
+    const cloneReplayResponse = await testFetch(`/api/item-cards/${sourceItemId}/clone`, {
+      method: "POST",
+      headers: { "Idempotency-Key": cloneIdempotencyKey },
+    });
+    expect(cloneReplayResponse.status).toBe(201);
+    const cloneReplayBody = await cloneReplayResponse.json();
+    expect(cloneReplayBody.itemId).toBe(clonedItemId);
 
     const clonedCardResponse = await testFetch(`/api/item-cards/${clonedItemId}`);
     expect(clonedCardResponse.status).toBe(200);
@@ -1107,8 +1140,20 @@ test.describe("inventory mutation kernel heartbeat", () => {
     const clonedBomRows = await db
       .select({ id: bomRevisions.id })
       .from(bomRevisions)
-      .where(inArray(bomRevisions.productId, clonedVariantIds));
-    expect(clonedBomRows).toEqual([]);
+      .where(and(eq(bomRevisions.productId, clonedItemId), eq(bomRevisions.isCurrent, true)));
+    expect(clonedBomRows).toHaveLength(1);
+
+    const clonedComponentRows = await db
+      .select({ id: bomRevisionComponents.id })
+      .from(bomRevisionComponents)
+      .where(eq(bomRevisionComponents.bomRevisionId, clonedBomRows[0].id));
+    expect(clonedComponentRows).toHaveLength(1);
+
+    const clonedOperationRows = await db
+      .select({ id: bomRevisionOperationCosts.id })
+      .from(bomRevisionOperationCosts)
+      .where(eq(bomRevisionOperationCosts.bomRevisionId, clonedBomRows[0].id));
+    expect(clonedOperationRows).toHaveLength(1);
 
     const [clonedFamily] = await db
       .select({ id: itemFamilies.id })

@@ -350,6 +350,8 @@ export async function saveAllocationsForDemandInTx(
     await finishInventoryOperationInTx(tx, {
       organizationId: input.organizationId,
       idempotencyKey: input.idempotencyKey ?? null,
+      // Idempotent replay needs a non-null envelope even though this caller
+      // intentionally receives null on the first successful save.
       result: ALLOCATION_SAVE_RESULT,
     });
     return null;
