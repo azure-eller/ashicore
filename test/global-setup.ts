@@ -12,8 +12,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { EMAIL_OUTBOX_DIR, EMAIL_OUTBOX_MODE_FLAG } from "../lib/email/outbox";
 import { ensureTestAccount } from "./helpers/test-account-setup";
+import { resolveBaseUrl } from "./helpers/test-env";
 
-const BASE_URL = process.env.TEST_BASE_URL || "http://localhost:3000";
+const BASE_URL = resolveBaseUrl();
 
 export default async function setup() {
   fs.rmSync(EMAIL_OUTBOX_DIR, { recursive: true, force: true });

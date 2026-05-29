@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "NODE_OPTIONS=--max-old-space-size=4096 next dev --disable-source-maps",
     "preflight": "tsx scripts/verify-worktree-safety.ts",
+    "boot": "tsx scripts/agent-up.ts",
     "build": "pnpm preflight && next build",
     "start": "next start",
     "lint": "pnpm preflight && eslint && pnpm verify:editable-lines && pnpm verify:schema-timestamps && pnpm verify:migration-order && pnpm verify:drizzle-snapshots && pnpm verify:inventory-kernel && pnpm verify:paonia-loader-shipments && pnpm verify:fast-heartbeat && pnpm verify:slow-stories && pnpm --filter @ashicore/www lint",
@@ -49,6 +50,8 @@
     "test": "pnpm test:fast",
     "test:fast": "pnpm test:e2e:fast",
     "test:e2e:fast": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/fast --workers=${PLAYWRIGHT_FAST_WORKERS:-2}",
+    "test:scratch": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/scratch --workers=1",
+    "review": "tsx scripts/agent-review.ts",
     "test:slow": "pnpm test:e2e:slow",
     "test:e2e:slow": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/slow",
     "test:reconciliation": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/reconciliation",

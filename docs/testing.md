@@ -126,3 +126,16 @@ Failed scheduled slow runs open/update an investigation PR, comment with run det
 - `test/e2e/team-access.spec.ts` — compact team invite and access-boundary stories
 - `test/global-setup.ts` — creates test user/org/unit, writes `.test-env.json`
 - `test/helpers/api.ts` — authenticated fetch helpers
+
+## Agent dev loop
+
+1. Name the outcomes (UI + DB) before coding.
+2. Write an in-depth throwaway suite in `test/e2e/scratch/` (UI + `db` fixture assertions). No login — the fixture injects the session cookie.
+3. Run `pnpm test:scratch` → red.
+4. Implement.
+5. `pnpm test:scratch` → green; iterate here, not in a browser.
+6. Distill only the essential invariant into the fast/slow lanes per the guardrails above. Most changes add zero or one.
+7. Delete the scratch suite. The PR must not carry disposable specs unless one is explicitly promoted.
+8. Hand off with `pnpm review`.
+
+**Orgs:** scratch/fast/slow run against the isolated `test-org` (session in `test/.test-env.json`). `pnpm review` seeds the live Paonia snapshot into `test-paonia-soil-co` (separate session in `test/.review-env.json`) for manual eyeballing only — automated tests never depend on snapshot breadth, and agents never run a destructive reseed against `test-org`.
