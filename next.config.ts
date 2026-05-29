@@ -24,6 +24,9 @@ const erpAssetOrigin =
   normalizeUrl(process.env.VERCEL_PROJECT_PRODUCTION_URL);
 
 const nextConfig: NextConfig = {
+  // Allow a separate build output dir (e.g. `pnpm review`'s validation build) so it
+  // doesn't clobber a running dev server's default `.next`.
+  distDir: process.env.NEXT_DIST_DIR ?? ".next",
   assetPrefix:
     process.env.NODE_ENV === "production" && erpAssetOrigin
       ? erpAssetOrigin

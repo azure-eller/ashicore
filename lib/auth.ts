@@ -66,6 +66,23 @@ const authAllowedHosts = (() => {
   return Array.from(hosts);
 })();
 
+// `allowedHosts` governs Host-header → baseURL resolution, but Better Auth plugins
+// (e.g. organization/set-active) validate the request Origin against
+// `trustedOrigins`. In dev/test only, trust the scheme-qualified origins that
+// `pnpm boot` records (localhost + the Android emulator/device origins) so a
+// device hitting the dev server passes the Origin check. Empty in production →
+// `trustedOrigins` stays undefined and Better Auth's default behavior is unchanged.
+const authTrustedOrigins = (() => {
+  const nodeEnv = process.env.NODE_ENV ?? "development";
+  if (nodeEnv === "production") {
+    return [];
+  }
+
+  return (process.env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",") ?? [])
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+})();
+
 export const organizationAc = createAccessControl({
   organization: ["update", "delete"],
   member: ["create", "update", "delete"],
@@ -195,6 +212,7 @@ export const auth = betterAuth({
     allowedHosts: authAllowedHosts,
     fallback: authFallbackUrl,
   },
+  trustedOrigins: authTrustedOrigins.length > 0 ? authTrustedOrigins : undefined,
   rateLimit:
     process.env.BETTER_AUTH_RATE_LIMIT_DISABLED === "1"
       ? { enabled: false }

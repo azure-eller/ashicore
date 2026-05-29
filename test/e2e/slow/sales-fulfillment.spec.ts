@@ -491,6 +491,7 @@ test.describe("sales fulfillment operating story", () => {
         body: JSON.stringify({
           name: snapshotScheduleName,
           customerCategoryId: null,
+          itemScope: "selected",
           itemIds: [snapshotProduct.id],
           notes: null,
           breaks: [

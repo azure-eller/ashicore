@@ -15,6 +15,64 @@ export const TEST_STORAGE_STATE_PATH = path.resolve(
   __dirname,
   "../.auth/storage-state.json"
 );
+export const REVIEW_ENV_PATH = path.resolve(__dirname, "../.review-env.json");
+export const REVIEW_STORAGE_STATE_PATH = path.resolve(
+  __dirname,
+  "../.auth/review-storage-state.json"
+);
+
+const AGENT_SESSION_PATH = path.resolve(
+  __dirname,
+  "../../.tmp/agent-session.json"
+);
+
+/**
+ * Resolve the dev-server base URL for the Playwright lanes.
+ *
+ * `pnpm boot` starts the dev server on a free (non-3000) port and records it in
+ * `.tmp/agent-session.json` (and, after global-setup, `test/.test-env.json`).
+ * The lanes must target that running server, so prefer those over the legacy
+ * `localhost:3000` default. An explicit `TEST_BASE_URL` still wins.
+ */
+function isProcessAlive(pid: unknown): boolean {
+  if (typeof pid !== "number") return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resolveBaseUrl(): string {
+  if (process.env.TEST_BASE_URL) return process.env.TEST_BASE_URL;
+
+  try {
+    const session = JSON.parse(fs.readFileSync(AGENT_SESSION_PATH, "utf-8"));
+    // Only trust the boot URL if its dev server is actually still running —
+    // a stale session file must not point the lanes at a dead/free port.
+    if (
+      typeof session.baseUrl === "string" &&
+      session.baseUrl &&
+      isProcessAlive(session.devServerPid)
+    ) {
+      return session.baseUrl;
+    }
+  } catch {
+    // no agent-session yet — fall through
+  }
+
+  try {
+    const env = JSON.parse(fs.readFileSync(TEST_ENV_PATH, "utf-8"));
+    if (typeof env.TEST_BASE_URL === "string" && env.TEST_BASE_URL) {
+      return env.TEST_BASE_URL;
+    }
+  } catch {
+    // no test-env yet — fall through
+  }
+
+  return "http://localhost:3000";
+}
 
 export function parseCookie(raw: string): { name: string; value: string } {
   const [name, ...rest] = raw.split("=");
@@ -31,8 +89,8 @@ export function readTestEnv(): TestEnv {
   return JSON.parse(fs.readFileSync(TEST_ENV_PATH, "utf-8")) as TestEnv;
 }
 
-export function writeTestEnv(env: TestEnv) {
-  fs.writeFileSync(TEST_ENV_PATH, JSON.stringify(env, null, 2));
+export function writeTestEnv(env: TestEnv, envPath: string = TEST_ENV_PATH) {
+  fs.writeFileSync(envPath, JSON.stringify(env, null, 2));
 }
 
 export function setTestTimestamp(ts: number): number {

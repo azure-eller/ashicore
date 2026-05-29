@@ -23,7 +23,7 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui (radix-nova / stone)
 
 These are non-negotiable repo rules. They are repeated here because violating them is expensive, even when the principles already imply them.
 
-- **Worktrees for code changes.** Never edit on `main` or in the repo root checkout unless explicitly asked. `pnpm lint` and `pnpm build` run a preflight that fetches `origin/main`, blocks stale branches, blocks local `main`, and blocks a repo-root checkout that is not `main`.
+- **Worktrees for code changes.** Never edit on `main` or in the repo root checkout unless explicitly asked. `pnpm lint` and `pnpm build` run a preflight that fetches `origin/main`, blocks stale branches, blocks local `main`, and blocks a repo-root checkout that is not `main`. Keep the worktree/DB/dev server until the PR merges; clean up only after.
 - **DAL only.** Never import `db` directly in pages, components, or API routes.
 - **RLS on new tables.** New org-scoped tables need `.enableRLS()` + org-isolation `pgPolicy` in Drizzle, plus `FORCE ROW LEVEL SECURITY` in migration SQL.
 - **Migrations.** Use `pnpm db:generate` + `pnpm drizzle-kit migrate`. Never use `drizzle push`. Generate migrations from fresh `origin/main`.
@@ -32,13 +32,17 @@ These are non-negotiable repo rules. They are repeated here because violating th
 - **Mobile contract.** The Android app (`~/Projects/erp-android`) consumes this app's REST API and mirrors its behavior — assume any change here can reach it. Before finishing work that could affect what the app sees or relies on, spawn a subagent to assess mobile impact: it MUST read `~/Projects/erp-android/CLAUDE.md` first (sibling-repo memory does not auto-load), then trace the affected surface in that repo. Judge by whether the app's assumptions could have shifted, not by which files you changed.
 - **Icons.** HugeIcons only. Never Lucide.
 - **Design tokens.** shadcn semantic color classes, V2 raw tokens for spacing/sizing/type. Never hardcode Tailwind colors. Sharp corners.
-- **Testing model.** Playwright is the app test path with real DB assertions. No bug-souvenir tests. Fast tests must protect a listed core mutation seam and avoid incidental UI assertions. Slow tests are operating stories, not bug archives; edge cases belong only when they naturally occur inside that story. Do not add Vitest, unit tests, or mocking frameworks unless explicitly asked.
+- **Testing model.** Playwright is the app test path with real DB assertions. No bug-souvenir tests. Fast tests must protect a listed core mutation seam and avoid incidental UI assertions. Slow tests are operating stories, not bug archives; edge cases belong only when they naturally occur inside that story. Do not add Vitest, unit tests, or mocking frameworks unless explicitly asked. Scratch-first: drive each change with a throwaway suite in `test/e2e/scratch/` (red→green), distill only the essential invariant into fast/slow, delete the scratch suite before the PR.
 - **No `git add .` / `git add -A`.** Stage specific files.
 - **Never `--no-verify`.** Never bypass hooks or safety checks without explicit ask.
 
 ## Commands
 
 - `pnpm dev` — start dev server
+- `pnpm boot` — start/resume worktree dev env (DB, migrate, session, background server)
+- `pnpm test:scratch` — run the throwaway per-change scratch suite
+- `pnpm review <path> --slow <domains>` — validate, seed review data, open browser, open PR
+- `pnpm sandbox [path]` — triage start: dev server + live Paonia production copy + authenticated browser
 - `pnpm build` — production build (catch type errors)
 - `pnpm lint` — ESLint
 - `pnpm preflight` — local worktree safety check; fetches `origin/main` and fails on stale/non-worktree/main checkouts

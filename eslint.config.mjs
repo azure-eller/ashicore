@@ -9,6 +9,8 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    // Isolated validation build output (see next.config distDir / pnpm review):
+    ".next-validate/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

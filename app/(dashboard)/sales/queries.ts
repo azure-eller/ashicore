@@ -167,7 +167,10 @@ import {
   type SalesIngredientShortageSummary,
 } from "@/lib/sales/fulfillment-read-model";
 import {
+  demandQueueCoverageKey,
+  getDemandQueueCoverageForItemsInTx,
   getDemandQueueCoverageByDemandKeyForItemsInTx,
+  type DemandQueueCoverageDemand,
 } from "@/lib/inventory/allocation/demand-queue";
 import { getEstimatedUnitCostsByItemIdInTx } from "@/lib/inventory/estimated-cost";
 import { getAddressEntryInTx } from "@/lib/dal/addresses";
@@ -2060,6 +2063,39 @@ function summarizeManualReservations(
             .map((source) => `${formatQuantity(source.quantity)} ${source.label}`)
             .join(", "),
   };
+}
+
+function deriveDemandQueueSalesItemsState(params: {
+  remainingQty: number;
+  shortQty: number;
+  expectedQty: number;
+}): SalesOrderFulfillmentSummary["salesItemsState"] {
+  if (params.remainingQty <= 0) return "complete";
+  if (params.shortQty > 0) return "not_available";
+  if (params.expectedQty > 0) return "expected";
+  return "available";
+}
+
+function latestExpectedDate(
+  current: string | null,
+  next: string | null | undefined
+) {
+  if (!next) return current;
+  if (!current) return next;
+  return next > current ? next : current;
+}
+
+function latestDemandQueueExpectedDate(
+  coverage: DemandQueueCoverageDemand | undefined
+) {
+  return (
+    coverage?.segments.reduce<string | null>((latest, segment) => {
+      if (segment.kind !== "expected" && segment.kind !== "pinned_expected") {
+        return latest;
+      }
+      return latestExpectedDate(latest, segment.availableDate);
+    }, null) ?? null
+  );
 }
 
 async function getShipmentLineStatesInTx(
@@ -5736,6 +5772,8 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             remainingQty: number;
             allocatedQty: number;
             shortQty: number;
+            expectedQty: number;
+            expectedDate: string | null;
             productionAllocatedQty: number;
           }
         >();
@@ -5752,7 +5790,14 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           salesLinesByOrderId.set(order.id, salesLines);
           fulfillmentTotalsByOrderId.set(
             order.id,
-            salesLines.reduce(
+            salesLines.reduce<{
+              remainingQty: number;
+              allocatedQty: number;
+              shortQty: number;
+              expectedQty: number;
+              expectedDate: string | null;
+              productionAllocatedQty: number;
+            }>(
               (acc, line) => {
                 const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
                 const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
@@ -5776,6 +5821,13 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                   demandQueueInStockQty + demandQueueExpectedQty
                 );
                 acc.shortQty += demandQueueShortQty;
+                acc.expectedQty += demandQueueExpectedQty;
+                if (demandQueueExpectedQty > 0) {
+                  acc.expectedDate = latestExpectedDate(
+                    acc.expectedDate,
+                    latestDemandQueueExpectedDate(demandQueueCoverage)
+                  );
+                }
                 acc.productionAllocatedQty +=
                   allocation?.sources
                     .filter((source) => source.sourceType === "manufacturing_order")
@@ -5786,6 +5838,8 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 remainingQty: 0,
                 allocatedQty: 0,
                 shortQty: 0,
+                expectedQty: 0,
+                expectedDate: null,
                 productionAllocatedQty: 0,
               }
             )
@@ -5820,6 +5874,8 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             remainingQty: 0,
             allocatedQty: 0,
             shortQty: 0,
+            expectedQty: 0,
+            expectedDate: null,
             productionAllocatedQty: 0,
           };
           const hasManufacturableLines =
@@ -5923,7 +5979,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 demandQueueShortQty:
                   demandQueueCoverage?.shortQty ?? normalizeNumeric(remainingQty),
                 demandQueueExpectedDate:
-                  demandQueueCoverage?.earliestExpectedDate ?? null,
+                  latestDemandQueueExpectedDate(demandQueueCoverage),
                 unplannedAllocatedQty: unplannedAllocation?.allocatedQty ?? "0",
                 unplannedShortQty:
                   unplannedAllocation?.shortQty ?? normalizeNumeric(unplannedQty),
@@ -5944,12 +6000,10 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
               );
               const short = normalizeNumeric(roundQuantity(fulfillmentTotals.shortQty));
               const salesItemsState: SalesOrderFulfillmentSummary["salesItemsState"] =
-                fulfillmentTotals.remainingQty <= 0
-                  ? "complete"
-                  : fulfillmentReadModel?.salesItemsState ?? "not_available";
+                deriveDemandQueueSalesItemsState(fulfillmentTotals);
               const salesItemsExpectedDate =
                 salesItemsState === "expected"
-                  ? fulfillmentReadModel?.salesItemsExpectedDate ?? null
+                  ? fulfillmentTotals.expectedDate
                   : null;
               return {
                 remainingQty: remaining,
@@ -6733,7 +6787,7 @@ export async function getSalesOrder(
         demandQueueExpectedQty: demandQueueCoverage?.expectedQty ?? "0",
         demandQueueShortQty:
           demandQueueCoverage?.shortQty ?? line.remainingQuantity,
-        demandQueueExpectedDate: demandQueueCoverage?.earliestExpectedDate ?? null,
+        demandQueueExpectedDate: latestDemandQueueExpectedDate(demandQueueCoverage),
       };
     });
     const manualReservation = summarizeManualReservations(
@@ -6757,6 +6811,17 @@ export async function getSalesOrder(
         (sum, line) => roundQuantity(sum + Number(line.demandQueueShortQty)),
         0
       );
+      const expectedQty = linesWithAllocation.reduce(
+        (sum, line) => roundQuantity(sum + Number(line.demandQueueExpectedQty)),
+        0
+      );
+      const expectedDate = linesWithAllocation.reduce<string | null>(
+        (latest, line) =>
+          Number(line.demandQueueExpectedQty) > 0
+            ? latestExpectedDate(latest, line.demandQueueExpectedDate)
+            : latest,
+        null
+      );
       const productionAllocatedQty = linesWithAllocation.reduce(
         (sum, line) =>
           roundQuantity(
@@ -6774,7 +6839,7 @@ export async function getSalesOrder(
             ? "Waiting production"
             : "Ready";
       const availabilityState: SalesOrderFulfillmentSummary["availabilityState"] =
-        remainingQty <= 0 ? "complete" : shortQty > 0 ? "not_available" : "available";
+        deriveDemandQueueSalesItemsState({ remainingQty, shortQty, expectedQty });
 
       return {
         remainingQty: normalizeNumeric(remainingQty),
@@ -6784,10 +6849,10 @@ export async function getSalesOrder(
         manualReservationQty: normalizeNumeric(roundQuantity(manualReservation.quantity)),
         manualReservationSummary: manualReservation.summary,
         availabilityState,
-        expectedDate: null,
+        expectedDate: availabilityState === "expected" ? expectedDate : null,
         label,
         salesItemsState: availabilityState,
-        salesItemsExpectedDate: null,
+        salesItemsExpectedDate: availabilityState === "expected" ? expectedDate : null,
         ingredientsState: "not_applicable",
         ingredientsExpectedDate: null,
         ingredientShortages: [],
@@ -6849,12 +6914,10 @@ export async function getSalesOrder(
       )
     ).get(id);
     const salesItemsState: SalesOrderFulfillmentSummary["salesItemsState"] =
-      Number(fulfillmentSummary.remainingQty) <= 0
-        ? "complete"
-        : fulfillmentReadModel?.salesItemsState ?? "not_available";
+      fulfillmentSummary.salesItemsState;
     const salesItemsExpectedDate =
       salesItemsState === "expected"
-        ? fulfillmentReadModel?.salesItemsExpectedDate ?? null
+        ? fulfillmentSummary.salesItemsExpectedDate
         : null;
     fulfillmentSummary = {
       ...fulfillmentSummary,
@@ -6952,12 +7015,14 @@ export async function getSalesOrder(
         allocationSummaryByLineId.get(line.id),
       ]);
       const lineSalesItemsState: SalesOrderFulfillmentSummary["salesItemsState"] =
-        remainingQty <= 0
-          ? "complete"
-          : readModel?.salesItemsState ?? "not_available";
+        deriveDemandQueueSalesItemsState({
+          remainingQty,
+          shortQty,
+          expectedQty: Number(line.demandQueueExpectedQty),
+        });
       const lineSalesItemsExpectedDate =
         lineSalesItemsState === "expected"
-          ? readModel?.salesItemsExpectedDate ?? null
+          ? line.demandQueueExpectedDate
           : null;
 
       lineFulfillmentSummariesByLineId.set(line.id, {
@@ -8299,6 +8364,25 @@ export async function shipSalesShipment(
       }
     }
 
+    if (payload.confirmNegativeStock !== true) {
+      const warning = await buildDemandQueueShippingWarningInTx(tx, {
+        organizationId: orgId,
+        lines: shipmentLines.map((line) => ({
+          salesOrderLineId: line.salesOrderLineId,
+          itemId: line.itemId,
+          itemName: line.itemName,
+          quantity: parseFloat(line.quantity),
+        })),
+      });
+      if (warning) {
+        throw new SalesError(
+          `Cannot ship shipment. Insufficient stock for ${warning.itemName}.`,
+          409,
+          { negativeStock: warning }
+        );
+      }
+    }
+
     const shippedAt = new Date();
     try {
       await consumeForShipmentInTx(tx, {
@@ -8556,6 +8640,180 @@ async function buildStockWarningPayloadInTx(
   };
 }
 
+async function resolveDemandQueueCommitmentsInTx(
+  tx: Tx,
+  candidates: Array<{
+    demandType: "sales_order_line" | "manufacturing_order_ingredient";
+    demandId: string;
+    label: string;
+    contextLabel: string | null;
+    quantity: number;
+    href: string | null;
+  }>
+): Promise<NonNullable<NegativeStockWarningPayload["commitments"]>> {
+  const salesDemandIds = candidates
+    .filter((candidate) => candidate.demandType === "sales_order_line")
+    .map((candidate) => candidate.demandId);
+  const manufacturingDemandIds = candidates
+    .filter((candidate) => candidate.demandType === "manufacturing_order_ingredient")
+    .map((candidate) => candidate.demandId);
+
+  const salesRows =
+    salesDemandIds.length > 0
+      ? await tx
+          .select({
+            demandId: salesOrderLines.id,
+            orderId: salesOrders.id,
+            orderNumber: salesOrders.orderNumber,
+            customerName: salesOrders.customerName,
+          })
+          .from(salesOrderLines)
+          .innerJoin(salesOrders, eq(salesOrders.id, salesOrderLines.salesOrderId))
+          .where(inArray(salesOrderLines.id, salesDemandIds))
+      : [];
+  const manufacturingRows =
+    manufacturingDemandIds.length > 0
+      ? await tx
+          .select({
+            demandId: manufacturingOrderIngredients.id,
+            orderId: manufacturingOrders.id,
+            orderNumber: manufacturingOrders.orderNumber,
+            productName: manufacturingOrders.productName,
+          })
+          .from(manufacturingOrderIngredients)
+          .innerJoin(
+            manufacturingOrders,
+            eq(manufacturingOrders.id, manufacturingOrderIngredients.manufacturingOrderId)
+          )
+          .where(inArray(manufacturingOrderIngredients.id, manufacturingDemandIds))
+      : [];
+
+  const salesByDemandId = new Map(salesRows.map((row) => [row.demandId, row]));
+  const manufacturingByDemandId = new Map(
+    manufacturingRows.map((row) => [row.demandId, row])
+  );
+
+  const commitments: NonNullable<NegativeStockWarningPayload["commitments"]> = [];
+  for (const candidate of candidates) {
+    if (candidate.demandType === "sales_order_line") {
+      const row = salesByDemandId.get(candidate.demandId);
+      if (!row) continue;
+      commitments.push({
+        referenceType: "sales_order",
+        referenceId: row.orderId,
+        label: `${row.orderNumber} ${row.customerName}`,
+        quantity: candidate.quantity,
+        href: `/sales/orders/${row.orderId}`,
+      });
+      continue;
+    }
+
+    const row = manufacturingByDemandId.get(candidate.demandId);
+    if (!row) continue;
+    commitments.push({
+      referenceType: "manufacturing_order",
+      referenceId: row.orderId,
+      label: `${row.orderNumber} ${row.productName}`,
+      quantity: candidate.quantity,
+      href: `/manufacturing/orders/${row.orderId}`,
+    });
+  }
+
+  return commitments;
+}
+
+async function buildDemandQueueShippingWarningInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    lines: Array<{
+      salesOrderLineId: string;
+      itemId: string;
+      itemName: string;
+      quantity: number;
+    }>;
+  }
+): Promise<NegativeStockWarningPayload | null> {
+  const coverageByItem = new Map(
+    (
+      await getDemandQueueCoverageForItemsInTx(tx, {
+        organizationId: params.organizationId,
+        itemIds: params.lines.map((line) => line.itemId),
+        includeManufacturingDetail: true,
+      })
+    ).map((coverage) => [coverage.itemId, coverage])
+  );
+
+  for (const line of params.lines) {
+    const itemCoverage = coverageByItem.get(line.itemId);
+    const lineCoverage = itemCoverage?.demands.find(
+      (demand) =>
+        demandQueueCoverageKey(demand) ===
+        demandQueueCoverageKey({
+          demandType: "sales_order_line",
+          demandId: line.salesOrderLineId,
+        })
+    );
+    const available = roundQuantity(Number(lineCoverage?.inStockQty ?? 0));
+    if (available >= line.quantity) continue;
+
+    let remainingConflictQty = roundQuantity(line.quantity - available);
+    const commitmentCandidates =
+      itemCoverage?.demands.flatMap((demand) => {
+        if (
+          demand.demandType === "sales_order_line" &&
+          demand.demandId === line.salesOrderLineId
+        ) {
+          return [];
+        }
+
+        const quantity = roundQuantity(
+          Math.min(remainingConflictQty, Number(demand.inStockQty))
+        );
+        if (quantity <= 0) return [];
+
+        remainingConflictQty = roundQuantity(remainingConflictQty - quantity);
+        return [
+          {
+            demandType: demand.demandType,
+            demandId: demand.demandId,
+            label: demand.label,
+            contextLabel: demand.contextLabel,
+            quantity,
+            href: demand.href,
+          },
+        ];
+      }) ?? [];
+    const commitments = await resolveDemandQueueCommitmentsInTx(
+      tx,
+      commitmentCandidates
+    );
+    const committedToOthers = roundQuantity(
+      commitments.reduce((sum, commitment) => sum + commitment.quantity, 0)
+    );
+    const shortage = roundQuantity(line.quantity - available);
+    const reason =
+      committedToOthers <= 0
+        ? "negative_stock"
+        : committedToOthers >= shortage
+          ? "commitment_conflict"
+          : "commitment_and_negative_stock";
+
+    return {
+      itemId: line.itemId,
+      itemName: line.itemName,
+      available,
+      requested: line.quantity,
+      shortage,
+      reason,
+      committedToOthers,
+      commitments: commitments.slice(0, 5),
+    };
+  }
+
+  return null;
+}
+
 export async function shipSalesOrder(
   id: string,
   options?: {
@@ -8665,6 +8923,25 @@ export async function shipSalesOrder(
 
     if (linesToShip.length === 0) {
       throw new SalesError("No remaining quantity to ship.", 400);
+    }
+
+    if (options?.confirmNegativeStock !== true) {
+      const warning = await buildDemandQueueShippingWarningInTx(tx, {
+        organizationId: orgId,
+        lines: linesToShip.map((line) => ({
+          salesOrderLineId: line.salesOrderLineId,
+          itemId: line.itemId,
+          itemName: line.itemName,
+          quantity: line.quantity,
+        })),
+      });
+      if (warning) {
+        throw new SalesError(
+          `Cannot ship order. Insufficient stock for ${warning.itemName}.`,
+          409,
+          { negativeStock: warning }
+        );
+      }
     }
 
     const shippedAt = new Date();

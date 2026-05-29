@@ -9,7 +9,10 @@ import {
   TEST_ACCOUNT_PASSWORD,
 } from "./test-account";
 import {
+  TEST_ENV_PATH,
   TEST_STORAGE_STATE_PATH,
+  REVIEW_ENV_PATH,
+  REVIEW_STORAGE_STATE_PATH,
   type TestEnv,
   buildStorageState,
   ensureAuthDir,
@@ -25,6 +28,8 @@ type TestOrganization = {
 type TestAccountSetupOptions = {
   baseUrl?: string;
   log?: (message: string) => void;
+  envPath?: string;
+  storageStatePath?: string;
 };
 
 type TestAccountSetupResult = {
@@ -362,19 +367,23 @@ async function createDefaultUnit(baseUrl: string, cookies: string) {
   return unitData.id as string;
 }
 
-function readExistingTimestamp() {
+function readExistingTimestamp(envPath: string) {
   try {
-    const prev = JSON.parse(fs.readFileSync("test/.test-env.json", "utf-8"));
+    const prev = JSON.parse(fs.readFileSync(envPath, "utf-8"));
     return prev.TEST_TIMESTAMP as number | undefined;
   } catch {
     return undefined;
   }
 }
 
+export { REVIEW_ENV_PATH, REVIEW_STORAGE_STATE_PATH };
+
 export async function ensureTestAccount(
   options: TestAccountSetupOptions = {}
 ): Promise<TestAccountSetupResult> {
   const baseUrl = getBaseUrl(options.baseUrl);
+  const envPath = options.envPath ?? TEST_ENV_PATH;
+  const storageStatePath = options.storageStatePath ?? TEST_STORAGE_STATE_PATH;
 
   try {
     await fetch(`${baseUrl}/api/auth/ok`);
@@ -399,23 +408,23 @@ export async function ensureTestAccount(
 
   cookies = await setActiveOrganization(baseUrl, cookies, testOrg.id);
   const testUnitId = await createDefaultUnit(baseUrl, cookies);
-  const existingTimestamp = readExistingTimestamp();
+  const existingTimestamp = readExistingTimestamp(envPath);
   const testEnv: TestEnv = {
     TEST_SESSION_COOKIE: cookies,
     TEST_ORG_ID: testOrg.id,
     TEST_UNIT_ID: testUnitId,
     TEST_BASE_URL: baseUrl,
-    TEST_STORAGE_STATE: TEST_STORAGE_STATE_PATH,
+    TEST_STORAGE_STATE: storageStatePath,
   };
 
   if (existingTimestamp != null) {
     testEnv.TEST_TIMESTAMP = existingTimestamp;
   }
 
-  writeTestEnv(testEnv);
+  writeTestEnv(testEnv, envPath);
   ensureAuthDir();
   fs.writeFileSync(
-    TEST_STORAGE_STATE_PATH,
+    storageStatePath,
     JSON.stringify(buildStorageState(cookies, baseUrl), null, 2)
   );
 

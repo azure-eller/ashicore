@@ -703,7 +703,11 @@ test.describe("inventory kernel invariants", () => {
     });
 
     const [shipResponse, pickResponse] = await Promise.all([
-      postJsonWithKey(`/api/sales-orders/${salesOrder.orderId}/ship`, key("shared-ship", ts)),
+      postJsonWithKey(
+        `/api/sales-orders/${salesOrder.orderId}/ship`,
+        key("shared-ship", ts),
+        { confirmNegativeStock: true }
+      ),
       postJsonWithKey(
         `/api/manufacturing-orders/${manufacturing.orderId}/ingredients/${manufacturing.ingredientId}/pick`,
         key("shared-pick", ts),

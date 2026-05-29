@@ -247,7 +247,7 @@ test.describe("sales demand and shipment heartbeat", () => {
     });
   });
 
-  test("shipping can consume stock reserved by demand queue for another order", async ({
+  test("shipping warns before taking demand-queue stock from another order", async ({
     db,
   }) => {
     const productId = await createStockedProduct("QueueShip", "50");
@@ -279,14 +279,153 @@ test.describe("sales demand and shipment heartbeat", () => {
       .where(eq(inventoryReservationsSummary.referenceId, reservedLine.id));
     expect(reserved.quantity).toBe("50.0000");
 
-    const ship = await fulfillSalesOrder(shippingOrder.body.id);
+    const salesOrdersResponse = await testFetch("/api/sales-orders");
+    expect(salesOrdersResponse.status).toBe(200);
+    const salesOrderRows = (await salesOrdersResponse.json()) as Array<{
+      id: string;
+      fulfillmentSummary?: { salesItemsState?: string };
+    }>;
+    expect(
+      salesOrderRows.find((row) => row.id === reservedOrder.body.id)
+        ?.fulfillmentSummary?.salesItemsState
+    ).toBe("available");
+    expect(
+      salesOrderRows.find((row) => row.id === shippingOrder.body.id)
+        ?.fulfillmentSummary?.salesItemsState
+    ).toBe("not_available");
+
+    const shippingShip = await fulfillSalesOrder(shippingOrder.body.id);
+    expect(shippingShip.status).toBe(409);
+    expect(shippingShip.body.negativeStock).toMatchObject({
+      itemId: productId,
+      reason: "commitment_conflict",
+      committedToOthers: 50,
+    });
+    expect(shippingShip.body.negativeStock.commitments[0]).toMatchObject({
+      referenceType: "sales_order",
+      referenceId: reservedOrder.body.id,
+      quantity: 50,
+    });
+
+    const reservedShip = await fulfillSalesOrder(reservedOrder.body.id);
+    expect(reservedShip.status).toBe(200);
+  });
+
+  test("shipping a managed line can use demand-queue available stock", async ({
+    db,
+  }) => {
+    const productId = await createStockedProduct("ManagedQueueShip", "20");
+    const customer = await createCustomer({
+      name: `Fast Managed Queue Ship Customer ${ts}`,
+    });
+    expect(customer.status).toBe(201);
+
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-07",
+      shipDate: "2026-05-08",
+      lines: [{ itemId: productId, quantity: "20", unitPrice: "15.00" }],
+    });
+    expect(order.status).toBe(201);
+
+    const [line] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, order.body.id));
+    await db
+      .update(salesOrderLines)
+      .set({ allocationManagedAt: new Date() })
+      .where(eq(salesOrderLines.id, line.id));
+
+    const salesOrdersResponse = await testFetch("/api/sales-orders");
+    expect(salesOrdersResponse.status).toBe(200);
+    const salesOrderRows = (await salesOrdersResponse.json()) as Array<{
+      id: string;
+      fulfillmentSummary?: { salesItemsState?: string };
+    }>;
+    expect(
+      salesOrderRows.find((row) => row.id === order.body.id)?.fulfillmentSummary
+        ?.salesItemsState
+    ).toBe("available");
+
+    const ship = await fulfillSalesOrder(order.body.id);
     expect(ship.status).toBe(200);
 
     const [savedOrder] = await db
       .select({ status: salesOrders.status })
       .from(salesOrders)
-      .where(eq(salesOrders.id, shippingOrder.body.id));
+      .where(eq(salesOrders.id, order.body.id));
     expect(savedOrder.status).toBe("done");
+  });
+
+  test("shipping a lower-priority order warns before taking demand-queue stock", async () => {
+    const productId = await createStockedProduct("QueueConflictShip", "50");
+    const customer = await createCustomer({
+      name: `Fast Queue Conflict Ship Customer ${ts}`,
+    });
+    expect(customer.status).toBe(201);
+
+    const higherPriorityOrder = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-07",
+      shipDate: "2026-05-08",
+      lines: [{ itemId: productId, quantity: "50", unitPrice: "15.00" }],
+    });
+    expect(higherPriorityOrder.status).toBe(201);
+    const lowerPriorityOrder = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-07",
+      shipDate: "2026-05-10",
+      lines: [{ itemId: productId, quantity: "50", unitPrice: "15.00" }],
+    });
+    expect(lowerPriorityOrder.status).toBe(201);
+
+    const salesOrdersResponse = await testFetch("/api/sales-orders");
+    expect(salesOrdersResponse.status).toBe(200);
+    const salesOrderRows = (await salesOrdersResponse.json()) as Array<{
+      id: string;
+      fulfillmentSummary?: { salesItemsState?: string };
+    }>;
+    expect(
+      salesOrderRows.find((row) => row.id === higherPriorityOrder.body.id)
+        ?.fulfillmentSummary?.salesItemsState
+    ).toBe("available");
+    expect(
+      salesOrderRows.find((row) => row.id === lowerPriorityOrder.body.id)
+        ?.fulfillmentSummary?.salesItemsState
+    ).toBe("not_available");
+
+    const lowerPriorityDetailResponse = await testFetch(
+      `/api/sales-orders/${lowerPriorityOrder.body.id}`
+    );
+    expect(lowerPriorityDetailResponse.status).toBe(200);
+    const lowerPriorityDetail = (await lowerPriorityDetailResponse.json()) as {
+      fulfillmentSummary?: { salesItemsState?: string };
+      lines?: Array<{
+        fulfillmentSummary?: { salesItemsState?: string };
+        demandQueueShortQty?: string;
+      }>;
+    };
+    expect(lowerPriorityDetail.fulfillmentSummary?.salesItemsState).toBe(
+      "not_available"
+    );
+    expect(lowerPriorityDetail.lines?.[0]?.fulfillmentSummary?.salesItemsState).toBe(
+      "not_available"
+    );
+    expect(lowerPriorityDetail.lines?.[0]?.demandQueueShortQty).toBe("50");
+
+    const ship = await fulfillSalesOrder(lowerPriorityOrder.body.id);
+    expect(ship.status).toBe(409);
+    expect(ship.body.negativeStock).toMatchObject({
+      itemId: productId,
+      reason: "commitment_conflict",
+      committedToOthers: 50,
+    });
+    expect(ship.body.negativeStock.commitments[0]).toMatchObject({
+      referenceType: "sales_order",
+      referenceId: higherPriorityOrder.body.id,
+      quantity: 50,
+    });
   });
 
   test("shipping warns before taking stock manually pinned to another order", async ({
