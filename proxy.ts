@@ -12,6 +12,17 @@ function isDevelopmentRoute(pathname: string) {
   return process.env.VERCEL_ENV !== "production" && pathname.startsWith("/dev/");
 }
 
+// Internal automation endpoints that bypass the session-cookie gate. The proxy
+// does no auth for these — every route here MUST validate its own
+// `Authorization: Bearer <secret>` in the handler. Never add a route without that.
+const bearerProtectedInternalRoutes = new Set([
+  "/api/internal/accounting-purchase-order-sync",
+  "/api/internal/daily-reports",
+  "/api/internal/inventory-reconciliation",
+  "/api/internal/xero-retry",
+  "/api/internal/xero-signup-cleanup",
+]);
+
 function isPublicRoute(pathname: string) {
   return (
     pathname.startsWith("/_next") ||
@@ -26,6 +37,7 @@ function isPublicRoute(pathname: string) {
     pathname === "/api/xero/callback" ||
     pathname === "/api/reports/sparkline.png" ||
     pathname === "/api/internal/sentry/autofix" ||
+    bearerProtectedInternalRoutes.has(pathname) ||
     pathname === "/android" ||
     pathname.startsWith("/downloads/") ||
     pathname === "/forgot-password" ||
