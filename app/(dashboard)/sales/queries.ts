@@ -170,6 +170,7 @@ import {
   demandQueueCoverageKey,
   getDemandQueueCoverageForItemsInTx,
   getDemandQueueCoverageByDemandKeyForItemsInTx,
+  type DemandQueueCoverageDemand,
 } from "@/lib/inventory/allocation/demand-queue";
 import { getEstimatedUnitCostsByItemIdInTx } from "@/lib/inventory/estimated-cost";
 import { getAddressEntryInTx } from "@/lib/dal/addresses";
@@ -2062,6 +2063,39 @@ function summarizeManualReservations(
             .map((source) => `${formatQuantity(source.quantity)} ${source.label}`)
             .join(", "),
   };
+}
+
+function deriveDemandQueueSalesItemsState(params: {
+  remainingQty: number;
+  shortQty: number;
+  expectedQty: number;
+}): SalesOrderFulfillmentSummary["salesItemsState"] {
+  if (params.remainingQty <= 0) return "complete";
+  if (params.shortQty > 0) return "not_available";
+  if (params.expectedQty > 0) return "expected";
+  return "available";
+}
+
+function latestExpectedDate(
+  current: string | null,
+  next: string | null | undefined
+) {
+  if (!next) return current;
+  if (!current) return next;
+  return next > current ? next : current;
+}
+
+function latestDemandQueueExpectedDate(
+  coverage: DemandQueueCoverageDemand | undefined
+) {
+  return (
+    coverage?.segments.reduce<string | null>((latest, segment) => {
+      if (segment.kind !== "expected" && segment.kind !== "pinned_expected") {
+        return latest;
+      }
+      return latestExpectedDate(latest, segment.availableDate);
+    }, null) ?? null
+  );
 }
 
 async function getShipmentLineStatesInTx(
@@ -5738,6 +5772,8 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             remainingQty: number;
             allocatedQty: number;
             shortQty: number;
+            expectedQty: number;
+            expectedDate: string | null;
             productionAllocatedQty: number;
           }
         >();
@@ -5754,7 +5790,14 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           salesLinesByOrderId.set(order.id, salesLines);
           fulfillmentTotalsByOrderId.set(
             order.id,
-            salesLines.reduce(
+            salesLines.reduce<{
+              remainingQty: number;
+              allocatedQty: number;
+              shortQty: number;
+              expectedQty: number;
+              expectedDate: string | null;
+              productionAllocatedQty: number;
+            }>(
               (acc, line) => {
                 const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
                 const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
@@ -5778,6 +5821,13 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                   demandQueueInStockQty + demandQueueExpectedQty
                 );
                 acc.shortQty += demandQueueShortQty;
+                acc.expectedQty += demandQueueExpectedQty;
+                if (demandQueueExpectedQty > 0) {
+                  acc.expectedDate = latestExpectedDate(
+                    acc.expectedDate,
+                    latestDemandQueueExpectedDate(demandQueueCoverage)
+                  );
+                }
                 acc.productionAllocatedQty +=
                   allocation?.sources
                     .filter((source) => source.sourceType === "manufacturing_order")
@@ -5788,6 +5838,8 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 remainingQty: 0,
                 allocatedQty: 0,
                 shortQty: 0,
+                expectedQty: 0,
+                expectedDate: null,
                 productionAllocatedQty: 0,
               }
             )
@@ -5822,6 +5874,8 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             remainingQty: 0,
             allocatedQty: 0,
             shortQty: 0,
+            expectedQty: 0,
+            expectedDate: null,
             productionAllocatedQty: 0,
           };
           const hasManufacturableLines =
@@ -5925,7 +5979,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 demandQueueShortQty:
                   demandQueueCoverage?.shortQty ?? normalizeNumeric(remainingQty),
                 demandQueueExpectedDate:
-                  demandQueueCoverage?.earliestExpectedDate ?? null,
+                  latestDemandQueueExpectedDate(demandQueueCoverage),
                 unplannedAllocatedQty: unplannedAllocation?.allocatedQty ?? "0",
                 unplannedShortQty:
                   unplannedAllocation?.shortQty ?? normalizeNumeric(unplannedQty),
@@ -5946,12 +6000,10 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
               );
               const short = normalizeNumeric(roundQuantity(fulfillmentTotals.shortQty));
               const salesItemsState: SalesOrderFulfillmentSummary["salesItemsState"] =
-                fulfillmentTotals.remainingQty <= 0
-                  ? "complete"
-                  : fulfillmentReadModel?.salesItemsState ?? "not_available";
+                deriveDemandQueueSalesItemsState(fulfillmentTotals);
               const salesItemsExpectedDate =
                 salesItemsState === "expected"
-                  ? fulfillmentReadModel?.salesItemsExpectedDate ?? null
+                  ? fulfillmentTotals.expectedDate
                   : null;
               return {
                 remainingQty: remaining,
@@ -6735,7 +6787,7 @@ export async function getSalesOrder(
         demandQueueExpectedQty: demandQueueCoverage?.expectedQty ?? "0",
         demandQueueShortQty:
           demandQueueCoverage?.shortQty ?? line.remainingQuantity,
-        demandQueueExpectedDate: demandQueueCoverage?.earliestExpectedDate ?? null,
+        demandQueueExpectedDate: latestDemandQueueExpectedDate(demandQueueCoverage),
       };
     });
     const manualReservation = summarizeManualReservations(
@@ -6759,6 +6811,17 @@ export async function getSalesOrder(
         (sum, line) => roundQuantity(sum + Number(line.demandQueueShortQty)),
         0
       );
+      const expectedQty = linesWithAllocation.reduce(
+        (sum, line) => roundQuantity(sum + Number(line.demandQueueExpectedQty)),
+        0
+      );
+      const expectedDate = linesWithAllocation.reduce<string | null>(
+        (latest, line) =>
+          Number(line.demandQueueExpectedQty) > 0
+            ? latestExpectedDate(latest, line.demandQueueExpectedDate)
+            : latest,
+        null
+      );
       const productionAllocatedQty = linesWithAllocation.reduce(
         (sum, line) =>
           roundQuantity(
@@ -6776,7 +6839,7 @@ export async function getSalesOrder(
             ? "Waiting production"
             : "Ready";
       const availabilityState: SalesOrderFulfillmentSummary["availabilityState"] =
-        remainingQty <= 0 ? "complete" : shortQty > 0 ? "not_available" : "available";
+        deriveDemandQueueSalesItemsState({ remainingQty, shortQty, expectedQty });
 
       return {
         remainingQty: normalizeNumeric(remainingQty),
@@ -6786,10 +6849,10 @@ export async function getSalesOrder(
         manualReservationQty: normalizeNumeric(roundQuantity(manualReservation.quantity)),
         manualReservationSummary: manualReservation.summary,
         availabilityState,
-        expectedDate: null,
+        expectedDate: availabilityState === "expected" ? expectedDate : null,
         label,
         salesItemsState: availabilityState,
-        salesItemsExpectedDate: null,
+        salesItemsExpectedDate: availabilityState === "expected" ? expectedDate : null,
         ingredientsState: "not_applicable",
         ingredientsExpectedDate: null,
         ingredientShortages: [],
@@ -6851,12 +6914,10 @@ export async function getSalesOrder(
       )
     ).get(id);
     const salesItemsState: SalesOrderFulfillmentSummary["salesItemsState"] =
-      Number(fulfillmentSummary.remainingQty) <= 0
-        ? "complete"
-        : fulfillmentReadModel?.salesItemsState ?? "not_available";
+      fulfillmentSummary.salesItemsState;
     const salesItemsExpectedDate =
       salesItemsState === "expected"
-        ? fulfillmentReadModel?.salesItemsExpectedDate ?? null
+        ? fulfillmentSummary.salesItemsExpectedDate
         : null;
     fulfillmentSummary = {
       ...fulfillmentSummary,
@@ -6954,12 +7015,14 @@ export async function getSalesOrder(
         allocationSummaryByLineId.get(line.id),
       ]);
       const lineSalesItemsState: SalesOrderFulfillmentSummary["salesItemsState"] =
-        remainingQty <= 0
-          ? "complete"
-          : readModel?.salesItemsState ?? "not_available";
+        deriveDemandQueueSalesItemsState({
+          remainingQty,
+          shortQty,
+          expectedQty: Number(line.demandQueueExpectedQty),
+        });
       const lineSalesItemsExpectedDate =
         lineSalesItemsState === "expected"
-          ? readModel?.salesItemsExpectedDate ?? null
+          ? line.demandQueueExpectedDate
           : null;
 
       lineFulfillmentSummariesByLineId.set(line.id, {

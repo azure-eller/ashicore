@@ -395,6 +395,25 @@ test.describe("sales demand and shipment heartbeat", () => {
         ?.fulfillmentSummary?.salesItemsState
     ).toBe("not_available");
 
+    const lowerPriorityDetailResponse = await testFetch(
+      `/api/sales-orders/${lowerPriorityOrder.body.id}`
+    );
+    expect(lowerPriorityDetailResponse.status).toBe(200);
+    const lowerPriorityDetail = (await lowerPriorityDetailResponse.json()) as {
+      fulfillmentSummary?: { salesItemsState?: string };
+      lines?: Array<{
+        fulfillmentSummary?: { salesItemsState?: string };
+        demandQueueShortQty?: string;
+      }>;
+    };
+    expect(lowerPriorityDetail.fulfillmentSummary?.salesItemsState).toBe(
+      "not_available"
+    );
+    expect(lowerPriorityDetail.lines?.[0]?.fulfillmentSummary?.salesItemsState).toBe(
+      "not_available"
+    );
+    expect(lowerPriorityDetail.lines?.[0]?.demandQueueShortQty).toBe("50");
+
     const ship = await fulfillSalesOrder(lowerPriorityOrder.body.id);
     expect(ship.status).toBe(409);
     expect(ship.body.negativeStock).toMatchObject({
