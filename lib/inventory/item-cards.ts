@@ -55,6 +55,17 @@ import {
   convertUntrackedFamilyLotsToTrackedInTx,
 } from "@/lib/inventory/untracked-lot-consolidation";
 import type { Tx } from "@/lib/db/with-org-context";
+import { createBomRevisionInTx } from "@/app/(dashboard)/inventory/queries/internal";
+import type {
+  BomInputRow,
+  BomOperationCostInputRow,
+} from "@/app/(dashboard)/inventory/queries/bom-write";
+import { getMinimumLotAgeDays } from "@/lib/bom/constraints";
+import {
+  getCurrentBomComponentsInTx,
+  getCurrentBomRevisionInTx,
+} from "@/lib/bom/revisions";
+import { getCurrentBomOperationCostsInTx } from "@/lib/bom/operation-costs";
 import type {
   DuplicateCombinationWarning,
   ItemType,
@@ -74,6 +85,13 @@ const nullableText = z
   .transform((value) => (value != null ? value.trim() || null : null));
 
 const patchNullableText = nullableStringPreserveUndefined;
+const CLONE_NAME_PREFIX = "Copy of ";
+const ITEM_NAME_MAX_LENGTH = 255;
+
+function cloneName(name: string) {
+  const maxSourceLength = ITEM_NAME_MAX_LENGTH - CLONE_NAME_PREFIX.length;
+  return `${CLONE_NAME_PREFIX}${name.slice(0, maxSourceLength).trimEnd()}`;
+}
 
 const positiveOptionalDecimalString = (label: string) =>
   optionalNonNegativeDecimalString(label).refine(
@@ -890,6 +908,226 @@ async function assertCanEnableLotTrackingInTx(tx: Tx, familyId: string) {
 export const getItemCard = cache(async (itemId: string): Promise<ItemCardDto> => {
   return withAuthedOrgContext((tx) => getItemCardInTx(tx, itemId));
 });
+
+export async function cloneItemCard(
+  sourceItemId: string,
+  options?: { idempotencyKey?: string | null },
+) {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<{
+      itemId: string;
+      card: ItemCardDto;
+    }>(tx, {
+      organizationId: orgId,
+      operationName: "cloneItemCard",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { sourceItemId },
+    });
+    if (replay.replayed) return replay.result;
+
+    const sourceFamilyId = await resolveFamilyIdInTx(tx, sourceItemId);
+    const [sourceFamily] = await tx
+      .select()
+      .from(itemFamilies)
+      .where(and(eq(itemFamilies.id, sourceFamilyId), isNull(itemFamilies.deletedAt)))
+      .for("update");
+    if (!sourceFamily) throw new ItemCardError("Item card not found", 404);
+
+    const sourceVariants = await tx
+      .select()
+      .from(items)
+      .where(and(eq(items.familyId, sourceFamilyId), isNull(items.deletedAt)))
+      .orderBy(asc(items.sortOrder), asc(items.createdAt), asc(items.id))
+      .for("update");
+    if (sourceVariants.length === 0) {
+      throw new ItemCardError("Item card has no active variants to clone.", 409);
+    }
+
+    const [clonedFamily] = await tx
+      .insert(itemFamilies)
+      .values({
+        organizationId: orgId,
+        itemType: sourceFamily.itemType,
+        name: cloneName(sourceFamily.name),
+        category: sourceFamily.category,
+        description: sourceFamily.description,
+        unitDefinitionId: sourceFamily.unitDefinitionId,
+        defaultSupplierId: sourceFamily.defaultSupplierId,
+        purchaseUnitDefinitionId: sourceFamily.purchaseUnitDefinitionId,
+        purchaseToStockFactor: sourceFamily.purchaseToStockFactor,
+        lotTrackingMode: sourceFamily.lotTrackingMode,
+      })
+      .returning({ id: itemFamilies.id });
+
+    const clonedVariantIdsBySourceId = new Map<string, string>();
+    for (const source of sourceVariants) {
+      const [clonedVariant] = await tx
+        .insert(items)
+        .values({
+          organizationId: orgId,
+          familyId: clonedFamily.id,
+          optionCombinationKey: source.optionCombinationKey,
+          name: cloneName(source.name),
+          description: source.description,
+          sku: null,
+          category: source.category,
+          itemType: source.itemType,
+          unitDefinitionId: source.unitDefinitionId,
+          purchaseUnitDefinitionId: source.purchaseUnitDefinitionId,
+          purchaseToStockFactor: source.purchaseToStockFactor,
+          safetyStock: source.safetyStock,
+          defaultPurchasePrice: source.defaultPurchasePrice,
+          currentStockUnitCost: null,
+          defaultSellingPrice: source.defaultSellingPrice,
+          sellable: source.sellable,
+          manufacturingMode: source.manufacturingMode,
+          expectedBatchYield: source.expectedBatchYield,
+          typicalBatchSize: source.typicalBatchSize,
+          standardCostQuantity: source.standardCostQuantity,
+          supplierItemCode: source.supplierItemCode,
+          defaultLeadTimeDays: source.defaultLeadTimeDays,
+          minimumOrderQuantity: source.minimumOrderQuantity,
+          sortOrder: source.sortOrder,
+          registeredBarcode: null,
+          internalBarcode: null,
+        })
+        .returning({ id: items.id });
+      clonedVariantIdsBySourceId.set(source.id, clonedVariant.id);
+    }
+
+    const sourceOptions = await tx
+      .select()
+      .from(variantOptions)
+      .where(eq(variantOptions.familyId, sourceFamilyId))
+      .orderBy(asc(variantOptions.sortOrder), asc(variantOptions.name));
+    const clonedOptionIdsBySourceId = new Map<string, string>();
+    for (const sourceOption of sourceOptions) {
+      const [clonedOption] = await tx
+        .insert(variantOptions)
+        .values({
+          organizationId: orgId,
+          familyId: clonedFamily.id,
+          name: sourceOption.name,
+          code: sourceOption.code,
+          sortOrder: sourceOption.sortOrder,
+          disabledAt: sourceOption.disabledAt,
+        })
+        .returning({ id: variantOptions.id });
+      clonedOptionIdsBySourceId.set(sourceOption.id, clonedOption.id);
+    }
+
+    if (sourceOptions.length > 0) {
+      const sourceOptionIds = sourceOptions.map((option) => option.id);
+      const sourceValues = await tx
+        .select()
+        .from(variantOptionValues)
+        .where(inArray(variantOptionValues.optionId, sourceOptionIds))
+        .orderBy(asc(variantOptionValues.sortOrder), asc(variantOptionValues.label));
+      const clonedValueIdsBySourceId = new Map<string, string>();
+      for (const sourceValue of sourceValues) {
+        const clonedOptionId = clonedOptionIdsBySourceId.get(sourceValue.optionId);
+        if (!clonedOptionId) continue;
+
+        const [clonedValue] = await tx
+          .insert(variantOptionValues)
+          .values({
+            organizationId: orgId,
+            optionId: clonedOptionId,
+            label: sourceValue.label,
+            code: sourceValue.code,
+            sortOrder: sourceValue.sortOrder,
+            disabledAt: sourceValue.disabledAt,
+          })
+          .returning({ id: variantOptionValues.id });
+        clonedValueIdsBySourceId.set(sourceValue.id, clonedValue.id);
+      }
+
+      const sourceVariantIds = sourceVariants.map((variant) => variant.id);
+      const sourceAssignments = await tx
+        .select()
+        .from(itemVariantValues)
+        .where(inArray(itemVariantValues.itemId, sourceVariantIds));
+      const clonedAssignments = sourceAssignments.flatMap((assignment) => {
+        const clonedItemId = clonedVariantIdsBySourceId.get(assignment.itemId);
+        const clonedOptionId = clonedOptionIdsBySourceId.get(assignment.optionId);
+        const clonedValueId = clonedValueIdsBySourceId.get(assignment.optionValueId);
+        if (!clonedItemId || !clonedOptionId || !clonedValueId) return [];
+
+        return [
+          {
+            organizationId: orgId,
+            itemId: clonedItemId,
+            optionId: clonedOptionId,
+            optionValueId: clonedValueId,
+          },
+        ];
+      });
+      if (clonedAssignments.length > 0) {
+        await tx.insert(itemVariantValues).values(clonedAssignments);
+      }
+    }
+
+    if (sourceFamily.itemType === "product") {
+      for (const source of sourceVariants) {
+        const clonedProductId = clonedVariantIdsBySourceId.get(source.id);
+        if (!clonedProductId) continue;
+
+        const sourceRevision = await getCurrentBomRevisionInTx(tx, source.id);
+        if (!sourceRevision) continue;
+
+        const sourceBom = await getCurrentBomComponentsInTx(tx, source.id);
+        const sourceOperationCosts = await getCurrentBomOperationCostsInTx(tx, source.id);
+        const bom: BomInputRow[] = sourceBom.map((row) => ({
+          componentId: clonedVariantIdsBySourceId.get(row.componentId) ?? row.componentId,
+          quantity: row.quantity,
+          minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
+          alternates: row.alternates.map((alternate) => ({
+            itemId:
+              clonedVariantIdsBySourceId.get(alternate.alternateItemId) ??
+              alternate.alternateItemId,
+          })),
+        }));
+        const operationCosts: BomOperationCostInputRow[] = sourceOperationCosts.map(
+          (row) => ({
+            operationName: row.operationName,
+            resourceId: row.resourceId,
+            costScalingMode: row.costScalingMode,
+            crewSize: row.crewSize,
+            plannedMinutes: row.plannedMinutes,
+            loadedCostPerHour: row.loadedCostPerHour,
+          }),
+        );
+
+        await createBomRevisionInTx(tx, {
+          orgId,
+          userId,
+          productId: clonedProductId,
+          note: sourceRevision.note ?? `Copied from ${source.id}`,
+          outputQuantity: sourceRevision.outputQuantity,
+          recipeBasis: sourceRevision.recipeBasis === "batch" ? "batch" : "unit",
+          bom,
+          operationCosts,
+        });
+      }
+    }
+
+    const itemId =
+      clonedVariantIdsBySourceId.get(sourceItemId) ??
+      clonedVariantIdsBySourceId.get(sourceVariants[0].id);
+    if (!itemId) throw new ItemCardError("Failed to clone item card.", 500);
+
+    const result = {
+      itemId,
+      card: await getItemCardInTx(tx, itemId),
+    };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+    return result;
+  });
+}
 
 /** Distinct category labels already used by item families of the given type. */
 export const getItemFamilyCategories = cache(

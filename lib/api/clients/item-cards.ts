@@ -299,6 +299,16 @@ export async function deleteItemCard(itemId: string): Promise<{ deleted: boolean
   return (await response.json()) as { deleted: boolean };
 }
 
+export async function cloneItemCard(itemId: string): Promise<CreateItemCardResult> {
+  const path = `/api/item-cards/${itemId}/clone`;
+  const response = await fetch(path, {
+    method: "POST",
+    headers: createIdempotencyHeaders("cloneItemCard"),
+  });
+  if (!response.ok) return parseError(response, path);
+  return (await response.json()) as CreateItemCardResult;
+}
+
 export async function updateVariantConfig(
   itemId: string,
   input: VariantConfigInput
