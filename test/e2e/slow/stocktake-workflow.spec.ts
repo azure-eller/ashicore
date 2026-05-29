@@ -7,7 +7,7 @@ import {
   stocktakeLotItems,
   stocktakes,
 } from "../../../lib/db/schema";
-import { testFetch } from "../../helpers/api";
+import { getOrgId, testFetch } from "../../helpers/api";
 import { createMaterialFixture } from "./story-helpers";
 
 test.describe("stocktake workflow operating story", () => {
@@ -267,5 +267,160 @@ test.describe("stocktake found-lot operating story", () => {
         )
       );
     expect(reconciledFound.lotId).toBe(createdLot.id);
+  });
+
+  test("rejects a found lot number that already exists for the item", async ({
+    db,
+  }) => {
+    const material = await createMaterialFixture({
+      name: "Found Lot Reject Material",
+      stock: "0",
+      cost: "3.00",
+    });
+
+    const create = await testFetch("/api/stocktakes", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Found Lot Reject ${Date.now()}`,
+        scope: "all",
+        notes: null,
+        itemIds: [material.id],
+      }),
+    });
+    expect(create.status).toBe(201);
+    const stocktakeId = (await create.json()).id as string;
+
+    const [line] = await db
+      .select()
+      .from(stocktakeItems)
+      .where(
+        and(
+          eq(stocktakeItems.stocktakeId, stocktakeId),
+          eq(stocktakeItems.itemId, material.id)
+        )
+      );
+
+    // Seed a real live lot for the item: a found lot reusing this number must
+    // be rejected because it already exists in the ledger.
+    const existingLotNumber = `EXISTING-${Date.now()}`;
+    await db.insert(lots).values({
+      organizationId: getOrgId(),
+      itemId: material.id,
+      lotNumber: existingLotNumber,
+      quantity: "5",
+      receivedAt: new Date(),
+    });
+
+    const save = await testFetch(`/api/stocktakes/${stocktakeId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        lines: [],
+        lotLines: [
+          {
+            isFound: true,
+            stocktakeItemId: line.id,
+            lotNumber: existingLotNumber,
+            countedQty: "2",
+          },
+        ],
+      }),
+    });
+    expect(save.status).toBe(400);
+
+    // No found row was persisted for the colliding lot number.
+    const foundRows = await db
+      .select({ id: stocktakeLotItems.id })
+      .from(stocktakeLotItems)
+      .where(
+        and(
+          eq(stocktakeLotItems.stocktakeItemId, line.id),
+          eq(stocktakeLotItems.isFound, true)
+        )
+      );
+    expect(foundRows).toHaveLength(0);
+  });
+
+  test("re-submitting the same found lot does not create duplicate rows", async ({
+    db,
+  }) => {
+    const material = await createMaterialFixture({
+      name: "Found Lot Idempotent Material",
+      stock: "0",
+      cost: "3.00",
+    });
+
+    const create = await testFetch("/api/stocktakes", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Found Lot Idempotent ${Date.now()}`,
+        scope: "all",
+        notes: null,
+        itemIds: [material.id],
+      }),
+    });
+    expect(create.status).toBe(201);
+    const stocktakeId = (await create.json()).id as string;
+
+    const [line] = await db
+      .select()
+      .from(stocktakeItems)
+      .where(
+        and(
+          eq(stocktakeItems.stocktakeId, stocktakeId),
+          eq(stocktakeItems.itemId, material.id)
+        )
+      );
+
+    const lotNumber = `IDEMPOTENT-${Date.now()}`;
+    const body = JSON.stringify({
+      lines: [],
+      lotLines: [
+        {
+          isFound: true,
+          stocktakeItemId: line.id,
+          lotNumber,
+          countedQty: "3",
+        },
+      ],
+    });
+
+    const first = await testFetch(`/api/stocktakes/${stocktakeId}`, {
+      method: "PUT",
+      body,
+    });
+    expect(first.status, await first.text()).toBe(200);
+
+    const second = await testFetch(`/api/stocktakes/${stocktakeId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        lines: [],
+        lotLines: [
+          {
+            isFound: true,
+            stocktakeItemId: line.id,
+            lotNumber,
+            countedQty: "9",
+          },
+        ],
+      }),
+    });
+    expect(second.status, await second.text()).toBe(200);
+
+    const foundRows = await db
+      .select({
+        id: stocktakeLotItems.id,
+        countedQty: stocktakeLotItems.countedQty,
+      })
+      .from(stocktakeLotItems)
+      .where(
+        and(
+          eq(stocktakeLotItems.stocktakeItemId, line.id),
+          eq(stocktakeLotItems.isFound, true),
+          eq(stocktakeLotItems.lotNumber, lotNumber)
+        )
+      );
+    expect(foundRows).toHaveLength(1);
+    // The retry updated the counted quantity in place.
+    expect(foundRows[0].countedQty).toBe("9.0000");
   });
 });

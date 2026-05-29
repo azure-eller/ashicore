@@ -173,6 +173,7 @@ export const updateStocktakeSchema = z
   .superRefine((data, ctx) => {
     const seen = new Set<string>();
     const seenLots = new Set<string>();
+    const seenFoundLots = new Set<string>();
 
     data.lines.forEach((line, index) => {
       if (seen.has(line.lineId)) {
@@ -202,12 +203,24 @@ export const updateStocktakeSchema = z
 
     data.lotLines.forEach((line, index) => {
       if (isFoundLotLine(line)) {
-        if (line.lotNumber.trim().length === 0) {
+        const trimmedLotNumber = line.lotNumber.trim();
+        if (trimmedLotNumber.length === 0) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: "Lot number is required",
             path: ["lotLines", index, "lotNumber"],
           });
+        } else {
+          const foundKey = `${line.stocktakeItemId}:${trimmedLotNumber}`;
+          if (seenFoundLots.has(foundKey)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Each found lot can only be submitted once",
+              path: ["lotLines", index, "lotNumber"],
+            });
+          } else {
+            seenFoundLots.add(foundKey);
+          }
         }
 
         if (line.countedQty == null || line.countedQty.trim().length === 0) {
