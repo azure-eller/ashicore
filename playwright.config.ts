@@ -1,19 +1,14 @@
-import fs from "node:fs";
 import { defineConfig } from "@playwright/test";
 import { loadWorktreeEnv } from "./scripts/load-worktree-env";
 import {
   TEST_STORAGE_STATE_PATH,
+  resolveBaseUrl,
 } from "./test/helpers/test-env";
 
 loadWorktreeEnv();
 
-let baseURL = "http://localhost:3000";
-try {
-  const env = JSON.parse(fs.readFileSync("test/.test-env.json", "utf-8"));
-  baseURL = env.TEST_BASE_URL;
-} catch {
-  // .test-env.json may not exist yet — fall back to default
-}
+// Prefer the live `pnpm boot` dev server (free port) over the legacy :3000.
+const baseURL = resolveBaseUrl();
 
 export default defineConfig({
   testDir: "./test/e2e",
