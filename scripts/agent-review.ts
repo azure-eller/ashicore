@@ -47,26 +47,21 @@ function commandFor(token: string): string[] | null {
   return null;
 }
 
-// Single source of truth for slow domains. The repo's local lanes and CI labels
-// are NOT 1:1 — either side can be absent — so each is recorded explicitly.
-const SLOW_DOMAINS: Record<string, { lane: string | null; label: string | null }> = {
+// Single source of truth for slow domains, kept in sync with the CI workflow
+// (.github/workflows/e2e-slow.yml). Each maps a local lane + the CI label CI
+// actually accepts. `all`/`none` are label-only; inventory is NOT a slow domain
+// (CI ignores ci:slow:inventory) — inventory work uses --inventory plus the
+// relevant workflow lane (e.g. purchasing/manufacturing).
+const SLOW_DOMAINS: Record<string, { lane: string | null; label: string }> = {
   sales: { lane: "test:slow:sales", label: "ci:slow:sales" },
   purchasing: { lane: "test:slow:purchasing", label: "ci:slow:purchasing" },
   manufacturing: { lane: "test:slow:manufacturing", label: "ci:slow:manufacturing" },
+  planning: { lane: "test:slow:planning", label: "ci:slow:planning" },
   stocktake: { lane: "test:slow:stocktake", label: "ci:slow:stocktake" },
   auth: { lane: "test:slow:auth", label: "ci:slow:auth" },
-  planning: { lane: "test:slow:planning", label: null }, // lane only — repo has no ci:slow:planning label
-  inventory: { lane: null, label: "ci:slow:inventory" }, // label only — validate via --inventory / workflow lanes
   all: { lane: null, label: "ci:slow:all" }, // full slow suite runs in CI
   none: { lane: null, label: "ci:slow:none" },
 };
-
-function labelBearingDomains(): string {
-  return Object.entries(SLOW_DOMAINS)
-    .filter(([, value]) => value.label)
-    .map(([key]) => key)
-    .join(", ");
-}
 
 function run(command: string[], env?: Record<string, string>): boolean {
   try {
@@ -156,33 +151,14 @@ async function main() {
   const unknownDomains = slowKeys.filter((domain) => !(domain in SLOW_DOMAINS));
   if (unknownDomains.length > 0) {
     throw new Error(
-      `Unknown --slow domain(s): ${unknownDomains.join(", ")}. Valid: ${Object.keys(SLOW_DOMAINS).join(", ")}.`
+      `Unknown --slow domain(s): ${unknownDomains.join(", ")}. Valid: ${Object.keys(SLOW_DOMAINS).join(", ")}. (inventory is not a slow domain — use --inventory plus a workflow lane.)`
     );
   }
-  const ciLabels = slowKeys
-    .map((domain) => SLOW_DOMAINS[domain].label)
-    .filter((label): label is string => Boolean(label));
-  if (ciLabels.length === 0) {
-    throw new Error(
-      `The requested --slow domain(s) map to no ci:slow:* label (e.g. 'planning' has no label). CI requires a slow label — use --slow all, or include a label-bearing domain (${labelBearingDomains()}).`
+  const ciLabels = slowKeys.map((domain) => SLOW_DOMAINS[domain].label);
+  if (slowKeys.includes("all")) {
+    console.log(
+      "Note: '--slow all' sets ci:slow:all — the full slow suite runs in CI and is not run locally."
     );
-  }
-  for (const domain of slowKeys) {
-    const { lane, label } = SLOW_DOMAINS[domain];
-    if (lane && !label) {
-      console.warn(
-        `⚠ '${domain}' has a slow lane but no ci:slow:* label — CI won't auto-select it. Its lane runs locally; use --slow all if CI must run it.`
-      );
-    }
-    if (domain === "all") {
-      console.log(
-        "Note: '--slow all' sets ci:slow:all — the full slow suite runs in CI and is not run locally."
-      );
-    } else if (!lane && label && domain !== "none") {
-      console.log(
-        `Note: '${domain}' has no dedicated slow lane; validate it via --inventory and the relevant workflow lane.`
-      );
-    }
   }
 
   // Stale dev server: silently refresh via up's idempotent restart so you always
@@ -211,18 +187,27 @@ async function main() {
     // live `pnpm boot` dev server's .next.
     const isBuild = token === "build";
     const env = isBuild ? { NEXT_DIST_DIR: ".next-validate" } : undefined;
+    // next build rewrites tsconfig.json's `include` for the custom distDir.
+    // Snapshot the exact prior bytes and restore them after, so we undo ONLY
+    // Next's mutation and never discard a developer's uncommitted tsconfig edits.
+    const tsconfigPath = path.resolve(root, "tsconfig.json");
+    let tsconfigBefore: string | null = null;
+    if (isBuild) {
+      try {
+        tsconfigBefore = fs.readFileSync(tsconfigPath, "utf8");
+      } catch {
+        tsconfigBefore = null;
+      }
+    }
     console.log(`\n▶ ${command.join(" ")}`);
     const status = run(command, env) ? "pass" : "fail";
-    if (isBuild) {
-      // Next rewrites tsconfig.json's `include` for the custom distDir; revert it
-      // so the clean-tree gate (and the repo) stay clean.
+    if (tsconfigBefore !== null) {
       try {
-        execFileSync("git", ["checkout", "--", "tsconfig.json"], {
-          cwd: root,
-          stdio: "ignore",
-        });
+        if (fs.readFileSync(tsconfigPath, "utf8") !== tsconfigBefore) {
+          fs.writeFileSync(tsconfigPath, tsconfigBefore);
+        }
       } catch {
-        /* tsconfig untouched */
+        /* leave as-is; the clean-tree gate will surface any change */
       }
     }
     results.push({ name: token, command: command.join(" "), status });
@@ -263,6 +248,7 @@ async function main() {
       env: { ...process.env, REVIEW_BASE_URL: session.baseUrl },
     });
     child.unref();
+    fs.closeSync(out); // child holds its own fd; don't leak the parent's copy
     console.log(`\nReview browser opening at ${reviewUrl}`);
   } catch (error) {
     console.warn(`Could not open review browser: ${(error as Error).message}`);
