@@ -167,6 +167,8 @@ import {
   type SalesIngredientShortageSummary,
 } from "@/lib/sales/fulfillment-read-model";
 import {
+  demandQueueCoverageKey,
+  getDemandQueueCoverageForItemsInTx,
   getDemandQueueCoverageByDemandKeyForItemsInTx,
 } from "@/lib/inventory/allocation/demand-queue";
 import { getEstimatedUnitCostsByItemIdInTx } from "@/lib/inventory/estimated-cost";
@@ -8299,6 +8301,25 @@ export async function shipSalesShipment(
       }
     }
 
+    if (payload.confirmNegativeStock !== true) {
+      const warning = await buildDemandQueueShippingWarningInTx(tx, {
+        organizationId: orgId,
+        lines: shipmentLines.map((line) => ({
+          salesOrderLineId: line.salesOrderLineId,
+          itemId: line.itemId,
+          itemName: line.itemName,
+          quantity: parseFloat(line.quantity),
+        })),
+      });
+      if (warning) {
+        throw new SalesError(
+          `Cannot ship shipment. Insufficient stock for ${warning.itemName}.`,
+          409,
+          { negativeStock: warning }
+        );
+      }
+    }
+
     const shippedAt = new Date();
     try {
       await consumeForShipmentInTx(tx, {
@@ -8556,6 +8577,180 @@ async function buildStockWarningPayloadInTx(
   };
 }
 
+async function resolveDemandQueueCommitmentsInTx(
+  tx: Tx,
+  candidates: Array<{
+    demandType: "sales_order_line" | "manufacturing_order_ingredient";
+    demandId: string;
+    label: string;
+    contextLabel: string | null;
+    quantity: number;
+    href: string | null;
+  }>
+): Promise<NonNullable<NegativeStockWarningPayload["commitments"]>> {
+  const salesDemandIds = candidates
+    .filter((candidate) => candidate.demandType === "sales_order_line")
+    .map((candidate) => candidate.demandId);
+  const manufacturingDemandIds = candidates
+    .filter((candidate) => candidate.demandType === "manufacturing_order_ingredient")
+    .map((candidate) => candidate.demandId);
+
+  const salesRows =
+    salesDemandIds.length > 0
+      ? await tx
+          .select({
+            demandId: salesOrderLines.id,
+            orderId: salesOrders.id,
+            orderNumber: salesOrders.orderNumber,
+            customerName: salesOrders.customerName,
+          })
+          .from(salesOrderLines)
+          .innerJoin(salesOrders, eq(salesOrders.id, salesOrderLines.salesOrderId))
+          .where(inArray(salesOrderLines.id, salesDemandIds))
+      : [];
+  const manufacturingRows =
+    manufacturingDemandIds.length > 0
+      ? await tx
+          .select({
+            demandId: manufacturingOrderIngredients.id,
+            orderId: manufacturingOrders.id,
+            orderNumber: manufacturingOrders.orderNumber,
+            productName: manufacturingOrders.productName,
+          })
+          .from(manufacturingOrderIngredients)
+          .innerJoin(
+            manufacturingOrders,
+            eq(manufacturingOrders.id, manufacturingOrderIngredients.manufacturingOrderId)
+          )
+          .where(inArray(manufacturingOrderIngredients.id, manufacturingDemandIds))
+      : [];
+
+  const salesByDemandId = new Map(salesRows.map((row) => [row.demandId, row]));
+  const manufacturingByDemandId = new Map(
+    manufacturingRows.map((row) => [row.demandId, row])
+  );
+
+  const commitments: NonNullable<NegativeStockWarningPayload["commitments"]> = [];
+  for (const candidate of candidates) {
+    if (candidate.demandType === "sales_order_line") {
+      const row = salesByDemandId.get(candidate.demandId);
+      if (!row) continue;
+      commitments.push({
+        referenceType: "sales_order",
+        referenceId: row.orderId,
+        label: `${row.orderNumber} ${row.customerName}`,
+        quantity: candidate.quantity,
+        href: `/sales/orders/${row.orderId}`,
+      });
+      continue;
+    }
+
+    const row = manufacturingByDemandId.get(candidate.demandId);
+    if (!row) continue;
+    commitments.push({
+      referenceType: "manufacturing_order",
+      referenceId: row.orderId,
+      label: `${row.orderNumber} ${row.productName}`,
+      quantity: candidate.quantity,
+      href: `/manufacturing/orders/${row.orderId}`,
+    });
+  }
+
+  return commitments;
+}
+
+async function buildDemandQueueShippingWarningInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    lines: Array<{
+      salesOrderLineId: string;
+      itemId: string;
+      itemName: string;
+      quantity: number;
+    }>;
+  }
+): Promise<NegativeStockWarningPayload | null> {
+  const coverageByItem = new Map(
+    (
+      await getDemandQueueCoverageForItemsInTx(tx, {
+        organizationId: params.organizationId,
+        itemIds: params.lines.map((line) => line.itemId),
+        includeManufacturingDetail: true,
+      })
+    ).map((coverage) => [coverage.itemId, coverage])
+  );
+
+  for (const line of params.lines) {
+    const itemCoverage = coverageByItem.get(line.itemId);
+    const lineCoverage = itemCoverage?.demands.find(
+      (demand) =>
+        demandQueueCoverageKey(demand) ===
+        demandQueueCoverageKey({
+          demandType: "sales_order_line",
+          demandId: line.salesOrderLineId,
+        })
+    );
+    const available = roundQuantity(Number(lineCoverage?.inStockQty ?? 0));
+    if (available >= line.quantity) continue;
+
+    let remainingConflictQty = roundQuantity(line.quantity - available);
+    const commitmentCandidates =
+      itemCoverage?.demands.flatMap((demand) => {
+        if (
+          demand.demandType === "sales_order_line" &&
+          demand.demandId === line.salesOrderLineId
+        ) {
+          return [];
+        }
+
+        const quantity = roundQuantity(
+          Math.min(remainingConflictQty, Number(demand.inStockQty))
+        );
+        if (quantity <= 0) return [];
+
+        remainingConflictQty = roundQuantity(remainingConflictQty - quantity);
+        return [
+          {
+            demandType: demand.demandType,
+            demandId: demand.demandId,
+            label: demand.label,
+            contextLabel: demand.contextLabel,
+            quantity,
+            href: demand.href,
+          },
+        ];
+      }) ?? [];
+    const commitments = await resolveDemandQueueCommitmentsInTx(
+      tx,
+      commitmentCandidates
+    );
+    const committedToOthers = roundQuantity(
+      commitments.reduce((sum, commitment) => sum + commitment.quantity, 0)
+    );
+    const shortage = roundQuantity(line.quantity - available);
+    const reason =
+      committedToOthers <= 0
+        ? "negative_stock"
+        : committedToOthers >= shortage
+          ? "commitment_conflict"
+          : "commitment_and_negative_stock";
+
+    return {
+      itemId: line.itemId,
+      itemName: line.itemName,
+      available,
+      requested: line.quantity,
+      shortage,
+      reason,
+      committedToOthers,
+      commitments: commitments.slice(0, 5),
+    };
+  }
+
+  return null;
+}
+
 export async function shipSalesOrder(
   id: string,
   options?: {
@@ -8665,6 +8860,25 @@ export async function shipSalesOrder(
 
     if (linesToShip.length === 0) {
       throw new SalesError("No remaining quantity to ship.", 400);
+    }
+
+    if (options?.confirmNegativeStock !== true) {
+      const warning = await buildDemandQueueShippingWarningInTx(tx, {
+        organizationId: orgId,
+        lines: linesToShip.map((line) => ({
+          salesOrderLineId: line.salesOrderLineId,
+          itemId: line.itemId,
+          itemName: line.itemName,
+          quantity: line.quantity,
+        })),
+      });
+      if (warning) {
+        throw new SalesError(
+          `Cannot ship order. Insufficient stock for ${warning.itemName}.`,
+          409,
+          { negativeStock: warning }
+        );
+      }
     }
 
     const shippedAt = new Date();

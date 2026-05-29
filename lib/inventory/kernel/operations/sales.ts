@@ -22,6 +22,7 @@ import {
   getCurrentAvailableQtyAtLocationInTx,
 } from "@/lib/inventory/kernel/operations/stock-core";
 import {
+  cancelActiveStockAllocationsInTx,
   consumeLotAllocationsForDemandInTx,
   getUnavailableLotAllocationQtyByLotIdInTx,
 } from "@/lib/inventory/kernel/operations/stock-allocations";
@@ -564,6 +565,26 @@ export async function consumeForShipmentInTx(
   const reservedByLineId = new Map(
     existingReservationRows.map((row) => [row.referenceId, parseFloat(row.quantity)])
   );
+  const existingDemandRows = await tx
+    .select({
+      referenceId: inventoryDemandSummary.referenceId,
+      quantity: inventoryDemandSummary.quantity,
+    })
+    .from(inventoryDemandSummary)
+    .where(
+      and(
+        eq(inventoryDemandSummary.organizationId, params.organizationId),
+        eq(inventoryDemandSummary.locationId, location.id),
+        eq(inventoryDemandSummary.referenceType, "sales_order_line"),
+        inArray(
+          inventoryDemandSummary.referenceId,
+          params.lines.map((line) => line.salesOrderLineId)
+        )
+      )
+    );
+  const demandByLineId = new Map(
+    existingDemandRows.map((row) => [row.referenceId, parseFloat(row.quantity)])
+  );
   const lineStateRows = await tx
     .select({
       id: salesOrderLines.id,
@@ -685,21 +706,6 @@ export async function consumeForShipmentInTx(
       activeDemandRef,
       lineAllocations,
     } = getLineAllocationContext(line);
-    const allocatedQty = roundQuantity(
-      lineAllocations.reduce((sum, allocation) => sum + parseFloat(allocation.quantity), 0)
-    );
-
-    if (
-      managedLineIds.has(line.salesOrderLineId) &&
-      allocatedQty < line.quantity &&
-      !params.allowNegativeStock
-    ) {
-      throw new InsufficientStockError({
-        itemId: line.itemId,
-        available: allocatedQty,
-        requested: line.quantity,
-      });
-    }
 
     let idempotencyUsed = false;
     if (lineAllocations.some((candidate) => candidate.sourceType === "inventory_lot")) {
@@ -727,18 +733,6 @@ export async function consumeForShipmentInTx(
     }
 
     if (remaining > 0) {
-      if (
-        lineAllocations.some(
-          (allocation) => allocation.sourceType === "manufacturing_order"
-        )
-      ) {
-        throw new InsufficientStockError({
-          itemId: line.itemId,
-          available: roundQuantity(line.quantity - remaining),
-          requested: line.quantity,
-        });
-      }
-
       const unavailableByLotId = params.allowNegativeStock
         ? undefined
         : await getUnavailableLotAllocationQtyByLotIdInTx(tx, {
@@ -794,6 +788,16 @@ export async function consumeForShipmentInTx(
       referenceId: line.salesOrderLineId,
       quantity: -line.quantity,
     })),
+  });
+
+  const fullyShippedLineIds = params.lines
+    .filter((line) => line.quantity >= (demandByLineId.get(line.salesOrderLineId) ?? 0))
+    .map((line) => line.salesOrderLineId);
+  await cancelActiveStockAllocationsInTx(tx, {
+    organizationId: params.organizationId,
+    actorUserId: params.actorUserId ?? null,
+    demandType: "sales_order_line",
+    demandIds: fullyShippedLineIds,
   });
 
   const result = { eventIds };
