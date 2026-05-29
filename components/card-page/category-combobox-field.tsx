@@ -1,10 +1,17 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { Field, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
 import { fetchItemCategories } from "@/lib/api/clients/item-cards";
 import type { ItemType } from "@/app/(dashboard)/inventory/types";
 import styles from "./card-page.module.css";
@@ -37,19 +44,33 @@ export function CategoryComboboxField({
     source: normalizedValue,
     draft: normalizedValue,
   });
+  const draftRef = useRef(normalizedValue);
   let draft = draftState.draft;
   if (draftState.source !== normalizedValue) {
     draft = normalizedValue;
     setDraftState({ source: normalizedValue, draft: normalizedValue });
   }
   const inputId = "card-field-category";
-  const listId = `${useId()}-categories`;
+  const comboboxId = `${useId()}-categories`;
 
   const { data: categories = [] } = useQuery({
     queryKey: ["item-categories", itemType],
     queryFn: () => fetchItemCategories(itemType),
     staleTime: 60_000,
   });
+
+  useEffect(() => {
+    draftRef.current = normalizedValue;
+  }, [normalizedValue]);
+
+  const options = useMemo(() => {
+    const typed = draft.trim();
+    const optionSet = new Set(categories);
+    if (typed !== "" && !optionSet.has(typed)) {
+      optionSet.add(typed);
+    }
+    return Array.from(optionSet);
+  }, [categories, draft]);
 
   function toValue(text: string): string | null {
     const trimmed = text.trim();
@@ -66,32 +87,52 @@ export function CategoryComboboxField({
     onCommit(next);
   }
 
+  function handleDraftChange(next: string) {
+    setDraftState({ source: normalizedValue, draft: next });
+    draftRef.current = next;
+    onChange(toValue(next), Number.POSITIVE_INFINITY);
+  }
+
   return (
     <Field>
       <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
-      <Input
-        id={inputId}
-        aria-label={label}
-        className={styles.underlineControl}
-        list={listId}
-        value={draft}
-        placeholder={placeholder}
-        disabled={disabled}
-        onChange={(event) => {
-          const next = event.target.value;
+      <Combobox
+        items={options}
+        value={normalizedValue}
+        inputValue={draft}
+        onInputValueChange={handleDraftChange}
+        onValueChange={(nextValue) => {
+          const next = nextValue ?? "";
           setDraftState({ source: normalizedValue, draft: next });
-          onChange(toValue(next), Number.POSITIVE_INFINITY);
+          draftRef.current = next;
         }}
-        onBlur={() => commit()}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") event.currentTarget.blur();
-        }}
-      />
-      <datalist id={listId}>
-        {categories.map((category) => (
-          <option key={category} value={category} />
-        ))}
-      </datalist>
+        filter={(category, query) =>
+          category.toLocaleLowerCase().includes(query.toLocaleLowerCase())
+        }
+      >
+        <ComboboxInput
+          id={inputId}
+          aria-label={label}
+          aria-controls={comboboxId}
+          className={styles.underlineControl}
+          placeholder={placeholder}
+          disabled={disabled}
+          onBlur={() => commit(draftRef.current)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
+        />
+        <ComboboxContent id={comboboxId} className="bg-popover text-popover-foreground">
+          <ComboboxEmpty>No categories found</ComboboxEmpty>
+          <ComboboxList>
+            {(category: string) => (
+              <ComboboxItem key={category} value={category}>
+                <span className="min-w-0 truncate">{category}</span>
+              </ComboboxItem>
+            )}
+          </ComboboxList>
+        </ComboboxContent>
+      </Combobox>
     </Field>
   );
 }

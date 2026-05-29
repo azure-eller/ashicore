@@ -215,7 +215,7 @@ async function collapseHistoricalLotReferencesInTx(
            received_at,
            sort_order
     FROM old_rows
-    ON CONFLICT (stocktake_item_id, lot_id)
+    ON CONFLICT (stocktake_item_id, lot_id) WHERE lot_id IS NOT NULL
     DO UPDATE SET
       expected_qty = inventory.stocktake_lot_items.expected_qty + EXCLUDED.expected_qty,
       counted_qty = COALESCE(inventory.stocktake_lot_items.counted_qty, 0) + EXCLUDED.counted_qty,
