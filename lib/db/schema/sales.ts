@@ -319,6 +319,9 @@ export const pricingSchedules = salesSchema
         () => customerCategories.id
       ),
       itemScope: varchar("item_scope", { length: 20 }).notNull().default("all"),
+      itemCategory: varchar("item_category", { length: 100 }),
+      itemVariantOptionCode: varchar("item_variant_option_code", { length: 100 }),
+      itemVariantValueCode: varchar("item_variant_value_code", { length: 100 }),
       notes: text("notes"),
       deletedAt: timestamp("deleted_at", { withTimezone: true }),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -332,12 +335,34 @@ export const pricingSchedules = salesSchema
       index("sales_pricing_schedules_customer_category_id_idx").on(
         table.customerCategoryId
       ),
+      index("sales_pricing_schedules_item_category_idx").on(table.itemCategory),
+      index("sales_pricing_schedules_item_variant_idx").on(
+        table.itemVariantOptionCode,
+        table.itemVariantValueCode
+      ),
       uniqueIndex("sales_pricing_schedules_customer_all_items_uidx")
         .on(table.organizationId, table.customerCategoryId)
         .where(sql`customer_category_id IS NOT NULL AND item_scope = 'all' AND deleted_at IS NULL`),
       uniqueIndex("sales_pricing_schedules_all_customers_all_items_uidx")
         .on(table.organizationId)
         .where(sql`customer_category_id IS NULL AND item_scope = 'all' AND deleted_at IS NULL`),
+      uniqueIndex("sales_pricing_schedules_customer_category_items_uidx")
+        .on(table.organizationId, table.customerCategoryId, table.itemCategory)
+        .where(sql`customer_category_id IS NOT NULL AND item_scope = 'category' AND item_category IS NOT NULL AND deleted_at IS NULL`),
+      uniqueIndex("sales_pricing_schedules_all_customers_category_items_uidx")
+        .on(table.organizationId, table.itemCategory)
+        .where(sql`customer_category_id IS NULL AND item_scope = 'category' AND item_category IS NOT NULL AND deleted_at IS NULL`),
+      uniqueIndex("sales_pricing_schedules_customer_variant_items_uidx")
+        .on(
+          table.organizationId,
+          table.customerCategoryId,
+          table.itemVariantOptionCode,
+          table.itemVariantValueCode
+        )
+        .where(sql`customer_category_id IS NOT NULL AND item_scope = 'variant' AND item_variant_option_code IS NOT NULL AND item_variant_value_code IS NOT NULL AND deleted_at IS NULL`),
+      uniqueIndex("sales_pricing_schedules_all_customers_variant_items_uidx")
+        .on(table.organizationId, table.itemVariantOptionCode, table.itemVariantValueCode)
+        .where(sql`customer_category_id IS NULL AND item_scope = 'variant' AND item_variant_option_code IS NOT NULL AND item_variant_value_code IS NOT NULL AND deleted_at IS NULL`),
       pgPolicy("sales_pricing_schedules_org_isolation", {
         for: "all",
         to: "public",

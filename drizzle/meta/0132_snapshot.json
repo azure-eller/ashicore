@@ -1,4 +1,6 @@
 {
+  "id": "aa96820a-f836-4392-a4b4-936c8bdbd145",
+  "prevId": "22972dff-0cad-46a8-8bfa-ea081c3f6c48",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -6931,6 +6933,24 @@
           "notNull": true,
           "default": "'all'"
         },
+        "item_category": {
+          "name": "item_category",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "item_variant_option_code": {
+          "name": "item_variant_option_code",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "item_variant_value_code": {
+          "name": "item_variant_value_code",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "notes": {
           "name": "notes",
           "type": "text",
@@ -7005,6 +7025,42 @@
           "method": "btree",
           "with": {}
         },
+        "sales_pricing_schedules_item_category_idx": {
+          "name": "sales_pricing_schedules_item_category_idx",
+          "columns": [
+            {
+              "expression": "item_category",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sales_pricing_schedules_item_variant_idx": {
+          "name": "sales_pricing_schedules_item_variant_idx",
+          "columns": [
+            {
+              "expression": "item_variant_option_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "item_variant_value_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "sales_pricing_schedules_customer_all_items_uidx": {
           "name": "sales_pricing_schedules_customer_all_items_uidx",
           "columns": [
@@ -7039,6 +7095,118 @@
           ],
           "isUnique": true,
           "where": "customer_category_id IS NULL AND item_scope = 'all' AND deleted_at IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sales_pricing_schedules_customer_category_items_uidx": {
+          "name": "sales_pricing_schedules_customer_category_items_uidx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "customer_category_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "item_category",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "customer_category_id IS NOT NULL AND item_scope = 'category' AND item_category IS NOT NULL AND deleted_at IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sales_pricing_schedules_all_customers_category_items_uidx": {
+          "name": "sales_pricing_schedules_all_customers_category_items_uidx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "item_category",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "customer_category_id IS NULL AND item_scope = 'category' AND item_category IS NOT NULL AND deleted_at IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sales_pricing_schedules_customer_variant_items_uidx": {
+          "name": "sales_pricing_schedules_customer_variant_items_uidx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "customer_category_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "item_variant_option_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "item_variant_value_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "customer_category_id IS NOT NULL AND item_scope = 'variant' AND item_variant_option_code IS NOT NULL AND item_variant_value_code IS NOT NULL AND deleted_at IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sales_pricing_schedules_all_customers_variant_items_uidx": {
+          "name": "sales_pricing_schedules_all_customers_variant_items_uidx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "item_variant_option_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "item_variant_value_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "customer_category_id IS NULL AND item_scope = 'variant' AND item_variant_option_code IS NOT NULL AND item_variant_value_code IS NOT NULL AND deleted_at IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -16529,10 +16697,8 @@
   "policies": {},
   "views": {},
   "_meta": {
+    "columns": {},
     "schemas": {},
-    "tables": {},
-    "columns": {}
-  },
-  "id": "22972dff-0cad-46a8-8bfa-ea081c3f6c48",
-  "prevId": "35239d0d-fa1b-4d4a-9513-0f04f0eb7e0f"
+    "tables": {}
+  }
 }

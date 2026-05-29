@@ -248,6 +248,10 @@ export function PricingScheduleForm({
       ? {
           name: initialData.name,
           customerCategoryId: initialData.customerCategoryId,
+          itemScope: initialData.itemScope,
+          itemCategory: initialData.itemCategory,
+          itemVariantOptionCode: initialData.itemVariantOptionCode,
+          itemVariantValueCode: initialData.itemVariantValueCode,
           itemIds: initialData.itemIds,
           notes: initialData.notes,
           breaks: initialData.breaks,
@@ -368,6 +372,23 @@ export function PricingScheduleForm({
     control: form.control,
     name: "itemIds",
   });
+  const watchedItemScope = useWatch({
+    control: form.control,
+    name: "itemScope",
+  });
+  const watchedItemCategory = useWatch({
+    control: form.control,
+    name: "itemCategory",
+  });
+  const watchedItemVariantOptionCode = useWatch({
+    control: form.control,
+    name: "itemVariantOptionCode",
+  });
+  const watchedItemVariantValueCode = useWatch({
+    control: form.control,
+    name: "itemVariantValueCode",
+  });
+  const itemScope = watchedItemScope ?? "all";
   const selectedItemIds = useMemo(() => watchedItemIds ?? [], [watchedItemIds]);
   const selectedItemIdSet = useMemo(
     () => new Set(selectedItemIds),
@@ -394,12 +415,62 @@ export function PricingScheduleForm({
       .toLocaleLowerCase()
       .includes(normalizedItemSearch);
   });
+  const variantScopeOptions = useMemo(
+    () => {
+      const optionsByKey = new Map<
+        string,
+        {
+          optionName: string;
+          optionCode: string;
+          valueLabel: string;
+          valueCode: string;
+        }
+      >();
+      for (const item of itemOptions) {
+        for (const variantValue of item.variantValues) {
+          const key = `${variantValue.optionCode}\u0000${variantValue.valueCode}`;
+          if (!optionsByKey.has(key)) {
+            optionsByKey.set(key, variantValue);
+          }
+        }
+      }
+      return [...optionsByKey.values()].sort((left, right) => {
+        const optionCompare = left.optionName.localeCompare(right.optionName);
+        return optionCompare === 0
+          ? left.valueLabel.localeCompare(right.valueLabel)
+          : optionCompare;
+      });
+    },
+    [itemOptions]
+  );
+  const itemCategoryOptions = useMemo(
+    () =>
+      [
+        ...new Set(
+          itemOptions
+            .map((item) => item.category)
+            .filter((category): category is string => category != null && category !== "")
+        ),
+      ].sort((left, right) => left.localeCompare(right)),
+    [itemOptions]
+  );
+  const selectedVariantScope = variantScopeOptions.find(
+    (option) =>
+      option.optionCode === watchedItemVariantOptionCode &&
+      option.valueCode === watchedItemVariantValueCode
+  );
   const itemScopeSummary =
-    selectedItems.length === 0
+    itemScope === "all"
       ? "All sellable items"
-      : selectedItems.length === 1
-        ? selectedItems[0].displayName ?? selectedItems[0].name
-        : `${selectedItems.length} selected items`;
+      : itemScope === "category"
+        ? watchedItemCategory ?? "Choose category"
+        : itemScope === "variant"
+        ? selectedVariantScope
+          ? `${selectedVariantScope.optionName}: ${selectedVariantScope.valueLabel}`
+          : "Choose variant value"
+        : selectedItems.length === 1
+          ? selectedItems[0].displayName ?? selectedItems[0].name
+          : `${selectedItems.length} selected items`;
   const basePreview = Number(previewBasePrice);
   const breakColumns = useMemo<LineField<PricingBreakGridRow>[]>(
     () => {
@@ -692,12 +763,138 @@ export function PricingScheduleForm({
 
                 <Controller
                   control={form.control}
-                  name="itemIds"
-                  render={({ fieldState }) => (
+                  name="itemScope"
+                  render={({ field, fieldState }) => (
                     <Field data-invalid={fieldState.invalid}>
                       <FieldLabel>
                         <TooltipHeader label="Items" tooltip={PRICING_ITEM_CATEGORY_TOOLTIP} />
                       </FieldLabel>
+                      <Select
+                        name={field.name}
+                        value={field.value}
+                        onValueChange={(value) => {
+                          const nextScope = value as PricingScheduleFormValues["itemScope"];
+                          field.onChange(nextScope);
+                          if (nextScope !== "category") {
+                            form.setValue("itemCategory", null, {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            });
+                          }
+                          if (nextScope !== "variant") {
+                            form.setValue("itemVariantOptionCode", null, {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            });
+                            form.setValue("itemVariantValueCode", null, {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            });
+                          }
+                          if (nextScope !== "selected") {
+                            form.setValue("itemIds", [], {
+                              shouldDirty: true,
+                              shouldValidate: true,
+                            });
+                          }
+                        }}
+                      >
+                        <SelectTrigger aria-invalid={fieldState.invalid}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All sellable items</SelectItem>
+                          <SelectItem value="category">Item category</SelectItem>
+                          <SelectItem value="variant">Variant value</SelectItem>
+                          <SelectItem value="selected">Selected items</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <div className="text-xs text-muted-foreground">{itemScopeSummary}</div>
+                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                    </Field>
+                  )}
+                />
+              </FieldGroup>
+
+              {itemScope === "category" ? (
+                <Controller
+                  control={form.control}
+                  name="itemCategory"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel>Item Category</FieldLabel>
+                      <Select
+                        name={field.name}
+                        value={field.value ?? undefined}
+                        onValueChange={field.onChange}
+                      >
+                        <SelectTrigger aria-invalid={fieldState.invalid}>
+                          <SelectValue placeholder="Choose an item category" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {itemCategoryOptions.map((category) => (
+                            <SelectItem key={category} value={category}>
+                              {category}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                    </Field>
+                  )}
+                />
+              ) : null}
+
+              {itemScope === "variant" ? (
+                <Controller
+                  control={form.control}
+                  name="itemVariantValueCode"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel>Variant Value</FieldLabel>
+                      <Select
+                        name={field.name}
+                        value={
+                          watchedItemVariantOptionCode && field.value
+                            ? `${watchedItemVariantOptionCode}\u0000${field.value}`
+                            : undefined
+                        }
+                        onValueChange={(value) => {
+                          const [optionCode, valueCode] = value.split("\u0000");
+                          form.setValue("itemVariantOptionCode", optionCode, {
+                            shouldDirty: true,
+                            shouldValidate: true,
+                          });
+                          field.onChange(valueCode);
+                        }}
+                      >
+                        <SelectTrigger aria-invalid={fieldState.invalid}>
+                          <SelectValue placeholder="Choose a variant value" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {variantScopeOptions.map((option) => (
+                            <SelectItem
+                              key={`${option.optionCode}:${option.valueCode}`}
+                              value={`${option.optionCode}\u0000${option.valueCode}`}
+                            >
+                              {option.optionName}: {option.valueLabel}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                    </Field>
+                  )}
+                />
+              ) : null}
+
+              {itemScope === "selected" ? (
+                <Controller
+                  control={form.control}
+                  name="itemIds"
+                  render={({ fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel>Selected Items</FieldLabel>
                       <button
                         type="button"
                         className="flex min-h-(--height-input-md) w-full items-center justify-between gap-(--space-4) rounded-(--radius-none) border border-input bg-background px-(--space-4) py-(--space-3) text-left text-[length:var(--text-sm)] leading-[var(--leading-sm)] shadow-xs outline-none transition-colors hover:bg-muted focus-visible:shadow-[var(--focus-ring)]"
@@ -727,7 +924,7 @@ export function PricingScheduleForm({
                     </Field>
                   )}
                 />
-              </FieldGroup>
+              ) : null}
 
               <Controller
                 control={form.control}
@@ -778,7 +975,7 @@ export function PricingScheduleForm({
           <DialogHeader>
             <DialogTitle>Select Items</DialogTitle>
             <DialogDescription>
-              Leave empty to apply this schedule to every sellable item.
+              Selected-item schedules stay fixed until edited.
             </DialogDescription>
           </DialogHeader>
 
@@ -802,10 +999,15 @@ export function PricingScheduleForm({
                 type="button"
                 variant="outline"
                 onClick={() => {
+                  form.setValue("itemScope", "all", {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  });
                   form.setValue("itemIds", [], {
                     shouldDirty: true,
                     shouldValidate: true,
                   });
+                  setIsItemPickerOpen(false);
                 }}
               >
                 All items
