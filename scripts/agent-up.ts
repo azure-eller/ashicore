@@ -50,13 +50,26 @@ function startDevServer(port: number): number {
   const out = fs.openSync(LOG_PATH, "a");
 
   // Bind 0.0.0.0 so the same server is reachable from localhost, the emulator
-  // (10.0.2.2), and a physical device (host LAN IP). Trust the mobile origins so
-  // Better Auth's Origin check passes (lib/auth.ts reads BETTER_AUTH_ALLOWED_HOSTS).
+  // (10.0.2.2), and a physical device (host LAN IP). Two Better Auth checks must
+  // accept these: Host-header resolution (BETTER_AUTH_ALLOWED_HOSTS, host:port) and
+  // the plugin Origin/CSRF check (BETTER_AUTH_TRUSTED_ORIGINS, scheme://host:port).
   const lanIp = getLanIp();
   const mobileHosts = [`10.0.2.2:${port}`, lanIp ? `${lanIp}:${port}` : null]
     .filter(Boolean)
     .join(",");
   const allowedHosts = [process.env.BETTER_AUTH_ALLOWED_HOSTS, mobileHosts]
+    .filter(Boolean)
+    .join(",");
+  // Include localhost:<port> too, so trusting these origins never drops the local
+  // web flow regardless of whether trustedOrigins augments or replaces the default.
+  const mobileOrigins = [
+    `http://localhost:${port}`,
+    `http://10.0.2.2:${port}`,
+    lanIp ? `http://${lanIp}:${port}` : null,
+  ]
+    .filter(Boolean)
+    .join(",");
+  const trustedOrigins = [process.env.BETTER_AUTH_TRUSTED_ORIGINS, mobileOrigins]
     .filter(Boolean)
     .join(",");
 
@@ -71,6 +84,7 @@ function startDevServer(port: number): number {
         ...process.env,
         NODE_OPTIONS: "--max-old-space-size=4096",
         BETTER_AUTH_ALLOWED_HOSTS: allowedHosts,
+        BETTER_AUTH_TRUSTED_ORIGINS: trustedOrigins,
       },
     }
   );
