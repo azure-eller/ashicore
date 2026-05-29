@@ -129,13 +129,9 @@ Failed scheduled slow runs open/update an investigation PR, comment with run det
 
 ## Agent dev loop
 
-1. Name the outcomes (UI + DB) before coding.
-2. Write an in-depth throwaway suite in `test/e2e/scratch/` (UI + `db` fixture assertions). No login — the fixture injects the session cookie.
-3. Run `pnpm test:scratch` → red.
-4. Implement.
-5. `pnpm test:scratch` → green; iterate here, not in a browser.
-6. Distill only the essential invariant into the fast/slow lanes per the guardrails above. Most changes add zero or one.
-7. Delete the scratch suite. The PR must not carry disposable specs unless one is explicitly promoted.
-8. Hand off with `pnpm review`.
+The step-by-step loop lives in the workflow skills, which fire on intent: the
+`feature-workflow` skill (plan → boot → scratch-first TDD → distill → review) and
+the `sandbox-workflow` skill (triage against a production copy). This doc is the
+test-guardrail reference those skills point back to.
 
-**Orgs:** scratch/fast/slow run against the isolated `test-org` (session in `test/.test-env.json`). `pnpm review` seeds the live Paonia snapshot into `test-paonia-soil-co` (separate session in `test/.review-env.json`) for manual eyeballing only — automated tests never depend on snapshot breadth, and agents never run a destructive reseed against `test-org`.
+**Orgs:** scratch/fast/slow run against the isolated `test-org` (session in `test/.test-env.json`). `pnpm review` / `pnpm sandbox` seed the live Paonia snapshot into `test-paonia-soil-co` (separate session in `test/.review-env.json`) for manual eyeballing only — automated tests never depend on snapshot breadth, and agents never run a destructive reseed against `test-org`.

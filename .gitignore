@@ -58,7 +58,8 @@ next-env.d.ts
 /docs/superpowers/specs/*.md
 
 # local agent/tooling artifacts
-/.claude/
+/.claude/*
+!/.claude/skills/
 /.tmp/
 /.xero-evidence/
 /entities.json
