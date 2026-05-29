@@ -15,6 +15,11 @@ export const TEST_STORAGE_STATE_PATH = path.resolve(
   __dirname,
   "../.auth/storage-state.json"
 );
+export const REVIEW_ENV_PATH = path.resolve(__dirname, "../.review-env.json");
+export const REVIEW_STORAGE_STATE_PATH = path.resolve(
+  __dirname,
+  "../.auth/review-storage-state.json"
+);
 
 export function parseCookie(raw: string): { name: string; value: string } {
   const [name, ...rest] = raw.split("=");
@@ -31,8 +36,8 @@ export function readTestEnv(): TestEnv {
   return JSON.parse(fs.readFileSync(TEST_ENV_PATH, "utf-8")) as TestEnv;
 }
 
-export function writeTestEnv(env: TestEnv) {
-  fs.writeFileSync(TEST_ENV_PATH, JSON.stringify(env, null, 2));
+export function writeTestEnv(env: TestEnv, envPath: string = TEST_ENV_PATH) {
+  fs.writeFileSync(envPath, JSON.stringify(env, null, 2));
 }
 
 export function setTestTimestamp(ts: number): number {
