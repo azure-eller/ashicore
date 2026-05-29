@@ -121,6 +121,11 @@ export const stocktakeLotItems = inventorySchema
       uniqueIndex("stocktake_lot_items_stocktake_item_lot_uidx")
         .on(table.stocktakeItemId, table.lotId)
         .where(sql`lot_id IS NOT NULL`),
+      // One found row per (item, lot number) so found-lot saves are an atomic
+      // upsert (ON CONFLICT) — prevents duplicate found rows under concurrent PUTs.
+      uniqueIndex("stocktake_lot_items_found_item_lot_uidx")
+        .on(table.stocktakeItemId, table.lotNumber)
+        .where(sql`is_found`),
       pgPolicy("stocktake_lot_items_org_isolation", {
         for: "all",
         to: "public",

@@ -1023,33 +1023,12 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
       const countedQty = foundLot.countedQty;
       const varianceQty = getVariance("0", countedQty);
 
-      // Idempotent save: a retried PUT must not accumulate duplicate found
-      // rows. Update an existing found row for (stocktakeItem, lotNumber) in
-      // place; otherwise insert a new one.
-      const [existingFound] = await tx
-        .select({ id: stocktakeLotItems.id })
-        .from(stocktakeLotItems)
-        .where(
-          and(
-            eq(stocktakeLotItems.stocktakeItemId, ownerLine.id),
-            eq(stocktakeLotItems.isFound, true),
-            eq(stocktakeLotItems.lotNumber, foundLot.lotNumber)
-          )
-        );
-
-      if (existingFound) {
-        await tx
-          .update(stocktakeLotItems)
-          .set({
-            expectedQty: "0",
-            countedQty,
-            varianceQty,
-            ...(foundLot.notes !== undefined ? { notes: foundLot.notes } : {}),
-            updatedAt: new Date(),
-          })
-          .where(eq(stocktakeLotItems.id, existingFound.id));
-      } else {
-        await tx.insert(stocktakeLotItems).values({
+      // Idempotent save: a retried/concurrent PUT must not accumulate duplicate
+      // found rows. Atomic upsert on the partial unique index
+      // (stocktake_item_id, lot_number) WHERE is_found.
+      await tx
+        .insert(stocktakeLotItems)
+        .values({
           stocktakeItemId: ownerLine.id,
           lotId: null,
           isFound: true,
@@ -1059,8 +1038,18 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
           varianceQty,
           ...(foundLot.notes !== undefined ? { notes: foundLot.notes } : {}),
           receivedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: [stocktakeLotItems.stocktakeItemId, stocktakeLotItems.lotNumber],
+          targetWhere: sql`is_found`,
+          set: {
+            expectedQty: "0",
+            countedQty,
+            varianceQty,
+            ...(foundLot.notes !== undefined ? { notes: foundLot.notes } : {}),
+            updatedAt: new Date(),
+          },
         });
-      }
 
       touchedFoundLotItemIds.add(ownerLine.id);
     }
