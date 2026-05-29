@@ -522,9 +522,11 @@
 
 .cellMarkers {
   display: inline-flex;
-  min-width: var(--space-16);
   align-items: center;
+  justify-content: flex-end;
   gap: var(--space-1);
+  margin-right: var(--space-2);
+  flex: 0 0 auto;
 }
 
 .cellMarker {

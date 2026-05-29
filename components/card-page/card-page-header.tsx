@@ -7,7 +7,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Cancel01Icon,
   MoreVerticalIcon,
-  PrinterIcon,
 } from "@hugeicons/core-free-icons";
 import {
   DropdownMenu,
@@ -79,7 +78,19 @@ export function CardPageHeader({
   fallbackHref,
 }: CardPageHeaderProps) {
   const router = useRouter();
-  const visibleMenuActions = menuActions.filter((action) => action.href || action.onClick);
+  const printAction: CardHeaderAction | null = showPrint
+    ? {
+        label: "Print",
+        onClick: () => window.print(),
+        disabled: printDisabled,
+      }
+    : null;
+  const actionableMenuActions = menuActions.filter((action) => action.href || action.onClick);
+  const visibleMenuActions = [
+    ...actionableMenuActions.filter((action) => !action.destructive),
+    ...(printAction ? [printAction] : []),
+    ...actionableMenuActions.filter((action) => action.destructive),
+  ];
 
   const handleClose = () => {
     if (onClose) {
@@ -105,18 +116,6 @@ export function CardPageHeader({
         ) : null}
         {statusControl}
         {primaryAction ? <HeaderActionButton action={primaryAction} /> : null}
-        {showPrint ? (
-          <button
-            type="button"
-            className={styles.iconBtn}
-            aria-label="Print"
-            title="Print"
-            onClick={() => window.print()}
-            disabled={printDisabled}
-          >
-            <HugeiconsIcon icon={PrinterIcon} size={14} />
-          </button>
-        ) : null}
         {iconActions.map((action) => (
           <IconActionButton key={action.label} action={action} />
         ))}

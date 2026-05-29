@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   itemFamilies,
@@ -63,6 +63,60 @@ function aggregateSourceClaims(claims: AllocationSourceClaim[]) {
   }
 
   return [...claimsByKey.values()];
+}
+
+function isPrimaryDemand(
+  assignment: AllocationAssignment,
+  primaryDemandIdsByType: Map<AllocationDemandType, Set<string>>
+) {
+  return primaryDemandIdsByType.get(assignment.demandType)?.has(assignment.demandId) ?? false;
+}
+
+function applySyntheticAssignmentsToSources(
+  sources: AllocationWorkspace["sources"],
+  syntheticAssignments: AllocationAssignment[],
+  primaryDemandIdsByType: Map<AllocationDemandType, Set<string>>
+) {
+  if (syntheticAssignments.length === 0) return sources;
+
+  const syntheticBySource = new Map<string, number>();
+  const currentSyntheticBySource = new Map<string, number>();
+
+  for (const assignment of syntheticAssignments) {
+    const key = sourceKey(assignment);
+    const qty = toQuantity(assignment.quantity);
+    syntheticBySource.set(key, roundQuantity((syntheticBySource.get(key) ?? 0) + qty));
+    if (isPrimaryDemand(assignment, primaryDemandIdsByType)) {
+      currentSyntheticBySource.set(
+        key,
+        roundQuantity((currentSyntheticBySource.get(key) ?? 0) + qty)
+      );
+    }
+  }
+
+  return sources.map((source) => {
+    const syntheticQty = syntheticBySource.get(source.sourceKey) ?? 0;
+    const currentSyntheticQty = currentSyntheticBySource.get(source.sourceKey) ?? 0;
+    if (syntheticQty <= 0 && currentSyntheticQty <= 0) return source;
+
+    const allocatedQty = roundQuantity(toQuantity(source.allocatedQty) + syntheticQty);
+    const currentPrimaryQty = roundQuantity(
+      toQuantity(source.currentPrimaryQty) + currentSyntheticQty
+    );
+    const totalQty = toQuantity(source.totalQty);
+    const freeQty = Math.max(
+      0,
+      roundQuantity(totalQty - Math.max(0, allocatedQty - currentPrimaryQty))
+    );
+
+    return {
+      ...source,
+      allocatedQty: quantityString(allocatedQty),
+      currentPrimaryQty: quantityString(currentPrimaryQty),
+      freeQty: quantityString(freeQty),
+      maxQtyForPrimaryDemand: quantityString(freeQty),
+    };
+  });
 }
 
 async function loadItemInTx(tx: Tx, itemId: string) {
@@ -253,6 +307,114 @@ async function loadProductionClaimsForItemInTx(
     );
 }
 
+async function loadLinkedManufacturingAssignmentsForItemInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    itemId: string;
+    demandRows: Array<{
+      demandType: AllocationDemandType;
+      demandId: string;
+      parentDemandId?: string | null;
+      salesOrderId?: string | null;
+      label: string;
+      openQty: string;
+    }>;
+    existingAssignments: AllocationAssignment[];
+    sourceLabels: Map<`${AllocationAssignment["sourceType"]}:${string}`, string>;
+  }
+) {
+  const salesDemandRows = params.demandRows.filter(
+    (row) => row.demandType === "sales_order_line"
+  );
+  if (salesDemandRows.length === 0) return [];
+
+  const demandRowsById = new Map(salesDemandRows.map((row) => [row.demandId, row]));
+  const existingAllocatedByDemand = new Map<string, number>();
+  const existingSourceKeysByDemand = new Map<string, Set<string>>();
+
+  for (const assignment of params.existingAssignments) {
+    if (assignment.demandType !== "sales_order_line") continue;
+
+    const qty = toQuantity(assignment.quantity);
+    existingAllocatedByDemand.set(
+      assignment.demandId,
+      roundQuantity((existingAllocatedByDemand.get(assignment.demandId) ?? 0) + qty)
+    );
+
+    const sourceKeys = existingSourceKeysByDemand.get(assignment.demandId) ?? new Set<string>();
+    sourceKeys.add(sourceKey(assignment));
+    existingSourceKeysByDemand.set(assignment.demandId, sourceKeys);
+  }
+
+  const rows = await tx
+    .select({
+      id: manufacturingOrders.id,
+      orderNumber: manufacturingOrders.orderNumber,
+      productName: manufacturingOrders.productName,
+      salesOrderLineId: manufacturingOrders.salesOrderLineId,
+      remainingExpectedQty: trimScale(sql`GREATEST(
+        ${manufacturingOrders.plannedQuantity} - COALESCE(${manufacturingOrders.actualQuantity}, 0),
+        0
+      )`).as("remainingExpectedQty"),
+    })
+    .from(manufacturingOrders)
+    .where(
+      and(
+        eq(manufacturingOrders.organizationId, params.organizationId),
+        eq(manufacturingOrders.productId, params.itemId),
+        eq(manufacturingOrders.status, "open"),
+        isNull(manufacturingOrders.deletedAt),
+        inArray(manufacturingOrders.salesOrderLineId, salesDemandRows.map((row) => row.demandId))
+      )
+    );
+
+  const assignments: AllocationAssignment[] = [];
+  for (const row of rows) {
+    if (!row.salesOrderLineId) continue;
+    const demand = demandRowsById.get(row.salesOrderLineId);
+    if (!demand) continue;
+
+    const linkedSourceKey = sourceKey({
+      sourceType: "manufacturing_order",
+      sourceId: row.id,
+    });
+    if (existingSourceKeysByDemand.get(row.salesOrderLineId)?.has(linkedSourceKey)) {
+      continue;
+    }
+
+    const remainingDemand = roundQuantity(
+      toQuantity(demand.openQty) - (existingAllocatedByDemand.get(row.salesOrderLineId) ?? 0)
+    );
+    const quantity = Math.min(remainingDemand, toQuantity(row.remainingExpectedQty));
+    if (quantity <= 0) continue;
+
+    existingAllocatedByDemand.set(
+      row.salesOrderLineId,
+      roundQuantity((existingAllocatedByDemand.get(row.salesOrderLineId) ?? 0) + quantity)
+    );
+
+    assignments.push({
+      demandType: "sales_order_line",
+      demandId: row.salesOrderLineId,
+      sourceType: "manufacturing_order",
+      sourceId: row.id,
+      itemId: params.itemId,
+      quantity: quantityString(quantity),
+      status: "active",
+      sourceLabel: params.sourceLabels.get(linkedSourceKey) ?? row.orderNumber,
+      demandLabel: demand.label,
+      salesOrderId: demand.salesOrderId ?? demand.parentDemandId ?? null,
+      href:
+        demand.salesOrderId || demand.parentDemandId
+          ? `/sales/order/${demand.salesOrderId ?? demand.parentDemandId}`
+          : null,
+    });
+  }
+
+  return assignments;
+}
+
 export async function getAllocationWorkspaceInTx(
   tx: Tx,
   params: {
@@ -324,7 +486,7 @@ export async function getAllocationWorkspaceInTx(
     }
   }
 
-  const sources = await loadAllocationSourcesForItemInTx(tx, {
+  let sources = await loadAllocationSourcesForItemInTx(tx, {
     organizationId: params.organizationId,
     itemId,
     primaryDemand: params.primaryDemand ?? null,
@@ -334,7 +496,7 @@ export async function getAllocationWorkspaceInTx(
     })),
   });
   const sourceLabels = new Map(sources.map((source) => [source.sourceKey, source.label]));
-  const assignments = (await loadAssignmentsForItemInTx(tx, {
+  const persistedAssignments = (await loadAssignmentsForItemInTx(tx, {
     organizationId: params.organizationId,
     itemId,
   })).map((assignment) => ({
@@ -345,10 +507,28 @@ export async function getAllocationWorkspaceInTx(
   const demandLabels = new Map(
     demandAdapterRows.map((row) => [demandKey(row), row.label])
   );
-  assignments.forEach((assignment) => {
+  persistedAssignments.forEach((assignment) => {
     assignment.demandLabel =
       demandLabels.get(demandKey(assignment)) ?? assignment.demandLabel;
   });
+  const linkedManufacturingAssignments =
+    await loadLinkedManufacturingAssignmentsForItemInTx(tx, {
+      organizationId: params.organizationId,
+      itemId,
+      demandRows: demandAdapterRows,
+      existingAssignments: persistedAssignments,
+      sourceLabels,
+    });
+  linkedManufacturingAssignments.forEach((assignment) => {
+    assignment.demandLabel =
+      demandLabels.get(demandKey(assignment)) ?? assignment.demandLabel;
+  });
+  const assignments = [...persistedAssignments, ...linkedManufacturingAssignments];
+  sources = applySyntheticAssignmentsToSources(
+    sources,
+    linkedManufacturingAssignments,
+    primaryDemandIdsByType
+  );
   const productionClaims = (await loadProductionClaimsForItemInTx(tx, {
     organizationId: params.organizationId,
     itemId,
