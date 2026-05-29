@@ -91,3 +91,9 @@ When multiple agents may be working in the repo:
 - Do not run `git add .` or `git add -A` — stage specific files.
 - Do not modify files outside the scope of your task.
 - Assume other agents may be working in parallel — keep unrelated files untouched.
+
+## Agent dev commands
+
+- `pnpm boot` — idempotent: starts local Postgres, migrates, ensures the test-org session, starts the dev server on a free port in the background (bound to `0.0.0.0` so an Android emulator/device can reach it), and writes `.tmp/agent-session.json` (`port`, `baseUrl`, `dbName`, `branch`, `commit`, `worktreePath`, `testOrgId`, `reviewOrgSlug`, `devServerPid`, `updatedAt`). Re-running reuses a healthy server and restarts it if the recorded commit/branch is stale. Never tears anything down.
+- `pnpm review <path> --slow <domains> [--validate build,lint,fast:sales] [--inventory] [--cached] [--domain <d>] [--docs-only]` — phased: refresh the dev server if stale (re-runs `pnpm boot`) → seed review org (live snapshot; fail-loud if `.vercel/.env.production.local` is missing, `--cached` reuses the last export and prints its provenance) → run declared validation → open the authenticated review browser at `<path>` → require a clean tree, then push + open the PR ready with a validation block → set `ci:slow:*` then `ci:ready`. Validation failure or a dirty tree stops at the PR step; data + browser are still prepared. A missing slow label is fatal unless `--docs-only` (→ `ci:slow:none`); path inference never decides labels.
+- Teardown: keep the worktree/DB/dev server until the PR merges. `pnpm worktree:cleanup <branch>` refuses unless the PR is `MERGED` (override with `--force`).
