@@ -74,6 +74,27 @@ async function main() {
     process.exit(1);
   }
 
+  const force = process.argv.includes("--force");
+  if (!force) {
+    let prState = "";
+    try {
+      prState = execFileSync(
+        "gh",
+        ["pr", "view", branchName, "--json", "state", "--jq", ".state"],
+        { encoding: "utf8" }
+      ).trim();
+    } catch {
+      prState = "UNKNOWN";
+    }
+    if (prState !== "MERGED") {
+      console.error(
+        `Refusing to clean up '${branchName}': its PR is ${prState || "not found"}, not MERGED.\n` +
+          `Keep the worktree/DB/dev server until the PR merges. Re-run with --force only if you are certain.`
+      );
+      process.exit(1);
+    }
+  }
+
   const repoRoot = getCommonRepoRoot();
   const currentCwd = resolve(process.cwd());
   const worktrees = listWorktrees(repoRoot);
