@@ -23,6 +23,7 @@
 
 # next.js
 /.next/
+/.next-validate/
 /out/
 
 # production

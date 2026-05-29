@@ -47,9 +47,34 @@ function commandFor(token: string): string[] | null {
   return null;
 }
 
-function run(command: string[]): boolean {
+// Single source of truth for slow domains. The repo's local lanes and CI labels
+// are NOT 1:1 — either side can be absent — so each is recorded explicitly.
+const SLOW_DOMAINS: Record<string, { lane: string | null; label: string | null }> = {
+  sales: { lane: "test:slow:sales", label: "ci:slow:sales" },
+  purchasing: { lane: "test:slow:purchasing", label: "ci:slow:purchasing" },
+  manufacturing: { lane: "test:slow:manufacturing", label: "ci:slow:manufacturing" },
+  stocktake: { lane: "test:slow:stocktake", label: "ci:slow:stocktake" },
+  auth: { lane: "test:slow:auth", label: "ci:slow:auth" },
+  planning: { lane: "test:slow:planning", label: null }, // lane only — repo has no ci:slow:planning label
+  inventory: { lane: null, label: "ci:slow:inventory" }, // label only — validate via --inventory / workflow lanes
+  all: { lane: null, label: "ci:slow:all" }, // full slow suite runs in CI
+  none: { lane: null, label: "ci:slow:none" },
+};
+
+function labelBearingDomains(): string {
+  return Object.entries(SLOW_DOMAINS)
+    .filter(([, value]) => value.label)
+    .map(([key]) => key)
+    .join(", ");
+}
+
+function run(command: string[], env?: Record<string, string>): boolean {
   try {
-    execFileSync(command[0], command.slice(1), { cwd: root, stdio: "inherit" });
+    execFileSync(command[0], command.slice(1), {
+      cwd: root,
+      stdio: "inherit",
+      env: env ? { ...process.env, ...env } : process.env,
+    });
     return true;
   } catch {
     return false;
@@ -125,6 +150,37 @@ async function main() {
     );
   }
 
+  // Resolve the requested slow domains against the known lane/label map up-front,
+  // so a bad domain fails before any seeding — not mid-run or at the label step.
+  const slowKeys = docsOnly ? ["none"] : slowDomains;
+  const unknownDomains = slowKeys.filter((domain) => !(domain in SLOW_DOMAINS));
+  if (unknownDomains.length > 0) {
+    throw new Error(
+      `Unknown --slow domain(s): ${unknownDomains.join(", ")}. Valid: ${Object.keys(SLOW_DOMAINS).join(", ")}.`
+    );
+  }
+  const ciLabels = slowKeys
+    .map((domain) => SLOW_DOMAINS[domain].label)
+    .filter((label): label is string => Boolean(label));
+  if (ciLabels.length === 0) {
+    throw new Error(
+      `The requested --slow domain(s) map to no ci:slow:* label (e.g. 'planning' has no label). CI requires a slow label — use --slow all, or include a label-bearing domain (${labelBearingDomains()}).`
+    );
+  }
+  for (const domain of slowKeys) {
+    const { lane, label } = SLOW_DOMAINS[domain];
+    if (lane && !label) {
+      console.warn(
+        `⚠ '${domain}' has a slow lane but no ci:slow:* label — CI won't auto-select it. Its lane runs locally; use --slow all if CI must run it.`
+      );
+    }
+    if (!lane && label && domain !== "none" && domain !== "all") {
+      console.log(
+        `Note: '${domain}' has no dedicated slow lane; validate it via --inventory and the relevant workflow lane.`
+      );
+    }
+  }
+
   // Stale dev server: silently refresh via up's idempotent restart so you always
   // eyeball current code, then re-read the refreshed session.
   if (session.commit !== currentCommit() || session.branch !== currentBranch()) {
@@ -147,15 +203,20 @@ async function main() {
       console.warn(`Unknown validation token '${token}', skipping.`);
       continue;
     }
+    // Route the validation build to a separate output dir so it can't clobber the
+    // live `pnpm boot` dev server's .next.
+    const env = token === "build" ? { NEXT_DIST_DIR: ".next-validate" } : undefined;
     console.log(`\n▶ ${command.join(" ")}`);
     results.push({
       name: token,
       command: command.join(" "),
-      status: run(command) ? "pass" : "fail",
+      status: run(command, env) ? "pass" : "fail",
     });
   }
-  for (const domain of slowDomains) {
-    const command = ["pnpm", `test:slow:${domain}`];
+  for (const domain of slowKeys) {
+    const lane = SLOW_DOMAINS[domain].lane;
+    if (!lane) continue;
+    const command = ["pnpm", lane];
     console.log(`\n▶ ${command.join(" ")}`);
     results.push({
       name: `slow:${domain}`,
@@ -238,11 +299,8 @@ async function main() {
     );
   }
 
-  // Phase 5: labels — slow first, ci:ready last.
-  const labels =
-    slowDomains.length > 0
-      ? slowDomains.map((d) => `ci:slow:${d}`)
-      : ["ci:slow:none"];
+  // Phase 5: labels — slow first, ci:ready last. (ciLabels resolved up-front.)
+  const labels = ciLabels;
   try {
     for (const label of labels) {
       execFileSync("gh", ["pr", "edit", branch, "--add-label", label], {
