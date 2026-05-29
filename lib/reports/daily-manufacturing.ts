@@ -91,15 +91,6 @@ function addDays(date: string, days: number) {
   return next.toISOString().slice(0, 10);
 }
 
-function sumQuantityStrings(rows: Array<{ quantity: string }>) {
-  const total = rows.reduce((sum, row) => {
-    const quantity = Number(row.quantity);
-    return Number.isFinite(quantity) ? sum + quantity : sum;
-  }, 0);
-
-  return total.toFixed(4).replace(/\.?0+$/, "");
-}
-
 function graphMatchesProduct(
   graph: DailyManufacturingProductTypeGraphConfig,
   row: { productName: string; productSku: string | null; unit: string }
@@ -401,23 +392,6 @@ async function buildDailyManufacturingReportPayloadInTx(
       thirtyDayTrend: ninetyDayTrend.slice(-30),
     };
   });
-  const outputByProductType = productTypeGraphs.map((config) => ({
-    category: config.id,
-    id: config.id,
-    label: config.label,
-    unit: config.unitName,
-    color: config.color,
-    ninetyDayTrend: trendDates.map((date) => ({
-      date,
-      quantity: sumQuantityStrings(
-        trendRows.filter((row) => {
-          if (row.date !== date) return false;
-          return graphMatchesProduct(config, row);
-        })
-      ),
-    })),
-  }));
-
   const outputByRecordedByRows = await tx
     .select({
       userId: manufacturingOrderOutputs.createdBy,
@@ -574,7 +548,6 @@ async function buildDailyManufacturingReportPayloadInTx(
       shippedLineValue: shipmentSummary?.shippedLineValue ?? "0",
     },
     outputByProduct: outputByProductWithTrend,
-    outputByProductType,
     outputByRecordedBy,
     completedBatches,
     materialsConsumed,

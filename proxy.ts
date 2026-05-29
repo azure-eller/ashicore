@@ -12,6 +12,9 @@ function isDevelopmentRoute(pathname: string) {
   return process.env.VERCEL_ENV !== "production" && pathname.startsWith("/dev/");
 }
 
+// Internal automation endpoints that bypass the session-cookie gate. The proxy
+// does no auth for these — every route here MUST validate its own
+// `Authorization: Bearer <secret>` in the handler. Never add a route without that.
 const bearerProtectedInternalRoutes = new Set([
   "/api/internal/accounting-purchase-order-sync",
   "/api/internal/daily-reports",
