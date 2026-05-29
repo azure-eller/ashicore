@@ -50,6 +50,7 @@
     "test": "pnpm test:fast",
     "test:fast": "pnpm test:e2e:fast",
     "test:e2e:fast": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/fast --workers=${PLAYWRIGHT_FAST_WORKERS:-2}",
+    "test:scratch": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/scratch --workers=1",
     "test:slow": "pnpm test:e2e:slow",
     "test:e2e:slow": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/slow",
     "test:reconciliation": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/reconciliation",
