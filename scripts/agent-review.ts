@@ -174,7 +174,11 @@ async function main() {
         `⚠ '${domain}' has a slow lane but no ci:slow:* label — CI won't auto-select it. Its lane runs locally; use --slow all if CI must run it.`
       );
     }
-    if (!lane && label && domain !== "none" && domain !== "all") {
+    if (domain === "all") {
+      console.log(
+        "Note: '--slow all' sets ci:slow:all — the full slow suite runs in CI and is not run locally."
+      );
+    } else if (!lane && label && domain !== "none") {
       console.log(
         `Note: '${domain}' has no dedicated slow lane; validate it via --inventory and the relevant workflow lane.`
       );
@@ -205,13 +209,23 @@ async function main() {
     }
     // Route the validation build to a separate output dir so it can't clobber the
     // live `pnpm boot` dev server's .next.
-    const env = token === "build" ? { NEXT_DIST_DIR: ".next-validate" } : undefined;
+    const isBuild = token === "build";
+    const env = isBuild ? { NEXT_DIST_DIR: ".next-validate" } : undefined;
     console.log(`\n▶ ${command.join(" ")}`);
-    results.push({
-      name: token,
-      command: command.join(" "),
-      status: run(command, env) ? "pass" : "fail",
-    });
+    const status = run(command, env) ? "pass" : "fail";
+    if (isBuild) {
+      // Next rewrites tsconfig.json's `include` for the custom distDir; revert it
+      // so the clean-tree gate (and the repo) stay clean.
+      try {
+        execFileSync("git", ["checkout", "--", "tsconfig.json"], {
+          cwd: root,
+          stdio: "ignore",
+        });
+      } catch {
+        /* tsconfig untouched */
+      }
+    }
+    results.push({ name: token, command: command.join(" "), status });
   }
   for (const domain of slowKeys) {
     const lane = SLOW_DOMAINS[domain].lane;
