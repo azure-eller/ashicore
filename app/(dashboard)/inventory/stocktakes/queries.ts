@@ -146,6 +146,49 @@ async function getLockedStocktakeInTx(tx: Tx, id: string): Promise<LockedStockta
   return stocktake ?? null;
 }
 
+async function resolveFoundLotIdInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    itemId: string;
+    lotNumber: string;
+    stocktakeLotItemId: string;
+  }
+): Promise<string> {
+  const [existing] = await tx
+    .select({ id: lots.id })
+    .from(lots)
+    .where(
+      and(
+        eq(lots.organizationId, params.organizationId),
+        eq(lots.itemId, params.itemId),
+        eq(lots.lotNumber, params.lotNumber)
+      )
+    );
+
+  const lotId = existing
+    ? existing.id
+    : (
+        await tx
+          .insert(lots)
+          .values({
+            organizationId: params.organizationId,
+            itemId: params.itemId,
+            lotNumber: params.lotNumber,
+            quantity: "0",
+            receivedAt: new Date(),
+          })
+          .returning({ id: lots.id })
+      )[0].id;
+
+  await tx
+    .update(stocktakeLotItems)
+    .set({ lotId, updatedAt: new Date() })
+    .where(eq(stocktakeLotItems.id, params.stocktakeLotItemId));
+
+  return lotId;
+}
+
 async function getStocktakeLinesInTx(
   tx: Tx,
   stocktakeId: string,
@@ -186,6 +229,7 @@ async function getStocktakeLinesInTx(
       id: stocktakeLotItems.id,
       stocktakeItemId: stocktakeLotItems.stocktakeItemId,
       lotId: stocktakeLotItems.lotId,
+      isFound: stocktakeLotItems.isFound,
       lotNumber: stocktakeLotItems.lotNumber,
       expectedQty: options?.liveCurrent
         ? trimScale(sql`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`).as(
@@ -215,6 +259,7 @@ async function getStocktakeLinesInTx(
       stocktakeLotItems.id,
       stocktakeLotItems.stocktakeItemId,
       stocktakeLotItems.lotId,
+      stocktakeLotItems.isFound,
       stocktakeLotItems.lotNumber,
       stocktakeLotItems.expectedQty,
       stocktakeLotItems.countedQty,
@@ -710,13 +755,16 @@ export async function getStocktakeCompletionPreview(
           const lots = line.lots
             .filter((lot) => lot.countedQty != null)
             .map((lot) => {
-              const currentQty = liveLotsById.get(lot.id)?.expectedQty ?? "0";
+              const currentQty = lot.isFound
+                ? "0"
+                : liveLotsById.get(lot.id)?.expectedQty ?? "0";
               const countedQty = lot.countedQty ?? "0";
               return {
                 lotLineId: lot.id,
                 lotId: lot.lotId,
+                isFound: lot.isFound,
                 lotNumber: lot.lotNumber,
-                expectedQty: lot.expectedQty,
+                expectedQty: lot.isFound ? "0" : lot.expectedQty,
                 currentQty,
                 countedQty,
                 varianceQty: normalizeNumeric(Number(countedQty) - Number(currentQty)),
@@ -937,6 +985,47 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
         .where(eq(stocktakeItems.id, existing.line.id));
     }
 
+    for (const foundLot of data.foundLotLines) {
+      const ownerLine = lineMap.get(foundLot.stocktakeItemId);
+
+      if (!ownerLine) {
+        throw new StocktakeError("Stocktake line not found", 404, {
+          errors: {
+            lotLines: ["Refresh and try again."],
+          },
+        });
+      }
+
+      const [family] = await tx
+        .select({ lotTrackingMode: itemFamilies.lotTrackingMode })
+        .from(items)
+        .innerJoin(itemFamilies, eq(itemFamilies.id, items.familyId))
+        .where(eq(items.id, ownerLine.itemId));
+
+      if (!family || family.lotTrackingMode !== "tracked") {
+        throw new StocktakeError(
+          "Found lots can only be added to lot-tracked items.",
+          400,
+          { errors: { lotLines: ["This item does not track lots."] } }
+        );
+      }
+
+      const countedQty = foundLot.countedQty;
+      const varianceQty = getVariance("0", countedQty);
+
+      await tx.insert(stocktakeLotItems).values({
+        stocktakeItemId: ownerLine.id,
+        lotId: null,
+        isFound: true,
+        lotNumber: foundLot.lotNumber,
+        expectedQty: "0",
+        countedQty,
+        varianceQty,
+        ...(foundLot.notes !== undefined ? { notes: foundLot.notes } : {}),
+        receivedAt: new Date(),
+      });
+    }
+
     await tx
       .update(stocktakes)
       .set({
@@ -998,6 +1087,27 @@ export async function completeStocktake(
         );
         for (const lot of line.lots) {
           if (lot.countedQty == null) {
+            continue;
+          }
+
+          if (lot.isFound) {
+            // Found lots are not in the live snapshot; resolve (or create) the
+            // lot row so reconcile can post a positive stocktake gain to it.
+            const lotId = await resolveFoundLotIdInTx(tx, {
+              organizationId: orgId,
+              itemId: line.itemId,
+              lotNumber: lot.lotNumber,
+              stocktakeLotItemId: lot.id,
+            });
+
+            countedLines.push({
+              stocktakeLineId: lot.id,
+              stocktakeItemId: line.id,
+              itemId: line.itemId,
+              lotId,
+              expectedQty: "0",
+              countedQty: lot.countedQty,
+            });
             continue;
           }
 

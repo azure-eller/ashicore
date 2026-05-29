@@ -4,6 +4,7 @@ import {
   inventoryEvents,
   lots,
   stocktakeItems,
+  stocktakeLotItems,
   stocktakes,
 } from "../../../lib/db/schema";
 import { testFetch } from "../../helpers/api";
@@ -129,5 +130,142 @@ test.describe("stocktake workflow operating story", () => {
 
     await page.goto(`/inventory/stocktakes/${stocktakeId}`);
     await expect(page.locator("main").getByText("Completed", { exact: true }).first()).toBeVisible();
+  });
+});
+
+test.describe("stocktake found-lot operating story", () => {
+  test.describe.configure({ mode: "serial" });
+
+  let foundMaterialId: string;
+  let foundStocktakeId: string;
+  let foundLineId: string;
+  const foundLotNumber = `FOUND-${Date.now()}`;
+
+  test("records an unexpected lot discovered on the floor and posts a gain", async ({
+    db,
+  }) => {
+    const material = await createMaterialFixture({
+      name: "Found Lot Material",
+      stock: "0",
+      cost: "3.00",
+    });
+    foundMaterialId = material.id;
+
+    const create = await testFetch("/api/stocktakes", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Found Lot Story ${Date.now()}`,
+        scope: "all",
+        notes: null,
+        itemIds: [foundMaterialId],
+      }),
+    });
+    expect(create.status).toBe(201);
+    foundStocktakeId = (await create.json()).id as string;
+
+    const [line] = await db
+      .select()
+      .from(stocktakeItems)
+      .where(
+        and(
+          eq(stocktakeItems.stocktakeId, foundStocktakeId),
+          eq(stocktakeItems.itemId, foundMaterialId)
+        )
+      );
+    foundLineId = line.id;
+
+    // Operator records a lot that was never in the snapshot.
+    const save = await testFetch(`/api/stocktakes/${foundStocktakeId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        lines: [],
+        lotLines: [
+          {
+            isFound: true,
+            stocktakeItemId: foundLineId,
+            lotNumber: foundLotNumber,
+            countedQty: "7",
+          },
+        ],
+      }),
+    });
+    expect(save.status, await save.text()).toBe(200);
+
+    const [savedFound] = await db
+      .select()
+      .from(stocktakeLotItems)
+      .where(
+        and(
+          eq(stocktakeLotItems.stocktakeItemId, foundLineId),
+          eq(stocktakeLotItems.isFound, true)
+        )
+      );
+    expect(savedFound).toBeTruthy();
+    expect(savedFound.lotId).toBeNull();
+    expect(savedFound.countedQty).toBe("7.0000");
+    expect(savedFound.expectedQty).toBe("0.0000");
+
+    const complete = await testFetch(
+      `/api/stocktakes/${foundStocktakeId}/complete`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmStale: false }),
+      }
+    );
+    expect(complete.status, await complete.text()).toBe(200);
+
+    await expect
+      .poll(async () => {
+        const [stocktake] = await db
+          .select({ status: stocktakes.status })
+          .from(stocktakes)
+          .where(eq(stocktakes.id, foundStocktakeId));
+        return stocktake?.status ?? null;
+      }, { timeout: 30_000 })
+      .toBe("completed");
+
+    // The found lot now exists for the item at the counted quantity.
+    const [createdLot] = await db
+      .select({ id: lots.id, quantity: lots.quantity })
+      .from(lots)
+      .where(
+        and(
+          eq(lots.itemId, foundMaterialId),
+          eq(lots.lotNumber, foundLotNumber)
+        )
+      );
+    expect(createdLot).toBeTruthy();
+    expect(createdLot.quantity).toBe("7.0000");
+
+    // A stocktake_gain inventory event was written for the new lot.
+    const events = await db
+      .select({
+        eventType: inventoryEvents.eventType,
+        quantity: inventoryEvents.quantity,
+        lotId: inventoryEvents.lotId,
+      })
+      .from(inventoryEvents)
+      .where(sql`${inventoryEvents.metadata}->>'stocktakeId' = ${foundStocktakeId}`);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "stocktake_gain",
+          quantity: "7.0000",
+          lotId: createdLot.id,
+        }),
+      ])
+    );
+
+    // The found-lot stocktake row was backfilled with the created lot id.
+    const [reconciledFound] = await db
+      .select({ lotId: stocktakeLotItems.lotId })
+      .from(stocktakeLotItems)
+      .where(
+        and(
+          eq(stocktakeLotItems.stocktakeItemId, foundLineId),
+          eq(stocktakeLotItems.isFound, true)
+        )
+      );
+    expect(reconciledFound.lotId).toBe(createdLot.id);
   });
 });

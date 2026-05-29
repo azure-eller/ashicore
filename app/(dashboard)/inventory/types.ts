@@ -86,6 +86,7 @@ export type ItemRow = {
   usedInCount: number;
   revenue30d: string | null;
   createdAt: Date;
+  lastCountedAt: string | null;
   subRows?: ItemRow[];
 };
 

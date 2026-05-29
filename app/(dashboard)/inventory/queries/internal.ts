@@ -207,6 +207,14 @@ function normalizeUsageQuantity(value: number) {
 }
 
 const stockSubquery = projectedOnHandQty(items.organizationId, items.id).as("stock");
+// Most recent physical count for the item — drives the mobile "Counted Nd ago" label.
+// Derived from stocktake reconciliation events (no denormalized column needed).
+const lastCountedAtSubquery = sql<string | null>`(
+  SELECT MAX(${inventoryEvents.occurredAt})
+  FROM ${inventoryEvents}
+  WHERE ${inventoryEvents.itemId} = ${items.id}
+    AND ${inventoryEvents.eventType} IN ('stocktake_verification', 'stocktake_gain', 'stocktake_loss')
+)`.as("lastCountedAt");
 const committedQtySubquery = projectedCommittedQty(
   items.organizationId,
   items.id
@@ -741,6 +749,7 @@ export async function getItems(filters?: {
                 itemType: items.itemType,
                 optionCombinationKey: items.optionCombinationKey,
                 stock: stockSubquery,
+                lastCountedAt: lastCountedAtSubquery,
                 committedQty: committedQtySubquery,
                 demandQty: demandQtySubquery,
                 shortageQty: shortageQtySubquery,
@@ -879,6 +888,7 @@ export async function getItems(filters?: {
                   usedInCount,
                   revenue30d: revenueByItemId.get(row.id) ?? null,
                   createdAt: row.createdAt,
+                  lastCountedAt: row.lastCountedAt ?? null,
                 };
               })
               .sort((a, b) => {

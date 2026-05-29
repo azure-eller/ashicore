@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   integer,
   numeric,
@@ -101,9 +102,8 @@ export const stocktakeLotItems = inventorySchema
       stocktakeItemId: uuid("stocktake_item_id")
         .notNull()
         .references(() => stocktakeItems.id),
-      lotId: uuid("lot_id")
-        .notNull()
-        .references(() => lots.id),
+      lotId: uuid("lot_id").references(() => lots.id),
+      isFound: boolean("is_found").notNull().default(false),
       lotNumber: varchar("lot_number", { length: 128 }).notNull(),
       expectedQty: numeric("expected_qty", { precision: 12, scale: 4 }).notNull(),
       countedQty: numeric("counted_qty", { precision: 12, scale: 4 }),
@@ -118,10 +118,9 @@ export const stocktakeLotItems = inventorySchema
     (table) => [
       index("stocktake_lot_items_stocktake_item_id_idx").on(table.stocktakeItemId),
       index("stocktake_lot_items_lot_id_idx").on(table.lotId),
-      uniqueIndex("stocktake_lot_items_stocktake_item_lot_uidx").on(
-        table.stocktakeItemId,
-        table.lotId
-      ),
+      uniqueIndex("stocktake_lot_items_stocktake_item_lot_uidx")
+        .on(table.stocktakeItemId, table.lotId)
+        .where(sql`lot_id IS NOT NULL`),
       pgPolicy("stocktake_lot_items_org_isolation", {
         for: "all",
         to: "public",
