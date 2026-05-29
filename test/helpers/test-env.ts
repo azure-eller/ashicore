@@ -34,12 +34,28 @@ const AGENT_SESSION_PATH = path.resolve(
  * The lanes must target that running server, so prefer those over the legacy
  * `localhost:3000` default. An explicit `TEST_BASE_URL` still wins.
  */
+function isProcessAlive(pid: unknown): boolean {
+  if (typeof pid !== "number") return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function resolveBaseUrl(): string {
   if (process.env.TEST_BASE_URL) return process.env.TEST_BASE_URL;
 
   try {
     const session = JSON.parse(fs.readFileSync(AGENT_SESSION_PATH, "utf-8"));
-    if (typeof session.baseUrl === "string" && session.baseUrl) {
+    // Only trust the boot URL if its dev server is actually still running —
+    // a stale session file must not point the lanes at a dead/free port.
+    if (
+      typeof session.baseUrl === "string" &&
+      session.baseUrl &&
+      isProcessAlive(session.devServerPid)
+    ) {
       return session.baseUrl;
     }
   } catch {

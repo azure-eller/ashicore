@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Client } from "pg";
 import {
@@ -130,6 +130,31 @@ async function main() {
       `Refusing to remove dirty worktree ${branchName}. Clean or commit these changes first:\n${dirtyStatus}`
     );
     process.exit(1);
+  }
+
+  // Stop the boot dev server before tearing down — it is kept alive until merge,
+  // so otherwise this detached Next process would keep running from a removed cwd
+  // against a dropped database.
+  const sessionFile = resolve(targetPath, ".tmp", "agent-session.json");
+  if (existsSync(sessionFile)) {
+    try {
+      const pid = JSON.parse(readFileSync(sessionFile, "utf8")).devServerPid;
+      if (typeof pid === "number") {
+        try {
+          process.kill(-pid, "SIGTERM"); // process group (boot spawns detached)
+        } catch {
+          /* not a group leader */
+        }
+        try {
+          process.kill(pid, "SIGTERM");
+        } catch {
+          /* already gone */
+        }
+        console.log(`Stopped dev server (pid ${pid}) for ${branchName}.`);
+      }
+    } catch {
+      /* unreadable session file — nothing to stop */
+    }
   }
 
   const adminUrl = process.env.LOCAL_DB_ADMIN_URL ?? DEFAULT_ADMIN_URL;
