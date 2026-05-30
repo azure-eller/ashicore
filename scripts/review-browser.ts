@@ -62,7 +62,8 @@ async function main() {
 
   const context = await chromium.launchPersistentContext(PROFILE_DIR, {
     headless: false,
-    viewport: { width: 1440, height: 900 },
+    viewport: null,
+    args: ["--start-maximized", "--window-size=1920,1080"],
   });
 
   // Record our pid immediately so a later run can tear this down even if the
