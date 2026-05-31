@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useReducer, type MouseEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Spinner } from "@/components/ui/spinner";
@@ -27,6 +27,49 @@ export type CardTabsProps = {
   caption?: ReactNode;
 };
 
+type CardTabState = {
+  committedTab: string;
+  optimisticTab: string;
+  requestedRouteTab: string | null;
+};
+
+type CardTabAction =
+  | { type: "commit"; tab: string; controlled: boolean }
+  | { type: "request-route"; tab: string }
+  | { type: "select-local"; tab: string };
+
+function cardTabReducer(state: CardTabState, action: CardTabAction): CardTabState {
+  switch (action.type) {
+    case "commit": {
+      if (state.committedTab === action.tab) {
+        return state;
+      }
+
+      const requestedRouteTab =
+        state.requestedRouteTab === action.tab ? null : state.requestedRouteTab;
+
+      return {
+        committedTab: action.tab,
+        optimisticTab:
+          action.controlled || requestedRouteTab == null
+            ? action.tab
+            : state.optimisticTab,
+        requestedRouteTab,
+      };
+    }
+    case "request-route":
+      return {
+        ...state,
+        requestedRouteTab: action.tab,
+      };
+    case "select-local":
+      return {
+        ...state,
+        optimisticTab: action.tab,
+      };
+  }
+}
+
 export function CardTabs({
   tabs,
   defaultTab,
@@ -43,27 +86,53 @@ export function CardTabs({
   const activeTab =
     controlledActiveTab ??
     (qsTab && isEnabledTab(qsTab) ? qsTab : defaultTab);
-  const [optimisticTab, setOptimisticTab] = useState(activeTab);
-  const isRouteTabLoading = controlledActiveTab != null && optimisticTab !== activeTab;
-  const renderedTab = controlledActiveTab != null ? activeTab : optimisticTab;
+  const [tabState, dispatchTabState] = useReducer(cardTabReducer, activeTab, (tab) => ({
+    committedTab: tab,
+    optimisticTab: tab,
+    requestedRouteTab: null,
+  }));
+  const visibleTab = controlledActiveTab != null
+    ? tabState.requestedRouteTab ?? activeTab
+    : tabState.optimisticTab;
+  const isRouteTabLoading = controlledActiveTab != null && visibleTab !== activeTab;
+  const renderedTab = controlledActiveTab != null ? activeTab : tabState.optimisticTab;
 
   useEffect(() => {
-    setOptimisticTab(activeTab);
-  }, [activeTab]);
+    dispatchTabState({
+      type: "commit",
+      tab: activeTab,
+      controlled: controlledActiveTab != null,
+    });
+  }, [activeTab, controlledActiveTab]);
 
   const selectTab = (next: string) => {
     if (next === activeTab) return;
     if (!isEnabledTab(next)) return;
-    setOptimisticTab(next);
+    dispatchTabState({ type: "select-local", tab: next });
     const params = updateSearchParams(searchParams, { tab: next });
     router.replace(`?${params.toString()}`, { scroll: false });
+  };
+
+  const requestRouteTab = (event: MouseEvent<HTMLAnchorElement>, next: string) => {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    dispatchTabState({ type: "request-route", tab: next });
   };
 
   return (
     <>
       <nav className={styles.tabs} aria-label="Card sections">
         {tabs.map((tab) => {
-          const isActive = tab.value === optimisticTab;
+          const isActive = tab.value === visibleTab;
           if (tab.disabled) {
             return (
               <button
@@ -92,7 +161,7 @@ export function CardTabs({
                 aria-current={isActive ? "page" : undefined}
                 aria-controls={`card-tab-panel-${tab.value}`}
                 className={cn(styles.tab, isActive && styles.tabActive)}
-                onClick={() => setOptimisticTab(tab.value)}
+                onClick={(event) => requestRouteTab(event, tab.value)}
                 prefetch
               >
                 {tab.label}
@@ -122,8 +191,8 @@ export function CardTabs({
 
       <div className={styles.body}>
         <section
-          id={`card-tab-panel-${optimisticTab}`}
-          aria-labelledby={`card-tab-${optimisticTab}`}
+          id={`card-tab-panel-${visibleTab}`}
+          aria-labelledby={`card-tab-${visibleTab}`}
         >
           {isRouteTabLoading ? (
             <div className={styles.tabLoading} role="status" aria-live="polite">

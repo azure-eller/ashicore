@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { apiJson } from "@/lib/client/api";
-import { SettingsPanel, SettingsPanelHeader } from "./settings-panel";
+import { SettingsPanel, SettingsPanelHeader } from "@/components/settings-panel";
 
 type TaxRateRow = {
   id: string;

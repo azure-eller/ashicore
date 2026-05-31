@@ -48,7 +48,7 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { TeamRoleBadge } from "./team-role-badge";
 import type { PendingInviteRow, TeamMemberRow, TeamPageData } from "./types";
-import { SettingsPanel, SettingsPanelHeader } from "./settings-panel";
+import { SettingsPanel, SettingsPanelHeader } from "@/components/settings-panel";
 
 type InviteFormValues = {
   email: string;

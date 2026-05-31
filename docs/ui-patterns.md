@@ -31,6 +31,25 @@ The design system has **three token layers**. Full spec: `docs/design-system/01_
 
 `Button`, `Input`, `InputGroup`, `StatusLabel`, `StatusRibbon`, `Spinner`, `Combobox`, plus the create-page shell components (`CreatePageShell`, `CreatePageHeader`, `CreatePageGrid`, `CreateSection`, `CreateSidebarCard`). All of these consume V2 tokens directly — compose them rather than re-styling at the page level.
 
+## Dashboard Module Layouts
+
+Module layouts own the outer dashboard gutter. Use `DashboardModuleShell` in
+Sales, Manufacturing, Inventory, Purchasing, Settings, and future module
+layouts. Page components should not add local `p-4`, `gap-4`, or alternate
+outer wrappers to recreate the dashboard frame.
+
+`DashboardModuleShell` is intentionally presentational. It must not fetch data,
+read route state, add Suspense, or key itself by pathname. The top nav and
+module shell should remain mounted while child route segments load.
+
+Use `CreatePageShell` inside the module shell for standalone create/edit forms.
+Use `CardPage` inside the module shell for editable detail cards. Use
+`SettingsPanel` and `SettingsKeyValueRow` for settings surfaces.
+
+Dashboard navigation state may update active nav affordances optimistically, but
+it must not unmount the dashboard route tree to show loading. Segment
+`loading.tsx` files and local Suspense fallbacks own loading UI.
+
 ## Icons
 
 HugeIcons only:

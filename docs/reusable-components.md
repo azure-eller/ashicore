@@ -95,11 +95,12 @@ read_when:
 
 ## Shell And Navigation
 
+- `DashboardModuleShell` — `components/dashboard-shell.tsx`
 - `DashboardRouteLoading` — `components/dashboard-route-loading.tsx`
 - `DataTableLoading` — `components/data-table-loading.tsx`
 - `NavigationPendingProvider`, `NavigationLink`, `DashboardNavigationContent` — `components/navigation-pending.tsx`
 - `DashboardTopNav` — `components/dashboard-top-nav.tsx`
-- `SettingsPanel`, `SettingsPanelHeader`, `SettingsPanelSection`, `SettingsPanelActionRow` — `app/(dashboard)/settings/settings-panel.tsx`
+- `SettingsPanel`, `SettingsPanelHeader`, `SettingsPanelSection`, `SettingsPanelActionRow`, `SettingsRows`, `SettingsKeyValueRow` — `components/settings-panel.tsx`
 
 ## Older Secondary Patterns
 
