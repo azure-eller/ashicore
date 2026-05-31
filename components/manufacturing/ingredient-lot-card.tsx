@@ -3,16 +3,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
-import { TableFrame, TableFrameFooter, TableFrameHeader } from "@/components/table-frame";
-import { Input } from "@/components/ui/input";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  FramedTable,
+  FramedTableBody,
+  FramedTableCell,
+  FramedTableHeaderCell,
+  FramedTableHead,
+  FramedTableRow,
+  TableFrame,
+  TableFrameFooter,
+  TableFrameHeader,
+} from "@/components/table-frame";
+import { Input } from "@/components/ui/input";
 import { apiJson } from "@/lib/client/api";
 import { formatQuantity, normalizeNumeric, normalizeQuantityNumber } from "@/lib/format";
 import { appendSearchParams } from "@/lib/routing/search-params";
@@ -228,15 +230,15 @@ export function ManufacturingIngredientLotCard({
         <EmptyState density="compact">No available lots found.</EmptyState>
       ) : (
         <>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Lot</TableHead>
-                <TableHead className="w-28 text-right">Free</TableHead>
-                <TableHead className="w-32 text-right">Allocate</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          <FramedTable>
+            <FramedTableHead>
+              <FramedTableRow>
+                <FramedTableHeaderCell>Lot</FramedTableHeaderCell>
+                <FramedTableHeaderCell className="w-28 text-right">Free</FramedTableHeaderCell>
+                <FramedTableHeaderCell className="w-32 text-right">Allocate</FramedTableHeaderCell>
+              </FramedTableRow>
+            </FramedTableHead>
+            <FramedTableBody>
               {lots.map((source) => {
                 const currentQuantity = currentBySourceId.get(source.sourceId) ?? 0;
                 const maxQuantity =
@@ -249,8 +251,8 @@ export function ManufacturingIngredientLotCard({
                 const sourceOver =
                   Number.isFinite(sourceQuantity) && sourceQuantity > maxQuantity + 0.0001;
                 return (
-                  <TableRow key={source.sourceKey}>
-                    <TableCell>
+                  <FramedTableRow key={source.sourceKey}>
+                    <FramedTableCell>
                       <div className="space-y-0.5">
                         <div className="font-medium">{source.label}</div>
                         {source.contextLabel ? (
@@ -259,11 +261,11 @@ export function ManufacturingIngredientLotCard({
                           </div>
                         ) : null}
                       </div>
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-sm tabular-nums">
+                    </FramedTableCell>
+                    <FramedTableCell className="text-right font-mono text-sm tabular-nums">
                       {formatQuantity(normalizeNumeric(maxQuantity))}
-                    </TableCell>
-                    <TableCell>
+                    </FramedTableCell>
+                    <FramedTableCell>
                       <Input
                         value={sourceValue}
                         onChange={(event) =>
@@ -280,12 +282,12 @@ export function ManufacturingIngredientLotCard({
                           {formatQuantity(normalizeNumeric(sourceQuantity - maxQuantity))} over
                         </div>
                       ) : null}
-                    </TableCell>
-                  </TableRow>
+                    </FramedTableCell>
+                  </FramedTableRow>
                 );
               })}
-            </TableBody>
-          </Table>
+            </FramedTableBody>
+          </FramedTable>
           {isOverPlanned ? (
             <TableFrameFooter className="py-(--space-2) text-[length:var(--text-xs)] text-destructive">
               {formatQuantity(normalizeNumeric(manualAllocatedQuantity - plannedQuantityNumber))} over need

@@ -1,15 +1,15 @@
 import Link from "next/link";
 import { EmptyState } from "@/components/empty-state";
 import { SurfacePanel } from "@/components/surface-panel";
-import { TableFrameHeader } from "@/components/table-frame";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  FramedTable,
+  FramedTableBody,
+  FramedTableCell,
+  FramedTableHeaderCell,
+  FramedTableHead,
+  FramedTableRow,
+  TableFrameHeader,
+} from "@/components/table-frame";
 import { formatDate, formatQuantity } from "@/lib/format";
 import type { DemandQueueItemCoverage } from "@/lib/inventory/allocation/demand-queue";
 
@@ -39,45 +39,45 @@ export function DemandQueueCoverageTable({
       </div>
 
       <SurfacePanel padding="sm" className="p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Item</TableHead>
-              <TableHead className="text-right">On hand</TableHead>
-              <TableHead className="text-right">Expected</TableHead>
-              <TableHead className="text-right">Claimed by mfg</TableHead>
-              <TableHead className="text-right">Available to sales</TableHead>
-              <TableHead className="text-right">Short</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+        <FramedTable>
+          <FramedTableHead>
+            <FramedTableRow>
+              <FramedTableHeaderCell>Item</FramedTableHeaderCell>
+              <FramedTableHeaderCell className="text-right">On hand</FramedTableHeaderCell>
+              <FramedTableHeaderCell className="text-right">Expected</FramedTableHeaderCell>
+              <FramedTableHeaderCell className="text-right">Claimed by mfg</FramedTableHeaderCell>
+              <FramedTableHeaderCell className="text-right">Available to sales</FramedTableHeaderCell>
+              <FramedTableHeaderCell className="text-right">Short</FramedTableHeaderCell>
+            </FramedTableRow>
+          </FramedTableHead>
+          <FramedTableBody>
             {coverage.map((item) => (
-              <TableRow key={item.itemId}>
-                <TableCell className="font-medium">{item.itemName}</TableCell>
-                <TableCell className="text-right tabular-nums">
+              <FramedTableRow key={item.itemId}>
+                <FramedTableCell className="font-medium">{item.itemName}</FramedTableCell>
+                <FramedTableCell className="text-right tabular-nums">
                   {formatQuantity(item.onHandQty)}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
+                </FramedTableCell>
+                <FramedTableCell className="text-right tabular-nums">
                   {formatQuantity(item.expectedQty)}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
+                </FramedTableCell>
+                <FramedTableCell className="text-right tabular-nums">
                   {formatQuantity(item.claimedByManufacturingQty)}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
+                </FramedTableCell>
+                <FramedTableCell className="text-right tabular-nums">
                   {formatQuantity(item.sellableQty)}
-                </TableCell>
-                <TableCell
+                </FramedTableCell>
+                <FramedTableCell
                   className="text-right tabular-nums"
                   data-short={isShort(item.shortQty) ? "true" : undefined}
                 >
                   <span className={isShort(item.shortQty) ? "text-destructive" : undefined}>
                     {formatQuantity(item.shortQty)}
                   </span>
-                </TableCell>
-              </TableRow>
+                </FramedTableCell>
+              </FramedTableRow>
             ))}
-          </TableBody>
-        </Table>
+          </FramedTableBody>
+        </FramedTable>
       </SurfacePanel>
 
       <div className="flex flex-col gap-(--space-8)">
@@ -89,21 +89,21 @@ export function DemandQueueCoverageTable({
                 · {formatQuantity(item.onHandQty)} {item.unitName} on hand
               </span>
             </TableFrameHeader>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Demand</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-right">Required</TableHead>
-                  <TableHead className="text-right">In stock</TableHead>
-                  <TableHead className="text-right">Expected</TableHead>
-                  <TableHead className="text-right">Short</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <FramedTable>
+              <FramedTableHead>
+                <FramedTableRow>
+                  <FramedTableHeaderCell>Demand</FramedTableHeaderCell>
+                  <FramedTableHeaderCell>Type</FramedTableHeaderCell>
+                  <FramedTableHeaderCell className="text-right">Required</FramedTableHeaderCell>
+                  <FramedTableHeaderCell className="text-right">In stock</FramedTableHeaderCell>
+                  <FramedTableHeaderCell className="text-right">Expected</FramedTableHeaderCell>
+                  <FramedTableHeaderCell className="text-right">Short</FramedTableHeaderCell>
+                </FramedTableRow>
+              </FramedTableHead>
+              <FramedTableBody>
                 {item.demands.map((demand) => (
-                  <TableRow key={`${demand.demandType}:${demand.demandId}`}>
-                    <TableCell>
+                  <FramedTableRow key={`${demand.demandType}:${demand.demandId}`}>
+                    <FramedTableCell>
                       {demand.href ? (
                         <Link href={demand.href} className="font-medium hover:underline">
                           {demand.label}
@@ -116,35 +116,35 @@ export function DemandQueueCoverageTable({
                           {demand.contextLabel}
                         </span>
                       ) : null}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    </FramedTableCell>
+                    <FramedTableCell className="text-muted-foreground">
                       {demand.typeLabel}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    </FramedTableCell>
+                    <FramedTableCell className="text-right tabular-nums">
                       {formatQuantity(demand.requiredQty)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    </FramedTableCell>
+                    <FramedTableCell className="text-right tabular-nums">
                       {formatQuantity(demand.inStockQty)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    </FramedTableCell>
+                    <FramedTableCell className="text-right tabular-nums">
                       <div>{formatQuantity(demand.expectedQty)}</div>
                       {demand.earliestExpectedDate ? (
                         <div className="text-[length:var(--text-xs)] text-muted-foreground">
                           Expected {formatDate(demand.earliestExpectedDate)}
                         </div>
                       ) : null}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
+                    </FramedTableCell>
+                    <FramedTableCell className="text-right tabular-nums">
                       <span
                         className={isShort(demand.shortQty) ? "text-destructive" : undefined}
                       >
                         {formatQuantity(demand.shortQty)}
                       </span>
-                    </TableCell>
-                  </TableRow>
+                    </FramedTableCell>
+                  </FramedTableRow>
                 ))}
-              </TableBody>
-            </Table>
+              </FramedTableBody>
+            </FramedTable>
           </SurfacePanel>
         ))}
       </div>

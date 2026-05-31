@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
-import { TableCell, TableRow } from "@/components/ui/table";
-import { cn } from "@/lib/utils";
+import { FramedTableEmptyRow } from "@/components/table-frame";
 
 type TableEmptyRowProps = {
   children: ReactNode;
@@ -16,19 +15,8 @@ export function TableEmptyRow({
   height = "default",
 }: TableEmptyRowProps) {
   return (
-    <TableRow>
-      <TableCell
-        colSpan={colSpan}
-        className={cn(
-          "text-center text-muted-foreground",
-          height === "compact"
-            ? "h-[calc(var(--space-20)+var(--space-8))]"
-            : "h-[calc(var(--space-20)*2)]",
-          className,
-        )}
-      >
-        {children}
-      </TableCell>
-    </TableRow>
+    <FramedTableEmptyRow colSpan={colSpan} className={className} height={height}>
+      {children}
+    </FramedTableEmptyRow>
   );
 }

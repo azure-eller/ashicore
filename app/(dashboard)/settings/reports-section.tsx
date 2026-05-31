@@ -14,8 +14,15 @@ import { EmptyState } from "@/components/empty-state";
 import { InsetPanel } from "@/components/inset-panel";
 import { ListFrame, ListFrameItem } from "@/components/list-frame";
 import { MetricTile } from "@/components/metric-tile";
-import { TableEmptyRow } from "@/components/table-empty-row";
-import { TableFrame } from "@/components/table-frame";
+import {
+  FramedTable,
+  FramedTableBody,
+  FramedTableCell,
+  FramedTableHeaderCell,
+  FramedTableHead,
+  FramedTableRow,
+  TableFrame,
+} from "@/components/table-frame";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -29,14 +36,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { TableEmptyRow } from "@/components/table-empty-row";
 import {
   SettingsPanel,
   SettingsPanelActionRow,
@@ -437,33 +437,33 @@ function ReportHistoryDialog({
   return (
     <div className="grid gap-5">
       <TableFrame>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Date</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Products</TableHead>
-              <TableHead>Generated</TableHead>
-              <TableHead className="text-right">Action</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+        <FramedTable>
+          <FramedTableHead>
+            <FramedTableRow>
+              <FramedTableHeaderCell>Date</FramedTableHeaderCell>
+              <FramedTableHeaderCell>Status</FramedTableHeaderCell>
+              <FramedTableHeaderCell>Products</FramedTableHeaderCell>
+              <FramedTableHeaderCell>Generated</FramedTableHeaderCell>
+              <FramedTableHeaderCell className="text-right">Action</FramedTableHeaderCell>
+            </FramedTableRow>
+          </FramedTableHead>
+          <FramedTableBody>
             {historyError ? (
               <TableEmptyRow colSpan={5}>Failed to load report history.</TableEmptyRow>
             ) : isLoadingHistory ? (
               <TableEmptyRow colSpan={5}>Loading reports...</TableEmptyRow>
             ) : reports.length > 0 ? (
               reports.map((report) => (
-                <TableRow key={report.id} data-state={selectedReportId === report.id ? "selected" : undefined}>
-                  <TableCell>{formatDate(report.reportDate)}</TableCell>
-                  <TableCell>
+                <FramedTableRow key={report.id} data-state={selectedReportId === report.id ? "selected" : undefined}>
+                  <FramedTableCell>{formatDate(report.reportDate)}</FramedTableCell>
+                  <FramedTableCell>
                     <ReportStatusBadge status={report.status} />
-                  </TableCell>
-                  <TableCell>
+                  </FramedTableCell>
+                  <FramedTableCell>
                     {report.payload?.summary.productsWithRecordedOutput ?? "-"}
-                  </TableCell>
-                  <TableCell>{formatDateTime(report.createdAt, timeZone)}</TableCell>
-                  <TableCell className="text-right">
+                  </FramedTableCell>
+                  <FramedTableCell>{formatDateTime(report.createdAt, timeZone)}</FramedTableCell>
+                  <FramedTableCell className="text-right">
                     <Button
                       type="button"
                       size="sm"
@@ -472,14 +472,14 @@ function ReportHistoryDialog({
                     >
                       View
                     </Button>
-                  </TableCell>
-                </TableRow>
+                  </FramedTableCell>
+                </FramedTableRow>
               ))
             ) : (
               <TableEmptyRow colSpan={5}>No reports yet.</TableEmptyRow>
             )}
-          </TableBody>
-        </Table>
+          </FramedTableBody>
+        </FramedTable>
       </TableFrame>
 
       {selectedReportId ? (
@@ -599,30 +599,30 @@ function ReportTable({
     <div>
       <h4 className="mb-2 text-sm font-medium">{title}</h4>
       <TableFrame>
-        <Table>
-          <TableHeader>
-            <TableRow>
+        <FramedTable>
+          <FramedTableHead>
+            <FramedTableRow>
               {headers.map((header) => (
-                <TableHead key={header}>{header}</TableHead>
+                <FramedTableHeaderCell key={header}>{header}</FramedTableHeaderCell>
               ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+            </FramedTableRow>
+          </FramedTableHead>
+          <FramedTableBody>
             {rows.length > 0 ? (
               rows.map((row, index) => (
-                <TableRow key={index}>
+                <FramedTableRow key={index}>
                   {row.map((cell, cellIndex) => (
-                    <TableCell key={cellIndex}>{cell}</TableCell>
+                    <FramedTableCell key={cellIndex}>{cell}</FramedTableCell>
                   ))}
-                </TableRow>
+                </FramedTableRow>
               ))
             ) : (
               <TableEmptyRow colSpan={headers.length} height="compact">
                 No rows.
               </TableEmptyRow>
             )}
-          </TableBody>
-        </Table>
+          </FramedTableBody>
+        </FramedTable>
       </TableFrame>
     </div>
   );

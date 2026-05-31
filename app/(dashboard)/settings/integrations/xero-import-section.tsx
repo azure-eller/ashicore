@@ -23,13 +23,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Spinner } from "@/components/ui/spinner";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  FramedTable,
+  FramedTableBody,
+  FramedTableCell,
+  FramedTableHeaderCell,
+  FramedTableHead,
+  FramedTableRow,
+} from "@/components/table-frame";
 import {
   ACCOUNTING_PROVIDER_XERO,
   type AccountingProvider,
@@ -535,7 +535,7 @@ function PurchaseOrderImportDialog({
                   padding="sm"
                   className="min-h-0 min-w-0 flex-1 overflow-hidden p-0"
                 >
-                  <Table
+                  <FramedTable
                     className="min-w-[64rem] table-fixed text-sm"
                     containerClassName="h-full overflow-auto"
                   >
@@ -548,21 +548,21 @@ function PurchaseOrderImportDialog({
                       <col className="w-28" />
                       <col className="w-28" />
                     </colgroup>
-                    <TableHeader className="sticky top-0 z-10">
-                      <TableRow>
-                        <TableHead />
-                        <TableHead>Status</TableHead>
-                        <TableHead>Provider PO</TableHead>
-                        <TableHead>Supplier</TableHead>
-                        <TableHead>Materials</TableHead>
-                        <TableHead>Delivery</TableHead>
-                        <TableHead>Total</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                    <FramedTableHead className="sticky top-0 z-10">
+                      <FramedTableRow>
+                        <FramedTableHeaderCell />
+                        <FramedTableHeaderCell>Status</FramedTableHeaderCell>
+                        <FramedTableHeaderCell>Provider PO</FramedTableHeaderCell>
+                        <FramedTableHeaderCell>Supplier</FramedTableHeaderCell>
+                        <FramedTableHeaderCell>Materials</FramedTableHeaderCell>
+                        <FramedTableHeaderCell>Delivery</FramedTableHeaderCell>
+                        <FramedTableHeaderCell>Total</FramedTableHeaderCell>
+                      </FramedTableRow>
+                    </FramedTableHead>
+                    <FramedTableBody>
                       {preview.candidates.map((candidate) => (
-                        <TableRow key={candidate.id}>
-                          <TableCell>
+                        <FramedTableRow key={candidate.id}>
+                          <FramedTableCell>
                             <Checkbox
                               disabled={!candidate.selectable}
                               checked={selectedIds.has(candidate.id)}
@@ -575,8 +575,8 @@ function PurchaseOrderImportDialog({
                                 });
                               }}
                             />
-                          </TableCell>
-                          <TableCell>
+                          </FramedTableCell>
+                          <FramedTableCell>
                             <ConfiguredBadge
                               value={candidate.status}
                               config={purchaseOrderImportStatusBadgeConfig}
@@ -591,24 +591,24 @@ function PurchaseOrderImportDialog({
                                 {candidate.reviewReason}
                               </div>
                             ) : null}
-                          </TableCell>
-                          <TableCell>
+                          </FramedTableCell>
+                          <FramedTableCell>
                             <div className="truncate">
                               {candidate.externalPurchaseOrderNumber}
                             </div>
                             <div className="truncate text-xs text-muted-foreground">
                               {candidate.externalStatus}
                             </div>
-                          </TableCell>
-                          <TableCell>
+                          </FramedTableCell>
+                          <FramedTableCell>
                             <div className="truncate" title={candidate.supplierName}>
                               {candidate.supplierName}
                             </div>
                             <div className="truncate text-xs text-muted-foreground">
                               {candidate.createsSupplier ? "Creates supplier" : "Matched"}
                             </div>
-                          </TableCell>
-                          <TableCell>
+                          </FramedTableCell>
+                          <FramedTableCell>
                             {candidate.matchedLineCount}/{candidate.lineCount} matched
                             {candidate.createsMaterials > 0 ? (
                               <div className="truncate text-xs text-muted-foreground">
@@ -620,13 +620,13 @@ function PurchaseOrderImportDialog({
                                 Units {candidate.needsPurchaseConversionReview}
                               </div>
                             ) : null}
-                          </TableCell>
-                          <TableCell>{candidate.deliveryDate ?? candidate.orderDate ?? "—"}</TableCell>
-                          <TableCell>{formatMoneyValue(candidate.total)}</TableCell>
-                        </TableRow>
+                          </FramedTableCell>
+                          <FramedTableCell>{candidate.deliveryDate ?? candidate.orderDate ?? "—"}</FramedTableCell>
+                          <FramedTableCell>{formatMoneyValue(candidate.total)}</FramedTableCell>
+                        </FramedTableRow>
                       ))}
-                    </TableBody>
-                  </Table>
+                    </FramedTableBody>
+                  </FramedTable>
                 </SurfacePanel>
               </div>
             ) : null}

@@ -60,6 +60,7 @@ export default async function ProductRecipePage({
       initialOutputQuantity={currentRevision?.outputQuantity ?? "1"}
       initialRecipeBasis={currentRevision?.recipeBasis === "batch" ? "batch" : "unit"}
       initialExpectedBatchYield={item.expectedBatchYield}
+      bomRevisions={bomRevisions}
       availableComponents={availableComponents.map((component) => ({
         id: component.id,
         name: component.name,

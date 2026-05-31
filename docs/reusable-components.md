@@ -68,7 +68,7 @@ read_when:
 - `QuantityWithUnit` — `components/quantity-with-unit.tsx`
 - `AttributeBadges` — `components/attribute-badges.tsx`
 - `TooltipHeader` — `components/tooltip-header.tsx`
-- `TableFrame` — `components/table-frame.tsx`
+- `TableFrame`, `FramedTable`, `FramedTableHead`, `FramedTableBody`, `FramedTableRow`, `FramedTableHeaderCell`, `FramedTableCell`, `FramedTableEmptyRow` — `components/table-frame.tsx`
 - `ListFrame` / `ListFrameItem` / `SelectableListFrameItem` — `components/list-frame.tsx`
 - `InsetPanel` — `components/inset-panel.tsx`
 - `SurfacePanel` — `components/surface-panel.tsx`

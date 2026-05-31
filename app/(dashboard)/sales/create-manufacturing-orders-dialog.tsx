@@ -8,7 +8,15 @@ import { Add01Icon } from "@hugeicons/core-free-icons";
 import { apiJson } from "@/lib/client/api";
 import type { ManufacturingSalesOrderPreview } from "@/app/(dashboard)/manufacturing/types";
 import { EmptyState } from "@/components/empty-state";
-import { TableFrame } from "@/components/table-frame";
+import {
+  FramedTable,
+  FramedTableBody,
+  FramedTableCell,
+  FramedTableHeaderCell,
+  FramedTableHead,
+  FramedTableRow,
+  TableFrame,
+} from "@/components/table-frame";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -23,14 +31,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import type { SalesOrderDetail } from "./types";
 import { cn } from "@/lib/utils";
 
@@ -378,26 +378,26 @@ export function CreateManufacturingOrdersDialog({
                 </p>
               ) : previewQuery.data ? (
                 <TableFrame>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
+                  <FramedTable>
+                    <FramedTableHead>
+                      <FramedTableRow>
                         {!isSingleLineMode ? (
-                          <TableHead className="w-10">
+                          <FramedTableHeaderCell className="w-10">
                             <span className="sr-only">Select</span>
-                          </TableHead>
+                          </FramedTableHeaderCell>
                         ) : null}
-                        <TableHead>Product</TableHead>
-                        <TableHead className="w-32 text-right">Make</TableHead>
-                        <TableHead className="w-36">Unit</TableHead>
+                        <FramedTableHeaderCell>Product</FramedTableHeaderCell>
+                        <FramedTableHeaderCell className="w-32 text-right">Make</FramedTableHeaderCell>
+                        <FramedTableHeaderCell className="w-36">Unit</FramedTableHeaderCell>
                         {showStatusColumns ? (
                           <>
-                            <TableHead className="w-32">Status</TableHead>
-                            <TableHead>Reason</TableHead>
+                            <FramedTableHeaderCell className="w-32">Status</FramedTableHeaderCell>
+                            <FramedTableHeaderCell>Reason</FramedTableHeaderCell>
                           </>
                         ) : null}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                      </FramedTableRow>
+                    </FramedTableHead>
+                    <FramedTableBody>
                       {previewQuery.data.lines.map((line) => {
                         const isCreatable = line.status === "will_create";
                         const lineIsBatch = isBatchLine(line);
@@ -408,9 +408,9 @@ export function CreateManufacturingOrdersDialog({
                             initialLineQuantityMap.get(line.salesOrderLineId)
                           );
                         return (
-                          <TableRow key={line.salesOrderLineId}>
+                          <FramedTableRow key={line.salesOrderLineId}>
                             {!isSingleLineMode ? (
-                              <TableCell>
+                              <FramedTableCell>
                                 <Checkbox
                                   aria-label={`Create MO for ${line.itemName}`}
                                   checked={
@@ -422,17 +422,17 @@ export function CreateManufacturingOrdersDialog({
                                     toggleLine(line.salesOrderLineId, checked === true)
                                   }
                                 />
-                              </TableCell>
+                              </FramedTableCell>
                             ) : null}
-                            <TableCell>
+                            <FramedTableCell>
                               <div className="font-medium">{line.itemName}</div>
                               {line.itemSku ? (
                                 <div className="text-xs text-muted-foreground">
                                   {line.itemSku}
                                 </div>
                               ) : null}
-                            </TableCell>
-                            <TableCell>
+                            </FramedTableCell>
+                            <FramedTableCell>
                               {isCreatable ? (
                                 <Input
                                   inputMode={lineIsBatch ? "numeric" : "decimal"}
@@ -460,8 +460,8 @@ export function CreateManufacturingOrdersDialog({
                                     : line.quantity}
                                 </span>
                               )}
-                            </TableCell>
-                            <TableCell>
+                            </FramedTableCell>
+                            <FramedTableCell>
                               {lineIsBatch ? (
                                 <div>
                                   <div>batches</div>
@@ -472,24 +472,24 @@ export function CreateManufacturingOrdersDialog({
                               ) : (
                                 line.unitName
                               )}
-                            </TableCell>
+                            </FramedTableCell>
                             {showStatusColumns ? (
                               <>
-                                <TableCell>
+                                <FramedTableCell>
                                   <Badge variant={isCreatable ? "secondary" : "outline"}>
                                     {isCreatable ? "Will create" : "Skipped"}
                                   </Badge>
-                                </TableCell>
-                                <TableCell className="text-sm text-muted-foreground">
+                                </FramedTableCell>
+                                <FramedTableCell className="text-sm text-muted-foreground">
                                   {line.skipMessage ?? "-"}
-                                </TableCell>
+                                </FramedTableCell>
                               </>
                             ) : null}
-                          </TableRow>
+                          </FramedTableRow>
                         );
                       })}
-                    </TableBody>
-                  </Table>
+                    </FramedTableBody>
+                  </FramedTable>
                 </TableFrame>
               ) : null}
             </div>
@@ -503,39 +503,39 @@ export function CreateManufacturingOrdersDialog({
               </div>
               {effectiveOpenManufacturingOrders.length ? (
                 <TableFrame>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Order</TableHead>
-                        <TableHead>Item</TableHead>
-                        <TableHead className="w-28 text-right">Qty</TableHead>
-                        <TableHead className="w-32">Production deadline</TableHead>
-                        <TableHead className="w-24">Priority</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
+                  <FramedTable>
+                    <FramedTableHead>
+                      <FramedTableRow>
+                        <FramedTableHeaderCell>Order</FramedTableHeaderCell>
+                        <FramedTableHeaderCell>Item</FramedTableHeaderCell>
+                        <FramedTableHeaderCell className="w-28 text-right">Qty</FramedTableHeaderCell>
+                        <FramedTableHeaderCell className="w-32">Production deadline</FramedTableHeaderCell>
+                        <FramedTableHeaderCell className="w-24">Priority</FramedTableHeaderCell>
+                      </FramedTableRow>
+                    </FramedTableHead>
+                    <FramedTableBody>
                       {effectiveOpenManufacturingOrders.map((manufacturingOrder) => (
-                        <TableRow key={manufacturingOrder.id}>
-                          <TableCell>
+                        <FramedTableRow key={manufacturingOrder.id}>
+                          <FramedTableCell>
                             <div className="font-medium">
                               {manufacturingOrder.orderNumber}
                             </div>
                             <div className="text-xs text-muted-foreground">
                               {manufacturingOrder.status}
                             </div>
-                          </TableCell>
-                          <TableCell>{manufacturingOrder.itemName}</TableCell>
-                          <TableCell className="text-right">
+                          </FramedTableCell>
+                          <FramedTableCell>{manufacturingOrder.itemName}</FramedTableCell>
+                          <FramedTableCell className="text-right">
                             {manufacturingOrder.quantity}
-                          </TableCell>
-                          <TableCell>{manufacturingOrder.plannedDate ?? "-"}</TableCell>
-                          <TableCell>
+                          </FramedTableCell>
+                          <FramedTableCell>{manufacturingOrder.plannedDate ?? "-"}</FramedTableCell>
+                          <FramedTableCell>
                             {manufacturingOrder.priorityRank ?? "-"}
-                          </TableCell>
-                        </TableRow>
+                          </FramedTableCell>
+                        </FramedTableRow>
                       ))}
-                    </TableBody>
-                  </Table>
+                    </FramedTableBody>
+                  </FramedTable>
                 </TableFrame>
               ) : (
                 <EmptyState density="compact">No open manufacturing orders.</EmptyState>

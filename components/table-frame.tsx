@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 export function TableFrame({
@@ -39,45 +39,85 @@ export function TableFrameFooter({ children, className }: TableFrameEdgeProps) {
 export function FramedTable({
   children,
   className,
-}: {
-  children: ReactNode;
-  className?: string;
+  containerClassName,
+  ...props
+}: ComponentPropsWithoutRef<"table"> & {
+  containerClassName?: string;
 }) {
-  return (
-    <table className={cn("w-full border-collapse text-[length:var(--text-sm)]", className)}>
+  const table = (
+    <table
+      className={cn(
+        "w-full border-collapse text-[length:var(--text-sm)] leading-[var(--leading-sm)]",
+        className,
+      )}
+      {...props}
+    >
       {children}
     </table>
   );
+
+  if (containerClassName) {
+    return <div className={cn("relative w-full overflow-x-auto", containerClassName)}>{table}</div>;
+  }
+
+  return table;
 }
 
 export function FramedTableHead({
   children,
   className,
-}: {
-  children: ReactNode;
-  className?: string;
+  sticky = false,
+  ...props
+}: ComponentPropsWithoutRef<"thead"> & {
+  sticky?: boolean;
 }) {
   return (
     <thead
       className={cn(
-        "bg-[var(--color-surface-muted)] text-left text-[length:var(--text-xs)] font-medium text-muted-foreground",
+        "bg-[var(--color-surface-muted)] text-left text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-medium text-muted-foreground",
+        sticky && "sticky top-0 z-10",
         className,
       )}
+      {...props}
     >
       {children}
     </thead>
   );
 }
 
+export function FramedTableBody({
+  children,
+  className,
+  ...props
+}: ComponentPropsWithoutRef<"tbody">) {
+  return (
+    <tbody className={cn("[&_tr:last-child]:border-0", className)} {...props}>
+      {children}
+    </tbody>
+  );
+}
+
 export function FramedTableRow({
   children,
   className,
-}: {
-  children: ReactNode;
-  className?: string;
+  selected = false,
+  ...props
+}: ComponentPropsWithoutRef<"tr"> & {
+  selected?: boolean;
 }) {
+  const dataState = selected
+    ? "selected"
+    : (props as { "data-state"?: string })["data-state"];
+
   return (
-    <tr className={cn("border-b border-border last:border-b-0", className)}>
+    <tr
+      {...props}
+      data-state={dataState}
+      className={cn(
+        "border-b border-border transition-colors hover:bg-muted data-[state=selected]:bg-[var(--color-accent-soft)]",
+        className,
+      )}
+    >
       {children}
     </tr>
   );
@@ -87,18 +127,20 @@ export function FramedTableHeaderCell({
   children,
   align = "left",
   className,
-}: {
+  ...props
+}: ComponentPropsWithoutRef<"th"> & {
   children?: ReactNode;
-  align?: "left" | "right";
-  className?: string;
+  align?: "left" | "right" | "center";
 }) {
   return (
     <th
       className={cn(
-        "p-(--space-3) font-medium",
+        "px-[var(--table-cell-px)] py-[var(--table-cell-py)] align-middle font-medium tracking-[var(--tracking-caps)] whitespace-nowrap uppercase",
         align === "right" && "text-right",
+        align === "center" && "text-center",
         className,
       )}
+      {...props}
     >
       {children}
     </th>
@@ -113,20 +155,19 @@ export function FramedTableCell({
   muted = false,
   className,
   colSpan,
-}: {
+  ...props
+}: ComponentPropsWithoutRef<"td"> & {
   children?: ReactNode;
   align?: "left" | "right" | "center";
   numeric?: boolean;
   strong?: boolean;
   muted?: boolean;
-  className?: string;
-  colSpan?: number;
 }) {
   return (
     <td
       colSpan={colSpan}
       className={cn(
-        "p-(--space-3)",
+        "px-[var(--table-cell-px)] py-[var(--table-cell-py)] align-middle whitespace-nowrap text-foreground",
         align === "right" && "text-right",
         align === "center" && "text-center",
         numeric && "font-mono tabular-nums",
@@ -134,8 +175,39 @@ export function FramedTableCell({
         muted && "text-muted-foreground",
         className,
       )}
+      {...props}
     >
       {children}
     </td>
+  );
+}
+
+export function FramedTableEmptyRow({
+  children,
+  colSpan,
+  className,
+  height = "default",
+}: {
+  children: ReactNode;
+  colSpan: number;
+  className?: string;
+  height?: "default" | "compact";
+}) {
+  return (
+    <FramedTableRow>
+      <FramedTableCell
+        colSpan={colSpan}
+        align="center"
+        muted
+        className={cn(
+          height === "compact"
+            ? "h-[calc(var(--space-20)+var(--space-8))]"
+            : "h-[calc(var(--space-20)*2)]",
+          className,
+        )}
+      >
+        {children}
+      </FramedTableCell>
+    </FramedTableRow>
   );
 }
