@@ -13,7 +13,7 @@ import {
 import { DateTimeText } from "@/components/date-time-text";
 import { EmptyState } from "@/components/empty-state";
 import { InsetPanel } from "@/components/inset-panel";
-import { ListFrame, ListFrameItem } from "@/components/list-frame";
+import { ListFrame } from "@/components/list-frame";
 import { SurfacePanel } from "@/components/surface-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,8 +34,10 @@ import type { AgentAccessPageData, AgentApiTokenRow } from "./types";
 import {
   SettingsPanel,
   SettingsPanelHeader,
+  SettingsKeyValueRow,
   SettingsPanelSection,
-} from "./settings-panel";
+  SettingsRows,
+} from "@/components/settings-panel";
 
 type CreateTokenResponse = {
   token: string;
@@ -455,29 +457,29 @@ export function AgentAccessSection({
               No tokens yet. Create one to connect ChatGPT or another agent.
             </EmptyState>
           ) : (
-            data.tokens.map((token) => {
-              const status = tokenStatus(token);
-              const active = status === "Active";
+            <SettingsRows>
+              {data.tokens.map((token) => {
+                const status = tokenStatus(token);
+                const active = status === "Active";
 
-              return (
-                <ListFrameItem
-                  key={token.id}
-                  className="grid gap-(--space-6) px-(--space-8) py-(--space-7) md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
-                >
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-(--space-4)">
-                        <div className="flex min-w-0 items-center gap-(--space-3) font-medium">
-                          <HugeiconsIcon
-                            icon={Key01Icon}
-                            className="size-(--space-7)"
-                          />
-                          <span className="truncate">{token.name}</span>
-                        </div>
+                return (
+                  <SettingsKeyValueRow
+                    key={token.id}
+                    label="Token"
+                    value={
+                      <span className="flex min-w-0 items-center gap-(--space-3) font-medium">
+                        <HugeiconsIcon
+                          icon={Key01Icon}
+                          className="size-(--space-7)"
+                        />
+                        <span className="truncate">{token.name}</span>
                         <Badge variant={active ? "default" : "outline"}>
                           {status}
                         </Badge>
-                      </div>
-                      <div className="mt-(--space-2) flex flex-wrap gap-x-(--space-6) gap-y-(--space-2) text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground">
+                      </span>
+                    }
+                    supportingText={
+                      <span className="flex flex-wrap gap-x-(--space-6) gap-y-(--space-2)">
                         <span className="font-mono">{token.tokenPrefix}</span>
                         <span>
                           created <DateTimeText value={token.createdAt} />
@@ -489,24 +491,26 @@ export function AgentAccessSection({
                         ) : (
                           <span>never used</span>
                         )}
-                      </div>
-                    </div>
-
-                    {active ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={revokeMutation.isPending}
-                        onClick={() => revokeMutation.mutate(token.id)}
-                      >
-                        <HugeiconsIcon icon={Delete02Icon} data-icon="inline-start" />
-                        Revoke
-                      </Button>
-                    ) : null}
-                </ListFrameItem>
-              );
-            })
+                      </span>
+                    }
+                    action={
+                      active ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={revokeMutation.isPending}
+                          onClick={() => revokeMutation.mutate(token.id)}
+                        >
+                          <HugeiconsIcon icon={Delete02Icon} data-icon="inline-start" />
+                          Revoke
+                        </Button>
+                      ) : null
+                    }
+                  />
+                );
+              })}
+            </SettingsRows>
           )}
         </ListFrame>
       </SettingsPanelSection>

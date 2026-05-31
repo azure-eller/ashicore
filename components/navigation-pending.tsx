@@ -11,7 +11,6 @@ import {
   useRef,
   useState,
 } from "react";
-import DataTableLoading from "@/components/data-table-loading";
 import {
   getDashboardRouteShell,
   resolveDashboardNavigationHref,
@@ -260,24 +259,7 @@ export function DashboardNavigationContent({
 }: {
   children: React.ReactNode;
 }) {
-  const { optimisticShell } = useNavigationPending();
-
-  if (!optimisticShell) {
-    return children;
-  }
-
-  return (
-    <div
-      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-      data-testid="optimistic-dashboard-shell"
-      aria-busy="true"
-      aria-label={`Loading ${optimisticShell.title}`}
-    >
-      <div data-testid="optimistic-data-region">
-        <DataTableLoading />
-      </div>
-    </div>
-  );
+  return children;
 }
 
 function getComparableLocation(href?: LinkHref) {

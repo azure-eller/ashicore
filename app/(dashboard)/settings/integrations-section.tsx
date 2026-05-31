@@ -78,7 +78,7 @@ import {
   AccountingPurchaseOrderImportButton,
   XeroImportSection,
 } from "./integrations/xero-import-section";
-import { SettingsPanel, SettingsPanelHeader } from "./settings-panel";
+import { SettingsPanel, SettingsPanelHeader } from "@/components/settings-panel";
 
 const ERROR_MESSAGES: Record<string, string> = {
   state_mismatch: "Security check failed. Please try connecting Xero again.",

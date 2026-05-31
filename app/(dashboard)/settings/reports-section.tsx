@@ -37,6 +37,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  SettingsPanel,
+  SettingsPanelActionRow,
+  SettingsPanelHeader,
+} from "@/components/settings-panel";
 import type { DailyManufacturingReportScheduleData } from "@/lib/dal/reports";
 import type { DailyManufacturingReportPayload } from "@/lib/reports/daily-manufacturing-schema";
 import {
@@ -46,11 +51,6 @@ import {
   formatQuantity,
   todayInTimeZone,
 } from "@/lib/format";
-import {
-  SettingsPanel,
-  SettingsPanelActionRow,
-  SettingsPanelHeader,
-} from "./settings-panel";
 
 type FormState = {
   enabled: boolean;

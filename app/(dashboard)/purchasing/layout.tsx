@@ -1,3 +1,4 @@
+import { DashboardModuleShell } from "@/components/dashboard-shell";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 
 export default async function PurchasingLayout({
@@ -7,7 +8,5 @@ export default async function PurchasingLayout({
 }) {
   await requireModuleReadAccess("purchasing");
 
-  return (
-    <div className="flex flex-1 flex-col gap-4 p-4">{children}</div>
-  );
+  return <DashboardModuleShell>{children}</DashboardModuleShell>;
 }
