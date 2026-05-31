@@ -4,13 +4,14 @@ import {
   normalizeSparklineColor,
   parseSparklineValues,
 } from "@/lib/reports/sparkline";
+import { requestSearchParams } from "@/lib/routing/search-params";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const values = parseSparklineValues(url.searchParams.get("values"));
-  const color = normalizeSparklineColor(url.searchParams.get("color"));
+  const searchParams = requestSearchParams(request);
+  const values = parseSparklineValues(searchParams.get("values"));
+  const color = normalizeSparklineColor(searchParams.get("color"));
   const svg = buildSparklineSvg(values, color);
   const png = await sharp(Buffer.from(svg)).png().toBuffer();
 

@@ -1,22 +1,29 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
+import { parseOptionalJsonBody } from "@/lib/api/request-body";
+import { jsonError } from "@/lib/api/responses";
 import { auth } from "@/lib/auth";
 import { getMobileMfaChallenge, otpMatches } from "@/lib/auth/mobile-mfa";
+import { requestUrl } from "@/lib/routing/search-params";
 
 export const runtime = "nodejs";
 
 const MAX_ATTEMPTS = 5;
+const verifyCodeBodySchema = z
+  .object({
+    code: z.unknown().optional(),
+    trustDevice: z.unknown().optional(),
+  })
+  .nullish();
 
 export const POST = apiHandler(async (request) => {
-  const body = (await request.json().catch(() => null)) as {
-    code?: unknown;
-    trustDevice?: unknown;
-  } | null;
+  const body = await parseOptionalJsonBody(request, verifyCodeBodySchema, null);
   const code = typeof body?.code === "string" ? body.code.trim() : "";
   const trustDevice = body?.trustDevice === true;
 
   if (!/^\d{6}$/.test(code)) {
-    return NextResponse.json({ error: "Enter the 6-digit code." }, { status: 400 });
+    return jsonError("Enter the 6-digit code.");
   }
 
   const challenge = await getMobileMfaChallenge(request);
@@ -60,7 +67,7 @@ export const POST = apiHandler(async (request) => {
       value: `${storedOtp}:${attemptCount + 1}`,
     });
 
-    return NextResponse.json({ error: "Incorrect code." }, { status: 401 });
+    return jsonError("Incorrect code.", 401);
   }
 
   const userWithMfaFlag = challenge.user as typeof challenge.user & {
@@ -73,11 +80,12 @@ export const POST = apiHandler(async (request) => {
     });
   }
 
-  const upstream = await fetch(new URL("/api/auth/two-factor/verify-otp", request.url), {
+  const url = requestUrl(request);
+  const upstream = await fetch(new URL("/api/auth/two-factor/verify-otp", url), {
     method: "POST",
     headers: {
       cookie: request.headers.get("cookie") ?? "",
-      origin: request.headers.get("origin") ?? new URL(request.url).origin,
+      origin: request.headers.get("origin") ?? url.origin,
       "content-type": "application/json",
     },
     body: JSON.stringify({ code, trustDevice }),

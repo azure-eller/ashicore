@@ -1,80 +1,44 @@
-import { del, put } from "@vercel/blob";
-import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { jsonNotFound, jsonCreated } from "@/lib/api/responses";
+import {
+  assertPrivateBlobStorageConfigured,
+  deletePrivateBlobQuietly,
+  readRequiredPrivateFormFile,
+  uploadPrivateFile,
+} from "@/lib/blob-storage";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   createPurchaseOrderAttachment,
   getPurchaseOrderFileUploadTarget,
 } from "@/app/(dashboard)/purchasing/queries";
 
-const MAX_PURCHASE_ORDER_FILE_BYTES = 50 * 1024 * 1024;
-
-function sanitizePathPart(value: string) {
-  return (
-    value
-      .trim()
-      .replace(/[/\\?%*:|"<>]/g, "-")
-      .replace(/\s+/g, "-")
-      .slice(0, 140) || "file"
-  );
-}
-
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const authContext = await assertModuleWriteAccess("purchasing", request.headers);
-
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    return NextResponse.json(
-      { error: "Private file storage is not configured." },
-      { status: 503 }
-    );
-  }
+  assertPrivateBlobStorageConfigured();
 
   const { id } = await (ctx as RouteContext).params;
-  const formData = await request.formData();
-  const value = formData.get("file");
-
-  if (!(value instanceof File)) {
-    return NextResponse.json({ error: "File is required." }, { status: 400 });
-  }
-
-  if (value.size <= 0) {
-    return NextResponse.json({ error: "File is empty." }, { status: 400 });
-  }
-
-  if (value.size > MAX_PURCHASE_ORDER_FILE_BYTES) {
-    return NextResponse.json(
-      { error: "File must be 50 MB or smaller." },
-      { status: 400 }
-    );
-  }
+  const uploadFile = await readRequiredPrivateFormFile(request);
 
   const order = await getPurchaseOrderFileUploadTarget(id);
   if (!order) {
-    return NextResponse.json({ error: "Purchase order not found" }, { status: 404 });
+    return jsonNotFound("Purchase order not found");
   }
 
-  const filename = value.name || "upload";
-  const storageKey = [
+  const upload = await uploadPrivateFile(uploadFile, [
     "attachments",
     authContext.orgId,
     "purchase-orders",
     id,
-    `${crypto.randomUUID()}-${sanitizePathPart(filename)}`,
-  ].join("/");
-
-  const blob = await put(storageKey, value, {
-    access: "private",
-    contentType: value.type || "application/octet-stream",
-  });
+  ]);
 
   try {
     const file = await createPurchaseOrderAttachment({
       purchaseOrderId: id,
-      storageKey,
-      blobUrl: blob.url,
-      filename,
-      contentType: value.type || "application/octet-stream",
-      sizeBytes: value.size,
+      storageKey: upload.storageKey,
+      blobUrl: upload.blobUrl,
+      filename: upload.filename,
+      contentType: upload.contentType,
+      sizeBytes: upload.sizeBytes,
       uploadedBy: {
         userId: authContext.userId,
         name: authContext.name,
@@ -82,13 +46,13 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     });
 
     if (!file) {
-      await del(blob.url).catch(() => undefined);
-      return NextResponse.json({ error: "Purchase order not found" }, { status: 404 });
+      await deletePrivateBlobQuietly(upload.blobUrl);
+      return jsonNotFound("Purchase order not found");
     }
 
-    return NextResponse.json(file, { status: 201 });
+    return jsonCreated(file);
   } catch (error) {
-    await del(blob.url).catch(() => undefined);
+    await deletePrivateBlobQuietly(upload.blobUrl);
     throw error;
   }
 });

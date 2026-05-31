@@ -1,30 +1,27 @@
-import { StatusLabel } from "@/components/ui/status-label";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  StatusBadge,
+  type StatusBadgeConfig,
+} from "@/components/status-badge";
 import { MANUFACTURING_ORDER_STATUS_TOOLTIP } from "@/lib/tooltip-copy";
 import type { ManufacturingOrderStatus } from "@/lib/schemas/manufacturing-orders";
+
+const manufacturingOrderStatusConfig = {
+  open: {
+    label: "Open",
+    tone: "info",
+    tooltip: MANUFACTURING_ORDER_STATUS_TOOLTIP.open,
+  },
+  done: {
+    label: "Done",
+    tone: "success",
+    tooltip: MANUFACTURING_ORDER_STATUS_TOOLTIP.done,
+  },
+} satisfies StatusBadgeConfig<ManufacturingOrderStatus>;
 
 export function ManufacturingOrderStatusBadge({
   status,
 }: {
   status: ManufacturingOrderStatus;
 }) {
-  const label =
-    status === "done" ? (
-      <StatusLabel tone="success">Done</StatusLabel>
-    ) : (
-      <StatusLabel tone="info">Open</StatusLabel>
-    );
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{label}</TooltipTrigger>
-      <TooltipContent side="top">
-        {MANUFACTURING_ORDER_STATUS_TOOLTIP[status]}
-      </TooltipContent>
-    </Tooltip>
-  );
+  return <StatusBadge status={status} config={manufacturingOrderStatusConfig} />;
 }

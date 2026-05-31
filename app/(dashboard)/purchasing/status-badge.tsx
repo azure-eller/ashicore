@@ -1,11 +1,9 @@
 "use client";
 
-import { StatusLabel } from "@/components/ui/status-label";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  StatusBadge,
+  type StatusBadgeConfig,
+} from "@/components/status-badge";
 import {
   Select,
   SelectContent,
@@ -32,6 +30,34 @@ const statusOrder: PurchaseOrderStatus[] = [
   "cancelled",
 ];
 
+const purchaseOrderStatusConfig = {
+  draft: {
+    label: statusLabels.draft,
+    tone: "neutral",
+    tooltip: PURCHASE_ORDER_STATUS_TOOLTIP.draft,
+  },
+  ordered: {
+    label: statusLabels.ordered,
+    tone: "info",
+    tooltip: PURCHASE_ORDER_STATUS_TOOLTIP.ordered,
+  },
+  partial: {
+    label: statusLabels.partial,
+    tone: "warning",
+    tooltip: PURCHASE_ORDER_STATUS_TOOLTIP.partial,
+  },
+  received: {
+    label: statusLabels.received,
+    tone: "success",
+    tooltip: PURCHASE_ORDER_STATUS_TOOLTIP.received,
+  },
+  cancelled: {
+    label: statusLabels.cancelled,
+    tone: "danger",
+    tooltip: PURCHASE_ORDER_STATUS_TOOLTIP.cancelled,
+  },
+} satisfies StatusBadgeConfig<PurchaseOrderStatus>;
+
 function canTransitionStatus(
   current: PurchaseOrderStatus,
   next: PurchaseOrderStatus,
@@ -55,22 +81,6 @@ function confirmStatusTransition(next: PurchaseOrderStatus) {
   return true;
 }
 
-function statusLabel(status: PurchaseOrderStatus) {
-  if (status === "ordered") {
-    return <StatusLabel tone="info">Ordered</StatusLabel>;
-  }
-  if (status === "partial") {
-    return <StatusLabel tone="warning">Partially Received</StatusLabel>;
-  }
-  if (status === "received") {
-    return <StatusLabel tone="success">Received</StatusLabel>;
-  }
-  if (status === "cancelled") {
-    return <StatusLabel tone="danger">Cancelled</StatusLabel>;
-  }
-  return <StatusLabel tone="neutral">Draft</StatusLabel>;
-}
-
 export function PurchaseOrderStatusBadge({
   status,
   onStatusChange,
@@ -82,7 +92,13 @@ export function PurchaseOrderStatusBadge({
   disabled?: boolean;
   className?: string;
 }) {
-  const label = statusLabel(status);
+  const label = (
+    <StatusBadge
+      status={status}
+      config={purchaseOrderStatusConfig}
+      tooltip={false}
+    />
+  );
 
   if (onStatusChange) {
     return (
@@ -130,12 +146,5 @@ export function PurchaseOrderStatusBadge({
     );
   }
 
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{label}</TooltipTrigger>
-      <TooltipContent side="top">
-        {PURCHASE_ORDER_STATUS_TOOLTIP[status]}
-      </TooltipContent>
-    </Tooltip>
-  );
+  return <StatusBadge status={status} config={purchaseOrderStatusConfig} />;
 }

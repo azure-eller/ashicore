@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   copyVariantConfigFromItem,
@@ -11,7 +12,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("inventory", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "copyItemCardVariantConfig");
   const { itemId } = await ((ctx as RouteContext).params as unknown as Promise<{ itemId: string }>);
-  const data = copyVariantConfigSchema.parse(await request.json());
+  const data = await parseJsonBody(request, copyVariantConfigSchema);
 
   try {
     const card = await copyVariantConfigFromItem(itemId, data, { idempotencyKey });

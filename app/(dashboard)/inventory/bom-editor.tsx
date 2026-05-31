@@ -15,6 +15,7 @@ import {
   type LineField,
 } from "@/components/editable-lines";
 import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
+import { InsetPanel } from "@/components/inset-panel";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,13 @@ import {
   formatMinimumLotAgeRequirementLabel,
   summarizeComponentRequirements,
 } from "@/lib/bom/constraints";
+import { createClientId } from "@/lib/client-id";
+import {
+  buildIndexedFormErrorMap,
+  getNestedFormErrorMessage,
+  normalizeNullableTextValue,
+} from "@/lib/format";
+import { isPositiveNumberString } from "@/lib/schemas/shared";
 import { cn } from "@/lib/utils";
 
 type AvailableComponent = {
@@ -77,30 +85,11 @@ const blankBomLine = {
 };
 
 function createClientRowId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-
-  return `bom-row-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return createClientId("bom-row");
 }
 
-function normalizeTextCell(value: unknown) {
-  if (value == null) {
-    return null;
-  }
-
-  const nextValue = String(value).trim();
-  return nextValue === "" ? null : nextValue;
-}
-
-function normalizeMinimumLotAge(value: unknown) {
-  if (value == null) {
-    return null;
-  }
-
-  const nextValue = String(value).trim();
-  return nextValue === "" ? null : nextValue;
-}
+const normalizeTextCell = normalizeNullableTextValue;
+const normalizeMinimumLotAge = normalizeNullableTextValue;
 
 function createBlankGridRow(): BomGridRow {
   return {
@@ -164,23 +153,10 @@ function comparablePayload(rows: BomGridRow[]) {
   );
 }
 
-function getNestedMessage(value: unknown): string | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-
-  const candidate = value as { message?: unknown; root?: unknown };
-  if (typeof candidate.message === "string") {
-    return candidate.message;
-  }
-
-  return getNestedMessage(candidate.root);
-}
-
 function buildErrorState(error: unknown, rows: BomGridRow[]): BomErrorState {
   const byRowId = new Map<string, Map<BomColumnKey, string>>();
   const gridMessages: string[] = [];
-  const topLevelMessage = getNestedMessage(error);
+  const topLevelMessage = getNestedFormErrorMessage(error);
 
   if (topLevelMessage) {
     gridMessages.push(topLevelMessage);
@@ -206,32 +182,19 @@ function buildErrorState(error: unknown, rows: BomGridRow[]): BomErrorState {
     }
   }
 
-  const rowErrors = Array.isArray(error) ? error : [];
-  rowErrors.forEach((rowError, index) => {
-    const row = rows[index];
-    if (!row || !rowError || typeof rowError !== "object") {
-      return;
-    }
-
-    const rowErrorObject = rowError as Record<string, unknown>;
-    const rowMessages = new Map<BomColumnKey, string>();
-    const keys: BomColumnKey[] = [
+  const indexedErrors = buildIndexedFormErrorMap(
+    error,
+    rows,
+    [
       "componentId",
       "quantity",
       "minimumLotAgeDays",
       "alternates",
-    ];
-
-    keys.forEach((key) => {
-      const message = getNestedMessage(rowErrorObject[key]);
-      if (message) {
-        rowMessages.set(key, message);
-      }
-    });
-
-    if (rowMessages.size > 0) {
-      byRowId.set(row.clientRowId, rowMessages);
-    }
+    ],
+    (row) => row.clientRowId,
+  );
+  indexedErrors.forEach((messages, rowId) => {
+    byRowId.set(rowId, messages);
   });
 
   return {
@@ -469,9 +432,9 @@ function AlternatesCell({
               {alternates.map((alternate) => {
                 const item = componentMap.get(alternate.itemId);
                 return (
-                  <div
+                  <InsetPanel
                     key={alternate.itemId}
-                    className="flex min-w-0 items-center justify-between gap-(--space-3) border border-border px-(--space-4) py-(--space-2)"
+                    className="flex min-w-0 items-center justify-between gap-(--space-3) px-(--space-4) py-(--space-2)"
                   >
                     <div className="min-w-0">
                       <p className="truncate text-[length:var(--text-sm)] font-medium">
@@ -496,7 +459,7 @@ function AlternatesCell({
                     >
                       <HugeiconsIcon icon={Cancel01Icon} aria-hidden />
                     </Button>
-                  </div>
+                  </InsetPanel>
                 );
               })}
             </div>
@@ -669,8 +632,7 @@ export function BomEditor({
           if (isBlankBomRow(nextRow)) {
             return null;
           }
-          const parsed = Number(nextRow.quantity);
-          return Number.isFinite(parsed) && parsed > 0
+          return isPositiveNumberString(nextRow.quantity ?? "")
             ? null
             : ["Quantity must be greater than 0"];
         },

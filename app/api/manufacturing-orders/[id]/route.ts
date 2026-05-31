@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonError, jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   patchManufacturingOrderSchema,
@@ -20,7 +22,7 @@ export const GET = apiHandler(async (_request: Request, ctx: unknown) => {
   const order = await getManufacturingOrder(id);
 
   if (!order) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    return jsonNotFound("Order not found");
   }
 
   return NextResponse.json(order);
@@ -29,19 +31,18 @@ export const GET = apiHandler(async (_request: Request, ctx: unknown) => {
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
   const { id } = await (ctx as RouteContext).params;
-  const body = await request.json();
-  const data = updateManufacturingOrderSchema.parse(body);
+  const data = await parseJsonBody(request, updateManufacturingOrderSchema);
 
   try {
     const updated = await updateManufacturingOrder(id, data);
 
     if (!updated) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      return jsonNotFound("Order not found");
     }
 
     const order = await getManufacturingOrder(id);
     if (!order) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      return jsonNotFound("Order not found");
     }
 
     return NextResponse.json(order);
@@ -54,19 +55,18 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
 export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
   const { id } = await (ctx as RouteContext).params;
-  const body = await request.json();
-  const data = patchManufacturingOrderSchema.parse(body);
+  const data = await parseJsonBody(request, patchManufacturingOrderSchema);
 
   try {
     const patched = await patchManufacturingOrder(id, data);
 
     if (!patched) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      return jsonNotFound("Order not found");
     }
 
     const order = await getManufacturingOrder(id);
     if (!order) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      return jsonNotFound("Order not found");
     }
 
     return NextResponse.json(order);
@@ -82,12 +82,12 @@ export const DELETE = apiHandler(async (_request: Request, ctx: unknown) => {
   const result = await deleteManufacturingOrder(id);
 
   if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    return jsonError(result.error);
   }
 
   if (!result.deleted) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    return jsonNotFound("Order not found");
   }
 
-  return NextResponse.json({ success: true });
+  return jsonSuccess();
 });

@@ -2,11 +2,11 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Controller, useForm } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AddressFields } from "@/components/address-fields";
+import { AddressBookFields } from "@/components/address-book-fields";
 import {
   Combobox,
   ComboboxContent,
@@ -24,9 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { FieldError } from "@/components/ui/field";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
   CardPage,
@@ -34,7 +32,11 @@ import {
   CardSection,
 } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
-import { CellShell, underlineControlClass } from "@/components/card-page/form-cell";
+import {
+  CardFormRow,
+  CellShell,
+  underlineControlClass,
+} from "@/components/card-page/form-cell";
 import { CommitInput } from "@/components/card-page/commit-input";
 import { NotesField } from "@/components/card-page/notes-field";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
@@ -47,6 +49,7 @@ import {
   createAddressEntry,
   updateAddressEntry,
 } from "@/lib/api/clients/customers";
+import { makeUniqueAddressLabel } from "@/lib/address-label";
 import {
   createSupplier,
   deleteSupplier,
@@ -56,13 +59,22 @@ import {
 import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import type { AddressEntry } from "@/lib/dal/addresses";
+import {
+  addressEntryToAddressOption,
+  type AddressEntryOption,
+} from "@/lib/address-entry-options";
 import { createAddressEntrySchema } from "@/lib/schemas/addresses";
 import {
   supplierDefaultValues,
   type InsertSupplier,
   type PatchSupplier,
 } from "@/lib/schemas/suppliers";
-import { formatAddressLines, normalizeAddressFields } from "@/lib/format";
+import {
+  addressKey,
+  emptyAddressFields,
+  formatAddressInline,
+  normalizeAddressFields,
+} from "@/lib/format";
 import {
   PAYMENT_TERMS_TOOLTIP,
   SUPPLIER_CODE_TOOLTIP,
@@ -85,15 +97,7 @@ type SupplierAddressFields = {
   country: string | null;
 };
 
-type SupplierAddressOption = SupplierAddressFields & {
-  id: string;
-  label: string;
-  addressEntryId: string | null;
-  contactName: string | null;
-  contactPhone: string | null;
-  deliveryInstructions: string | null;
-  notes: string | null;
-};
+type SupplierAddressOption = AddressEntryOption;
 
 type AddressDialogValues = z.input<typeof createAddressEntrySchema>;
 
@@ -222,7 +226,7 @@ export function SupplierCard({
       return id ? updateAddressEntry(id, data) : createAddressEntry(data);
     },
     onSuccess: (entry) => {
-      const option = addressEntryToOption(entry);
+      const option = addressEntryToAddressOption(entry);
       if (!option) return;
       setAddressBook((current) => {
         const next = current.filter((address) => address.id !== entry.id);
@@ -245,7 +249,7 @@ export function SupplierCard({
 
   const applySupplierAddress = useCallback(
     (address: SupplierAddressFields | null) => {
-      commitSupplierPatch(billingAddressPatch(address ? normalizeSupplierAddress(address) : emptySupplierAddress()));
+      commitSupplierPatch(billingAddressPatch(address ? normalizeAddressFields(address) : emptyAddressFields()));
     },
     [commitSupplierPatch]
   );
@@ -281,26 +285,10 @@ export function SupplierCard({
 
   const handleAddressDialogSubmit = useCallback(
     (values: AddressDialogValues) => {
-      const baseLabel =
-        values.label.trim() ||
-        formatAddressLines({
-          line1: values.line1,
-          line2: values.line2,
-          city: values.city,
-          region: values.region,
-          postcode: values.postcode,
-          country: values.country,
-        }).join(", ") ||
-        "Address";
-      const existingLabels = new Set(addressBook.map((address) => address.label));
-      let label = baseLabel;
-      if (!values.label.trim()) {
-        let suffix = 2;
-        while (existingLabels.has(label)) {
-          label = `${baseLabel} (${suffix})`;
-          suffix += 1;
-        }
-      }
+      const label = makeUniqueAddressLabel(
+        values,
+        addressBook.map((address) => address.label),
+      );
       addressMutation.mutate({
         id: addressDialogOption?.addressEntryId ?? null,
         values: { ...values, label },
@@ -313,7 +301,7 @@ export function SupplierCard({
   const addressOptions = useMemo(
     () =>
       addressBook
-        .map(addressEntryToOption)
+        .map(addressEntryToAddressOption)
         .filter((option): option is SupplierAddressOption => option != null),
     [addressBook]
   );
@@ -359,7 +347,7 @@ export function SupplierCard({
       />
       <CardPageBody>
         <CardSection>
-          <div className={`${styles.formRow} ${styles.formRowThree}`}>
+          <CardFormRow columns="three">
             <CellShell label="Name" required invalid={isDraft && !display.name.trim()}>
               <CommitInput
                 label="Name"
@@ -425,7 +413,7 @@ export function SupplierCard({
                 onEdit={openEditAddressDialog}
               />
             </CellShell>
-          </div>
+          </CardFormRow>
         </CardSection>
 
         <CardSection title="Notes">
@@ -467,98 +455,15 @@ export function SupplierCard({
                 {(addressMutation.error as Error).message || "Failed to save address."}
               </FieldError>
             ) : null}
-            <FieldGroup className="gap-4">
-              <Controller
-                control={addressForm.control}
-                name="label"
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="supplier-address-label">Label</FieldLabel>
-                    <Input
-                      {...field}
-                      id="supplier-address-label"
-                      value={field.value ?? ""}
-                      onChange={(event) => field.onChange(event.target.value)}
-                      aria-invalid={fieldState.invalid}
-                    />
-                    {fieldState.invalid ? (
-                      <FieldError errors={[fieldState.error]} />
-                    ) : null}
-                  </Field>
-                )}
-              />
-              <FieldGroup className="grid gap-4 sm:grid-cols-2">
-                <Controller
-                  control={addressForm.control}
-                  name="contactName"
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor="supplier-address-contact-name">
-                        Contact name
-                      </FieldLabel>
-                      <Input
-                        {...field}
-                        id="supplier-address-contact-name"
-                        value={field.value ?? ""}
-                        onChange={(event) => field.onChange(event.target.value || null)}
-                        aria-invalid={fieldState.invalid}
-                      />
-                      {fieldState.invalid ? (
-                        <FieldError errors={[fieldState.error]} />
-                      ) : null}
-                    </Field>
-                  )}
-                />
-                <Controller
-                  control={addressForm.control}
-                  name="contactPhone"
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor="supplier-address-contact-phone">
-                        Contact phone
-                      </FieldLabel>
-                      <Input
-                        {...field}
-                        id="supplier-address-contact-phone"
-                        value={field.value ?? ""}
-                        onChange={(event) => field.onChange(event.target.value || null)}
-                        aria-invalid={fieldState.invalid}
-                      />
-                      {fieldState.invalid ? (
-                        <FieldError errors={[fieldState.error]} />
-                      ) : null}
-                    </Field>
-                  )}
-                />
-              </FieldGroup>
-            </FieldGroup>
-            <AddressFields
+            <AddressBookFields
               control={addressForm.control}
-              names={addressFieldNames}
+              addressNames={addressFieldNames}
               idPrefix="supplier-address"
+              labelName="label"
+              contactNameName="contactName"
+              contactPhoneName="contactPhone"
+              notesName="notes"
             />
-            <FieldGroup className="mt-4 gap-4">
-              <Controller
-                control={addressForm.control}
-                name="notes"
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="supplier-address-notes">Notes</FieldLabel>
-                    <Textarea
-                      {...field}
-                      id="supplier-address-notes"
-                      value={field.value ?? ""}
-                      onChange={(event) => field.onChange(event.target.value || null)}
-                      aria-invalid={fieldState.invalid}
-                      rows={3}
-                    />
-                    {fieldState.invalid ? (
-                      <FieldError errors={[fieldState.error]} />
-                    ) : null}
-                  </Field>
-                )}
-              />
-            </FieldGroup>
           </form>
           <DialogFooter>
             <Button
@@ -603,7 +508,7 @@ function SupplierAddressInput({
   onAddNew: () => void;
   onEdit: (option: SupplierAddressOption) => void;
 }) {
-  const currentAddressId = supplierAddressKey(value);
+  const currentAddressId = addressKey(value);
   const canEditCurrent = currentAddressId !== "";
   const optionIds = options.map((option) => option.id);
   const optionMap = new Map(options.map((option) => [option.id, option]));
@@ -670,8 +575,8 @@ function SupplierAddressInput({
               <ComboboxItem key={itemId} value={itemId}>
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate">{option?.label}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {option ? supplierAddressLabel(option) : ""}
+                  <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                    {option ? formatAddressInline(option) : ""}
                   </span>
                 </span>
               </ComboboxItem>
@@ -762,23 +667,8 @@ function supplierEditableSnapshot(supplier: SupplierRow): Pick<
   };
 }
 
-function normalizeSupplierAddress(address: SupplierAddressFields): SupplierAddressFields {
-  return normalizeAddressFields(address);
-}
-
-function emptySupplierAddress(): SupplierAddressFields {
-  return {
-    line1: null,
-    line2: null,
-    city: null,
-    region: null,
-    postcode: null,
-    country: null,
-  };
-}
-
 function getSupplierBillingAddress(supplier: SupplierRow): SupplierAddressFields {
-  return normalizeSupplierAddress({
+  return normalizeAddressFields({
     line1: supplier.billingLine1,
     line2: supplier.billingLine2,
     city: supplier.billingCity,
@@ -786,48 +676,6 @@ function getSupplierBillingAddress(supplier: SupplierRow): SupplierAddressFields
     postcode: supplier.billingPostcode,
     country: supplier.billingCountry,
   });
-}
-
-function supplierAddressKey(address: SupplierAddressFields | null | undefined) {
-  const normalized = address ? normalizeSupplierAddress(address) : emptySupplierAddress();
-  return [
-    normalized.line1,
-    normalized.line2,
-    normalized.city,
-    normalized.region,
-    normalized.postcode,
-    normalized.country,
-  ]
-    .map((part) => part ?? "")
-    .join("\u001f")
-    .replace(/^\u001f+|\u001f+$/g, "");
-}
-
-function supplierAddressLabel(address: SupplierAddressFields) {
-  return formatAddressLines(address).join(", ");
-}
-
-function addressEntryToOption(entry: AddressEntry): SupplierAddressOption | null {
-  const normalized = normalizeSupplierAddress({
-    line1: entry.line1,
-    line2: entry.line2,
-    city: entry.city,
-    region: entry.region,
-    postcode: entry.postcode,
-    country: entry.country,
-  });
-  const id = supplierAddressKey(normalized);
-  if (!id) return null;
-  return {
-    ...normalized,
-    id,
-    label: entry.label,
-    addressEntryId: entry.id,
-    contactName: entry.contactName,
-    contactPhone: entry.contactPhone,
-    deliveryInstructions: entry.deliveryInstructions,
-    notes: entry.notes,
-  };
 }
 
 function billingAddressPatch(address: SupplierAddressFields): PatchSupplier {

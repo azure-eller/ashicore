@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { saveManufacturingOutputAllocationSchema } from "@/lib/schemas/manufacturing-orders";
 import {
@@ -14,7 +16,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   const result = await getManufacturingOutputAllocation(id);
 
   if (!result) {
-    return NextResponse.json({ error: "Manufacturing order not found" }, { status: 404 });
+    return jsonNotFound("Manufacturing order not found");
   }
 
   return NextResponse.json(result);
@@ -23,7 +25,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
   const { id } = await (ctx as RouteContext).params;
-  const data = saveManufacturingOutputAllocationSchema.parse(await request.json());
+  const data = await parseJsonBody(request, saveManufacturingOutputAllocationSchema);
 
   try {
     const result = await saveManufacturingOutputAllocation(id, data);

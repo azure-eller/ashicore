@@ -39,6 +39,14 @@ read_when:
 ## Core Feedback
 
 - `AutosaveStatus` — `components/autosave-status.tsx`
+- `StatusBadge` — `components/status-badge.tsx`
+- `ConfiguredBadge` — `components/configured-badge.tsx` (small config-driven badge maps, with optional fallback for unknown statuses)
+- `SelectionCountBadge` — `components/selection-count-badge.tsx`
+- `FulfillmentStatusBlock` — `components/fulfillment-status-block.tsx`
+- `StatusDetailMenuTable` — `components/status-detail-menu-table.tsx`
+- `EmptyState` — `components/empty-state.tsx`
+- `ProgressMeter` — `components/progress-meter.tsx`
+- `NoticePanel` — `components/notice-panel.tsx`
 - `StatusLabel` — `components/ui/status-label.tsx`
 - `StatusBlock` — `components/ui/status-block.tsx`
 - `StatusRibbon` — `components/ui/status-ribbon.tsx`
@@ -49,6 +57,7 @@ read_when:
 ## Core Pickers
 
 - `AddressFields` — `components/address-fields.tsx`
+- `AddressBookFields` — `components/address-book-fields.tsx`
 - `InventoryItemCombobox` — `components/inventory-item-combobox.tsx`
 - `EntityCombobox` — `components/entity-combobox.tsx`
 - `ComboboxCreateLinks` — `components/combobox-create-links.tsx`
@@ -57,7 +66,16 @@ read_when:
 
 - `DateTimeText` — `components/date-time-text.tsx`
 - `QuantityWithUnit` — `components/quantity-with-unit.tsx`
+- `AttributeBadges` — `components/attribute-badges.tsx`
 - `TooltipHeader` — `components/tooltip-header.tsx`
+- `TableFrame` — `components/table-frame.tsx`
+- `ListFrame` / `ListFrameItem` / `SelectableListFrameItem` — `components/list-frame.tsx`
+- `InsetPanel` — `components/inset-panel.tsx`
+- `SurfacePanel` — `components/surface-panel.tsx`
+- `ProviderIconFrame` — `components/provider-icon-frame.tsx`
+- `MetricTile` — `components/metric-tile.tsx` (default and compact density)
+- `AttachmentListItem` — `components/attachment-list.tsx`
+- `FileDropzone` — `components/file-dropzone.tsx`
 
 ## Inventory Visuals
 
@@ -67,6 +85,7 @@ read_when:
 - `ItemSprite` — `components/inventory-visuals/item-sprite.tsx`
 - `InventoryVisualLegend` — `components/inventory-visuals/legend.tsx`
 - `inferItemVisual` — `components/inventory-visuals/infer-item-visual.ts`
+- `InventoryVisualPanel` / `InventoryVisualCell` — `components/inventory-visuals/visual-panel.tsx`
 
 ## Manufacturing
 
@@ -80,6 +99,7 @@ read_when:
 - `DataTableLoading` — `components/data-table-loading.tsx`
 - `NavigationPendingProvider`, `NavigationLink`, `DashboardNavigationContent` — `components/navigation-pending.tsx`
 - `DashboardTopNav` — `components/dashboard-top-nav.tsx`
+- `SettingsPanel`, `SettingsPanelHeader`, `SettingsPanelSection`, `SettingsPanelActionRow` — `app/(dashboard)/settings/settings-panel.tsx`
 
 ## Older Secondary Patterns
 
@@ -88,3 +108,5 @@ read_when:
 - `SortableHeader` — `components/sortable-header.tsx`
 - `FilterableHeader` — `components/filterable-header.tsx`
 - `DataTableStatusFilter` — `components/data-table-status-filter.tsx`
+- `WorkflowStatusFilter` — `components/workflow-status-filter.tsx`
+- `SegmentedCountFilter` — `components/segmented-count-filter.tsx`

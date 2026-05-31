@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonSuccess } from "@/lib/api/responses";
 import { assertModuleAccess } from "@/lib/dal/auth";
 import { updateCustomerCategorySchema } from "@/lib/schemas/customer-categories";
 import {
@@ -11,8 +13,7 @@ import {
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleAccess("sales", "admin", request.headers);
   const { id } = await (ctx as RouteContext).params;
-  const body = await request.json();
-  const data = updateCustomerCategorySchema.parse(body);
+  const data = await parseJsonBody(request, updateCustomerCategorySchema);
 
   try {
     const category = await updateCustomerCategory(id, data);
@@ -45,7 +46,7 @@ export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {
       );
     }
 
-    return NextResponse.json({ success: true });
+    return jsonSuccess();
   } catch (error) {
     if (error instanceof SalesError) return error.toResponse();
     throw error;

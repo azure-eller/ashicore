@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { FieldError } from "@/components/ui/field";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { apiJson } from "@/lib/client/api";
 import { buildStocktakeModeName } from "./types";
 import type { StocktakeCreationMode } from "@/lib/schemas/stocktakes";
 
@@ -44,34 +45,32 @@ export function CreateStocktakeDialog() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [open, setOpen] = useState(false);
+  const createRequested = searchParams.get("create") === "1";
+  const [open, setOpen] = useState(createRequested);
   const [mode, setMode] = useState<StocktakeCreationMode>("in_stock");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (searchParams.get("create") === "1") {
-      setOpen(true);
+    if (createRequested) {
       router.replace(pathname);
     }
-  }, [searchParams, pathname, router]);
+  }, [createRequested, pathname, router]);
 
   const createMode = async () => {
     setPending(true);
     setError(null);
     try {
-      const response = await fetch("/api/stocktakes", {
+      const body = await apiJson<{ id: string }>("/api/stocktakes", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: {
           name: buildStocktakeModeName(mode),
           scope: mode,
           creationMode: mode,
           notes: null,
-        }),
+        },
+        fallbackError: "Failed to create stocktake.",
       });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error ?? "Failed to create stocktake.");
       router.push(`/inventory/stocktakes/${body.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create stocktake.");
@@ -81,7 +80,7 @@ export function CreateStocktakeDialog() {
 
   return (
     <Dialog
-      open={open}
+      open={open || createRequested}
       onOpenChange={(next) => {
         setOpen(next);
         if (!next) {

@@ -5,6 +5,9 @@ import { MissingCostBasisError } from "@/lib/inventory/kernel";
 import { insertItemSchema } from "@/lib/schemas/items";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonError, jsonCreated } from "@/lib/api/responses";
+import { requestSearchParams } from "@/lib/routing/search-params";
 import {
   assertLockedBomManagementAccess,
   assertModuleReadAccess,
@@ -13,7 +16,7 @@ import {
 
 export const GET = apiHandler(async (request) => {
   await assertModuleReadAccess("inventory", request.headers);
-  const { searchParams } = new URL(request.url);
+  const searchParams = requestSearchParams(request);
   const raw = searchParams.get("itemType");
   const itemType: ItemType | undefined =
     raw && (ITEM_TYPES as readonly string[]).includes(raw)
@@ -25,12 +28,11 @@ export const GET = apiHandler(async (request) => {
 
 export const DELETE = apiHandler(async (request) => {
   await assertModuleWriteAccess("inventory", request.headers);
-  const body = await request.json();
-  const data = bulkDeleteSchema.parse(body);
+  const data = await parseJsonBody(request, bulkDeleteSchema);
   const result = await deleteItems(data.ids);
 
   if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    return jsonError(result.error);
   }
 
   return NextResponse.json({ deletedCount: result.deletedCount });
@@ -38,11 +40,10 @@ export const DELETE = apiHandler(async (request) => {
 
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("inventory", request.headers);
-  const body = await request.json();
 
   const idempotencyKey = requireIdempotencyKey(request, "createItemWithLot");
   const { stock, outputQuantity, bom, operationCosts, revisionNote, ...data } =
-    insertItemSchema.parse(body);
+    await parseJsonBody(request, insertItemSchema);
 
   if (data.itemType === "product" && data.bomLocked) {
     await assertLockedBomManagementAccess(request.headers);
@@ -60,7 +61,7 @@ export const POST = apiHandler(async (request) => {
         idempotencyKey,
       }
     );
-    return NextResponse.json(item, { status: 201 });
+    return jsonCreated(item);
   } catch (error) {
     if (error instanceof MissingCostBasisError) {
       const field =

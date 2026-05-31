@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { apiHandler } from "@/lib/api/handler";
+import { jsonError } from "@/lib/api/responses";
 import { getAuthedApiMemberContext, withAuthedOrgContext } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
+import { requestSearchParams } from "@/lib/routing/search-params";
 import {
   inventoryLotBalances,
   inventoryReservationsSummary,
@@ -10,18 +12,16 @@ import {
   salesOrders,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
+import {
+  allocationQuantityString,
+  toAllocationQuantity,
+} from "@/lib/inventory/allocation/format";
 import { getAllocationWorkspaceInTx } from "@/lib/inventory/allocation/read-model";
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel";
 
-function toQuantity(value: string | number | null | undefined) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function quantityString(value: number) {
-  return value.toFixed(4).replace(/\.?0+$/, "");
-}
+const toQuantity = toAllocationQuantity;
+const quantityString = allocationQuantityString;
 
 export const GET = apiHandler(async (request) => {
   const context = await getAuthedApiMemberContext(request.headers);
@@ -32,13 +32,10 @@ export const GET = apiHandler(async (request) => {
     "read"
   );
   if (!canReadSales && !canReadManufacturing) {
-    return NextResponse.json(
-      { error: "You do not have access to allocation." },
-      { status: 403 }
-    );
+    return jsonError("You do not have access to allocation.", 403);
   }
 
-  const { searchParams } = new URL(request.url);
+  const searchParams = requestSearchParams(request);
   const itemIds = [...new Set(searchParams.getAll("itemId"))].filter(Boolean);
 
   if (itemIds.length === 0) {
@@ -46,10 +43,7 @@ export const GET = apiHandler(async (request) => {
   }
 
   if (itemIds.length > 100) {
-    return NextResponse.json(
-      { error: "Too many allocation pool items requested." },
-      { status: 400 }
-    );
+    return jsonError("Too many allocation pool items requested.");
   }
 
   const data = await withAuthedOrgContext(async (tx, orgId) => {

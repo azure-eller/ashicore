@@ -10,11 +10,12 @@ import {
 import type { GridApi, ICellRendererParams } from "ag-grid-community";
 import { apiJson } from "@/lib/client/api";
 import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
+import { SelectionCountBadge } from "@/components/selection-count-badge";
+import { WorkflowStatusFilter } from "@/components/workflow-status-filter";
 import {
   Add01Icon,
   DatabaseExportIcon,
   Delete02Icon,
-  Search01Icon,
   Sorting05Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -29,14 +30,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { fulfillmentStatusBlockTone } from "@/components/fulfillment-status-block";
+import { StatusDetailMenuTable } from "@/components/status-detail-menu-table";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { StatusBlock, type StatusBlockTone } from "@/components/ui/status-block";
+import { StatusBlock } from "@/components/ui/status-block";
 import {
   Tooltip,
   TooltipContent,
@@ -54,7 +56,7 @@ import {
   SALES_ORDER_RANK_TOOLTIP,
   SALES_ORDER_SHIP_DATE_TOOLTIP,
 } from "@/lib/tooltip-copy";
-import { formatDate, formatPrice, formatQuantity } from "@/lib/format";
+import { formatDate, formatPrice, formatQuantity, parseQuantity } from "@/lib/format";
 import { displaySalesOrderNotes } from "@/lib/sales/import-notes";
 import {
   getSalesItemsAvailabilityState,
@@ -65,7 +67,6 @@ import {
   getIngredientsDisplayState,
   getProductionDisplayState,
   type FulfillmentDisplayState,
-  type FulfillmentTone,
 } from "@/lib/sales/fulfillment-status";
 import { ProductionActionCell } from "./sales-order-table-action-cells";
 import { OrderStatusControl } from "@/components/card-page/order-status-control";
@@ -109,14 +110,6 @@ function autoSizeSalesOrderStatusColumns(api: GridApi<SalesOrderListRow>) {
   });
 }
 
-const fulfillmentToneToStatusBlockTone: Record<FulfillmentTone, StatusBlockTone> = {
-  destructive: "danger",
-  muted: "muted",
-  secondary: "warning",
-  success: "success",
-  warning: "warning",
-};
-
 function isOpenSalesOrder(order: SalesOrderListRow) {
   return (OPEN_SALES_STATUSES as readonly string[]).includes(order.status);
 }
@@ -145,11 +138,6 @@ function NotesCell({ notes }: { notes: string | null }) {
   );
 }
 
-function parseQuantity(value: string | null | undefined) {
-  const parsed = Number.parseFloat(value ?? "0");
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
 function shippedSalesQuantity(order: SalesOrderListRow) {
   return order.lines.reduce(
     (sum, line) => sum + parseQuantity(line.shippedQuantity),
@@ -172,72 +160,13 @@ function formatOrderLineItemName(line: SalesOrderListRow["lines"][number]) {
     : line.masterName;
 }
 
-function DetailMenuTable({
-  emptyMessage,
-  rows,
-}: {
-  emptyMessage: string;
-  rows: Array<{
-    id: string;
-    item: string;
-    needed: string;
-    available: string;
-    expected?: string;
-  }>;
-}) {
-  const showExpected = rows.some((row) => parseQuantity(row.expected) > 0);
-  const gridTemplate = showExpected
-    ? "grid-cols-[minmax(0,1fr)_64px_64px_92px]"
-    : "grid-cols-[minmax(0,1fr)_64px_64px]";
-
-  if (rows.length === 0) {
-    return (
-      <div className="px-(--space-3) py-(--space-4) text-[length:var(--text-sm)] text-muted-foreground">
-        {emptyMessage}
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-h-[320px] overflow-y-auto">
-      <div
-        className={`grid ${gridTemplate} gap-x-(--space-5) border-b border-border px-(--space-3) py-(--space-2) text-[length:var(--text-xs)] font-medium text-muted-foreground`}
-      >
-        <div>Item</div>
-        <div className="text-right">Needed</div>
-        <div className="text-right">Available</div>
-        {showExpected ? <div className="text-right">Expected</div> : null}
-      </div>
-      {rows.map((row) => (
-        <div
-          key={row.id}
-          className={`grid ${gridTemplate} items-start gap-x-(--space-5) border-b border-border/60 px-(--space-3) py-(--space-3) text-[length:var(--text-sm)] last:border-b-0`}
-        >
-          <div className="min-w-0 truncate font-medium">{row.item}</div>
-          <div className="text-right font-mono text-[length:var(--text-xs)] tabular-nums text-muted-foreground">
-            {row.needed}
-          </div>
-          <div className="text-right font-mono text-[length:var(--text-xs)] tabular-nums text-muted-foreground">
-            {row.available}
-          </div>
-          {showExpected ? (
-            <div className="min-w-0 text-right font-mono text-[length:var(--text-xs)] tabular-nums text-muted-foreground">
-              {row.expected ?? "0"}
-            </div>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function SalesItemsActionCell({
   order,
 }: {
   order: SalesOrderListRow;
 }) {
   const state = getSalesItemsAvailabilityState(order);
-  const tone = fulfillmentToneToStatusBlockTone[state.tone];
+  const tone = fulfillmentStatusBlockTone[state.tone];
   const hasManualReservation =
     parseQuantity(order.fulfillmentSummary.manualReservationQty) > 0;
   const manualReservationTitle = hasManualReservation
@@ -272,7 +201,7 @@ function SalesItemsActionCell({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[560px]">
         <DropdownMenuLabel>Sales items</DropdownMenuLabel>
-        <DetailMenuTable emptyMessage="No sales items." rows={rows} />
+        <StatusDetailMenuTable emptyMessage="No sales items." rows={rows} />
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -302,7 +231,7 @@ function IngredientsStatusCell({ order }: { order: SalesOrderListRow }) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <StatusBlock
-          tone={fulfillmentToneToStatusBlockTone[state.tone]}
+          tone={fulfillmentStatusBlockTone[state.tone]}
           actionable
           actionVariant="button"
           onClick={(event) => event.stopPropagation()}
@@ -313,7 +242,7 @@ function IngredientsStatusCell({ order }: { order: SalesOrderListRow }) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[560px]">
         <DropdownMenuLabel>Short ingredients</DropdownMenuLabel>
-        <DetailMenuTable
+        <StatusDetailMenuTable
           emptyMessage={
             state.label === "Not needed"
               ? "Finished goods cover this order."
@@ -398,37 +327,6 @@ function RankCell({ rowIndex, order }: { rowIndex: number; order: SalesOrderList
         {order.priorityRank ?? rowIndex + 1}
       </span>
     </div>
-  );
-}
-
-function FilterChip({
-  active,
-  label,
-  ariaLabel,
-  count,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  ariaLabel: string;
-  count: number;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={active}
-      aria-label={ariaLabel}
-      data-active={active ? "true" : undefined}
-      className="group inline-flex h-(--height-input-sm) items-center gap-(--space-3) border border-border bg-card px-(--space-5) text-[length:var(--text-xs)] font-medium text-foreground transition-colors hover:bg-muted data-[active=true]:border-primary data-[active=true]:bg-primary data-[active=true]:text-primary-foreground"
-      onClick={onClick}
-    >
-      {label}
-      <span className="bg-foreground/10 px-(--space-2) font-mono text-[length:var(--text-2xs)] tabular-nums group-data-[active=true]:bg-primary-foreground/20">
-        {count}
-      </span>
-    </button>
   );
 }
 
@@ -824,154 +722,123 @@ function OrdersTableContent({
 
   return (
     <>
-      <section className="flex h-[calc(100dvh_-_var(--height-nav)_-_var(--height-subnav))] min-h-0 flex-col bg-background">
-        <div className="flex h-(--height-toolbar) shrink-0 items-center gap-(--space-5) border-b border-border bg-card px-(--space-8)">
-          <div className="relative w-[260px]">
-            <HugeiconsIcon
-              icon={Search01Icon}
-              aria-hidden
-              className="pointer-events-none absolute top-1/2 left-(--space-4) size-(--space-7) -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              ref={searchInputRef}
-              value={searchValue}
-              onChange={(event) => setSearchValue(event.target.value)}
-              placeholder="Search orders, customers, PO..."
-              aria-label="Search orders, customers, PO"
-              className="h-(--height-input-sm) bg-muted pl-(--space-12)"
-            />
-          </div>
-          <div
-            role="radiogroup"
-            aria-label="Filter sales orders by workflow"
-            className="flex items-center gap-(--space-2)"
-          >
-            <FilterChip
-              active={statusFilter === "open"}
-              label="Open"
-              ariaLabel="Show open orders"
-              count={openCount}
+      <ERPDataGrid
+        rows={displayedOrders}
+        columns={gridColumns}
+        searchInputRef={searchInputRef}
+        searchAriaLabel="Search orders, customers, PO"
+        searchValue={searchValue}
+        onSearchChange={setSearchValue}
+        emptyMessage="No sales orders yet."
+        enableRowSelection
+        onSelectionChange={setSelectedOrders}
+        enableManagedRowDrag={reorderEnabled}
+        suppressMoveWhenRowDragging
+        resetRowDataOnUpdate
+        relaxResizableMaxWidth
+        toolbarClassName="h-(--height-toolbar) shrink-0 gap-(--space-5) border-b border-border bg-card px-(--space-8)"
+        toolbarContent={
+          <WorkflowStatusFilter
+            value={statusFilter}
+            openCount={openCount}
+            doneCount={doneCount}
+            ariaLabel="Filter sales orders by workflow"
+            onValueChange={setStatusFilter}
+          />
+        }
+        actions={
+          <>
+            {hasActiveSort ? (
+              <>
+                <div className="h-(--space-10) w-px bg-border" />
+                <div className="flex items-center gap-(--space-2)">
+                  <Button type="button" variant="secondary" size="sm" onClick={clearSort}>
+                    <HugeiconsIcon icon={Sorting05Icon} data-icon="inline-start" />
+                    Reset sort
+                  </Button>
+                </div>
+              </>
+            ) : null}
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => gridApiRef.current?.exportDataAsCsv()}
+            >
+              <HugeiconsIcon icon={DatabaseExportIcon} data-icon="inline-start" />
+              Export
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              size="icon"
+              disabled={selectedCount === 0 || deleteMutation.isPending}
+              className="relative"
+              aria-label={
+                selectedCount > 0
+                  ? `Delete ${selectedCount} selected`
+                  : "Delete selected"
+              }
+              onClick={() => setDeleteDialogOpen(true)}
+            >
+              <HugeiconsIcon icon={Delete02Icon} aria-hidden />
+              <SelectionCountBadge count={selectedCount} />
+            </Button>
+            <Button asChild aria-label="New Order">
+              <Link href="/sales/order">
+                <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
+                New Order
+              </Link>
+            </Button>
+          </>
+        }
+        onGridReady={(event) => {
+          gridApiRef.current = event.api;
+          if (displayedOrders.length > 0 && !hasAutoSizedColumnsRef.current) {
+            hasAutoSizedColumnsRef.current = true;
+            autoSizeSalesOrderStatusColumns(event.api);
+          }
+        }}
+        onFirstDataRendered={(event) => {
+          if (!hasAutoSizedColumnsRef.current) {
+            hasAutoSizedColumnsRef.current = true;
+            autoSizeSalesOrderStatusColumns(event.api);
+          }
+        }}
+        onSortChange={setHasActiveSort}
+        onManagedRowDragReorder={(orderedRows) => {
+          if (!reorderEnabled || reorderMutation.isPending) {
+            return;
+          }
+
+          reorderMutation.mutate(orderedRows);
+        }}
+        className="flex h-[calc(100dvh_-_var(--height-nav)_-_var(--height-subnav))] min-h-0 flex-col space-y-0 bg-background"
+        gridClassName="min-h-0 flex-1"
+        height="100%"
+        statusBarContent={
+          <>
+            <span>
+              {displayedOrders.length} of {orders.length} rows
+            </span>
+            <LastSyncStatus dataUpdatedAt={dataUpdatedAt} />
+            <div className="flex-1" />
+            <button type="button" className="hover:text-foreground" onClick={clearSort}>
+              Sort: {hasActiveSort ? "Custom" : "Ship by ↑"}
+            </button>
+            <button
+              type="button"
+              className="hover:text-foreground"
               onClick={() => {
                 setStatusFilter("open");
               }}
-            />
-            <FilterChip
-              active={statusFilter === "done"}
-              label="Done"
-              ariaLabel="Show done orders"
-              count={doneCount}
-              onClick={() => {
-                setStatusFilter("done");
-              }}
-            />
-          </div>
-          {hasActiveSort ? (
-            <>
-              <div className="h-(--space-10) w-px bg-border" />
-              <div className="flex items-center gap-(--space-2)">
-                <Button type="button" variant="secondary" size="sm" onClick={clearSort}>
-                  <HugeiconsIcon icon={Sorting05Icon} data-icon="inline-start" />
-                  Reset sort
-                </Button>
-              </div>
-            </>
-          ) : null}
-          <div className="flex-1" />
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => gridApiRef.current?.exportDataAsCsv()}
-          >
-            <HugeiconsIcon icon={DatabaseExportIcon} data-icon="inline-start" />
-            Export
-          </Button>
-          <Button
-            type="button"
-            variant="danger"
-            size="icon"
-            disabled={selectedCount === 0 || deleteMutation.isPending}
-            className="relative"
-            aria-label={
-              selectedCount > 0
-                ? `Delete ${selectedCount} selected`
-                : "Delete selected"
-            }
-            onClick={() => setDeleteDialogOpen(true)}
-          >
-            <HugeiconsIcon icon={Delete02Icon} aria-hidden />
-            {selectedCount > 0 ? (
-              <span
-                aria-hidden
-                className="absolute -top-(--space-2) -right-(--space-2) flex h-(--space-8) min-w-(--space-8) items-center justify-center bg-primary px-(--space-1) font-mono text-[length:var(--text-2xs)] font-medium tabular-nums text-primary-foreground"
-              >
-                {selectedCount}
-              </span>
-            ) : null}
-          </Button>
-          <Button asChild aria-label="New Order">
-            <Link href="/sales/order">
-              <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
-              New Order
-            </Link>
-          </Button>
-        </div>
-        <ERPDataGrid
-          rows={displayedOrders}
-          columns={gridColumns}
-          searchValue={searchValue}
-          emptyMessage="No sales orders yet."
-          enableRowSelection
-          onSelectionChange={setSelectedOrders}
-          enableManagedRowDrag={reorderEnabled}
-          suppressMoveWhenRowDragging
-          resetRowDataOnUpdate
-          relaxResizableMaxWidth
-          onGridReady={(event) => {
-            gridApiRef.current = event.api;
-            if (displayedOrders.length > 0 && !hasAutoSizedColumnsRef.current) {
-              hasAutoSizedColumnsRef.current = true;
-              autoSizeSalesOrderStatusColumns(event.api);
-            }
-          }}
-          onFirstDataRendered={(event) => {
-            if (!hasAutoSizedColumnsRef.current) {
-              hasAutoSizedColumnsRef.current = true;
-              autoSizeSalesOrderStatusColumns(event.api);
-            }
-          }}
-          onSortChange={setHasActiveSort}
-          onManagedRowDragReorder={(orderedRows) => {
-            if (!reorderEnabled || reorderMutation.isPending) {
-              return;
-            }
-
-            reorderMutation.mutate(orderedRows);
-          }}
-          className="min-h-0 flex-1 space-y-0"
-          height="100%"
-        />
-        <div className="flex h-(--height-statusbar) shrink-0 items-center gap-(--space-6) border-t border-border bg-card px-(--space-8) text-[length:var(--text-xs)] text-muted-foreground tabular-nums">
-          <span>
-            {displayedOrders.length} of {orders.length} rows
-          </span>
-          <LastSyncStatus dataUpdatedAt={dataUpdatedAt} />
-          <div className="flex-1" />
-          <button type="button" className="hover:text-foreground" onClick={clearSort}>
-            Sort: {hasActiveSort ? "Custom" : "Ship by ↑"}
-          </button>
-          <button
-            type="button"
-            className="hover:text-foreground"
-            onClick={() => {
-              setStatusFilter("open");
-            }}
-          >
-            Filter: {filterSummary}
-          </button>
-          <span>v 4.12.2</span>
-        </div>
-      </section>
+            >
+              Filter: {filterSummary}
+            </button>
+            <span>v 4.12.2</span>
+          </>
+        }
+      />
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

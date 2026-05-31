@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { parseOptionalJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { startManufacturingBatchSchema } from "@/lib/schemas/manufacturing-orders";
 import {
@@ -12,8 +13,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const { id, batchId } = await (
     ctx as { params: Promise<{ id: string; batchId: string }> }
   ).params;
-  const body = await request.json().catch(() => ({}));
-  startManufacturingBatchSchema.parse(body);
+  await parseOptionalJsonBody(request, startManufacturingBatchSchema, {});
 
   try {
     const result = await startManufacturingBatch(id, batchId);

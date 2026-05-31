@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertTeamManagementAccess } from "@/lib/dal/auth";
 import { manualSendDailyManufacturingReportForOrg } from "@/lib/reports/daily-manufacturing";
 import { manualSendDailyManufacturingReportSchema } from "@/lib/schemas/reports";
 
 export const POST = apiHandler(async (request: Request) => {
   const context = await assertTeamManagementAccess(request.headers);
-  const input = manualSendDailyManufacturingReportSchema.parse(await request.json());
+  const input = await parseJsonBody(
+    request,
+    manualSendDailyManufacturingReportSchema,
+  );
   const result = await manualSendDailyManufacturingReportForOrg({
     organizationId: context.orgId,
     reportDate: input.reportDate,

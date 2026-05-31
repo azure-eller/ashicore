@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { MoreVerticalIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useMutation } from "@tanstack/react-query";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import type { InventoryDisposition } from "@/lib/db/schema";
+import { apiJson } from "@/lib/client/api";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -86,26 +86,17 @@ export function LotDispositionActions({
       if (!selectedAction || !idempotencyKey) {
         throw new Error("Choose a disposition action.");
       }
-      const response = await fetch(
-        `/api/items/${itemId}/lots/${lotId}/disposition`,
-        {
-          method: "POST",
-          headers: createIdempotencyHeaders("lot-disposition", {
-            "Content-Type": "application/json",
-            "Idempotency-Key": idempotencyKey,
-          }),
-          body: JSON.stringify({
-            action: selectedAction.action.action,
-            fromDisposition: selectedAction.fromDisposition,
-            quantity,
-            notes: notes || null,
-          }),
-        }
-      );
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to update disposition.");
-      }
+      await apiJson<void>(`/api/items/${itemId}/lots/${lotId}/disposition`, {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: {
+          action: selectedAction.action.action,
+          fromDisposition: selectedAction.fromDisposition,
+          quantity,
+          notes: notes || null,
+        },
+        fallbackError: "Failed to update disposition.",
+      });
     },
     onMutate: () => {
       setError(null);
@@ -173,7 +164,7 @@ export function LotDispositionActions({
           if (!open) closeAction();
         }}
       >
-        <DialogContent className="bg-background text-foreground">
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>
               {selectedAction?.action.label ?? "Update Disposition"}

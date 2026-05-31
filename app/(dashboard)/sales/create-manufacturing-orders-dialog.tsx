@@ -7,6 +7,8 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon } from "@hugeicons/core-free-icons";
 import { apiJson } from "@/lib/client/api";
 import type { ManufacturingSalesOrderPreview } from "@/app/(dashboard)/manufacturing/types";
+import { EmptyState } from "@/components/empty-state";
+import { TableFrame } from "@/components/table-frame";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -328,9 +330,7 @@ export function CreateManufacturingOrdersDialog({
         </DialogHeader>
 
         {orderQuery.isLoading ? (
-          <div className="rounded-md border border-dashed px-4 py-6 text-sm text-muted-foreground">
-            Loading sales order...
-          </div>
+          <EmptyState>Loading sales order...</EmptyState>
         ) : orderQuery.isError ? (
           <p className="text-sm text-destructive">{orderQuery.error.message}</p>
         ) : order ? (
@@ -371,15 +371,13 @@ export function CreateManufacturingOrdersDialog({
                 </span>
               </div>
               {previewQuery.isLoading ? (
-                <div className="rounded-md border border-dashed px-4 py-6 text-sm text-muted-foreground">
-                  Loading manufacturing preview...
-                </div>
+                <EmptyState>Loading manufacturing preview...</EmptyState>
               ) : previewQuery.isError ? (
                 <p className="text-sm text-destructive">
                   {previewQuery.error.message}
                 </p>
               ) : previewQuery.data ? (
-                <div className="overflow-x-auto rounded-md border">
+                <TableFrame>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -492,7 +490,7 @@ export function CreateManufacturingOrdersDialog({
                       })}
                     </TableBody>
                   </Table>
-                </div>
+                </TableFrame>
               ) : null}
             </div>
 
@@ -504,7 +502,7 @@ export function CreateManufacturingOrdersDialog({
                 </span>
               </div>
               {effectiveOpenManufacturingOrders.length ? (
-                <div className="overflow-x-auto rounded-md border">
+                <TableFrame>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -538,11 +536,9 @@ export function CreateManufacturingOrdersDialog({
                       ))}
                     </TableBody>
                   </Table>
-                </div>
+                </TableFrame>
               ) : (
-                <div className="rounded-md border border-dashed px-4 py-3 text-sm text-muted-foreground">
-                  No open manufacturing orders.
-                </div>
+                <EmptyState density="compact">No open manufacturing orders.</EmptyState>
               )}
             </div>
 

@@ -30,7 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { apiJson } from "@/lib/client/api";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import {
@@ -55,13 +55,15 @@ import {
   AllocationSourceDialog,
   type AllocationTarget,
 } from "@/app/(dashboard)/sales/sales-order-allocator";
-import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card-page";
+import { CardPage, CardPageBanner, CardPageBody, CardSection } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import {
+  CardFormRow,
   CellShell,
   DisabledFieldTooltip,
+  ReadOnlyFieldValue,
   underlineControlClass,
 } from "@/components/card-page/form-cell";
 import { CommitInput } from "@/components/card-page/commit-input";
@@ -161,13 +163,14 @@ export function ManufacturingOrderCard({
     onMutate: () => setActionError(null),
     mutationFn: async () => {
       await controller.flush();
-      const response = await fetch(
+      return apiJson<{ id: string }>(
         `/api/manufacturing-orders/${currentOrderId}/duplicate`,
-        { method: "POST", headers: createIdempotencyHeaders("manufacturing-order-duplicate") },
+        {
+          method: "POST",
+          idempotencyKey: "manufacturing-order-duplicate",
+          fallbackError: "Failed to duplicate order.",
+        },
       );
-      const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error ?? "Failed to duplicate order.");
-      return body as { id: string };
     },
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
@@ -181,13 +184,10 @@ export function ManufacturingOrderCard({
     onMutate: () => setActionError(null),
     mutationFn: async () => {
       await controller.flush();
-      const response = await fetch(`/api/manufacturing-orders/${currentOrderId}`, {
+      await apiJson<void>(`/api/manufacturing-orders/${currentOrderId}`, {
         method: "DELETE",
+        fallbackError: "Failed to delete order.",
       });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.error ?? "Failed to delete order.");
-      }
     },
     invalidateQueryKeys: [["manufacturing-orders"]],
     onDeleted: goBack,
@@ -294,11 +294,7 @@ export function ManufacturingOrderCard({
         fallbackHref="/manufacturing/orders"
       />
 
-      {actionError ? (
-        <div className="px-(--space-5) py-(--space-3) bg-[var(--color-danger-soft)] text-destructive text-sm border-b border-[var(--color-line)]">
-          {actionError}
-        </div>
-      ) : null}
+      {actionError ? <CardPageBanner>{actionError}</CardPageBanner> : null}
 
       <CardPageBody>
         <OrderDetailsSection
@@ -441,7 +437,7 @@ function OrderDetailsSection({
 
   return (
     <CardSection title="Order details">
-      <div className={styles.formRow}>
+      <CardFormRow>
         <CellShell label="Product" required invalid={canEditPlanning && !order.productId}>
           {canEditPlanning ? (
             <DisabledFieldTooltip reason={productDisabledReason}>
@@ -470,9 +466,9 @@ function OrderDetailsSection({
               </Select>
             </DisabledFieldTooltip>
           ) : (
-            <div className={styles.readOnlyFieldValue} title={planningLockedReason ?? undefined}>
+            <ReadOnlyFieldValue title={planningLockedReason ?? undefined}>
               {order.productName || "Select product"}
-            </div>
+            </ReadOnlyFieldValue>
           )}
         </CellShell>
         <CellShell label="Production deadline">
@@ -489,19 +485,16 @@ function OrderDetailsSection({
               }}
             />
           ) : (
-            <div
-              className={`${styles.readOnlyFieldValue} ${styles.mono}`}
-              title="Completed manufacturing orders are historical records."
-            >
+            <ReadOnlyFieldValue mono title="Completed manufacturing orders are historical records.">
               {order?.plannedDate ? formatDate(order.plannedDate) : "—"}
-            </div>
+            </ReadOnlyFieldValue>
           )}
         </CellShell>
         <CellShell label="Manufacturing location">
-          <div className={styles.readOnlyFieldValue}>Default location</div>
+          <ReadOnlyFieldValue>Default location</ReadOnlyFieldValue>
         </CellShell>
-      </div>
-      <div className={styles.formRow}>
+      </CardFormRow>
+      <CardFormRow>
         <CellShell label={plannedFieldLabel}>
           {canEditPlanning ? (
             <>
@@ -576,14 +569,14 @@ function OrderDetailsSection({
               </Select>
             </DisabledFieldTooltip>
           ) : (
-            <div className={styles.readOnlyFieldValue} title={planningLockedReason ?? undefined}>
+            <ReadOnlyFieldValue title={planningLockedReason ?? undefined}>
               {order?.salesOrderNumber
                 ? `${order.salesOrderNumber}${order.salesCustomerName ? ` · ${order.salesCustomerName}` : ""}`
                 : "Make to stock"}
-            </div>
+            </ReadOnlyFieldValue>
           )}
         </CellShell>
-      </div>
+      </CardFormRow>
     </CardSection>
   );
 }

@@ -1,5 +1,1 @@
-import DataTableLoading from "@/components/data-table-loading";
-
-export default function PurchasingDataTableLoading() {
-  return <DataTableLoading />;
-}
+export { default } from "@/components/data-table-loading";

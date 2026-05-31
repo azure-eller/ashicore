@@ -1,6 +1,8 @@
-import { del } from "@vercel/blob";
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
+import { deletePrivateBlobsIfConfigured } from "@/lib/blob-storage";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { customerProjectSchema } from "@/lib/schemas/customer-crm";
 import {
@@ -15,11 +17,11 @@ type ProjectRouteContext = {
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
   const { id, projectId } = await (ctx as ProjectRouteContext).params;
-  const data = customerProjectSchema.parse(await request.json());
+  const data = await parseJsonBody(request, customerProjectSchema);
   const project = await updateCustomerProject(id, projectId, data);
 
   if (!project) {
-    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    return jsonNotFound("Project not found");
   }
 
   return NextResponse.json(project);
@@ -31,12 +33,10 @@ export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {
   const result = await deleteCustomerProject(id, projectId);
 
   if (!result.deleted) {
-    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    return jsonNotFound("Project not found");
   }
 
-  if (process.env.BLOB_READ_WRITE_TOKEN && result.blobUrls.length > 0) {
-    await Promise.all(result.blobUrls.map((blobUrl) => del(blobUrl).catch(() => undefined)));
-  }
+  await deletePrivateBlobsIfConfigured(result.blobUrls);
 
-  return NextResponse.json({ success: true });
+  return jsonSuccess();
 });

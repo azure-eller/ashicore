@@ -2,9 +2,9 @@
 
 import type { Table } from "@tanstack/react-table";
 import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from "@/components/ui/toggle-group";
+  SegmentedCountFilter,
+  type SegmentedCountFilterOption,
+} from "@/components/segmented-count-filter";
 
 type StatusOption<TValue extends string> = {
   value: TValue;
@@ -30,19 +30,36 @@ export function DataTableStatusFilter<TData, TValue extends string>({
 }: DataTableStatusFilterProps<TData, TValue>) {
   const column = table.getColumn(columnId);
   const selected = (column?.getFilterValue() as string[] | undefined) ?? [];
-  const value = selected.length === 0 ? "all" : selected.length === 1 ? selected[0] : "";
+  const value = (
+    selected.length === 0 ? "all" : selected.length === 1 ? selected[0] : ""
+  ) as TValue | "all" | "";
   const statusCounts = column?.getFacetedUniqueValues();
   const allCount = statusCounts
     ? Array.from(statusCounts.values()).reduce((sum, count) => sum + count, 0)
     : table.getFilteredRowModel().rows.length;
-  const itemClassName = "gap-(--space-3)";
+  const filterOptions: SegmentedCountFilterOption<TValue | "all">[] = [
+    ...(showAll
+      ? [
+          {
+            value: "all" as const,
+            label: "All",
+            count: allCount,
+            ariaLabel: "Show all statuses",
+          },
+        ]
+      : []),
+    ...options.map((option) => ({
+      value: option.value,
+      label: option.label,
+      count: statusCounts?.get(option.value) ?? 0,
+      ariaLabel: `Show ${option.label} status`,
+    })),
+  ];
 
   return (
-    <ToggleGroup
-      type="single"
-      variant="segmented"
-      size="sm"
+    <SegmentedCountFilter
       value={value}
+      options={filterOptions}
       onValueChange={(nextValue) => {
         if (!column) return;
         if (!showAll && !nextValue) return;
@@ -54,34 +71,7 @@ export function DataTableStatusFilter<TData, TValue extends string>({
         column.setFilterValue(nextValue === "all" ? undefined : [nextValue]);
         onFilterValueChange?.(nextValue as TValue | "all");
       }}
-      aria-label={ariaLabel}
-      className="max-w-full flex-wrap bg-muted p-(--space-1)"
-    >
-      {showAll ? (
-        <ToggleGroupItem
-          value="all"
-          aria-label="Show all statuses"
-          className={itemClassName}
-        >
-          All
-          <span className="font-mono text-[length:var(--text-2xs)] tabular-nums text-muted-foreground">
-            {allCount}
-          </span>
-        </ToggleGroupItem>
-      ) : null}
-      {options.map((option) => (
-        <ToggleGroupItem
-          key={option.value}
-          value={option.value}
-          aria-label={`Show ${option.label} status`}
-          className={itemClassName}
-        >
-          {option.label}
-          <span className="font-mono text-[length:var(--text-2xs)] tabular-nums text-muted-foreground">
-            {statusCounts?.get(option.value) ?? 0}
-          </span>
-        </ToggleGroupItem>
-      ))}
-    </ToggleGroup>
+      ariaLabel={ariaLabel}
+    />
   );
 }

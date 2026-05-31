@@ -15,23 +15,11 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { apiJson } from "@/lib/client/api";
 import {
   changePasswordSchema,
   type ChangePasswordInput,
 } from "@/lib/schemas/account";
-
-async function parseError(response: Response, fallback: string) {
-  const body = await response.json().catch(() => null);
-
-  if (response.ok) return;
-
-  const fieldErrors = (body?.errors as Record<string, string[]> | undefined) ?? {};
-  const firstFieldError = Object.values(fieldErrors)
-    .flat()
-    .find((message): message is string => typeof message === "string" && message.length > 0);
-
-  throw new Error(body?.error ?? firstFieldError ?? fallback);
-}
 
 const EMPTY_VALUES: ChangePasswordInput = {
   currentPassword: "",
@@ -54,14 +42,12 @@ export function ChangePasswordDialog({ children }: { children: ReactNode }) {
   }, [open, form]);
 
   const mutation = useMutation({
-    mutationFn: async (values: ChangePasswordInput) => {
-      const response = await fetch("/api/account/password", {
+    mutationFn: (values: ChangePasswordInput) =>
+      apiJson<void>("/api/account/password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      });
-      await parseError(response, "Failed to change password.");
-    },
+        body: values,
+        fallbackError: "Failed to change password.",
+      }),
     onSuccess: () => {
       setOpen(false);
     },

@@ -1,27 +1,33 @@
-import { StatusLabel } from "@/components/ui/status-label";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  StatusBadge,
+  type StatusBadgeConfig,
+} from "@/components/status-badge";
 import { STOCKTAKE_STATUS_TOOLTIP } from "@/lib/tooltip-copy";
 import type { StocktakeStatus } from "@/lib/schemas/stocktakes";
 
+const stocktakeStatusConfig = {
+  draft: {
+    label: "Draft",
+    tone: "neutral",
+    tooltip: STOCKTAKE_STATUS_TOOLTIP.draft,
+  },
+  completed: {
+    label: "Completed",
+    tone: "success",
+    tooltip: STOCKTAKE_STATUS_TOOLTIP.completed,
+  },
+  cancelled: {
+    label: "Cancelled",
+    tone: "danger",
+    tooltip: STOCKTAKE_STATUS_TOOLTIP.cancelled,
+  },
+  deleted: {
+    label: "Deleted",
+    tone: "danger",
+    tooltip: STOCKTAKE_STATUS_TOOLTIP.deleted,
+  },
+} satisfies StatusBadgeConfig<StocktakeStatus>;
+
 export function StocktakeStatusBadge({ status }: { status: StocktakeStatus }) {
-  let label;
-
-  if (status === "draft") {
-    label = <StatusLabel tone="neutral">Draft</StatusLabel>;
-  } else if (status === "completed") {
-    label = <StatusLabel tone="success">Completed</StatusLabel>;
-  } else {
-    label = <StatusLabel tone="danger">Deleted</StatusLabel>;
-  }
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{label}</TooltipTrigger>
-      <TooltipContent side="top">{STOCKTAKE_STATUS_TOOLTIP[status]}</TooltipContent>
-    </Tooltip>
-  );
+  return <StatusBadge status={status} config={stocktakeStatusConfig} />;
 }

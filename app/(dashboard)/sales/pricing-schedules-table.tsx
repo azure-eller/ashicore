@@ -74,14 +74,8 @@ export function PricingSchedulesTable({
       rows={initialData}
       columns={columns}
       queryKey={["pricing-schedules"]}
-      queryFn={async () => {
-        const response = await fetch("/api/pricing-schedules");
-        if (!response.ok) {
-          throw new Error("Failed to fetch pricing schedules");
-        }
-
-        return response.json();
-      }}
+      queryEndpoint="/api/pricing-schedules"
+      queryErrorMessage="Failed to fetch pricing schedules"
       searchAriaLabel="Search pricing schedules"
       addHref="/sales/pricing/schedules/new"
       addAriaLabel="New Pricing Schedule"

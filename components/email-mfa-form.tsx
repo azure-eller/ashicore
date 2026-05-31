@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
+import { apiJson } from "@/lib/client/api";
 
 type EmailMfaFormProps = {
   next: string;
@@ -45,15 +46,15 @@ export function EmailMfaForm({ next, mode }: EmailMfaFormProps) {
     setNotice(null);
     setSendingCode(true);
 
-    const response = await fetch("/api/auth/mfa/send-code", {
-      method: "POST",
-    });
-
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as {
-        error?: string;
-      } | null;
-      setError(body?.error ?? "Could not send the email code.");
+    try {
+      await apiJson<void>("/api/auth/mfa/send-code", {
+        method: "POST",
+        fallbackError: "Could not send the email code.",
+      });
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Could not send the email code.",
+      );
       setSendingCode(false);
       return;
     }

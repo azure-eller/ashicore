@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
+import { parseOptionalJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { pickManufacturingIngredientSchema } from "@/lib/schemas/manufacturing-orders";
 import {
@@ -14,8 +15,11 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     "pickRemainingManufacturingIngredients"
   );
   const { id } = await (ctx as RouteContext).params;
-  const body = await request.json().catch(() => ({}));
-  const data = pickManufacturingIngredientSchema.parse(body);
+  const data = await parseOptionalJsonBody(
+    request,
+    pickManufacturingIngredientSchema,
+    {},
+  );
 
   try {
     const result = await pickRemainingManufacturingIngredients(id, {

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { jsonCreated } from "@/lib/api/responses";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import {
   createAgentApiToken,
   listAgentApiTokens,
@@ -26,8 +28,8 @@ export const GET = apiHandler(async (request) => {
 
 export const POST = apiHandler(async (request) => {
   await assertTeamManagementAccess(request.headers);
-  const input = createTokenSchema.parse(await request.json());
+  const input = await parseJsonBody(request, createTokenSchema);
   const created = await createAgentApiToken(input);
 
-  return NextResponse.json(created, { status: 201 });
+  return jsonCreated(created);
 });

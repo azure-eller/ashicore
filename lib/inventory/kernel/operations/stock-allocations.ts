@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import { roundQuantity } from "@/lib/format";
+import { allocationQuantityString } from "@/lib/inventory/allocation/format";
 import {
   inventoryLotBalances,
   manufacturingOrderIngredients,
@@ -17,9 +18,7 @@ import { consumeSpecificLotInTx } from "./stock-core";
 import { reconcileAllocationPinsToReservationsInTx } from "@/lib/inventory/allocation/reservations";
 import type { AllocationDemandRef } from "@/lib/inventory/allocation/types";
 
-function quantityString(value: number) {
-  return normalizeNumeric(roundQuantity(Math.max(0, value)));
-}
+const quantityString = allocationQuantityString;
 
 function isStockAllocationDemandType(value: string): value is StockAllocationDemandType {
   return (STOCK_ALLOCATION_DEMAND_TYPES as readonly string[]).includes(value);

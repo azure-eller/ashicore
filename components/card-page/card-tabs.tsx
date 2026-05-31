@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Spinner } from "@/components/ui/spinner";
+import { updateSearchParams } from "@/lib/routing/search-params";
 import { cn } from "@/lib/utils";
 import styles from "./card-page.module.css";
 
@@ -54,8 +55,7 @@ export function CardTabs({
     if (next === activeTab) return;
     if (!isEnabledTab(next)) return;
     setOptimisticTab(next);
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("tab", next);
+    const params = updateSearchParams(searchParams, { tab: next });
     router.replace(`?${params.toString()}`, { scroll: false });
   };
 

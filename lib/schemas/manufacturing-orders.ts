@@ -1,7 +1,12 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { manufacturingOrders } from "@/lib/db/schema";
-import { isValidIsoDate, nullableString, positiveDecimalString } from "./shared";
+import {
+  isNonNegativeNumberString,
+  isValidIsoDate,
+  nullableString,
+  positiveDecimalString,
+} from "./shared";
 
 export const MANUFACTURING_ORDER_STATUSES = ["open", "done"] as const;
 
@@ -301,10 +306,7 @@ const ingredientActualSchema = z.object({
     .string()
     .trim()
     .min(1, "Actual consumed is required")
-    .refine((value) => {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) && parsed >= 0;
-    }, "Actual consumed must be zero or greater"),
+    .refine(isNonNegativeNumberString, "Actual consumed must be zero or greater"),
 });
 
 export const completeManufacturingOrderSchema = z.object({

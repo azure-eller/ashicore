@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { apiHandler } from "@/lib/api/handler";
+import { jsonError, jsonNotFound } from "@/lib/api/responses";
 import { assertModuleReadAccess, withAuthedOrgContext } from "@/lib/dal/auth";
+import { requestSearchParams } from "@/lib/routing/search-params";
 import { manufacturingOrderIngredients, stockAllocations } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { getAllocationWorkspaceInTx } from "@/lib/inventory/allocation/read-model";
@@ -9,13 +11,13 @@ import { getAllocationWorkspaceInTx } from "@/lib/inventory/allocation/read-mode
 export const GET = apiHandler(async (request: Request) => {
   await assertModuleReadAccess("manufacturing", request.headers);
 
-  const { searchParams } = new URL(request.url);
+  const searchParams = requestSearchParams(request);
   const itemId = searchParams.get("itemId");
   const ingredientId = searchParams.get("ingredientId");
   const manufacturingOrderId = searchParams.get("manufacturingOrderId");
 
   if (!itemId) {
-    return NextResponse.json({ error: "itemId is required" }, { status: 400 });
+    return jsonError("itemId is required");
   }
 
   const data = await withAuthedOrgContext(async (tx, orgId) => {
@@ -69,7 +71,7 @@ export const GET = apiHandler(async (request: Request) => {
   });
 
   if (!data) {
-    return NextResponse.json({ error: "Ingredient sources not found" }, { status: 404 });
+    return jsonNotFound("Ingredient sources not found");
   }
 
   return NextResponse.json(data);

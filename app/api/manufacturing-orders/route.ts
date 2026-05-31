@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonError, jsonNotFound, jsonCreated } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import { insertManufacturingOrderSchema } from "@/lib/schemas/manufacturing-orders";
@@ -19,12 +21,11 @@ export const GET = apiHandler(async (request) => {
 
 export const DELETE = apiHandler(async (request) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
-  const body = await request.json();
-  const data = bulkDeleteSchema.parse(body);
+  const data = await parseJsonBody(request, bulkDeleteSchema);
   const result = await deleteManufacturingOrders(data.ids);
 
   if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    return jsonError(result.error);
   }
 
   return NextResponse.json(result);
@@ -32,18 +33,17 @@ export const DELETE = apiHandler(async (request) => {
 
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
-  const body = await request.json();
-  const data = insertManufacturingOrderSchema.parse(body);
+  const data = await parseJsonBody(request, insertManufacturingOrderSchema);
 
   try {
     const created = await createManufacturingOrder(data);
     const order = await getManufacturingOrder(created.id);
 
     if (!order) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      return jsonNotFound("Order not found");
     }
 
-    return NextResponse.json(order, { status: 201 });
+    return jsonCreated(order);
   } catch (error) {
     if (error instanceof ManufacturingError) return error.toResponse();
     throw error;

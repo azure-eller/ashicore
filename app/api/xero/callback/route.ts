@@ -5,6 +5,7 @@ import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { integrationConnections } from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { captureAppError } from "@/lib/observability/sentry";
+import { requestUrl } from "@/lib/routing/search-params";
 import {
   accountingAuditErrorMetadata,
   tryRecordAccountingAuditEvent,
@@ -218,7 +219,7 @@ async function handleSignupCallback(request: Request, cookieState: string) {
 }
 
 export const GET = apiHandler(async (request: Request) => {
-  const url = new URL(request.url);
+  const url = requestUrl(request);
   const state = url.searchParams.get("state");
   const connectCookieState = readCookie(request, XERO_CONNECT_OAUTH_STATE_COOKIE);
   const signupCookieState = readCookie(request, XERO_SIGNUP_OAUTH_STATE_COOKIE);

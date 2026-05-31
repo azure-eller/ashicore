@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   cancelPurchaseOrder,
@@ -19,7 +20,7 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("purchasing", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "purchaseOrderStatus");
   const { id } = await (ctx as RouteContext).params;
-  const { status } = statusSchema.parse(await request.json());
+  const { status } = await parseJsonBody(request, statusSchema);
   const order = await getPurchaseOrder(id);
 
   if (!order) {

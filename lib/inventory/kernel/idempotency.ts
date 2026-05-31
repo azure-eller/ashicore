@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
+import { canonicalizeJson } from "@/lib/canonical-json";
 import { inventoryIdempotencyClaims } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
@@ -8,51 +9,8 @@ import {
   MissingIdempotencyKeyError,
 } from "./errors";
 
-function normalizeNumericString(value: string) {
-  if (!/^-?\d+(\.\d+)?$/.test(value)) {
-    return value;
-  }
-
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return value;
-  }
-
-  return parsed.toString();
-}
-
-function canonicalizeValue(value: unknown): unknown {
-  if (value == null) {
-    return null;
-  }
-
-  if (typeof value === "string") {
-    return normalizeNumericString(value);
-  }
-
-  if (typeof value === "number" || typeof value === "boolean") {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((entry) => canonicalizeValue(entry));
-  }
-
-  if (typeof value === "object") {
-    return Object.entries(value as Record<string, unknown>)
-      .filter(([, entry]) => entry !== undefined)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .reduce<Record<string, unknown>>((acc, [key, entry]) => {
-        acc[key] = canonicalizeValue(entry);
-        return acc;
-      }, {});
-  }
-
-  return String(value);
-}
-
 export function canonicalizeIdempotencyParams(params: Record<string, unknown>) {
-  return JSON.stringify(canonicalizeValue(params));
+  return canonicalizeJson(params);
 }
 
 export function deriveInventoryIdempotencyKey(

@@ -1,4 +1,9 @@
-import { normalizeNumeric, normalizeNumericScale } from "@/lib/format";
+import {
+  normalizeNumeric,
+  normalizeNumericScale,
+  parseNonNegativeNumber,
+  parsePositiveNumber,
+} from "@/lib/format";
 import { normalizeStockUnitCost } from "@/lib/inventory/cost";
 
 export type LandedCostDistributionMethod = "by_value" | "not_distributed";
@@ -30,23 +35,6 @@ export type LandedCostSummary = {
   orderTotal: number;
   lines: LandedCostLineResult[];
 };
-
-function parseFiniteNumber(value: string | number | null | undefined) {
-  if (value == null) return null;
-  if (typeof value === "string" && value.trim() === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function parseNonNegativeNumber(value: string | number | null | undefined) {
-  const parsed = parseFiniteNumber(value);
-  return parsed != null && parsed >= 0 ? parsed : null;
-}
-
-function parsePositiveNumber(value: string | number | null | undefined) {
-  const parsed = parseFiniteNumber(value);
-  return parsed != null && parsed > 0 ? parsed : null;
-}
 
 export function calculatePurchaseOrderLandedCosts(params: {
   lines: LandedCostLineInput[];

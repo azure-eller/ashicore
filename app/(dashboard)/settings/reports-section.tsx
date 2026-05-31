@@ -6,7 +6,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Settings02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { apiJson } from "@/lib/client/api";
-import { Badge } from "@/components/ui/badge";
+import {
+  ConfiguredBadge,
+  type ConfiguredBadgeConfig,
+} from "@/components/configured-badge";
+import { EmptyState } from "@/components/empty-state";
+import { InsetPanel } from "@/components/inset-panel";
+import { ListFrame, ListFrameItem } from "@/components/list-frame";
+import { MetricTile } from "@/components/metric-tile";
+import { TableEmptyRow } from "@/components/table-empty-row";
+import { TableFrame } from "@/components/table-frame";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -37,7 +46,11 @@ import {
   formatQuantity,
   todayInTimeZone,
 } from "@/lib/format";
-import { SettingsPanel, SettingsPanelHeader } from "./settings-panel";
+import {
+  SettingsPanel,
+  SettingsPanelActionRow,
+  SettingsPanelHeader,
+} from "./settings-panel";
 
 type FormState = {
   enabled: boolean;
@@ -50,11 +63,20 @@ type FormState = {
 type DailyManufacturingReportRun = {
   id: string;
   reportDate: string;
-  status: string;
+  status: DailyManufacturingReportStatus;
   createdAt: string;
   failureMessage: string | null;
   payload: DailyManufacturingReportPayload | null;
 };
+
+type DailyManufacturingReportStatus = "failed" | "generated" | "generating" | "sent";
+
+const reportStatusBadgeConfig = {
+  failed: { label: "failed", variant: "destructive" },
+  generated: { label: "generated", variant: "secondary" },
+  generating: { label: "generating", variant: "secondary" },
+  sent: { label: "sent", variant: "secondary" },
+} satisfies ConfiguredBadgeConfig<DailyManufacturingReportStatus>;
 
 type ManualSendResult = {
   runId: string;
@@ -210,7 +232,21 @@ export function ReportsSection({
       />
 
       <div className="divide-y">
-        <div className="group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-(--space-6) px-(--space-12) py-(--space-6) transition-colors hover:bg-muted/40">
+        <SettingsPanelActionRow
+          action={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              disabled={saveMutation.isPending}
+              onClick={openConfigDialog}
+              className="text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hover:bg-transparent"
+              aria-label="Configure daily manufacturing report"
+            >
+              <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
+            </Button>
+          }
+        >
           <label className="flex min-w-0 cursor-pointer items-center gap-(--space-4)">
             <Checkbox
               checked={formState.enabled}
@@ -222,19 +258,7 @@ export function ReportsSection({
               Enable daily manufacturing report
             </span>
           </label>
-
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            disabled={saveMutation.isPending}
-            onClick={openConfigDialog}
-            className="text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:opacity-0 md:transition-opacity md:hover:bg-transparent md:focus-visible:opacity-100 md:group-hover:opacity-100"
-            aria-label="Configure daily manufacturing report"
-          >
-            <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
-          </Button>
-        </div>
+        </SettingsPanelActionRow>
         {formError ? (
           <div className="px-(--space-12) py-(--space-4) text-[length:var(--text-sm)] text-destructive">
             {formError}
@@ -293,9 +317,10 @@ export function ReportsSection({
 
             <Field>
               <FieldLabel>Recipients</FieldLabel>
-              <div className="max-h-72 overflow-y-auto divide-y border bg-card">
+              <ListFrame className="max-h-72 overflow-y-auto bg-card">
                 {data.members.map((member) => (
-                  <label
+                  <ListFrameItem
+                    as="label"
                     key={member.userId}
                     className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm"
                   >
@@ -308,9 +333,9 @@ export function ReportsSection({
                     <span className="min-w-0 flex-1 truncate">
                       {member.name} <span className="text-muted-foreground">{member.email}</span>
                     </span>
-                  </label>
+                  </ListFrameItem>
                 ))}
-              </div>
+              </ListFrame>
             </Field>
 
             <FieldError errors={formError ? [{ message: formError }] : []} />
@@ -411,7 +436,7 @@ function ReportHistoryDialog({
 }) {
   return (
     <div className="grid gap-5">
-      <div className="rounded-md border">
+      <TableFrame>
         <Table>
           <TableHeader>
             <TableRow>
@@ -424,17 +449,9 @@ function ReportHistoryDialog({
           </TableHeader>
           <TableBody>
             {historyError ? (
-              <TableRow>
-                <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
-                  Failed to load report history.
-                </TableCell>
-              </TableRow>
+              <TableEmptyRow colSpan={5}>Failed to load report history.</TableEmptyRow>
             ) : isLoadingHistory ? (
-              <TableRow>
-                <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
-                  Loading reports...
-                </TableCell>
-              </TableRow>
+              <TableEmptyRow colSpan={5}>Loading reports...</TableEmptyRow>
             ) : reports.length > 0 ? (
               reports.map((report) => (
                 <TableRow key={report.id} data-state={selectedReportId === report.id ? "selected" : undefined}>
@@ -459,25 +476,17 @@ function ReportHistoryDialog({
                 </TableRow>
               ))
             ) : (
-              <TableRow>
-                <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
-                  No reports yet.
-                </TableCell>
-              </TableRow>
+              <TableEmptyRow colSpan={5}>No reports yet.</TableEmptyRow>
             )}
           </TableBody>
         </Table>
-      </div>
+      </TableFrame>
 
       {selectedReportId ? (
         detailError ? (
-          <div className="rounded-md border p-4 text-sm text-muted-foreground">
-            Failed to load report.
-          </div>
+          <EmptyState density="compact">Failed to load report.</EmptyState>
         ) : isLoadingDetail || !selectedReport ? (
-          <div className="rounded-md border p-4 text-sm text-muted-foreground">
-            Loading report...
-          </div>
+          <EmptyState density="compact">Loading report...</EmptyState>
         ) : (
           <ReportDetail report={selectedReport} timeZone={timeZone} />
         )
@@ -496,7 +505,7 @@ function ReportDetail({
   const payload = report.payload;
 
   return (
-    <div className="grid gap-4 rounded-md border p-4">
+    <InsetPanel className="grid gap-(--space-4) p-(--space-4)">
       <div className="flex items-center justify-between gap-4">
         <h3 className="text-sm font-medium">
           Daily Manufacturing Report - {formatDate(report.reportDate)}
@@ -511,13 +520,13 @@ function ReportDetail({
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <SummaryMetric
+            <MetricTile
               label="Products with output"
               value={payload.summary.productsWithRecordedOutput}
             />
-            <SummaryMetric label="Batches" value={payload.summary.completedBatches} />
-            <SummaryMetric label="Shipments" value={payload.summary.shipmentsShipped} />
-            <SummaryMetric
+            <MetricTile label="Batches" value={payload.summary.completedBatches} />
+            <MetricTile label="Shipments" value={payload.summary.shipmentsShipped} />
+            <MetricTile
               label="Shipped line value"
               value={formatPrice(payload.summary.shippedLineValue) ?? "$0"}
             />
@@ -563,24 +572,17 @@ function ReportDetail({
           />
         </>
       )}
-    </div>
+    </InsetPanel>
   );
 }
 
 function ReportStatusBadge({ status }: { status: string }) {
   return (
-    <Badge variant={status === "failed" ? "destructive" : "secondary"}>
-      {status}
-    </Badge>
-  );
-}
-
-function SummaryMetric({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="rounded-md border p-3">
-      <div className="text-xl font-semibold tabular-nums">{value}</div>
-      <div className="mt-1 text-sm text-muted-foreground">{label}</div>
-    </div>
+    <ConfiguredBadge
+      value={status}
+      config={reportStatusBadgeConfig}
+      fallback={{ label: status, variant: "secondary" }}
+    />
   );
 }
 
@@ -596,7 +598,7 @@ function ReportTable({
   return (
     <div>
       <h4 className="mb-2 text-sm font-medium">{title}</h4>
-      <div className="rounded-md border">
+      <TableFrame>
         <Table>
           <TableHeader>
             <TableRow>
@@ -615,15 +617,13 @@ function ReportTable({
                 </TableRow>
               ))
             ) : (
-              <TableRow>
-                <TableCell colSpan={headers.length} className="h-14 text-center text-muted-foreground">
-                  No rows.
-                </TableCell>
-              </TableRow>
+              <TableEmptyRow colSpan={headers.length} height="compact">
+                No rows.
+              </TableEmptyRow>
             )}
           </TableBody>
         </Table>
-      </div>
+      </TableFrame>
     </div>
   );
 }

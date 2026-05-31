@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   getManufacturingOrder,
@@ -15,7 +16,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     await startManufacturingOrderWork(id);
     const detail = await getManufacturingOrder(id);
     if (!detail) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      return jsonNotFound("Order not found");
     }
     return NextResponse.json(detail);
   } catch (error) {

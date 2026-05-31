@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
 import {
   getUserViewPreferencePayload,
@@ -20,7 +21,10 @@ export const GET = apiHandler(async (request: Request) => {
 
 export const PUT = apiHandler(async (request: Request) => {
   await assertModuleReadAccess("sales", request.headers);
-  const preference = salesOrdersAllocatorPreferenceSchema.parse(await request.json());
+  const preference = await parseJsonBody(
+    request,
+    salesOrdersAllocatorPreferenceSchema,
+  );
   const payload = await saveUserViewPreferencePayload(
     SALES_ORDERS_ALLOCATOR_VIEW_KEY,
     preference

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { switchActiveXeroTenant } from "@/lib/dal/xero";
 import { tryRecordAccountingAuditEvent } from "@/lib/accounting/audit-events";
@@ -11,8 +12,7 @@ const bodySchema = z.object({
 
 export const POST = apiHandler(async (request: Request) => {
   const context = await assertModuleWriteAccess("sales", request.headers);
-  const body = await request.json();
-  const data = bodySchema.parse(body);
+  const data = await parseJsonBody(request, bodySchema);
 
   const result = await switchActiveXeroTenant(data.tenantId);
   if (!result) {

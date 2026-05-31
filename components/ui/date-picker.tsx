@@ -5,6 +5,11 @@ import { ArrowDown01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 
 import { cn } from "@/lib/utils"
+import {
+  formatLocalDateInput,
+  formatLongLocalDate,
+  parseLocalDate,
+} from "@/lib/format"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import {
@@ -25,45 +30,6 @@ type DatePickerProps = {
   "aria-label"?: string
 }
 
-function padTwo(n: number): string {
-  return String(n).padStart(2, "0")
-}
-
-function parseDate(value?: string): Date | undefined {
-  if (!value) return undefined
-  const m = value.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
-  if (!m) return undefined
-
-  const y = Number(m[1])
-  const mo = Number(m[2])
-  const d = Number(m[3])
-
-  if (mo < 1 || mo > 12 || d < 1 || d > 31) return undefined
-
-  const date = new Date(y, mo - 1, d)
-  if (
-    date.getFullYear() !== y ||
-    date.getMonth() !== mo - 1 ||
-    date.getDate() !== d
-  ) {
-    return undefined
-  }
-
-  return date
-}
-
-function toDateString(date: Date): string {
-  return `${date.getFullYear()}-${padTwo(date.getMonth() + 1)}-${padTwo(date.getDate())}`
-}
-
-function formatDisplay(date: Date): string {
-  return date.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  })
-}
-
 function DatePicker({
   id,
   value,
@@ -74,7 +40,7 @@ function DatePicker({
   className,
   ...props
 }: DatePickerProps) {
-  const parsed = React.useMemo(() => parseDate(value), [value])
+  const parsed = React.useMemo(() => parseLocalDate(value), [value])
   const [open, setOpen] = React.useState(false)
 
   function handleOpenChange(nextOpen: boolean) {
@@ -83,7 +49,7 @@ function DatePicker({
   }
 
   function handleSelect(date?: Date) {
-    onChange?.(date ? toDateString(date) : "")
+    onChange?.(date ? formatLocalDateInput(date) : "")
     setOpen(false)
   }
 
@@ -102,7 +68,7 @@ function DatePicker({
           )}
           {...props}
         >
-          {parsed ? formatDisplay(parsed) : <span>{placeholder}</span>}
+          {parsed ? formatLongLocalDate(parsed) : <span>{placeholder}</span>}
           <HugeiconsIcon
             icon={ArrowDown01Icon}
             data-icon="inline-end"

@@ -1,10 +1,5 @@
 import { inventoryLedgerFiltersSchema, type InventoryLedgerFilters } from "@/lib/schemas/inventory-ledger";
-
-type SearchParamRecord = Record<string, string | string[] | undefined>;
-
-function normalizeValue(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value;
-}
+import { firstSearchParamValue, type SearchParamRecord } from "@/lib/routing/search-params";
 
 export function parseInventoryLedgerFilters(
   source: URLSearchParams | SearchParamRecord
@@ -13,7 +8,7 @@ export function parseInventoryLedgerFilters(
     source instanceof URLSearchParams
       ? Object.fromEntries(source.entries())
       : Object.fromEntries(
-          Object.entries(source).map(([key, value]) => [key, normalizeValue(value)])
+          Object.entries(source).map(([key, value]) => [key, firstSearchParamValue(value)])
         );
 
   return inventoryLedgerFiltersSchema.parse(raw);

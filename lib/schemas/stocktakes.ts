@@ -1,7 +1,7 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { stocktakes } from "@/lib/db/schema";
-import { nullableString } from "./shared";
+import { isNonNegativeNumberString, nullableString } from "./shared";
 
 export const STOCKTAKE_SCOPE_ITEM_TYPES = ["material", "product"] as const;
 export type StocktakeScopeItemType = (typeof STOCKTAKE_SCOPE_ITEM_TYPES)[number];
@@ -191,8 +191,7 @@ export const updateStocktakeSchema = z
         return;
       }
 
-      const parsed = Number(line.countedQty);
-      if (!Number.isFinite(parsed) || parsed < 0) {
+      if (!isNonNegativeNumberString(line.countedQty)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: "Counted quantity must be 0 or greater",
@@ -230,8 +229,7 @@ export const updateStocktakeSchema = z
             path: ["lotLines", index, "countedQty"],
           });
         } else {
-          const parsed = Number(line.countedQty);
-          if (!Number.isFinite(parsed) || parsed < 0) {
+          if (!isNonNegativeNumberString(line.countedQty)) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               message: "Counted quantity must be 0 or greater",
@@ -257,8 +255,7 @@ export const updateStocktakeSchema = z
         return;
       }
 
-      const parsed = Number(line.countedQty);
-      if (!Number.isFinite(parsed) || parsed < 0) {
+      if (!isNonNegativeNumberString(line.countedQty)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: "Counted quantity must be 0 or greater",

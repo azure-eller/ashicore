@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
 import {
   getUserViewPreferencePayload,
@@ -16,7 +18,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   const viewKey = await getViewKey(ctx);
   const definition = getViewPreferenceDefinition(viewKey);
   if (!definition) {
-    return NextResponse.json({ error: "Unknown view preference." }, { status: 404 });
+    return jsonNotFound("Unknown view preference.");
   }
 
   await assertModuleReadAccess(definition.module, request.headers);
@@ -28,11 +30,11 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const viewKey = await getViewKey(ctx);
   const definition = getViewPreferenceDefinition(viewKey);
   if (!definition) {
-    return NextResponse.json({ error: "Unknown view preference." }, { status: 404 });
+    return jsonNotFound("Unknown view preference.");
   }
 
   await assertModuleReadAccess(definition.module, request.headers);
-  const preference = definition.schema.parse(await request.json());
+  const preference = await parseJsonBody(request, definition.schema);
   const payload = await saveUserViewPreferencePayload(viewKey, preference);
   return NextResponse.json(definition.schema.parse(payload));
 });

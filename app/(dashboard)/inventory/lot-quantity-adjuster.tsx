@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { apiJson } from "@/lib/client/api";
+import { isNonNegativeNumberString } from "@/lib/schemas/shared";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,8 +37,7 @@ export function LotQuantityAdjuster({
   const requestConfirm = () => {
     const trimmed = value.trim();
     if (trimmed === quantity) return;
-    const parsed = Number(trimmed);
-    if (!Number.isFinite(parsed) || parsed < 0) {
+    if (!isNonNegativeNumberString(trimmed)) {
       setError("Quantity must be 0 or greater.");
       return;
     }
@@ -50,23 +50,24 @@ export function LotQuantityAdjuster({
     setIsSaving(true);
     setError(null);
 
-    const response = await fetch(`/api/items/${itemId}/lots/${lotId}/quantity`, {
-      method: "PUT",
-      headers: createIdempotencyHeaders("lot-quantity-adjust", {
-        "Content-Type": "application/json",
-      }),
-      body: JSON.stringify({ quantity: pendingValue, note: null }),
-    });
-    const body = await response.json().catch(() => null);
-
-    setIsSaving(false);
-    if (!response.ok) {
-      setError(body?.error ?? "Failed to adjust lot quantity.");
+    try {
+      await apiJson<void>(`/api/items/${itemId}/lots/${lotId}/quantity`, {
+        method: "PUT",
+        body: { quantity: pendingValue, note: null },
+        idempotencyKey: "lot-quantity-adjust",
+        fallbackError: "Failed to adjust lot quantity.",
+      });
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Failed to adjust lot quantity.",
+      );
       setPendingValue(null);
       setValue(quantity);
+      setIsSaving(false);
       return;
     }
 
+    setIsSaving(false);
     setPendingValue(null);
     router.refresh();
   };
@@ -94,7 +95,7 @@ export function LotQuantityAdjuster({
           }
         }}
       >
-        <AlertDialogContent className="bg-background text-foreground">
+        <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Adjust this lot?</AlertDialogTitle>
             <AlertDialogDescription>

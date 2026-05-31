@@ -6,6 +6,7 @@ import {
   getSalesItemsDisplayState,
   type FulfillmentDisplayState,
 } from "@/lib/sales/fulfillment-status";
+import { parseQuantity } from "@/lib/format";
 
 export type OrderDisplayStatusLabel =
   | "NOT SHIPPED"
@@ -62,11 +63,6 @@ export type SalesItemsFilterValue =
   | "available"
   | "expected"
   | "not_available";
-
-function parseQuantity(value: string | null | undefined) {
-  const parsed = Number.parseFloat(value ?? "0");
-  return Number.isFinite(parsed) ? parsed : 0;
-}
 
 export function getSalesItemsState(
   order: SalesOrderListRow,

@@ -9,7 +9,14 @@ import type {
   ValueSetterParams,
 } from "ag-grid-community";
 import { apiJson } from "@/lib/client/api";
-import { formatPrice } from "@/lib/format";
+import { createClientId } from "@/lib/client-id";
+import {
+  buildIndexedFormErrorMap,
+  formatPrice,
+  getNestedFormErrorMessage,
+  normalizeNullableTextValue,
+} from "@/lib/format";
+import { isPositiveNumberString } from "@/lib/schemas/shared";
 import {
   MutableLines,
   type EditableLineDataGridChange,
@@ -139,25 +146,10 @@ function formatOperationCost(params: {
 }
 
 function createOperationCostRowId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-
-  return `operation-cost-row-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return createClientId("operation-cost-row");
 }
 
-function normalizeTextCell(value: unknown) {
-  if (value == null) return null;
-  const nextValue = String(value).trim();
-  return nextValue === "" ? null : nextValue;
-}
-
-function getNestedMessage(value: unknown): string | null {
-  if (!value || typeof value !== "object") return null;
-  const candidate = value as { message?: unknown; root?: unknown };
-  if (typeof candidate.message === "string") return candidate.message;
-  return getNestedMessage(candidate.root);
-}
+const normalizeTextCell = normalizeNullableTextValue;
 
 function createBlankOperationCostGridRow(): OperationCostGridRow {
   return {
@@ -223,31 +215,19 @@ function buildOperationCostErrorState(
   error: unknown,
   rows: OperationCostGridRow[],
 ): OperationCostErrorState {
-  const byRowId = new Map<string, Map<OperationCostColumnKey, string>>();
-  const topLevelMessage = getNestedMessage(error);
-  const rowErrors = Array.isArray(error) ? error : [];
-
-  rowErrors.forEach((rowError, index) => {
-    const row = rows[index];
-    if (!row || !rowError || typeof rowError !== "object") return;
-
-    const rowErrorObject = rowError as Record<string, unknown>;
-    const rowMessages = new Map<OperationCostColumnKey, string>();
-    const keys: OperationCostColumnKey[] = [
+  const topLevelMessage = getNestedFormErrorMessage(error);
+  const byRowId = buildIndexedFormErrorMap(
+    error,
+    rows,
+    [
       "operationName",
       "resourceId",
       "costScalingMode",
       "crewSize",
       "plannedMinutes",
-    ];
-
-    keys.forEach((key) => {
-      const message = getNestedMessage(rowErrorObject[key]);
-      if (message) rowMessages.set(key, message);
-    });
-
-    if (rowMessages.size > 0) byRowId.set(row.clientRowId, rowMessages);
-  });
+    ],
+    (row) => row.clientRowId,
+  );
 
   return {
     gridError: topLevelMessage,
@@ -266,8 +246,7 @@ function hasOperationCostCellError(
 
 function validatePositiveCell(value: unknown, message: string) {
   const normalized = normalizeTextCell(value);
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) && parsed > 0 ? null : [message];
+  return isPositiveNumberString(normalized ?? "") ? null : [message];
 }
 
 function ResourceCell({

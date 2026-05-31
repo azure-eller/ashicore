@@ -42,8 +42,12 @@ import {
   type VariantOptionDto,
   type UpdateItemCardVariantInput,
 } from "@/lib/api/clients/item-cards";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
-import { formatQuantity } from "@/lib/format";
+import { apiJson } from "@/lib/client/api";
+import { formatQuantity, parseNumberOrZero } from "@/lib/format";
+import {
+  isNonNegativeNumberString,
+  isPositiveNumberString,
+} from "@/lib/schemas/shared";
 import { cn } from "@/lib/utils";
 import type { CardLotRow } from "./lot-grid-tab";
 import styles from "./card-page.module.css";
@@ -75,19 +79,17 @@ function buildVariantPatch(
     case "defaultLeadTimeDays": {
       if (blank) return { defaultLeadTimeDays: null };
       const parsed = Number(value);
-      if (!Number.isFinite(parsed) || parsed < 0) return null;
+      if (!isNonNegativeNumberString(String(value))) return null;
       return { defaultLeadTimeDays: Math.trunc(parsed) };
     }
     case "minimumOrderQuantity": {
       if (blank) return { minimumOrderQuantity: null };
-      const parsed = Number(value);
-      if (!Number.isFinite(parsed) || parsed <= 0) return null;
+      if (!isPositiveNumberString(String(value))) return null;
       return { minimumOrderQuantity: String(value) };
     }
     case "defaultSellingPrice": {
       if (blank) return { defaultSellingPrice: null };
-      const parsed = Number(value);
-      if (!Number.isFinite(parsed) || parsed < 0) return null;
+      if (!isNonNegativeNumberString(String(value))) return null;
       return { defaultSellingPrice: String(value) };
     }
     default:
@@ -208,14 +210,10 @@ function StockQuantityAdjustmentBody({
   const [note, setNote] = useState("");
   const lotsQuery = useQuery({
     queryKey: ["item-lots", adjustment.variant.id],
-    queryFn: async () => {
-      const response = await fetch(`/api/items/${adjustment.variant.id}/lots`);
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to load lots.");
-      }
-      return body as CardLotRow[];
-    },
+    queryFn: () =>
+      apiJson<CardLotRow[]>(`/api/items/${adjustment.variant.id}/lots`, {
+        fallbackError: "Failed to load lots.",
+      }),
     enabled: !isIncrease && lotTracked,
   });
 
@@ -252,41 +250,31 @@ function StockQuantityAdjustmentBody({
     mutationKey: ["item-card-action", adjustment.variant.id, "stock-decrease"],
     mutationFn: async () => {
       if (!lotTracked) {
-        const response = await fetch(`/api/items/${adjustment.variant.id}/stock-adjustments`, {
+        await apiJson<void>(`/api/items/${adjustment.variant.id}/stock-adjustments`, {
           method: "PUT",
-          headers: createIdempotencyHeaders("variant-stock-adjust", {
-            "Content-Type": "application/json",
-          }),
-          body: JSON.stringify({
+          body: {
             quantity: adjustment.nextQuantity,
             note: note.trim() === "" ? null : note.trim(),
-          }),
+          },
+          idempotencyKey: "variant-stock-adjust",
+          fallbackError: "Failed to adjust stock.",
         });
-        const body = await response.json().catch(() => null);
-        if (!response.ok) {
-          throw new Error(body?.error ?? "Failed to adjust stock.");
-        }
         return;
       }
       for (const row of draftLots) {
         if (row.nextQuantity === row.lot.quantity) continue;
-        const response = await fetch(
+        await apiJson<void>(
           `/api/items/${adjustment.variant.id}/lots/${row.lot.id}/quantity`,
           {
             method: "PUT",
-            headers: createIdempotencyHeaders("variant-stock-adjust", {
-              "Content-Type": "application/json",
-            }),
-            body: JSON.stringify({
+            body: {
               quantity: row.nextQuantity,
               note: note.trim() === "" ? null : note.trim(),
-            }),
+            },
+            idempotencyKey: "variant-stock-adjust",
+            fallbackError: "Failed to adjust stock.",
           },
         );
-        const body = await response.json().catch(() => null);
-        if (!response.ok) {
-          throw new Error(body?.error ?? "Failed to adjust stock.");
-        }
       }
     },
     onSuccess: async () => {
@@ -483,10 +471,7 @@ function buildDecreaseDraft(lots: CardLotRow[], decreaseQuantity: number) {
   return rows;
 }
 
-function toNumber(value: string | null | undefined) {
-  const parsed = Number(value ?? "0");
-  return Number.isFinite(parsed) ? parsed : 0;
-}
+const toNumber = parseNumberOrZero;
 
 function roundQty(value: number) {
   return Math.round(value * 10000) / 10000;
@@ -756,8 +741,7 @@ export function VariantTable({
             return true;
           }
           const trimmed = String(raw).trim();
-          const parsed = Number(trimmed);
-          if (!Number.isFinite(parsed) || parsed < 0) return false;
+          if (!isNonNegativeNumberString(trimmed)) return false;
           if (params.data.defaultSellingPrice === trimmed) return false;
           params.data.defaultSellingPrice = trimmed;
           return true;
@@ -830,7 +814,7 @@ export function VariantTable({
             return true;
           }
           const parsed = Number(next);
-          if (!Number.isFinite(parsed) || parsed < 0) return false;
+          if (!isNonNegativeNumberString(String(next))) return false;
           const truncated = Math.trunc(parsed);
           if (params.data.defaultLeadTimeDays === truncated) return false;
           params.data.defaultLeadTimeDays = truncated;
@@ -854,8 +838,7 @@ export function VariantTable({
             return true;
           }
           const trimmed = String(raw).trim();
-          const parsed = Number(trimmed);
-          if (!Number.isFinite(parsed) || parsed <= 0) return false;
+          if (!isPositiveNumberString(trimmed)) return false;
           if (params.data.minimumOrderQuantity === trimmed) return false;
           params.data.minimumOrderQuantity = trimmed;
           return true;
@@ -874,8 +857,8 @@ export function VariantTable({
       minWidth: 140,
       valueSetter: (params: ValueSetterParams<ItemCardVariantDto>) => {
         const trimmed = String(params.newValue ?? "").trim();
+        if (!trimmed || !isNonNegativeNumberString(trimmed)) return false;
         const parsed = Number(trimmed);
-        if (!trimmed || !Number.isFinite(parsed) || parsed < 0) return false;
         const next = String(Math.round(parsed * 10000) / 10000);
         if (params.data.inStockQty === next) return false;
         params.data.inStockQty = next;

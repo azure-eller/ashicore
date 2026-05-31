@@ -4,6 +4,8 @@ import {
   requireIdempotencyKey,
   type RouteContext,
 } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { overrideMaterialCurrentStockUnitCost } from "@/app/(dashboard)/inventory/queries";
 import { overrideCurrentStockUnitCostSchema } from "@/lib/schemas/items";
@@ -15,8 +17,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
     "overrideMaterialCurrentStockUnitCost"
   );
   const { id } = await (ctx as RouteContext).params;
-  const body = await request.json();
-  const data = overrideCurrentStockUnitCostSchema.parse(body);
+  const data = await parseJsonBody(request, overrideCurrentStockUnitCostSchema);
   const item = await overrideMaterialCurrentStockUnitCost(
     id,
     data.currentStockUnitCost,
@@ -24,7 +25,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   );
 
   if (!item) {
-    return NextResponse.json({ error: "Item not found" }, { status: 404 });
+    return jsonNotFound("Item not found");
   }
 
   return NextResponse.json(item);

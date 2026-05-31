@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess, withAuthedOrgContext } from "@/lib/dal/auth";
 import { inventoryLotBalances, items } from "@/lib/db/schema";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
@@ -13,50 +15,33 @@ import {
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import { resolvePositiveStockUnitCostInTx } from "@/lib/inventory/kernel/operations/stock-core";
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
+import {
+  nonNegativeDecimalString,
+  nullableString,
+  positiveDecimalString,
+  isNonNegativeNumberString,
+} from "@/lib/schemas/shared";
 
 const addInitialStockSchema = z.object({
-  quantity: z
-    .string()
-    .trim()
-    .refine((value) => Number.isFinite(Number(value)) && Number(value) > 0, {
-      message: "Quantity must be greater than 0",
-    }),
-  costPerUnit: z
-    .string()
-    .trim()
-    .nullable()
-    .optional()
-    .transform((value) => (value ? value : null))
-    .refine((value) => value == null || (Number.isFinite(Number(value)) && Number(value) >= 0), {
-      message: "Cost per unit must be zero or greater",
-    }),
+  quantity: positiveDecimalString("Quantity"),
+  costPerUnit: nullableString.refine(
+    (value) => value == null || isNonNegativeNumberString(value),
+    "Cost per unit must be zero or greater",
+  ),
   occurredAt: z.string().datetime(),
-  note: z
-    .string()
-    .nullable()
-    .optional()
-    .transform((value) => (value != null ? value.trim() || null : null)),
+  note: nullableString,
 });
 
 const setItemStockSchema = z.object({
-  quantity: z
-    .string()
-    .trim()
-    .refine((value) => Number.isFinite(Number(value)) && Number(value) >= 0, {
-      message: "Quantity must be zero or greater",
-    }),
-  note: z
-    .string()
-    .nullable()
-    .optional()
-    .transform((value) => (value != null ? value.trim() || null : null)),
+  quantity: nonNegativeDecimalString("Quantity"),
+  note: nullableString,
 });
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("inventory", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "addInitialStock");
   const { id } = await (ctx as RouteContext).params;
-  const input = addInitialStockSchema.parse(await request.json());
+  const input = await parseJsonBody(request, addInitialStockSchema);
 
   const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
     await lockItemsInTx(tx, [id]);
@@ -67,7 +52,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
       .where(eq(items.id, id));
 
     if (!item || item.deletedAt != null) {
-      return NextResponse.json({ error: "Item not found" }, { status: 404 });
+      return jsonNotFound("Item not found");
     }
 
     const [positiveLot] = await tx
@@ -120,7 +105,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("inventory", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "setItemStockQuantity");
   const { id } = await (ctx as RouteContext).params;
-  const input = setItemStockSchema.parse(await request.json());
+  const input = await parseJsonBody(request, setItemStockSchema);
 
   const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
     await lockItemsInTx(tx, [id]);
@@ -131,7 +116,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
       .where(eq(items.id, id));
 
     if (!item || item.deletedAt != null) {
-      return NextResponse.json({ error: "Item not found" }, { status: 404 });
+      return jsonNotFound("Item not found");
     }
 
     const lotTrackingMode = await getItemLotTrackingModeInTx(tx, id);

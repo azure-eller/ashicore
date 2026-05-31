@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updateSupplierSchema } from "@/lib/schemas/suppliers";
 import {
@@ -16,7 +18,7 @@ export const GET = apiHandler(async (_request: Request, ctx: unknown) => {
   const supplier = await getSupplier(id);
 
   if (!supplier) {
-    return NextResponse.json({ error: "Supplier not found" }, { status: 404 });
+    return jsonNotFound("Supplier not found");
   }
 
   return NextResponse.json(supplier);
@@ -25,12 +27,11 @@ export const GET = apiHandler(async (_request: Request, ctx: unknown) => {
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("purchasing", request.headers);
   const { id } = await (ctx as RouteContext).params;
-  const body = await request.json();
-  const data = updateSupplierSchema.parse(body);
+  const data = await parseJsonBody(request, updateSupplierSchema);
   const supplier = await updateSupplier(id, data);
 
   if (!supplier) {
-    return NextResponse.json({ error: "Supplier not found" }, { status: 404 });
+    return jsonNotFound("Supplier not found");
   }
 
   return NextResponse.json(supplier);
@@ -44,10 +45,10 @@ export const DELETE = apiHandler(async (_request: Request, ctx: unknown) => {
     const result = await deleteSupplier(id);
 
     if (!result.deleted) {
-      return NextResponse.json({ error: "Supplier not found" }, { status: 404 });
+      return jsonNotFound("Supplier not found");
     }
 
-    return NextResponse.json({ success: true });
+    return jsonSuccess();
   } catch (error) {
     if (error instanceof PurchasingError) return error.toResponse();
     throw error;

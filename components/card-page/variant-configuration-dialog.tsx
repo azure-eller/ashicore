@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { InsetPanel } from "@/components/inset-panel";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -36,6 +37,7 @@ import {
   type ItemCardDto,
   type VariantConfigInput,
 } from "@/lib/api/clients/item-cards";
+import { apiJson } from "@/lib/client/api";
 import { cardSaveMutationKey } from "./card-save-status";
 import styles from "./card-page.module.css";
 
@@ -122,14 +124,10 @@ function DialogBody({
 
   const sourcesQuery = useQuery({
     queryKey: ["item-card", card.family.itemType, "variant-config-sources"],
-    queryFn: async () => {
-      const response = await fetch(`/api/items?itemType=${card.family.itemType}`);
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to load item cards.");
-      }
-      return body as VariantConfigSourceRow[];
-    },
+    queryFn: () =>
+      apiJson<VariantConfigSourceRow[]>(`/api/items?itemType=${card.family.itemType}`, {
+        fallbackError: "Failed to load item cards.",
+      }),
     enabled: copyOpen,
   });
 
@@ -231,7 +229,7 @@ function DialogBody({
 
       <div className="space-y-(--space-5) px-(--space-6) py-(--space-5)">
         {copyOpen ? (
-          <div className="grid gap-(--space-3) border border-border p-(--space-3)">
+          <InsetPanel className="grid gap-(--space-3) p-(--space-3)">
             <div className="grid gap-(--space-2) md:grid-cols-[1fr_auto]">
               <Select value={sourceItemId} onValueChange={setSourceItemId}>
                 <SelectTrigger>
@@ -268,7 +266,7 @@ function DialogBody({
                 ).message}
               </p>
             ) : null}
-          </div>
+          </InsetPanel>
         ) : null}
 
         <div className="space-y-(--space-3)">

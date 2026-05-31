@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { EmptyState } from "@/components/empty-state";
+import { SurfacePanel } from "@/components/surface-panel";
+import { TableFrameHeader } from "@/components/table-frame";
 import {
   Table,
   TableBody,
@@ -20,11 +23,7 @@ export function DemandQueueCoverageTable({
   coverage: DemandQueueItemCoverage[];
 }) {
   if (coverage.length === 0) {
-    return (
-      <div className="border bg-card p-(--space-12) text-[length:var(--text-sm)] text-muted-foreground">
-        No open demand to plan.
-      </div>
-    );
+    return <EmptyState className="bg-card">No open demand to plan.</EmptyState>;
   }
 
   return (
@@ -39,7 +38,7 @@ export function DemandQueueCoverageTable({
         </p>
       </div>
 
-      <div className="border bg-card">
+      <SurfacePanel padding="sm" className="p-0">
         <Table>
           <TableHeader>
             <TableRow>
@@ -79,17 +78,17 @@ export function DemandQueueCoverageTable({
             ))}
           </TableBody>
         </Table>
-      </div>
+      </SurfacePanel>
 
       <div className="flex flex-col gap-(--space-8)">
         {coverage.map((item) => (
-          <div key={item.itemId} className="border bg-card">
-            <div className="border-b bg-muted/20 px-(--space-8) py-(--space-4) text-[length:var(--text-sm)] font-medium">
+          <SurfacePanel key={item.itemId} padding="sm" className="p-0">
+            <TableFrameHeader className="text-[length:var(--text-sm)] font-medium">
               {item.itemName}
               <span className="ml-(--space-2) text-muted-foreground">
                 · {formatQuantity(item.onHandQty)} {item.unitName} on hand
               </span>
-            </div>
+            </TableFrameHeader>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -146,7 +145,7 @@ export function DemandQueueCoverageTable({
                 ))}
               </TableBody>
             </Table>
-          </div>
+          </SurfacePanel>
         ))}
       </div>
     </div>

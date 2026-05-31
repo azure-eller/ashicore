@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
+import { jsonError, jsonNotFound } from "@/lib/api/responses";
 import { getAuthedApiMemberContext } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
 import { getAllocationWorkspace } from "@/lib/inventory/allocation/service";
+import {
+  requestSearchParamRecord,
+  requestSearchParams,
+} from "@/lib/routing/search-params";
 
 const querySchema = z
   .object({
@@ -34,9 +39,9 @@ const querySchema = z
   });
 
 export const GET = apiHandler(async (request: Request) => {
-  const url = new URL(request.url);
-  const query = querySchema.parse(Object.fromEntries(url.searchParams.entries()));
-  const demandIds = [...new Set(url.searchParams.getAll("demandId"))].filter(
+  const searchParams = requestSearchParams(request);
+  const query = querySchema.parse(requestSearchParamRecord(request));
+  const demandIds = [...new Set(searchParams.getAll("demandId"))].filter(
     Boolean
   );
   const context = await getAuthedApiMemberContext(request.headers);
@@ -48,14 +53,14 @@ export const GET = apiHandler(async (request: Request) => {
   );
   if (query.demandType === "manufacturing_order_ingredient") {
     if (!canReadManufacturing) {
-      return NextResponse.json({ error: "You do not have access to manufacturing." }, { status: 403 });
+      return jsonError("You do not have access to manufacturing.", 403);
     }
   } else if (query.demandType) {
     if (!canReadSales) {
-      return NextResponse.json({ error: "You do not have access to sales." }, { status: 403 });
+      return jsonError("You do not have access to sales.", 403);
     }
   } else if (!canReadSales && !canReadManufacturing) {
-    return NextResponse.json({ error: "You do not have access to allocation." }, { status: 403 });
+    return jsonError("You do not have access to allocation.", 403);
   }
   const demandType = query.demandType;
   const workspace = await getAllocationWorkspace({
@@ -71,7 +76,7 @@ export const GET = apiHandler(async (request: Request) => {
   });
 
   if (!workspace) {
-    return NextResponse.json({ error: "Allocation workspace not found" }, { status: 404 });
+    return jsonNotFound("Allocation workspace not found");
   }
 
   return NextResponse.json(workspace);

@@ -1,7 +1,8 @@
 import { and, eq } from "drizzle-orm";
-import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonOk } from "@/lib/api/responses";
 import { assertModuleWriteAccess, withAuthedOrgContext } from "@/lib/dal/auth";
 import { accountingDocumentSyncs } from "@/lib/db/schema";
 import {
@@ -34,8 +35,7 @@ export const POST = apiHandler(async (request: Request) => {
   if (blocked) return blocked;
 
   await assertModuleWriteAccess("sales", request.headers);
-  const body = await request.json();
-  const data = bodySchema.parse(body);
+  const data = await parseJsonBody(request, bodySchema);
 
   return withAuthedOrgContext(async (tx) => {
     if (data.entity === "sales_order") {
@@ -65,7 +65,7 @@ export const POST = apiHandler(async (request: Request) => {
           xeroInvoiceId: accountingDocumentSyncs.externalDocumentId,
           xeroPushStatus: accountingDocumentSyncs.pushStatus,
         });
-      return NextResponse.json({ ok: true, row });
+      return jsonOk({ row });
     }
 
     const update: Record<string, unknown> = { updatedAt: new Date() };
@@ -94,6 +94,6 @@ export const POST = apiHandler(async (request: Request) => {
         xeroPurchaseOrderId: accountingDocumentSyncs.externalDocumentId,
         xeroPushStatus: accountingDocumentSyncs.pushStatus,
       });
-    return NextResponse.json({ ok: true, row });
+    return jsonOk({ row });
   });
 });

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound, jsonCreated } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { createManufacturingOrdersFromSalesOrderSchema } from "@/lib/schemas/manufacturing-orders";
 import {
@@ -17,7 +19,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   const preview = await getManufacturingSalesOrderPreview(id);
 
   if (!preview) {
-    return NextResponse.json({ error: "Sales order not found" }, { status: 404 });
+    return jsonNotFound("Sales order not found");
   }
 
   return NextResponse.json(preview);
@@ -27,12 +29,14 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
 
   const { id: routeId } = await (ctx as RouteContext).params;
-  const body = await request.json();
-  const data = createManufacturingOrdersFromSalesOrderSchema.parse(body);
+  const data = await parseJsonBody(
+    request,
+    createManufacturingOrdersFromSalesOrderSchema,
+  );
 
   try {
     const result = await createManufacturingOrdersFromSalesOrder(routeId, data);
-    return NextResponse.json(result, { status: 201 });
+    return jsonCreated(result);
   } catch (error) {
     if (error instanceof ManufacturingError) return error.toResponse();
     throw error;

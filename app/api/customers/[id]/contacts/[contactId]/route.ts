@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { customerContactSchema } from "@/lib/schemas/customer-crm";
 import {
@@ -14,11 +16,11 @@ type ContactRouteContext = {
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
   const { id, contactId } = await (ctx as ContactRouteContext).params;
-  const data = customerContactSchema.parse(await request.json());
+  const data = await parseJsonBody(request, customerContactSchema);
   const contact = await updateCustomerContact(id, contactId, data);
 
   if (!contact) {
-    return NextResponse.json({ error: "Contact not found" }, { status: 404 });
+    return jsonNotFound("Contact not found");
   }
 
   return NextResponse.json(contact);
@@ -30,8 +32,8 @@ export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {
   const result = await deleteCustomerContact(id, contactId);
 
   if (!result.deleted) {
-    return NextResponse.json({ error: "Contact not found" }, { status: 404 });
+    return jsonNotFound("Contact not found");
   }
 
-  return NextResponse.json({ success: true });
+  return jsonSuccess();
 });

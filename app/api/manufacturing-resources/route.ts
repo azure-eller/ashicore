@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { jsonCreated } from "@/lib/api/responses";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleAccess, assertModuleReadAccess } from "@/lib/dal/auth";
 import {
   createManufacturingResource,
@@ -16,13 +18,13 @@ export const GET = apiHandler(async (request) => {
 
 export const POST = apiHandler(async (request) => {
   await assertModuleAccess("manufacturing", "admin", request.headers);
-  const data = insertManufacturingResourceSchema.parse(await request.json());
+  const data = await parseJsonBody(request, insertManufacturingResourceSchema);
   const resource = await createManufacturingResource(data);
-  return NextResponse.json(resource, { status: 201 });
+  return jsonCreated(resource);
 });
 
 export const DELETE = apiHandler(async (request) => {
   await assertModuleAccess("manufacturing", "admin", request.headers);
-  const data = bulkDeleteSchema.parse(await request.json());
+  const data = await parseJsonBody(request, bulkDeleteSchema);
   return NextResponse.json(await deleteManufacturingResources(data.ids));
 });

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updateManufacturingOrderPrioritySchema } from "@/lib/schemas/manufacturing-orders";
 import {
@@ -10,14 +12,13 @@ import {
 export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
   const { id } = await (ctx as RouteContext).params;
-  const body = await request.json();
-  const data = updateManufacturingOrderPrioritySchema.parse(body);
+  const data = await parseJsonBody(request, updateManufacturingOrderPrioritySchema);
 
   try {
     const result = await updateManufacturingOrderPriority(id, data);
 
     if (!result) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      return jsonNotFound("Order not found");
     }
 
     return NextResponse.json(result);

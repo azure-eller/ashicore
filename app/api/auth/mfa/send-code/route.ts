@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { jsonError, jsonFlag } from "@/lib/api/responses";
 import { auth } from "@/lib/auth";
 import {
   generateOtp,
@@ -15,9 +15,9 @@ export const POST = apiHandler(async (request) => {
   const challenge = await getMobileMfaChallenge(request);
 
   if (!challenge) {
-    return NextResponse.json(
-      { error: "MFA verification has expired. Sign in again to request a new code." },
-      { status: 401 }
+    return jsonError(
+      "MFA verification has expired. Sign in again to request a new code.",
+      401
     );
   }
 
@@ -39,5 +39,5 @@ export const POST = apiHandler(async (request) => {
     code,
   });
 
-  return NextResponse.json({ status: true });
+  return jsonFlag("status");
 });

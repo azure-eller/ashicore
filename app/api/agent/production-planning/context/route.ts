@@ -11,6 +11,7 @@ import {
   getAgentProductionPlanningContextForOrg,
 } from "@/lib/agent/production-planning-context/service";
 import { assertPlanningReadAccess } from "@/lib/planning/auth";
+import { requestSearchParamRecord } from "@/lib/routing/search-params";
 
 const booleanQuerySchema = z
   .enum(["true", "false"])
@@ -36,8 +37,7 @@ function responseForContext(
 }
 
 export const GET = apiHandler(async (request) => {
-  const url = new URL(request.url);
-  const query = querySchema.parse(Object.fromEntries(url.searchParams.entries()));
+  const query = querySchema.parse(requestSearchParamRecord(request));
   const bearerToken = readBearerToken(request.headers);
 
   if (bearerToken) {

@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { jsonNotFound, jsonCreated } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   duplicatePurchaseOrder,
@@ -14,10 +14,10 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     const order = await duplicatePurchaseOrder(id);
 
     if (!order) {
-      return NextResponse.json({ error: "Purchase order not found" }, { status: 404 });
+      return jsonNotFound("Purchase order not found");
     }
 
-    return NextResponse.json(order, { status: 201 });
+    return jsonCreated(order);
   } catch (error) {
     if (error instanceof PurchasingError) return error.toResponse();
     throw error;

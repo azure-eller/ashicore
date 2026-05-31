@@ -1,4 +1,8 @@
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import {
+  ApiClientError,
+  createApiJsonRequester,
+} from "@/lib/client/api";
+import { appendSearchParams } from "@/lib/routing/search-params";
 import type {
   PatchManufacturingOrder,
   PatchManufacturingOrderIngredient,
@@ -9,37 +13,26 @@ import type {
   ManufacturingSalesLineOption,
 } from "@/app/(dashboard)/manufacturing/types";
 
-export class ManufacturingOrderApiError extends Error {
+export class ManufacturingOrderApiError extends ApiClientError {
   constructor(
     message: string,
-    public status: number,
-    public fieldErrors?: Record<string, string[]>,
+    status: number,
+    fieldErrors?: Record<string, string[]>,
     /** Populated on a 409 stock/requirement shortage so callers can confirm-and-retry. */
     public shortage?: ManufacturingReleaseWarningPayload,
   ) {
-    super(message);
-    this.name = "ManufacturingOrderApiError";
+    super("ManufacturingOrderApiError", message, status, fieldErrors);
   }
 }
 
-async function parseError(response: Response): Promise<never> {
-  let message = `${response.status} ${response.statusText}`;
-  let fieldErrors: Record<string, string[]> | undefined;
-  let shortage: ManufacturingReleaseWarningPayload | undefined;
-  try {
-    const body = (await response.json()) as {
-      error?: string;
-      errors?: Record<string, string[]>;
-      shortage?: ManufacturingReleaseWarningPayload;
-    };
-    if (body.error) message = body.error;
-    if (body.errors) fieldErrors = body.errors;
-    if (body.shortage) shortage = body.shortage;
-  } catch {
-    // body wasn't JSON; keep status message
-  }
-  throw new ManufacturingOrderApiError(message, response.status, fieldErrors, shortage);
-}
+const json = createApiJsonRequester(({ message, status, fieldErrors, body }) => {
+  const shortage =
+    body && typeof body === "object" && "shortage" in body
+      ? ((body as { shortage?: ManufacturingReleaseWarningPayload }).shortage)
+      : undefined;
+
+  return new ManufacturingOrderApiError(message, status, fieldErrors, shortage);
+}, (path) => `Request failed (${path})`, (status, path) => `Request failed (${status} ${path})`);
 
 export type OutputDisposition = "available" | "blocked";
 
@@ -57,21 +50,18 @@ export async function completeManufacturingOrder(
     confirmNegativeStock?: boolean;
   },
 ): Promise<{ id: string }> {
-  const response = await fetch(`/api/manufacturing-orders/${orderId}/complete`, {
+  const path = `/api/manufacturing-orders/${orderId}/complete`;
+  return json<{ id: string }>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("completeManufacturingOrder", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify({
+    idempotencyKey: "completeManufacturingOrder",
+    body: {
       actualQuantity: input.actualQuantity,
       batchCount: input.batchCount,
       outputDisposition: input.outputDisposition,
       ingredientActuals: [],
       confirmNegativeStock: input.confirmNegativeStock ?? false,
-    }),
+    },
   });
-  if (!response.ok) return parseError(response);
-  return (await response.json()) as { id: string };
 }
 
 /**
@@ -86,19 +76,16 @@ export async function recordManufacturingOutput(
     confirmNegativeStock?: boolean;
   },
 ): Promise<{ id: string }> {
-  const response = await fetch(`/api/manufacturing-orders/${orderId}/outputs`, {
+  const path = `/api/manufacturing-orders/${orderId}/outputs`;
+  return json<{ id: string }>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("recordManufacturingOutput", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify({
+    idempotencyKey: "recordManufacturingOutput",
+    body: {
       quantity: input.quantity,
       outputDisposition: input.outputDisposition,
       confirmNegativeStock: input.confirmNegativeStock ?? false,
-    }),
+    },
   });
-  if (!response.ok) return parseError(response);
-  return (await response.json()) as { id: string };
 }
 
 /**
@@ -109,37 +96,30 @@ export async function patchManufacturingOrder(
   orderId: string,
   input: PatchManufacturingOrder,
 ): Promise<ManufacturingOrderDetail> {
-  const response = await fetch(`/api/manufacturing-orders/${orderId}`, {
+  const path = `/api/manufacturing-orders/${orderId}`;
+  return json<ManufacturingOrderDetail>(path, {
     method: "PATCH",
-    headers: createIdempotencyHeaders("patchManufacturingOrder", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify(input),
+    idempotencyKey: "patchManufacturingOrder",
+    body: input,
   });
-  if (!response.ok) return parseError(response);
-  return (await response.json()) as ManufacturingOrderDetail;
 }
 
 export async function fetchManufacturingOrder(
   orderId: string,
 ): Promise<ManufacturingOrderDetail> {
-  const response = await fetch(`/api/manufacturing-orders/${orderId}`);
-  if (!response.ok) return parseError(response);
-  return (await response.json()) as ManufacturingOrderDetail;
+  const path = `/api/manufacturing-orders/${orderId}`;
+  return json<ManufacturingOrderDetail>(path);
 }
 
 export async function startManufacturingOrder(
   orderId: string,
 ): Promise<ManufacturingOrderDetail> {
-  const response = await fetch(`/api/manufacturing-orders/${orderId}/start`, {
+  const path = `/api/manufacturing-orders/${orderId}/start`;
+  return json<ManufacturingOrderDetail>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("startManufacturingOrder", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify({}),
+    idempotencyKey: "startManufacturingOrder",
+    body: {},
   });
-  if (!response.ok) return parseError(response);
-  return (await response.json()) as ManufacturingOrderDetail;
 }
 
 export type CreateManufacturingOrderInput = {
@@ -158,12 +138,11 @@ export type CreateManufacturingOrderInput = {
 export async function createManufacturingOrder(
   input: CreateManufacturingOrderInput,
 ): Promise<ManufacturingOrderDetail> {
-  const response = await fetch("/api/manufacturing-orders", {
+  const path = "/api/manufacturing-orders";
+  return json<ManufacturingOrderDetail>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("createManufacturingOrder", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify({
+    idempotencyKey: "createManufacturingOrder",
+    body: {
       productId: input.productId,
       plannedQuantity: input.plannedQuantity,
       plannedDate: input.plannedDate,
@@ -171,21 +150,18 @@ export async function createManufacturingOrder(
       ingredients: input.ingredients,
       autoAllocateIngredientLots: true,
       confirmShortage: true,
-    }),
+    },
   });
-  if (!response.ok) return parseError(response);
-  return (await response.json()) as ManufacturingOrderDetail;
 }
 
 export async function fetchManufacturingSalesLineOptions(
   productId: string,
 ): Promise<ManufacturingSalesLineOption[]> {
-  const params = new URLSearchParams({ productId });
-  const response = await fetch(
-    `/api/manufacturing-orders/sales-line-options?${params.toString()}`,
+  const path = appendSearchParams(
+    "/api/manufacturing-orders/sales-line-options",
+    { productId },
   );
-  if (!response.ok) return parseError(response);
-  return (await response.json()) as ManufacturingSalesLineOption[];
+  return json<ManufacturingSalesLineOption[]>(path);
 }
 
 /**
@@ -204,12 +180,11 @@ export async function saveManufacturingOrderIngredients(
   },
   ingredients: Array<{ itemId: string; quantityPerUnit: string }>,
 ): Promise<ManufacturingOrderDetail> {
-  const response = await fetch(`/api/manufacturing-orders/${orderId}`, {
+  const path = `/api/manufacturing-orders/${orderId}`;
+  return json<ManufacturingOrderDetail>(path, {
     method: "PUT",
-    headers: createIdempotencyHeaders("saveManufacturingOrderIngredients", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify({
+    idempotencyKey: "saveManufacturingOrderIngredients",
+    body: {
       productId: header.productId,
       plannedQuantity: header.plannedQuantity,
       plannedDate: header.plannedDate,
@@ -218,27 +193,20 @@ export async function saveManufacturingOrderIngredients(
       salesOrderLineId: header.salesOrderLineId,
       ingredients,
       autoAllocateIngredientLots: true,
-    }),
+    },
   });
-  if (!response.ok) return parseError(response);
-  return (await response.json()) as ManufacturingOrderDetail;
 }
 
 export async function reorderManufacturingOrderIngredients(
   orderId: string,
   ingredientIds: string[],
 ): Promise<void> {
-  const response = await fetch(
-    `/api/manufacturing-orders/${orderId}/ingredients/reorder`,
-    {
-      method: "PATCH",
-      headers: createIdempotencyHeaders("reorderManufacturingOrderIngredients", {
-        "Content-Type": "application/json",
-      }),
-      body: JSON.stringify({ ingredientIds }),
-    },
-  );
-  if (!response.ok) return parseError(response);
+  const path = `/api/manufacturing-orders/${orderId}/ingredients/reorder`;
+  await json<void>(path, {
+    method: "PATCH",
+    idempotencyKey: "reorderManufacturingOrderIngredients",
+    body: { ingredientIds },
+  });
 }
 
 export async function patchManufacturingOrderIngredient(
@@ -246,16 +214,10 @@ export async function patchManufacturingOrderIngredient(
   ingredientId: string,
   input: PatchManufacturingOrderIngredient,
 ): Promise<{ id: string }> {
-  const response = await fetch(
-    `/api/manufacturing-orders/${orderId}/ingredients/${ingredientId}`,
-    {
-      method: "PATCH",
-      headers: createIdempotencyHeaders("patchManufacturingOrderIngredient", {
-        "Content-Type": "application/json",
-      }),
-      body: JSON.stringify(input),
-    },
-  );
-  if (!response.ok) return parseError(response);
-  return (await response.json()) as { id: string };
+  const path = `/api/manufacturing-orders/${orderId}/ingredients/${ingredientId}`;
+  return json<{ id: string }>(path, {
+    method: "PATCH",
+    idempotencyKey: "patchManufacturingOrderIngredient",
+    body: input,
+  });
 }

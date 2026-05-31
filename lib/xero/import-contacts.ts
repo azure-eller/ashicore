@@ -18,6 +18,12 @@ import { getAuthedXeroClient } from "./client";
 import { XeroError, extractXeroMessage, redactXeroError } from "./errors";
 import { upsertExternalRecordInTx } from "@/lib/integrations/external-records";
 import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
+import {
+  cleanDate as cleanAccountingDate,
+  cleanString as cleanAccountingString,
+  normalizeProviderKey,
+} from "@/lib/accounting/providers/common";
+import { isDemoCompanyTenant } from "./import-utils";
 
 const XERO_PROVIDER = ACCOUNTING_PROVIDER_XERO;
 
@@ -159,11 +165,7 @@ function normalizeXeroAddress(address: Address | undefined) {
   });
 }
 
-function cleanString(value: string | null | undefined, maxLength = 255) {
-  const trimmed = value?.trim();
-  if (!trimmed) return null;
-  return trimmed.slice(0, maxLength);
-}
+const cleanString = cleanAccountingString;
 
 function phoneValue(phone: Phone | undefined) {
   if (!phone) return null;
@@ -176,11 +178,7 @@ function phoneValue(phone: Phone | undefined) {
   );
 }
 
-function cleanDate(value: Date | string | null | undefined) {
-  if (!value) return null;
-  const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
+const cleanDate = cleanAccountingDate;
 
 function mapPhone(contact: Contact) {
   const phones = contact.phones ?? [];
@@ -225,10 +223,6 @@ function mapSupplierAddresses(contact: Contact): SupplierAddressFields {
     billingPostcode: billingAddress.postcode,
     billingCountry: billingAddress.country,
   };
-}
-
-function isDemoCompanyTenant(tenantName: string) {
-  return tenantName.toLowerCase().startsWith("demo company");
 }
 
 function isXeroEntity(contact: Contact, entityType: ContactImportEntity) {
@@ -321,9 +315,7 @@ function supplierSelect() {
   };
 }
 
-function key(value: string | null | undefined) {
-  return cleanString(value)?.toLowerCase() ?? null;
-}
+const key = normalizeProviderKey;
 
 function addExistingToMaps<T extends ExistingCustomer | ExistingSupplier>(
   row: T,

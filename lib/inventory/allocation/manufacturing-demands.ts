@@ -8,7 +8,11 @@ import {
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
-import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import { roundQuantity } from "@/lib/format";
+import {
+  allocationQuantityString,
+  toAllocationQuantity,
+} from "@/lib/inventory/allocation/format";
 import { getItemDisplayNamesByIdInTx } from "@/lib/inventory/item-display";
 
 export type ManufacturingAllocationDemandRow = {
@@ -32,14 +36,8 @@ export type ManufacturingAllocationDemandRow = {
   }>;
 };
 
-function toQuantity(value: string | number | null | undefined) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function quantityString(value: number) {
-  return normalizeNumeric(roundQuantity(Math.max(0, value)));
-}
+const toQuantity = toAllocationQuantity;
+const quantityString = allocationQuantityString;
 
 export async function getManufacturingAllocationDemandRowsInTx(
   tx: Tx,

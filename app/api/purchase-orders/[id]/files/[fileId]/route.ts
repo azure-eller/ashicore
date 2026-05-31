@@ -1,8 +1,13 @@
-import { del } from "@vercel/blob";
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
+import {
+  assertPrivateBlobStorageConfigured,
+  deletePrivateBlobIfConfigured,
+  formatAttachmentContentDisposition,
+  getPrivateBlobForDownload,
+} from "@/lib/blob-storage";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
-import { getPrivateBlobForDownload } from "@/lib/blob-storage";
 import {
   deletePurchaseOrderAttachment,
   getPurchaseOrderAttachmentForDownload,
@@ -12,39 +17,28 @@ type PurchaseOrderFileRouteContext = {
   params: Promise<{ id: string; fileId: string }>;
 };
 
-function contentDisposition(filename: string) {
-  const fallback = filename.replace(/["\\]/g, "_");
-  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
-}
-
 export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleReadAccess("purchasing", request.headers);
-
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    return NextResponse.json(
-      { error: "Private file storage is not configured." },
-      { status: 503 }
-    );
-  }
+  assertPrivateBlobStorageConfigured();
 
   const { id, fileId } = await (ctx as PurchaseOrderFileRouteContext).params;
   const file = await getPurchaseOrderAttachmentForDownload(id, fileId);
 
   if (!file) {
-    return NextResponse.json({ error: "File not found" }, { status: 404 });
+    return jsonNotFound("File not found");
   }
 
   const blob = await getPrivateBlobForDownload(file.blobUrl);
 
   if (!blob) {
-    return NextResponse.json({ error: "File not found" }, { status: 404 });
+    return jsonNotFound("File not found");
   }
 
   return new NextResponse(blob.stream, {
     headers: {
       "Content-Type": file.contentType,
       "Content-Length": String(file.sizeBytes),
-      "Content-Disposition": contentDisposition(file.filename),
+      "Content-Disposition": formatAttachmentContentDisposition(file.filename),
       "Cache-Control": "private, no-store",
     },
   });
@@ -56,12 +50,10 @@ export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {
   const file = await deletePurchaseOrderAttachment(id, fileId);
 
   if (!file) {
-    return NextResponse.json({ error: "File not found" }, { status: 404 });
+    return jsonNotFound("File not found");
   }
 
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    await del(file.blobUrl).catch(() => undefined);
-  }
+  await deletePrivateBlobIfConfigured(file.blobUrl);
 
-  return NextResponse.json({ success: true });
+  return jsonSuccess();
 });

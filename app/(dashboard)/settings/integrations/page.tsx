@@ -64,6 +64,7 @@ export default async function SettingsIntegrationsPage({
       syncEvents={xeroSyncEvents}
       exportRows={xeroExports}
       purchaseOrderSyncConfigured={purchaseOrderSyncConfigured}
+      timeZone={context.organizationTimeZone}
       error={resolvedSearchParams.error}
       canManageConnection={canManageSalesXero}
       canManageSalesXero={canManageSalesXero}

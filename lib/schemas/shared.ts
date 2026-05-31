@@ -86,10 +86,14 @@ export type StructuredAddress = {
 
 export {
   isNonNegativeNumberString,
+  isPositiveNumberString,
   nonNegativeDecimalString,
   nullableStringPreserveUndefined,
   optionalMoneyString,
+  optionalNonNegativeDecimalInputPreserveUndefined,
   optionalNonNegativeDecimalString,
+  optionalPositiveDecimalString,
+  optionalPositiveDecimalStringPreserveUndefined,
   positiveDecimalString,
   positiveMoneyString,
 } from "./numeric";

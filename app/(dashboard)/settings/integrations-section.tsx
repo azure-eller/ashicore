@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -20,6 +20,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  ConfiguredBadge,
+  type ConfiguredBadgeConfig,
+} from "@/components/configured-badge";
+import { InsetPanel } from "@/components/inset-panel";
+import {
+  ListFrame,
+  ListFrameItem,
+  SelectableListFrameItem,
+} from "@/components/list-frame";
+import { NoticePanel } from "@/components/notice-panel";
+import { ProviderIconFrame } from "@/components/provider-icon-frame";
+import { SurfacePanel } from "@/components/surface-panel";
 import {
   Dialog,
   DialogContent,
@@ -50,6 +63,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { apiJson } from "@/lib/client/api";
+import { formatDateTimeLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ACCOUNTING_PROVIDER_QUICKBOOKS } from "@/lib/accounting/constants";
 import type { AccountingConnectionSummary } from "@/lib/dal/accounting";
@@ -82,6 +97,21 @@ const TAX_LABELS: Record<string, string> = {
   EXEMPTINPUT: "Exempt",
   NONE: "No tax",
 };
+
+const syncOutcomeBadgeConfig = {
+  success: { label: "Success", variant: "success" },
+  failure: { label: "Failed", variant: "destructive" },
+} satisfies ConfiguredBadgeConfig<XeroSyncEventSummary["outcome"]>;
+
+const importRunBadgeConfig = {
+  undone: { label: "Reset", variant: "secondary" },
+} satisfies ConfiguredBadgeConfig<"undone">;
+
+const xeroPushStatusBadgeConfig = {
+  pending: { label: "pending", variant: "secondary" },
+  pushed: { label: "pushed", variant: "success" },
+  failed: { label: "failed", variant: "destructive" },
+} satisfies ConfiguredBadgeConfig<"pending" | "pushed" | "failed">;
 
 const TAX_DESCRIPTIONS: Record<string, string> = {
   OUTPUT: "Standard tax treatment for sales invoices.",
@@ -124,6 +154,49 @@ type AutoPushChange = {
     | "autoSyncPurchaseOrdersFromAccounting";
   value: boolean;
 } | null;
+
+type XeroAccountOption = {
+  code: string;
+  name: string;
+  type: string | null;
+  taxType: string | null;
+  class: string | null;
+};
+
+type XeroSettingsPayload = {
+  defaultAccountCode: string | null;
+  defaultTaxType: string | null;
+  invoiceStatusPreference: string;
+  autoPushSalesInvoices: boolean;
+  autoPushPurchaseOrders: false;
+  autoSyncPurchaseOrdersFromAccounting: boolean;
+  autoEmailSalesInvoices: boolean;
+  autoEmailPurchaseOrders: false;
+  purchaseOrderDefaultAccountCode: string | null;
+  purchaseOrderDefaultTaxType: string | null;
+  purchaseOrderStatusPreference: string;
+};
+
+function xeroSettingsPayload(
+  connection: XeroConnectionSummary,
+  overrides: Partial<XeroSettingsPayload> = {}
+): XeroSettingsPayload {
+  return {
+    defaultAccountCode: connection.defaultAccountCode,
+    defaultTaxType: connection.defaultTaxType,
+    invoiceStatusPreference: connection.invoiceStatusPreference,
+    autoPushSalesInvoices: connection.autoPushSalesInvoices,
+    autoPushPurchaseOrders: false,
+    autoSyncPurchaseOrdersFromAccounting:
+      connection.autoSyncPurchaseOrdersFromAccounting,
+    autoEmailSalesInvoices: connection.autoEmailSalesInvoices,
+    autoEmailPurchaseOrders: false,
+    purchaseOrderDefaultAccountCode: connection.purchaseOrderDefaultAccountCode,
+    purchaseOrderDefaultTaxType: connection.purchaseOrderDefaultTaxType,
+    purchaseOrderStatusPreference: connection.purchaseOrderStatusPreference,
+    ...overrides,
+  };
+}
 
 function FriendlyTax({ value }: { value: string | null }) {
   if (!value) return <span>Not set</span>;
@@ -257,40 +330,26 @@ function TaxSelect({
   );
 }
 
-function DotBadge({
-  variant,
-  children,
-}: {
-  variant: "success" | "secondary" | "warning";
-  children: React.ReactNode;
-}) {
-  return (
-    <Badge variant={variant}>
-      <span className="size-(--space-3) bg-current" />
-      {children}
-    </Badge>
-  );
-}
-
 function XeroLogo() {
   return (
-    <div
-      aria-hidden
-      className="flex size-(--space-20) shrink-0 items-center justify-center bg-primary text-primary-foreground shadow-none"
-    >
+    <ProviderIconFrame tone="primary">
       <span className="relative flex size-(--space-10) items-center justify-center border border-primary-foreground/40">
         <span className="absolute h-(--space-1) w-(--space-8) rotate-45 bg-primary-foreground" />
         <span className="absolute h-(--space-1) w-(--space-8) -rotate-45 bg-primary-foreground" />
       </span>
-    </div>
+    </ProviderIconFrame>
   );
 }
 
 function DefaultChip({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex min-h-(--height-input-sm) items-center gap-(--space-2) border bg-background px-(--space-4) py-(--space-1) text-[length:var(--text-xs)] font-medium text-foreground">
+    <SurfacePanel
+      as="span"
+      tone="background"
+      className="inline-flex min-h-(--height-input-sm) items-center gap-(--space-2) px-(--space-4) py-(--space-1) text-[length:var(--text-xs)] font-medium"
+    >
       {children}
-    </span>
+    </SurfacePanel>
   );
 }
 
@@ -302,8 +361,8 @@ function SectionHeading({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-3">
-      <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+    <div className="flex min-w-0 items-center justify-between gap-(--space-6)">
+      <h3 className="text-[length:var(--text-sm)] font-semibold text-foreground">{title}</h3>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );
@@ -327,22 +386,22 @@ function AutomationRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="grid gap-3 border-t py-3 first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-      <label className="flex min-w-0 items-start gap-3">
+    <ListFrameItem className="grid gap-(--space-6) py-(--space-6) sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <label className="flex min-w-0 items-start gap-(--space-6)">
         <Checkbox
           checked={checked}
           disabled={disabled}
           onCheckedChange={(value) => onCheckedChange(value === true)}
           aria-label={ariaLabel}
-          className="mt-0.5"
+          className="mt-(--space-1)"
         />
         <span className="min-w-0">
-          <span className="block text-sm font-medium text-foreground">{title}</span>
-          <span className="text-xs text-muted-foreground">{meta}</span>
+          <span className="block text-[length:var(--text-sm)] font-medium text-foreground">{title}</span>
+          <span className="text-[length:var(--text-xs)] text-muted-foreground">{meta}</span>
         </span>
       </label>
-      <div className="flex flex-wrap items-center gap-2 sm:justify-end">{children}</div>
-    </div>
+      <div className="flex flex-wrap items-center gap-(--space-4) sm:justify-end">{children}</div>
+    </ListFrameItem>
   );
 }
 
@@ -378,11 +437,11 @@ function PostingDefaultsSummary({
     !purchaseOrderSyncConfigured;
 
   return (
-    <div className="border-t p-5">
+    <ListFrameItem className="p-(--space-10)">
       <SectionHeading
         title="Automation"
         action={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-(--space-4)">
             <Button
               variant="outline"
               size="icon-sm"
@@ -402,7 +461,7 @@ function PostingDefaultsSummary({
         }
       />
 
-      <div className="mt-2">
+      <div className="mt-(--space-4)">
         <AutomationRow
           checked={connection.autoPushSalesInvoices}
           disabled={!canManageSalesXero}
@@ -424,7 +483,7 @@ function PostingDefaultsSummary({
             </DefaultChip>
         </AutomationRow>
 
-        <div className="grid gap-(--space-3) border-t py-(--space-3) first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <ListFrameItem className="grid gap-(--space-3) py-(--space-3) sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
           <span className="min-w-0">
             <span className="block text-[length:var(--text-sm)] font-medium text-foreground">
               Purchase bills
@@ -441,7 +500,7 @@ function PostingDefaultsSummary({
               <FriendlyTax value={purchaseTax} />
             </DefaultChip>
           </div>
-        </div>
+        </ListFrameItem>
 
         <AutomationRow
           checked={connection.autoSyncPurchaseOrdersFromAccounting}
@@ -457,7 +516,11 @@ function PostingDefaultsSummary({
             <DefaultChip>Open POs only</DefaultChip>
         </AutomationRow>
         {showPoSyncConfigWarning ? (
-          <div className="mt-(--space-4) flex gap-(--space-4) border p-(--space-5) text-[length:var(--text-xs)] text-destructive">
+          <NoticePanel
+            tone="destructive"
+            padding="md"
+            className="mt-(--space-4) flex gap-(--space-4) text-[length:var(--text-xs)] text-destructive"
+          >
             <HugeiconsIcon
               icon={Alert02Icon}
               strokeWidth={2}
@@ -467,10 +530,10 @@ function PostingDefaultsSummary({
               Purchase order auto-sync is on, but the cron secret is not configured
               in this deployment.
             </p>
-          </div>
+          </NoticePanel>
         ) : null}
       </div>
-    </div>
+    </ListFrameItem>
   );
 }
 
@@ -484,7 +547,7 @@ function ImportFromXeroSection({
   if (!canImportCustomers && !canImportSuppliers) return null;
 
   return (
-    <div className="border-t p-5">
+    <ListFrameItem className="p-5">
       <SectionHeading title="Imports" />
       <div className="mt-3">
         <XeroImportSection
@@ -492,7 +555,55 @@ function ImportFromXeroSection({
           canImportSuppliers={canImportSuppliers}
         />
       </div>
-    </div>
+    </ListFrameItem>
+  );
+}
+
+function AccountingProviderCard({
+  icon,
+  title,
+  connected,
+  summary,
+  actions,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  connected: boolean;
+  summary: string;
+  actions?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <SurfacePanel className="overflow-hidden p-0 shadow-none">
+      <div className="flex flex-col gap-(--space-8) p-(--space-10) sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-(--space-6)">
+          {icon}
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-(--space-4)">
+              <h3 className="text-[length:var(--text-base)] leading-[var(--leading-base)] font-semibold text-foreground">
+                {title}
+              </h3>
+              {connected ? (
+                <Badge variant="success">
+                  <span className="size-(--space-3) bg-current" />
+                  Connected
+                </Badge>
+              ) : (
+                <Badge variant="secondary">Not connected</Badge>
+              )}
+            </div>
+            <p className="mt-(--space-2) truncate text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
+              {summary}
+            </p>
+          </div>
+        </div>
+        {actions ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>
+        ) : null}
+      </div>
+      {children}
+    </SurfacePanel>
   );
 }
 
@@ -508,6 +619,7 @@ function XeroRow({
   syncEvents,
   exportRows,
   purchaseOrderSyncConfigured,
+  timeZone,
 }: {
   connection: XeroConnectionSummary | null;
   error?: string;
@@ -520,6 +632,7 @@ function XeroRow({
   syncEvents: XeroSyncEventSummary[];
   exportRows: XeroExportHistoryRow[];
   purchaseOrderSyncConfigured: boolean;
+  timeZone: string;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -528,10 +641,11 @@ function XeroRow({
   const [autoPushChange, setAutoPushChange] = useState<AutoPushChange>(null);
 
   const disconnectMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/xero/disconnect", { method: "POST" });
-      if (!res.ok) throw new Error("Failed to disconnect Xero.");
-    },
+    mutationFn: () =>
+      apiJson<void>("/api/xero/disconnect", {
+        method: "POST",
+        fallbackError: "Failed to disconnect Xero.",
+      }),
     onSuccess: () => {
       setOpenDialog(null);
       router.refresh();
@@ -543,33 +657,20 @@ function XeroRow({
   const autoPushMutation = useMutation({
     mutationFn: async (change: NonNullable<AutoPushChange>) => {
       if (!connection) throw new Error("Xero is not connected.");
-      const res = await fetch("/api/xero/settings", {
+      await apiJson<void>("/api/xero/settings", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          defaultAccountCode: connection.defaultAccountCode,
-          defaultTaxType: connection.defaultTaxType,
-          invoiceStatusPreference: connection.invoiceStatusPreference,
+        body: xeroSettingsPayload(connection, {
           autoPushSalesInvoices:
             change.key === "autoPushSalesInvoices"
               ? change.value
               : connection.autoPushSalesInvoices,
-          autoPushPurchaseOrders: false,
           autoSyncPurchaseOrdersFromAccounting:
             change.key === "autoSyncPurchaseOrdersFromAccounting"
               ? change.value
               : connection.autoSyncPurchaseOrdersFromAccounting,
-          autoEmailSalesInvoices: connection.autoEmailSalesInvoices,
-          autoEmailPurchaseOrders: false,
-          purchaseOrderDefaultAccountCode: connection.purchaseOrderDefaultAccountCode,
-          purchaseOrderDefaultTaxType: connection.purchaseOrderDefaultTaxType,
-          purchaseOrderStatusPreference: connection.purchaseOrderStatusPreference,
         }),
+        fallbackError: "Failed to save Xero settings.",
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error ?? "Failed to save Xero settings.");
-      }
     },
     onSuccess: () => {
       setAutoPushChange(null);
@@ -582,29 +683,17 @@ function XeroRow({
   const isConnected = connection != null;
 
   return (
-    <div className="overflow-hidden border bg-card shadow-none">
-      <div className="flex flex-col gap-(--space-8) p-(--space-10) sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-(--space-6)">
-          <XeroLogo />
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-(--space-4)">
-              <h3 className="text-[length:var(--text-base)] leading-[var(--leading-base)] font-semibold text-foreground">Xero</h3>
-              {isConnected ? (
-                <DotBadge variant="success">Connected</DotBadge>
-              ) : (
-                <Badge variant="secondary">Not connected</Badge>
-              )}
-            </div>
-            <p className="mt-(--space-2) truncate text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
-              {isConnected
-                ? `${connection.tenantName} · Xero connected`
-                : "Send invoices to Xero and import purchase orders for receiving."}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-(--space-4)">
-          {isConnected ? (
+    <AccountingProviderCard
+      icon={<XeroLogo />}
+      title="Xero"
+      connected={isConnected}
+      summary={
+        isConnected
+          ? `${connection.tenantName} · Xero connected`
+          : "Send invoices to Xero and import purchase orders for receiving."
+      }
+      actions={
+        isConnected ? (
             <>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -649,16 +738,16 @@ function XeroRow({
             <Button size="sm" onClick={() => setOpenDialog("connect")}>
               Connect
             </Button>
-          ) : null}
-        </div>
-      </div>
+          ) : null
+      }
+    >
 
       {error ? (
-        <div className="border-t px-(--space-10) py-(--space-6)">
+        <ListFrameItem className="px-(--space-10) py-(--space-6)">
           <FieldError>
             {ERROR_MESSAGES[error] ?? `Xero connection failed (${error}).`}
           </FieldError>
-        </div>
+        </ListFrameItem>
       ) : null}
 
       {isConnected ? (
@@ -709,6 +798,7 @@ function XeroRow({
         importRuns={importRuns}
         syncEvents={syncEvents}
         rows={exportRows}
+        timeZone={timeZone}
         onOpenChange={(open) => setOpenDialog(open ? "history" : null)}
       />
       <AutoPushConfirmDialog
@@ -741,7 +831,7 @@ function XeroRow({
         open={openDialog === "connect"}
         onOpenChange={(open) => setOpenDialog(open ? "connect" : null)}
       />
-    </div>
+    </AccountingProviderCard>
   );
 }
 
@@ -767,20 +857,16 @@ function QuickBooksRow({
   const autoSyncMutation = useMutation({
     mutationFn: async (enabled: boolean) => {
       if (!connection) throw new Error("QuickBooks is not connected.");
-      const res = await fetch(
+      await apiJson<void>(
         `/api/accounting/connections/${ACCOUNTING_PROVIDER_QUICKBOOKS}/settings`,
         {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+          body: {
             autoSyncPurchaseOrdersFromAccounting: enabled,
-          }),
+          },
+          fallbackError: "Failed to save QuickBooks settings.",
         }
       );
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error ?? "Failed to save QuickBooks settings.");
-      }
     },
     onSuccess: () => {
       router.refresh();
@@ -790,13 +876,11 @@ function QuickBooksRow({
   });
 
   const disconnectMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/quickbooks/disconnect", { method: "POST" });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error ?? "Failed to disconnect QuickBooks.");
-      }
-    },
+    mutationFn: () =>
+      apiJson<void>("/api/quickbooks/disconnect", {
+        method: "POST",
+        fallbackError: "Failed to disconnect QuickBooks.",
+      }),
     onSuccess: () => {
       router.refresh();
       queryClient.invalidateQueries();
@@ -807,32 +891,19 @@ function QuickBooksRow({
   const isConnected = connection != null;
 
   return (
-    <div className="overflow-hidden border bg-card shadow-none">
-      <div className="flex flex-col gap-(--space-8) p-(--space-10) sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-(--space-6)">
-          <div className="flex size-(--space-20) items-center justify-center border bg-muted text-[length:var(--text-sm)] font-semibold">
-            QB
-          </div>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-(--space-4)">
-              <h3 className="text-[length:var(--text-base)] leading-[var(--leading-base)] font-semibold text-foreground">
-                QuickBooks
-              </h3>
-              {isConnected ? (
-                <DotBadge variant="success">Connected</DotBadge>
-              ) : (
-                <Badge variant="secondary">Not connected</Badge>
-              )}
-            </div>
-            <p className="mt-(--space-2) truncate text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
-              {isConnected
-                ? `${connection.tenantName} · Accounting provider`
-                : "Connect QuickBooks as an accounting provider."}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
+    <AccountingProviderCard
+      icon={
+        <ProviderIconFrame>QB</ProviderIconFrame>
+      }
+      title="QuickBooks"
+      connected={isConnected}
+      summary={
+        isConnected
+          ? `${connection.tenantName} · Accounting provider`
+          : "Connect QuickBooks as an accounting provider."
+      }
+      actions={
+        <>
           {isConnected && canImportSuppliers ? (
             <AccountingPurchaseOrderImportButton
               provider={ACCOUNTING_PROVIDER_QUICKBOOKS}
@@ -853,48 +924,37 @@ function QuickBooksRow({
               <a href="/api/quickbooks/connect">Connect</a>
             </Button>
           ) : null}
-        </div>
-      </div>
+        </>
+      }
+    >
       {isConnected ? (
-        <div className="grid gap-3 border-t p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
-          <label className="flex min-w-0 gap-3">
-            <Checkbox
-              checked={connection.autoSyncPurchaseOrdersFromAccounting}
-              disabled={!canManageConnection || autoSyncMutation.isPending}
-              onCheckedChange={(value) => {
-                setError(null);
-                autoSyncMutation.mutate(value === true);
-              }}
-              aria-label="Auto-sync purchase orders from QuickBooks"
-              className="mt-0.5"
-            />
-            <span className="min-w-0">
-              <span className="block text-sm font-medium text-foreground">
-                Purchase order import
-              </span>
-              <span className="text-xs text-muted-foreground">
-                Check to automatically import open QuickBooks purchase orders.
-              </span>
-            </span>
-          </label>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:justify-end">
-            <DefaultChip>Creates missing materials</DefaultChip>
-            <DefaultChip>Open POs only</DefaultChip>
-          </div>
-        </div>
+        <AutomationRow
+          checked={connection.autoSyncPurchaseOrdersFromAccounting}
+          disabled={!canManageConnection || autoSyncMutation.isPending}
+          onCheckedChange={(value) => {
+            setError(null);
+            autoSyncMutation.mutate(value);
+          }}
+          ariaLabel="Auto-sync purchase orders from QuickBooks"
+          title="Purchase order import"
+          meta="Check to automatically import open QuickBooks purchase orders."
+        >
+          <DefaultChip>Creates missing materials</DefaultChip>
+          <DefaultChip>Open POs only</DefaultChip>
+        </AutomationRow>
       ) : null}
       {summary ? (
-        <div className="border-t px-5 py-3 text-sm text-muted-foreground">
+        <ListFrameItem className="px-(--space-10) py-(--space-6) text-[length:var(--text-sm)] text-muted-foreground">
           {summary.created} created, {summary.updated} updated, {summary.skipped} skipped
           {summary.errors.length > 0 ? `, ${summary.errors.length} errors` : null}
-        </div>
+        </ListFrameItem>
       ) : null}
       {error ? (
-        <div className="border-t px-5 py-3">
+        <ListFrameItem className="px-(--space-10) py-(--space-6)">
           <FieldError>{error}</FieldError>
-        </div>
+        </ListFrameItem>
       ) : null}
-    </div>
+    </AccountingProviderCard>
   );
 }
 
@@ -926,49 +986,24 @@ function PostingDefaultsDialog({
   const [formError, setFormError] = useState<string | null>(null);
   const accountsQuery = useQuery({
     queryKey: ["xero-accounts", connection.tenantId],
-    queryFn: async () => {
-      const res = await fetch("/api/xero/accounts");
-      const body = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(body?.error ?? "Failed to load Xero accounts.");
-      }
-      return body as {
-        accounts: Array<{
-          code: string;
-          name: string;
-          type: string | null;
-          taxType: string | null;
-          class: string | null;
-        }>;
-      };
-    },
+    queryFn: () =>
+      apiJson<{ accounts: XeroAccountOption[] }>("/api/xero/accounts", {
+        fallbackError: "Failed to load Xero accounts.",
+      }),
   });
 
   const saveMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/xero/settings", {
+    mutationFn: () =>
+      apiJson<void>("/api/xero/settings", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: xeroSettingsPayload(connection, {
           defaultAccountCode: accountCode.trim() || null,
           defaultTaxType: taxType.trim() || null,
           invoiceStatusPreference: invoiceStatus,
-          autoPushSalesInvoices: connection.autoPushSalesInvoices,
-          autoPushPurchaseOrders: false,
-          autoSyncPurchaseOrdersFromAccounting:
-            connection.autoSyncPurchaseOrdersFromAccounting,
-          autoEmailSalesInvoices: connection.autoEmailSalesInvoices,
-          autoEmailPurchaseOrders: false,
           purchaseOrderDefaultAccountCode: purchaseAccountCode.trim() || null,
-          purchaseOrderDefaultTaxType: connection.purchaseOrderDefaultTaxType,
-          purchaseOrderStatusPreference: connection.purchaseOrderStatusPreference,
         }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error ?? "Failed to save Xero settings.");
-      }
-    },
+        fallbackError: "Failed to save Xero settings.",
+      }),
     onSuccess: () => {
       onOpenChange(false);
       router.refresh();
@@ -1089,16 +1124,20 @@ function PostingDefaultsDialog({
         </FieldGroup>
 
         {canManageSalesXero ? (
-          <div className="border bg-muted p-(--space-6) text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground">
+          <InsetPanel
+            tone="muted"
+            padding="lg"
+            className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground"
+          >
             <p>{TAX_DESCRIPTIONS[taxType] ?? "Xero tax code saved as entered."}</p>
             <p className="mt-1">
               {STATUS_DESCRIPTIONS[invoiceStatus] ??
                 "Xero export status saved as selected."}
             </p>
-          </div>
+          </InsetPanel>
         ) : null}
 
-        <DialogFooter className="items-center justify-between sm:justify-between">
+        <DialogFooter justify="between">
           <p className="flex items-center gap-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
             <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} />
             Changes apply to new exports.
@@ -1146,7 +1185,7 @@ function DisconnectDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="border border-warning bg-[var(--color-warning-soft)] p-(--space-8) text-[length:var(--text-sm)] text-warning">
+        <NoticePanel padding="lg" className="text-[length:var(--text-sm)] text-warning">
           <div className="flex gap-(--space-6)">
             <HugeiconsIcon icon={Alert02Icon} className="mt-(--space-1) size-(--space-8)" strokeWidth={2} />
             <div>
@@ -1159,7 +1198,7 @@ function DisconnectDialog({
               </ul>
             </div>
           </div>
-        </div>
+        </NoticePanel>
 
         {error ? <FieldError>{error}</FieldError> : null}
 
@@ -1257,17 +1296,12 @@ function SwitchOrgDialog({
   const [formError, setFormError] = useState<string | null>(null);
 
   const switchTenantMutation = useMutation({
-    mutationFn: async (tenantId: string) => {
-      const res = await fetch("/api/xero/switch-tenant", {
+    mutationFn: (tenantId: string) =>
+      apiJson<void>("/api/xero/switch-tenant", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenantId }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error ?? "Failed to switch tenant.");
-      }
-    },
+        body: { tenantId },
+        fallbackError: "Failed to switch tenant.",
+      }),
     onSuccess: () => {
       onOpenChange(false);
       router.refresh();
@@ -1297,37 +1331,26 @@ function SwitchOrgDialog({
             const current = connection.tenantId === tenant.tenantId;
 
             return (
-              <button
+              <SelectableListFrameItem
                 key={tenant.tenantId}
                 type="button"
                 onClick={() => setPendingTenantId(tenant.tenantId)}
-                className={cn(
-                  "flex w-full items-center gap-(--space-6) border p-(--space-6) text-left transition",
-                  selected
-                    ? "border-foreground shadow-[var(--focus-ring)]"
-                    : "hover:bg-muted/50"
-                )}
+                selected={selected}
+                indicator
+                className="gap-(--space-6) p-(--space-6)"
               >
-                <span
-                  className={cn(
-                    "flex size-(--space-8) items-center justify-center rounded-full border",
-                    selected && "border-foreground"
-                  )}
-                >
-                  {selected ? <span className="size-(--space-4) rounded-full bg-foreground" /> : null}
-                </span>
                 <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-center gap-2">
+                  <span className="flex flex-wrap items-center gap-(--space-4)">
                     <span className="font-medium text-foreground">
                       {tenant.tenantName}
                     </span>
                     {current ? <Badge variant="secondary">Current</Badge> : null}
                   </span>
-                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                  <span className="mt-(--space-1) block truncate text-[length:var(--text-xs)] text-muted-foreground">
                     {tenant.tenantId}
                   </span>
                 </span>
-              </button>
+              </SelectableListFrameItem>
             );
           })}
         </div>
@@ -1387,7 +1410,7 @@ function ConnectDialog({
           ))}
         </div>
 
-        <DialogFooter className="items-center justify-between sm:justify-between">
+        <DialogFooter justify="between">
           <Button variant="ghost" size="sm" disabled>
             <HugeiconsIcon icon={HelpCircleIcon} strokeWidth={2} />
             Setup guide
@@ -1411,12 +1434,14 @@ function ExportHistoryDialog({
   importRuns,
   syncEvents,
   rows,
+  timeZone,
   onOpenChange,
 }: {
   open: boolean;
   importRuns: XeroImportRunSummary[];
   syncEvents: XeroSyncEventSummary[];
   rows: XeroExportHistoryRow[];
+  timeZone: string;
   onOpenChange: (open: boolean) => void;
 }) {
   const hasHistory =
@@ -1433,17 +1458,20 @@ function ExportHistoryDialog({
         </DialogHeader>
 
         {!hasHistory ? (
-          <div className="border bg-muted p-(--space-16) text-center">
-            <div className="mx-auto flex size-(--space-20) items-center justify-center border bg-background text-muted-foreground">
+          <InsetPanel tone="muted" padding="xl" className="text-center">
+            <SurfacePanel
+              tone="background"
+              className="mx-auto flex size-(--space-20) items-center justify-center p-0 text-muted-foreground"
+            >
               <HugeiconsIcon icon={FileExportIcon} strokeWidth={2} />
-            </div>
+            </SurfacePanel>
             <p className="mt-(--space-6) text-[length:var(--text-sm)] font-medium text-foreground">
               No sync history yet.
             </p>
             <p className="mx-auto mt-(--space-2) max-w-md text-[length:var(--text-sm)] text-muted-foreground">
               Xero imports and sent invoices will appear here.
             </p>
-          </div>
+          </InsetPanel>
         ) : (
           <div className="max-h-[420px] space-y-(--space-8) overflow-auto">
             {syncEvents.length > 0 ? (
@@ -1451,35 +1479,32 @@ function ExportHistoryDialog({
                 <h3 className="mb-(--space-3) text-[length:var(--text-sm)] font-medium text-foreground">
                   Automation
                 </h3>
-                <div className="border">
+                <ListFrame>
                   {syncEvents.map((event) => {
                     const detail = metadataText(event.metadata);
 
                     return (
-                      <div
+                      <ListFrameItem
                         key={event.id}
-                        className="grid gap-(--space-4) border-t p-(--space-6) first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                        className="grid gap-(--space-4) p-(--space-6) sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                       >
                         <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="truncate text-sm font-medium text-foreground">
+                          <div className="flex flex-wrap items-center gap-(--space-4)">
+                            <p className="truncate text-[length:var(--text-sm)] font-medium text-foreground">
                               {syncEventTitle(event.eventType)}
                             </p>
-                            <Badge
-                              variant={
-                                event.outcome === "success" ? "success" : "destructive"
-                              }
-                            >
-                              {event.outcome === "success" ? "Success" : "Failed"}
-                            </Badge>
+                            <ConfiguredBadge
+                              value={event.outcome}
+                              config={syncOutcomeBadgeConfig}
+                            />
                           </div>
-                          <p className="mt-1 text-xs text-muted-foreground">
+                          <p className="mt-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
                             {event.tenantName ?? "Xero"} · {event.source}
                           </p>
                           {detail ? (
                             <p
                               className={cn(
-                                "mt-1 text-xs",
+                                "mt-(--space-2) text-[length:var(--text-xs)]",
                                 event.outcome === "failure"
                                   ? "text-destructive"
                                   : "text-muted-foreground"
@@ -1489,13 +1514,13 @@ function ExportHistoryDialog({
                             </p>
                           ) : null}
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(event.occurredAt).toLocaleString()}
+                        <p className="text-[length:var(--text-xs)] text-muted-foreground">
+                          {formatDateTimeLabel(event.occurredAt, timeZone)}
                         </p>
-                      </div>
+                      </ListFrameItem>
                     );
                   })}
-                </div>
+                </ListFrame>
               </div>
             ) : null}
 
@@ -1504,35 +1529,37 @@ function ExportHistoryDialog({
                 <h3 className="mb-(--space-3) text-[length:var(--text-sm)] font-medium text-foreground">
                   Imports
                 </h3>
-                <div className="border">
+                <ListFrame>
                   {importRuns.map((run) => (
-                    <div
+                    <ListFrameItem
                       key={run.id}
-                      className="grid gap-(--space-4) border-t p-(--space-6) first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                      className="grid gap-(--space-4) p-(--space-6) sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                     >
                       <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="truncate text-sm font-medium text-foreground">
+                        <div className="flex flex-wrap items-center gap-(--space-4)">
+                          <p className="truncate text-[length:var(--text-sm)] font-medium text-foreground">
                             {importRunTitle(run.entityType)}
                           </p>
-                          <Badge variant={run.status === "undone" ? "secondary" : "outline"}>
-                            {run.status === "undone" ? "Reset" : "Imported"}
-                          </Badge>
+                          <ConfiguredBadge
+                            value={run.status}
+                            config={importRunBadgeConfig}
+                            fallback={{ label: "Imported", variant: "outline" }}
+                          />
                           {run.errorCount > 0 ? (
                             <Badge variant="destructive">{run.errorCount} errors</Badge>
                           ) : null}
                         </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
+                        <p className="mt-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
                           {run.tenantName} · {run.createdCount} created,{" "}
                           {run.updatedCount} updated, {run.skippedCount} skipped
                         </p>
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(run.createdAt).toLocaleString()}
+                      <p className="text-[length:var(--text-xs)] text-muted-foreground">
+                        {formatDateTimeLabel(run.createdAt, timeZone)}
                       </p>
-                    </div>
+                    </ListFrameItem>
                   ))}
-                </div>
+                </ListFrame>
               </div>
             ) : null}
 
@@ -1541,30 +1568,24 @@ function ExportHistoryDialog({
                 <h3 className="mb-(--space-3) text-[length:var(--text-sm)] font-medium text-foreground">
                   Invoices
                 </h3>
-                <div className="border">
+                <ListFrame>
                   {rows.map((row) => (
-                    <div
+                    <ListFrameItem
                       key={`${row.sourceType}-${row.id}`}
-                      className="grid gap-(--space-4) border-t p-(--space-6) first:border-t-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                      className="grid gap-(--space-4) p-(--space-6) sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                     >
                       <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="truncate text-sm font-medium text-foreground">
+                        <div className="flex flex-wrap items-center gap-(--space-4)">
+                          <p className="truncate text-[length:var(--text-sm)] font-medium text-foreground">
                             {row.sourceNumber}
                           </p>
-                          <Badge
-                            variant={
-                              row.xeroPushStatus === "pushed"
-                                ? "success"
-                                : row.xeroPushStatus === "failed"
-                                  ? "destructive"
-                                  : "secondary"
-                            }
-                          >
-                            {row.xeroPushStatus ?? "pending"}
-                          </Badge>
+                          <ConfiguredBadge
+                            value={row.xeroPushStatus ?? "pending"}
+                            config={xeroPushStatusBadgeConfig}
+                            fallback={(value) => ({ label: value, variant: "secondary" })}
+                          />
                         </div>
-                        <p className="mt-1 text-xs text-muted-foreground">
+                        <p className="mt-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
                           {row.sourceType === "sales_shipment"
                             ? "Shipment invoice"
                             : "Sales invoice"}{" "}
@@ -1572,17 +1593,17 @@ function ExportHistoryDialog({
                           {row.xeroDocumentNumber ? ` · Xero ${row.xeroDocumentNumber}` : ""}
                         </p>
                         {row.xeroPushError ? (
-                          <p className="mt-1 text-xs text-destructive">
+                          <p className="mt-(--space-2) text-[length:var(--text-xs)] text-destructive">
                             {row.xeroPushError}
                           </p>
                         ) : null}
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(row.xeroPushedAt ?? row.updatedAt).toLocaleString()}
+                      <p className="text-[length:var(--text-xs)] text-muted-foreground">
+                        {formatDateTimeLabel(row.xeroPushedAt ?? row.updatedAt, timeZone)}
                       </p>
-                    </div>
+                    </ListFrameItem>
                   ))}
-                </div>
+                </ListFrame>
               </div>
             ) : null}
           </div>
@@ -1607,6 +1628,7 @@ export function IntegrationsSection({
   syncEvents,
   exportRows,
   purchaseOrderSyncConfigured,
+  timeZone,
 }: {
   connection: XeroConnectionSummary | null;
   quickBooksConnection: AccountingConnectionSummary | null;
@@ -1620,6 +1642,7 @@ export function IntegrationsSection({
   syncEvents: XeroSyncEventSummary[];
   exportRows: XeroExportHistoryRow[];
   purchaseOrderSyncConfigured: boolean;
+  timeZone: string;
 }) {
   return (
     <SettingsPanel id="integrations">
@@ -1637,6 +1660,7 @@ export function IntegrationsSection({
           syncEvents={syncEvents}
           exportRows={exportRows}
           purchaseOrderSyncConfigured={purchaseOrderSyncConfigured}
+          timeZone={timeZone}
         />
         <QuickBooksRow
           connection={quickBooksConnection}

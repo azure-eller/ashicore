@@ -22,21 +22,8 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { apiJson } from "@/lib/client/api";
 import { changeEmailSchema, type ChangeEmailInput } from "@/lib/schemas/account";
-
-async function parseError(response: Response, fallback: string) {
-  const body = await response.json().catch(() => null);
-
-  if (response.ok) return;
-
-  const fieldError = Object.values(
-    (body?.errors as Record<string, string[]> | undefined) ?? {}
-  )
-    .flat()
-    .find((message): message is string => typeof message === "string" && message.length > 0);
-
-  throw new Error(body?.error ?? fieldError ?? fallback);
-}
 
 export function ChangeEmailDialog({
   currentEmail,
@@ -62,12 +49,11 @@ export function ChangeEmailDialog({
 
   const mutation = useMutation({
     mutationFn: async (values: ChangeEmailInput) => {
-      const response = await fetch("/api/account/email", {
+      await apiJson<void>("/api/account/email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: values,
+        fallbackError: "Failed to update email.",
       });
-      await parseError(response, "Failed to update email.");
       return values.newEmail;
     },
     onSuccess: (newEmail) => {

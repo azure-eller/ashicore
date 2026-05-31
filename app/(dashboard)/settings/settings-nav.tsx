@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { NavigationLink } from "@/components/navigation-pending";
+import { SurfacePanel } from "@/components/surface-panel";
 import { cn } from "@/lib/utils";
 import type { SettingsSection } from "./sections";
 
@@ -13,7 +14,7 @@ export function SettingsNav({ sections }: { sections: SettingsSection[] }) {
       className="w-full xl:sticky xl:top-(--space-12) xl:self-start"
       aria-label="Settings sections"
     >
-      <div className="border bg-card p-(--space-4)">
+      <SurfacePanel className="p-(--space-4)">
         <div className="hidden border-b pb-(--space-4) text-[length:var(--text-sm)] font-semibold leading-[var(--leading-sm)] text-foreground xl:block">
           Settings
         </div>
@@ -39,7 +40,7 @@ export function SettingsNav({ sections }: { sections: SettingsSection[] }) {
             );
           })}
         </div>
-      </div>
+      </SurfacePanel>
     </nav>
   );
 }

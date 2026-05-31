@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { jsonCreated } from "@/lib/api/responses";
 import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { insertSalesOrderSchema } from "@/lib/schemas/sales-orders";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
@@ -20,8 +22,7 @@ export const GET = apiHandler(async (request) => {
 export const DELETE = apiHandler(async (request) => {
   await assertModuleWriteAccess("sales", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "deleteSalesOrders");
-  const body = await request.json();
-  const data = bulkDeleteSchema.parse(body);
+  const data = await parseJsonBody(request, bulkDeleteSchema);
   try {
     const result = await deleteSalesOrders(data.ids, { idempotencyKey });
     return NextResponse.json(result);
@@ -34,12 +35,11 @@ export const DELETE = apiHandler(async (request) => {
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("sales", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "createSalesOrder");
-  const body = await request.json();
-  const data = insertSalesOrderSchema.parse(body);
+  const data = await parseJsonBody(request, insertSalesOrderSchema);
 
   try {
     const order = await createSalesOrder(data, { idempotencyKey });
-    return NextResponse.json(order, { status: 201 });
+    return jsonCreated(order);
   } catch (error) {
     if (error instanceof SalesError) return error.toResponse();
     throw error;

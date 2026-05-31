@@ -11,6 +11,8 @@ import { Add01Icon, Delete02Icon, MoreVerticalIcon } from "@hugeicons/core-free-
 import { HugeiconsIcon } from "@hugeicons/react";
 import { apiJson } from "@/lib/client/api";
 import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
+import { NoticePanel } from "@/components/notice-panel";
+import { SelectionCountBadge } from "@/components/selection-count-badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,7 +57,9 @@ type ERPDataGridListProps<TData extends { id: string }> = {
   rows: TData[];
   columns: ColDef<TData>[];
   queryKey: readonly unknown[];
-  queryFn: () => Promise<TData[]>;
+  queryFn?: () => Promise<TData[]>;
+  queryEndpoint?: string;
+  queryErrorMessage?: string;
   searchAriaLabel: string;
   emptyMessage: string;
   addHref?: string;
@@ -79,6 +83,8 @@ function ERPDataGridListInner<TData extends { id: string }>({
   columns,
   queryKey,
   queryFn,
+  queryEndpoint,
+  queryErrorMessage,
   searchAriaLabel,
   emptyMessage,
   addHref,
@@ -95,9 +101,22 @@ function ERPDataGridListInner<TData extends { id: string }>({
   const [selectedRows, setSelectedRows] = useState<TData[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const resolvedQueryFn = useMemo(() => {
+    if (queryFn) return queryFn;
+
+    return () => {
+      if (!queryEndpoint) {
+        throw new Error("ERPDataGridList requires queryFn or queryEndpoint.");
+      }
+
+      return apiJson<TData[]>(queryEndpoint, {
+        fallbackError: queryErrorMessage ?? "Failed to fetch rows.",
+      });
+    };
+  }, [queryEndpoint, queryErrorMessage, queryFn]);
   const { data = rows } = useQuery({
     queryKey,
-    queryFn,
+    queryFn: resolvedQueryFn,
     initialData: rows,
   });
   const selectedCount = selectedRows.length;
@@ -169,14 +188,7 @@ function ERPDataGridListInner<TData extends { id: string }>({
                 }
               >
                 <HugeiconsIcon icon={MoreVerticalIcon} className="h-4 w-4" aria-hidden />
-                {selectedCount > 0 ? (
-                  <span
-                    aria-hidden
-                    className="absolute -top-(--space-2) -right-(--space-2) flex h-(--space-8) min-w-(--space-8) items-center justify-center bg-primary px-(--space-1) font-mono text-[length:var(--text-2xs)] font-medium tabular-nums text-primary-foreground"
-                  >
-                    {selectedCount}
-                  </span>
-                ) : null}
+                <SelectionCountBadge count={selectedCount} />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -227,14 +239,7 @@ function ERPDataGridListInner<TData extends { id: string }>({
             }}
           >
             <HugeiconsIcon icon={Delete02Icon} className="h-4 w-4" aria-hidden />
-            {selectedCount > 0 ? (
-              <span
-                aria-hidden
-                className="absolute -top-(--space-2) -right-(--space-2) flex h-(--space-8) min-w-(--space-8) items-center justify-center bg-primary px-(--space-1) font-mono text-[length:var(--text-2xs)] font-medium tabular-nums text-primary-foreground"
-              >
-                {selectedCount}
-              </span>
-            ) : null}
+            <SelectionCountBadge count={selectedCount} />
           </Button>
         ) : null}
         {actions}
@@ -299,12 +304,14 @@ function ERPDataGridListInner<TData extends { id: string }>({
                 {deleteAction.confirmDescription(selectedCount)}
               </AlertDialogDescription>
               {deleteError ? (
-                <div
+                <NoticePanel
                   role="alert"
-                  className="border border-destructive bg-[var(--color-danger-soft)] px-(--space-6) py-(--space-4) text-[length:var(--text-sm)] text-destructive"
+                  tone="destructive"
+                  padding="md"
+                  className="text-[length:var(--text-sm)] text-destructive"
                 >
                   {deleteError}
-                </div>
+                </NoticePanel>
               ) : null}
             </AlertDialogHeader>
             <AlertDialogFooter>

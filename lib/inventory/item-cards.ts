@@ -39,11 +39,15 @@ import {
   finishInventoryOperationInTx,
 } from "@/lib/inventory/kernel";
 import {
+  isNonNegativeNumberString,
+  nullableString,
   nullableStringPreserveUndefined,
   optionalMoneyString,
+  optionalNonNegativeDecimalInputPreserveUndefined,
   optionalNonNegativeDecimalString,
+  optionalPositiveDecimalString,
+  optionalPositiveDecimalStringPreserveUndefined,
 } from "@/lib/schemas/shared";
-import { normalizeNumeric } from "@/lib/format";
 import { projectedOnHandQty } from "@/lib/inventory/kernel/read";
 import { getEstimatedRecipeCostSummariesByItemIdInTx } from "@/lib/inventory/estimated-cost";
 import {
@@ -78,12 +82,7 @@ export class ItemCardError extends DomainError {
   }
 }
 
-const nullableText = z
-  .string()
-  .nullable()
-  .optional()
-  .transform((value) => (value != null ? value.trim() || null : null));
-
+const nullableText = nullableString;
 const patchNullableText = nullableStringPreserveUndefined;
 const CLONE_NAME_PREFIX = "Copy of ";
 const ITEM_NAME_MAX_LENGTH = 255;
@@ -92,29 +91,6 @@ function cloneName(name: string) {
   const maxSourceLength = ITEM_NAME_MAX_LENGTH - CLONE_NAME_PREFIX.length;
   return `${CLONE_NAME_PREFIX}${name.slice(0, maxSourceLength).trimEnd()}`;
 }
-
-const positiveOptionalDecimalString = (label: string) =>
-  optionalNonNegativeDecimalString(label).refine(
-    (value) => value == null || Number(value) > 0,
-    `${label} must be greater than 0`,
-  );
-
-const patchPositiveOptionalDecimalString = (label: string) =>
-  z
-    .string()
-    .nullable()
-    .optional()
-    .transform((value) => {
-      if (value === undefined) return undefined;
-      return value != null ? value.trim() || null : null;
-    })
-    .refine(
-      (value) => value == null || (Number.isFinite(Number(value)) && Number(value) > 0),
-      `${label} must be greater than 0`,
-    )
-    .transform((value) =>
-      value == null ? value : normalizeNumeric(Number(value)),
-    );
 
 const lotTrackingModeSchema = z.enum(LOT_TRACKING_MODES);
 
@@ -154,7 +130,7 @@ export const itemCardCreateSchema = z.object({
   unitDefinitionId: z.string().uuid("Unit is required"),
   defaultSupplierId: z.string().uuid().nullable().optional(),
   purchaseUnitDefinitionId: z.string().uuid().nullable().optional(),
-  purchaseToStockFactor: positiveOptionalDecimalString("Purchase-to-stock factor"),
+  purchaseToStockFactor: optionalPositiveDecimalString("Purchase-to-stock factor"),
   sku: nullableText,
   sellable: z.boolean().optional(),
   defaultSellingPrice: optionalMoneyString("Default selling price"),
@@ -164,7 +140,7 @@ export const itemCardCreateSchema = z.object({
   internalBarcode: nullableText,
   supplierItemCode: nullableText,
   defaultLeadTimeDays: z.number().int().nonnegative().nullable().optional(),
-  minimumOrderQuantity: positiveOptionalDecimalString("Minimum order quantity"),
+  minimumOrderQuantity: optionalPositiveDecimalString("Minimum order quantity"),
   lotTrackingMode: lotTrackingModeSchema.optional(),
 }).superRefine((data, ctx) => {
   if (data.itemType === "product") {
@@ -203,7 +179,9 @@ export const itemCardUpdateSchema = z.object({
   unitDefinitionId: z.string().uuid("Unit is required").optional(),
   defaultSupplierId: z.string().uuid().nullable().optional(),
   purchaseUnitDefinitionId: z.string().uuid().nullable().optional(),
-  purchaseToStockFactor: patchPositiveOptionalDecimalString("Purchase-to-stock factor"),
+  purchaseToStockFactor: optionalPositiveDecimalStringPreserveUndefined(
+    "Purchase-to-stock factor",
+  ),
   lotTrackingMode: lotTrackingModeSchema.optional(),
 }).superRefine((data, ctx) => {
   if (
@@ -230,43 +208,18 @@ export const itemCardVariantUpdateSchema = z.object({
   internalBarcode: patchNullableText,
   supplierItemCode: patchNullableText,
   defaultLeadTimeDays: z.number().int().nonnegative().nullable().optional(),
-  minimumOrderQuantity: patchPositiveOptionalDecimalString("Minimum order quantity"),
-  defaultSellingPrice: z
-    .string()
-    .nullable()
-    .optional()
-    .transform((value) => {
-      if (value === undefined) return undefined;
-      return value != null ? value.trim() || null : null;
-    })
-    .refine(
-      (value) => value == null || (Number.isFinite(Number(value)) && Number(value) >= 0),
-      "Default selling price must be a non-negative number",
-    ),
-  defaultPurchasePrice: z
-    .string()
-    .nullable()
-    .optional()
-    .transform((value) => {
-      if (value === undefined) return undefined;
-      return value != null ? value.trim() || null : null;
-    })
-    .refine(
-      (value) => value == null || (Number.isFinite(Number(value)) && Number(value) >= 0),
-      "Default purchase price must be a non-negative number",
-    ),
-  currentStockUnitCost: z
-    .string()
-    .nullable()
-    .optional()
-    .transform((value) => {
-      if (value === undefined) return undefined;
-      return value != null ? value.trim() || null : null;
-    })
-    .refine(
-      (value) => value == null || (Number.isFinite(Number(value)) && Number(value) >= 0),
-      "Current stock unit cost must be a non-negative number",
-    ),
+  minimumOrderQuantity: optionalPositiveDecimalStringPreserveUndefined(
+    "Minimum order quantity",
+  ),
+  defaultSellingPrice: optionalNonNegativeDecimalInputPreserveUndefined(
+    "Default selling price",
+  ),
+  defaultPurchasePrice: optionalNonNegativeDecimalInputPreserveUndefined(
+    "Default purchase price",
+  ),
+  currentStockUnitCost: optionalNonNegativeDecimalInputPreserveUndefined(
+    "Current stock unit cost",
+  ),
   safetyStock: z
     .string()
     .optional()
@@ -275,7 +228,7 @@ export const itemCardVariantUpdateSchema = z.object({
       return value.trim() || "0";
     })
     .refine(
-      (value) => value == null || (Number.isFinite(Number(value)) && Number(value) >= 0),
+      (value) => value == null || isNonNegativeNumberString(value),
       "Safety stock must be a non-negative number",
     ),
   sellable: z.boolean().optional(),

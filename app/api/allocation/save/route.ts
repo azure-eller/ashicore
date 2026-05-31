@@ -1,12 +1,14 @@
-import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonOk } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { AllocationError } from "@/lib/inventory/allocation/errors";
 import {
   saveAllocationWorkspace,
   saveManufacturingIngredientGroupAllocationWorkspace,
 } from "@/lib/inventory/allocation/service";
+import { isPositiveNumberString } from "@/lib/schemas/shared";
 
 const saveSchema = z.object({
   demandType: z.enum([
@@ -25,17 +27,14 @@ const saveSchema = z.object({
           .string()
           .trim()
           .min(1, "Quantity is required")
-          .refine((value) => {
-            const parsed = Number(value);
-            return Number.isFinite(parsed) && parsed > 0;
-          }, "Quantity must be greater than 0"),
+          .refine(isPositiveNumberString, "Quantity must be greater than 0"),
       })
     )
     .default([]),
 });
 
 export const POST = apiHandler(async (request: Request) => {
-  const input = saveSchema.parse(await request.json());
+  const input = await parseJsonBody(request, saveSchema);
   const idempotencyKey = requireIdempotencyKey(request, "saveAllocationWorkspace");
   await assertModuleWriteAccess(
     input.demandType === "manufacturing_order_ingredient" ? "manufacturing" : "sales",
@@ -59,7 +58,7 @@ export const POST = apiHandler(async (request: Request) => {
     } else {
       await saveAllocationWorkspace(input, { idempotencyKey, returnWorkspace: false });
     }
-    return NextResponse.json({ ok: true });
+    return jsonOk();
   } catch (error) {
     if (error instanceof AllocationError) return error.toResponse();
     throw error;

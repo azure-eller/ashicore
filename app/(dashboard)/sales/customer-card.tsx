@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Controller, useForm } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -21,7 +21,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { AddressFields } from "@/components/address-fields";
+import { AttachmentListItem } from "@/components/attachment-list";
+import { AddressBookFields } from "@/components/address-book-fields";
+import { EmptyState } from "@/components/empty-state";
 import {
   Combobox,
   ComboboxContent,
@@ -38,7 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -47,7 +49,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { StatusLabel, type StatusTone } from "@/components/ui/status-label";
+import {
+  StatusBadge,
+  type StatusBadgeConfig,
+} from "@/components/status-badge";
 import { Textarea } from "@/components/ui/textarea";
 import {
   MutableLines,
@@ -60,9 +65,22 @@ import {
   CardSection,
 } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
-import { CellShell, underlineControlClass } from "@/components/card-page/form-cell";
+import {
+  CardFormRow,
+  CellShell,
+  ReadOnlyFieldValue,
+  underlineControlClass,
+} from "@/components/card-page/form-cell";
 import { CommitInput } from "@/components/card-page/commit-input";
 import { NotesField } from "@/components/card-page/notes-field";
+import { ListFrameItem } from "@/components/list-frame";
+import { SurfacePanel } from "@/components/surface-panel";
+import {
+  FramedTable,
+  FramedTableCell,
+  FramedTableRow,
+  TableFrame,
+} from "@/components/table-frame";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import {
@@ -85,13 +103,21 @@ import {
   updateCustomerContact,
   updateCustomerProject,
 } from "@/lib/api/clients/customers";
+import { makeUniqueAddressLabel } from "@/lib/address-label";
 import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import type { AddressEntry } from "@/lib/dal/addresses";
 import {
-  formatAddressLines,
+  addressEntryToAddressOption,
+  type AddressEntryOption,
+} from "@/lib/address-entry-options";
+import {
+  addressKey,
+  emptyAddressFields,
+  formatAddressInline,
   formatDate,
   formatPrice,
+  isAddressBlank,
   normalizeAddressFields,
   toDateOnlyString,
 } from "@/lib/format";
@@ -137,15 +163,7 @@ type CustomerAddressFields = {
   postcode: string | null;
   country: string | null;
 };
-type CustomerAddressOption = CustomerAddressFields & {
-  id: string;
-  label: string;
-  addressEntryId: string | null;
-  contactName: string | null;
-  contactPhone: string | null;
-  deliveryInstructions: string | null;
-  notes: string | null;
-};
+type CustomerAddressOption = AddressEntryOption;
 type AddressDialogValues = z.input<typeof createAddressEntrySchema>;
 type AddressDialogState = {
   target: AddressTarget;
@@ -179,7 +197,7 @@ const emptyAddressDialogValues: AddressDialogValues = {
 
 const projectStatusMeta: Record<
   ProjectGridRow["status"],
-  { label: string; tone: StatusTone }
+  StatusBadgeConfig<ProjectGridRow["status"]>[ProjectGridRow["status"]]
 > = {
   planning: { label: "Planning", tone: "neutral" },
   active: { label: "In Progress", tone: "warning" },
@@ -291,7 +309,7 @@ export function CustomerCard({
       return id ? updateAddressEntry(id, data) : createAddressEntry(data);
     },
     onSuccess: (entry) => {
-      const option = addressEntryToOption(entry);
+      const option = addressEntryToAddressOption(entry);
       if (!option || !addressDialogState) return;
 
       setAddressBook((current) => {
@@ -314,7 +332,7 @@ export function CustomerCard({
 
   const applyCustomerAddress = useCallback(
     (target: AddressTarget, address: CustomerAddressFields | null) => {
-      const normalized = address ? normalizeCustomerAddress(address) : emptyCustomerAddress();
+      const normalized = address ? normalizeAddressFields(address) : emptyAddressFields();
       const patch =
         target === "shipping"
           ? shippingAddressPatch(normalized)
@@ -357,26 +375,10 @@ export function CustomerCard({
   const handleAddressDialogSubmit = useCallback(
     (values: AddressDialogValues) => {
       if (!addressDialogState) return;
-      const baseLabel =
-        values.label.trim() ||
-        formatAddressLines({
-          line1: values.line1,
-          line2: values.line2,
-          city: values.city,
-          region: values.region,
-          postcode: values.postcode,
-          country: values.country,
-        }).join(", ") ||
-        "Address";
-      const existingLabels = new Set(addressBook.map((address) => address.label));
-      let label = baseLabel;
-      if (!values.label.trim()) {
-        let suffix = 2;
-        while (existingLabels.has(label)) {
-          label = `${baseLabel} (${suffix})`;
-          suffix += 1;
-        }
-      }
+      const label = makeUniqueAddressLabel(
+        values,
+        addressBook.map((address) => address.label),
+      );
       addressMutation.mutate({
         id: addressDialogState.option?.addressEntryId ?? null,
         values: { ...values, label },
@@ -388,11 +390,11 @@ export function CustomerCard({
   const openOrders = display.salesOrders.filter((order) => order.status === "open");
   const billingAddress = getCustomerBillingAddress(display);
   const shippingAddress = getCustomerShippingAddress(display);
-  const billingSameAsShipping = isCustomerAddressBlank(billingAddress);
+  const billingSameAsShipping = isAddressBlank(billingAddress);
   const addressOptions = useMemo(
     () =>
       addressBook
-        .map(addressEntryToOption)
+        .map(addressEntryToAddressOption)
         .filter((option): option is CustomerAddressOption => option != null),
     [addressBook]
   );
@@ -440,7 +442,7 @@ export function CustomerCard({
 
       <CardPageBody>
         <CardSection title="Customer at a glance">
-          <div className={`${styles.formRow} ${styles.formRowThree}`}>
+          <CardFormRow columns="three">
             <CellShell label="Customer name" required invalid={isDraft && !display.name.trim()}>
               <CommitInput
                 label="Customer name"
@@ -488,7 +490,7 @@ export function CustomerCard({
                 id="customer-billing-address"
                 target="billing"
                 value={billingSameAsShipping ? null : billingAddress}
-                sameAsShippingLabel={customerAddressLabel(shippingAddress)}
+                sameAsShippingLabel={formatAddressInline(shippingAddress)}
                 options={addressOptions}
                 sameAsShipping
                 disabled={readOnly}
@@ -498,11 +500,11 @@ export function CustomerCard({
               />
             </CellShell>
             <CellShell label="Customer since">
-              <div className={styles.readOnlyFieldValue}>
+              <ReadOnlyFieldValue>
                 {display.createdAt ? formatDate(toDateOnlyString(display.createdAt)) : "-"}
-              </div>
+              </ReadOnlyFieldValue>
             </CellShell>
-          </div>
+          </CardFormRow>
         </CardSection>
 
         <div className={styles.sectionRowTwo}>
@@ -592,100 +594,15 @@ export function CustomerCard({
                 {(addressMutation.error as Error).message || "Failed to save address."}
               </FieldError>
             ) : null}
-            <FieldGroup className="gap-4">
-              <Controller
-                control={addressForm.control}
-                name="label"
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="customer-address-label">Label</FieldLabel>
-                    <Input
-                      {...field}
-                      id="customer-address-label"
-                      value={field.value ?? ""}
-                      onChange={(event) => field.onChange(event.target.value)}
-                      aria-invalid={fieldState.invalid}
-                    />
-                    {fieldState.invalid ? (
-                      <FieldError errors={[fieldState.error]} />
-                    ) : null}
-                  </Field>
-                )}
-              />
-              <FieldGroup className="grid gap-4 sm:grid-cols-2">
-                <Controller
-                  control={addressForm.control}
-                  name="contactName"
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor="customer-address-contact-name">
-                        Contact name
-                      </FieldLabel>
-                      <Input
-                        {...field}
-                        id="customer-address-contact-name"
-                        value={field.value ?? ""}
-                        onChange={(event) => field.onChange(event.target.value || null)}
-                        aria-invalid={fieldState.invalid}
-                      />
-                      {fieldState.invalid ? (
-                        <FieldError errors={[fieldState.error]} />
-                      ) : null}
-                    </Field>
-                  )}
-                />
-                <Controller
-                  control={addressForm.control}
-                  name="contactPhone"
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor="customer-address-contact-phone">
-                        Contact phone
-                      </FieldLabel>
-                      <Input
-                        {...field}
-                        id="customer-address-contact-phone"
-                        value={field.value ?? ""}
-                        onChange={(event) => field.onChange(event.target.value || null)}
-                        aria-invalid={fieldState.invalid}
-                      />
-                      {fieldState.invalid ? (
-                        <FieldError errors={[fieldState.error]} />
-                      ) : null}
-                    </Field>
-                  )}
-                />
-              </FieldGroup>
-            </FieldGroup>
-            <AddressFields
+            <AddressBookFields
               control={addressForm.control}
-              names={addressFieldNames}
+              addressNames={addressFieldNames}
               idPrefix="customer-address"
+              labelName="label"
+              contactNameName="contactName"
+              contactPhoneName="contactPhone"
+              notesName="notes"
             />
-            <FieldGroup className="mt-4 gap-4">
-              <Controller
-                control={addressForm.control}
-                name="notes"
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="customer-address-notes">
-                      Notes
-                    </FieldLabel>
-                    <Textarea
-                      {...field}
-                      id="customer-address-notes"
-                      value={field.value ?? ""}
-                      onChange={(event) => field.onChange(event.target.value || null)}
-                      aria-invalid={fieldState.invalid}
-                      rows={3}
-                    />
-                    {fieldState.invalid ? (
-                      <FieldError errors={[fieldState.error]} />
-                    ) : null}
-                  </Field>
-                )}
-              />
-            </FieldGroup>
           </form>
           <DialogFooter>
             <Button
@@ -848,29 +765,27 @@ function ProjectsSection({
       <div className="grid gap-(--space-4)">
         {sourceRows.length > 0 ? (
           sourceRows.map((project) => (
-            <button
+            <SurfacePanel
+              as="button"
               key={project.id}
               type="button"
-              className="grid border border-border bg-card p-(--space-5) text-left hover:bg-muted"
+              interactive
+              className="grid p-(--space-5) text-left"
               onClick={() => setActiveProject(project)}
             >
               <span className="flex min-w-0 items-center justify-between gap-(--space-4)">
                 <span className="truncate text-[length:var(--text-sm)] font-medium">
                   {project.name}
                 </span>
-                <StatusLabel tone={projectStatusMeta[project.status].tone}>
-                  {projectStatusMeta[project.status].label}
-                </StatusLabel>
+                <StatusBadge status={project.status} config={projectStatusMeta} />
               </span>
               <span className="mt-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
                 {formatProjectDateRange(project)} · {project.orderCount} order{project.orderCount === 1 ? "" : "s"} · {formatPrice(project.orderValue) ?? "$0.00"} · {project.files.length} attachment{project.files.length === 1 ? "" : "s"}
               </span>
-            </button>
+            </SurfacePanel>
           ))
         ) : (
-          <div className="border border-dashed border-border p-(--space-10) text-center text-[length:var(--text-sm)] text-muted-foreground">
-            No projects yet.
-          </div>
+          <EmptyState>No projects yet.</EmptyState>
         )}
       </div>
 
@@ -974,7 +889,7 @@ function CustomerProjectDialog({
           <DialogTitle>{project ? "Project" : "Add project"}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-(--space-8)">
-          <div className={`${styles.formRow} ${styles.formRowThree}`}>
+          <CardFormRow columns="three">
             <CellShell label="Project name" required>
               <Input
                 className={styles.underlineControl}
@@ -1004,9 +919,9 @@ function CustomerProjectDialog({
                 </SelectContent>
               </Select>
             </CellShell>
-          </div>
+          </CardFormRow>
 
-          <div className={`${styles.formRow} ${styles.formRowThree}`}>
+          <CardFormRow columns="three">
             <CellShell label="Start date">
               <Input
                 type="date"
@@ -1035,7 +950,7 @@ function CustomerProjectDialog({
                 }
               />
             </CellShell>
-          </div>
+          </CardFormRow>
 
           <Field>
             <FieldLabel htmlFor="customer-project-summary">Summary</FieldLabel>
@@ -1055,41 +970,43 @@ function CustomerProjectDialog({
 
           <div className="grid gap-(--space-4)">
             <h3 className={styles.sectionHeading}>Linked sales orders</h3>
-            <div className="overflow-x-auto border border-border">
-              <table className="w-full text-[length:var(--text-sm)]">
+            <TableFrame>
+              <FramedTable>
                 <tbody>
                   {linkedOrders.length > 0 ? (
                     linkedOrders.map((order) => (
-                      <tr key={order.id} className="border-b border-border last:border-b-0">
-                        <td className="p-(--space-4)">
+                      <FramedTableRow key={order.id}>
+                        <FramedTableCell className="p-(--space-4)">
                           <Link href={`/sales/order/${order.id}`} className="font-mono font-medium text-primary">
                             {order.orderNumber}
                           </Link>
-                        </td>
-                        <td className="p-(--space-4)">
+                        </FramedTableCell>
+                        <FramedTableCell className="p-(--space-4)">
                           {formatDate(order.shipDate ?? order.orderDate)}
-                        </td>
-                        <td className="p-(--space-4)">
+                        </FramedTableCell>
+                        <FramedTableCell className="p-(--space-4)">
                           <SalesOrderStatusBadge status={order.status} />
-                        </td>
-                        <td className="p-(--space-4) text-right font-mono tabular-nums">
+                        </FramedTableCell>
+                        <FramedTableCell align="right" numeric className="p-(--space-4)">
                           {formatPrice(order.totalAmount) ?? "$0.00"}
-                        </td>
-                      </tr>
+                        </FramedTableCell>
+                      </FramedTableRow>
                     ))
                   ) : (
                     <tr>
-                      <td
+                      <FramedTableCell
                         colSpan={4}
-                        className="p-(--space-8) text-center text-[length:var(--text-sm)] text-muted-foreground"
+                        align="center"
+                        muted
+                        className="p-(--space-8)"
                       >
                         No linked sales orders.
-                      </td>
+                      </FramedTableCell>
                     </tr>
                   )}
                 </tbody>
-              </table>
-            </div>
+              </FramedTable>
+            </TableFrame>
           </div>
 
           <div className="grid gap-(--space-4)">
@@ -1109,25 +1026,19 @@ function CustomerProjectDialog({
             </div>
             <ul className="grid gap-(--space-2)">
               {draft.isNew ? (
-                <li className="border border-dashed border-border p-(--space-8) text-center text-[length:var(--text-sm)] text-muted-foreground">
+                <EmptyState as="li" density="compact">
                   Save the project before adding attachments.
-                </li>
+                </EmptyState>
               ) : files.length > 0 ? (
                 files.map((file) => (
-                  <li
+                  <AttachmentListItem
+                    as="li"
                     key={file.id}
-                    className="flex items-center justify-between gap-(--space-4) border border-border p-(--space-4)"
-                  >
-                    <a
-                      href={`/api/customers/${customerId}/projects/${draft.id}/files/${file.id}`}
-                      className="min-w-0 truncate text-[length:var(--text-sm)] font-medium text-primary"
-                    >
-                      {file.filename}
-                    </a>
-                    <span className="shrink-0 text-[length:var(--text-xs)] text-muted-foreground">
-                      {formatBytes(file.sizeBytes)}
-                    </span>
-                    {!readOnly ? (
+                    filename={file.filename}
+                    sizeBytes={file.sizeBytes}
+                    href={`/api/customers/${customerId}/projects/${draft.id}/files/${file.id}`}
+                    layout="inline"
+                    actions={!readOnly ? (
                       <Button
                         type="button"
                         variant="ghost"
@@ -1138,12 +1049,10 @@ function CustomerProjectDialog({
                         Delete
                       </Button>
                     ) : null}
-                  </li>
+                  />
                 ))
               ) : (
-                <li className="border border-dashed border-border p-(--space-8) text-center text-[length:var(--text-sm)] text-muted-foreground">
-                  No attachments yet.
-                </li>
+                <EmptyState as="li" density="compact">No attachments yet.</EmptyState>
               )}
             </ul>
             {fileUploadMutation.error ? (
@@ -1238,9 +1147,11 @@ function OpenOrdersSection({
         {rows.length > 0 ? (
           rows.map((order) => (
             <li key={order.id}>
-              <Link
+              <ListFrameItem
+                as={Link}
                 href={`/sales/order/${order.id}`}
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-(--space-4) border border-border p-(--space-4) hover:bg-muted"
+                interactive
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-(--space-4) p-(--space-4)"
               >
                 <span className="min-w-0">
                   <span className="flex min-w-0 flex-wrap items-center gap-(--space-3)">
@@ -1256,13 +1167,11 @@ function OpenOrdersSection({
                 <span className="font-mono text-[length:var(--text-sm)] font-medium tabular-nums">
                   {formatPrice(order.totalAmount) ?? "$0.00"}
                 </span>
-              </Link>
+              </ListFrameItem>
             </li>
           ))
         ) : (
-          <li className="border border-dashed border-border p-(--space-10) text-center text-[length:var(--text-sm)] text-muted-foreground">
-            No open orders.
-          </li>
+          <EmptyState as="li">No open orders.</EmptyState>
         )}
       </ul>
       {customerId ? (
@@ -1305,9 +1214,9 @@ function CustomerAddressInput({
   onEdit: (option: CustomerAddressOption) => void;
 }) {
   const currentAddressId =
-    sameAsShipping && (!value || isCustomerAddressBlank(value))
+    sameAsShipping && (!value || isAddressBlank(value))
       ? sameAsShippingValue
-      : customerAddressKey(value);
+      : addressKey(value);
   const canEditCurrent =
     currentAddressId !== "" && currentAddressId !== sameAsShippingValue;
   const optionIds = options.map((option) => option.id);
@@ -1371,7 +1280,7 @@ function CustomerAddressInput({
                       {sameAsShippingLabel || "Same as shipping address"}
                     </span>
                     {sameAsShippingLabel ? (
-                      <span className="truncate text-xs text-muted-foreground">
+                      <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
                         Same as shipping address
                       </span>
                     ) : null}
@@ -1399,8 +1308,8 @@ function CustomerAddressInput({
               <ComboboxItem key={itemId} value={itemId}>
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate">{option?.label}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {option ? customerAddressLabel(option) : ""}
+                  <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                    {option ? formatAddressInline(option) : ""}
                   </span>
                 </span>
               </ComboboxItem>
@@ -1682,53 +1591,16 @@ function formatProjectDateRange(project: CustomerProjectRow) {
   return `${start} -> ${target}`;
 }
 
-function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  let value = bytes;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
-  return `${value.toFixed(digits)} ${units[unitIndex]}`;
-}
-
 function reportCustomerSaveError(error: unknown) {
   console.error("Customer save failed:", error);
 }
 
 export function addressEntryLabel(address: AddressEntry) {
-  return (
-    formatAddressLines({
-      line1: address.line1,
-      line2: address.line2,
-      city: address.city,
-      region: address.region,
-      postcode: address.postcode,
-      country: address.country,
-    }).join(", ") || address.label
-  );
-}
-
-function normalizeCustomerAddress(address: CustomerAddressFields): CustomerAddressFields {
-  return normalizeAddressFields(address);
-}
-
-function emptyCustomerAddress(): CustomerAddressFields {
-  return {
-    line1: null,
-    line2: null,
-    city: null,
-    region: null,
-    postcode: null,
-    country: null,
-  };
+  return formatAddressInline(address) || address.label;
 }
 
 function getCustomerBillingAddress(customer: CustomerDetailData): CustomerAddressFields {
-  return normalizeCustomerAddress({
+  return normalizeAddressFields({
     line1: customer.billingLine1,
     line2: customer.billingLine2,
     city: customer.billingCity,
@@ -1739,7 +1611,7 @@ function getCustomerBillingAddress(customer: CustomerDetailData): CustomerAddres
 }
 
 function getCustomerShippingAddress(customer: CustomerDetailData): CustomerAddressFields {
-  return normalizeCustomerAddress({
+  return normalizeAddressFields({
     line1: customer.shipLine1,
     line2: customer.shipLine2,
     city: customer.shipCity,
@@ -1747,60 +1619,6 @@ function getCustomerShippingAddress(customer: CustomerDetailData): CustomerAddre
     postcode: customer.shipPostcode,
     country: customer.shipCountry,
   });
-}
-
-function isCustomerAddressBlank(address: CustomerAddressFields | null | undefined) {
-  if (!address) return true;
-  return [
-    address.line1,
-    address.line2,
-    address.city,
-    address.region,
-    address.postcode,
-    address.country,
-  ].every((part) => !part);
-}
-
-function customerAddressKey(address: CustomerAddressFields | null | undefined) {
-  const normalized = address ? normalizeCustomerAddress(address) : emptyCustomerAddress();
-  return [
-    normalized.line1,
-    normalized.line2,
-    normalized.city,
-    normalized.region,
-    normalized.postcode,
-    normalized.country,
-  ]
-    .map((part) => part ?? "")
-    .join("\u001f")
-    .replace(/^\u001f+|\u001f+$/g, "");
-}
-
-function customerAddressLabel(address: CustomerAddressFields) {
-  return formatAddressLines(address).join(", ");
-}
-
-function addressEntryToOption(entry: AddressEntry): CustomerAddressOption | null {
-  const normalized = normalizeCustomerAddress({
-    line1: entry.line1,
-    line2: entry.line2,
-    city: entry.city,
-    region: entry.region,
-    postcode: entry.postcode,
-    country: entry.country,
-  });
-  const id = customerAddressKey(normalized);
-  if (!id) return null;
-  return {
-    ...normalized,
-    id,
-    label: entry.label,
-    addressEntryId: entry.id,
-    contactName: entry.contactName,
-    contactPhone: entry.contactPhone,
-    deliveryInstructions: entry.deliveryInstructions,
-    notes: entry.notes,
-  };
 }
 
 function shippingAddressPatch(address: CustomerAddressFields): PatchCustomer {

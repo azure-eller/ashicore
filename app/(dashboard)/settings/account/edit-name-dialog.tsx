@@ -16,21 +16,8 @@ import {
 } from "@/components/ui/dialog";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { apiJson } from "@/lib/client/api";
 import { updateProfileSchema, type UpdateProfileInput } from "@/lib/schemas/account";
-
-async function parseError(response: Response, fallback: string) {
-  const body = await response.json().catch(() => null);
-
-  if (response.ok) return;
-
-  const fieldError = Object.values(
-    (body?.errors as Record<string, string[]> | undefined) ?? {}
-  )
-    .flat()
-    .find((message): message is string => typeof message === "string" && message.length > 0);
-
-  throw new Error(body?.error ?? fieldError ?? fallback);
-}
 
 export function EditNameDialog({
   currentName,
@@ -54,14 +41,12 @@ export function EditNameDialog({
   }, [open, currentName, form]);
 
   const mutation = useMutation({
-    mutationFn: async (values: UpdateProfileInput) => {
-      const response = await fetch("/api/account/profile", {
+    mutationFn: (values: UpdateProfileInput) =>
+      apiJson<void>("/api/account/profile", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      });
-      await parseError(response, "Failed to update name.");
-    },
+        body: values,
+        fallbackError: "Failed to update name.",
+      }),
     onSuccess: () => {
       setOpen(false);
       router.refresh();

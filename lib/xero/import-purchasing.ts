@@ -12,12 +12,19 @@ import {
   unitDefinitions,
 } from "@/lib/db/schema";
 import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
+import {
+  cleanDate as cleanAccountingDate,
+  cleanString as cleanAccountingString,
+  compactProviderKey,
+  normalizeProviderKey,
+  normalizeProviderNumeric,
+} from "@/lib/accounting/providers/common";
 import type { Tx } from "@/lib/db/with-org-context";
 import { withOrgContext } from "@/lib/db/with-org-context";
-import { normalizeNumeric } from "@/lib/format";
 import { trimScaleNullable } from "@/lib/db/numeric";
 import { getAuthedXeroClient } from "./client";
 import { XeroError, extractXeroMessage, redactXeroError } from "./errors";
+import { isDemoCompanyTenant } from "./import-utils";
 
 const DEFAULT_SINCE_DATE = "2024-01-01";
 const PAGE_SIZE = 100;
@@ -124,17 +131,8 @@ export type XeroPurchasingSyncApplyResult = {
   errors: string[];
 };
 
-function cleanString(value: string | null | undefined, maxLength = 255) {
-  const trimmed = value?.trim();
-  if (!trimmed) return null;
-  return trimmed.slice(0, maxLength);
-}
-
-function cleanDate(value: Date | string | null | undefined) {
-  if (!value) return null;
-  const date = value instanceof Date ? value : new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
+const cleanString = cleanAccountingString;
+const cleanDate = cleanAccountingDate;
 
 function asDateString(value: Date | string | null | undefined) {
   if (!value) return null;
@@ -142,13 +140,8 @@ function asDateString(value: Date | string | null | undefined) {
   return date ? date.toISOString().slice(0, 10) : null;
 }
 
-function normalizeKey(value: string | null | undefined) {
-  return cleanString(value)?.toLowerCase() ?? null;
-}
-
-function compactKey(value: string | null | undefined) {
-  return cleanString(value)?.toLowerCase().replace(/[^a-z0-9]/g, "") ?? null;
-}
+const normalizeKey = normalizeProviderKey;
+const compactKey = compactProviderKey;
 
 const ITEM_MATCH_STOP_WORDS = new Set([
   "a",
@@ -263,10 +256,7 @@ function productFingerprint(line: SourceLine, xeroItem: XeroItemSummary | undefi
   return [...tokens].sort().join(":");
 }
 
-function normalizePrice(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return null;
-  return normalizeNumeric(value);
-}
+const normalizePrice = normalizeProviderNumeric;
 
 function candidateCanBeApplied(params: {
   status: XeroPurchasingCandidateStatus;
@@ -284,10 +274,6 @@ function candidateCanBeApplied(params: {
     return false;
   }
   return true;
-}
-
-function isDemoCompanyTenant(tenantName: string) {
-  return tenantName.toLowerCase().startsWith("demo company");
 }
 
 function isExcludedLine(line: SourceLine) {

@@ -4,6 +4,7 @@ import type {
   SalesOrderDetail,
   SalesOrderDetailLine,
 } from "@/app/(dashboard)/sales/types";
+import { calculateSalesLineAmounts } from "@/lib/sales/order-calculations";
 
 /**
  * A blank SalesOrderDetail used as the local draft on /sales/order before the
@@ -115,10 +116,11 @@ export function makeDraftLine(input: {
 }): SalesOrderDetailLine {
   const qty = Number(input.quantity) || 0;
   const price = Number(input.unitPrice) || 0;
-  const rate = Number(input.taxRatePercent ?? 0) || 0;
-  const lineSubtotal = (qty * price).toFixed(2);
-  const lineTaxAmount = (Number(lineSubtotal) * (rate / 100)).toFixed(2);
-  const lineTotal = (Number(lineSubtotal) + Number(lineTaxAmount)).toFixed(2);
+  const { lineSubtotal, lineTaxAmount, lineTotal } = calculateSalesLineAmounts({
+    quantity: input.quantity,
+    unitPrice: input.unitPrice,
+    taxRatePercent: input.taxRatePercent,
+  });
   return {
     id: `draft-${crypto.randomUUID()}`,
     itemId: input.itemId,

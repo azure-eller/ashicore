@@ -14,6 +14,7 @@ import { apiHandler } from "@/lib/api/handler";
 import { getAuthedApiMemberContext } from "@/lib/dal/auth";
 import { inventoryLedgerFiltersSchema } from "@/lib/schemas/inventory-ledger";
 import { collectObservedOperations } from "@/lib/observability/request-log";
+import { requestSearchParams } from "@/lib/routing/search-params";
 
 export const runtime = "nodejs";
 
@@ -77,7 +78,7 @@ async function runTarget(target: z.infer<typeof targetSchema>) {
 export const GET = apiHandler(async (request) => {
   await getAuthedApiMemberContext(request.headers);
 
-  const searchParams = new URL(request.url).searchParams;
+  const searchParams = requestSearchParams(request);
   const target = targetSchema.parse(searchParams.get("target") ?? "inventory-products");
 
   const report = await collectObservedOperations(async () => {

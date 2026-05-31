@@ -1,8 +1,9 @@
 import { normalizeMoney } from "@/lib/format";
+import { isNonNegativeNumberString } from "@/lib/schemas/shared";
 
 export function normalizeTaxPercent(value: string | number | null | undefined) {
   const parsed = Number(value ?? 0);
-  if (!Number.isFinite(parsed) || parsed < 0) return "0";
+  if (!isNonNegativeNumberString(String(value ?? 0))) return "0";
   return parsed.toString();
 }
 

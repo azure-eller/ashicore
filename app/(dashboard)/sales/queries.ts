@@ -1,11 +1,11 @@
 import "server-only";
 
-import { NextResponse } from "next/server";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import {
   formatQuantity,
   normalizeNumericScale,
   normalizeNumeric,
+  normalizeQuantityNumber,
   normalizeMoney,
   parsePositive,
   roundQuantity,
@@ -74,16 +74,15 @@ import {
 } from "@/lib/inventory/kernel";
 import {
   DomainError,
-  type DomainFieldErrors,
 } from "@/lib/errors/domain-error";
 import {
   calculateMarginMetrics,
   calculateUnitMarginMetrics,
 } from "@/lib/margin";
 import {
-  calculateTaxAmount,
-  calculateTaxedLineTotal,
-} from "@/lib/tax/calc";
+  calculateDiscountPercentString,
+  calculateSalesLineAmounts,
+} from "@/lib/sales/order-calculations";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import {
   buildFifoLotPickPlanInTx,
@@ -593,18 +592,6 @@ function formatPricingBreakLabel(
   }
 
   return `${min}-${formatQuantity(maxQuantity)}`;
-}
-
-function discountPercentFromPrices(
-  listUnitPrice: string | null,
-  unitPrice: string
-) {
-  const list = listUnitPrice == null ? NaN : Number(listUnitPrice);
-  const unit = Number(unitPrice);
-  if (!Number.isFinite(list) || !Number.isFinite(unit) || list <= 0 || unit >= list) {
-    return "0.00";
-  }
-  return normalizeMoney(((list - unit) / list) * 100);
 }
 
 function normalizeOptionalLineMoney(value: string | null | undefined) {
@@ -1209,8 +1196,9 @@ async function resolvePricingForProductInTx(
   return resolvePricingForProduct(values, lookup);
 }
 
-export class SalesError extends DomainError {
-  errors?: Record<string, string[]>;
+export class SalesError extends DomainError<{
+  negativeStock: NegativeStockWarningPayload;
+}> {
   negativeStock?: NegativeStockWarningPayload;
 
   constructor(
@@ -1221,24 +1209,15 @@ export class SalesError extends DomainError {
       negativeStock?: NegativeStockWarningPayload;
     }
   ) {
-    const errors: DomainFieldErrors | undefined = options?.errors;
-
     super(message, status, {
       name: "SalesError",
-      errors,
+      errors: options?.errors,
+      extra: options?.negativeStock
+        ? { negativeStock: options.negativeStock }
+        : undefined,
     });
 
-    this.errors = options?.errors;
     this.negativeStock = options?.negativeStock;
-  }
-
-  toResponse(): NextResponse<Record<string, unknown>> {
-    const body = this.negativeStock
-      ? { error: this.message, negativeStock: this.negativeStock }
-      : this.errors
-        ? { error: this.message, errors: this.errors }
-        : { error: this.message };
-    return NextResponse.json(body, { status: this.status });
   }
 }
 
@@ -1869,7 +1848,7 @@ type ShipmentLineState = {
 };
 
 function normalizeShipmentQuantity(value: number) {
-  return parseFloat(normalizeNumeric(roundQuantity(value)));
+  return normalizeQuantityNumber(roundQuantity(value));
 }
 
 async function getSalesLotPickPlansByLineInTx(
@@ -3414,14 +3393,12 @@ async function prepareOrderPayload(
         : pricing.pricingBreakLabel;
     const discountPercent =
       normalizeOptionalLineMoney(line.discountPercent) ??
-      discountPercentFromPrices(listUnitPrice, normalizedUnitPrice);
-    const lineSubtotal = quantity * unitPrice;
-    const lineTaxAmount = calculateTaxAmount(
-      lineSubtotal,
-      selectedTaxRate?.ratePercent ?? 0,
-      2,
-    );
-    const lineTotal = calculateTaxedLineTotal(lineSubtotal, lineTaxAmount, 2);
+      calculateDiscountPercentString(listUnitPrice, normalizedUnitPrice);
+    const { lineSubtotal, lineTaxAmount, lineTotal } = calculateSalesLineAmounts({
+      quantity,
+      unitPrice,
+      taxRatePercent: selectedTaxRate?.ratePercent ?? 0,
+    });
 
     return {
       itemId: item.id,
@@ -3442,7 +3419,7 @@ async function prepareOrderPayload(
       isPriceOverridden:
         line.isPriceOverridden ??
         (suggestedUnitPrice != null && normalizedUnitPrice !== suggestedUnitPrice),
-      lineSubtotal: normalizeMoney(lineSubtotal),
+      lineSubtotal,
       lineTaxAmount,
       lineTotal,
       sortOrder: index,
@@ -9584,17 +9561,15 @@ export async function patchSalesOrderLine(
 
     await lockItemsInTx(tx, [existingLine.itemId]);
     const normalizedUnitPrice = normalizeMoney(Number(nextUnitPrice));
-    const nextLineSubtotal = nextQuantityNumber * Number(nextUnitPrice);
-    const nextLineTaxAmount = calculateTaxAmount(
-      nextLineSubtotal,
-      nextTaxRatePercent,
-      2,
-    );
-    const nextLineTotal = calculateTaxedLineTotal(
-      nextLineSubtotal,
-      nextLineTaxAmount,
-      2,
-    );
+    const {
+      lineSubtotal: nextLineSubtotal,
+      lineTaxAmount: nextLineTaxAmount,
+      lineTotal: nextLineTotal,
+    } = calculateSalesLineAmounts({
+      quantity: nextQuantityNumber,
+      unitPrice: nextUnitPrice,
+      taxRatePercent: nextTaxRatePercent,
+    });
     let listUnitPrice =
       existingLine.listUnitPrice == null
         ? null
@@ -9612,13 +9587,13 @@ export async function patchSalesOrderLine(
     }
     const nextDiscountPercent =
       patch.unitPrice != null
-        ? discountPercentFromPrices(listUnitPrice, normalizedUnitPrice)
+        ? calculateDiscountPercentString(listUnitPrice, normalizedUnitPrice)
         : existingLine.discountPercent;
 
     const updates: Record<string, unknown> = {
       taxRateId: nextTaxRateId,
       taxRatePercent: nextTaxRatePercent,
-      lineSubtotal: normalizeMoney(nextLineSubtotal),
+      lineSubtotal: nextLineSubtotal,
       lineTaxAmount: nextLineTaxAmount,
       lineTotal: nextLineTotal,
       discountPercent: nextDiscountPercent,

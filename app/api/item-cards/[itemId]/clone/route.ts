@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { jsonCreated } from "@/lib/api/responses";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { cloneItemCard, ItemCardError } from "@/lib/inventory/item-cards";
@@ -12,7 +12,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
 
   try {
     const item = await cloneItemCard(itemId, { idempotencyKey });
-    return NextResponse.json(item, { status: 201 });
+    return jsonCreated(item);
   } catch (error) {
     if (error instanceof ItemCardError) return error.toResponse();
     throw error;

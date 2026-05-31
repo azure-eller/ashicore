@@ -123,16 +123,19 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 function DialogFooter({
   className,
   showCloseButton = false,
+  justify = "end",
   children,
   ...props
 }: React.ComponentProps<"div"> & {
   showCloseButton?: boolean
+  justify?: "end" | "between"
 }) {
   return (
     <div
       data-slot="dialog-footer"
       className={cn(
         "-mx-(--space-8) -mb-(--space-8) flex flex-col-reverse gap-(--space-4) rounded-b-(--radius-none) border-t bg-muted p-(--space-8) sm:flex-row sm:justify-end",
+        justify === "between" && "items-center sm:justify-between",
         className
       )}
       {...props}

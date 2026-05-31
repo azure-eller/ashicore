@@ -1,3 +1,5 @@
+import { parseQuantity } from "@/lib/format";
+
 export const ITEM_TYPES = ["product", "material"] as const;
 export type ItemType = (typeof ITEM_TYPES)[number];
 
@@ -97,11 +99,6 @@ export const REPLENISHMENT_STATUS_VALUES = [
 ] as const;
 
 export type ReplenishmentStatus = (typeof REPLENISHMENT_STATUS_VALUES)[number];
-
-function parseQuantity(value: string | null | undefined) {
-  const parsed = parseFloat(value ?? "0");
-  return Number.isFinite(parsed) ? parsed : 0;
-}
 
 export function calcStock(
   row: Pick<ItemRow, "stock" | "demandQty" | "expectedQty" | "safetyStock">,

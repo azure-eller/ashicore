@@ -4,8 +4,12 @@ import { and, eq, sql } from "drizzle-orm";
 import { inventoryLotBalances, lots, organization, stockAllocations } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { serializeDbTimestamp } from "@/lib/db/timestamps";
-import { normalizeNumeric, roundQuantity, todayInTimeZone } from "@/lib/format";
+import { roundQuantity, todayInTimeZone } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
+import {
+  allocationQuantityString,
+  toAllocationQuantity,
+} from "@/lib/inventory/allocation/format";
 import {
   getDefaultInventoryLocationInTx,
   INTERNAL_UNTRACKED_LOT_NUMBER,
@@ -393,14 +397,8 @@ async function getOrganizationTodayInTx(tx: Tx, organizationId: string) {
   return todayInTimeZone(row?.timeZone ?? "America/Denver");
 }
 
-function toQuantity(value: string | number | null | undefined) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function quantityString(value: number) {
-  return normalizeNumeric(roundQuantity(Math.max(0, value)));
-}
+const toQuantity = toAllocationQuantity;
+const quantityString = allocationQuantityString;
 
 const DEMAND_TYPE_LABELS: Record<AllocationDemandType, string> = {
   manufacturing_order_ingredient: "Manufacturing",

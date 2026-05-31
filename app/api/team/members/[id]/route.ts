@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound } from "@/lib/api/responses";
 import { updateTeamMemberAccessSchema } from "@/lib/schemas/team";
 import {
   assertAssignableModuleAccess,
@@ -12,12 +13,11 @@ import { authApiResponseToNextResponse } from "@/app/api/_utils/auth-api-respons
 
 export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
-  const body = await request.json();
-  const data = updateTeamMemberAccessSchema.parse(body);
+  const data = await parseJsonBody(request, updateTeamMemberAccessSchema);
   const member = await getManageableMember(request.headers, id);
 
   if (!member) {
-    return NextResponse.json({ error: "Member not found" }, { status: 404 });
+    return jsonNotFound("Member not found");
   }
 
   assertAssignableModuleAccess(member.actor.assignedRoles, data.moduleAccess);
@@ -35,7 +35,7 @@ export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {
   const member = await getManageableMember(request.headers, id);
 
   if (!member) {
-    return NextResponse.json({ error: "Member not found" }, { status: 404 });
+    return jsonNotFound("Member not found");
   }
 
   const response = await callAuthApi(request.headers, "removeMember", {

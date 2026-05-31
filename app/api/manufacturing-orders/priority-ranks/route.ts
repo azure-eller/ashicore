@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { reorderManufacturingOrderPriorityRanksSchema } from "@/lib/schemas/manufacturing-orders";
 import {
@@ -9,8 +10,10 @@ import {
 
 export const PATCH = apiHandler(async (request: Request) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
-  const body = await request.json();
-  const data = reorderManufacturingOrderPriorityRanksSchema.parse(body);
+  const data = await parseJsonBody(
+    request,
+    reorderManufacturingOrderPriorityRanksSchema,
+  );
 
   try {
     const result = await reorderManufacturingOrderPriorityRanks(data);

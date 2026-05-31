@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { jsonOk } from "@/lib/api/responses";
 import { AuthorizationError } from "@/lib/authz";
 import { retryFailedXeroPushes } from "@/lib/xero/retry-failed-pushes";
 
@@ -25,5 +25,5 @@ export const GET = apiHandler(async (request: Request) => {
   assertCronAccess(request);
 
   const summary = await retryFailedXeroPushes();
-  return NextResponse.json({ ok: true, ...summary });
+  return jsonOk(summary);
 });

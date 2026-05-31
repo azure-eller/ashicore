@@ -1,28 +1,13 @@
 import { redirect } from "next/navigation";
+import { appendSearchParams, type SearchParamRecord } from "@/lib/routing/search-params";
 
 export default async function ManufacturingOrderDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
+  searchParams: Promise<SearchParamRecord>;
 }) {
   const { id } = await params;
-  redirect(withSearch(`/manufacturing/order/${id}`, await searchParams));
-}
-
-function withSearch(
-  path: string,
-  searchParams: Record<string, string | string[] | undefined>,
-) {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(searchParams)) {
-    if (Array.isArray(value)) {
-      for (const entry of value) params.append(key, entry);
-    } else if (value != null) {
-      params.set(key, value);
-    }
-  }
-  const query = params.toString();
-  return query ? `${path}?${query}` : path;
+  redirect(appendSearchParams(`/manufacturing/order/${id}`, await searchParams));
 }

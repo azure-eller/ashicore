@@ -11,19 +11,17 @@ import {
 import { trimScale } from "@/lib/db/numeric";
 import { serializeDbTimestamp } from "@/lib/db/timestamps";
 import type { Tx } from "@/lib/db/with-org-context";
-import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import { roundQuantity } from "@/lib/format";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel";
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
+import {
+  allocationQuantityString,
+  toAllocationQuantity,
+} from "./format";
 import type { AllocationDemandRef, AllocationSourceRow } from "./types";
 
-function toQuantity(value: string | number | null | undefined) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function quantityString(value: number) {
-  return normalizeNumeric(roundQuantity(Math.max(0, value)));
-}
+const toQuantity = toAllocationQuantity;
+const quantityString = allocationQuantityString;
 
 function sameDemand(
   row: { demandType: string; demandId: string },

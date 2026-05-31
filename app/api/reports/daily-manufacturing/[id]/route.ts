@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { jsonNotFound } from "@/lib/api/responses";
 import { requireReportReadAccessForRequest } from "@/lib/dal/reports";
 import { getDailyManufacturingReportRun } from "@/lib/reports/daily-manufacturing";
 
@@ -9,7 +10,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   const report = await getDailyManufacturingReportRun(id);
 
   if (!report) {
-    return NextResponse.json({ error: "Report not found." }, { status: 404 });
+    return jsonNotFound("Report not found.");
   }
 
   return NextResponse.json(report);

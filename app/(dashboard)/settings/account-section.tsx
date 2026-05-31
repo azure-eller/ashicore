@@ -5,7 +5,11 @@ import type { AccountPageData } from "./types";
 import { EditNameDialog } from "./account/edit-name-dialog";
 import { ChangeEmailDialog } from "./account/change-email-dialog";
 import { ChangePasswordDialog } from "./account/change-password-dialog";
-import { SettingsPanel, SettingsPanelHeader } from "./settings-panel";
+import {
+  SettingsPanel,
+  SettingsPanelHeader,
+  SettingsPanelSection,
+} from "./settings-panel";
 
 function Row({
   label,
@@ -17,7 +21,7 @@ function Row({
   action: React.ReactNode;
 }) {
   return (
-    <div className="border-t px-(--space-12) py-(--space-5) first:border-t-0">
+    <SettingsPanelSection className="py-(--space-5)">
       <div className="grid max-w-3xl gap-(--space-4) sm:grid-cols-[9rem_minmax(12rem,24rem)_auto] sm:items-center">
         <span className="text-[length:var(--text-sm)] text-muted-foreground">
           {label}
@@ -27,7 +31,7 @@ function Row({
         </span>
         <div className="sm:justify-self-start">{action}</div>
       </div>
-    </div>
+    </SettingsPanelSection>
   );
 }
 

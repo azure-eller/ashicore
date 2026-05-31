@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { jsonError, jsonOk } from "@/lib/api/responses";
 import { AuthorizationError } from "@/lib/authz";
+import { requestSearchParams } from "@/lib/routing/search-params";
 import {
   getSentryAutofixConfig,
   processSentryAutofix,
@@ -13,14 +14,14 @@ export const runtime = "nodejs";
 
 export const POST = apiHandler(async (request: Request) => {
   const body = await request.text();
-  const token = new URL(request.url).searchParams.get("token");
+  const token = requestSearchParams(request).get("token");
   let config: ReturnType<typeof getSentryAutofixConfig>;
 
   try {
     config = getSentryAutofixConfig();
   } catch (error) {
     if (error instanceof SentryAutofixError) {
-      return NextResponse.json({ error: error.message }, { status: 503 });
+      return jsonError(error.message, 503);
     }
     throw error;
   }
@@ -40,13 +41,12 @@ export const POST = apiHandler(async (request: Request) => {
   try {
     payload = JSON.parse(body);
   } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    return jsonError("Invalid JSON");
   }
 
   try {
     const result = await processSentryAutofix({ payload, config });
-    return NextResponse.json({
-      ok: true,
+    return jsonOk({
       action: result.action,
       pullRequest: {
         number: result.pr.number,
@@ -58,7 +58,7 @@ export const POST = apiHandler(async (request: Request) => {
     });
   } catch (error) {
     if (error instanceof SentryAutofixError && error.status < 500) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
+      return jsonError(error.message, error.status);
     }
     throw error;
   }

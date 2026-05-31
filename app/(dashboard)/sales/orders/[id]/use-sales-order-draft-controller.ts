@@ -21,6 +21,10 @@ import type {
   SalesOrderDetailLine,
 } from "@/app/(dashboard)/sales/types";
 import {
+  calculateDiscountPercentString,
+  calculateSalesLineAmounts,
+} from "@/lib/sales/order-calculations";
+import {
   draftToInsertPayload,
   orderToUpdatePayload,
 } from "./order-draft";
@@ -382,17 +386,21 @@ function patchLine(
       ? line.taxRateId
       : patch.taxRateId;
   const taxPercent = patch.taxRatePercent ?? line.taxRatePercent;
-  const lineSubtotal = (Number(quantity || 0) * Number(unitPrice || 0)).toFixed(2);
-  const lineTaxAmount = (
-    Number(lineSubtotal) *
-    (Number(taxPercent || 0) / 100)
-  ).toFixed(2);
-  const list = line.listUnitPrice == null ? NaN : Number(line.listUnitPrice);
-  const unit = Number(unitPrice);
+  const amounts = calculateSalesLineAmounts({
+    quantity,
+    unitPrice,
+    taxRatePercent: taxPercent,
+  });
+  const listUnitPrice =
+    line.listUnitPrice == null ? NaN : Number(line.listUnitPrice);
+  const nextUnitPrice = Number(unitPrice);
   const discountPercent =
-    patch.unitPrice == null || !Number.isFinite(list) || !Number.isFinite(unit) || list <= 0
+    patch.unitPrice == null ||
+    !Number.isFinite(listUnitPrice) ||
+    !Number.isFinite(nextUnitPrice) ||
+    listUnitPrice <= 0
       ? line.discountPercent
-      : Math.max(0, ((list - unit) / list) * 100).toFixed(2);
+      : calculateDiscountPercentString(listUnitPrice, nextUnitPrice);
   return {
     ...line,
     quantity,
@@ -402,9 +410,7 @@ function patchLine(
       patch.taxRateName === undefined ? line.taxRateName : patch.taxRateName,
     taxRatePercent: taxPercent,
     discountPercent,
-    lineSubtotal,
-    lineTaxAmount,
-    lineTotal: (Number(lineSubtotal) + Number(lineTaxAmount)).toFixed(2),
+    ...amounts,
   };
 }
 

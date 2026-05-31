@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { patchManufacturingOrderIngredientSchema } from "@/lib/schemas/manufacturing-orders";
 import {
@@ -14,13 +16,12 @@ type IngredientRouteContext = {
 export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
   const { id, ingredientId } = await (ctx as IngredientRouteContext).params;
-  const body = await request.json();
-  const data = patchManufacturingOrderIngredientSchema.parse(body);
+  const data = await parseJsonBody(request, patchManufacturingOrderIngredientSchema);
 
   try {
     const result = await patchManufacturingOrderIngredient(id, ingredientId, data);
     if (!result) {
-      return NextResponse.json({ error: "Ingredient not found" }, { status: 404 });
+      return jsonNotFound("Ingredient not found");
     }
     return NextResponse.json(result);
   } catch (error) {

@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { jsonNotFound } from "@/lib/api/responses";
 import {
   callAuthApi,
   getManageableInvitation,
@@ -13,7 +13,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const invite = await getManageableInvitation(request.headers, id);
 
   if (!invite) {
-    return NextResponse.json({ error: "Invitation not found" }, { status: 404 });
+    return jsonNotFound("Invitation not found");
   }
 
   const response = await callAuthApi(request.headers, "createInvitation", {

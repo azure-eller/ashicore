@@ -5,26 +5,24 @@ import {
   manufacturingOrders,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
-import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import { roundQuantity } from "@/lib/format";
 import {
   getMinimumLotAgeDays,
   type BomComponentConstraint,
 } from "@/lib/bom/constraints";
 import { getItemDisplayNamesByIdInTx } from "@/lib/inventory/item-display";
 import type { Tx } from "@/lib/db/with-org-context";
+import {
+  allocationQuantityString,
+  toAllocationQuantity,
+} from "../format";
 import type {
   AllocationDemandAdapter,
   AllocationDemandAdapterRow,
 } from "../types";
 
-function toQuantity(value: string | number | null | undefined) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function quantityString(value: number) {
-  return normalizeNumeric(roundQuantity(Math.max(0, value)));
-}
+const toQuantity = toAllocationQuantity;
+const quantityString = allocationQuantityString;
 
 function mapManufacturingIngredientDemandRow(row: {
   ingredientId: string;

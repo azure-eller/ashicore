@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { isAccountingProvider } from "@/lib/accounting/providers";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updateAccountingConnectionSettings } from "@/lib/dal/accounting";
@@ -23,8 +24,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
     );
   }
 
-  const body = await request.json();
-  const data = updateSchema.parse(body);
+  const data = await parseJsonBody(request, updateSchema);
   const summary = await updateAccountingConnectionSettings({
     provider,
     autoSyncPurchaseOrdersFromAccounting:

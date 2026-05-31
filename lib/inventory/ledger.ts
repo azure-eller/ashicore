@@ -1,5 +1,6 @@
 import type { InventoryEventType } from "@/lib/db/schema";
 import { normalizeNumeric } from "@/lib/format";
+import { appendSearchParams } from "@/lib/routing/search-params";
 
 export const INVENTORY_LEDGER_SCOPE_VALUES = ["stock", "all"] as const;
 export type InventoryLedgerScope = (typeof INVENTORY_LEDGER_SCOPE_VALUES)[number];
@@ -289,23 +290,12 @@ export function buildInventoryLedgerHref(filters: {
   documentType?: InventoryLedgerSourceType | null;
   documentId?: string | null;
 }) {
-  const searchParams = new URLSearchParams();
-
-  if (filters.itemId) {
-    searchParams.set("itemId", filters.itemId);
-  }
-
-  if (filters.documentType) {
-    searchParams.set("documentType", filters.documentType);
-    searchParams.set("scope", "all");
-  }
-
-  if (filters.documentId) {
-    searchParams.set("documentId", filters.documentId);
-  }
-
-  const query = searchParams.toString();
-  return query ? `/inventory/ledger?${query}` : "/inventory/ledger";
+  return appendSearchParams("/inventory/ledger", {
+    itemId: filters.itemId,
+    documentType: filters.documentType,
+    scope: filters.documentType ? "all" : null,
+    documentId: filters.documentId,
+  });
 }
 
 export function summarizeInventoryLedgerMetadata(

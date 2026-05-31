@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import {
   assertModuleAccess,
   assertModuleReadAccess,
@@ -28,7 +29,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
 export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   const idempotencyKey = requireIdempotencyKey(request, "updateItemCard");
   const { itemId } = await ((ctx as RouteContext).params as unknown as Promise<{ itemId: string }>);
-  const data = itemCardUpdateSchema.parse(await request.json());
+  const data = await parseJsonBody(request, itemCardUpdateSchema);
   if (data.lotTrackingMode !== undefined) {
     await assertModuleAccess("inventory", "admin", request.headers);
   } else {

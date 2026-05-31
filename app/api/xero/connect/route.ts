@@ -4,24 +4,7 @@ import { apiHandler } from "@/lib/api/handler";
 import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { createXeroClient } from "@/lib/xero/client";
 import { tryRecordAccountingAuditEvent } from "@/lib/accounting/audit-events";
-
-function getCookieDomain() {
-  if (process.env.VERCEL_ENV !== "production") {
-    return undefined;
-  }
-
-  const appUrl = process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL;
-  if (!appUrl) return undefined;
-
-  try {
-    const hostname = new URL(appUrl).hostname;
-    return hostname === "ashicore.app" || hostname === "www.ashicore.app"
-      ? ".ashicore.app"
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
+import { getAccountingOAuthStateCookieOptions } from "@/lib/accounting/oauth-cookies";
 
 export const GET = apiHandler(async () => {
   const context = await requireModuleWriteAccess("sales");
@@ -42,13 +25,6 @@ export const GET = apiHandler(async () => {
   });
 
   const response = NextResponse.redirect(consentUrl);
-  response.cookies.set("xero_oauth_state", state, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 600,
-    domain: getCookieDomain(),
-  });
+  response.cookies.set("xero_oauth_state", state, getAccountingOAuthStateCookieOptions());
   return response;
 });

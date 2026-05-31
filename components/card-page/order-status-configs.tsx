@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ManufacturingCompletionDialog } from "@/components/manufacturing/manufacturing-completion-dialog";
+import { NoticePanel } from "@/components/notice-panel";
 import {
   shipSalesOrder,
   SalesOrderApiError,
@@ -94,7 +95,7 @@ export function isSalesOrderStatusDisabled(order: SalesOrderStatusFields) {
 
 function NegativeStockNotice({ items }: { items: NegativeStockWarningPayload[] }) {
   return (
-    <div className="space-y-2 border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-3">
+    <NoticePanel className="space-y-2">
       <p className="text-sm font-medium text-[var(--color-warning)]">
         {stockWarningTitle(items[0])}
       </p>
@@ -114,7 +115,7 @@ function NegativeStockNotice({ items }: { items: NegativeStockWarningPayload[] }
           </li>
         ))}
       </ul>
-    </div>
+    </NoticePanel>
   );
 }
 

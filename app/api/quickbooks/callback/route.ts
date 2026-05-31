@@ -6,6 +6,7 @@ import {
   upsertQuickBooksConnection,
 } from "@/lib/accounting/providers/quickbooks/client";
 import { captureAppError } from "@/lib/observability/sentry";
+import { requestUrl } from "@/lib/routing/search-params";
 
 function settingsRedirect(baseUrl: string, error?: string) {
   const url = new URL("/settings/integrations", baseUrl);
@@ -15,7 +16,7 @@ function settingsRedirect(baseUrl: string, error?: string) {
 
 export const GET = apiHandler(async (request: Request) => {
   const context = await getAuthedMemberContext();
-  const url = new URL(request.url);
+  const url = requestUrl(request);
   const state = url.searchParams.get("state");
   const code = url.searchParams.get("code");
   const realmId = url.searchParams.get("realmId");

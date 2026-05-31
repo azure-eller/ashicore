@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
+import { jsonNotFound } from "@/lib/api/responses";
 
 function notFound() {
-  return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return jsonNotFound();
 }
 
 export function GET() {

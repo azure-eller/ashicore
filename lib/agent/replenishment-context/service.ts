@@ -28,7 +28,12 @@ import {
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { type Tx, withOrgContext } from "@/lib/db/with-org-context";
-import { normalizeNumeric, roundQuantity, todayInTimeZone } from "@/lib/format";
+import {
+  normalizeNumeric,
+  parseNumberOrZero,
+  roundQuantity,
+  todayInTimeZone,
+} from "@/lib/format";
 import { projectedAvailableQty } from "@/lib/inventory/kernel/read";
 import type {
   ReplenishmentContext,
@@ -100,10 +105,7 @@ type LeadTimeStats = {
   recentSamples: number[];
 };
 
-function toNumber(value: string | number | null | undefined) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
+const toNumber = parseNumberOrZero;
 
 function quantity(value: number) {
   return roundQuantity(Math.max(0, value));

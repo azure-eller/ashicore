@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { jsonError } from "@/lib/api/responses";
+import { requestSearchParams } from "@/lib/routing/search-params";
 import { assertModuleWriteAccess, withAuthedOrgContext } from "@/lib/dal/auth";
 import { findXeroInvoiceForSalesOrder } from "@/lib/xero/push-invoice";
 import { findXeroPurchaseOrderForPurchaseOrder } from "@/lib/xero/push-purchase-order";
@@ -18,12 +20,12 @@ export const GET = apiHandler(async (request: Request) => {
   if (blocked) return blocked;
 
   await assertModuleWriteAccess("sales", request.headers);
-  const url = new URL(request.url);
-  const entity = url.searchParams.get("entity");
-  const reference = url.searchParams.get("reference");
+  const searchParams = requestSearchParams(request);
+  const entity = searchParams.get("entity");
+  const reference = searchParams.get("reference");
 
   if (!reference) {
-    return NextResponse.json({ error: "reference is required" }, { status: 400 });
+    return jsonError("reference is required");
   }
 
   return withAuthedOrgContext(async (_tx, orgId) => {
@@ -39,10 +41,7 @@ export const GET = apiHandler(async (request: Request) => {
         );
         return NextResponse.json({ found: !!found, match: found });
       }
-      return NextResponse.json(
-        { error: "entity must be 'invoice' or 'purchase_order'" },
-        { status: 400 }
-      );
+      return jsonError("entity must be 'invoice' or 'purchase_order'");
     } catch (error) {
       if (error instanceof XeroError) return error.toResponse();
       throw error;

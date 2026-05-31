@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleAccess } from "@/lib/dal/auth";
 import {
   deleteManufacturingResource,
@@ -10,11 +12,11 @@ import { updateManufacturingResourceSchema } from "@/lib/schemas/manufacturing-r
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleAccess("manufacturing", "admin", request.headers);
   const { id } = await (ctx as RouteContext).params;
-  const data = updateManufacturingResourceSchema.parse(await request.json());
+  const data = await parseJsonBody(request, updateManufacturingResourceSchema);
   const resource = await updateManufacturingResource(id, data);
 
   if (!resource) {
-    return NextResponse.json({ error: "Resource not found" }, { status: 404 });
+    return jsonNotFound("Resource not found");
   }
 
   return NextResponse.json(resource);
@@ -26,7 +28,7 @@ export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {
   const resource = await deleteManufacturingResource(id);
 
   if (!resource) {
-    return NextResponse.json({ error: "Resource not found" }, { status: 404 });
+    return jsonNotFound("Resource not found");
   }
 
   return NextResponse.json(resource);

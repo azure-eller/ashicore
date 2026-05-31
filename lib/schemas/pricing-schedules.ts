@@ -1,7 +1,12 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { pricingSchedules } from "@/lib/db/schema";
-import { nullableString, positiveDecimalString } from "./shared";
+import {
+  isNonNegativeNumberString,
+  isPositiveNumberString,
+  nullableString,
+  positiveDecimalString,
+} from "./shared";
 
 export const PRICING_SOURCE_TYPES = ["base_price", "schedule_break"] as const;
 
@@ -26,18 +31,14 @@ const quantitySchema = positiveDecimalString("Quantity");
 
 const maxQuantitySchema = nullableString.refine((value) => {
   if (value == null) return true;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0;
+  return isPositiveNumberString(value);
 }, "Maximum quantity must be greater than 0");
 
 const discountPercentSchema = z
   .string()
   .trim()
   .min(1, "Discount percent is required")
-  .refine((value) => {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) && parsed >= 0;
-  }, "Discount percent must be 0 or greater")
+  .refine(isNonNegativeNumberString, "Discount percent must be 0 or greater")
   .refine((value) => Number(value) <= 100, "Discount percent cannot exceed 100");
 
 const pricingScheduleBreakSchema = z

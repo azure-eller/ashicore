@@ -10,6 +10,10 @@ import {
   getManufacturingAllocationDemandRowsInTx,
   type ManufacturingAllocationDemandRow,
 } from "@/lib/inventory/allocation/manufacturing-demands";
+import {
+  allocationQuantityString,
+  toAllocationQuantity,
+} from "@/lib/inventory/allocation/format";
 import { getAllocationWorkspaceInTx } from "@/lib/inventory/allocation/read-model";
 import OrdersTableLoading from "../orders-table-loading";
 
@@ -63,14 +67,8 @@ async function SalesAllocationData() {
   );
 }
 
-function toQuantity(value: string | number | null | undefined) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function quantityString(value: number) {
-  return value.toFixed(4).replace(/\.?0+$/, "");
-}
+const toQuantity = toAllocationQuantity;
+const quantityString = allocationQuantityString;
 
 async function getInitialAllocationPools(
   itemIds: string[],

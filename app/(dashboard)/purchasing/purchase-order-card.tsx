@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
-import { Controller, useForm } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import type {
@@ -17,8 +17,11 @@ import {
   Attachment01Icon,
   Delete02Icon,
   Download01Icon,
-  Upload01Icon,
 } from "@hugeicons/core-free-icons";
+import { AddressBookFields } from "@/components/address-book-fields";
+import { AttachmentListItem } from "@/components/attachment-list";
+import { FileDropzone } from "@/components/file-dropzone";
+import { makeUniqueAddressLabel } from "@/lib/address-label";
 import {
   type InsertPurchaseOrder,
   type PurchaseOrderStatus,
@@ -27,16 +30,34 @@ import {
   insertPurchaseOrderSchema,
   purchaseOrderDefaultValues,
 } from "@/lib/schemas/purchase-orders";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { ApiJsonError, apiJson } from "@/lib/client/api";
+import {
+  ConfiguredBadge,
+  type ConfiguredBadgeConfig,
+} from "@/components/configured-badge";
+import { InsetPanel } from "@/components/inset-panel";
+import { ListFrame, ListFrameItem } from "@/components/list-frame";
+import { createClientId } from "@/lib/client-id";
 import {
   formatPrice,
   formatDate,
-  formatAddressLines,
+  buildFormErrorStateFromFieldErrors,
+  buildFormErrorStateFromIssues,
+  type FormErrorState,
   getFieldArrayError,
-  normalizeAddressFields,
+  getFirstFormErrorMessage,
+  getIndexedFormErrorMessage,
+  getNestedFormErrorMessage,
+  normalizeNullableTextValue,
   normalizeMoney,
+  normalizeTextValue,
+  parseNonNegativeNumber,
   parsePositive,
 } from "@/lib/format";
+import {
+  isNonNegativeNumberString,
+  isPositiveNumberString,
+} from "@/lib/schemas/shared";
 import {
   calculatePurchaseOrderLandedCosts,
   normalizeLandedDisplayNumber,
@@ -46,7 +67,6 @@ import { Button } from "@/components/ui/button";
 import {
   Field,
   FieldError,
-  FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
 import {
@@ -62,7 +82,6 @@ import {
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
-  ComboboxSeparator,
 } from "@/components/ui/combobox";
 import {
   Dialog,
@@ -74,8 +93,13 @@ import {
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
-import { AddressFields } from "@/components/address-fields";
+import {
+  DeliveryAddressInput,
+  makeDeliveryAddressOption,
+  normalizeDeliveryAddress,
+  type DeliveryAddressFields,
+  type DeliveryAddressOption,
+} from "@/components/delivery-address-input";
 import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
@@ -85,7 +109,11 @@ import { DetailHeaderTitle } from "@/components/card-page/detail-header-title";
 import { NotesField } from "@/components/card-page/notes-field";
 import { TotalsSummary } from "@/components/card-page/totals-summary";
 import { type CardSaveState } from "@/components/card-page/card-save-status";
-import { underlineControlClass } from "@/components/card-page/form-cell";
+import {
+  CardFormRow,
+  ReadOnlyFieldValue,
+  underlineControlClass,
+} from "@/components/card-page/form-cell";
 import {
   PO_LINE_TOTAL_TOOLTIP,
   PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP,
@@ -120,8 +148,7 @@ type ApiError = {
   errors?: Record<string, string[]>;
 };
 
-type FieldErrorState = Record<string, unknown>;
-type FieldErrorShape = { message: string };
+type FieldErrorState = FormErrorState;
 
 type XeroAccountOption = {
   code: string;
@@ -146,8 +173,6 @@ export type XeroBillSetupStatus =
   | "not_connected"
   | "ready";
 
-const ADD_DELIVERY_ADDRESS_VALUE = "__add_delivery_address__";
-const EDIT_DELIVERY_ADDRESS_VALUE = "__edit_delivery_address__";
 const EMPTY_DELIVERY_ADDRESS = {
   shipAddressEntryId: null,
   shipContactName: null,
@@ -237,7 +262,7 @@ function createPurchaseOrderLineRow(
     ...blankPurchaseOrderLine,
     ...values,
     itemId: values?.itemId ?? "",
-    clientRowId: crypto.randomUUID(),
+    clientRowId: createClientId(),
   };
 }
 
@@ -293,7 +318,7 @@ function createPurchaseOrderAdditionalCostRow(
   values?: Partial<PurchaseOrderAdditionalCostPayloadRow>,
 ): PurchaseOrderAdditionalCostGridRow {
   return {
-    clientRowId: crypto.randomUUID(),
+    clientRowId: createClientId(),
     costType: values?.costType ?? blankPurchaseOrderAdditionalCost.costType,
     reference: values?.reference ?? blankPurchaseOrderAdditionalCost.reference,
     distributionMethod:
@@ -328,21 +353,13 @@ function toPurchaseOrderAdditionalCostPayloadRows(
     );
 }
 
-function normalizeGridText(value: unknown) {
-  if (value == null) return "";
-  return String(value).trim();
-}
-
-function normalizeNullableGridText(value: unknown) {
-  const text = normalizeGridText(value);
-  return text === "" ? null : text;
-}
+const normalizeGridText = normalizeTextValue;
+const normalizeNullableGridText = normalizeNullableTextValue;
 
 function validateNonNegativeMoneyCell(value: unknown, message: string) {
   const text = normalizeGridText(value);
   if (text === "") return [message];
-  const parsed = Number(text);
-  return Number.isFinite(parsed) && parsed >= 0 ? null : [message];
+  return isNonNegativeNumberString(text) ? null : [message];
 }
 
 function getPurchaseOrderAdditionalCostCellError(
@@ -350,14 +367,7 @@ function getPurchaseOrderAdditionalCostCellError(
   rowIndex: number,
   key: PurchaseOrderAdditionalCostColumnKey,
 ) {
-  if (!error || typeof error !== "object") return null;
-  const rowError = (error as Record<string, unknown>)[rowIndex];
-  if (!rowError || typeof rowError !== "object") return null;
-  const cellError = (rowError as Record<string, unknown>)[key];
-  if (!cellError || typeof cellError !== "object") return null;
-  return "message" in cellError && typeof cellError.message === "string"
-    ? cellError.message
-    : null;
+  return getIndexedFormErrorMessage(error, rowIndex, key);
 }
 
 function getPurchaseOrderLineCellError(
@@ -365,21 +375,10 @@ function getPurchaseOrderLineCellError(
   rowIndex: number,
   key: PurchaseOrderLineColumnKey,
 ) {
-  if (!error || typeof error !== "object") return null;
-  const rowError = (error as Record<string, unknown>)[rowIndex];
-  if (!rowError || typeof rowError !== "object") return null;
-  const cellError = (rowError as Record<string, unknown>)[key];
-  if (!cellError || typeof cellError !== "object") return null;
-  return "message" in cellError && typeof cellError.message === "string"
-    ? cellError.message
-    : null;
+  return getIndexedFormErrorMessage(error, rowIndex, key);
 }
 
-function parseNonNegative(value: string | null | undefined) {
-  if (value == null || value.trim() === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
+const parseNonNegative = parseNonNegativeNumber;
 
 function lineTotalLabel(
   quantityOrdered: string | null | undefined,
@@ -448,17 +447,17 @@ function purchaseBillStatusLabel(status: string | null | undefined) {
   return "Not billed";
 }
 
+const purchaseBillStatusBadgeConfig = {
+  pending: { label: purchaseBillStatusLabel("pending"), variant: "secondary" },
+  pushed: { label: purchaseBillStatusLabel("pushed"), variant: "outline" },
+  failed: { label: purchaseBillStatusLabel("failed"), variant: "destructive" },
+} satisfies ConfiguredBadgeConfig<"pending" | "pushed" | "failed">;
+
 function todayIsoDate() {
   const today = new Date();
   const month = String(today.getMonth() + 1).padStart(2, "0");
   const day = String(today.getDate()).padStart(2, "0");
   return `${today.getFullYear()}-${month}-${day}`;
-}
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function FileTypeBadge({ file }: { file: PurchaseOrderFormAttachment }) {
@@ -470,26 +469,6 @@ function FileTypeBadge({ file }: { file: PurchaseOrderFormAttachment }) {
 
   return <Badge variant="outline">{type}</Badge>;
 }
-
-type DeliveryAddressFields = {
-  shipAddressEntryId?: string | null;
-  shipContactName?: string | null;
-  shipContactPhone?: string | null;
-  shipLine1?: string | null;
-  shipLine2?: string | null;
-  shipCity?: string | null;
-  shipRegion?: string | null;
-  shipPostcode?: string | null;
-  shipCountry?: string | null;
-  shipDeliveryInstructions?: string | null;
-};
-
-type DeliveryAddressOption = Required<DeliveryAddressFields> & {
-  id: string;
-  label: string;
-  addressEntryId: string | null;
-  notes: string | null;
-};
 
 type AddressEntry = {
   id: string;
@@ -542,79 +521,6 @@ const EMPTY_ADDRESS_DIALOG_VALUES: AddressDialogValues = {
   deliveryInstructions: null,
   notes: null,
 };
-
-function normalizeDeliveryAddress(
-  address: DeliveryAddressFields | undefined,
-): Required<DeliveryAddressFields> {
-  const normalized = normalizeAddressFields({
-    line1: address?.shipLine1,
-    line2: address?.shipLine2,
-    city: address?.shipCity,
-    region: address?.shipRegion,
-    postcode: address?.shipPostcode,
-    country: address?.shipCountry,
-  });
-
-  return {
-    shipAddressEntryId: address?.shipAddressEntryId ?? null,
-    shipContactName: address?.shipContactName?.trim() || null,
-    shipContactPhone: address?.shipContactPhone?.trim() || null,
-    shipLine1: normalized.line1,
-    shipLine2: normalized.line2,
-    shipCity: normalized.city,
-    shipRegion: normalized.region,
-    shipPostcode: normalized.postcode,
-    shipCountry: normalized.country,
-    shipDeliveryInstructions: address?.shipDeliveryInstructions?.trim() || null,
-  };
-}
-
-function deliveryAddressKey(address: DeliveryAddressFields | undefined) {
-  const normalized = normalizeDeliveryAddress(address);
-  if (normalized.shipAddressEntryId)
-    return `address:${normalized.shipAddressEntryId}`;
-  return [
-    normalized.shipLine1,
-    normalized.shipLine2,
-    normalized.shipCity,
-    normalized.shipRegion,
-    normalized.shipPostcode,
-    normalized.shipCountry,
-  ]
-    .map((part) => part ?? "")
-    .join("\u001f")
-    .replace(/^\u001f+|\u001f+$/g, "");
-}
-
-function deliveryAddressLabel(address: DeliveryAddressFields) {
-  const lines = formatAddressLines({
-    line1: address.shipLine1,
-    line2: address.shipLine2,
-    city: address.shipCity,
-    region: address.shipRegion,
-    postcode: address.shipPostcode,
-    country: address.shipCountry,
-  });
-  return lines.join(", ");
-}
-
-function makeDeliveryAddressOption(
-  address: DeliveryAddressFields | undefined,
-  label?: string | null,
-  notes?: string | null,
-): DeliveryAddressOption | null {
-  const normalized = normalizeDeliveryAddress(address);
-  const id = deliveryAddressKey(normalized);
-  if (id === "") return null;
-
-  return {
-    ...normalized,
-    id,
-    addressEntryId: normalized.shipAddressEntryId,
-    label: label?.trim() || deliveryAddressLabel(normalized),
-    notes: notes ?? null,
-  };
-}
 
 function addressEntryToOption(
   entry: AddressEntry,
@@ -784,69 +690,30 @@ function hasAutosaveMinimum(values: PurchaseOrderFormValues) {
   return Boolean(values.supplierId?.trim());
 }
 
-function setFieldErrorPath(
-  target: FieldErrorState,
-  path: Array<string | number>,
-  message: string,
-) {
-  let current: Record<string, unknown> = target;
-  path.forEach((part, index) => {
-    const key = String(part);
-    if (index === path.length - 1) {
-      current[key] = { message } satisfies FieldErrorShape;
-      return;
-    }
-    const next = current[key];
-    if (!next || typeof next !== "object") {
-      current[key] = {};
-    }
-    current = current[key] as Record<string, unknown>;
-  });
-}
-
 function purchaseOrderValidationErrors(values: PurchaseOrderFormValues) {
   const parsed = insertPurchaseOrderSchema.safeParse(values);
   if (parsed.success) return null;
 
-  const errors: FieldErrorState = {};
-  parsed.error.issues.forEach((issue) => {
-    setFieldErrorPath(
-      errors,
-      issue.path.filter((part): part is string | number => typeof part !== "symbol"),
-      issue.message,
-    );
-  });
-  return errors;
+  return buildFormErrorStateFromIssues(parsed.error.issues);
 }
 
 function purchaseOrderApiFieldErrors(error: ApiError) {
-  if (!error.errors) return {};
-  const errors: FieldErrorState = {};
-  Object.entries(error.errors).forEach(([field, messages]) => {
-    setFieldErrorPath(errors, field.split("."), messages[0] ?? "Invalid value");
-  });
-  return errors;
+  return buildFormErrorStateFromFieldErrors(error.errors);
 }
 
-function fieldErrorMessage(error: unknown) {
-  return error &&
-    typeof error === "object" &&
-    "message" in error &&
-    typeof error.message === "string"
-    ? error.message
-    : null;
-}
-
-function firstFieldErrorMessage(errors: FieldErrorState): string | null {
-  for (const value of Object.values(errors)) {
-    const message = fieldErrorMessage(value);
-    if (message) return message;
-    if (value && typeof value === "object") {
-      const nested = firstFieldErrorMessage(value as FieldErrorState);
-      if (nested) return nested;
-    }
+function toApiError(error: unknown, fallback: string): ApiError {
+  if (error instanceof ApiJsonError) {
+    return {
+      error: error.message,
+      errors: error.errors,
+    };
   }
-  return null;
+
+  if (error instanceof Error) {
+    return { error: error.message };
+  }
+
+  return { error: fallback };
 }
 
 export function PurchaseOrderCard({
@@ -926,17 +793,13 @@ export function PurchaseOrderCard({
           "",
         confirmAdditionalCostsOmitted: false,
       };
-    });
+  });
   const xeroAccountsQuery = useQuery({
     queryKey: ["xero-accounts"],
-    queryFn: async () => {
-      const response = await fetch("/api/xero/accounts");
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.error ?? "Failed to load Xero accounts.");
-      }
-      return response.json() as Promise<{ accounts: XeroAccountOption[] }>;
-    },
+    queryFn: () =>
+      apiJson<{ accounts: XeroAccountOption[] }>("/api/xero/accounts", {
+        fallbackError: "Failed to load Xero accounts.",
+      }),
   });
   const xeroAccounts = useMemo(
     () => xeroAccountsQuery.data?.accounts ?? [],
@@ -1029,34 +892,27 @@ export function PurchaseOrderCard({
       if (validationErrors) {
         setFieldErrors(validationErrors);
         throw {
-          error: firstFieldErrorMessage(validationErrors) ?? "Fix highlighted fields.",
+          error: getFirstFormErrorMessage(validationErrors) ?? "Fix highlighted fields.",
         } satisfies ApiError;
       }
 
       setFormError(null);
       setFieldErrors({});
-      const response = await fetch(
-        orderId ? `/api/purchase-orders/${orderId}` : "/api/purchase-orders",
-        {
-          method: orderId ? "PUT" : "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(values),
-        },
-      );
-
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        const error = {
-          error: body?.error ?? "Failed to save purchase order.",
-          errors: body?.errors,
-        } satisfies ApiError;
+      try {
+        return await apiJson<{ id: string; orderNumber: string }>(
+          orderId ? `/api/purchase-orders/${orderId}` : "/api/purchase-orders",
+          {
+            method: orderId ? "PUT" : "POST",
+            body: values,
+            fallbackError: "Failed to save purchase order.",
+          },
+        );
+      } catch (caught) {
+        const error = toApiError(caught, "Failed to save purchase order.");
         setFieldErrors(purchaseOrderApiFieldErrors(error));
-        setFormError(error.error);
+        setFormError(error.error ?? "Failed to save purchase order.");
         throw error;
       }
-
-      return body as { id: string; orderNumber: string };
     },
     [],
   );
@@ -1311,8 +1167,7 @@ export function PurchaseOrderCard({
             quantityOrdered: normalizeNullableGridText(value),
           };
           if (isBlankPurchaseOrderLine(nextRow)) return null;
-          const parsed = Number(nextRow.quantityOrdered);
-          return Number.isFinite(parsed) && parsed > 0
+          return isPositiveNumberString(nextRow.quantityOrdered ?? "")
             ? null
             : ["Quantity must be greater than 0"];
         },
@@ -1372,8 +1227,7 @@ export function PurchaseOrderCard({
           if (isBlankPurchaseOrderLine(nextRow)) return null;
           const text = nextRow.unitCost?.trim() ?? "";
           if (!text) return ["Unit cost is required"];
-          const parsed = Number(text);
-          return Number.isFinite(parsed) && parsed >= 0
+          return isNonNegativeNumberString(text)
             ? null
             : ["Unit cost must be 0 or greater"];
         },
@@ -1640,17 +1494,11 @@ export function PurchaseOrderCard({
     mutationFn: async ({ orderId, file }: { orderId: string; file: File }) => {
       const formData = new FormData();
       formData.set("file", file);
-      const response = await fetch(`/api/purchase-orders/${orderId}/files`, {
+      return apiJson<PurchaseOrderFormAttachment>(`/api/purchase-orders/${orderId}/files`, {
         method: "POST",
         body: formData,
+        fallbackError: "Failed to upload file.",
       });
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to upload file.");
-      }
-
-      return body as PurchaseOrderFormAttachment;
     },
     onMutate: () => setFileActionError(null),
     onSuccess: (file) => {
@@ -1664,15 +1512,10 @@ export function PurchaseOrderCard({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "file-delete"],
     mutationFn: async (fileId: string) => {
       if (!savedOrderId) throw new Error("Save the purchase order first.");
-      const response = await fetch(
-        `/api/purchase-orders/${savedOrderId}/files/${fileId}`,
-        { method: "DELETE" },
-      );
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to delete file.");
-      }
+      await apiJson<void>(`/api/purchase-orders/${savedOrderId}/files/${fileId}`, {
+        method: "DELETE",
+        fallbackError: "Failed to delete file.",
+      });
 
       return fileId;
     },
@@ -1687,19 +1530,10 @@ export function PurchaseOrderCard({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "duplicate"],
     mutationFn: async () => {
       if (!savedOrderId) throw new Error("Save the purchase order first.");
-      const response = await fetch(
-        `/api/purchase-orders/${savedOrderId}/duplicate`,
-        {
-          method: "POST",
-        },
-      );
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to duplicate purchase order.");
-      }
-
-      return body as { id: string };
+      return apiJson<{ id: string }>(`/api/purchase-orders/${savedOrderId}/duplicate`, {
+        method: "POST",
+        fallbackError: "Failed to duplicate purchase order.",
+      });
     },
     onSuccess: async (order) => {
       await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
@@ -1711,25 +1545,12 @@ export function PurchaseOrderCard({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "status"],
     mutationFn: async (status: PurchaseOrderStatus) => {
       if (!savedOrderId) throw new Error("Save the purchase order first.");
-      const response = await fetch(
-        `/api/purchase-orders/${savedOrderId}/status`,
-        {
-          method: "PATCH",
-          headers: createIdempotencyHeaders("purchase-order-status", {
-            "Content-Type": "application/json",
-          }),
-          body: JSON.stringify({ status }),
-        },
-      );
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(
-          body?.error ?? "Failed to update purchase order status.",
-        );
-      }
-
-      return body as { id: string };
+      return apiJson<{ id: string }>(`/api/purchase-orders/${savedOrderId}/status`, {
+        method: "PATCH",
+        body: { status },
+        idempotencyKey: "purchase-order-status",
+        fallbackError: "Failed to update purchase order status.",
+      });
     },
     onSuccess: async (_result, status) => {
       setDisplayStatus(status);
@@ -1741,29 +1562,21 @@ export function PurchaseOrderCard({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "purchase-bill"],
     mutationFn: async (values: PurchaseBillDialogValues) => {
       if (!savedOrderId) throw new Error("Save the purchase order first.");
-      const response = await fetch(
-        `/api/purchase-orders/${savedOrderId}/accounting-bill`,
-        {
-          method: "POST",
-          headers: createIdempotencyHeaders("purchase-order-bill", {
-            "Content-Type": "application/json",
-          }),
-          body: JSON.stringify(values),
-        },
-      );
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to create Xero bill.");
-      }
-
-      return body as {
+      return apiJson<{
         xeroBillId: string;
         xeroBillNumber: string;
         status: "pushed";
         created: boolean;
         adopted: boolean;
-      };
+      }>(
+        `/api/purchase-orders/${savedOrderId}/accounting-bill`,
+        {
+          method: "POST",
+          body: values,
+          idempotencyKey: "purchase-order-bill",
+          fallbackError: "Failed to create Xero bill.",
+        },
+      );
     },
     onMutate: () => {
       setFormError(null);
@@ -1790,7 +1603,7 @@ export function PurchaseOrderCard({
     if (!orderId) {
       const message =
         purchaseOrderEngine.error ??
-        firstFieldErrorMessage(fieldErrors) ??
+        getFirstFormErrorMessage(fieldErrors) ??
         "Choose a supplier before uploading files.";
       setFormError(message);
       throw new Error(message);
@@ -1824,24 +1637,18 @@ export function PurchaseOrderCard({
       id: string | null;
       values: AddressDialogValues;
     }) => {
-      const response = await fetch(
-        id ? `/api/addresses/${id}` : "/api/addresses",
-        {
-          method: id ? "PUT" : "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(values),
-        },
-      );
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw {
-          error: body?.error ?? "Failed to save address.",
-          errors: body?.errors,
-        } satisfies ApiError;
+      try {
+        return await apiJson<AddressEntry>(
+          id ? `/api/addresses/${id}` : "/api/addresses",
+          {
+            method: id ? "PUT" : "POST",
+            body: values,
+            fallbackError: "Failed to save address.",
+          },
+        );
+      } catch (error) {
+        throw toApiError(error, "Failed to save address.");
       }
-
-      return body as AddressEntry;
     },
     onSuccess: (entry) => {
       const option = addressEntryToOption(entry);
@@ -1902,28 +1709,10 @@ export function PurchaseOrderCard({
 
   const handleAddressDialogSubmit = (values: AddressDialogValues) => {
     if (addressDialogState == null) return;
-    const baseLabel =
-      values.label.trim() ||
-      formatAddressLines({
-        line1: values.line1,
-        line2: values.line2,
-        city: values.city,
-        region: values.region,
-        postcode: values.postcode,
-        country: values.country,
-      }).join(", ") ||
-      "Address";
-    let label = baseLabel;
-    if (!values.label.trim()) {
-      const labels = new Set(
-        deliveryAddressOptions.map((option) => option.label),
-      );
-      let suffix = 2;
-      while (labels.has(label)) {
-        label = `${baseLabel} (${suffix})`;
-        suffix += 1;
-      }
-    }
+    const label = makeUniqueAddressLabel(
+      values,
+      deliveryAddressOptions.map((option) => option.label),
+    );
     addressMutation.mutate({
       id: addressDialogState.option?.addressEntryId ?? null,
       values: { ...values, label },
@@ -2094,7 +1883,7 @@ export function PurchaseOrderCard({
 
           <>
             <CardSection title="Order details">
-              <div className={`${styles.formRow} ${styles.formRowPo}`}>
+              <CardFormRow columns="purchase-order">
                 <div className={styles.formField}>
                   <SupplierSelect
                     suppliers={supplierOptionsSorted}
@@ -2102,7 +1891,7 @@ export function PurchaseOrderCard({
                     onValueChange={(nextValue) =>
                       commitPurchaseOrderDraft({ supplierId: nextValue ?? "" })
                     }
-                    errorMessage={fieldErrorMessage(fieldErrors.supplierId) ?? undefined}
+                    errorMessage={getNestedFormErrorMessage(fieldErrors.supplierId) ?? undefined}
                     inputClassName={underlineControlClass(
                       !savedOrderId && !draftValues.supplierId,
                     )}
@@ -2117,9 +1906,9 @@ export function PurchaseOrderCard({
                       Expected arrival <span className={styles.requiredMark}>*</span>
                     </FieldLabel>
                     {readOnly ? (
-                      <div className={`${styles.readOnlyFieldValue} ${styles.mono}`}>
+                      <ReadOnlyFieldValue mono>
                         {draftValues.expectedDate ? formatDate(draftValues.expectedDate) : "—"}
-                      </div>
+                      </ReadOnlyFieldValue>
                     ) : (
                       <DatePicker
                         id="expectedDate"
@@ -2130,7 +1919,7 @@ export function PurchaseOrderCard({
                       />
                     )}
                     {fieldErrors.expectedDate ? (
-                      <FieldError>{fieldErrorMessage(fieldErrors.expectedDate)}</FieldError>
+                      <FieldError>{getNestedFormErrorMessage(fieldErrors.expectedDate)}</FieldError>
                     ) : null}
                   </Field>
                 </div>
@@ -2146,9 +1935,10 @@ export function PurchaseOrderCard({
                     inputClassName={styles.underlineControl}
                     labelClassName={styles.formLabel}
                     readOnly={billAffectingReadOnly}
+                    readOnlyClassName={styles.readOnlyAddress}
                   />
                 </div>
-              </div>
+              </CardFormRow>
             </CardSection>
 
             <CardSection title="Materials" count={`· ${lineCount}`}>
@@ -2190,17 +1980,14 @@ export function PurchaseOrderCard({
                 <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge
-                        variant={
-                          purchaseBillStatus === "failed"
-                            ? "destructive"
-                            : purchaseBillStatus === "pushed"
-                              ? "outline"
-                              : "secondary"
-                        }
-                      >
-                        {purchaseBillStatusLabel(purchaseBillStatus)}
-                      </Badge>
+                      <ConfiguredBadge
+                        value={purchaseBillStatus ?? "not_billed"}
+                        config={purchaseBillStatusBadgeConfig}
+                        fallback={{
+                          label: purchaseBillStatusLabel(purchaseBillStatus),
+                          variant: "secondary",
+                        }}
+                      />
                       {purchaseBillExternalNumber ? (
                         <span className="text-sm text-muted-foreground">
                           {purchaseBillExternalNumber}
@@ -2278,7 +2065,7 @@ export function PurchaseOrderCard({
                     commitPurchaseOrderDraft({ notes: next });
                   }}
                 />
-                {fieldErrors.notes ? <FieldError>{fieldErrorMessage(fieldErrors.notes)}</FieldError> : null}
+                {fieldErrors.notes ? <FieldError>{getNestedFormErrorMessage(fieldErrors.notes)}</FieldError> : null}
               </CardSection>
 
               <CardSection title="Totals">
@@ -2442,7 +2229,10 @@ export function PurchaseOrderCard({
               )}
             </Field>
             {hasAdditionalCostsForBill ? (
-              <label className="flex items-start gap-3 border bg-muted/30 p-3 text-sm">
+              <InsetPanel
+                as="label"
+                className="flex items-start gap-3 text-sm"
+              >
                 <Checkbox
                   checked={
                     purchaseBillDialogValues.confirmAdditionalCostsOmitted
@@ -2461,7 +2251,7 @@ export function PurchaseOrderCard({
                   in additional costs. These affect ERP costing but are not sent
                   to Xero in v1.
                 </span>
-              </label>
+              </InsetPanel>
             ) : null}
             {purchaseBillMutation.error ? (
               <FieldError>
@@ -2509,45 +2299,29 @@ export function PurchaseOrderCard({
               }}
             />
             {!readOnly ? (
-              <div
-                className="flex items-center justify-center gap-2 border border-dashed bg-muted/30 px-3 py-5 text-sm text-muted-foreground"
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  void handleFileInput(event.dataTransfer.files);
+              <FileDropzone
+                disabled={uploadFileMutation.isPending}
+                onBrowse={() => fileInputRef.current?.click()}
+                onFiles={(files) => {
+                  void handleFileInput(files);
                 }}
-              >
-                <HugeiconsIcon icon={Upload01Icon} size={16} aria-hidden />
-                <button
-                  type="button"
-                  className="font-medium text-foreground"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploadFileMutation.isPending}
-                >
-                  Upload or drop files
-                </button>
-              </div>
+              />
             ) : null}
             {fileActionError ? (
               <p className="text-sm text-destructive">{fileActionError}</p>
             ) : null}
-            <div className="divide-y border">
+            <ListFrame>
               {attachments.length > 0 ? (
                 attachments.map((file) => (
-                  <div
+                  <AttachmentListItem
                     key={file.id}
-                    className="flex items-center gap-2 px-3 py-2.5"
-                  >
-                    <FileTypeBadge file={file} />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">
-                        {file.filename}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatBytes(file.sizeBytes)}
-                      </p>
-                    </div>
-                    {savedOrderId ? (
+                    filename={file.filename}
+                    sizeBytes={file.sizeBytes}
+                    leading={<FileTypeBadge file={file} />}
+                    className="gap-2 px-3 py-2.5"
+                    actions={
+                      <>
+                        {savedOrderId ? (
                       <Button variant="ghost" size="icon-sm" asChild>
                         <a
                           href={`/api/purchase-orders/${savedOrderId}/files/${file.id}`}
@@ -2556,8 +2330,8 @@ export function PurchaseOrderCard({
                           <HugeiconsIcon icon={Download01Icon} />
                         </a>
                       </Button>
-                    ) : null}
-                    {!readOnly ? (
+                        ) : null}
+                        {!readOnly ? (
                       <Button
                         type="button"
                         variant="ghost"
@@ -2568,15 +2342,17 @@ export function PurchaseOrderCard({
                       >
                         <HugeiconsIcon icon={Delete02Icon} />
                       </Button>
-                    ) : null}
-                  </div>
+                        ) : null}
+                      </>
+                    }
+                  />
                 ))
               ) : (
-                <div className="px-3 py-5 text-center text-sm text-muted-foreground">
+                <ListFrameItem className="px-3 py-5 text-center text-sm text-muted-foreground">
                   No attachments.
-                </div>
+                </ListFrameItem>
               )}
-            </div>
+            </ListFrame>
           </div>
         </DialogContent>
       </Dialog>
@@ -2602,109 +2378,18 @@ export function PurchaseOrderCard({
                   "Failed to save address."}
               </FieldError>
             ) : null}
-            <FieldGroup className="gap-4">
-              <Controller
-                control={addressForm.control}
-                name="label"
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="address-label">Label</FieldLabel>
-                    <Input
-                      {...field}
-                      id="address-label"
-                      value={field.value ?? ""}
-                      onChange={(event) => field.onChange(event.target.value)}
-                      aria-invalid={fieldState.invalid}
-                      autoComplete="organization"
-                    />
-                    {fieldState.invalid && (
-                      <FieldError errors={[fieldState.error]} />
-                    )}
-                  </Field>
-                )}
-              />
-              <FieldGroup className="grid gap-4 sm:grid-cols-2">
-                <Controller
-                  control={addressForm.control}
-                  name="contactName"
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor="address-contact-name">
-                        Contact Name
-                      </FieldLabel>
-                      <Input
-                        {...field}
-                        id="address-contact-name"
-                        value={field.value ?? ""}
-                        onChange={(event) =>
-                          field.onChange(event.target.value || null)
-                        }
-                        aria-invalid={fieldState.invalid}
-                        autoComplete="name"
-                      />
-                      {fieldState.invalid && (
-                        <FieldError errors={[fieldState.error]} />
-                      )}
-                    </Field>
-                  )}
-                />
-                <Controller
-                  control={addressForm.control}
-                  name="contactPhone"
-                  render={({ field, fieldState }) => (
-                    <Field data-invalid={fieldState.invalid}>
-                      <FieldLabel htmlFor="address-contact-phone">
-                        Contact Phone
-                      </FieldLabel>
-                      <Input
-                        {...field}
-                        id="address-contact-phone"
-                        value={field.value ?? ""}
-                        onChange={(event) =>
-                          field.onChange(event.target.value || null)
-                        }
-                        aria-invalid={fieldState.invalid}
-                        autoComplete="tel"
-                      />
-                      {fieldState.invalid && (
-                        <FieldError errors={[fieldState.error]} />
-                      )}
-                    </Field>
-                  )}
-                />
-              </FieldGroup>
-            </FieldGroup>
-            <AddressFields
+            <AddressBookFields
               control={addressForm.control}
-              names={ADDRESS_DIALOG_FIELD_NAMES}
+              addressNames={ADDRESS_DIALOG_FIELD_NAMES}
               idPrefix="po-line-ship"
+              labelName="label"
+              contactNameName="contactName"
+              contactPhoneName="contactPhone"
+              contactNameLabel="Contact Name"
+              contactPhoneLabel="Contact Phone"
+              notesName="deliveryInstructions"
+              notesLabel="Delivery Instructions"
             />
-            <FieldGroup className="mt-4 gap-4">
-              <Controller
-                control={addressForm.control}
-                name="deliveryInstructions"
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="address-delivery-instructions">
-                      Delivery Instructions
-                    </FieldLabel>
-                    <Textarea
-                      {...field}
-                      id="address-delivery-instructions"
-                      value={field.value ?? ""}
-                      onChange={(event) =>
-                        field.onChange(event.target.value || null)
-                      }
-                      aria-invalid={fieldState.invalid}
-                      rows={3}
-                    />
-                    {fieldState.invalid && (
-                      <FieldError errors={[fieldState.error]} />
-                    )}
-                  </Field>
-                )}
-              />
-            </FieldGroup>
           </form>
           <DialogFooter>
             <Button
@@ -2729,132 +2414,5 @@ export function PurchaseOrderCard({
         </DialogContent>
       </Dialog>
     </>
-  );
-}
-
-function DeliveryAddressInput({
-  id,
-  label,
-  value,
-  options,
-  onChange,
-  onAddNew,
-  onEdit,
-  inputClassName,
-  labelClassName,
-  readOnly = false,
-}: {
-  id: string;
-  label?: ReactNode;
-  value: DeliveryAddressFields | undefined;
-  options: DeliveryAddressOption[];
-  onChange: (address: DeliveryAddressFields | null) => void;
-  onAddNew: () => void;
-  onEdit: (address: DeliveryAddressOption) => void;
-  inputClassName?: string;
-  labelClassName?: string;
-  readOnly?: boolean;
-}) {
-  const currentAddressId = deliveryAddressKey(value);
-  const canEditCurrent = currentAddressId !== "";
-  const optionIds = options.map((option) => option.id);
-  const optionMap = new Map(options.map((option) => [option.id, option]));
-  const items = canEditCurrent
-    ? [...optionIds, EDIT_DELIVERY_ADDRESS_VALUE, ADD_DELIVERY_ADDRESS_VALUE]
-    : [...optionIds, ADD_DELIVERY_ADDRESS_VALUE];
-  const addressLines = formatAddressLines({
-    line1: value?.shipLine1 ?? null,
-    line2: value?.shipLine2 ?? null,
-    city: value?.shipCity ?? null,
-    region: value?.shipRegion ?? null,
-    postcode: value?.shipPostcode ?? null,
-    country: value?.shipCountry ?? null,
-  });
-
-  return (
-    <Field>
-      <FieldLabel className={labelClassName ?? (label ? undefined : "sr-only")} htmlFor={id}>
-        {label ?? "Delivery Address"}
-      </FieldLabel>
-      {readOnly ? (
-        <div className={styles.readOnlyAddress}>
-          {addressLines.length > 0
-            ? addressLines.map((line) => <div key={line}>{line}</div>)
-            : "No delivery address set"}
-        </div>
-      ) : (
-      <Combobox
-        items={items}
-        value={currentAddressId}
-        onValueChange={(nextValue) => {
-          if (!nextValue) {
-            onChange(null);
-            return;
-          }
-          if (nextValue === ADD_DELIVERY_ADDRESS_VALUE) {
-            onAddNew();
-            return;
-          }
-          if (nextValue === EDIT_DELIVERY_ADDRESS_VALUE) {
-            const option = optionMap.get(currentAddressId);
-            if (option) onEdit(option);
-            return;
-          }
-
-          onChange(optionMap.get(nextValue) ?? null);
-        }}
-        itemToStringLabel={(itemId) => {
-          if (itemId === ADD_DELIVERY_ADDRESS_VALUE) return "Add new address";
-          if (itemId === EDIT_DELIVERY_ADDRESS_VALUE)
-            return "Edit selected address";
-          return optionMap.get(itemId)?.label ?? "";
-        }}
-      >
-        <ComboboxInput
-          id={id}
-          placeholder="Address"
-          showClear={currentAddressId !== ""}
-          className={inputClassName ?? "w-full min-w-0"}
-        />
-        <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
-          <ComboboxEmpty>No addresses found</ComboboxEmpty>
-          <ComboboxList>
-            {(itemId: string) => {
-              if (itemId === ADD_DELIVERY_ADDRESS_VALUE) {
-                return (
-                  <ComboboxItem key={itemId} value={itemId}>
-                    Add new address
-                  </ComboboxItem>
-                );
-              }
-              if (itemId === EDIT_DELIVERY_ADDRESS_VALUE) {
-                return (
-                  <ComboboxItem key={itemId} value={itemId}>
-                    Edit selected address
-                  </ComboboxItem>
-                );
-              }
-
-              return (
-                <ComboboxItem key={itemId} value={itemId}>
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate">
-                      {optionMap.get(itemId)?.label}
-                    </span>
-                    {optionMap.get(itemId)?.shipContactName ? (
-                      <span className="truncate text-xs text-muted-foreground">
-                        {optionMap.get(itemId)?.shipContactName}
-                      </span>
-                    ) : null}
-                  </span>
-                </ComboboxItem>
-              );
-            }}
-          </ComboboxList>
-          {optionIds.length > 0 ? <ComboboxSeparator /> : null}
-        </ComboboxContent>
-      </Combobox>
-      )}
-    </Field>
   );
 }

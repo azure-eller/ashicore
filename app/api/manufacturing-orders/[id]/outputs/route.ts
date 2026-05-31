@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonError } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 import { recordManufacturingOutputSchema } from "@/lib/schemas/manufacturing-orders";
@@ -12,8 +14,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "recordManufacturingOutput");
   const { id } = await (ctx as RouteContext).params;
-  const body = await request.json();
-  const data = recordManufacturingOutputSchema.parse(body);
+  const data = await parseJsonBody(request, recordManufacturingOutputSchema);
 
   try {
     const result = await recordManufacturingOutput(id, data, { idempotencyKey });
@@ -21,7 +22,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   } catch (error) {
     if (error instanceof ManufacturingError) return error.toResponse();
     if (error instanceof InsufficientStockError) {
-      return NextResponse.json({ error: error.message }, { status: 409 });
+      return jsonError(error.message, 409);
     }
     throw error;
   }

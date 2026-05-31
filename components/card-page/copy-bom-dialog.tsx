@@ -15,6 +15,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   copyBomFromVariant,
   copyBomToVariants,
   copyOperationsFromVariant,
@@ -183,18 +190,22 @@ function DialogBody({
       ) : (
         <Field>
           <FieldLabel>Source variant</FieldLabel>
-          <select
+          <Select
             value={sourceId}
-            onChange={(event) => setSourceId(event.target.value)}
-            className="border border-border h-[var(--height-input-md)] px-(--space-3) bg-background"
+            onValueChange={setSourceId}
+            disabled={otherVariants.length === 0}
           >
-            {otherVariants.length === 0 ? <option value="">None available</option> : null}
-            {otherVariants.map((variant) => (
-              <option key={variant.id} value={variant.id}>
-                {variant.displayName}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="None available" />
+            </SelectTrigger>
+            <SelectContent>
+              {otherVariants.map((variant) => (
+                <SelectItem key={variant.id} value={variant.id}>
+                  {variant.displayName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Field>
       )}
 

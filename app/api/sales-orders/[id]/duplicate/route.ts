@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
+import { jsonNotFound, jsonCreated } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { duplicateSalesOrder, SalesError } from "@/app/(dashboard)/sales/queries";
 
@@ -12,10 +12,10 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     const order = await duplicateSalesOrder(id, { idempotencyKey });
 
     if (!order) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      return jsonNotFound("Order not found");
     }
 
-    return NextResponse.json(order, { status: 201 });
+    return jsonCreated(order);
   } catch (error) {
     if (error instanceof SalesError) return error.toResponse();
     throw error;

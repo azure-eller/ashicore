@@ -20,15 +20,20 @@ import {
   type EditableLineDataGridChange,
   type LineField,
 } from "@/components/editable-lines";
+import { FulfillmentStatusBlock } from "@/components/fulfillment-status-block";
 import { CardSection } from "@/components/card-page/card-page";
-import { StatusBlock, type StatusBlockTone } from "@/components/ui/status-block";
-import { formatPrice, formatQuantity, normalizeMoney } from "@/lib/format";
+import { formatPercent, formatPrice, formatQuantity, normalizeMoney } from "@/lib/format";
+import {
+  calculateDiscountPercentValue,
+  calculateSalesLineAmounts,
+} from "@/lib/sales/order-calculations";
 import {
   getIngredientsDisplayState,
   getProductionDisplayState,
   getSalesItemsDisplayState,
   type FulfillmentDisplayState,
 } from "@/lib/sales/fulfillment-status";
+import { apiJson } from "@/lib/client/api";
 import type {
   SalesLinePricingResult,
   SalesOrderDetail,
@@ -256,7 +261,12 @@ export function LineItemsTable({
         width: 140,
         cellClass: "statusBlockCell",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) =>
-          data ? <FulfillmentStatusBlock state={lineSalesItemsState(data, order.status)} /> : null,
+          data ? (
+            <FulfillmentStatusBlock
+              state={lineSalesItemsState(data, order.status)}
+              className="w-full justify-center"
+            />
+          ) : null,
       },
       {
         colId: "ingredientsState",
@@ -271,6 +281,7 @@ export function LineItemsTable({
                 data.fulfillmentSummary.ingredientsState,
                 data.fulfillmentSummary.ingredientsExpectedDate,
               )}
+              className="w-full justify-center"
             />
           ) : null,
       },
@@ -284,6 +295,7 @@ export function LineItemsTable({
           data ? (
             <FulfillmentStatusBlock
               state={getProductionDisplayState(data.fulfillmentSummary.productionState)}
+              className="w-full justify-center"
             />
           ) : null,
       },
@@ -445,10 +457,14 @@ export function LineItemsTable({
 }
 
 function recalculateLineTotals(line: SalesOrderDetailLine) {
-  const subtotal = Number(line.quantity || 0) * Number(line.unitPrice || 0);
-  line.lineSubtotal = subtotal.toFixed(2);
-  line.lineTaxAmount = (subtotal * (Number(line.taxRatePercent || 0) / 100)).toFixed(2);
-  line.lineTotal = (Number(line.lineSubtotal) + Number(line.lineTaxAmount)).toFixed(2);
+  Object.assign(
+    line,
+    calculateSalesLineAmounts({
+      quantity: line.quantity,
+      unitPrice: line.unitPrice,
+      taxRatePercent: line.taxRatePercent,
+    }),
+  );
 }
 
 function makeBlankLine(
@@ -574,34 +590,6 @@ function deleteLineLockedReason(line: SalesOrderDetailLine) {
   return null;
 }
 
-function formatPercent(value: unknown): string {
-  const parsed = value == null ? NaN : Number(value);
-  if (!Number.isFinite(parsed)) return "—";
-  return `${parsed.toFixed(1)}%`;
-}
-
-const fulfillmentToneToStatusBlockTone: Record<
-  FulfillmentDisplayState["tone"],
-  StatusBlockTone
-> = {
-  destructive: "danger",
-  muted: "muted",
-  secondary: "warning",
-  success: "success",
-  warning: "warning",
-};
-
-function FulfillmentStatusBlock({ state }: { state: FulfillmentDisplayState }) {
-  return (
-    <StatusBlock
-      tone={fulfillmentToneToStatusBlockTone[state.tone]}
-      className="w-full justify-center"
-    >
-      {state.label}
-    </StatusBlock>
-  );
-}
-
 function lineSalesItemsState(
   line: SalesOrderDetailLine,
   orderStatus: SalesOrderDetail["status"],
@@ -673,7 +661,7 @@ function lineDiscountPercentFromPrices(
   const base = baseUnitPrice == null ? NaN : Number(baseUnitPrice);
   const unitPrice = Number(unitPriceValue);
   if (base <= 0 || !Number.isFinite(base) || !Number.isFinite(unitPrice)) return null;
-  return Math.max(0, ((base - unitPrice) / base) * 100);
+  return calculateDiscountPercentValue(baseUnitPrice, unitPriceValue);
 }
 
 function pricingSourceLabel(line: SalesOrderDetailLine) {
@@ -695,20 +683,14 @@ async function resolveLinePricing({
 }): Promise<{ pricing: SalesLinePricingResult | null; error: string | null }> {
   if (!customerId || !itemId) return { pricing: null, error: null };
   try {
-    const response = await fetch("/api/sales-orders/price", {
+    const pricing = await apiJson<SalesLinePricingResult>("/api/sales-orders/price", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customerId, itemId, quantity }),
+      body: { customerId, itemId, quantity },
+      fallbackError:
+        "Could not check customer pricing. The line was added at list price; review the discount.",
     });
-    if (!response.ok) {
-      return {
-        pricing: null,
-        error:
-          "Could not check customer pricing. The line was added at list price; review the discount.",
-      };
-    }
     return {
-      pricing: (await response.json()) as SalesLinePricingResult,
+      pricing,
       error: null,
     };
   } catch {

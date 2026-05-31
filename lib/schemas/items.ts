@@ -6,6 +6,7 @@ import { normalizeNumeric, normalizeNumericScale } from "@/lib/format";
 import { OPERATION_COST_SCALING_MODES } from "@/lib/manufacturing/operation-costs";
 import {
   isNonNegativeNumberString,
+  isPositiveNumberString,
   nullableString as nullableStringOptional,
   nullableStringPreserveUndefined,
   nullableStringStrict as nullableString,
@@ -13,7 +14,7 @@ import {
 
 const bomQuantitySchema = nullableString
   .refine((value) => value != null, "Quantity is required")
-  .refine((value) => Number.isFinite(Number(value)) && Number(value) > 0, {
+  .refine((value) => isPositiveNumberString(value), {
     message: "Quantity must be greater than 0",
   })
   .transform((value) => value as string);
@@ -44,14 +45,14 @@ const bomRowSchema = z.object({
 
 const operationCostQuantitySchema = nullableString
   .refine((value) => value != null, "Value is required")
-  .refine((value) => Number.isFinite(Number(value)) && Number(value) > 0, {
+  .refine((value) => isPositiveNumberString(value), {
     message: "Value must be greater than 0",
   })
   .transform((value) => normalizeNumeric(Number(value)));
 
 const operationCostRateSchema = nullableStringOptional
   .refine(
-    (value) => value == null || (Number.isFinite(Number(value)) && Number(value) >= 0),
+    (value) => value == null || isNonNegativeNumberString(value),
     "Loaded cost per hour must be a non-negative number"
   )
   .transform((value) => (value == null ? null : normalizeNumericScale(Number(value), 6)));
@@ -267,8 +268,7 @@ function purchaseUnitRefine(
     return;
   }
 
-  const parsed = Number(factor);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  if (!isPositiveNumberString(factor)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: "Conversion factor must be greater than 0",
@@ -286,8 +286,7 @@ function positiveOptionalRefine(
   const raw = value?.trim() ?? "";
   if (raw === "") return;
 
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  if (!isPositiveNumberString(raw)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: `${fieldName} must be greater than 0`,
@@ -301,8 +300,7 @@ function batchModeRefine(
   ctx: z.RefinementCtx
 ) {
   if (data.manufacturingMode !== "batch") return;
-  const parsed = Number(data.expectedBatchYield);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  if (!isPositiveNumberString(data.expectedBatchYield ?? "")) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: "Expected batch yield is required for batch products",

@@ -7,16 +7,12 @@ import {
   getPurchaseOrderMaterialOptions,
   getSuppliers,
 } from "@/app/(dashboard)/purchasing/queries";
-
-function getValues(value: string | string[] | undefined) {
-  if (Array.isArray(value)) return value;
-  return value ? [value] : [];
-}
+import { searchParamValues, type SearchParamRecord } from "@/lib/routing/search-params";
 
 export default async function PurchaseOrderDraftPage({
   searchParams,
 }: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
+  searchParams: Promise<SearchParamRecord>;
 }) {
   await requireModuleWriteAccess("purchasing");
   const params = await searchParams;
@@ -26,7 +22,7 @@ export default async function PurchaseOrderDraftPage({
     getAddressEntries(),
     getTaxSettings(),
   ]);
-  const materialIds = [...new Set(getValues(params.itemId))];
+  const materialIds = [...new Set(searchParamValues(params.itemId))];
   const materialById = new Map(materials.map((material) => [material.id, material]));
   const prefilledLines = materialIds
     .map((id) => materialById.get(id))

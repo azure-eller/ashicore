@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { del } from "@vercel/blob";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
+import { deletePrivateBlobsIfConfigured } from "@/lib/blob-storage";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { patchCustomerSchema, updateCustomerSchema } from "@/lib/schemas/customers";
 import {
@@ -17,7 +19,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   const customer = await getCustomerDetail(id, { includeDeleted: true });
 
   if (!customer) {
-    return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    return jsonNotFound("Customer not found");
   }
 
   return NextResponse.json(customer);
@@ -26,11 +28,11 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
 export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
   const { id } = await (ctx as RouteContext).params;
-  const data = patchCustomerSchema.parse(await request.json());
+  const data = await parseJsonBody(request, patchCustomerSchema);
   const customer = await patchCustomer(id, data);
 
   if (!customer) {
-    return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    return jsonNotFound("Customer not found");
   }
 
   return NextResponse.json(customer);
@@ -39,12 +41,11 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
   const { id } = await (ctx as RouteContext).params;
-  const body = await request.json();
-  const data = updateCustomerSchema.parse(body);
+  const data = await parseJsonBody(request, updateCustomerSchema);
   const customer = await updateCustomer(id, data);
 
   if (!customer) {
-    return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    return jsonNotFound("Customer not found");
   }
 
   return NextResponse.json(customer);
@@ -58,16 +59,12 @@ export const DELETE = apiHandler(async (_request: Request, ctx: unknown) => {
     const result = await deleteCustomer(id);
 
     if (!result.deleted) {
-      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+      return jsonNotFound("Customer not found");
     }
 
-    if (process.env.BLOB_READ_WRITE_TOKEN && result.blobUrls.length > 0) {
-      await Promise.all(
-        result.blobUrls.map((blobUrl) => del(blobUrl).catch(() => undefined))
-      );
-    }
+    await deletePrivateBlobsIfConfigured(result.blobUrls);
 
-    return NextResponse.json({ success: true });
+    return jsonSuccess();
   } catch (error) {
     if (error instanceof SalesError) return error.toResponse();
     throw error;

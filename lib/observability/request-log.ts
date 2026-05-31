@@ -10,6 +10,7 @@ import {
   ERP_REQUEST_PATH_HEADER,
   REQUEST_ID_HEADER,
 } from "@/lib/observability/request-headers";
+import { formatDurationMsNumber } from "@/lib/observability/timing-format";
 
 type RequestLogContext = {
   requestId: string;
@@ -36,10 +37,6 @@ const observedOperationEvents = new AsyncLocalStorage<ObservedOperationEvent[]>(
 
 function toHeaders(requestHeaders: HeadersInit | undefined) {
   return requestHeaders instanceof Headers ? requestHeaders : new Headers(requestHeaders);
-}
-
-function formatMs(value: number) {
-  return Number(value.toFixed(1));
 }
 
 function getErrorName(error: unknown) {
@@ -93,7 +90,7 @@ export function logObservedEvent(
     accept: context.accept,
     isPrefetch: context.isPrefetch,
     sinceProxyMs,
-    processUptimeMs: formatMs(process.uptime() * 1000),
+    processUptimeMs: formatDurationMsNumber(process.uptime() * 1000),
     ...data,
   };
 
@@ -112,7 +109,7 @@ export function logObservedDuration(
   data: Record<string, unknown> = {}
 ) {
   logObservedEvent(event, context, {
-    durationMs: formatMs(performance.now() - startedAt),
+    durationMs: formatDurationMsNumber(performance.now() - startedAt),
     ...data,
   });
 }
@@ -159,6 +156,6 @@ export async function collectObservedOperations<T>(fn: () => Promise<T>): Promis
   return {
     result,
     events,
-    durationMs: formatMs(performance.now() - startedAt),
+    durationMs: formatDurationMsNumber(performance.now() - startedAt),
   };
 }

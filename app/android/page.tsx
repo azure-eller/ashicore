@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { SurfacePanel } from "@/components/surface-panel";
 import { Button } from "@/components/ui/button";
 import { APP_NAME } from "@/lib/app-brand";
 
@@ -29,13 +30,13 @@ export default function AndroidDownloadPage() {
             </p>
           </div>
 
-          <div className="border bg-card p-(--space-10) text-card-foreground shadow-none">
+          <SurfacePanel className="p-(--space-10) shadow-none">
             <ol className="list-decimal space-y-(--space-6) pl-(--space-10) text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
               <li>Open this page on the phone.</li>
               <li>Tap download.</li>
               <li>If the phone asks for permission, allow the install.</li>
             </ol>
-          </div>
+          </SurfacePanel>
 
           <div className="flex flex-col gap-(--space-6) sm:flex-row">
             <Button asChild size="lg">

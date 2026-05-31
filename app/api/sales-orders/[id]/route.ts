@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   patchSalesOrderHeaderSchema,
@@ -20,7 +22,7 @@ export const GET = apiHandler(async (_request: Request, ctx: unknown) => {
   const order = await getSalesOrder(id);
 
   if (!order) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    return jsonNotFound("Order not found");
   }
 
   return NextResponse.json(order);
@@ -30,16 +32,16 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "patchSalesOrderHeader");
   const { id } = await (ctx as RouteContext).params;
-  const data = patchSalesOrderHeaderSchema.parse(await request.json());
+  const data = await parseJsonBody(request, patchSalesOrderHeaderSchema);
 
   try {
     const patched = await patchSalesOrderHeader(id, data, { idempotencyKey });
     if (!patched) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      return jsonNotFound("Order not found");
     }
     const order = await getSalesOrder(id);
     if (!order) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      return jsonNotFound("Order not found");
     }
     return NextResponse.json(order);
   } catch (error) {
@@ -52,14 +54,13 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "updateSalesOrder");
   const { id } = await (ctx as RouteContext).params;
-  const body = await request.json();
-  const data = updateSalesOrderSchema.parse(body);
+  const data = await parseJsonBody(request, updateSalesOrderSchema);
 
   try {
     const order = await updateSalesOrder(id, data, { idempotencyKey });
 
     if (!order) {
-      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      return jsonNotFound("Order not found");
     }
 
     return NextResponse.json(order);
@@ -82,8 +83,8 @@ export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {
   }
 
   if (!result.deleted) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    return jsonNotFound("Order not found");
   }
 
-  return NextResponse.json({ success: true });
+  return jsonSuccess();
 });

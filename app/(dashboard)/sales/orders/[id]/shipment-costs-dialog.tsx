@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SurfacePanel } from "@/components/surface-panel";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import {
   Select,
@@ -27,6 +28,7 @@ import {
   type SalesShipmentCostStatus,
   type SalesShipmentCostType,
 } from "@/lib/schemas/sales-orders";
+import { apiJson } from "@/lib/client/api";
 import type {
   SalesOrderDetail,
   SalesShipmentRow,
@@ -134,16 +136,14 @@ function CostsForm({
             notes: cost.notes.trim() || null,
           })),
       };
-      const response = await fetch(
+      await apiJson<void>(
         `/api/sales-orders/${order.id}/shipments/${shipment.id}/costs`,
         {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: payload,
+          fallbackError: "Failed to save costs.",
         },
       );
-      const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error ?? "Failed to save costs.");
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["sales-order", order.id] });
@@ -182,9 +182,10 @@ function CostsForm({
 
       <div className="space-y-2">
         {costs.map((cost, index) => (
-          <div
+          <SurfacePanel
             key={index}
-            className="grid grid-cols-1 gap-2 border border-[var(--color-line)] p-3 md:grid-cols-6"
+            padding="sm"
+            className="grid grid-cols-1 gap-2 md:grid-cols-6"
           >
             <Select
               value={cost.costType}
@@ -262,7 +263,7 @@ function CostsForm({
                 <HugeiconsIcon icon={Delete02Icon} size={14} />
               </Button>
             </div>
-          </div>
+          </SurfacePanel>
         ))}
         <Button
           type="button"

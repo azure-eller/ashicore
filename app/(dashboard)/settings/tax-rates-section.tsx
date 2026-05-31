@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { apiJson } from "@/lib/client/api";
 import { SettingsPanel, SettingsPanelHeader } from "./settings-panel";
 
 type TaxRateRow = {
@@ -42,15 +43,12 @@ export function TaxRatesSection({ initialData }: { initialData: TaxRatesSectionD
   const didMountRef = useRef(false);
 
   const mutation = useMutation({
-    mutationFn: async (data: TaxRatesSectionData) => {
-      const response = await fetch("/api/tax-settings", {
+    mutationFn: (data: TaxRatesSectionData) =>
+      apiJson<TaxRatesSectionData>("/api/tax-settings", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw await response.json();
-      return (await response.json()) as TaxRatesSectionData;
-    },
+        body: data,
+        fallbackError: "Failed to save tax settings.",
+      }),
   });
   const saveTaxSettings = mutation.mutate;
 

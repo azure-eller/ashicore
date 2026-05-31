@@ -12,7 +12,11 @@ import {
   ComboboxSeparator,
 } from "@/components/ui/combobox";
 import { Field, FieldLabel } from "@/components/ui/field";
-import { formatAddressLines, normalizeAddressFields } from "@/lib/format";
+import {
+  formatAddressInline,
+  formatAddressLines,
+  normalizeAddressFields,
+} from "@/lib/format";
 
 export type DeliveryAddressFields = {
   shipAddressEntryId?: string | null;
@@ -82,7 +86,7 @@ export function deliveryAddressKey(address: DeliveryAddressFields | undefined) {
 }
 
 export function deliveryAddressLabel(address: DeliveryAddressFields) {
-  const lines = formatAddressLines({
+  return formatAddressInline({
     line1: address.shipLine1,
     line2: address.shipLine2,
     city: address.shipCity,
@@ -90,7 +94,6 @@ export function deliveryAddressLabel(address: DeliveryAddressFields) {
     postcode: address.shipPostcode,
     country: address.shipCountry,
   });
-  return lines.join(", ");
 }
 
 export function makeDeliveryAddressOption(
@@ -120,7 +123,10 @@ export function DeliveryAddressInput({
   onAddNew,
   onEdit,
   inputClassName,
+  labelClassName,
   nullOptionLabel,
+  readOnly = false,
+  readOnlyClassName,
 }: {
   id: string;
   label?: ReactNode;
@@ -130,7 +136,10 @@ export function DeliveryAddressInput({
   onAddNew?: () => void;
   onEdit?: (address: DeliveryAddressOption) => void;
   inputClassName?: string;
+  labelClassName?: string;
   nullOptionLabel?: string;
+  readOnly?: boolean;
+  readOnlyClassName?: string;
 }) {
   const currentAddressId = deliveryAddressKey(value);
   const currentValue = nullOptionLabel && currentAddressId === ""
@@ -145,95 +154,111 @@ export function DeliveryAddressInput({
     ...(canEditCurrent ? [EDIT_DELIVERY_ADDRESS_VALUE] : []),
     ...(onAddNew ? [ADD_DELIVERY_ADDRESS_VALUE] : []),
   ];
+  const addressLines = formatAddressLines({
+    line1: value?.shipLine1 ?? null,
+    line2: value?.shipLine2 ?? null,
+    city: value?.shipCity ?? null,
+    region: value?.shipRegion ?? null,
+    postcode: value?.shipPostcode ?? null,
+    country: value?.shipCountry ?? null,
+  });
 
   return (
     <Field>
-      <FieldLabel className={label ? undefined : "sr-only"} htmlFor={id}>
+      <FieldLabel className={labelClassName ?? (label ? undefined : "sr-only")} htmlFor={id}>
         {label ?? "Delivery Address"}
       </FieldLabel>
-      <Combobox
-        items={items}
-        value={currentValue}
-        onValueChange={(nextValue) => {
-          if (!nextValue || nextValue === NULL_DELIVERY_ADDRESS_VALUE) {
-            onChange(null);
-            return;
-          }
-          if (nextValue === ADD_DELIVERY_ADDRESS_VALUE) {
-            onAddNew?.();
-            return;
-          }
-          if (nextValue === EDIT_DELIVERY_ADDRESS_VALUE) {
-            const option = optionMap.get(currentAddressId);
-            if (option) onEdit?.(option);
-            return;
-          }
+      {readOnly ? (
+        <div className={readOnlyClassName}>
+          {addressLines.length > 0
+            ? addressLines.map((line, index) => <div key={`${line}-${index}`}>{line}</div>)
+            : "No delivery address set"}
+        </div>
+      ) : (
+        <Combobox
+          items={items}
+          value={currentValue}
+          onValueChange={(nextValue) => {
+            if (!nextValue || nextValue === NULL_DELIVERY_ADDRESS_VALUE) {
+              onChange(null);
+              return;
+            }
+            if (nextValue === ADD_DELIVERY_ADDRESS_VALUE) {
+              onAddNew?.();
+              return;
+            }
+            if (nextValue === EDIT_DELIVERY_ADDRESS_VALUE) {
+              const option = optionMap.get(currentAddressId);
+              if (option) onEdit?.(option);
+              return;
+            }
 
-          onChange(optionMap.get(nextValue) ?? null);
-        }}
-        itemToStringLabel={(itemId) => {
-          if (itemId === NULL_DELIVERY_ADDRESS_VALUE)
-            return nullOptionLabel ?? "";
-          if (itemId === ADD_DELIVERY_ADDRESS_VALUE) return "Add new address";
-          if (itemId === EDIT_DELIVERY_ADDRESS_VALUE)
-            return "Edit selected address";
-          return optionMap.get(itemId)?.label ?? "";
-        }}
-      >
-        <ComboboxInput
-          id={id}
-          placeholder="Address"
-          showClear={currentAddressId !== ""}
-          className={inputClassName ?? "w-full min-w-0"}
-        />
-        <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
-          <ComboboxEmpty>No addresses found</ComboboxEmpty>
-          <ComboboxList>
-            {(itemId: string) => {
-              if (itemId === NULL_DELIVERY_ADDRESS_VALUE) {
-                return (
-                  <ComboboxItem key={itemId} value={itemId}>
-                    {nullOptionLabel}
-                  </ComboboxItem>
-                );
-              }
-              if (itemId === ADD_DELIVERY_ADDRESS_VALUE) {
-                return (
-                  <ComboboxItem key={itemId} value={itemId}>
-                    Add new address
-                  </ComboboxItem>
-                );
-              }
-              if (itemId === EDIT_DELIVERY_ADDRESS_VALUE) {
-                return (
-                  <ComboboxItem key={itemId} value={itemId}>
-                    Edit selected address
-                  </ComboboxItem>
-                );
-              }
+            onChange(optionMap.get(nextValue) ?? null);
+          }}
+          itemToStringLabel={(itemId) => {
+            if (itemId === NULL_DELIVERY_ADDRESS_VALUE)
+              return nullOptionLabel ?? "";
+            if (itemId === ADD_DELIVERY_ADDRESS_VALUE) return "Add new address";
+            if (itemId === EDIT_DELIVERY_ADDRESS_VALUE)
+              return "Edit selected address";
+            return optionMap.get(itemId)?.label ?? "";
+          }}
+        >
+          <ComboboxInput
+            id={id}
+            placeholder="Address"
+            showClear={currentAddressId !== ""}
+            className={inputClassName ?? "w-full min-w-0"}
+          />
+          <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
+            <ComboboxEmpty>No addresses found</ComboboxEmpty>
+            <ComboboxList>
+              {(itemId: string) => {
+                if (itemId === NULL_DELIVERY_ADDRESS_VALUE) {
+                  return (
+                    <ComboboxItem key={itemId} value={itemId}>
+                      {nullOptionLabel}
+                    </ComboboxItem>
+                  );
+                }
+                if (itemId === ADD_DELIVERY_ADDRESS_VALUE) {
+                  return (
+                    <ComboboxItem key={itemId} value={itemId}>
+                      Add new address
+                    </ComboboxItem>
+                  );
+                }
+                if (itemId === EDIT_DELIVERY_ADDRESS_VALUE) {
+                  return (
+                    <ComboboxItem key={itemId} value={itemId}>
+                      Edit selected address
+                    </ComboboxItem>
+                  );
+                }
 
-              return (
-                <ComboboxItem key={itemId} value={itemId}>
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate">
-                      {optionMap.get(itemId)?.label}
-                    </span>
-                    {optionMap.get(itemId)?.shipContactName ? (
-                      <span className="truncate text-xs text-muted-foreground">
-                        {optionMap.get(itemId)?.shipContactName}
+                return (
+                  <ComboboxItem key={itemId} value={itemId}>
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate">
+                        {optionMap.get(itemId)?.label}
                       </span>
-                    ) : null}
-                    <span className="truncate text-xs text-muted-foreground">
-                      {deliveryAddressLabel(optionMap.get(itemId) ?? {})}
+                      {optionMap.get(itemId)?.shipContactName ? (
+                        <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                          {optionMap.get(itemId)?.shipContactName}
+                        </span>
+                      ) : null}
+                      <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                        {deliveryAddressLabel(optionMap.get(itemId) ?? {})}
+                      </span>
                     </span>
-                  </span>
-                </ComboboxItem>
-              );
-            }}
-          </ComboboxList>
-          {optionIds.length > 0 ? <ComboboxSeparator /> : null}
-        </ComboboxContent>
-      </Combobox>
+                  </ComboboxItem>
+                );
+              }}
+            </ComboboxList>
+            {optionIds.length > 0 ? <ComboboxSeparator /> : null}
+          </ComboboxContent>
+        </Combobox>
+      )}
     </Field>
   );
 }

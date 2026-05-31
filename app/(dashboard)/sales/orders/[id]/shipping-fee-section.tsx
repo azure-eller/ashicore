@@ -3,6 +3,14 @@
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { CardSection } from "@/components/card-page/card-page";
+import {
+  FramedTable,
+  FramedTableCell,
+  FramedTableHead,
+  FramedTableHeaderCell,
+  FramedTableRow,
+  TableFrame,
+} from "@/components/table-frame";
 import { formatPrice } from "@/lib/format";
 import type { SalesOrderDetail } from "@/app/(dashboard)/sales/types";
 import type { SalesOrderDraftController } from "./use-sales-order-draft-controller";
@@ -36,69 +44,71 @@ export function ShippingFeeSection({
 
   return (
     <CardSection title="Shipping fee">
-      <div className="overflow-hidden border border-[var(--color-line)]">
-        <div className="grid grid-cols-[1fr_160px_160px] bg-[var(--color-surface-alt)] text-[length:var(--text-xs)] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-          <div className="border-r border-[var(--color-line)] px-(--space-4) py-(--space-3)">
-            Description
-          </div>
-          <div className="border-r border-[var(--color-line)] px-(--space-4) py-(--space-3)">
-            Cost
-          </div>
-          <div className="px-(--space-4) py-(--space-3)">Tax</div>
-        </div>
-        <div className="grid grid-cols-[1fr_160px_160px]">
-          <div className="border-r border-[var(--color-line)] p-(--space-3)">
-            <Input
-              value={description}
-              disabled={!editable}
-              onChange={(event) => setDescriptionEdit({ value: event.target.value })}
-              onBlur={() => {
-                const next = description.trim() || null;
-                setDescriptionEdit(null);
-                if (next === order.shippingFeeDescription) return;
-                save({ shippingFeeDescription: next });
-              }}
-              placeholder="Shipping fee"
-            />
-          </div>
-          <div className="border-r border-[var(--color-line)] p-(--space-3)">
-            <Input
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="0.01"
-              value={amount}
-              disabled={!editable}
-              onChange={(event) => setAmountEdit({ value: event.target.value })}
-              onBlur={() => {
-                const next = normalizeMoneyInput(amount);
-                setAmountEdit(null);
-                if (next === order.shippingFeeAmount) return;
-                save({ shippingFeeAmount: next });
-              }}
-              className="text-right font-mono"
-            />
-          </div>
-          <div className="p-(--space-3)">
-            <Input
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="0.01"
-              value={tax}
-              disabled={!editable}
-              onChange={(event) => setTaxEdit({ value: event.target.value })}
-              onBlur={() => {
-                const next = normalizeMoneyInput(tax);
-                setTaxEdit(null);
-                if (next === order.shippingFeeTaxAmount) return;
-                save({ shippingFeeTaxAmount: next });
-              }}
-              className="text-right font-mono"
-            />
-          </div>
-        </div>
-      </div>
+      <TableFrame>
+        <FramedTable>
+          <FramedTableHead>
+            <FramedTableRow>
+              <FramedTableHeaderCell>Description</FramedTableHeaderCell>
+              <FramedTableHeaderCell className="w-40">Cost</FramedTableHeaderCell>
+              <FramedTableHeaderCell className="w-40">Tax</FramedTableHeaderCell>
+            </FramedTableRow>
+          </FramedTableHead>
+          <tbody>
+            <FramedTableRow>
+              <FramedTableCell>
+                <Input
+                  value={description}
+                  disabled={!editable}
+                  onChange={(event) => setDescriptionEdit({ value: event.target.value })}
+                  onBlur={() => {
+                    const next = description.trim() || null;
+                    setDescriptionEdit(null);
+                    if (next === order.shippingFeeDescription) return;
+                    save({ shippingFeeDescription: next });
+                  }}
+                  placeholder="Shipping fee"
+                />
+              </FramedTableCell>
+              <FramedTableCell>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={amount}
+                  disabled={!editable}
+                  onChange={(event) => setAmountEdit({ value: event.target.value })}
+                  onBlur={() => {
+                    const next = normalizeMoneyInput(amount);
+                    setAmountEdit(null);
+                    if (next === order.shippingFeeAmount) return;
+                    save({ shippingFeeAmount: next });
+                  }}
+                  className="text-right font-mono"
+                />
+              </FramedTableCell>
+              <FramedTableCell>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  value={tax}
+                  disabled={!editable}
+                  onChange={(event) => setTaxEdit({ value: event.target.value })}
+                  onBlur={() => {
+                    const next = normalizeMoneyInput(tax);
+                    setTaxEdit(null);
+                    if (next === order.shippingFeeTaxAmount) return;
+                    save({ shippingFeeTaxAmount: next });
+                  }}
+                  className="text-right font-mono"
+                />
+              </FramedTableCell>
+            </FramedTableRow>
+          </tbody>
+        </FramedTable>
+      </TableFrame>
       <div className="mt-(--space-4) flex justify-end gap-(--space-6) text-[length:var(--text-sm)]">
         <span className="text-muted-foreground">Total shipping fee</span>
         <span className="font-mono font-semibold tabular-nums">

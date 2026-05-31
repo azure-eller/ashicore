@@ -1,9 +1,13 @@
 import "server-only";
 
 import type { Tx } from "@/lib/db/with-org-context";
+import {
+  allocationQuantityString,
+  toAllocationQuantity,
+} from "@/lib/inventory/allocation/format";
 import { getAllocationWorkspaceInTx } from "@/lib/inventory/allocation/read-model";
 import type { AllocationWorkspace } from "@/lib/inventory/allocation/types";
-import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import { roundQuantity } from "@/lib/format";
 import type {
   SalesAllocationDemandRow,
   SalesAllocationLineSummary,
@@ -11,14 +15,8 @@ import type {
 } from "./types";
 import type { AllocationDemandRow } from "@/lib/inventory/allocation/types";
 
-function toQuantity(value: string | number | null | undefined) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function quantityString(value: number) {
-  return normalizeNumeric(roundQuantity(Math.max(0, value)));
-}
+const toQuantity = toAllocationQuantity;
+const quantityString = allocationQuantityString;
 
 function getLineStatus(
   remainingQty: number,

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { jsonCreated } from "@/lib/api/responses";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { AuthorizationError, hasModuleAccess } from "@/lib/authz";
 import { getAuthedApiMemberContext } from "@/lib/dal/auth";
 import {
@@ -32,8 +34,7 @@ export const GET = apiHandler(async (request) => {
 export const POST = apiHandler(async (request) => {
   const context = await getAuthedApiMemberContext(request.headers);
   assertAddressAccess(context.assignedRoles, "operate");
-  const body = await request.json();
-  const data = createAddressEntrySchema.parse(body);
+  const data = await parseJsonBody(request, createAddressEntrySchema);
   const entry = await createAddressEntry(data);
-  return NextResponse.json(entry, { status: 201 });
+  return jsonCreated(entry);
 });

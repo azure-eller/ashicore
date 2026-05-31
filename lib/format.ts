@@ -6,22 +6,34 @@ import {
 import type { InventoryDisposition } from "@/lib/db/schema";
 import { isValidTimeZone } from "@/lib/time-zone";
 
+type CurrencyFormatOptions = {
+  minimumFractionDigits?: number;
+  maximumFractionDigits?: number;
+};
+
 const currencyFormats = new Map<string, Intl.NumberFormat>();
 
 export function formatCurrency(
   value: string | number | null | undefined,
-  currency = "USD"
+  currency = "USD",
+  options: CurrencyFormatOptions = {},
 ): string | null {
   if (value == null) return null;
 
   const normalizedCurrency = currency.toUpperCase();
-  let formatter = currencyFormats.get(normalizedCurrency);
+  const key = [
+    normalizedCurrency,
+    options.minimumFractionDigits ?? "",
+    options.maximumFractionDigits ?? "",
+  ].join(":");
+  let formatter = currencyFormats.get(key);
   if (!formatter) {
     formatter = new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: normalizedCurrency,
+      ...options,
     });
-    currencyFormats.set(normalizedCurrency, formatter);
+    currencyFormats.set(key, formatter);
   }
 
   const parsedValue = typeof value === "number" ? value : parseFloat(value);
@@ -48,6 +60,31 @@ export function formatPrice(value: string | null | undefined): string | null {
 export function formatCost(value: string | null | undefined): string | null {
   if (value == null) return null;
   return costFormat.format(parseFloat(value));
+}
+
+export function formatPercent(
+  value: unknown,
+  options: { fallback?: string; fractionDigits?: number } = {},
+) {
+  const { fallback = "\u2014", fractionDigits = 1 } = options;
+  const parsed = value == null ? NaN : Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return `${parsed.toFixed(fractionDigits)}%`;
+}
+
+export function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }
 
 /**
@@ -81,6 +118,85 @@ export function toDateOnlyString(
   return new Date(value).toISOString().slice(0, 10);
 }
 
+function padDatePart(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+export function parseLocalDate(value?: string): Date | undefined {
+  if (!value) return undefined;
+  const match = value.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!match) return undefined;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
+
+  const date = new Date(year, month - 1, day);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return undefined;
+  }
+
+  return date;
+}
+
+export function formatLocalDateInput(date: Date): string {
+  return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
+}
+
+export function parseLocalDateTime(value?: string): Date | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const match = trimmed.match(
+    /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/
+  );
+  if (!match) return undefined;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = match[4] != null ? Number(match[4]) : 0;
+  const minute = match[5] != null ? Number(match[5]) : 0;
+  const second = match[6] != null ? Number(match[6]) : 0;
+
+  if (month < 1 || month > 12 || day < 1 || day > 31) return undefined;
+  if (hour > 23 || minute > 59 || second > 59) return undefined;
+
+  const date = new Date(year, month - 1, day, hour, minute, second, 0);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return undefined;
+  }
+
+  return date;
+}
+
+export function formatLocalDateTimeInput(date: Date): string {
+  return `${formatLocalDateInput(date)}T${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}:${padDatePart(date.getSeconds())}`;
+}
+
+export function formatLongLocalDate(date: Date): string {
+  return date.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+export function formatLongLocalDateTime(date: Date): string {
+  return `${formatLongLocalDate(date)} at ${padDatePart(date.getHours())}:${padDatePart(date.getMinutes())}`;
+}
+
 /**
  * Formats an exact instant, e.g. createdAt/shippedAt/occurredAt.
  *
@@ -104,6 +220,18 @@ export function formatDateTime(
     dateStyle: "short",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+export function formatDateTimeLabel(
+  value: string | Date | null | undefined,
+  timeZone: string,
+): string {
+  if (value == null) return "\u2014";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return typeof value === "string" ? value : "\u2014";
+  }
+  return formatDateTime(date, timeZone);
 }
 
 export function dateInTimeZone(value: Date, timeZone: string): string {
@@ -154,6 +282,14 @@ export function formatQuantity(value: string | null | undefined): string {
   // -> "10.7"), so a computed number stringified upstream can never leak its
   // binary representation to the screen.
   return normalizeNumericScale(parseFloat(value), 4);
+}
+
+export function formatQuantityWithUnitText(
+  value: string | number | null | undefined,
+  unitName: string | null | undefined,
+): string {
+  const quantity = formatQuantity(value == null ? null : String(value));
+  return [quantity, unitName].filter(Boolean).join(" ");
 }
 
 type UnitDisplayInput = {
@@ -250,6 +386,10 @@ export function normalizeNumeric(value: number): string {
   return normalizeNumericScale(value, 4);
 }
 
+export function normalizeQuantityNumber(value: number): number {
+  return Number(normalizeNumeric(value));
+}
+
 /**
  * Normalize a money value for Postgres numeric storage (2 decimal places).
  */
@@ -262,9 +402,46 @@ export function normalizeMoney(value: number): string {
  * Returns null for empty, non-finite, or non-positive values.
  */
 export function parsePositive(value: string | null | undefined): number | null {
-  if (value == null || value.trim() === "") return null;
+  return parsePositiveNumber(value);
+}
+
+export function parseQuantity(value: string | number | null | undefined): number {
+  const parsed = typeof value === "number" ? value : Number.parseFloat(value ?? "0");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function parseFiniteNumber(value: string | number | null | undefined): number | null {
+  if (value == null) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function parseNumberOrZero(value: string | number | null | undefined): number {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function parseNonNegativeNumber(
+  value: string | number | null | undefined,
+): number | null {
+  const parsed = parseFiniteNumber(value);
+  return parsed != null && parsed >= 0 ? parsed : null;
+}
+
+export function parsePositiveNumber(value: string | number | null | undefined): number | null {
+  const parsed = parseFiniteNumber(value);
+  return parsed != null && parsed > 0 ? parsed : null;
+}
+
+export function normalizeTextValue(value: unknown): string {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+export function normalizeNullableTextValue(value: unknown): string | null {
+  const text = normalizeTextValue(value);
+  return text === "" ? null : text;
 }
 
 /**
@@ -364,6 +541,45 @@ export function normalizeAddressFields(address: AddressLike): Required<AddressLi
   return normalized as Required<AddressLike>;
 }
 
+export function emptyAddressFields(): Required<AddressLike> {
+  return {
+    line1: null,
+    line2: null,
+    city: null,
+    region: null,
+    postcode: null,
+    country: null,
+  };
+}
+
+export function isAddressBlank(address: AddressLike | null | undefined) {
+  if (!address) return true;
+  const normalized = normalizeAddressFields(address);
+  return [
+    normalized.line1,
+    normalized.line2,
+    normalized.city,
+    normalized.region,
+    normalized.postcode,
+    normalized.country,
+  ].every((part) => !part);
+}
+
+export function addressKey(address: AddressLike | null | undefined) {
+  const normalized = address ? normalizeAddressFields(address) : emptyAddressFields();
+  return [
+    normalized.line1,
+    normalized.line2,
+    normalized.city,
+    normalized.region,
+    normalized.postcode,
+    normalized.country,
+  ]
+    .map((part) => part ?? "")
+    .join("\u001f")
+    .replace(/^\u001f+|\u001f+$/g, "");
+}
+
 /**
  * Format a structured address into lines suitable for <pre>/whitespace-pre-wrap display.
  * Returns null if every field is blank.
@@ -388,6 +604,10 @@ export function formatAddressLines(address: AddressLike): string[] {
 
 export function formatAddress(address: AddressLike): string {
   return formatAddressLines(address).join("\n");
+}
+
+export function formatAddressInline(address: AddressLike): string {
+  return formatAddressLines(address).join(", ");
 }
 
 /**
@@ -454,6 +674,49 @@ export function getFieldArrayError(error: unknown): string | null {
   return null;
 }
 
+export type FormErrorState = Record<string, unknown>;
+
+export function setFormErrorPath(
+  target: FormErrorState,
+  path: PropertyKey[],
+  message: string,
+) {
+  let current: Record<string, unknown> = target;
+  path.forEach((part, index) => {
+    const key = String(part);
+    if (index === path.length - 1) {
+      current[key] = { message };
+      return;
+    }
+
+    const next = current[key];
+    if (!next || typeof next !== "object") {
+      current[key] = {};
+    }
+    current = current[key] as Record<string, unknown>;
+  });
+}
+
+export function buildFormErrorStateFromIssues(
+  issues: Array<{ path: PropertyKey[]; message: string }>,
+) {
+  const errors: FormErrorState = {};
+  issues.forEach((issue) => {
+    setFormErrorPath(errors, issue.path, issue.message);
+  });
+  return errors;
+}
+
+export function buildFormErrorStateFromFieldErrors(
+  fieldErrors: Record<string, string[]> | null | undefined,
+) {
+  const errors: FormErrorState = {};
+  Object.entries(fieldErrors ?? {}).forEach(([field, messages]) => {
+    setFormErrorPath(errors, field.split("."), messages[0] ?? "Invalid value");
+  });
+  return errors;
+}
+
 export function getFirstFormErrorMessage(error: unknown): string | null {
   if (!error || typeof error !== "object") return null;
 
@@ -472,6 +735,50 @@ export function getFirstFormErrorMessage(error: unknown): string | null {
   }
 
   return null;
+}
+
+export function getNestedFormErrorMessage(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const candidate = error as { message?: unknown; root?: unknown };
+  if (typeof candidate.message === "string") return candidate.message;
+  return getNestedFormErrorMessage(candidate.root);
+}
+
+export function getIndexedFormErrorMessage<Key extends string>(
+  error: unknown,
+  rowIndex: number,
+  key: Key,
+): string | null {
+  if (!error || typeof error !== "object") return null;
+  const rowError = (error as Record<string, unknown>)[rowIndex];
+  if (!rowError || typeof rowError !== "object") return null;
+  return getNestedFormErrorMessage((rowError as Record<string, unknown>)[key]);
+}
+
+export function buildIndexedFormErrorMap<Row, Key extends string>(
+  error: unknown,
+  rows: Row[],
+  keys: Key[],
+  getRowId: (row: Row) => string,
+): Map<string, Map<Key, string>> {
+  const byRowId = new Map<string, Map<Key, string>>();
+  const rowErrors = Array.isArray(error) ? error : [];
+
+  rowErrors.forEach((rowError, index) => {
+    const row = rows[index];
+    if (!row || !rowError || typeof rowError !== "object") return;
+
+    const rowErrorObject = rowError as Record<string, unknown>;
+    const rowMessages = new Map<Key, string>();
+    keys.forEach((key) => {
+      const message = getNestedFormErrorMessage(rowErrorObject[key]);
+      if (message) rowMessages.set(key, message);
+    });
+
+    if (rowMessages.size > 0) byRowId.set(getRowId(row), rowMessages);
+  });
+
+  return byRowId;
 }
 
 /**

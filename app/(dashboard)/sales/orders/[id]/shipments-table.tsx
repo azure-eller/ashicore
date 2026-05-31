@@ -6,7 +6,10 @@ import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { MoreVerticalIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
-import { StatusLabel, type StatusTone } from "@/components/ui/status-label";
+import {
+  StatusBadge,
+  type StatusBadgeConfig,
+} from "@/components/status-badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,10 +41,10 @@ export type ShipmentsTableProps = {
   onDeleteShipment?: (shipment: SalesShipmentRow) => void;
 };
 
-const shipmentStatusTone: Record<SalesShipmentRow["status"], StatusTone> = {
-  planned: "info",
-  shipped: "success",
-};
+const shipmentStatusConfig = {
+  planned: { label: "PLANNED", tone: "info" },
+  shipped: { label: "SHIPPED", tone: "success" },
+} satisfies StatusBadgeConfig<SalesShipmentRow["status"]>;
 
 function shipmentToPayload(
   shipment: SalesShipmentRow,
@@ -113,9 +116,7 @@ export function ShipmentsTable({
         width: 130,
         cellRenderer: ({ data }: ICellRendererParams<SalesShipmentRow>) =>
           data ? (
-            <StatusLabel tone={shipmentStatusTone[data.status]}>
-              {data.status === "planned" ? "PLANNED" : "SHIPPED"}
-            </StatusLabel>
+            <StatusBadge status={data.status} config={shipmentStatusConfig} />
           ) : null,
       },
       {

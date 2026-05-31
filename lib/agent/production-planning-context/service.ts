@@ -28,6 +28,10 @@ import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { type Tx, withOrgContext } from "@/lib/db/with-org-context";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { normalizeNumeric, roundQuantity, todayInTimeZone } from "@/lib/format";
+import {
+  allocationQuantityString,
+  toAllocationQuantity,
+} from "@/lib/inventory/allocation/format";
 import { calculateIngredientPlannedQuantity, normalizeRecipeBasis } from "@/lib/manufacturing/consumption";
 import { buildPlanningSnapshotInTx } from "@/lib/planning/service";
 import type { PlanningSnapshot } from "@/lib/planning/types";
@@ -63,14 +67,8 @@ const MAX_MARKDOWN_OPEN_MOS = 20;
 const MAX_MARKDOWN_TOP_LEVEL_BOMS = 90;
 const DEFAULT_AGENT_CONTEXT_TIME_ZONE = "America/Denver";
 
-function toQuantity(value: string | number | null | undefined) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function quantityString(value: number) {
-  return normalizeNumeric(roundQuantity(Math.max(0, value)));
-}
+const toQuantity = toAllocationQuantity;
+const quantityString = allocationQuantityString;
 
 async function loadOrganizationTodayInTx(tx: Tx, orgId: string) {
   const [row] = await tx

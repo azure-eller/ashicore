@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { del } from "@vercel/blob";
+import { jsonCreated } from "@/lib/api/responses";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { deletePrivateBlobsIfConfigured } from "@/lib/blob-storage";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { insertCustomerSchema } from "@/lib/schemas/customers";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
@@ -20,24 +22,18 @@ export const GET = apiHandler(async (request) => {
 
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("sales", request.headers);
-  const body = await request.json();
-  const data = insertCustomerSchema.parse(body);
+  const data = await parseJsonBody(request, insertCustomerSchema);
   const customer = await createCustomer(data);
-  return NextResponse.json(customer, { status: 201 });
+  return jsonCreated(customer);
 });
 
 export const DELETE = apiHandler(async (request) => {
   await assertModuleWriteAccess("sales", request.headers);
-  const body = await request.json();
-  const data = bulkDeleteSchema.parse(body);
+  const data = await parseJsonBody(request, bulkDeleteSchema);
 
   try {
     const result = await deleteCustomers(data.ids);
-    if (process.env.BLOB_READ_WRITE_TOKEN && result.blobUrls.length > 0) {
-      await Promise.all(
-        result.blobUrls.map((blobUrl) => del(blobUrl).catch(() => undefined))
-      );
-    }
+    await deletePrivateBlobsIfConfigured(result.blobUrls);
 
     return NextResponse.json(result);
   } catch (error) {

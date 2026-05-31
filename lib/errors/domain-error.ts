@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { jsonError } from "@/lib/api/responses";
 
 export type DomainFieldErrors = Record<string, string[]>;
 
@@ -29,13 +30,13 @@ export class DomainError<
   }
 
   toResponse(): NextResponse<Record<string, unknown>> {
-    const body =
+    const extra =
       this.extra != null
-        ? { error: this.message, ...this.extra }
+        ? this.extra
         : this.errors != null
-          ? { error: this.message, errors: this.errors }
-          : { error: this.message };
+          ? { errors: this.errors }
+          : undefined;
 
-    return NextResponse.json(body, { status: this.status });
+    return jsonError(this.message, this.status, extra);
   }
 }

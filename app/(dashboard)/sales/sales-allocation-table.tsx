@@ -30,6 +30,7 @@ import {
   Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { ERPDataGrid } from "@/components/erp-data-grid";
+import { SurfacePanel } from "@/components/surface-panel";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -46,7 +47,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { apiJson } from "@/lib/client/api";
-import { formatQuantity } from "@/lib/format";
+import { formatQuantity, parseQuantity } from "@/lib/format";
+import { buildSearchParams } from "@/lib/routing/search-params";
 import type { ItemRow } from "@/app/(dashboard)/inventory/types";
 import type { ManufacturingAllocationDemandRow } from "@/lib/inventory/allocation/manufacturing-demands";
 import {
@@ -209,11 +211,6 @@ type SalesAllocationGridRow =
 
 function isOpenSalesOrder(order: SalesOrderListRow) {
   return (OPEN_SALES_STATUSES as readonly string[]).includes(order.status);
-}
-
-function parseQuantity(value: string | null | undefined) {
-  const parsed = Number.parseFloat(value ?? "0");
-  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function sumDemandQueueSegments(
@@ -1543,7 +1540,11 @@ function AllocationToolbar({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="max-h-[min(560px,calc(100vh-8rem))] w-80 overflow-y-auto">
           <div className="px-2 py-1.5">
-            <label className="flex h-8 items-center gap-2 border border-border bg-background px-2 text-sm">
+            <SurfacePanel
+              as="label"
+              tone="background"
+              className="flex h-8 items-center gap-2 px-2 py-0 text-sm"
+            >
               <HugeiconsIcon
                 icon={Search01Icon}
                 className="size-3.5 text-muted-foreground"
@@ -1556,7 +1557,7 @@ function AllocationToolbar({
                 aria-label="Search allocation columns"
                 className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
               />
-            </label>
+            </SurfacePanel>
           </div>
           <div className="flex items-center justify-between px-2 py-1">
             <DropdownMenuLabel className="p-0">Visible families</DropdownMenuLabel>
@@ -1716,14 +1717,13 @@ export function SalesAllocationTable({
     [orders, inventory, manufacturingDemandRows]
   );
   const poolParams = useMemo(() => {
-    const params = new URLSearchParams();
-    allProducts
+    const itemId = allProducts
       .filter(
         (product) =>
           product.hasActiveDemand || shownExtraProductIds.has(product.itemId)
       )
-      .forEach((product) => params.append("itemId", product.itemId));
-    return params.toString();
+      .map((product) => product.itemId);
+    return buildSearchParams({ itemId }).toString();
   }, [allProducts, shownExtraProductIds]);
   const { data: allocationPools = [], dataUpdatedAt: poolsUpdatedAt } = useQuery({
     queryKey: ["allocation-pools", poolParams],

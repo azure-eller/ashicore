@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 
+import { InsetPanel } from "@/components/inset-panel";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -43,14 +44,14 @@ export function NotesField({
     <Field>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       {readOnlyValue ? (
-        <div
+        <InsetPanel
           className={cn(
-            "min-h-36 whitespace-pre-wrap border border-border p-(--space-4) text-[length:var(--text-sm)]",
+            "min-h-36 whitespace-pre-wrap p-(--space-4) text-[length:var(--text-sm)]",
             readOnlyClassName,
           )}
         >
           {normalizedValue || "-"}
-        </div>
+        </InsetPanel>
       ) : (
         <Textarea
           id={id}

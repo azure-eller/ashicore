@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
+import { parseOptionalJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess, getAuthedMemberContext } from "@/lib/dal/auth";
 import { importSuppliersFromXero } from "@/lib/xero/import-contacts";
 import { XeroError } from "@/lib/xero/errors";
@@ -18,7 +19,7 @@ const bodySchema = z
 export const POST = apiHandler(async (request: Request) => {
   await assertModuleWriteAccess("purchasing", request.headers);
   const context = await getAuthedMemberContext();
-  const body = bodySchema.parse(await request.json().catch(() => undefined));
+  const body = await parseOptionalJsonBody(request, bodySchema);
 
   try {
     const result = await importSuppliersFromXero(context.orgId, {

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
+import { SurfacePanel } from "@/components/surface-panel";
 import { Button } from "@/components/ui/button";
 import { captureAppError } from "@/lib/observability/browser-sentry";
 
@@ -30,7 +31,10 @@ export default function AppError({
 
   return (
     <div className="flex min-h-svh items-center justify-center px-(--space-12) py-(--space-20)">
-      <div className="w-full max-w-md space-y-(--space-8) border bg-background p-(--space-12) text-foreground shadow-none">
+      <SurfacePanel
+        tone="background"
+        className="w-full max-w-md space-y-(--space-8) p-(--space-12) shadow-none"
+      >
         <div className="space-y-(--space-4)">
           <h1 className="text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-[var(--tracking-tight)]">Something went wrong</h1>
           <p className="text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
@@ -40,7 +44,7 @@ export default function AppError({
         <Button type="button" onClick={handleRetry}>
           Try again
         </Button>
-      </div>
+      </SurfacePanel>
     </div>
   );
 }

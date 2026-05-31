@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   copyCurrentOperationsToVariants,
@@ -16,7 +17,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("inventory", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "copyOperationsFromVariant");
   const { id } = await (ctx as RouteContext).params;
-  const input = copyFromSchema.parse(await request.json());
+  const input = await parseJsonBody(request, copyFromSchema);
   try {
     const result = await copyCurrentOperationsToVariants(
       input.sourceVariantId,

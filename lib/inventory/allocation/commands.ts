@@ -38,13 +38,8 @@ type AllocationOperationResult =
   | typeof ALLOCATION_SAVE_RESULT
   | null;
 
-function toQuantity(value: string | number | null | undefined) {
-  return toAllocationQuantity(value);
-}
-
-function quantityString(value: number) {
-  return allocationQuantityString(value);
-}
+const toQuantity = toAllocationQuantity;
+const quantityString = allocationQuantityString;
 
 function isDemandType(value: string): value is AllocationDemandType {
   return (

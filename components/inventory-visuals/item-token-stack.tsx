@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { SurfacePanel } from "@/components/surface-panel";
 import { cn } from "@/lib/utils";
 import { ItemToken } from "./item-token";
 import type {
@@ -69,15 +70,17 @@ export function ItemTokenStack({
         />
       ))}
       {overflowCount > 0 ? (
-        <span
+        <SurfacePanel
+          as="span"
+          tone="background"
           className={cn(
-            "ml-1 inline-flex items-center justify-center border border-border bg-background font-semibold text-muted-foreground shadow-xs",
+            "ml-1 inline-flex items-center justify-center p-0 font-semibold text-muted-foreground shadow-xs",
             OVERFLOW_SIZE_CLASS[size]
           )}
           style={{ zIndex: visibleCount + 1 }}
         >
           +{overflowCount}
-        </span>
+        </SurfacePanel>
       ) : null}
     </div>
   );

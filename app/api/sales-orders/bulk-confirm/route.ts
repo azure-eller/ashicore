@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { bulkConfirmSalesOrdersSchema } from "@/lib/schemas/sales-orders";
 import {
@@ -10,8 +11,7 @@ import {
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("sales", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "bulkConfirmSalesOrders");
-  const body = await request.json();
-  const data = bulkConfirmSalesOrdersSchema.parse(body);
+  const data = await parseJsonBody(request, bulkConfirmSalesOrdersSchema);
 
   try {
     const result = await bulkConfirmSalesOrders(data, { idempotencyKey });

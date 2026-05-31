@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { jsonOk } from "@/lib/api/responses";
 import { AuthorizationError } from "@/lib/authz";
 import { diffInventoryStateForOrganizations } from "@/lib/inventory/kernel";
+import { requestSearchParams } from "@/lib/routing/search-params";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -26,8 +27,7 @@ function assertInventoryReconciliationAccess(request: Request) {
 export const GET = apiHandler(async (request: Request) => {
   assertInventoryReconciliationAccess(request);
 
-  const url = new URL(request.url);
-  const orgId = url.searchParams.get("orgId");
+  const orgId = requestSearchParams(request).get("orgId");
   const results = await diffInventoryStateForOrganizations(
     orgId ? [orgId] : undefined
   );
@@ -44,8 +44,7 @@ export const GET = apiHandler(async (request: Request) => {
     );
   }
 
-  return NextResponse.json({
-    ok: true,
+  return jsonOk({
     checkedOrganizations: results.length,
     results: results.map((result) => ({
       orgId: result.orgId,

@@ -2,6 +2,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/empty-state";
+import { TableFrame, TableFrameFooter, TableFrameHeader } from "@/components/table-frame";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -11,7 +13,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatQuantity, normalizeNumeric } from "@/lib/format";
+import { apiJson } from "@/lib/client/api";
+import { formatQuantity, normalizeNumeric, normalizeQuantityNumber } from "@/lib/format";
+import { appendSearchParams } from "@/lib/routing/search-params";
+import { toAllocationQuantity } from "@/lib/inventory/allocation/format";
 import type { AllocationWorkspace } from "@/lib/inventory/allocation/types";
 
 export type IngredientLotAllocationValue = {
@@ -23,15 +28,7 @@ type ManufacturingIngredientSources = AllocationWorkspace & {
   currentAllocations?: Array<{ sourceId: string; quantity: string }>;
 };
 
-function parseQuantityValue(value: string | number | null | undefined) {
-  if (value == null) return 0;
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function normalizeQuantityNumber(value: number) {
-  return Number(normalizeNumeric(value));
-}
+const parseQuantityValue = toAllocationQuantity;
 
 function sumLotAllocations(
   allocations: IngredientLotAllocationValue["allocations"] | undefined,
@@ -84,21 +81,14 @@ export function ManufacturingIngredientLotCard({
   const sourcesQuery = useQuery<ManufacturingIngredientSources>({
     queryKey: ["manufacturing-ingredient-sources", itemId, ingredientId],
     queryFn: async () => {
-      const params = new URLSearchParams({ itemId });
-      if (ingredientId) params.set("ingredientId", ingredientId);
-      if (manufacturingOrderId) {
-        params.set("manufacturingOrderId", manufacturingOrderId);
-      }
-      const response = await fetch(
-        `/api/manufacturing-orders/ingredient-sources?${params}`,
+      return apiJson<ManufacturingIngredientSources>(
+        appendSearchParams("/api/manufacturing-orders/ingredient-sources", {
+          itemId,
+          ingredientId,
+          manufacturingOrderId,
+        }),
+        { fallbackError: "Failed to load ingredient lots." },
       );
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to load ingredient lots.");
-      }
-
-      return body as ManufacturingIngredientSources;
     },
     enabled: itemId.length > 0 && plannedQuantityNumber > 0,
   });
@@ -195,8 +185,8 @@ export function ManufacturingIngredientLotCard({
   if (plannedQuantityNumber <= 0) return null;
 
   return (
-    <div className="border">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b px-4 py-3">
+    <TableFrame>
+      <TableFrameHeader className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">{itemName}</div>
           <div className="text-[length:var(--text-xs)] text-muted-foreground">
@@ -226,20 +216,18 @@ export function ManufacturingIngredientLotCard({
             Auto FIFO
           </Button>
         </div>
-      </div>
+      </TableFrameHeader>
 
       {sourcesQuery.isLoading ? (
-        <div className="px-4 py-4 text-sm text-muted-foreground">Loading lots...</div>
+        <EmptyState density="compact">Loading lots...</EmptyState>
       ) : sourcesQuery.isError ? (
-        <div className="px-4 py-4 text-sm text-destructive">
+        <EmptyState density="compact" tone="destructive">
           Failed to load ingredient lots.
-        </div>
+        </EmptyState>
       ) : lots.length === 0 ? (
-        <div className="px-4 py-4 text-sm text-muted-foreground">
-          No available lots found.
-        </div>
+        <EmptyState density="compact">No available lots found.</EmptyState>
       ) : (
-        <div className="overflow-x-auto">
+        <>
           <Table>
             <TableHeader>
               <TableRow>
@@ -299,12 +287,12 @@ export function ManufacturingIngredientLotCard({
             </TableBody>
           </Table>
           {isOverPlanned ? (
-            <div className="border-t px-4 py-2 text-[length:var(--text-xs)] text-destructive">
+            <TableFrameFooter className="py-(--space-2) text-[length:var(--text-xs)] text-destructive">
               {formatQuantity(normalizeNumeric(manualAllocatedQuantity - plannedQuantityNumber))} over need
-            </div>
+            </TableFrameFooter>
           ) : null}
-        </div>
+        </>
       )}
-    </div>
+    </TableFrame>
   );
 }

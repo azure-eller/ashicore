@@ -4,6 +4,8 @@ import { DEFAULT_COUNTRY } from "@/lib/address-options";
 import { salesOrders } from "@/lib/db/schema";
 import { normalizeMoney } from "@/lib/format";
 import {
+  isNonNegativeNumberString,
+  isPositiveNumberString,
   isValidIsoDate,
   nullableString,
   nullableStringStrict,
@@ -87,8 +89,7 @@ const cleanedLinesSchema = z
           path: [index, "quantity"],
         });
       } else {
-        const parsed = Number(quantity);
-        if (!Number.isFinite(parsed) || parsed <= 0) {
+        if (!isPositiveNumberString(quantity)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: "Quantity must be greater than 0",
@@ -104,8 +105,7 @@ const cleanedLinesSchema = z
           path: [index, "unitPrice"],
         });
       } else {
-        const parsed = Number(unitPrice);
-        if (!Number.isFinite(parsed) || parsed <= 0) {
+        if (!isPositiveNumberString(unitPrice)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: "Unit price must be greater than 0",
@@ -227,8 +227,7 @@ const cleanedOrderShipmentsSchema = z
         }
         seen.add(itemId);
 
-        const parsed = Number(quantity);
-        if (!Number.isFinite(parsed) || parsed <= 0) {
+        if (!isPositiveNumberString(quantity)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: "Quantity must be greater than 0",
@@ -356,8 +355,7 @@ const patchMoneyString = z
   })
   .refine((value) => {
     if (value == null) return true;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) && parsed >= 0;
+    return isNonNegativeNumberString(value);
   }, "Amount must be a non-negative number")
   .transform((value) => {
     if (value == null) return value;
@@ -507,8 +505,7 @@ const shipmentLinesSchema = z
       seen.add(line.salesOrderLineId);
 
       const quantity = line.quantity?.trim() ?? "";
-      const parsed = Number(quantity);
-      if (!Number.isFinite(parsed) || parsed <= 0) {
+      if (!isPositiveNumberString(quantity)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: "Quantity must be greater than 0",

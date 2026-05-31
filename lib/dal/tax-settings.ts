@@ -6,6 +6,7 @@ import { trimScale } from "@/lib/db/numeric";
 import { organizationTaxSettings, taxRates } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import { isNonNegativeNumberString } from "@/lib/schemas/shared";
 
 export type TaxRateOption = {
   id: string;
@@ -23,8 +24,7 @@ export const taxRateInputSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().trim().min(1, "Name is required").max(120),
   ratePercent: z.string().trim().min(1, "Rate is required").superRefine((value, ctx) => {
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed) || parsed < 0) {
+    if (!isNonNegativeNumberString(value)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Rate must be 0 or greater",

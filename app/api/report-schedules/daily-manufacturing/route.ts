@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import {
   getDailyManufacturingReportScheduleForRequest,
   updateDailyManufacturingReportSchedule,
@@ -12,7 +13,10 @@ export const GET = apiHandler(async (request: Request) => {
 });
 
 export const PUT = apiHandler(async (request: Request) => {
-  const data = updateDailyManufacturingReportScheduleSchema.parse(await request.json());
+  const data = await parseJsonBody(
+    request,
+    updateDailyManufacturingReportScheduleSchema,
+  );
   const result = await updateDailyManufacturingReportSchedule(request.headers, data);
   return NextResponse.json(result);
 });

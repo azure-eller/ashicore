@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { jsonFlag } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { deleteXeroConnection } from "@/lib/dal/xero";
 import { tryRecordAccountingAuditEvent } from "@/lib/accounting/audit-events";
@@ -14,5 +14,5 @@ export const POST = apiHandler(async (request: Request) => {
     outcome: "success",
     source: "POST /api/xero/disconnect",
   });
-  return NextResponse.json({ disconnected: true });
+  return jsonFlag("disconnected");
 });

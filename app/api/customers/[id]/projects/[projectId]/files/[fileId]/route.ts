@@ -1,8 +1,14 @@
-import { del } from "@vercel/blob";
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
+import {
+  assertPrivateBlobStorageConfigured,
+  deletePrivateBlobIfConfigured,
+  formatAttachmentContentDisposition,
+  getPrivateBlobForDownload,
+} from "@/lib/blob-storage";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
-import { getPrivateBlobForDownload } from "@/lib/blob-storage";
 import { customerProjectFileRenameSchema } from "@/lib/schemas/customer-crm";
 import {
   deleteCustomerProjectFile,
@@ -14,39 +20,28 @@ type ProjectFileRouteContext = {
   params: Promise<{ id: string; projectId: string; fileId: string }>;
 };
 
-function contentDisposition(filename: string) {
-  const fallback = filename.replace(/["\\]/g, "_");
-  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
-}
-
 export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleReadAccess("sales", request.headers);
-
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    return NextResponse.json(
-      { error: "Private file storage is not configured." },
-      { status: 503 }
-    );
-  }
+  assertPrivateBlobStorageConfigured();
 
   const { id, projectId, fileId } = await (ctx as ProjectFileRouteContext).params;
   const file = await getCustomerProjectFileForDownload(id, projectId, fileId);
 
   if (!file) {
-    return NextResponse.json({ error: "File not found" }, { status: 404 });
+    return jsonNotFound("File not found");
   }
 
   const blob = await getPrivateBlobForDownload(file.blobUrl);
 
   if (!blob) {
-    return NextResponse.json({ error: "File not found" }, { status: 404 });
+    return jsonNotFound("File not found");
   }
 
   return new NextResponse(blob.stream, {
     headers: {
       "Content-Type": file.contentType,
       "Content-Length": String(file.sizeBytes),
-      "Content-Disposition": contentDisposition(file.filename),
+      "Content-Disposition": formatAttachmentContentDisposition(file.filename),
       "Cache-Control": "private, no-store",
     },
   });
@@ -55,11 +50,11 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
   const { id, projectId, fileId } = await (ctx as ProjectFileRouteContext).params;
-  const data = customerProjectFileRenameSchema.parse(await request.json());
+  const data = await parseJsonBody(request, customerProjectFileRenameSchema);
   const file = await renameCustomerProjectFile(id, projectId, fileId, data);
 
   if (!file) {
-    return NextResponse.json({ error: "File not found" }, { status: 404 });
+    return jsonNotFound("File not found");
   }
 
   return NextResponse.json(file);
@@ -71,12 +66,10 @@ export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {
   const file = await deleteCustomerProjectFile(id, projectId, fileId);
 
   if (!file) {
-    return NextResponse.json({ error: "File not found" }, { status: 404 });
+    return jsonNotFound("File not found");
   }
 
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    await del(file.blobUrl).catch(() => undefined);
-  }
+  await deletePrivateBlobIfConfigured(file.blobUrl);
 
-  return NextResponse.json({ success: true });
+  return jsonSuccess();
 });

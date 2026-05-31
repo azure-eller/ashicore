@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonError, jsonCreated } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import {
@@ -19,12 +21,11 @@ export const GET = apiHandler(async (request) => {
 
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("purchasing", request.headers);
-  const body = await request.json();
-  const data = insertPurchaseOrderSchema.parse(body);
+  const data = await parseJsonBody(request, insertPurchaseOrderSchema);
 
   try {
     const order = await createPurchaseOrder(data);
-    return NextResponse.json(order, { status: 201 });
+    return jsonCreated(order);
   } catch (error) {
     if (error instanceof PurchasingError) return error.toResponse();
     throw error;
@@ -33,12 +34,11 @@ export const POST = apiHandler(async (request) => {
 
 export const DELETE = apiHandler(async (request) => {
   await assertModuleWriteAccess("purchasing", request.headers);
-  const body = await request.json();
-  const data = bulkDeleteSchema.parse(body);
+  const data = await parseJsonBody(request, bulkDeleteSchema);
   const result = await deletePurchaseOrders(data.ids);
 
   if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    return jsonError(result.error);
   }
 
   return NextResponse.json(result);

@@ -1,4 +1,8 @@
-import { normalizeNumeric, normalizeNumericScale } from "@/lib/format";
+import {
+  normalizeNumeric,
+  normalizeNumericScale,
+  parsePositiveNumber,
+} from "@/lib/format";
 
 export const RECIPE_BASES = ["unit", "batch"] as const;
 
@@ -8,19 +12,13 @@ export function normalizeRecipeBasis(value: string | null | undefined): RecipeBa
   return value === "batch" ? "batch" : "unit";
 }
 
-function toPositiveNumber(value: string | number | null | undefined) {
-  if (value == null) return null;
-  const parsed = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
 export function calculateIngredientPlannedQuantity(input: {
   recipeBasis: RecipeBasis;
   quantityPerRecipeBasis: string | number;
   outputQuantity: string | number;
   numberOfBatches?: number | null;
 }) {
-  const quantity = toPositiveNumber(input.quantityPerRecipeBasis);
+  const quantity = parsePositiveNumber(input.quantityPerRecipeBasis);
   if (quantity == null) return "0";
 
   if (input.recipeBasis === "batch") {
@@ -33,7 +31,7 @@ export function calculateIngredientPlannedQuantity(input: {
       : "0";
   }
 
-  const outputQuantity = toPositiveNumber(input.outputQuantity);
+  const outputQuantity = parsePositiveNumber(input.outputQuantity);
   return outputQuantity != null
     ? normalizeNumericScale(quantity * outputQuantity, 4)
     : "0";
@@ -44,11 +42,11 @@ export function calculateAverageUnitConsumptionQuantity(input: {
   recipeBasis?: RecipeBasis | string | null;
   outputQuantity?: string | number | null;
 }) {
-  const quantity = toPositiveNumber(input.quantity);
+  const quantity = parsePositiveNumber(input.quantity);
   if (quantity == null) return "0";
 
   if (normalizeRecipeBasis(input.recipeBasis) === "batch") {
-    const outputQuantity = toPositiveNumber(input.outputQuantity);
+    const outputQuantity = parsePositiveNumber(input.outputQuantity);
     return outputQuantity != null
       ? normalizeNumericScale(quantity / outputQuantity, 6)
       : "0";

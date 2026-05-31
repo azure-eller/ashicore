@@ -1,6 +1,6 @@
 import "server-only";
 
-import { escapeHtml } from "@/lib/format";
+import { escapeHtml, formatCurrency, formatQuantity as formatDisplayQuantity } from "@/lib/format";
 
 export type AccountingDocumentEmailLine = {
   description: string;
@@ -31,11 +31,6 @@ const EMAIL_LINE_2 = "#e8e8e3";
 const EMAIL_ACCENT = "#1c3d6b";
 const EMAIL_ACCENT_TEXT = "#ffffff";
 
-const moneyFormat = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-});
-
 const dateFormat = new Intl.DateTimeFormat("en-US", {
   month: "short",
   day: "numeric",
@@ -43,7 +38,7 @@ const dateFormat = new Intl.DateTimeFormat("en-US", {
 });
 
 function formatMoney(value: string): string {
-  return moneyFormat.format(parseFloat(value));
+  return formatCurrency(value, "USD") ?? value;
 }
 
 function formatDateLabel(value: string | null | undefined): string | null {
@@ -56,7 +51,7 @@ function formatDateLabel(value: string | null | undefined): string | null {
 function formatQuantity(value: string | null): string {
   if (!value) return "";
   const parsed = parseFloat(value);
-  return Number.isFinite(parsed) ? parsed.toString() : value;
+  return Number.isFinite(parsed) ? formatDisplayQuantity(value) : value;
 }
 
 function buildInvoiceSchema(params: AccountingDocumentEmailInput) {

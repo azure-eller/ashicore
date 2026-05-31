@@ -11,6 +11,12 @@ import {
   FileSyncIcon,
   MailSend02Icon,
 } from "@hugeicons/core-free-icons";
+import {
+  ConfiguredBadge,
+  type ConfiguredBadgeConfig,
+} from "@/components/configured-badge";
+import { InsetPanel } from "@/components/inset-panel";
+import { SurfacePanel } from "@/components/surface-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -26,13 +32,21 @@ import {
   FieldGroup,
 } from "@/components/ui/field";
 import { Separator } from "@/components/ui/separator";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTimeLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 
 export type AccountingDocumentPushStatus = "pending" | "pushed" | "failed" | null;
 export type AccountingDocumentEmailStatus = "sent" | "failed" | "skipped" | null;
 export type AccountingSyncStageState = "waiting" | "active" | "success" | "failed" | "skipped";
+
+const syncBadgeConfig = {
+  active: { label: "Working", variant: "secondary" },
+  failed: { label: "Failed", variant: "destructive" },
+  skipped: { label: "Skipped", variant: "outline" },
+  success: { label: "Done" },
+  waiting: { label: "Waiting", variant: "secondary" },
+} satisfies ConfiguredBadgeConfig<AccountingSyncStageState>;
 
 export type AccountingSyncDocument = {
   providerName: string;
@@ -204,9 +218,12 @@ export function AccountingSyncStatus({
     const canOpenProviderDocument = providerAction && document.pushStatus === "pushed";
 
     return (
-      <div className="flex max-w-3xl flex-wrap items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm text-card-foreground">
+      <SurfacePanel
+        padding="sm"
+        className="flex max-w-3xl flex-wrap items-center gap-(--space-4) px-(--space-6) py-(--space-4) text-[length:var(--text-sm)]"
+      >
         <span className="font-medium">Accounting Sync</span>
-        <SyncBadge state={pushStage.state} label={statusBadgeLabel(pushStage.state)} />
+        <SyncBadge state={pushStage.state} />
         {canOpenProviderDocument ? (
           <button
             type="button"
@@ -250,24 +267,24 @@ export function AccountingSyncStatus({
             {retryEmailPending ? "Sending..." : emailActionLabel}
           </Button>
         ) : null}
-      </div>
+      </SurfacePanel>
     );
   }
 
   return (
-    <div className="flex max-w-3xl flex-col gap-4 rounded-md border bg-card p-4 text-card-foreground">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-semibold tracking-tight">Accounting Sync</h2>
-            <SyncBadge state={pushStage.state} label={statusBadgeLabel(pushStage.state)} />
+    <SurfacePanel className="flex max-w-3xl flex-col gap-(--space-8)">
+      <div className="flex flex-col gap-(--space-6) sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-col gap-(--space-2)">
+          <div className="flex flex-wrap items-center gap-(--space-4)">
+            <h2 className="text-[length:var(--text-base)] font-semibold tracking-tight">Accounting Sync</h2>
+            <SyncBadge state={pushStage.state} />
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-[length:var(--text-sm)] text-muted-foreground">
             {document.providerName}
             {document.documentNumber ? ` · ${document.documentNumber}` : ""}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-(--space-4)">
           {providerAction && document.pushStatus === "pushed" ? (
             <Button
               type="button"
@@ -324,15 +341,15 @@ export function AccountingSyncStatus({
 
       <Separator />
 
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-(--space-6) md:grid-cols-2">
         <StatusLine stage={pushStage} />
         {document.emailStatus ? <StatusLine stage={emailStage} /> : null}
       </div>
 
       {document.retryCount > 1 ? (
-        <p className="text-xs text-muted-foreground">Sync attempts: {document.retryCount}</p>
+        <p className="text-[length:var(--text-xs)] text-muted-foreground">Sync attempts: {document.retryCount}</p>
       ) : null}
-    </div>
+    </SurfacePanel>
   );
 }
 
@@ -370,13 +387,13 @@ export function AccountingActionConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={isPending ? undefined : onOpenChange}>
-      <DialogContent size="lg" className="bg-background text-foreground">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
-        <Timeline className="pl-10">
+        <Timeline className="pl-(--space-20)">
           <ActionTimelineStep
             number="1"
             title={localStep.title}
@@ -463,20 +480,22 @@ function ActionTimelineStep({
       <TimelineNode active={number === "1"}>
         {number}
       </TimelineNode>
-      <div
+      <SurfacePanel
+        tone="background"
+        padding="sm"
         className={cn(
-          "flex items-center justify-between gap-4 rounded-md border bg-background p-3",
+          "flex items-center justify-between gap-(--space-8)",
           disabled && "opacity-60"
         )}
       >
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-medium">{title}</p>
+          <div className="flex flex-wrap items-center gap-(--space-4)">
+            <p className="text-[length:var(--text-sm)] font-medium">{title}</p>
             {badge ? <Badge variant="secondary">{badge}</Badge> : null}
           </div>
-          <p className="mt-1 truncate text-sm text-muted-foreground">{detail}</p>
+          <p className="mt-(--space-2) truncate text-[length:var(--text-sm)] text-muted-foreground">{detail}</p>
           {meta ? (
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">{meta}</p>
+            <p className="mt-(--space-1) truncate text-[length:var(--text-xs)] text-muted-foreground">{meta}</p>
           ) : null}
         </div>
         {checkboxId ? (
@@ -488,7 +507,7 @@ function ActionTimelineStep({
             aria-label={title}
           />
         ) : null}
-      </div>
+      </SurfacePanel>
     </div>
   );
 }
@@ -528,13 +547,13 @@ export function AccountingSyncDialog({
 
   return (
     <Dialog open={open} onOpenChange={isWorking ? undefined : onOpenChange}>
-      <DialogContent size="md" className="bg-background text-foreground">
+      <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
-        <Timeline className="pl-10">
+        <Timeline className="pl-(--space-20)">
           {stages.map((stage, index) => (
             <StatusTimelineStep
               key={stage.id}
@@ -549,16 +568,16 @@ export function AccountingSyncDialog({
           <AccountingSyncWarnings warnings={warnings} />
         ) : null}
 
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        {error ? <p className="text-[length:var(--text-sm)] text-destructive">{error}</p> : null}
 
         {showResultActions ? (
-          <div className="flex flex-col gap-2 pl-10">
+          <div className="flex flex-col gap-(--space-4) pl-(--space-20)">
             {documentId ? (
-              <p className="break-all text-xs text-muted-foreground">
+              <p className="break-all text-[length:var(--text-xs)] text-muted-foreground">
                 {documentIdLabel}: {documentId}
               </p>
             ) : null}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-(--space-4)">
               {providerAction ? (
                 <Button
                   type="button"
@@ -619,22 +638,24 @@ function AccountingSyncWarnings({
   warnings: AccountingSyncWarning[];
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-md border bg-muted/40 p-3">
+    <InsetPanel className="flex flex-col gap-(--space-4) bg-muted/40">
       {warnings.map((warning) => (
-        <div key={`${warning.title}-${warning.detail}`} className="flex gap-2">
+        <div key={`${warning.title}-${warning.detail}`} className="flex gap-(--space-4)">
           <HugeiconsIcon
             icon={AlertCircleIcon}
             size={16}
-            className="mt-0.5 shrink-0 text-muted-foreground"
+            className="mt-(--space-1) shrink-0 text-muted-foreground"
             aria-hidden
           />
           <div className="min-w-0">
-            <p className="text-sm font-medium">{warning.title}</p>
-            <p className="text-sm text-muted-foreground">{warning.detail}</p>
+            <p className="text-[length:var(--text-sm)] font-medium">{warning.title}</p>
+            <p className="text-[length:var(--text-sm)] text-muted-foreground">
+              {warning.detail}
+            </p>
           </div>
         </div>
       ))}
-    </div>
+    </InsetPanel>
   );
 }
 
@@ -646,7 +667,7 @@ function Timeline({
   className?: string;
 }) {
   return (
-    <FieldGroup className={cn("relative gap-3", className)}>
+    <FieldGroup className={cn("relative gap-(--space-6)", className)}>
       <div
         aria-hidden
         className="absolute bottom-8 left-4 top-8 border-l border-border"
@@ -696,26 +717,28 @@ function StatusTimelineStep({
           number
         )}
       </TimelineNode>
-      <div
+      <SurfacePanel
+        tone="background"
+        padding="sm"
         className={cn(
-          "flex items-center justify-between gap-4 rounded-md border bg-background p-3",
+          "flex items-center justify-between gap-(--space-8)",
           stage.state === "skipped" && "opacity-70"
         )}
       >
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-medium">{stage.label}</p>
-            <SyncBadge state={stage.state} label={statusBadgeLabel(stage.state)} />
+          <div className="flex flex-wrap items-center gap-(--space-4)">
+            <p className="text-[length:var(--text-sm)] font-medium">{stage.label}</p>
+            <SyncBadge state={stage.state} />
           </div>
           {stage.detail ? (
-            <p className="mt-1 break-words text-sm text-muted-foreground">{stage.detail}</p>
+            <p className="mt-(--space-2) break-words text-[length:var(--text-sm)] text-muted-foreground">{stage.detail}</p>
           ) : null}
           {action ? (
             <Button
               type="button"
               size="sm"
               variant="outline"
-              className="mt-2"
+              className="mt-(--space-4)"
               onClick={() => {
                 if (action.href) {
                   window.open(action.href, "_blank", "noopener,noreferrer");
@@ -731,7 +754,7 @@ function StatusTimelineStep({
           ) : null}
         </div>
         <StatusIcon state={stage.state} />
-      </div>
+      </SurfacePanel>
     </div>
   );
 }
@@ -746,9 +769,9 @@ function buildPushStage(
       id: "push",
       label,
       detail: document.documentNumber
-        ? `${document.documentNumber}${document.pushedAt ? ` · ${formatAccountingDateTime(document.pushedAt, timeZone)}` : ""}`
+        ? `${document.documentNumber}${document.pushedAt ? ` · ${formatDateTimeLabel(document.pushedAt, timeZone)}` : ""}`
         : document.pushedAt
-          ? formatAccountingDateTime(document.pushedAt, timeZone)
+          ? formatDateTimeLabel(document.pushedAt, timeZone)
           : null,
       state: "success",
     };
@@ -807,7 +830,7 @@ function buildEmailStage(
       detail: [
         `Accepted by ${document.emailProviderName}`,
         document.recipientEmail ? `To ${document.recipientEmail}` : `To ${document.recipientLabel}`,
-        document.emailedAt ? formatAccountingDateTime(document.emailedAt, timeZone) : null,
+        document.emailedAt ? formatDateTimeLabel(document.emailedAt, timeZone) : null,
       ]
         .filter(Boolean)
         .join(" · "),
@@ -843,33 +866,20 @@ function buildEmailStage(
   };
 }
 
-function formatAccountingDateTime(value: Date | string, timeZone: string): string {
-  if (value instanceof Date) {
-    return formatDateTime(value, timeZone);
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return formatDateTime(date, timeZone);
-}
-
 function StatusLine({ stage }: { stage: AccountingSyncStage }) {
   return (
-    <div className="flex gap-3 rounded-md border bg-background p-3">
+    <SurfacePanel tone="background" padding="sm" className="flex gap-(--space-6)">
       <StatusIcon state={stage.state} />
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-sm font-medium">{stage.label}</p>
-          <SyncBadge state={stage.state} label={statusBadgeLabel(stage.state)} />
+        <div className="flex flex-wrap items-center gap-(--space-4)">
+          <p className="text-[length:var(--text-sm)] font-medium">{stage.label}</p>
+          <SyncBadge state={stage.state} />
         </div>
         {stage.detail ? (
-          <p className="mt-1 break-words text-xs text-muted-foreground">{stage.detail}</p>
+          <p className="mt-(--space-2) break-words text-[length:var(--text-xs)] text-muted-foreground">{stage.detail}</p>
         ) : null}
       </div>
-    </div>
+    </SurfacePanel>
   );
 }
 
@@ -891,7 +901,7 @@ function StatusIcon({ state }: { state: AccountingSyncStageState }) {
       size={18}
       aria-hidden
       className={cn(
-        "mt-0.5 shrink-0 text-muted-foreground",
+        "mt-(--space-1) shrink-0 text-muted-foreground",
         state === "active" && "animate-spin",
         state === "failed" && "text-destructive",
         state === "success" && "text-primary"
@@ -900,41 +910,6 @@ function StatusIcon({ state }: { state: AccountingSyncStageState }) {
   );
 }
 
-function SyncBadge({
-  state,
-  label,
-}: {
-  state: AccountingSyncStageState;
-  label: string;
-}) {
-  return (
-    <Badge
-      variant={
-        state === "failed"
-          ? "destructive"
-          : state === "success"
-            ? "default"
-            : state === "skipped"
-              ? "outline"
-              : "secondary"
-      }
-    >
-      {label}
-    </Badge>
-  );
-}
-
-function statusBadgeLabel(state: AccountingSyncStageState) {
-  switch (state) {
-    case "active":
-      return "Working";
-    case "failed":
-      return "Failed";
-    case "skipped":
-      return "Skipped";
-    case "success":
-      return "Done";
-    case "waiting":
-      return "Waiting";
-  }
+function SyncBadge({ state }: { state: AccountingSyncStageState }) {
+  return <ConfiguredBadge value={state} config={syncBadgeConfig} />;
 }

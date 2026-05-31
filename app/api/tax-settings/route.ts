@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { AuthorizationError, hasModuleAccess } from "@/lib/authz";
 import { getAuthedApiMemberContext } from "@/lib/dal/auth";
 import {
@@ -31,6 +32,6 @@ export const GET = apiHandler(async (request) => {
 export const PUT = apiHandler(async (request) => {
   const context = await getAuthedApiMemberContext(request.headers);
   assertTaxSettingsAccess(context.assignedRoles, "operate");
-  const data = updateTaxSettingsSchema.parse(await request.json());
+  const data = await parseJsonBody(request, updateTaxSettingsSchema);
   return NextResponse.json(await updateTaxSettings(data));
 });

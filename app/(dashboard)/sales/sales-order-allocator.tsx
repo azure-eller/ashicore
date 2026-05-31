@@ -19,9 +19,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Spinner } from "@/components/ui/spinner";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { apiJson } from "@/lib/client/api";
-import { formatDate, formatQuantity } from "@/lib/format";
+import { formatDate, formatQuantity, parseQuantity } from "@/lib/format";
+import { appendSearchParams } from "@/lib/routing/search-params";
+import { isPositiveNumberString } from "@/lib/schemas/shared";
 import { cn } from "@/lib/utils";
 import type { SalesOrdersAllocatorPreference } from "@/lib/view-preferences";
 import styles from "./sales-order-allocator.module.css";
@@ -60,11 +61,6 @@ export type AllocationTarget = {
 };
 
 type SourceDraft = Record<string, string>;
-
-function parseQuantity(value: string | null | undefined) {
-  const parsed = Number.parseFloat(value ?? "0");
-  return Number.isFinite(parsed) ? parsed : 0;
-}
 
 function quantityString(value: number) {
   return value.toFixed(4).replace(/\.?0+$/, "");
@@ -290,15 +286,17 @@ export function AllocationSourceDialog({
       if (!target) {
         throw new Error("Allocation target missing.");
       }
-      const params = new URLSearchParams({
+      const endpoint = appendSearchParams("/api/allocation/workspace", {
         demandType: target.demandType,
-        demandId: target.line.id,
+        demandId: [
+          target.line.id,
+          ...(target.line.allocationDemandIds ?? []).filter(
+            (demandId) => demandId !== target.line.id
+          ),
+        ],
         itemId: target.line.itemId,
       });
-      for (const demandId of target.line.allocationDemandIds ?? []) {
-        if (demandId !== target.line.id) params.append("demandId", demandId);
-      }
-      return apiJson<AllocationWorkspace>(`/api/allocation/workspace?${params}`, {
+      return apiJson<AllocationWorkspace>(endpoint, {
         fallbackError: "Failed to load allocation sources.",
       });
     },
@@ -398,7 +396,7 @@ function AllocationSourceEditor({
     mutationFn: async () =>
       apiJson<{ ok: true }>("/api/allocation/save", {
         method: "POST",
-        headers: createIdempotencyHeaders("saveAllocationWorkspace"),
+        idempotencyKey: "saveAllocationWorkspace",
         body: {
           demandType: target.demandType,
           demandId: target.line.id,
@@ -446,10 +444,11 @@ function AllocationSourceEditor({
     const key = sourceInputKey(source);
     setDraft((current) => {
       const next = { ...current };
-      const parsed = Number(value);
-      if (value.trim() === "" || !Number.isFinite(parsed) || parsed <= 0) {
+      const trimmed = value.trim();
+      if (trimmed === "" || !isPositiveNumberString(trimmed)) {
         delete next[key];
       } else {
+        const parsed = Number(trimmed);
         const selectedElsewhere = Object.entries(next).reduce(
           (sum, [draftKey, draftValue]) =>
             draftKey === key ? sum : sum + parseQuantity(draftValue),

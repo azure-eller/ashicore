@@ -1,5 +1,7 @@
 import "server-only";
 
+import { normalizeNumeric } from "@/lib/format";
+
 export function cleanString(value: unknown, maxLength = 255) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -15,6 +17,19 @@ export function cleanDate(value: unknown) {
 export function asDateString(value: unknown) {
   const date = cleanDate(value);
   return date ? date.toISOString().slice(0, 10) : null;
+}
+
+export function normalizeProviderKey(value: string | null | undefined) {
+  return cleanString(value)?.toLowerCase() ?? null;
+}
+
+export function compactProviderKey(value: string | null | undefined) {
+  return cleanString(value)?.toLowerCase().replace(/[^a-z0-9]/g, "") ?? null;
+}
+
+export function normalizeProviderNumeric(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return null;
+  return normalizeNumeric(value);
 }
 
 export function defaultExtractErrorMessage(error: unknown) {

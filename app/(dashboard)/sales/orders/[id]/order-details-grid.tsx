@@ -2,9 +2,9 @@
 
 import { createContext, useContext, useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Controller, useForm } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import type { z } from "zod";
-import { AddressFields } from "@/components/address-fields";
+import { AddressBookFields } from "@/components/address-book-fields";
 import { CommitInput } from "@/components/card-page/commit-input";
 import {
   DeliveryAddressInput,
@@ -16,8 +16,10 @@ import {
 import { EntityCombobox } from "@/components/entity-combobox";
 import { CardSection } from "@/components/card-page/card-page";
 import {
+  CardFormRow,
   CellShell,
   DisabledFieldTooltip,
+  ReadOnlyFieldValue,
   underlineControlClass,
 } from "@/components/card-page/form-cell";
 import {
@@ -36,10 +38,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { createAddressEntry, updateAddressEntry } from "@/lib/api/clients/customers";
+import { makeUniqueAddressLabel } from "@/lib/address-label";
 import { formatAddressLines } from "@/lib/format";
 import { createAddressEntrySchema } from "@/lib/schemas/addresses";
 import type {
@@ -106,7 +106,7 @@ export function OrderDetailsGrid({
   return (
     <DetailsContext.Provider value={{ controller }}>
       <CardSection title="Order details">
-        <div className={`${cardStyles.formRow} ${cardStyles.formRowFour}`}>
+        <CardFormRow columns="four">
           <CustomerCell
             order={order}
             editable={editable}
@@ -130,14 +130,14 @@ export function OrderDetailsGrid({
             value={order.shipDate}
             editable={editable}
           />
-        </div>
-        <div className={`${cardStyles.formRow} ${cardStyles.formRowFour}`}>
+        </CardFormRow>
+        <CardFormRow columns="four">
           <AddressCell
             order={order}
             editable={editable}
             addressOptions={addressOptions}
           />
-        </div>
+        </CardFormRow>
       </CardSection>
     </DetailsContext.Provider>
   );
@@ -180,9 +180,9 @@ function TextCell<Field extends keyof PatchSalesOrderHeader>({
         />
       ) : (
         <DisabledFieldTooltip reason={disabledReason}>
-          <div className={`${cardStyles.readOnlyFieldValue} ${cardStyles.mono}`}>
+          <ReadOnlyFieldValue mono>
             {value || placeholder || ""}
-          </div>
+          </ReadOnlyFieldValue>
         </DisabledFieldTooltip>
       )}
     </CellShell>
@@ -218,9 +218,9 @@ function DateCell({
           }}
         />
       ) : (
-        <div className={`${cardStyles.readOnlyFieldValue} ${cardStyles.mono}`}>
+        <ReadOnlyFieldValue mono>
           {value || "—"}
-        </div>
+        </ReadOnlyFieldValue>
       )}
     </CellShell>
   );
@@ -265,7 +265,7 @@ function CustomerCell({
         </>
       ) : (
         <>
-          <div className={cardStyles.readOnlyFieldValue}>{order.customerName}</div>
+          <ReadOnlyFieldValue>{order.customerName}</ReadOnlyFieldValue>
         </>
       )}
     </CellShell>
@@ -287,9 +287,9 @@ function ProjectCell({
   if (!editable) {
     return (
       <CellShell label="Project / Job">
-        <div className={cardStyles.readOnlyFieldValue}>
+        <ReadOnlyFieldValue>
           {order.customerProjectName || "No project"}
-        </div>
+        </ReadOnlyFieldValue>
       </CellShell>
     );
   }
@@ -409,26 +409,10 @@ function AddressCell({
 
   const handleAddressDialogSubmit = async (values: AddressDialogValues) => {
     if (!addressDialogState) return;
-    const baseLabel =
-      values.label.trim() ||
-      formatAddressLines({
-        line1: values.line1,
-        line2: values.line2,
-        city: values.city,
-        region: values.region,
-        postcode: values.postcode,
-        country: values.country,
-      }).join(", ") ||
-      "Address";
-    const existingLabels = new Set(addressBook.map((address) => address.label));
-    let label = baseLabel;
-    if (!values.label.trim()) {
-      let suffix = 2;
-      while (existingLabels.has(label)) {
-        label = `${baseLabel} (${suffix})`;
-        suffix += 1;
-      }
-    }
+    const label = makeUniqueAddressLabel(
+      values,
+      addressBook.map((address) => address.label),
+    );
     setAddressBookPending(true);
     setAddressBookError(null);
     try {
@@ -472,7 +456,7 @@ function AddressCell({
         <ReadOnlyAddressCell label="Ship to" address={currentShippingAddress} />
         {billingSameAsShipping ? (
           <CellShell label="Billing">
-            <div className={cardStyles.readOnlyFieldValue}>Same as shipping address</div>
+            <ReadOnlyFieldValue>Same as shipping address</ReadOnlyFieldValue>
           </CellShell>
         ) : (
           <ReadOnlyAddressCell label="Billing" address={currentBillingAddress} />
@@ -724,91 +708,24 @@ function AddressBookDialog({
             {state?.option ? "Edit selected address" : "Add new address"}
           </DialogTitle>
         </DialogHeader>
-        <form className="space-y-5" onSubmit={form.handleSubmit(onSubmit)}>
-          <FieldGroup>
-            <Controller
-              control={form.control}
-              name="label"
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor="sales-order-address-label">Label</FieldLabel>
-                  <Input
-                    {...field}
-                    id="sales-order-address-label"
-                    value={field.value ?? ""}
-                    onChange={(event) => field.onChange(event.target.value)}
-                    aria-invalid={fieldState.invalid}
-                  />
-                  {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                </Field>
-              )}
-            />
-            <FieldGroup className="grid gap-4 sm:grid-cols-2">
-              <Controller
-                control={form.control}
-                name="contactName"
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="sales-order-address-contact-name">
-                      Contact
-                    </FieldLabel>
-                    <Input
-                      {...field}
-                      id="sales-order-address-contact-name"
-                      value={field.value ?? ""}
-                      onChange={(event) => field.onChange(event.target.value || null)}
-                      aria-invalid={fieldState.invalid}
-                    />
-                    {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                  </Field>
-                )}
-              />
-              <Controller
-                control={form.control}
-                name="contactPhone"
-                render={({ field, fieldState }) => (
-                  <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="sales-order-address-contact-phone">
-                      Phone
-                    </FieldLabel>
-                    <Input
-                      {...field}
-                      id="sales-order-address-contact-phone"
-                      value={field.value ?? ""}
-                      onChange={(event) => field.onChange(event.target.value || null)}
-                      aria-invalid={fieldState.invalid}
-                    />
-                    {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                  </Field>
-                )}
-              />
-            </FieldGroup>
-            <AddressFields
-              control={form.control}
-              names={ADDRESS_DIALOG_FIELD_NAMES}
-              idPrefix="sales-order-address"
-            />
-            <Controller
-              control={form.control}
-              name="deliveryInstructions"
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor="sales-order-address-delivery-instructions">
-                    Delivery instructions
-                  </FieldLabel>
-                  <Textarea
-                    {...field}
-                    id="sales-order-address-delivery-instructions"
-                    value={field.value ?? ""}
-                    onChange={(event) => field.onChange(event.target.value || null)}
-                    aria-invalid={fieldState.invalid}
-                  />
-                  {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-                </Field>
-              )}
-            />
-          </FieldGroup>
-          {error ? <p className="text-sm text-destructive">{error.message}</p> : null}
+        <form className="space-y-(--space-5)" onSubmit={form.handleSubmit(onSubmit)}>
+          <AddressBookFields
+            control={form.control}
+            addressNames={ADDRESS_DIALOG_FIELD_NAMES}
+            idPrefix="sales-order-address"
+            labelName="label"
+            contactNameName="contactName"
+            contactPhoneName="contactPhone"
+            contactNameLabel="Contact"
+            contactPhoneLabel="Phone"
+            notesName="deliveryInstructions"
+            notesLabel="Delivery instructions"
+          />
+          {error ? (
+            <p className="text-[length:var(--text-sm)] text-destructive">
+              {error.message}
+            </p>
+          ) : null}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel

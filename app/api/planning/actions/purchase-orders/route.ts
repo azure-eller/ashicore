@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
+import { jsonCreated } from "@/lib/api/responses";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { assertPlanningReadAccess } from "@/lib/planning/auth";
 import { createPurchaseOrderDraftsFromPlanning } from "@/lib/planning/actions";
@@ -9,9 +10,8 @@ export const POST = apiHandler(async (request) => {
   await assertPlanningReadAccess(request.headers);
   await assertModuleWriteAccess("purchasing", request.headers);
 
-  const body = await request.json();
-  const data = createPlanningPurchaseOrderDraftsSchema.parse(body);
+  const data = await parseJsonBody(request, createPlanningPurchaseOrderDraftsSchema);
   const result = await createPurchaseOrderDraftsFromPlanning(data);
 
-  return NextResponse.json(result, { status: 201 });
+  return jsonCreated(result);
 });

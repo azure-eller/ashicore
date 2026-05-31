@@ -70,14 +70,8 @@ export function CustomersTable({ initialData }: { initialData: CustomerRow[] }) 
       rows={initialData}
       columns={columns}
       queryKey={["customers"]}
-      queryFn={async () => {
-        const response = await fetch("/api/customers");
-        if (!response.ok) {
-          throw new Error("Failed to fetch customers");
-        }
-
-        return response.json();
-      }}
+      queryEndpoint="/api/customers"
+      queryErrorMessage="Failed to fetch customers"
       searchAriaLabel="Search customers"
       addHref="/sales/customer"
       addAriaLabel="New Customer"

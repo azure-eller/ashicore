@@ -2,6 +2,8 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { purchaseOrders } from "@/lib/db/schema";
 import {
+  isNonNegativeNumberString,
+  isPositiveNumberString,
   isValidIsoDate,
   nullableString,
   nullableStringPreserveUndefined,
@@ -112,8 +114,7 @@ const cleanedLinesSchema = z
           path: [index, "quantityOrdered"],
         });
       } else {
-        const parsed = Number(quantityOrdered);
-        if (!Number.isFinite(parsed) || parsed <= 0) {
+        if (!isPositiveNumberString(quantityOrdered)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: "Quantity must be greater than 0",
@@ -129,8 +130,7 @@ const cleanedLinesSchema = z
           path: [index, "unitCost"],
         });
       } else {
-        const parsed = Number(unitCost);
-        if (!Number.isFinite(parsed) || parsed < 0) {
+        if (!isNonNegativeNumberString(unitCost)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: "Unit cost must be 0 or greater",
@@ -165,8 +165,7 @@ const cleanedAdditionalCostsSchema = z
         return;
       }
 
-      const parsed = Number(amount);
-      if (!Number.isFinite(parsed) || parsed < 0) {
+      if (!isNonNegativeNumberString(amount)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: "Amount must be 0 or greater",
@@ -185,8 +184,7 @@ const basePurchaseOrderSchema = createInsertSchema(purchaseOrders, {
   shippingCost: nullableString.superRefine((value, ctx) => {
     const normalized = value?.trim() ?? "";
     if (!normalized) return;
-    const parsed = Number(normalized);
-    if (!Number.isFinite(parsed) || parsed < 0) {
+    if (!isNonNegativeNumberString(normalized)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Shipping cost must be 0 or greater",
@@ -259,8 +257,7 @@ export const receivePurchaseOrderSchema = z
     }
 
     data.lines.forEach((line, index) => {
-      const parsed = Number(line.quantityReceived);
-      if (!Number.isFinite(parsed) || parsed <= 0) {
+      if (!isPositiveNumberString(line.quantityReceived)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message: "Received quantity must be greater than 0",

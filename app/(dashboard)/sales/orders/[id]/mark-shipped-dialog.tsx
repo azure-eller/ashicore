@@ -13,8 +13,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
-import { getApiErrorMessage } from "@/lib/client/api";
+import { InsetPanel } from "@/components/inset-panel";
+import { ApiJsonError, apiJson, getApiErrorMessage } from "@/lib/client/api";
 import { formatQuantity } from "@/lib/format";
 import {
   stockWarningDescription,
@@ -48,29 +48,34 @@ export function MarkShippedDialog({
   const mutation = useMutation({
     mutationKey: ["sales-order-action", order.id, "ship", shipment?.id ?? ""],
     mutationFn: async (confirmNegativeStock: boolean) => {
-      const response = await fetch(
-        `/api/sales-orders/${order.id}/shipments/${shipment?.id}/ship`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...Object.fromEntries(
-              createIdempotencyHeaders("shipSalesShipment").entries(),
-            ),
+      try {
+        await apiJson<void>(
+          `/api/sales-orders/${order.id}/shipments/${shipment?.id}/ship`,
+          {
+            method: "POST",
+            body: {
+              confirmNegativeStock,
+              syncAccounting: createInvoice,
+            },
+            idempotencyKey: "shipSalesShipment",
+            fallbackError: "Failed to ship shipment.",
           },
-          body: JSON.stringify({
-            confirmNegativeStock,
-            syncAccounting: createInvoice,
-          }),
-        },
-      );
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw {
-          status: response.status,
-          message: getApiErrorMessage(body, "Failed to ship shipment."),
-          negativeStock: body?.negativeStock as NegativeStockWarningPayload | undefined,
-        };
+        );
+      } catch (caught) {
+        if (caught instanceof ApiJsonError) {
+          throw {
+            status: caught.status,
+            message: getApiErrorMessage(caught.body, "Failed to ship shipment."),
+            negativeStock:
+              caught.body &&
+              typeof caught.body === "object" &&
+              "negativeStock" in caught.body
+                ? (caught.body.negativeStock as NegativeStockWarningPayload)
+                : undefined,
+          };
+        }
+
+        throw caught;
       }
     },
     onSuccess: async () => {
@@ -123,7 +128,7 @@ export function MarkShippedDialog({
         </AlertDialogHeader>
 
         {negativeStock?.commitments?.length ? (
-          <div className="border border-border p-3 text-[length:var(--text-sm)]">
+          <InsetPanel className="p-3 text-[length:var(--text-sm)]">
             <p className="font-medium">Current commitments</p>
             <ul className="mt-2 space-y-1 text-muted-foreground">
               {negativeStock.commitments.map((commitment) => (
@@ -132,7 +137,7 @@ export function MarkShippedDialog({
                 </li>
               ))}
             </ul>
-          </div>
+          </InsetPanel>
         ) : null}
 
         {!negativeStock && xeroReady ? (

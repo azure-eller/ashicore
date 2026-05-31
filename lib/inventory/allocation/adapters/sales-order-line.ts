@@ -25,13 +25,8 @@ import type {
 
 const ACTIVE_ORDER_STATUSES = ["open"] as const;
 
-function toQuantity(value: string | number | null | undefined) {
-  return toAllocationQuantity(value);
-}
-
-function quantityString(value: number) {
-  return allocationQuantityString(value);
-}
+const toQuantity = toAllocationQuantity;
+const quantityString = allocationQuantityString;
 
 async function getShippedByLineInTx(tx: Tx, salesOrderLineIds: string[]) {
   if (salesOrderLineIds.length === 0) return new Map<string, number>();

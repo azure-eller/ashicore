@@ -1,26 +1,23 @@
-import { StatusLabel } from "@/components/ui/status-label";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  StatusBadge,
+  type StatusBadgeConfig,
+} from "@/components/status-badge";
 import { SALES_ORDER_STATUS_TOOLTIP } from "@/lib/tooltip-copy";
 import type { SalesOrderStatus } from "@/lib/schemas/sales-orders";
 
-export function SalesOrderStatusBadge({ status }: { status: SalesOrderStatus }) {
-  const label =
-    status === "done" ? (
-      <StatusLabel tone="success">Done</StatusLabel>
-    ) : (
-      <StatusLabel tone="info">Open</StatusLabel>
-    );
+const salesOrderStatusConfig = {
+  open: {
+    label: "Open",
+    tone: "info",
+    tooltip: SALES_ORDER_STATUS_TOOLTIP.open,
+  },
+  done: {
+    label: "Done",
+    tone: "success",
+    tooltip: SALES_ORDER_STATUS_TOOLTIP.done,
+  },
+} satisfies StatusBadgeConfig<SalesOrderStatus>;
 
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{label}</TooltipTrigger>
-      <TooltipContent side="top">
-        {SALES_ORDER_STATUS_TOOLTIP[status]}
-      </TooltipContent>
-    </Tooltip>
-  );
+export function SalesOrderStatusBadge({ status }: { status: SalesOrderStatus }) {
+  return <StatusBadge status={status} config={salesOrderStatusConfig} />;
 }

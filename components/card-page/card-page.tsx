@@ -33,6 +33,28 @@ export function CardPageBody({
   return <div className={cn(styles.body, className)}>{children}</div>;
 }
 
+export function CardPageBanner({
+  children,
+  tone = "destructive",
+  className,
+}: {
+  children: ReactNode;
+  tone?: "destructive";
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "border-b border-[var(--color-line)] bg-[var(--color-danger-soft)] px-(--space-5) py-(--space-3) text-[length:var(--text-sm)] text-destructive",
+        tone === "destructive" && "text-destructive",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function CardSection({
   title,
   count,

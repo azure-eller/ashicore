@@ -59,14 +59,8 @@ export function SuppliersTable({ initialData }: { initialData: SupplierRow[] }) 
       rows={initialData}
       columns={columns}
       queryKey={["suppliers"]}
-      queryFn={async () => {
-        const response = await fetch("/api/suppliers");
-        if (!response.ok) {
-          throw new Error("Failed to fetch suppliers");
-        }
-
-        return response.json();
-      }}
+      queryEndpoint="/api/suppliers"
+      queryErrorMessage="Failed to fetch suppliers"
       searchAriaLabel="Search suppliers"
       addHref="/purchasing/suppliers/new"
       addAriaLabel="New Supplier"

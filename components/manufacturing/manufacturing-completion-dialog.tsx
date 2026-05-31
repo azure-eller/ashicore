@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NoticePanel } from "@/components/notice-panel";
 import {
   Select,
   SelectContent,
@@ -246,7 +247,7 @@ function CompletionDialogForm({
           </div>
 
           {shortage ? (
-            <div className="space-y-2 border border-[var(--color-warning)] bg-[var(--color-warning-soft)] p-3">
+            <NoticePanel className="space-y-2">
               <p className="text-sm font-medium text-[var(--color-warning)]">
                 This will drive stock negative:
               </p>
@@ -259,7 +260,7 @@ function CompletionDialogForm({
                   </li>
                 ))}
               </ul>
-            </div>
+            </NoticePanel>
           ) : null}
 
           {error ? <p className="text-sm text-destructive">{error}</p> : null}

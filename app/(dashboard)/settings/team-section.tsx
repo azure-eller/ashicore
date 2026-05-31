@@ -19,10 +19,15 @@ import {
   MODULE_KEYS,
   type ModuleAccessLevel,
 } from "@/lib/authz";
+import { ApiJsonError, apiJson } from "@/lib/client/api";
 import { DateTimeText } from "@/components/date-time-text";
 import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
+import { ListFrame, ListFrameItem } from "@/components/list-frame";
+import {
+  ConfiguredBadge,
+  type ConfiguredBadgeConfig,
+} from "@/components/configured-badge";
 import { createTeamInvitationSchema, moduleAccessSchema } from "@/lib/schemas/team";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -82,27 +87,38 @@ type TeamGridRow =
 const FULL_ACCESS_OPTIONS: ModuleAccessLevel[] = ["none", "read", "operate", "admin"];
 const ACCESS_PRESET_KEYS = getAccessPresetKeys();
 
-async function parseJson<T>(response: Response): Promise<T | null> {
-  return response.json().catch(() => null);
-}
+const accessPresetBadgeConfig = Object.fromEntries(
+  ACCESS_PRESET_KEYS.map((presetKey) => [
+    presetKey,
+    {
+      label: formatAccessPresetLabel(presetKey),
+      variant: presetKey === "admin" ? undefined : "outline",
+    },
+  ]),
+) as ConfiguredBadgeConfig<AccessPresetKey>;
+
+const derivedAccessPresetBadgeConfig = {
+  ...accessPresetBadgeConfig,
+  custom: { label: formatAccessPresetLabel("custom"), variant: "secondary" },
+} satisfies ConfiguredBadgeConfig<DerivedAccessPresetKey>;
+
+const teamStatusBadgeConfig = {
+  active: { label: "Active", variant: "outline" },
+  current: { label: "You", variant: "secondary" },
+  pending: { label: "Pending", variant: "secondary" },
+} satisfies ConfiguredBadgeConfig<"active" | "current" | "pending">;
 
 function AccessPresetBadge({ presetKey }: { presetKey: DerivedAccessPresetKey }) {
-  if (presetKey === "admin") {
-    return <Badge>{formatAccessPresetLabel(presetKey)}</Badge>;
-  }
-
-  if (presetKey === "custom") {
-    return <Badge variant="secondary">{formatAccessPresetLabel(presetKey)}</Badge>;
-  }
-
-  return <Badge variant="outline">{formatAccessPresetLabel(presetKey)}</Badge>;
+  return (
+    <ConfiguredBadge value={presetKey} config={derivedAccessPresetBadgeConfig} />
+  );
 }
 
 function TeamStatusBadge({ row }: { row: TeamGridRow }) {
   if (row.kind === "invite") {
     return (
       <div className="flex min-w-0 items-center gap-(--space-3)">
-        <Badge variant="secondary">Pending</Badge>
+        <ConfiguredBadge value="pending" config={teamStatusBadgeConfig} />
         <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
           expires <DateTimeText value={row.invite.expiresAt} />
         </span>
@@ -111,10 +127,10 @@ function TeamStatusBadge({ row }: { row: TeamGridRow }) {
   }
 
   if (row.member.isCurrentUser) {
-    return <Badge variant="secondary">You</Badge>;
+    return <ConfiguredBadge value="current" config={teamStatusBadgeConfig} />;
   }
 
-  return <Badge variant="outline">Active</Badge>;
+  return <ConfiguredBadge value="active" config={teamStatusBadgeConfig} />;
 }
 
 function InviteMemberDialog({
@@ -138,18 +154,15 @@ function InviteMemberDialog({
 
   const inviteMutation = useMutation({
     mutationFn: async (values: InviteFormValues) => {
-      const response = await fetch("/api/team/invitations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      });
-      const body = await parseJson<{ error?: string; errors?: Record<string, string[]> }>(
-        response
-      );
-
-      if (!response.ok) {
-        if (body?.errors) {
-          Object.entries(body.errors).forEach(([field, messages]) => {
+      try {
+        await apiJson<void>("/api/team/invitations", {
+          method: "POST",
+          body: values,
+          fallbackError: "Failed to send invite.",
+        });
+      } catch (error) {
+        if (error instanceof ApiJsonError && error.errors) {
+          Object.entries(error.errors).forEach(([field, messages]) => {
             if (!messages?.length) {
               return;
             }
@@ -162,7 +175,7 @@ function InviteMemberDialog({
           throw new Error("validation");
         }
 
-        throw new Error(body?.error ?? "Failed to send invite.");
+        throw error;
       }
     },
     onMutate: () => {
@@ -191,7 +204,7 @@ function InviteMemberDialog({
           <HugeiconsIcon icon={Add01Icon} data-icon="inline-end" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="bg-background text-foreground sm:max-w-2xl">
+      <DialogContent size="2xl">
         <DialogHeader>
           <DialogTitle>Invite member</DialogTitle>
         </DialogHeader>
@@ -306,7 +319,7 @@ function CustomizeAccessDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-background text-foreground sm:max-w-3xl">
+      <DialogContent size="3xl">
         <DialogHeader>
           <DialogTitle>Edit access</DialogTitle>
         </DialogHeader>
@@ -346,46 +359,44 @@ function CustomizeAccessDialog({
             </Field>
           </FieldGroup>
 
-          <div className="overflow-hidden border">
-            <div className="divide-y">
-              {MODULE_KEYS.map((moduleKey) => (
-                <div
-                  key={moduleKey}
-                  data-module-key={moduleKey}
-                  className="flex flex-col gap-(--space-6) px-(--space-8) py-(--space-8) sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="font-medium">{formatModuleLabel(moduleKey)}</div>
-                  <ToggleGroup
-                    type="single"
-                    value={moduleAccess[moduleKey]}
-                    onValueChange={(nextValue) => {
-                      if (!nextValue) {
-                        return;
-                      }
+          <ListFrame className="overflow-hidden">
+            {MODULE_KEYS.map((moduleKey) => (
+              <ListFrameItem
+                key={moduleKey}
+                data-module-key={moduleKey}
+                className="flex flex-col gap-(--space-6) px-(--space-8) py-(--space-8) sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="font-medium">{formatModuleLabel(moduleKey)}</div>
+                <ToggleGroup
+                  type="single"
+                  value={moduleAccess[moduleKey]}
+                  onValueChange={(nextValue) => {
+                    if (!nextValue) {
+                      return;
+                    }
 
-                      setPresetKey("custom");
-                      setModuleAccess({
-                        ...moduleAccess,
-                        [moduleKey]: nextValue as ModuleAccessLevel,
-                      });
-                    }}
-                    variant="outline"
-                    size="sm"
-                    disabled={pending}
-                    className="flex w-full flex-wrap justify-start sm:w-auto sm:justify-end"
-                  >
-                    {FULL_ACCESS_OPTIONS.filter(
-                      (option) => canGrantTeamManagement || !(moduleKey === "settings" && option === "admin")
-                    ).map((option) => (
-                      <ToggleGroupItem key={option} value={option} aria-label={option}>
-                        {formatAccessLevelLabel(option)}
-                      </ToggleGroupItem>
-                    ))}
-                  </ToggleGroup>
-                </div>
-              ))}
-            </div>
-          </div>
+                    setPresetKey("custom");
+                    setModuleAccess({
+                      ...moduleAccess,
+                      [moduleKey]: nextValue as ModuleAccessLevel,
+                    });
+                  }}
+                  variant="outline"
+                  size="sm"
+                  disabled={pending}
+                  className="flex w-full flex-wrap justify-start sm:w-auto sm:justify-end"
+                >
+                  {FULL_ACCESS_OPTIONS.filter(
+                    (option) => canGrantTeamManagement || !(moduleKey === "settings" && option === "admin")
+                  ).map((option) => (
+                    <ToggleGroupItem key={option} value={option} aria-label={option}>
+                      {formatAccessLevelLabel(option)}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              </ListFrameItem>
+            ))}
+          </ListFrame>
         </div>
 
         <div className="flex items-center justify-between gap-3">
@@ -423,16 +434,10 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
 
   const { data = initialData } = useQuery<TeamPageData>({
     queryKey: ["team"],
-    queryFn: async () => {
-      const response = await fetch("/api/team");
-      const body = await parseJson<TeamPageData & { error?: string }>(response);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to load team settings.");
-      }
-
-      return body as TeamPageData;
-    },
+    queryFn: () =>
+      apiJson<TeamPageData>("/api/team", {
+        fallbackError: "Failed to load team settings.",
+      }),
     initialData,
     initialDataUpdatedAt: 0,
   });
@@ -443,50 +448,34 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
   };
 
   const resendMutation = useMutation({
-    mutationFn: async (invitationId: string) => {
-      const response = await fetch(`/api/team/invitations/${invitationId}/resend`, {
+    mutationFn: (invitationId: string) =>
+      apiJson<void>(`/api/team/invitations/${invitationId}/resend`, {
         method: "POST",
-      });
-      const body = await parseJson<{ error?: string }>(response);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to resend invite.");
-      }
-    },
+        fallbackError: "Failed to resend invite.",
+      }),
     onSuccess: refreshData,
     onError: (error) => setActionError(error.message),
   });
 
   const cancelInviteMutation = useMutation({
-    mutationFn: async (invitationId: string) => {
-      const response = await fetch(`/api/team/invitations/${invitationId}`, {
+    mutationFn: (invitationId: string) =>
+      apiJson<void>(`/api/team/invitations/${invitationId}`, {
         method: "DELETE",
-      });
-      const body = await parseJson<{ error?: string }>(response);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to cancel invite.");
-      }
-    },
+        fallbackError: "Failed to cancel invite.",
+      }),
     onSuccess: refreshData,
     onError: (error) => setActionError(error.message),
   });
 
   const updateMemberMutation = useMutation({
-    mutationFn: async (values: UpdateMemberPayload) => {
-      const response = await fetch(`/api/team/members/${values.memberId}`, {
+    mutationFn: (values: UpdateMemberPayload) =>
+      apiJson<void>(`/api/team/members/${values.memberId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: {
           moduleAccess: values.moduleAccess,
-        }),
-      });
-      const body = await parseJson<{ error?: string }>(response);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to update member access.");
-      }
-    },
+        },
+        fallbackError: "Failed to update member access.",
+      }),
     onSuccess: async () => {
       await refreshData();
       setCustomizingMember(null);
@@ -495,16 +484,11 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
   });
 
   const removeMemberMutation = useMutation({
-    mutationFn: async (memberId: string) => {
-      const response = await fetch(`/api/team/members/${memberId}`, {
+    mutationFn: (memberId: string) =>
+      apiJson<void>(`/api/team/members/${memberId}`, {
         method: "DELETE",
-      });
-      const body = await parseJson<{ error?: string }>(response);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to remove member.");
-      }
-    },
+        fallbackError: "Failed to remove member.",
+      }),
     onSuccess: async () => {
       await refreshData();
       setCustomizingMember(null);

@@ -1,4 +1,5 @@
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { createTeamInvitationSchema } from "@/lib/schemas/team";
 import {
   assertAssignableModuleAccess,
@@ -10,8 +11,7 @@ import { getAccessPresetModuleAccess } from "@/lib/authz";
 import { authApiResponseToNextResponse } from "@/app/api/_utils/auth-api-response";
 
 export const POST = apiHandler(async (request) => {
-  const body = await request.json();
-  const data = createTeamInvitationSchema.parse(body);
+  const data = await parseJsonBody(request, createTeamInvitationSchema);
 
   const actor = await ensureInvitableRole(request.headers);
   assertAssignableModuleAccess(

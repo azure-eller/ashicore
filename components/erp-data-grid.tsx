@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   type CSSProperties,
+  type Ref,
   type ReactNode,
 } from "react";
 import { AgGridReact } from "ag-grid-react";
@@ -102,10 +103,15 @@ export type ERPDataGridProps<TData extends { id: string }> = {
   emptyMessage?: string;
   searchValue?: string;
   onSearchChange?: (value: string) => void;
+  searchInputRef?: Ref<HTMLInputElement>;
   searchAriaLabel?: string;
   enableQuickFilter?: boolean;
   toolbarContent?: ReactNode;
+  toolbarClassName?: string;
   actions?: ReactNode;
+  statusBarContent?: ReactNode;
+  statusBarClassName?: string;
+  gridClassName?: string;
   className?: string;
   enableRowSelection?: boolean;
   isRowSelectable?: (row: TData) => boolean;
@@ -263,10 +269,15 @@ export function ERPDataGrid<TData extends { id: string }>({
   emptyMessage = "No rows found.",
   searchValue,
   onSearchChange,
+  searchInputRef,
   searchAriaLabel = "Search rows",
   enableQuickFilter = true,
   toolbarContent,
+  toolbarClassName,
   actions,
+  statusBarContent,
+  statusBarClassName,
+  gridClassName,
   className,
   enableRowSelection = false,
   isRowSelectable,
@@ -553,10 +564,16 @@ export function ERPDataGrid<TData extends { id: string }>({
   return (
     <section className={cn("space-y-3", styles.root, className)}>
       {(onSearchChange || toolbarContent || actions) && (
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <div
+          className={cn(
+            "flex flex-col gap-(--space-4) sm:flex-row sm:items-center sm:justify-between",
+            toolbarClassName
+          )}
+        >
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-(--space-4)">
             {onSearchChange && (
               <Input
+                ref={searchInputRef}
                 value={searchValue ?? ""}
                 onChange={(event) => onSearchChange(event.target.value)}
                 placeholder="Search..."
@@ -567,7 +584,7 @@ export function ERPDataGrid<TData extends { id: string }>({
             {toolbarContent}
           </div>
           {actions && (
-            <div className="flex shrink-0 items-center gap-2">{actions}</div>
+            <div className="flex shrink-0 items-center gap-(--space-4)">{actions}</div>
           )}
         </div>
       )}
@@ -576,7 +593,8 @@ export function ERPDataGrid<TData extends { id: string }>({
         data-slot="erp-data-grid"
         className={cn(
           "ashicore-grid min-w-0 overflow-hidden rounded-(--radius-none) border",
-          styles.grid
+          styles.grid,
+          gridClassName
         )}
         style={gridStyle}
       >
@@ -637,7 +655,9 @@ export function ERPDataGrid<TData extends { id: string }>({
           suppressColumnMoveAnimation
           rowDragText={(params) => params.defaultTextValue}
           noRowsOverlayComponent={() => (
-            <span className="text-sm text-muted-foreground">{emptyMessage}</span>
+            <span className="text-[length:var(--text-sm)] text-muted-foreground">
+              {emptyMessage}
+            </span>
           )}
           onSelectionChanged={(event: SelectionChangedEvent<TData>) => {
             onSelectionChange?.(event.api.getSelectedRows());
@@ -661,6 +681,16 @@ export function ERPDataGrid<TData extends { id: string }>({
           }}
         />
       </div>
+      {statusBarContent ? (
+        <div
+          className={cn(
+            "flex h-(--height-statusbar) shrink-0 items-center gap-(--space-6) border-t border-border bg-card px-(--space-8) text-[length:var(--text-xs)] text-muted-foreground tabular-nums",
+            statusBarClassName
+          )}
+        >
+          {statusBarContent}
+        </div>
+      ) : null}
     </section>
   );
 }

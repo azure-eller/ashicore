@@ -26,6 +26,31 @@ export function CellShell({
   );
 }
 
+export function CardFormRow({
+  children,
+  columns,
+  className,
+}: {
+  children: ReactNode;
+  columns?: "default" | "three" | "four" | "five" | "purchase-order";
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        cardStyles.formRow,
+        columns === "three" && cardStyles.formRowThree,
+        columns === "four" && cardStyles.formRowFour,
+        columns === "five" && cardStyles.formRowFive,
+        columns === "purchase-order" && cardStyles.formRowPo,
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function DisabledFieldTooltip({
   reason,
   children,
@@ -46,4 +71,25 @@ export function DisabledFieldTooltip({
 
 export function underlineControlClass(invalid?: boolean, className?: string) {
   return cn(cardStyles.underlineControl, invalid && cardStyles.invalidControl, className);
+}
+
+export function ReadOnlyFieldValue({
+  children,
+  mono,
+  title,
+  className,
+}: {
+  children: ReactNode;
+  mono?: boolean;
+  title?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(cardStyles.readOnlyFieldValue, mono && cardStyles.mono, className)}
+      title={title}
+    >
+      {children}
+    </div>
+  );
 }

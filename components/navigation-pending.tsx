@@ -18,6 +18,7 @@ import {
   sanitizeDashboardNavigationPath,
   type DashboardRouteShell,
 } from "@/lib/dashboard-navigation";
+import { appendSearchParams } from "@/lib/routing/search-params";
 
 type NavigationPendingContextValue = {
   pending: boolean;
@@ -295,26 +296,10 @@ function getComparableLocation(href?: LinkHref) {
   }
 
   const pathname = href.pathname ?? window.location.pathname;
-  const params = new URLSearchParams();
-
-  if (href.query) {
-    for (const [key, value] of Object.entries(href.query)) {
-      if (value == null) {
-        continue;
-      }
-
-      if (Array.isArray(value)) {
-        value.forEach((item) => params.append(key, String(item)));
-        continue;
-      }
-
-      params.set(key, String(value));
-    }
+  if (typeof href.query === "string") {
+    return href.query ? `${pathname}?${href.query}` : pathname;
   }
-
-  const query = params.size > 0 ? `?${params.toString()}` : "";
-
-  return `${pathname}${query}`;
+  return appendSearchParams(pathname, href.query ?? {});
 }
 
 function parseSampleRate(value: string | undefined) {

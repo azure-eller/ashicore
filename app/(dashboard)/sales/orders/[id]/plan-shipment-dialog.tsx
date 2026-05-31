@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { DatePicker } from "@/components/ui/date-picker";
+import { TableFrame } from "@/components/table-frame";
 import {
   Select,
   SelectContent,
@@ -29,7 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { apiJson } from "@/lib/client/api";
 import { formatQuantity } from "@/lib/format";
 import {
   clampShipmentQuantity,
@@ -144,23 +145,14 @@ function PlanShipmentDialogForm({
       const url = editingShipmentId
         ? `/api/sales-orders/${order.id}/shipments/${editingShipmentId}`
         : `/api/sales-orders/${order.id}/shipments`;
-      const response = await fetch(url, {
+      return apiJson<unknown>(url, {
         method: editingShipmentId ? "PATCH" : "POST",
-        headers: createIdempotencyHeaders(
-          editingShipmentId ? "patchSalesShipment" : "createSalesShipment",
-          { "Content-Type": "application/json" },
-        ),
-        body: JSON.stringify(payload),
+        body: payload,
+        idempotencyKey: editingShipmentId
+          ? "patchSalesShipment"
+          : "createSalesShipment",
+        fallbackError: "Failed to save shipment.",
       });
-      const body = await response.json().catch(() => null as unknown);
-      if (!response.ok) {
-        const message =
-          body && typeof body === "object" && "error" in body
-            ? String((body as { error: unknown }).error)
-            : "Failed to save shipment.";
-        throw new Error(message);
-      }
-      return body;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({
@@ -236,7 +228,7 @@ function PlanShipmentDialogForm({
               />
             </div>
 
-            <div className="overflow-x-auto rounded-md border">
+            <TableFrame>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -311,7 +303,7 @@ function PlanShipmentDialogForm({
                   })}
                 </TableBody>
               </Table>
-            </div>
+            </TableFrame>
 
             {mutation.isError ? (
               <div className="text-sm text-destructive">

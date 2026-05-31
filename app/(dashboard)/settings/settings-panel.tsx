@@ -1,3 +1,5 @@
+import { ListFrameItem } from "@/components/list-frame";
+import { SurfacePanel } from "@/components/surface-panel";
 import { cn } from "@/lib/utils";
 
 export function SettingsPanel({
@@ -10,12 +12,14 @@ export function SettingsPanel({
   className?: string;
 }) {
   return (
-    <section
+    <SurfacePanel
+      as="section"
       id={id}
-      className={cn("scroll-mt-(--space-24) border bg-card", className)}
+      padding="sm"
+      className={cn("scroll-mt-(--space-24) p-0", className)}
     >
       {children}
-    </section>
+    </SurfacePanel>
   );
 }
 
@@ -42,5 +46,49 @@ export function SettingsPanelHeader({
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
+  );
+}
+
+export function SettingsPanelSection({
+  children,
+  className,
+  interactive = false,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  interactive?: boolean;
+}) {
+  return (
+    <ListFrameItem
+      interactive={interactive}
+      className={cn("px-(--space-12) py-(--space-10)", className)}
+    >
+      {children}
+    </ListFrameItem>
+  );
+}
+
+export function SettingsPanelActionRow({
+  children,
+  action,
+  className,
+}: {
+  children: React.ReactNode;
+  action: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <SettingsPanelSection
+      interactive
+      className={cn(
+        "group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-(--space-6) py-(--space-6)",
+        className,
+      )}
+    >
+      {children}
+      <div className="shrink-0 md:opacity-0 md:transition-opacity md:focus-within:opacity-100 md:group-hover:opacity-100">
+        {action}
+      </div>
+    </SettingsPanelSection>
   );
 }

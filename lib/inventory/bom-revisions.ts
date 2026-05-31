@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { items } from "@/lib/db/schema";
 import { withAuthedOrgContext, getAuthedMemberContext } from "@/lib/dal/auth";
+import { isPositiveNumberString } from "@/lib/schemas/shared";
 import { createBomRevisionInTx } from "@/app/(dashboard)/inventory/queries/internal";
 import type {
   BomInputRow,
@@ -13,10 +14,7 @@ import type {
 const bomRowSchema = z.object({
   componentId: z.string().uuid("Component is required"),
   quantity: z.string().refine(
-    (value) => {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) && parsed > 0;
-    },
+    isPositiveNumberString,
     "Quantity must be a positive number",
   ),
   minimumLotAgeDays: z
@@ -52,8 +50,7 @@ export const createBomRevisionSchema = z.object({
       .optional()
       .refine((value) => {
         if (value == null) return true;
-        const parsed = Number(value);
-        return Number.isFinite(parsed) && parsed > 0;
+        return isPositiveNumberString(value);
       }, "Recipe output must be greater than 0"),
     bom: z.array(bomRowSchema).default([]),
     operationCosts: z.array(operationCostRowSchema).optional(),
@@ -66,8 +63,7 @@ export const createBomRevisionSchema = z.object({
   .strict()
   .superRefine((value, ctx) => {
   if (value.recipeBasis !== "batch") return;
-  const parsed = Number(value.expectedBatchYield ?? value.outputQuantity);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  if (!isPositiveNumberString(String(value.expectedBatchYield ?? value.outputQuantity ?? ""))) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: "Expected output per batch must be greater than 0",

@@ -1,9 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
-import { Badge } from "@/components/ui/badge";
+import {
+  ConfiguredBadge,
+  type ConfiguredBadgeConfig,
+} from "@/components/configured-badge";
+import { InsetPanel } from "@/components/inset-panel";
+import { MetricTile } from "@/components/metric-tile";
+import { SurfacePanel } from "@/components/surface-panel";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -28,6 +34,8 @@ import {
   ACCOUNTING_PROVIDER_XERO,
   type AccountingProvider,
 } from "@/lib/accounting/constants";
+import { apiJson } from "@/lib/client/api";
+import { formatCurrency } from "@/lib/format";
 
 type EntityType = "customers" | "suppliers";
 
@@ -80,6 +88,12 @@ type PurchaseOrderImportCandidate = {
   total: string | null;
 };
 
+const purchaseOrderImportStatusBadgeConfig = {
+  ready: { label: "Ready", variant: "outline" },
+  creates_records: { label: "Review", variant: "secondary" },
+  excluded: { label: "Excluded", variant: "secondary" },
+} satisfies ConfiguredBadgeConfig<PurchaseOrderImportCandidateStatus>;
+
 type PurchaseOrderImportPreview = {
   tenantName: string;
   sinceDate: string;
@@ -112,19 +126,14 @@ function entityLabel(entityType: EntityType) {
   return "suppliers";
 }
 
-async function readJson<T>(res: Response, defaultError: string): Promise<T> {
-  const body = await res.json().catch(() => null);
-  if (!res.ok) {
-    throw new Error(body?.error ?? defaultError);
-  }
-  return body as T;
-}
-
 async function fetchPreview(action: DialogAction) {
-  const res = await fetch(`/api/accounting/import/${action.entityType}/preview`, {
-    method: "POST",
-  });
-  return readJson<ContactImportPreview>(res, "Failed to preview import.");
+  return apiJson<ContactImportPreview>(
+    `/api/accounting/import/${action.entityType}/preview`,
+    {
+      method: "POST",
+      fallbackError: "Failed to preview import.",
+    }
+  );
 }
 
 export function XeroImportSection({
@@ -174,16 +183,19 @@ export function XeroImportSection({
       if (!dialogAction || !preview) return null;
 
       const importPreview = preview as ContactImportPreview;
-      const res = await fetch(`/api/accounting/import/${dialogAction.entityType}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          allowDemoCompany: importPreview.isDemoCompany,
-        }),
-      });
+      const data = await apiJson<ImportResult>(
+        `/api/accounting/import/${dialogAction.entityType}`,
+        {
+          method: "POST",
+          body: {
+            allowDemoCompany: importPreview.isDemoCompany,
+          },
+          fallbackError: "Import failed.",
+        }
+      );
       return {
         entityType: dialogAction.entityType,
-        data: await readJson<ImportResult>(res, "Import failed."),
+        data,
       };
     },
     onSuccess: (result) => {
@@ -270,13 +282,40 @@ function ImportActionGroup({
   children,
 }: {
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div className="min-w-0">
       <h4 className="mb-2 text-sm font-medium text-foreground">{title}</h4>
       <div className="flex flex-wrap gap-2">{children}</div>
     </div>
+  );
+}
+
+function ImportSummaryFrame({
+  children,
+  errors,
+}: {
+  children: ReactNode;
+  errors: string[];
+}) {
+  return (
+    <SurfacePanel padding="sm" className="text-sm">
+      {children}
+      <ImportErrorList errors={errors} />
+    </SurfacePanel>
+  );
+}
+
+function ImportErrorList({ errors }: { errors: string[] }) {
+  if (errors.length === 0) return null;
+
+  return (
+    <ul className="mt-2 list-disc pl-5 text-xs text-destructive">
+      {errors.map((error, index) => (
+        <li key={index}>{error}</li>
+      ))}
+    </ul>
   );
 }
 
@@ -288,18 +327,11 @@ function ImportSummary({
   summary: ImportResult;
 }) {
   return (
-    <div className="border-y py-2 text-sm">
+    <ImportSummaryFrame errors={summary.errors ?? []}>
       <p className="font-medium">
         {label}: {summary.created} loaded, {summary.updated} already existed
       </p>
-      {(summary.errors?.length ?? 0) > 0 ? (
-        <ul className="mt-2 list-disc pl-5 text-xs text-destructive">
-          {(summary.errors ?? []).map((error, index) => (
-            <li key={index}>{error}</li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
+    </ImportSummaryFrame>
   );
 }
 
@@ -309,7 +341,7 @@ function PurchaseOrderImportSummary({
   summary: PurchaseOrderImportResult;
 }) {
   return (
-    <div className="border-y py-2 text-sm">
+    <ImportSummaryFrame errors={summary.errors}>
       <p className="font-medium">
         Purchase orders: {summary.created} imported, {summary.updated} updated
       </p>
@@ -323,32 +355,16 @@ function PurchaseOrderImportSummary({
           {summary.protected} protected after receiving, {summary.skipped} skipped
         </p>
       ) : null}
-      {summary.errors.length > 0 ? (
-        <ul className="mt-2 list-disc pl-5 text-xs text-destructive">
-          {summary.errors.map((error, index) => (
-            <li key={index}>{error}</li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
+    </ImportSummaryFrame>
   );
 }
 
 function formatMoneyValue(value: string | null) {
   if (value == null) return "—";
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return value;
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
+  if (!Number.isFinite(Number(value))) return value;
+  return formatCurrency(value, "USD", {
     maximumFractionDigits: 4,
-  }).format(parsed);
-}
-
-function purchaseOrderStatusLabel(status: PurchaseOrderImportCandidateStatus) {
-  if (status === "ready") return "Ready";
-  if (status === "creates_records") return "Review";
-  return "Excluded";
+  }) ?? value;
 }
 
 function PurchaseOrderImportDialog({
@@ -364,14 +380,13 @@ function PurchaseOrderImportDialog({
 
   const previewMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/accounting/import/purchase-orders/preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider }),
-      });
-      return readJson<PurchaseOrderImportPreview>(
-        res,
-        "Failed to preview purchase order import."
+      return apiJson<PurchaseOrderImportPreview>(
+        "/api/accounting/import/purchase-orders/preview",
+        {
+          method: "POST",
+          body: { provider },
+          fallbackError: "Failed to preview purchase order import.",
+        }
       );
     },
     onSuccess: (data) => {
@@ -388,14 +403,13 @@ function PurchaseOrderImportDialog({
 
   const applyMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/accounting/import/purchase-orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ candidateIds: [...selectedIds], provider }),
-      });
-      return readJson<PurchaseOrderImportResult>(
-        res,
-        "Purchase order import failed."
+      return apiJson<PurchaseOrderImportResult>(
+        "/api/accounting/import/purchase-orders",
+        {
+          method: "POST",
+          body: { candidateIds: [...selectedIds], provider },
+          fallbackError: "Purchase order import failed.",
+        }
       );
     },
     onSuccess: (summary) => {
@@ -442,7 +456,7 @@ function PurchaseOrderImportDialog({
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          <div className="min-h-0 overflow-hidden rounded-md border bg-muted/30 p-3">
+          <InsetPanel className="min-h-0 overflow-hidden rounded-md">
             {previewMutation.isPending ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Spinner />
@@ -455,16 +469,30 @@ function PurchaseOrderImportDialog({
             ) : preview ? (
               <div className="flex h-full min-h-0 min-w-0 flex-col gap-3">
                 <div className="grid min-w-0 gap-2 sm:grid-cols-5">
-                  <PreviewMetric label="Matched" value={preview.summary.ready} />
-                  <PreviewMetric label="Selected" value={selectedIds.size} />
-                  <PreviewMetric
+                  <MetricTile
+                    label="Matched"
+                    value={preview.summary.ready}
+                    density="compact"
+                  />
+                  <MetricTile
+                    label="Selected"
+                    value={selectedIds.size}
+                    density="compact"
+                  />
+                  <MetricTile
                     label="Review"
                     value={preview.summary.createsRecords}
+                    density="compact"
                   />
-                  <PreviewMetric label="Excluded" value={preview.summary.excluded} />
-                  <PreviewMetric
+                  <MetricTile
+                    label="Excluded"
+                    value={preview.summary.excluded}
+                    density="compact"
+                  />
+                  <MetricTile
                     label="Provider POs"
                     value={preview.totalExternalPurchaseOrders}
+                    density="compact"
                   />
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
@@ -502,7 +530,11 @@ function PurchaseOrderImportDialog({
                     <span>Select POs that need review</span>
                   </label>
                 </div>
-                <div className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-md border bg-background">
+                <SurfacePanel
+                  tone="background"
+                  padding="sm"
+                  className="min-h-0 min-w-0 flex-1 overflow-hidden p-0"
+                >
                   <Table
                     className="min-w-[64rem] table-fixed text-sm"
                     containerClassName="h-full overflow-auto"
@@ -545,13 +577,10 @@ function PurchaseOrderImportDialog({
                             />
                           </TableCell>
                           <TableCell>
-                            <Badge
-                              variant={
-                                candidate.status === "ready" ? "outline" : "secondary"
-                              }
-                            >
-                              {purchaseOrderStatusLabel(candidate.status)}
-                            </Badge>
+                            <ConfiguredBadge
+                              value={candidate.status}
+                              config={purchaseOrderImportStatusBadgeConfig}
+                            />
                             {candidate.exclusionReason ? (
                               <div className="truncate text-xs text-muted-foreground">
                                 {candidate.exclusionReason}
@@ -598,10 +627,10 @@ function PurchaseOrderImportDialog({
                       ))}
                     </TableBody>
                   </Table>
-                </div>
+                </SurfacePanel>
               </div>
             ) : null}
-          </div>
+          </InsetPanel>
 
           {applyMutation.error ? (
             <p className="text-sm text-destructive">
@@ -682,7 +711,7 @@ function ImportActionDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        <div className="min-h-24 rounded-md border bg-muted/30 p-3">
+        <InsetPanel className="min-h-24 rounded-md">
           {previewLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Spinner />
@@ -693,7 +722,7 @@ function ImportActionDialog({
           ) : preview ? (
             <ImportPreviewDetails preview={preview} />
           ) : null}
-        </div>
+        </InsetPanel>
 
         {actionError ? <p className="text-sm text-destructive">{actionError}</p> : null}
 
@@ -722,8 +751,16 @@ function ImportPreviewDetails({ preview }: { preview: ContactImportPreview }) {
   return (
     <div className="space-y-3 text-sm">
       <div className="grid gap-2 sm:grid-cols-2">
-        <PreviewMetric label="Will load" value={preview.toCreate} />
-        <PreviewMetric label="Already exists" value={preview.toUpdate} />
+        <MetricTile
+          label="Will load"
+          value={preview.toCreate}
+          density="compact"
+        />
+        <MetricTile
+          label="Already exists"
+          value={preview.toUpdate}
+          density="compact"
+        />
       </div>
       <p className="text-muted-foreground">Xero organisation: {preview.tenantName}</p>
       <p className="text-muted-foreground">
@@ -740,15 +777,6 @@ function ImportPreviewDetails({ preview }: { preview: ContactImportPreview }) {
       {preview.errors.length > 0 ? (
         <PreviewSamples title="Errors" values={preview.errors.slice(0, 5)} destructive />
       ) : null}
-    </div>
-  );
-}
-
-function PreviewMetric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-md border bg-background p-2">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-lg font-semibold">{value}</div>
     </div>
   );
 }

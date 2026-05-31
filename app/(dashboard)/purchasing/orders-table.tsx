@@ -129,14 +129,8 @@ export function OrdersTable({
       rows={initialData}
       columns={columns}
       queryKey={["purchase-orders"]}
-      queryFn={async () => {
-        const response = await fetch("/api/purchase-orders");
-        if (!response.ok) {
-          throw new Error("Failed to fetch purchase orders");
-        }
-
-        return response.json();
-      }}
+      queryEndpoint="/api/purchase-orders"
+      queryErrorMessage="Failed to fetch purchase orders"
       searchAriaLabel="Search purchase orders"
       addHref="/purchasing/order"
       addAriaLabel="New Purchase Order"

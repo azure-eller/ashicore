@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound, jsonCreated } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { customerCorrespondenceSchema } from "@/lib/schemas/customer-crm";
 import {
@@ -10,7 +11,7 @@ import {
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const authContext = await assertModuleWriteAccess("sales", request.headers);
   const { id } = await (ctx as RouteContext).params;
-  const data = customerCorrespondenceSchema.parse(await request.json());
+  const data = await parseJsonBody(request, customerCorrespondenceSchema);
 
   try {
     const entry = await createCustomerCorrespondence(id, data, {
@@ -19,10 +20,10 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     });
 
     if (!entry) {
-      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+      return jsonNotFound("Customer not found");
     }
 
-    return NextResponse.json(entry, { status: 201 });
+    return jsonCreated(entry);
   } catch (error) {
     if (error instanceof SalesError) return error.toResponse();
     throw error;

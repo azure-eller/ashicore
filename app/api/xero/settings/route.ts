@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { AuthorizationError, hasModuleAccess } from "@/lib/authz";
 import { getAuthedApiMemberContext } from "@/lib/dal/auth";
 import { getXeroConnection, updateXeroSettings } from "@/lib/dal/xero";
@@ -46,8 +47,7 @@ export const PUT = apiHandler(async (request: Request) => {
   if (!canManageXeroSettings) {
     throw new AuthorizationError("You do not have permission to update Xero settings.", 403);
   }
-  const body = await request.json();
-  const data = updateSchema.parse(body);
+  const data = await parseJsonBody(request, updateSchema);
   const existing = await getXeroConnection();
 
   const result = await updateXeroSettings({

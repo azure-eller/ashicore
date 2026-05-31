@@ -11,6 +11,10 @@ import {
   LinkSquare02Icon,
 } from "@hugeicons/core-free-icons";
 import { DateTimeText } from "@/components/date-time-text";
+import { EmptyState } from "@/components/empty-state";
+import { InsetPanel } from "@/components/inset-panel";
+import { ListFrame, ListFrameItem } from "@/components/list-frame";
+import { SurfacePanel } from "@/components/surface-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,17 +29,18 @@ import {
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { apiJson, requireApiProperty } from "@/lib/client/api";
 import type { AgentAccessPageData, AgentApiTokenRow } from "./types";
-import { SettingsPanel, SettingsPanelHeader } from "./settings-panel";
+import {
+  SettingsPanel,
+  SettingsPanelHeader,
+  SettingsPanelSection,
+} from "./settings-panel";
 
 type CreateTokenResponse = {
   token: string;
   tokenRecord: AgentApiTokenRow;
 };
-
-async function parseJson<T>(response: Response): Promise<T | null> {
-  return response.json().catch(() => null);
-}
 
 function activeTokens(tokens: AgentApiTokenRow[]) {
   return tokens.filter((token) => !token.revokedAt);
@@ -63,18 +68,13 @@ function AgentTokenDialog({
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const response = await fetch("/api/agent/api-tokens", {
+      const body = await apiJson<CreateTokenResponse>("/api/agent/api-tokens", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: { name },
+        fallbackError: "Failed to create agent token.",
       });
-      const body = await parseJson<CreateTokenResponse & { error?: string }>(
-        response
-      );
 
-      if (!response.ok || !body?.token) {
-        throw new Error(body?.error ?? "Failed to create agent token.");
-      }
+      requireApiProperty(body, "token", "Failed to create agent token.");
 
       return body;
     },
@@ -111,7 +111,7 @@ function AgentTokenDialog({
           <HugeiconsIcon icon={Add01Icon} data-icon="inline-end" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="bg-background text-foreground sm:max-w-2xl">
+      <DialogContent size="2xl">
         <DialogHeader>
           <DialogTitle>Create agent API token</DialogTitle>
         </DialogHeader>
@@ -134,7 +134,7 @@ function AgentTokenDialog({
           ) : null}
 
           {createdToken ? (
-            <div className="border bg-muted/20 p-(--space-6)">
+            <InsetPanel tone="subtle" padding="lg" className="bg-muted/20">
               <div className="mb-(--space-4) flex items-center justify-between gap-(--space-4)">
                 <div className="text-[length:var(--text-sm)] font-medium">
                   Token
@@ -153,7 +153,7 @@ function AgentTokenDialog({
                 This token is shown once. Store it in ChatGPT, Claude, or your
                 local agent environment before closing this dialog.
               </p>
-            </div>
+            </InsetPanel>
           ) : null}
         </div>
 
@@ -178,9 +178,13 @@ function AgentTokenDialog({
 
 function ProviderMark({ label }: { label: string }) {
   return (
-    <span className="flex size-(--space-10) shrink-0 items-center justify-center border bg-background font-mono text-[length:var(--text-xs)] font-semibold">
+    <SurfacePanel
+      as="span"
+      tone="background"
+      className="flex size-(--space-10) shrink-0 items-center justify-center p-0 font-mono text-[length:var(--text-xs)] font-semibold"
+    >
       {label}
-    </span>
+    </SurfacePanel>
   );
 }
 
@@ -216,14 +220,14 @@ function ClaudeConnectDialog({
             </ol>
           </div>
 
-          <div className="border bg-muted/20 p-(--space-5)">
+          <InsetPanel tone="subtle" padding="md" className="bg-muted/20">
             <div className="mb-(--space-2) text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-muted-foreground">
               Server URL
             </div>
             <code className="break-all font-mono text-[length:var(--text-xs)]">
               {serverUrl}
             </code>
-          </div>
+          </InsetPanel>
         </div>
 
         <DialogFooter>
@@ -279,14 +283,14 @@ function ChatGptConnectDialog({
             <li>Test the production planning action.</li>
           </ol>
 
-          <div className="border bg-muted/20 p-(--space-5)">
+          <InsetPanel tone="subtle" padding="md" className="bg-muted/20">
             <div className="mb-(--space-2) text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-muted-foreground">
               OpenAPI URL
             </div>
             <code className="break-all font-mono text-[length:var(--text-xs)]">
               {openApiUrl}
             </code>
-          </div>
+          </InsetPanel>
         </div>
 
         <DialogFooter>
@@ -316,7 +320,7 @@ function ConnectCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-(--space-6) border bg-card p-(--space-8)">
+    <SurfacePanel className="flex flex-col gap-(--space-6) p-(--space-8)">
       <div className="flex items-center gap-(--space-4)">
         <ProviderMark label={mark} />
         <div className="min-w-0">
@@ -332,7 +336,7 @@ function ConnectCard({
         {description}
       </p>
       <div className="mt-auto">{children}</div>
-    </div>
+    </SurfacePanel>
   );
 }
 
@@ -355,19 +359,20 @@ export function AgentAccessSection({
   const { data = initialData } = useQuery<AgentAccessPageData>({
     queryKey: ["agent-api-tokens"],
     queryFn: async () => {
-      const response = await fetch("/api/agent/api-tokens");
-      const body = await parseJson<{
-        tokens?: AgentApiTokenRow[];
-        error?: string;
-      }>(response);
+      const body = await apiJson<{ tokens?: AgentApiTokenRow[] }>(
+        "/api/agent/api-tokens",
+        { fallbackError: "Failed to load agent tokens." }
+      );
 
-      if (!response.ok || !body?.tokens) {
-        throw new Error(body?.error ?? "Failed to load agent tokens.");
-      }
+      const tokens = requireApiProperty(
+        body,
+        "tokens",
+        "Failed to load agent tokens."
+      );
 
       return {
         ...initialData,
-        tokens: body.tokens,
+        tokens,
       };
     },
     initialData,
@@ -380,16 +385,11 @@ export function AgentAccessSection({
   };
 
   const revokeMutation = useMutation({
-    mutationFn: async (tokenId: string) => {
-      const response = await fetch(`/api/agent/api-tokens/${tokenId}`, {
+    mutationFn: (tokenId: string) =>
+      apiJson<void>(`/api/agent/api-tokens/${tokenId}`, {
         method: "DELETE",
-      });
-      const body = await parseJson<{ error?: string }>(response);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to revoke agent token.");
-      }
-    },
+        fallbackError: "Failed to revoke agent token.",
+      }),
     onSuccess: refreshData,
     onError: (error) => setActionError(error.message),
   });
@@ -409,7 +409,7 @@ export function AgentAccessSection({
         </div>
       ) : null}
 
-      <div className="border-t px-(--space-12) py-(--space-10)">
+      <SettingsPanelSection>
         <SubHeader>Connect an assistant</SubHeader>
         <div className="mt-(--space-6) grid gap-(--space-6) sm:grid-cols-2">
           <ConnectCard
@@ -436,9 +436,9 @@ export function AgentAccessSection({
             />
           </ConnectCard>
         </div>
-      </div>
+      </SettingsPanelSection>
 
-      <div className="border-t px-(--space-12) py-(--space-10)">
+      <SettingsPanelSection>
         <div className="flex flex-wrap items-center justify-between gap-(--space-6)">
           <div className="min-w-0">
             <SubHeader>API tokens</SubHeader>
@@ -449,22 +449,21 @@ export function AgentAccessSection({
           <AgentTokenDialog triggerLabel="Create token" onCreated={refreshData} />
         </div>
 
-        <div className="mt-(--space-6) border">
+        <ListFrame className="mt-(--space-6)">
           {data.tokens.length === 0 ? (
-            <div className="px-(--space-8) py-(--space-10) text-[length:var(--text-sm)] text-muted-foreground">
+            <EmptyState className="border-0">
               No tokens yet. Create one to connect ChatGPT or another agent.
-            </div>
+            </EmptyState>
           ) : (
-            <div className="divide-y">
-              {data.tokens.map((token) => {
-                const status = tokenStatus(token);
-                const active = status === "Active";
+            data.tokens.map((token) => {
+              const status = tokenStatus(token);
+              const active = status === "Active";
 
-                return (
-                  <div
-                    key={token.id}
-                    className="grid gap-(--space-6) px-(--space-8) py-(--space-7) md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
-                  >
+              return (
+                <ListFrameItem
+                  key={token.id}
+                  className="grid gap-(--space-6) px-(--space-8) py-(--space-7) md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+                >
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-(--space-4)">
                         <div className="flex min-w-0 items-center gap-(--space-3) font-medium">
@@ -505,13 +504,12 @@ export function AgentAccessSection({
                         Revoke
                       </Button>
                     ) : null}
-                  </div>
-                );
-              })}
-            </div>
+                </ListFrameItem>
+              );
+            })
           )}
-        </div>
-      </div>
+        </ListFrame>
+      </SettingsPanelSection>
     </SettingsPanel>
   );
 }

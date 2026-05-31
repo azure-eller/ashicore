@@ -1,4 +1,7 @@
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import {
+  ApiClientError,
+  createApiJsonRequester,
+} from "@/lib/client/api";
 import type {
   DuplicateCombinationWarning,
   ItemType,
@@ -12,14 +15,13 @@ export class EndpointNotReadyError extends Error {
   }
 }
 
-export class ItemCardApiError extends Error {
+export class ItemCardApiError extends ApiClientError {
   constructor(
     message: string,
-    public status: number,
-    public fieldErrors?: Record<string, string[]>
+    status: number,
+    fieldErrors?: Record<string, string[]>
   ) {
-    super(message);
-    this.name = "ItemCardApiError";
+    super("ItemCardApiError", message, status, fieldErrors);
   }
 }
 
@@ -174,34 +176,34 @@ export type GenerateVariantsInput = {
   combinations?: Array<Record<string, string>>;
 };
 
-async function parseError(response: Response, path: string): Promise<never> {
-  if (response.status === 404) {
-    throw new EndpointNotReadyError(path);
+const json = createApiJsonRequester(({ message, status, fieldErrors, path }) => {
+  if (status === 404) {
+    return new EndpointNotReadyError(path);
   }
-  let message = `${response.status} ${response.statusText}`;
-  let fieldErrors: Record<string, string[]> | undefined;
-  try {
-    const body = (await response.json()) as { error?: string; errors?: Record<string, string[]> };
-    if (body.error) message = body.error;
-    if (body.errors) fieldErrors = body.errors;
-  } catch {
-    // body wasn't JSON; keep status-based message
-  }
-  throw new ItemCardApiError(message, response.status, fieldErrors);
+
+  return new ItemCardApiError(message, status, fieldErrors);
+}, (path) => `Request failed (${path})`, (status, path) => `Request failed (${status} ${path})`);
+
+function request<T>(
+  path: string,
+  options: {
+    method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+    headers?: HeadersInit;
+    idempotencyKey?: string;
+    body?: unknown;
+  } = {},
+) {
+  return json<T>(path, options);
 }
 
 export async function getItemCard(itemId: string): Promise<ItemCardDto> {
   const path = `/api/item-cards/${itemId}`;
-  const response = await fetch(path);
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as ItemCardDto;
+  return request<ItemCardDto>(path);
 }
 
 export async function fetchItemCategories(itemType: ItemType): Promise<string[]> {
   const path = `/api/item-cards/categories?itemType=${itemType}`;
-  const response = await fetch(path);
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as string[];
+  return request<string[]>(path);
 }
 
 export type CreateItemCardResult = {
@@ -211,13 +213,11 @@ export type CreateItemCardResult = {
 
 export async function createItemCard(input: CreateItemCardInput): Promise<CreateItemCardResult> {
   const path = `/api/item-cards`;
-  const response = await fetch(path, {
+  return request<CreateItemCardResult>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("createItemCard", { "Content-Type": "application/json" }),
-    body: JSON.stringify(input),
+    idempotencyKey: "createItemCard",
+    body: input,
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as CreateItemCardResult;
 }
 
 export async function updateItemCard(
@@ -225,15 +225,11 @@ export async function updateItemCard(
   input: UpdateItemCardInput
 ): Promise<ItemCardDto> {
   const path = `/api/item-cards/${itemId}`;
-  const response = await fetch(path, {
+  return request<ItemCardDto>(path, {
     method: "PATCH",
-    headers: createIdempotencyHeaders("updateItemCard", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify(input),
+    idempotencyKey: "updateItemCard",
+    body: input,
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as ItemCardDto;
 }
 
 /**
@@ -246,15 +242,11 @@ export async function updateItemCardVariant(
   input: UpdateItemCardVariantInput
 ): Promise<ItemCardDto> {
   const path = `/api/item-cards/${variantItemId}/variant`;
-  const response = await fetch(path, {
+  return request<ItemCardDto>(path, {
     method: "PATCH",
-    headers: createIdempotencyHeaders("updateItemCardVariant", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify(input),
+    idempotencyKey: "updateItemCardVariant",
+    body: input,
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as ItemCardDto;
 }
 
 export async function updateItemCardSellable(
@@ -262,15 +254,11 @@ export async function updateItemCardSellable(
   input: { sellable: boolean },
 ): Promise<ItemCardDto> {
   const path = `/api/item-cards/${itemId}/sellable`;
-  const response = await fetch(path, {
+  return request<ItemCardDto>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("updateItemCardSellable", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify(input),
+    idempotencyKey: "updateItemCardSellable",
+    body: input,
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as ItemCardDto;
 }
 
 export async function reorderItemCardVariants(
@@ -278,35 +266,27 @@ export async function reorderItemCardVariants(
   orderedVariantIds: string[],
 ): Promise<ItemCardDto> {
   const path = `/api/item-cards/${itemId}/variants/reorder`;
-  const response = await fetch(path, {
+  return request<ItemCardDto>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("reorderItemCardVariants", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify({ orderedVariantIds }),
+    idempotencyKey: "reorderItemCardVariants",
+    body: { orderedVariantIds },
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as ItemCardDto;
 }
 
 export async function deleteItemCard(itemId: string): Promise<{ deleted: boolean }> {
   const path = `/api/item-cards/${itemId}`;
-  const response = await fetch(path, {
+  return request<{ deleted: boolean }>(path, {
     method: "DELETE",
-    headers: createIdempotencyHeaders("deleteItemCard"),
+    idempotencyKey: "deleteItemCard",
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as { deleted: boolean };
 }
 
 export async function cloneItemCard(itemId: string): Promise<CreateItemCardResult> {
   const path = `/api/item-cards/${itemId}/clone`;
-  const response = await fetch(path, {
+  return request<CreateItemCardResult>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("cloneItemCard"),
+    idempotencyKey: "cloneItemCard",
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as CreateItemCardResult;
 }
 
 export async function updateVariantConfig(
@@ -314,15 +294,11 @@ export async function updateVariantConfig(
   input: VariantConfigInput
 ): Promise<ItemCardDto> {
   const path = `/api/item-cards/${itemId}/variant-config`;
-  const response = await fetch(path, {
+  return request<ItemCardDto>(path, {
     method: "PUT",
-    headers: createIdempotencyHeaders("updateItemCardVariantConfig", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify(input),
+    idempotencyKey: "updateItemCardVariantConfig",
+    body: input,
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as ItemCardDto;
 }
 
 export async function copyVariantConfigFrom(
@@ -330,22 +306,16 @@ export async function copyVariantConfigFrom(
   input: CopyVariantConfigInput,
 ): Promise<ItemCardDto> {
   const path = `/api/item-cards/${itemId}/variant-config/copy-from`;
-  const response = await fetch(path, {
+  return request<ItemCardDto>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("copyItemCardVariantConfig", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify(input),
+    idempotencyKey: "copyItemCardVariantConfig",
+    body: input,
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as ItemCardDto;
 }
 
 export async function previewVariantGeneration(itemId: string): Promise<GenerationPreviewDto> {
   const path = `/api/item-cards/${itemId}/variants/generate-preview`;
-  const response = await fetch(path, { method: "POST" });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as GenerationPreviewDto;
+  return request<GenerationPreviewDto>(path, { method: "POST" });
 }
 
 export async function generateVariants(
@@ -353,15 +323,11 @@ export async function generateVariants(
   input: GenerateVariantsInput
 ): Promise<{ created: Array<{ id: string }> }> {
   const path = `/api/item-cards/${itemId}/variants/generate`;
-  const response = await fetch(path, {
+  return request<{ created: Array<{ id: string }> }>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("generateItemCardVariants", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify(input),
+    idempotencyKey: "generateItemCardVariants",
+    body: input,
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as { created: Array<{ id: string }> };
 }
 
 /**
@@ -371,12 +337,10 @@ export async function generateVariants(
  */
 export async function deleteVariant(variantId: string): Promise<{ success: boolean }> {
   const path = `/api/items/${variantId}`;
-  const response = await fetch(path, {
+  return request<{ success: boolean }>(path, {
     method: "DELETE",
-    headers: createIdempotencyHeaders("deleteItemCardVariant"),
+    idempotencyKey: "deleteItemCardVariant",
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as { success: boolean };
 }
 
 export type AddInitialStockInput = {
@@ -391,13 +355,11 @@ export async function addInitialStock(
   input: AddInitialStockInput
 ): Promise<{ lotId: string; eventId: string }> {
   const path = `/api/items/${variantId}/stock-adjustments`;
-  const response = await fetch(path, {
+  return request<{ lotId: string; eventId: string }>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("addInitialStock", { "Content-Type": "application/json" }),
-    body: JSON.stringify(input),
+    idempotencyKey: "addInitialStock",
+    body: input,
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as { lotId: string; eventId: string };
 }
 
 export type CopyBomInput = {
@@ -410,15 +372,11 @@ export async function copyBomToVariants(
   input: CopyBomInput
 ): Promise<{ revisions: Array<{ variantId: string; revisionId: string }> }> {
   const path = `/api/items/${sourceVariantId}/bom/copy-to`;
-  const response = await fetch(path, {
+  return request<{ revisions: Array<{ variantId: string; revisionId: string }> }>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("copyBomToVariants", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify(input),
+    idempotencyKey: "copyBomToVariants",
+    body: input,
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as { revisions: Array<{ variantId: string; revisionId: string }> };
 }
 
 export type CopyBomFromInput = {
@@ -431,15 +389,11 @@ export async function copyBomFromVariant(
   input: CopyBomFromInput
 ): Promise<{ revisionId: string }> {
   const path = `/api/items/${targetVariantId}/bom/copy-from`;
-  const response = await fetch(path, {
+  return request<{ revisionId: string }>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("copyBomFromVariant", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify(input),
+    idempotencyKey: "copyBomFromVariant",
+    body: input,
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as { revisionId: string };
 }
 
 /**
@@ -472,15 +426,11 @@ export async function saveBomRevision(
   input: SaveBomRevisionInput,
 ): Promise<{ revisionId: string; revisionNumber: number }> {
   const path = `/api/items/${variantId}/bom-revisions`;
-  const response = await fetch(path, {
+  return request<{ revisionId: string; revisionNumber: number }>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("createBomRevision", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify(input),
+    idempotencyKey: "createBomRevision",
+    body: input,
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as { revisionId: string; revisionNumber: number };
 }
 
 export async function copyOperationsToVariants(
@@ -488,15 +438,11 @@ export async function copyOperationsToVariants(
   input: CopyBomInput
 ): Promise<{ revisions: Array<{ variantId: string; revisionId: string }> }> {
   const path = `/api/items/${sourceVariantId}/operations/copy-to`;
-  const response = await fetch(path, {
+  return request<{ revisions: Array<{ variantId: string; revisionId: string }> }>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("copyOperationsToVariants", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify(input),
+    idempotencyKey: "copyOperationsToVariants",
+    body: input,
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as { revisions: Array<{ variantId: string; revisionId: string }> };
 }
 
 export async function copyOperationsFromVariant(
@@ -504,21 +450,15 @@ export async function copyOperationsFromVariant(
   input: CopyBomFromInput
 ): Promise<{ revisionId: string }> {
   const path = `/api/items/${targetVariantId}/operations/copy-from`;
-  const response = await fetch(path, {
+  return request<{ revisionId: string }>(path, {
     method: "POST",
-    headers: createIdempotencyHeaders("copyOperationsFromVariant", {
-      "Content-Type": "application/json",
-    }),
-    body: JSON.stringify(input),
+    idempotencyKey: "copyOperationsFromVariant",
+    body: input,
   });
-  if (!response.ok) return parseError(response, path);
-  return (await response.json()) as { revisionId: string };
 }
 
 export async function getNextInternalBarcode(): Promise<string> {
   const path = "/api/items/internal-barcodes/next";
-  const response = await fetch(path);
-  if (!response.ok) return parseError(response, path);
-  const body = (await response.json()) as { value: string };
+  const body = await request<{ value: string }>(path);
   return body.value;
 }

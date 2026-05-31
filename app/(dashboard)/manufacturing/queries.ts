@@ -41,6 +41,7 @@ import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import {
   normalizeNumeric,
   normalizeNumericScale,
+  normalizeQuantityNumber,
   roundQuantity,
   todayInTimeZone,
 } from "@/lib/format";
@@ -355,10 +356,6 @@ function buildIngredientActualsMap(
   }
 
   return map;
-}
-
-function normalizeQuantityNumber(value: number) {
-  return Number(normalizeNumeric(value));
 }
 
 function sumNumericStrings(values: Array<string | null | undefined>) {

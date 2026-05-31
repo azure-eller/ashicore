@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { jsonOk } from "@/lib/api/responses";
 import { AuthorizationError } from "@/lib/authz";
 import { autoSyncAccountingPurchaseOrders } from "@/lib/accounting/import-purchase-orders";
 
@@ -26,5 +26,5 @@ function assertCronAccess(request: Request) {
 export const GET = apiHandler(async (request: Request) => {
   assertCronAccess(request);
   const summary = await autoSyncAccountingPurchaseOrders();
-  return NextResponse.json({ ok: true, ...summary });
+  return jsonOk(summary);
 });

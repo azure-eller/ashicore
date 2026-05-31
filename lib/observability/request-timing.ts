@@ -1,4 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import {
+  ERP_REQUEST_ID_HEADER,
+  REQUEST_ID_HEADER,
+} from "@/lib/observability/request-headers";
+import { formatDurationMs } from "@/lib/observability/timing-format";
 
 type RequestTimingStore = {
   label: string;
@@ -24,10 +29,6 @@ function createStore(label: string): RequestTimingStore {
     maxDbQueryMs: 0,
     maxDbConnectMs: 0,
   };
-}
-
-function formatMs(value: number) {
-  return value.toFixed(1);
 }
 
 export async function withRequestTiming<T>(
@@ -88,12 +89,42 @@ export function getRequestTimingSnapshot(): RequestTimingSnapshot {
 export function buildServerTimingHeader(totalMs: number) {
   const snapshot = getRequestTimingSnapshot();
   return [
-    `app;dur=${formatMs(totalMs)}`,
-    `db_query;dur=${formatMs(snapshot.dbQueryMs)}`,
-    `db_connect;dur=${formatMs(snapshot.dbConnectMs)}`,
-    `db_query_max;dur=${formatMs(snapshot.maxDbQueryMs)}`,
-    `db_connect_max;dur=${formatMs(snapshot.maxDbConnectMs)}`,
+    `app;dur=${formatDurationMs(totalMs)}`,
+    `db_query;dur=${formatDurationMs(snapshot.dbQueryMs)}`,
+    `db_connect;dur=${formatDurationMs(snapshot.dbConnectMs)}`,
+    `db_query_max;dur=${formatDurationMs(snapshot.maxDbQueryMs)}`,
+    `db_connect_max;dur=${formatDurationMs(snapshot.maxDbConnectMs)}`,
   ].join(", ");
+}
+
+export function applyRequestTimingHeaders(
+  headers: Headers,
+  {
+    requestId,
+    totalMs,
+    extraTimings,
+  }: {
+    requestId: string;
+    totalMs: number;
+    extraTimings?: Record<string, number>;
+  },
+) {
+  const snapshot = getRequestTimingSnapshot();
+
+  headers.set(REQUEST_ID_HEADER, requestId);
+  headers.set(ERP_REQUEST_ID_HEADER, requestId);
+  headers.set("x-erp-handler-ms", formatDurationMs(totalMs));
+  headers.set("x-erp-db-query-ms", formatDurationMs(snapshot.dbQueryMs));
+  headers.set("x-erp-db-query-count", String(snapshot.dbQueryCount));
+  headers.set("x-erp-db-connect-ms", formatDurationMs(snapshot.dbConnectMs));
+  headers.set("x-erp-db-connect-count", String(snapshot.dbConnectCount));
+  headers.set("x-erp-process-uptime-ms", formatDurationMs(process.uptime() * 1000));
+
+  for (const [name, value] of Object.entries(extraTimings ?? {})) {
+    headers.set(name, formatDurationMs(value));
+  }
+
+  headers.append("Server-Timing", buildServerTimingHeader(totalMs));
 }
 
 export function logRequestTiming(
@@ -104,9 +135,9 @@ export function logRequestTiming(
   const snapshot = getRequestTimingSnapshot();
 
   console.info(
-    `[perf] ${label} status=${status} total=${formatMs(totalMs)}ms ` +
-      `dbQuery=${formatMs(snapshot.dbQueryMs)}ms dbQueryCount=${snapshot.dbQueryCount} ` +
-      `dbConnect=${formatMs(snapshot.dbConnectMs)}ms dbConnectCount=${snapshot.dbConnectCount} ` +
-      `dbQueryMax=${formatMs(snapshot.maxDbQueryMs)}ms dbConnectMax=${formatMs(snapshot.maxDbConnectMs)}ms`
+    `[perf] ${label} status=${status} total=${formatDurationMs(totalMs)}ms ` +
+      `dbQuery=${formatDurationMs(snapshot.dbQueryMs)}ms dbQueryCount=${snapshot.dbQueryCount} ` +
+      `dbConnect=${formatDurationMs(snapshot.dbConnectMs)}ms dbConnectCount=${snapshot.dbConnectCount} ` +
+      `dbQueryMax=${formatDurationMs(snapshot.maxDbQueryMs)}ms dbConnectMax=${formatDurationMs(snapshot.maxDbConnectMs)}ms`
   );
 }

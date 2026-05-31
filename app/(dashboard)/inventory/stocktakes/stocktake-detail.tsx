@@ -7,17 +7,29 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
 import type { z } from "zod";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import type { CardSaveState } from "@/components/card-page/card-save-status";
-import { CellShell } from "@/components/card-page/form-cell";
+import {
+  CardFormRow,
+  CellShell,
+  ReadOnlyFieldValue,
+} from "@/components/card-page/form-cell";
+import {
+  FramedTable,
+  FramedTableCell,
+  FramedTableHead,
+  FramedTableHeaderCell,
+  FramedTableRow,
+  TableFrame,
+} from "@/components/table-frame";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatQuantity, normalizeNumeric } from "@/lib/format";
+import { ApiJsonError, apiJson } from "@/lib/client/api";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import {
   updateStocktakeCountsSchema,
@@ -117,6 +129,22 @@ function asItemDisplayRow(row: StocktakeGridRow): StocktakeItemDisplayRow {
   return { ...row, rowKind: "item" };
 }
 
+function toApiError(error: unknown, fallback: string): ApiError {
+  if (error instanceof ApiJsonError) {
+    return {
+      status: error.status,
+      error: error.message,
+      errors: error.errors,
+    };
+  }
+
+  if (error instanceof Error) {
+    return { error: error.message };
+  }
+
+  return { error: fallback };
+}
+
 export function StocktakeDetail({
   stocktake,
   previewItems,
@@ -157,18 +185,15 @@ export function StocktakeDetail({
     save: async (_id, _draft, ops) => {
       for (const { op } of ops) {
         setActionError(null);
-        const response = await fetch(`/api/stocktakes/${stocktake.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(updateStocktakeCountsSchema.parse(op)),
-        });
-        const body = await response.json().catch(() => null);
-        if (!response.ok) {
-          const error = {
-            error: body?.error ?? "Failed to save counts.",
-            errors: body?.errors,
-          } satisfies ApiError;
-          setActionError(error.error);
+        try {
+          await apiJson<void>(`/api/stocktakes/${stocktake.id}`, {
+            method: "PUT",
+            body: updateStocktakeCountsSchema.parse(op),
+            fallbackError: "Failed to save counts.",
+          });
+        } catch (caught) {
+          const error = toApiError(caught, "Failed to save counts.");
+          setActionError(error.error ?? "Failed to save counts.");
           throw error;
         }
       }
@@ -185,20 +210,15 @@ export function StocktakeDetail({
 
   const completeMutation = useMutation<void, ApiError, boolean>({
     mutationFn: async (confirmStale = false) => {
-      const response = await fetch(`/api/stocktakes/${stocktake.id}/complete`, {
-        method: "POST",
-        headers: createIdempotencyHeaders("stocktake-complete", {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify({ confirmStale }),
-      });
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw {
-          status: response.status,
-          error: body?.error ?? "Failed to complete stocktake.",
-        } satisfies ApiError;
+      try {
+        await apiJson<void>(`/api/stocktakes/${stocktake.id}/complete`, {
+          method: "POST",
+          body: { confirmStale },
+          idempotencyKey: "stocktake-complete",
+          fallbackError: "Failed to complete stocktake.",
+        });
+      } catch (error) {
+        throw toApiError(error, "Failed to complete stocktake.");
       }
     },
     onMutate: () => {
@@ -222,13 +242,11 @@ export function StocktakeDetail({
   const openCompletionReview = async (confirmStale = false) => {
     try {
       await saveEngine.flush();
-      const response = await fetch(`/api/stocktakes/${stocktake.id}/completion-preview`);
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        setActionError(body?.error ?? "Failed to prepare completion review.");
-        return;
-      }
-      setReviewPreview(body as StocktakeCompletionPreview);
+      const body = await apiJson<StocktakeCompletionPreview>(
+        `/api/stocktakes/${stocktake.id}/completion-preview`,
+        { fallbackError: "Failed to prepare completion review." }
+      );
+      setReviewPreview(body);
       setReviewConfirmStale(confirmStale);
       setReviewOpen(true);
     } catch (error) {
@@ -250,17 +268,12 @@ export function StocktakeDetail({
 
   const deleteMutation = useDeleteEntity({
     mutationKey: ["stocktake-action", stocktake.id, "delete"],
-    mutationFn: async () => {
-      const response = await fetch("/api/stocktakes", {
+    mutationFn: () =>
+      apiJson<void>("/api/stocktakes", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: [stocktake.id] }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to delete stocktake.");
-      }
-    },
+        body: { ids: [stocktake.id] },
+        fallbackError: "Failed to delete stocktake.",
+      }),
     onMutate: () => {
       setActionError(null);
     },
@@ -286,14 +299,17 @@ export function StocktakeDetail({
 
   const cloneMutation = useMutation<CloneStocktakeResult, ApiError>({
     mutationFn: async () => {
-      const response = await fetch(`/api/stocktakes/${stocktake.id}/clone`, {
-        method: "POST",
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw { error: body?.error ?? "Failed to copy stocktake." } satisfies ApiError;
+      try {
+        return await apiJson<CloneStocktakeResult>(
+          `/api/stocktakes/${stocktake.id}/clone`,
+          {
+            method: "POST",
+            fallbackError: "Failed to copy stocktake.",
+          }
+        );
+      } catch (error) {
+        throw toApiError(error, "Failed to copy stocktake.");
       }
-      return body as CloneStocktakeResult;
     },
     onSuccess: async (created) => {
       await refreshStocktakeQueries();
@@ -836,7 +852,7 @@ export function StocktakeDetail({
 
         <CardPageBody>
           <CardSection title="Stocktake at a glance">
-            <div className={`${styles.formRow} ${styles.formRowThree}`}>
+            <CardFormRow columns="three">
               <CellShell label="Name" required>
                 <Input
                   aria-label="Name"
@@ -855,13 +871,13 @@ export function StocktakeDetail({
                 />
               </CellShell>
               <CellShell label="Created from">
-                <div className={styles.readOnlyFieldValue}>{formatScope(stocktake.scope)}</div>
+                <ReadOnlyFieldValue>{formatScope(stocktake.scope)}</ReadOnlyFieldValue>
               </CellShell>
               <CellShell label="Lines">
-                <div className={styles.readOnlyFieldValue}>{rows.length}</div>
+                <ReadOnlyFieldValue>{rows.length}</ReadOnlyFieldValue>
               </CellShell>
-            </div>
-            <div className={styles.formRow}>
+            </CardFormRow>
+            <CardFormRow>
               <CellShell label="Reason">
                 <Input
                   aria-label="Reason"
@@ -878,7 +894,7 @@ export function StocktakeDetail({
                   }}
                 />
               </CellShell>
-            </div>
+            </CardFormRow>
           </CardSection>
 
           {actionError ? (
@@ -927,42 +943,42 @@ export function StocktakeDetail({
           <DialogHeader>
             <DialogTitle>Review stocktake</DialogTitle>
           </DialogHeader>
-          <div className="max-h-[60vh] overflow-auto border border-border">
-            <table className="w-full border-collapse text-[length:var(--text-sm)]">
-              <thead className="bg-muted text-left">
+          <TableFrame className="max-h-[60vh] overflow-auto">
+            <FramedTable>
+              <FramedTableHead>
                 <tr>
-                  <th className="border-b border-border p-(--space-3)">Item</th>
-                  <th className="border-b border-border p-(--space-3)">Lot</th>
-                  <th className="border-b border-border p-(--space-3) text-right">Current</th>
-                  <th className="border-b border-border p-(--space-3) text-right">Counted</th>
-                  <th className="border-b border-border p-(--space-3) text-right">Variance</th>
+                  <FramedTableHeaderCell>Item</FramedTableHeaderCell>
+                  <FramedTableHeaderCell>Lot</FramedTableHeaderCell>
+                  <FramedTableHeaderCell align="right">Current</FramedTableHeaderCell>
+                  <FramedTableHeaderCell align="right">Counted</FramedTableHeaderCell>
+                  <FramedTableHeaderCell align="right">Variance</FramedTableHeaderCell>
                 </tr>
-              </thead>
+              </FramedTableHead>
               <tbody>
                 {reviewPreview?.lines.flatMap((line) =>
                   line.lots.length
                     ? line.lots.map((lot) => (
-                        <tr key={lot.lotLineId}>
-                          <td className="border-b border-border p-(--space-3)">{line.itemName}</td>
-                          <td className="border-b border-border p-(--space-3) font-mono">{lot.lotNumber}</td>
-                          <td className="border-b border-border p-(--space-3) text-right">{formatQuantity(lot.currentQty)} {line.unitName}</td>
-                          <td className="border-b border-border p-(--space-3) text-right">{formatQuantity(lot.countedQty)} {line.unitName}</td>
-                          <td className="border-b border-border p-(--space-3) text-right">{formatQuantity(lot.varianceQty)} {line.unitName}</td>
-                        </tr>
+                        <FramedTableRow key={lot.lotLineId}>
+                          <FramedTableCell>{line.itemName}</FramedTableCell>
+                          <FramedTableCell className="font-mono">{lot.lotNumber}</FramedTableCell>
+                          <FramedTableCell align="right">{formatQuantity(lot.currentQty)} {line.unitName}</FramedTableCell>
+                          <FramedTableCell align="right">{formatQuantity(lot.countedQty)} {line.unitName}</FramedTableCell>
+                          <FramedTableCell align="right">{formatQuantity(lot.varianceQty)} {line.unitName}</FramedTableCell>
+                        </FramedTableRow>
                       ))
                     : [
-                        <tr key={line.lineId}>
-                          <td className="border-b border-border p-(--space-3)">{line.itemName}</td>
-                          <td className="border-b border-border p-(--space-3)" />
-                          <td className="border-b border-border p-(--space-3) text-right">{formatQuantity(line.currentQty)} {line.unitName}</td>
-                          <td className="border-b border-border p-(--space-3) text-right">{formatQuantity(line.countedQty)} {line.unitName}</td>
-                          <td className="border-b border-border p-(--space-3) text-right">{formatQuantity(line.varianceQty)} {line.unitName}</td>
-                        </tr>,
+                        <FramedTableRow key={line.lineId}>
+                          <FramedTableCell>{line.itemName}</FramedTableCell>
+                          <FramedTableCell />
+                          <FramedTableCell align="right">{formatQuantity(line.currentQty)} {line.unitName}</FramedTableCell>
+                          <FramedTableCell align="right">{formatQuantity(line.countedQty)} {line.unitName}</FramedTableCell>
+                          <FramedTableCell align="right">{formatQuantity(line.varianceQty)} {line.unitName}</FramedTableCell>
+                        </FramedTableRow>,
                       ]
                 )}
               </tbody>
-            </table>
-          </div>
+            </FramedTable>
+          </TableFrame>
           <DialogFooter>
             <Button variant="outline" onClick={() => setReviewOpen(false)}>
               Back

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   ItemCardError,
@@ -11,7 +12,7 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("inventory", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "updateItemCardVariantConfig");
   const { itemId } = await ((ctx as RouteContext).params as unknown as Promise<{ itemId: string }>);
-  const data = variantConfigSchema.parse(await request.json());
+  const data = await parseJsonBody(request, variantConfigSchema);
   try {
     const card = await updateVariantConfig(itemId, data, { idempotencyKey });
     return NextResponse.json(card);

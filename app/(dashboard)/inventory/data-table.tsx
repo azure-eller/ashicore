@@ -3,6 +3,7 @@
 import { useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ERPDataGridList } from "@/components/erp-data-grid-list";
+import { appendSearchParams } from "@/lib/routing/search-params";
 import { getColumns } from "./columns";
 import type { ItemRow, ItemType } from "./types";
 
@@ -34,15 +35,8 @@ export function DataTable({
       rows={initialData}
       columns={columns}
       queryKey={queryKey}
-      queryFn={async () => {
-        const params = new URLSearchParams({ itemType });
-        const response = await fetch(`/api/items?${params}`);
-        if (!response.ok) {
-          throw new Error("Failed to fetch items.");
-        }
-
-        return response.json();
-      }}
+      queryEndpoint={appendSearchParams("/api/items", { itemType })}
+      queryErrorMessage="Failed to fetch items."
       searchAriaLabel="Search items"
       addHref={itemType === "product" ? "/inventory/product" : "/inventory/material"}
       addAriaLabel={itemType === "product" ? "New Product" : "New Material"}

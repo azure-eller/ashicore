@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess, getAuthedMemberContext } from "@/lib/dal/auth";
 import { applyAccountingPurchaseOrderImport } from "@/lib/accounting/import-purchase-orders";
 import {
@@ -21,7 +22,7 @@ const bodySchema = z.object({
 export const POST = apiHandler(async (request: Request) => {
   await assertModuleWriteAccess("purchasing", request.headers);
   const context = await getAuthedMemberContext();
-  const body = bodySchema.parse(await request.json());
+  const body = await parseJsonBody(request, bodySchema);
 
   try {
     const result = await applyAccountingPurchaseOrderImport(

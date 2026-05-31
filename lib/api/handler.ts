@@ -2,20 +2,22 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
+import { jsonError } from "@/lib/api/responses";
 import { AuthorizationError } from "@/lib/authz";
 import { DomainError } from "@/lib/errors/domain-error";
 import { MissingIdempotencyKeyError } from "@/lib/inventory/kernel";
 import {
-  buildServerTimingHeader,
-  getRequestTimingSnapshot,
+  applyRequestTimingHeaders,
   logRequestTiming,
   withRequestTiming,
 } from "@/lib/observability/request-timing";
-import {
-  ERP_REQUEST_ID_HEADER,
-  REQUEST_ID_HEADER,
-} from "@/lib/observability/request-headers";
+import { REQUEST_ID_HEADER } from "@/lib/observability/request-headers";
 import { captureAppError } from "@/lib/observability/sentry";
+import {
+  fieldErrorsFromIssues,
+  firstFieldErrorMessage,
+} from "@/lib/api/field-errors";
+import { requestUrl } from "@/lib/routing/search-params";
 
 export type RouteContext = { params: Promise<{ id: string }> };
 
@@ -32,25 +34,12 @@ export function requireIdempotencyKey(
   return idempotencyKey;
 }
 
-function formatFieldErrors(errors: Record<string, string[]>) {
-  return Object.values(errors).flat()[0] ?? "Invalid request.";
-}
-
-function formatZodFieldErrors(error: z.ZodError) {
-  const errors: Record<string, string[]> = {};
-  for (const issue of error.issues) {
-    const field = issue.path.length > 0 ? issue.path.join(".") : "form";
-    errors[field] = [...(errors[field] ?? []), issue.message];
-  }
-  return errors;
-}
-
 export function apiHandler<TArgs extends unknown[]>(
   fn: (request: Request, ...args: TArgs) => Promise<NextResponse>
 ) {
   return async (request: Request, ...args: TArgs) => {
     const requestId = request.headers.get(REQUEST_ID_HEADER) ?? randomUUID();
-    const pathname = new URL(request.url).pathname;
+    const pathname = requestUrl(request).pathname;
     const label = `${request.method} ${pathname}`;
 
     return withRequestTiming(label, async () => {
@@ -58,20 +47,7 @@ export function apiHandler<TArgs extends unknown[]>(
 
       const finalizeResponse = (response: NextResponse) => {
         const totalMs = performance.now() - startedAt;
-        const snapshot = getRequestTimingSnapshot();
-
-        response.headers.set(REQUEST_ID_HEADER, requestId);
-        response.headers.set(ERP_REQUEST_ID_HEADER, requestId);
-        response.headers.set("x-erp-handler-ms", totalMs.toFixed(1));
-        response.headers.set("x-erp-db-query-ms", snapshot.dbQueryMs.toFixed(1));
-        response.headers.set("x-erp-db-query-count", String(snapshot.dbQueryCount));
-        response.headers.set("x-erp-db-connect-ms", snapshot.dbConnectMs.toFixed(1));
-        response.headers.set("x-erp-db-connect-count", String(snapshot.dbConnectCount));
-        response.headers.set(
-          "x-erp-process-uptime-ms",
-          (process.uptime() * 1000).toFixed(1)
-        );
-        response.headers.append("Server-Timing", buildServerTimingHeader(totalMs));
+        applyRequestTimingHeaders(response.headers, { requestId, totalMs });
 
         logRequestTiming(label, totalMs, response.status);
         return response;
@@ -84,33 +60,23 @@ export function apiHandler<TArgs extends unknown[]>(
         // Let Next.js redirect() errors propagate — swallowing them returns a 500
         if (isRedirectError(error)) throw error;
         if (error instanceof AuthorizationError) {
-          return finalizeResponse(
-            NextResponse.json(
-              { error: error.message, requestId },
-              { status: error.status }
-            )
-          );
+          return finalizeResponse(jsonError(error.message, error.status, { requestId }));
         }
         if (error instanceof DomainError) {
           const response = error.toResponse();
           return finalizeResponse(response);
         }
         if (error instanceof z.ZodError) {
-          const errors = formatZodFieldErrors(error);
+          const errors = fieldErrorsFromIssues(error.issues);
           return finalizeResponse(
             NextResponse.json(
-              { error: formatFieldErrors(errors), errors, requestId },
+              { error: firstFieldErrorMessage(errors), errors, requestId },
               { status: 400 }
             )
           );
         }
         if (error instanceof SyntaxError) {
-          return finalizeResponse(
-            NextResponse.json(
-              { error: "Invalid JSON", requestId },
-              { status: 400 }
-            )
-          );
+          return finalizeResponse(jsonError("Invalid JSON", 400, { requestId }));
         }
         // Postgres unique constraint violation — surface as a 409 instead of 500
         if (
@@ -119,10 +85,7 @@ export function apiHandler<TArgs extends unknown[]>(
           (error as { code: string }).code === "23505"
         ) {
           return finalizeResponse(
-            NextResponse.json(
-              { error: "A record with that value already exists.", requestId },
-              { status: 409 }
-            )
+            jsonError("A record with that value already exists.", 409, { requestId })
           );
         }
 
@@ -141,12 +104,7 @@ export function apiHandler<TArgs extends unknown[]>(
           requestId,
         });
 
-        return finalizeResponse(
-          NextResponse.json(
-            { error: "Internal server error", requestId },
-            { status: 500 }
-          )
-        );
+        return finalizeResponse(jsonError("Internal server error", 500, { requestId }));
       }
     });
   };

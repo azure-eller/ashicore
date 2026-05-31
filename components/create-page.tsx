@@ -109,23 +109,15 @@ export function CreateSection({
   contentClassName?: string;
 }) {
   return (
-    <Card className={cn("gap-0 border bg-card py-0 shadow-none ring-0", className)}>
-      <CardHeader className="border-b bg-muted px-(--space-12) py-(--space-10)">
-        <CardTitle>{title}</CardTitle>
-        {description ? <CardDescription>{description}</CardDescription> : null}
-        {action ? <CardAction>{action}</CardAction> : null}
-      </CardHeader>
+    <CreateCard className={className}>
+      <CreateCardHeader title={title} description={description} action={action} />
       {children ? (
         <CardContent className={cn("px-(--space-12) py-(--space-10)", contentClassName)}>
           {children}
         </CardContent>
       ) : null}
-      {footer ? (
-        <CardFooter className="border-t bg-muted px-(--space-12) py-(--space-8)">
-          {footer}
-        </CardFooter>
-      ) : null}
-    </Card>
+      {footer ? <CreateCardFooter>{footer}</CreateCardFooter> : null}
+    </CreateCard>
   );
 }
 
@@ -143,20 +135,91 @@ export function CreateSidebarCard({
   className?: string;
 }) {
   return (
-    <Card className={cn("gap-0 border bg-card py-0 shadow-none ring-0", className)}>
-      <CardHeader className="border-b bg-muted px-(--space-10) py-(--space-8)">
-        <CardTitle className="text-[length:var(--text-sm)] leading-[var(--leading-sm)]">{title}</CardTitle>
-        {description ? (
-          <CardDescription className="text-[length:var(--text-xs)] leading-[var(--leading-xs)]">{description}</CardDescription>
-        ) : null}
-      </CardHeader>
+    <CreateCard className={className}>
+      <CreateCardHeader
+        title={title}
+        description={description}
+        density="compact"
+      />
       <CardContent className="px-(--space-10) py-(--space-8)">{children}</CardContent>
-      {footer ? (
-        <CardFooter className="border-t bg-muted px-(--space-10) py-(--space-8)">
-          {footer}
-        </CardFooter>
-      ) : null}
+      {footer ? <CreateCardFooter density="compact">{footer}</CreateCardFooter> : null}
+    </CreateCard>
+  );
+}
+
+type CreateCardDensity = "default" | "compact";
+
+const createCardHeaderClass: Record<CreateCardDensity, string> = {
+  default: "border-b bg-muted px-(--space-12) py-(--space-10)",
+  compact: "border-b bg-muted px-(--space-10) py-(--space-8)",
+};
+
+const createCardFooterClass: Record<CreateCardDensity, string> = {
+  default: "border-t bg-muted px-(--space-12) py-(--space-8)",
+  compact: "border-t bg-muted px-(--space-10) py-(--space-8)",
+};
+
+function CreateCard({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <Card className={cn("gap-0 border bg-card py-0 shadow-none ring-0", className)}>
+      {children}
     </Card>
+  );
+}
+
+function CreateCardHeader({
+  title,
+  description,
+  action,
+  density = "default",
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  action?: ReactNode;
+  density?: CreateCardDensity;
+}) {
+  return (
+    <CardHeader className={createCardHeaderClass[density]}>
+      <CardTitle
+        className={
+          density === "compact"
+            ? "text-[length:var(--text-sm)] leading-[var(--leading-sm)]"
+            : undefined
+        }
+      >
+        {title}
+      </CardTitle>
+      {description ? (
+        <CardDescription
+          className={
+            density === "compact"
+              ? "text-[length:var(--text-xs)] leading-[var(--leading-xs)]"
+              : undefined
+          }
+        >
+          {description}
+        </CardDescription>
+      ) : null}
+      {action ? <CardAction>{action}</CardAction> : null}
+    </CardHeader>
+  );
+}
+
+function CreateCardFooter({
+  children,
+  density = "default",
+}: {
+  children: ReactNode;
+  density?: CreateCardDensity;
+}) {
+  return (
+    <CardFooter className={createCardFooterClass[density]}>{children}</CardFooter>
   );
 }
 

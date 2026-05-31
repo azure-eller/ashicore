@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
 import {
   getStocktakeCompletionPreview,
@@ -13,7 +14,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   try {
     const preview = await getStocktakeCompletionPreview(id);
     if (!preview) {
-      return NextResponse.json({ error: "Stocktake not found" }, { status: 404 });
+      return jsonNotFound("Stocktake not found");
     }
     return NextResponse.json(preview);
   } catch (error) {

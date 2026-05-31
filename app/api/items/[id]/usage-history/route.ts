@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
+import { requestSearchParamRecord } from "@/lib/routing/search-params";
 import { getItemUsageHistory } from "@/app/(dashboard)/inventory/queries";
 
 const usageHistorySearchSchema = z.object({
@@ -13,10 +15,7 @@ const usageHistorySearchSchema = z.object({
 export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleReadAccess("inventory", request.headers);
   const { id } = await (ctx as RouteContext).params;
-  const { searchParams } = new URL(request.url);
-  const filters = usageHistorySearchSchema.parse(
-    Object.fromEntries(searchParams.entries())
-  );
+  const filters = usageHistorySearchSchema.parse(requestSearchParamRecord(request));
   const usage = await getItemUsageHistory(id, {
     days: filters.days,
     bucket: filters.bucket,
@@ -24,7 +23,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   });
 
   if (!usage) {
-    return NextResponse.json({ error: "Item not found" }, { status: 404 });
+    return jsonNotFound("Item not found");
   }
 
   return NextResponse.json(usage);

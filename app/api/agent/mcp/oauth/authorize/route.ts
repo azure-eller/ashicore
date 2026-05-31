@@ -4,6 +4,10 @@ import { apiHandler } from "@/lib/api/handler";
 import { AuthorizationError } from "@/lib/authz";
 import { getAuthedApiMemberContext } from "@/lib/dal/auth";
 import { createMcpOAuthAuthorizationCode } from "@/lib/agent/mcp-oauth/service";
+import {
+  requestSearchParamRecord,
+  requestUrl,
+} from "@/lib/routing/search-params";
 
 export const runtime = "nodejs";
 
@@ -27,10 +31,8 @@ function redirectWithOAuthError(redirectUri: string, error: string, state?: stri
 }
 
 export const GET = apiHandler(async (request) => {
-  const url = new URL(request.url);
-  const query = authorizeQuerySchema.parse(
-    Object.fromEntries(url.searchParams.entries())
-  );
+  const url = requestUrl(request);
+  const query = authorizeQuerySchema.parse(requestSearchParamRecord(request));
 
   let context: Awaited<ReturnType<typeof getAuthedApiMemberContext>>;
   try {

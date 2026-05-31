@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { Separator } from "@/components/ui/separator";
+import { TableFrame } from "@/components/table-frame";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
   Table,
@@ -24,6 +25,7 @@ import {
   formatMinimumLotAgeRequirement,
   getMinimumLotAgeDays,
 } from "@/lib/bom/constraints";
+import { formatDate, toDateOnlyString } from "@/lib/format";
 
 export default async function ProductBomHistoryPage({
   params,
@@ -101,7 +103,7 @@ export default async function ProductBomHistoryPage({
                         {revision.isCurrent ? <Badge variant="secondary">Current</Badge> : null}
                       </span>
                       <span className="text-xs text-muted-foreground">
-                        {revision.createdAt.toLocaleDateString("en-US")}
+                        {formatDate(toDateOnlyString(revision.createdAt))}
                       </span>
                       {revision.note ? (
                         <span className="line-clamp-2 text-xs text-muted-foreground">
@@ -124,7 +126,7 @@ export default async function ProductBomHistoryPage({
                 {selectedRevision.isCurrent ? <Badge variant="secondary">Current</Badge> : null}
               </div>
               <p className="text-sm text-muted-foreground">
-                {selectedRevision.createdAt.toLocaleDateString("en-US")}
+                {formatDate(toDateOnlyString(selectedRevision.createdAt))}
                 {selectedRevision.createdByName
                   ? ` by ${selectedRevision.createdByName}`
                   : ""}
@@ -134,7 +136,7 @@ export default async function ProductBomHistoryPage({
               ) : null}
             </div>
 
-            <div className="overflow-hidden border">
+            <TableFrame>
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -180,7 +182,7 @@ export default async function ProductBomHistoryPage({
                   })}
                 </TableBody>
               </Table>
-            </div>
+            </TableFrame>
           </div>
         </div>
       </div>

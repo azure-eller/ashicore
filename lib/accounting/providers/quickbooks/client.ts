@@ -1,7 +1,7 @@
 import "server-only";
 
-import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
+import { jsonError } from "@/lib/api/responses";
 import { integrationConnections } from "@/lib/db/schema";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
 import {
@@ -32,7 +32,7 @@ export class QuickBooksError extends Error {
   }
 
   toResponse() {
-    return NextResponse.json({ error: this.message }, { status: this.status });
+    return jsonError(this.message, this.status);
   }
 }
 

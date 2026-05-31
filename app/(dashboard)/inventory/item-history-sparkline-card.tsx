@@ -15,7 +15,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
-import { formatDate, formatQuantity } from "@/lib/format";
+import { apiJson } from "@/lib/client/api";
+import { formatDate, formatQuantityWithUnitText } from "@/lib/format";
 import type { ItemType } from "./types";
 
 type ItemHistoryMode = "usage" | "production";
@@ -63,19 +64,11 @@ function emptyHistoryText(mode: ItemHistoryMode) {
     : "No ledger usage in the last 180 days.";
 }
 
-function formatQuantityWithUnit(value: string | null | undefined, unitName: string | null) {
-  return [formatQuantity(value), unitName].filter(Boolean).join(" ");
-}
-
 async function fetchItemHistory(itemId: string, mode: ItemHistoryMode) {
-  const response = await fetch(
-    `/api/items/${itemId}/usage-history?days=180&mode=${mode}`
+  return apiJson<ItemHistory>(
+    `/api/items/${itemId}/usage-history?days=180&mode=${mode}`,
+    { fallbackError: "Failed to load item history." },
   );
-  if (!response.ok) {
-    throw new Error("Failed to load item history.");
-  }
-
-  return (await response.json()) as ItemHistory;
 }
 
 export function ItemHistorySparklineCard({
@@ -139,7 +132,7 @@ export function ItemHistorySparklineCard({
                         <>
                           <span className="text-muted-foreground">{row.label}</span>
                           <span className="font-mono font-medium text-foreground tabular-nums">
-                            {formatQuantityWithUnit(row.quantity, data.unitName)}
+                            {formatQuantityWithUnitText(row.quantity, data.unitName)}
                           </span>
                         </>
                       );

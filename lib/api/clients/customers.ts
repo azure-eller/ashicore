@@ -5,42 +5,24 @@ import type {
   CustomerProjectRow,
 } from "@/app/(dashboard)/sales/types";
 import type { AddressEntry } from "@/lib/dal/addresses";
+import { ApiClientError, createApiJsonRequester } from "@/lib/client/api";
 import type { CreateAddressEntry, UpdateAddressEntry } from "@/lib/schemas/addresses";
 import type { CustomerContactInput, CustomerProjectInput } from "@/lib/schemas/customer-crm";
 import type { InsertCustomer, PatchCustomer } from "@/lib/schemas/customers";
 
-export class CustomerApiError extends Error {
+export class CustomerApiError extends ApiClientError {
   constructor(
     message: string,
-    public status: number,
-    public fieldErrors?: Record<string, string[]>
+    status: number,
+    fieldErrors?: Record<string, string[]>
   ) {
-    super(message);
-    this.name = "CustomerApiError";
+    super("CustomerApiError", message, status, fieldErrors);
   }
 }
 
-async function parseError(response: Response, fallback: string): Promise<never> {
-  let message = fallback;
-  let fieldErrors: Record<string, string[]> | undefined;
-  try {
-    const body = (await response.json()) as {
-      error?: string;
-      errors?: Record<string, string[]>;
-    };
-    message = body.error ?? message;
-    fieldErrors = body.errors;
-  } catch {
-    message = `${response.status} ${response.statusText}`;
-  }
-  throw new CustomerApiError(message, response.status, fieldErrors);
-}
-
-async function json<T>(path: string, init?: RequestInit, fallback = "Request failed") {
-  const response = await fetch(path, init);
-  if (!response.ok) return parseError(response, fallback);
-  return (await response.json()) as T;
-}
+const json = createApiJsonRequester(
+  ({ message, status, fieldErrors }) => new CustomerApiError(message, status, fieldErrors),
+);
 
 const jsonHeaders = { "Content-Type": "application/json" };
 
@@ -58,7 +40,7 @@ export async function createCustomer(input: InsertCustomer) {
     {
       method: "POST",
       headers: jsonHeaders,
-      body: JSON.stringify(input),
+      body: input,
     },
     "Failed to create customer."
   );
@@ -70,7 +52,7 @@ export async function patchCustomer(customerId: string, input: PatchCustomer) {
     {
       method: "PATCH",
       headers: jsonHeaders,
-      body: JSON.stringify(input),
+      body: input,
     },
     "Failed to save customer."
   );
@@ -93,7 +75,7 @@ export async function createCustomerContact(
     {
       method: "POST",
       headers: jsonHeaders,
-      body: JSON.stringify(input),
+      body: input,
     },
     "Failed to create contact."
   );
@@ -109,7 +91,7 @@ export async function updateCustomerContact(
     {
       method: "PUT",
       headers: jsonHeaders,
-      body: JSON.stringify(input),
+      body: input,
     },
     "Failed to save contact."
   );
@@ -132,7 +114,7 @@ export async function createCustomerProject(
     {
       method: "POST",
       headers: jsonHeaders,
-      body: JSON.stringify(input),
+      body: input,
     },
     "Failed to create project."
   );
@@ -148,7 +130,7 @@ export async function updateCustomerProject(
     {
       method: "PUT",
       headers: jsonHeaders,
-      body: JSON.stringify(input),
+      body: input,
     },
     "Failed to save project."
   );
@@ -197,7 +179,7 @@ export async function createAddressEntry(input: CreateAddressEntry) {
     {
       method: "POST",
       headers: jsonHeaders,
-      body: JSON.stringify(input),
+      body: input,
     },
     "Failed to create address."
   );
@@ -209,7 +191,7 @@ export async function updateAddressEntry(id: string, input: UpdateAddressEntry) 
     {
       method: "PUT",
       headers: jsonHeaders,
-      body: JSON.stringify(input),
+      body: input,
     },
     "Failed to update address."
   );

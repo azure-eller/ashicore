@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updateStocktakeSchema } from "@/lib/schemas/stocktakes";
 import {
@@ -14,7 +16,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   const stocktake = await getStocktake(id);
 
   if (!stocktake) {
-    return NextResponse.json({ error: "Stocktake not found" }, { status: 404 });
+    return jsonNotFound("Stocktake not found");
   }
 
   return NextResponse.json(stocktake);
@@ -23,14 +25,13 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   await assertModuleWriteAccess("inventory", request.headers);
-  const body = await request.json();
-  const data = updateStocktakeSchema.parse(body);
+  const data = await parseJsonBody(request, updateStocktakeSchema);
 
   try {
     const stocktake = await updateStocktakeCounts(id, data);
 
     if (!stocktake) {
-      return NextResponse.json({ error: "Stocktake not found" }, { status: 404 });
+      return jsonNotFound("Stocktake not found");
     }
 
     return NextResponse.json(stocktake);

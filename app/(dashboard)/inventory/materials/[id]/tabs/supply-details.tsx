@@ -27,6 +27,10 @@ import {
   type UpdateItemCardVariantInput,
 } from "@/lib/api/clients/item-cards";
 import { formatQuantity } from "@/lib/format";
+import {
+  isNonNegativeNumberString,
+  isPositiveNumberString,
+} from "@/lib/schemas/shared";
 import type { SupplierOption } from "@/app/(dashboard)/purchasing/types";
 import styles from "@/components/card-page/card-page.module.css";
 
@@ -178,13 +182,12 @@ function SupplyVariantsGrid({
           case "defaultLeadTimeDays": {
             if (blank) return { defaultLeadTimeDays: null };
             const parsed = Number(raw);
-            if (!Number.isFinite(parsed) || parsed < 0) return null;
+            if (!isNonNegativeNumberString(String(raw))) return null;
             return { defaultLeadTimeDays: Math.trunc(parsed) };
           }
           case "minimumOrderQuantity": {
             if (blank) return { minimumOrderQuantity: null };
-            const parsed = Number(raw);
-            if (!Number.isFinite(parsed) || parsed <= 0) return null;
+            if (!isPositiveNumberString(String(raw).trim())) return null;
             return { minimumOrderQuantity: String(raw).trim() };
           }
           default:
@@ -244,7 +247,7 @@ function SupplyVariantsGrid({
             return true;
           }
           const parsed = Number(raw);
-          if (!Number.isFinite(parsed) || parsed < 0) return false;
+          if (!isNonNegativeNumberString(String(raw))) return false;
           const truncated = Math.trunc(parsed);
           if (params.data.defaultLeadTimeDays === truncated) return false;
           params.data.defaultLeadTimeDays = truncated;
@@ -268,8 +271,7 @@ function SupplyVariantsGrid({
             return true;
           }
           const trimmed = String(raw).trim();
-          const parsed = Number(trimmed);
-          if (!Number.isFinite(parsed) || parsed <= 0) return false;
+          if (!isPositiveNumberString(trimmed)) return false;
           if (params.data.minimumOrderQuantity === trimmed) return false;
           params.data.minimumOrderQuantity = trimmed;
           return true;

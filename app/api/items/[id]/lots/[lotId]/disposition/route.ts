@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { qualityDispositionActionSchema } from "@/lib/schemas/inventory-disposition";
 import { applyLotDispositionAction } from "@/app/(dashboard)/inventory/queries";
@@ -10,8 +11,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const { id, lotId } = await (
     ctx as { params: Promise<{ id: string; lotId: string }> }
   ).params;
-  const body = await request.json();
-  const data = qualityDispositionActionSchema.parse(body);
+  const data = await parseJsonBody(request, qualityDispositionActionSchema);
   const result = await applyLotDispositionAction(id, lotId, data, {
     idempotencyKey,
   });

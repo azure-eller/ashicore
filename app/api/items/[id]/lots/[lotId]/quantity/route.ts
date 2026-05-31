@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonError } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { lotQuantityAdjustmentSchema } from "@/lib/schemas/lot-adjustment";
 import { adjustLotQuantity, InventoryError } from "@/app/(dashboard)/inventory/queries";
@@ -11,15 +13,14 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const { id, lotId } = await (
     ctx as { params: Promise<{ id: string; lotId: string }> }
   ).params;
-  const body = await request.json();
-  const data = lotQuantityAdjustmentSchema.parse(body);
+  const data = await parseJsonBody(request, lotQuantityAdjustmentSchema);
 
   try {
     const result = await adjustLotQuantity(id, lotId, data, { idempotencyKey });
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof InsufficientStockError) {
-      return NextResponse.json({ error: error.message }, { status: 409 });
+      return jsonError(error.message, 409);
     }
     if (error instanceof InventoryError) return error.toResponse();
     throw error;

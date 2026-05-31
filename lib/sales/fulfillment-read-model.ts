@@ -20,7 +20,7 @@ import {
   normalizeRecipeBasis,
 } from "@/lib/manufacturing/consumption";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
-import { roundQuantity } from "@/lib/format";
+import { parseQuantity, roundQuantity } from "@/lib/format";
 import type {
   SalesIngredientsFulfillmentState,
   SalesItemsFulfillmentState,
@@ -115,11 +115,6 @@ type IngredientCoverage = {
   >;
   expectedDate: string | null;
 };
-
-function parseQuantity(value: string | number | null | undefined) {
-  const parsed = typeof value === "number" ? value : Number.parseFloat(value ?? "0");
-  return Number.isFinite(parsed) ? parsed : 0;
-}
 
 function compareAvailabilityLines(
   left: SalesFulfillmentDemandLine,

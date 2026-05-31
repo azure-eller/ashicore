@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { jsonCreated } from "@/lib/api/responses";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { insertSupplierSchema } from "@/lib/schemas/suppliers";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
@@ -19,16 +21,14 @@ export const GET = apiHandler(async (request) => {
 
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("purchasing", request.headers);
-  const body = await request.json();
-  const data = insertSupplierSchema.parse(body);
+  const data = await parseJsonBody(request, insertSupplierSchema);
   const supplier = await createSupplier(data);
-  return NextResponse.json(supplier, { status: 201 });
+  return jsonCreated(supplier);
 });
 
 export const DELETE = apiHandler(async (request) => {
   await assertModuleWriteAccess("purchasing", request.headers);
-  const body = await request.json();
-  const data = bulkDeleteSchema.parse(body);
+  const data = await parseJsonBody(request, bulkDeleteSchema);
 
   try {
     const result = await deleteSuppliers(data.ids);

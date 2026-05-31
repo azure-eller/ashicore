@@ -29,12 +29,18 @@ Do not leave guarded `GET` handlers as bare `export async function GET(...) { ..
 ## Validation Error Shape
 
 Field-level validation errors (Zod failures) must include both a top-level
-message for action surfaces and field details for forms. Prefer `schema.parse()`
-inside `apiHandler` so the shared handler formats the response.
+message for action surfaces and field details for forms. Parse JSON request
+bodies with `parseJsonBody` inside `apiHandler` so body parsing stays consistent
+and the shared handler formats validation failures.
 
 ```ts
-const data = schema.parse(await req.json());
+import { parseJsonBody } from "@/lib/api/request-body";
+
+const data = await parseJsonBody(req, schema);
 ```
+
+Use `parseOptionalJsonBody(req, schema, fallback)` for endpoints that accept an
+empty body. Do not call `request.json()` directly in API routes.
 
 Response shape:
 
@@ -50,10 +56,28 @@ react-hook-form's `setError` expects.
 Non-field errors (not found, forbidden, business logic failures):
 
 ```ts
-return NextResponse.json({ error: "Not found" }, { status: 404 });
+import { jsonError, jsonNotFound } from "@/lib/api/responses";
+
+return jsonError("You do not have access to allocation.", 403);
+return jsonNotFound("Item not found");
 ```
 
 Note: **`error`** (singular) for general errors. Never use `errors` for non-field errors.
+
+## Query Params
+
+Use `lib/routing/search-params.ts` for request query parsing instead of rebuilding
+`new URL(request.url)` in each route.
+
+```ts
+import {
+  requestSearchParamRecord,
+  requestSearchParams,
+} from "@/lib/routing/search-params";
+
+const query = querySchema.parse(requestSearchParamRecord(request));
+const itemIds = requestSearchParams(request).getAll("itemId");
+```
 
 ## Numeric Response Shape
 

@@ -4,7 +4,7 @@ import { drizzle as drizzleNeon } from "drizzle-orm/neon-serverless";
 import { Pool as PgPool } from "pg";
 import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
 import { and, eq } from "drizzle-orm";
-import { test, expect } from "../fixtures";
+import { test, expect, type TestDb } from "../fixtures";
 import {
   createItem,
   createPurchaseOrder,
@@ -86,7 +86,7 @@ async function createReceivedPurchaseOrder(ts: number) {
   return order.body.id as string;
 }
 
-async function receiveOrderLine(db: ReturnType<typeof createAuthDb>, orderId: string) {
+async function receiveOrderLine(db: TestDb, orderId: string) {
   const [line] = await db
     .select({ id: purchaseOrderLines.id })
     .from(purchaseOrderLines)

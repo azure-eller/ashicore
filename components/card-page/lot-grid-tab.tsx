@@ -23,14 +23,17 @@ import {
 } from "@/components/editable-lines";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CardSection } from "@/components/card-page/card-page";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { apiJson } from "@/lib/client/api";
 import { LotDispositionActions } from "@/app/(dashboard)/inventory/lot-disposition-actions";
 import type { InventoryDisposition } from "@/lib/db/schema";
 import {
   formatCost,
   formatInventoryDisposition,
   formatQuantity,
+  normalizeNumeric,
+  parseQuantity,
 } from "@/lib/format";
+import { isNonNegativeNumberString } from "@/lib/schemas/shared";
 import type { ItemCardDto } from "@/lib/api/clients/item-cards";
 import styles from "./card-page.module.css";
 
@@ -66,15 +69,6 @@ type PendingAdjustment = {
   quantity: string;
 };
 
-function toQuantity(value: string | null | undefined) {
-  const parsed = Number(value ?? "0");
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function quantityValue(value: number) {
-  return String(Math.round(value * 10000) / 10000);
-}
-
 function lotNumberLabel(lotNumber: string) {
   return lotNumber === "UNBATCHED-NEGATIVE-STOCK"
     ? "Unbatched negative stock"
@@ -83,17 +77,17 @@ function lotNumberLabel(lotNumber: string) {
 
 function normalizeEditedQuantity(value: unknown) {
   const trimmed = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+  if (!trimmed || !isNonNegativeNumberString(trimmed)) return null;
   const parsed = Number(trimmed);
-  if (!trimmed || !Number.isFinite(parsed) || parsed < 0) return null;
-  return quantityValue(parsed);
+  return normalizeNumeric(parsed);
 }
 
 function LotNumberCell({ data }: ICellRendererParams<CardLotRow>) {
   if (!data) return null;
   const balances = data.dispositionBalances.filter(
-    (balance) => toQuantity(balance.quantity) > 0,
+    (balance) => parseQuantity(balance.quantity) > 0,
   );
-  const hasNegativeBalance = toQuantity(data.quantity) < 0;
+  const hasNegativeBalance = parseQuantity(data.quantity) < 0;
   return (
     <div className="flex h-full min-w-0 items-center gap-(--space-2)">
       <span className={`${styles.mono} truncate`}>{lotNumberLabel(data.lotNumber)}</span>
@@ -199,7 +193,7 @@ export function LotGridTab({
         editable: (row) => row?.lotNumber !== "UNBATCHED-NEGATIVE-STOCK",
         mono: true,
         cellClass: ({ data }) =>
-          data && toQuantity(data.quantity) < 0 ? "text-destructive" : null,
+          data && parseQuantity(data.quantity) < 0 ? "text-destructive" : null,
         valueFormatter: ({ value }) => formatQuantity(String(value ?? "0")),
         valueSetter: (params: ValueSetterParams<CardLotRow>) => {
           const next = normalizeEditedQuantity(params.newValue);
@@ -220,12 +214,12 @@ export function LotGridTab({
           if (!data) return "0";
           const availableQuantity = data.dispositionBalances
             .filter((balance) => balance.disposition === "available")
-            .reduce((sum, balance) => sum + toQuantity(balance.quantity), 0);
+            .reduce((sum, balance) => sum + parseQuantity(balance.quantity), 0);
           const claimedQuantity = data.allocations.reduce(
-            (sum, allocation) => sum + toQuantity(allocation.quantity),
+            (sum, allocation) => sum + parseQuantity(allocation.quantity),
             0,
           );
-          return quantityValue(availableQuantity - claimedQuantity);
+          return normalizeNumeric(availableQuantity - claimedQuantity);
         },
         valueFormatter: ({ value }) => formatQuantity(String(value ?? "0")),
       },
@@ -269,7 +263,7 @@ export function LotGridTab({
         cellRenderer: ({ data }: ICellRendererParams<CardLotRow>) => {
           if (!data || !activeVariant) return null;
           const balances = data.dispositionBalances
-            .filter((balance) => toQuantity(balance.quantity) > 0)
+            .filter((balance) => parseQuantity(balance.quantity) > 0)
             .map((balance) => ({
               disposition: balance.disposition as InventoryDisposition,
               quantity: balance.quantity,
@@ -326,25 +320,26 @@ export function LotGridTab({
     setIsSaving(true);
     setError(null);
 
-    const response = await fetch(
-      `/api/items/${focusItemId}/lots/${pendingAdjustment.lotId}/quantity`,
-      {
-        method: "PUT",
-        headers: createIdempotencyHeaders("lot-quantity-adjust", {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify({ quantity: pendingAdjustment.quantity, note: null }),
-      },
-    );
-    const body = await response.json().catch(() => null);
-
-    setIsSaving(false);
-    if (!response.ok) {
-      setError(body?.error ?? "Failed to adjust lot quantity.");
+    try {
+      await apiJson<void>(
+        `/api/items/${focusItemId}/lots/${pendingAdjustment.lotId}/quantity`,
+        {
+          method: "PUT",
+          body: { quantity: pendingAdjustment.quantity, note: null },
+          idempotencyKey: "lot-quantity-adjust",
+          fallbackError: "Failed to adjust lot quantity.",
+        },
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Failed to adjust lot quantity.",
+      );
       resetRows();
+      setIsSaving(false);
       return;
     }
 
+    setIsSaving(false);
     setPendingAdjustment(null);
     router.refresh();
   };

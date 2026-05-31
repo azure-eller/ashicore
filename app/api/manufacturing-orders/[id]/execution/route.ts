@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
 import { getManufacturingExecutionDetail } from "@/app/(dashboard)/manufacturing/queries";
 
@@ -9,7 +10,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   const detail = await getManufacturingExecutionDetail(id);
 
   if (!detail) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    return jsonNotFound("Order not found");
   }
 
   return NextResponse.json(detail);

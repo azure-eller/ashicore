@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonOk } from "@/lib/api/responses";
 import { getAuthedApiMemberContext } from "@/lib/dal/auth";
 import {
   getRequestLogContext,
@@ -19,7 +20,7 @@ const navigationMetricSchema = z.object({
 
 export const POST = apiHandler(async (request) => {
   await getAuthedApiMemberContext(request.headers);
-  const metric = navigationMetricSchema.parse(await request.json());
+  const metric = await parseJsonBody(request, navigationMetricSchema);
   const context = await getRequestLogContext(request.headers);
 
   logObservedEvent("client.navigation", context, {
@@ -32,5 +33,5 @@ export const POST = apiHandler(async (request) => {
     userAgentClass: metric.userAgentClass,
   });
 
-  return NextResponse.json({ ok: true });
+  return jsonOk();
 });

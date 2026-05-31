@@ -5,7 +5,7 @@ import {
   Text,
   View,
 } from "@react-pdf/renderer";
-import { formatAddressLines } from "@/lib/format";
+import { formatAddressLines, formatDate } from "@/lib/format";
 
 const styles = StyleSheet.create({
   page: {
@@ -178,9 +178,7 @@ export function BillOfLadingDocument({
             )}
             <Text style={styles.metaLine}>Shipped: {shippedDisplay}</Text>
             {order.scheduledDate && (
-              <Text style={styles.metaLine}>
-                Ship date: {new Date(`${order.scheduledDate}T00:00:00`).toLocaleDateString("en-US")}
-              </Text>
+              <Text style={styles.metaLine}>Ship date: {formatDate(order.scheduledDate)}</Text>
             )}
           </View>
         </View>

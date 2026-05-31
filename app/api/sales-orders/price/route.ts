@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
 import { resolveSalesLinePricingSchema } from "@/lib/schemas/pricing-schedules";
 import {
@@ -9,8 +10,7 @@ import {
 
 export const POST = apiHandler(async (request) => {
   await assertModuleReadAccess("sales", request.headers);
-  const body = await request.json();
-  const data = resolveSalesLinePricingSchema.parse(body);
+  const data = await parseJsonBody(request, resolveSalesLinePricingSchema);
 
   try {
     const pricing = await resolveSalesLinePricing(data);

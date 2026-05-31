@@ -18,7 +18,7 @@ import {
 } from "@/lib/db/schema";
 import { db } from "@/lib/db";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
-import { normalizeAddressFields, normalizeNumeric } from "@/lib/format";
+import { normalizeAddressFields } from "@/lib/format";
 import {
   ACCOUNTING_PROVIDER_XERO,
   type AccountingProvider,
@@ -36,7 +36,11 @@ import {
   classifyImportedPurchaseOrderChargeLine,
   isImportedPurchaseOrderChargeLine,
 } from "@/lib/accounting/purchase-order-line-classification";
-import { cleanString } from "@/lib/accounting/providers/common";
+import {
+  cleanString,
+  normalizeProviderKey,
+  normalizeProviderNumeric,
+} from "@/lib/accounting/providers/common";
 import type {
   ExternalPurchaseOrderDocument,
   ExternalPurchaseOrderFetchResult,
@@ -110,14 +114,8 @@ type StaleImportedOpenPurchaseOrder = {
   status: string;
 };
 
-function normalizeKey(value: string | null | undefined) {
-  return value?.trim().toLowerCase() || null;
-}
-
-function normalizeMoneyValue(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) return null;
-  return normalizeNumeric(value);
-}
+const normalizeKey = normalizeProviderKey;
+const normalizeNumberValue = normalizeProviderNumeric;
 
 async function fetchOpenProviderPurchaseOrders(
   orgId: string,
@@ -311,7 +309,7 @@ function buildCandidate(
     matchedLineCount,
     orderDate: order.date,
     deliveryDate: order.deliveryDate,
-    total: normalizeMoneyValue(order.total),
+    total: normalizeNumberValue(order.total),
   };
 }
 
@@ -507,7 +505,7 @@ async function getOrCreateItemInTx(
     cleanString(line.description) ??
     cleanString(line.itemCode) ??
     "Imported accounting material";
-  const defaultPurchasePrice = normalizeMoneyValue(line.unitAmount) ?? "0";
+  const defaultPurchasePrice = normalizeNumberValue(line.unitAmount) ?? "0";
   const [created] = await tx
     .insert(items)
     .values({
@@ -582,10 +580,10 @@ async function buildPurchaseOrderPayloadInTx(
       local = await loadLocalMatchesInTx(tx, provider);
     }
 
-    const unitCost = normalizeMoneyValue(line.unitAmount) ?? "0";
+    const unitCost = normalizeNumberValue(line.unitAmount) ?? "0";
     lines.push({
       itemId: item.id,
-      quantityOrdered: normalizeNumeric(line.quantity ?? 0),
+      quantityOrdered: normalizeNumberValue(line.quantity ?? 0) ?? "0",
       unitCost,
       taxRateId: null,
       accountingPurchaseAccountCode: line.accountCode,

@@ -119,14 +119,8 @@ export function StocktakesTable({ initialData }: { initialData: StocktakeListRow
       rows={initialData}
       columns={columns}
       queryKey={["stocktakes"]}
-      queryFn={async () => {
-        const response = await fetch("/api/stocktakes");
-        if (!response.ok) {
-          throw new Error("Failed to fetch stocktakes");
-        }
-
-        return response.json();
-      }}
+      queryEndpoint="/api/stocktakes"
+      queryErrorMessage="Failed to fetch stocktakes"
       searchAriaLabel="Search stocktakes"
       actions={<CreateStocktakeDialog />}
       emptyMessage="No stocktakes yet."

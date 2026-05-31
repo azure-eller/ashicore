@@ -21,7 +21,17 @@ import {
   formatPrice,
   getFieldArrayError,
   getFirstFormErrorMessage,
+  getIndexedFormErrorMessage,
+  normalizeNullableTextValue,
+  normalizeTextValue,
+  parsePositiveNumber,
 } from "@/lib/format";
+import { createClientId } from "@/lib/client-id";
+import { ApiJsonError, apiJson } from "@/lib/client/api";
+import {
+  isNonNegativeNumberString,
+  isPositiveNumberString,
+} from "@/lib/schemas/shared";
 import type {
   CustomerCategoryOption,
   PricingScheduleItemOption,
@@ -29,6 +39,12 @@ import type {
 } from "./types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/empty-state";
+import { InsetPanel } from "@/components/inset-panel";
+import {
+  ListFrame,
+  SelectableListFrameItem,
+} from "@/components/list-frame";
 import {
   AffixedInput,
   CreatePageGrid,
@@ -64,7 +80,6 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { TooltipHeader } from "@/components/tooltip-header";
-import { cn } from "@/lib/utils";
 import {
   MutableLines,
   type LineField,
@@ -82,6 +97,25 @@ const CREATE_NEW_CATEGORY = "__create_new__";
 
 type PricingScheduleFormValues = z.input<typeof insertPricingScheduleSchema>;
 type PricingBreakPayloadRow = PricingScheduleFormValues["breaks"][number];
+type PricingScheduleApiError = { error?: string; errors?: Record<string, string[]> };
+
+function toPricingScheduleApiError(
+  error: unknown,
+  fallback: string,
+): PricingScheduleApiError {
+  if (error instanceof ApiJsonError) {
+    return {
+      error: error.message,
+      errors: error.errors,
+    };
+  }
+
+  if (error instanceof Error) {
+    return { error: error.message };
+  }
+
+  return { error: fallback };
+}
 type PricingBreakGridRow = PricingBreakPayloadRow & {
   clientRowId: string;
 };
@@ -89,7 +123,7 @@ type PricingBreakColumnKey = keyof PricingBreakPayloadRow;
 
 function createPricingBreakRow(values?: Partial<PricingBreakPayloadRow>): PricingBreakGridRow {
   return {
-    clientRowId: crypto.randomUUID(),
+    clientRowId: createClientId(),
     minQuantity: values?.minQuantity ?? "",
     maxQuantity: values?.maxQuantity ?? null,
     discountPercent: values?.discountPercent ?? "0",
@@ -118,28 +152,20 @@ function comparablePricingBreakRows(rows: PricingBreakGridRow[]) {
   return JSON.stringify(toPricingBreakPayloadRows(rows));
 }
 
-function normalizeGridText(value: unknown) {
-  if (value == null) return "";
-  return String(value).trim();
-}
-
-function normalizeNullableGridText(value: unknown) {
-  const text = normalizeGridText(value);
-  return text === "" ? null : text;
-}
+const normalizeGridText = normalizeTextValue;
+const normalizeNullableGridText = normalizeNullableTextValue;
 
 function validatePositiveGridNumber(value: unknown, message: string) {
   const text = normalizeGridText(value);
   if (text === "") return [message];
-  const parsed = Number(text);
-  return Number.isFinite(parsed) && parsed > 0 ? null : [message];
+  return isPositiveNumberString(text) ? null : [message];
 }
 
 function validateDiscountPercent(value: unknown) {
   const text = normalizeGridText(value);
   if (text === "") return ["Discount percent is required"];
   const parsed = Number(text);
-  if (!Number.isFinite(parsed) || parsed < 0) {
+  if (!isNonNegativeNumberString(text)) {
     return ["Discount percent must be 0 or greater"];
   }
   if (parsed > 100) {
@@ -153,21 +179,10 @@ function getPricingBreakCellError(
   rowIndex: number,
   key: PricingBreakColumnKey
 ) {
-  if (!error || typeof error !== "object") return null;
-  const rowError = (error as Record<string, unknown>)[rowIndex];
-  if (!rowError || typeof rowError !== "object") return null;
-  const cellError = (rowError as Record<string, unknown>)[key];
-  if (!cellError || typeof cellError !== "object") return null;
-  return "message" in cellError && typeof cellError.message === "string"
-    ? cellError.message
-    : null;
+  return getIndexedFormErrorMessage(error, rowIndex, key);
 }
 
-function parsePositiveQuantity(value: string | null | undefined) {
-  if (value == null || value.trim() === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
+const parsePositiveQuantity = parsePositiveNumber;
 
 function formatQuantityInput(value: number) {
   return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(4)));
@@ -284,22 +299,18 @@ export function PricingScheduleForm({
 
   const categoryMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/customer-categories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: categoryName,
-          description: categoryDescription || null,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        const fieldMsg = err?.errors
-          ? Object.values(err.errors).flat()[0]
-          : null;
-        throw new Error(fieldMsg ?? err?.error ?? "Failed to create category.");
+      try {
+        return await apiJson<{ id: string; name: string }>("/api/customer-categories", {
+          method: "POST",
+          body: {
+            name: categoryName,
+            description: categoryDescription || null,
+          },
+          fallbackError: "Failed to create category.",
+        });
+      } catch (caught) {
+        throw toPricingScheduleApiError(caught, "Failed to create category.");
       }
-      return res.json() as Promise<{ id: string; name: string }>;
     },
     onSuccess: (newCategory) => {
       setLocalCategories((prev) => [...prev, newCategory]);
@@ -309,8 +320,8 @@ export function PricingScheduleForm({
       setCategoryDescription("");
       setCategoryError(null);
     },
-    onError: (error) => {
-      setCategoryError(error.message);
+    onError: (error: PricingScheduleApiError) => {
+      setCategoryError(error.error ?? "Failed to create category.");
     },
     onMutate: () => {
       setCategoryError(null);
@@ -319,28 +330,20 @@ export function PricingScheduleForm({
 
   const mutation = useMutation({
     mutationFn: async (values: PricingScheduleFormValues) => {
-      const response = await fetch(
-        initialData
-          ? `/api/pricing-schedules/${initialData.id}`
-          : "/api/pricing-schedules",
-        {
-          method: initialData ? "PUT" : "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(values),
-        }
-      );
-
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw {
-          status: response.status,
-          error: body?.error ?? "Failed to save pricing schedule.",
-          errors: body?.errors,
-        };
+      try {
+        return await apiJson<{ id: string }>(
+          initialData
+            ? `/api/pricing-schedules/${initialData.id}`
+            : "/api/pricing-schedules",
+          {
+            method: initialData ? "PUT" : "POST",
+            body: values,
+            fallbackError: "Failed to save pricing schedule.",
+          },
+        );
+      } catch (caught) {
+        throw toPricingScheduleApiError(caught, "Failed to save pricing schedule.");
       }
-
-      return body as { id: string };
     },
     onMutate: () => {
       setFormError(null);
@@ -350,7 +353,7 @@ export function PricingScheduleForm({
       await queryClient.invalidateQueries({ queryKey: ["pricing-schedules"] });
       router.push(fallbackPath);
     },
-    onError: (error: { error?: string; errors?: Record<string, string[]> }) => {
+    onError: (error: PricingScheduleApiError) => {
       if (error.errors) {
         setFormError(error.error ?? "Fix the highlighted fields.");
         Object.entries(error.errors).forEach(([field, messages]) => {
@@ -738,7 +741,7 @@ export function PricingScheduleForm({
           <CreateSidebarCard
             title="Live preview"
           >
-            <FieldGroup className="gap-4">
+            <FieldGroup className="gap-(--space-8)">
               <Field>
                 <FieldLabel htmlFor="pricing-preview-base">
                   Base selling price
@@ -763,9 +766,10 @@ export function PricingScheduleForm({
                       ? `${row?.minQuantity || "0"}-${row.maxQuantity} units`
                       : `${row?.minQuantity || "0"}+ units`;
                   return (
-                    <div
+                    <InsetPanel
                       key={index}
-                      className="grid gap-(--space-3) border border-border bg-muted p-(--space-4)"
+                      tone="muted"
+                      className="grid gap-(--space-3) p-(--space-4)"
                     >
                       <div className="flex items-center justify-between gap-(--space-4) text-[length:var(--text-xs)] text-muted-foreground">
                         <span>{range}</span>
@@ -781,7 +785,7 @@ export function PricingScheduleForm({
                         readOnly
                         aria-label={`${range} effective price`}
                       />
-                    </div>
+                    </InsetPanel>
                   );
                 })}
               </div>
@@ -796,7 +800,7 @@ export function PricingScheduleForm({
             handleInvalidSubmit
           )}
         >
-        <FieldGroup className="gap-6">
+        <FieldGroup className="gap-(--space-12)">
           <CreateSection
             title="Schedule"
           >
@@ -820,7 +824,7 @@ export function PricingScheduleForm({
                 )}
               />
 
-              <FieldGroup className="grid gap-4 md:grid-cols-2">
+              <FieldGroup className="grid gap-(--space-8) md:grid-cols-2">
                 <Controller
                   control={form.control}
                   name="customerCategoryId"
@@ -875,12 +879,14 @@ export function PricingScheduleForm({
                   </FieldLabel>
                   <button
                     type="button"
-                    className="flex min-h-(--height-input-md) w-full items-center justify-between gap-(--space-4) rounded-(--radius-none) border border-input bg-background px-(--space-4) py-(--space-3) text-left text-[length:var(--text-sm)] leading-[var(--leading-sm)] shadow-xs outline-none transition-colors hover:bg-muted focus-visible:shadow-[var(--focus-ring)]"
-                    data-invalid={itemScopeInvalid ? "" : undefined}
+                    className="flex min-h-(--height-input-md) w-full items-center justify-between gap-(--space-4) rounded-(--radius-none) border border-input bg-background px-(--space-4) py-(--space-3) text-left text-[length:var(--text-sm)] leading-[var(--leading-sm)] shadow-xs outline-none transition-colors hover:bg-muted focus-visible:border-ring focus-visible:shadow-[var(--focus-ring)] data-[invalid=true]:border-destructive data-[invalid=true]:shadow-[var(--focus-ring)]"
+                    data-invalid={itemScopeInvalid ? "true" : undefined}
                     onClick={openItemPicker}
                   >
                     <span className="min-w-0 truncate">{itemScopeSummary}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">Change</span>
+                    <span className="shrink-0 text-[length:var(--text-xs)] text-muted-foreground">
+                      Change
+                    </span>
                   </button>
                 </Field>
               </FieldGroup>
@@ -909,7 +915,7 @@ export function PricingScheduleForm({
           <CreateSection
             title="Quantity breaks"
             action={
-              <span className="text-xs text-muted-foreground">
+              <span className="text-[length:var(--text-xs)] text-muted-foreground">
                 {breakRows.length} break{breakRows.length === 1 ? "" : "s"}
               </span>
             }
@@ -979,88 +985,75 @@ export function PricingScheduleForm({
               />
             </div>
 
-            <div className="max-h-[55vh] overflow-y-auto border border-border">
+            <ListFrame className="max-h-[55vh] overflow-y-auto">
               {pickerTab === "category" ? (
                 filteredCategoryOptions.length === 0 ? (
-                  <div className="p-(--space-8) text-sm text-muted-foreground">
+                  <EmptyState className="border-0" density="compact">
                     No categories match that search.
-                  </div>
+                  </EmptyState>
                 ) : (
-                  <div className="divide-y divide-border">
-                    {filteredCategoryOptions.map((category) => {
-                      const selected =
-                        itemScope === "category" && watchedItemCategory === category;
-                      return (
-                        <button
-                          key={category}
-                          type="button"
-                          data-selected={selected ? "" : undefined}
-                          className={cn(
-                            "flex w-full items-center px-(--space-5) py-(--space-4) text-left text-sm font-medium outline-none hover:bg-muted focus-visible:bg-muted",
-                            selected &&
-                              "bg-accent text-accent-foreground hover:bg-accent"
-                          )}
-                          onClick={() => selectCategoryScope(category)}
-                        >
-                          <span className="min-w-0 truncate">{category}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  filteredCategoryOptions.map((category) => {
+                    const selected =
+                      itemScope === "category" && watchedItemCategory === category;
+                    return (
+                      <SelectableListFrameItem
+                        as="button"
+                        key={category}
+                        type="button"
+                        selected={selected}
+                        className="border-x-0 border-b-0 text-[length:var(--text-sm)] font-medium first:border-t-0"
+                        onClick={() => selectCategoryScope(category)}
+                      >
+                        <span className="min-w-0 truncate">{category}</span>
+                      </SelectableListFrameItem>
+                    );
+                  })
                 )
               ) : pickerTab === "variant" ? (
                 filteredVariantOptions.length === 0 ? (
-                  <div className="p-(--space-8) text-sm text-muted-foreground">
+                  <EmptyState className="border-0" density="compact">
                     No variant values match that search.
-                  </div>
+                  </EmptyState>
                 ) : (
-                  <div className="divide-y divide-border">
-                    {filteredVariantOptions.map((option) => {
-                      const selected =
-                        itemScope === "variant" &&
-                        watchedItemVariantOptionCode === option.optionCode &&
-                        watchedItemVariantValueCode === option.valueCode;
-                      return (
-                        <button
-                          key={`${option.optionCode}:${option.valueCode}`}
-                          type="button"
-                          data-selected={selected ? "" : undefined}
-                          className={cn(
-                            "flex w-full items-center px-(--space-5) py-(--space-4) text-left text-sm font-medium outline-none hover:bg-muted focus-visible:bg-muted",
-                            selected &&
-                              "bg-accent text-accent-foreground hover:bg-accent"
-                          )}
-                          onClick={() =>
-                            selectVariantScope(option.optionCode, option.valueCode)
-                          }
-                        >
-                          <span className="min-w-0 truncate">
-                            {option.optionName}: {option.valueLabel}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  filteredVariantOptions.map((option) => {
+                    const selected =
+                      itemScope === "variant" &&
+                      watchedItemVariantOptionCode === option.optionCode &&
+                      watchedItemVariantValueCode === option.valueCode;
+                    return (
+                      <SelectableListFrameItem
+                        as="button"
+                        key={`${option.optionCode}:${option.valueCode}`}
+                        type="button"
+                        selected={selected}
+                        className="border-x-0 border-b-0 text-[length:var(--text-sm)] font-medium first:border-t-0"
+                        onClick={() =>
+                          selectVariantScope(option.optionCode, option.valueCode)
+                        }
+                      >
+                        <span className="min-w-0 truncate">
+                          {option.optionName}: {option.valueLabel}
+                        </span>
+                      </SelectableListFrameItem>
+                    );
+                  })
                 )
               ) : filteredItemOptions.length === 0 ? (
-                <div className="p-(--space-8) text-sm text-muted-foreground">
+                <EmptyState className="border-0" density="compact">
                   No sellable items match that search.
-                </div>
+                </EmptyState>
               ) : (
-                <div className="divide-y divide-border">
-                  {filteredItemOptions.map((item, index) => {
+                filteredItemOptions.map((item, index) => {
                     const selected =
                       itemScope === "selected" && selectedItemIdSet.has(item.id);
                     const label = item.displayName ?? item.name;
                     return (
-                      <button
+                      <SelectableListFrameItem
+                        as="button"
                         key={item.id}
                         type="button"
-                        data-selected={selected ? "" : undefined}
-                        className={cn(
-                          "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-(--space-4) px-(--space-5) py-(--space-4) text-left outline-none select-none hover:bg-muted focus-visible:bg-muted",
-                          selected && "bg-accent text-accent-foreground hover:bg-accent"
-                        )}
+                        className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-(--space-4) px-(--space-5) py-(--space-4) text-left outline-none select-none"
+                        selected={selected}
                         onClick={(event) => handleItemRowSelect(index, event)}
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
@@ -1070,23 +1063,22 @@ export function PricingScheduleForm({
                         }}
                       >
                         <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium">
+                          <span className="block truncate text-[length:var(--text-sm)] font-medium">
                             {label}
                           </span>
-                          <span className="block truncate text-xs text-muted-foreground">
+                          <span className="block truncate text-[length:var(--text-xs)] text-muted-foreground">
                             {[item.sku, item.unitName].filter(Boolean).join(" / ")}
                           </span>
                         </span>
                         <Badge variant="secondary">{item.itemType}</Badge>
-                      </button>
+                      </SelectableListFrameItem>
                     );
-                  })}
-                </div>
+                  })
               )}
-            </div>
+            </ListFrame>
           </div>
 
-          <DialogFooter className="sm:justify-between">
+          <DialogFooter justify="between">
             <Button
               type="button"
               variant="outline"

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound, jsonCreated } from "@/lib/api/responses";
 import {
   assertBomViewAccess,
   assertLockedBomManagementAccess,
@@ -18,7 +20,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   const item = await getItem(id);
 
   if (!item) {
-    return NextResponse.json({ error: "Item not found" }, { status: 404 });
+    return jsonNotFound("Item not found");
   }
 
   await assertBomViewAccess(request.headers, item.bomLocked ?? false);
@@ -35,7 +37,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   const item = await getItem(id);
   if (!item) {
-    return NextResponse.json({ error: "Item not found" }, { status: 404 });
+    return jsonNotFound("Item not found");
   }
   if (item.itemType !== "product") {
     return NextResponse.json(
@@ -47,7 +49,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     await assertLockedBomManagementAccess(request.headers);
   }
 
-  const data = createBomRevisionSchema.parse(await request.json());
+  const data = await parseJsonBody(request, createBomRevisionSchema);
   const result = await createBomRevision(id, data);
-  return NextResponse.json(result, { status: 201 });
+  return jsonCreated(result);
 });

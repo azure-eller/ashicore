@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { apiJson } from "@/lib/client/api";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
@@ -18,7 +18,14 @@ import type {
   SalesOrderTaxRateOption,
   SalesShipmentRow,
 } from "@/app/(dashboard)/sales/types";
-import { formatDate, formatDateTime, formatPrice, formatQuantity } from "@/lib/format";
+import {
+  formatDate,
+  formatDateTime,
+  formatPercent,
+  formatPrice,
+  formatQuantity,
+} from "@/lib/format";
+import { calculateSalesLineTotalForQuantity } from "@/lib/sales/order-calculations";
 import { OrderStatusControl } from "@/components/card-page/order-status-control";
 import {
   isSalesOrderStatusDisabled,
@@ -32,9 +39,17 @@ import {
   CreateManufacturingOrdersDialog,
   defaultManufacturingPlannedDate,
 } from "../../create-manufacturing-orders-dialog";
-import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card-page";
+import { CardPage, CardPageBanner, CardPageBody, CardSection } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { DetailHeaderTitle } from "@/components/card-page/detail-header-title";
+import {
+  FramedTable,
+  FramedTableCell,
+  FramedTableHead,
+  FramedTableHeaderCell,
+  FramedTableRow,
+  TableFrame,
+} from "@/components/table-frame";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import type { CardSaveState } from "@/components/card-page/card-save-status";
@@ -139,12 +154,11 @@ export function OrderCard({
     mutationKey: ["sales-order-action", currentOrderId ?? "draft", "delete"],
     mutationFn: async () => {
       await controller.flush();
-      const response = await fetch(`/api/sales-orders/${currentOrderId}`, {
+      await apiJson<void>(`/api/sales-orders/${currentOrderId}`, {
         method: "DELETE",
-        headers: createIdempotencyHeaders("sales-order-delete"),
+        idempotencyKey: "sales-order-delete",
+        fallbackError: "Failed to delete order.",
       });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error ?? "Failed to delete order.");
     },
     onMutate: () => setActionError(null),
     invalidateQueryKeys: [["sales-orders"]],
@@ -163,13 +177,11 @@ export function OrderCard({
     mutationKey: ["sales-order-action", currentOrderId ?? "draft", "duplicate"],
     mutationFn: async () => {
       await controller.flush();
-      const response = await fetch(`/api/sales-orders/${currentOrderId}/duplicate`, {
+      return apiJson<{ id: string }>(`/api/sales-orders/${currentOrderId}/duplicate`, {
         method: "POST",
-        headers: createIdempotencyHeaders("sales-order-duplicate"),
+        idempotencyKey: "sales-order-duplicate",
+        fallbackError: "Failed to duplicate order.",
       });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(body?.error ?? "Failed to duplicate order.");
-      return body as { id: string };
     },
     onMutate: () => setActionError(null),
     onSuccess: async (created) => {
@@ -183,14 +195,11 @@ export function OrderCard({
     mutationKey: ["sales-order-action", currentOrderId ?? "draft", "order-xero-push"],
     mutationFn: async () => {
       await controller.flush();
-      const response = await fetch(`/api/sales-orders/${currentOrderId}/accounting-push`, {
+      await apiJson<void>(`/api/sales-orders/${currentOrderId}/accounting-push`, {
         method: "POST",
-        headers: createIdempotencyHeaders("retryXeroPushForSalesOrder"),
+        idempotencyKey: "retryXeroPushForSalesOrder",
+        fallbackError: "Failed to send invoice to Xero.",
       });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to send invoice to Xero.");
-      }
     },
     onMutate: () => setActionError(null),
     onSuccess: async () => {
@@ -292,11 +301,7 @@ export function OrderCard({
         fallbackHref="/sales/orders"
       />
 
-      {actionError ? (
-        <div className="px-(--space-5) py-(--space-3) bg-[var(--color-danger-soft)] text-destructive text-sm border-b border-[var(--color-line)]">
-          {actionError}
-        </div>
-      ) : null}
+      {actionError ? <CardPageBanner>{actionError}</CardPageBanner> : null}
 
       <CardPageBody>
         <OrderDetailsGrid
@@ -387,38 +392,38 @@ function RemainingItemsSection({ lines }: { lines: SalesOrderDetailLine[] }) {
       count={`· ${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${formatQuantity(String(totalQuantity))} units`}
     >
       <SalesFulfillmentTable>
-        <thead className="bg-[var(--color-surface-muted)] text-[11px] uppercase tracking-normal text-muted-foreground">
+        <FramedTableHead>
           <tr>
-            <th className="px-(--space-3) py-(--space-2) text-left font-medium">Item</th>
-            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Quantity left</th>
-            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Price per unit</th>
-            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Tax %</th>
-            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Remaining total</th>
+            <FramedTableHeaderCell>Item</FramedTableHeaderCell>
+            <FramedTableHeaderCell align="right">Quantity left</FramedTableHeaderCell>
+            <FramedTableHeaderCell align="right">Price per unit</FramedTableHeaderCell>
+            <FramedTableHeaderCell align="right">Tax %</FramedTableHeaderCell>
+            <FramedTableHeaderCell align="right">Remaining total</FramedTableHeaderCell>
           </tr>
-        </thead>
+        </FramedTableHead>
         <tbody>
           {lines.map((line) => (
-            <tr key={line.id} className="border-t border-[var(--color-line)]">
-              <td className="px-(--space-3) py-(--space-2)">
+            <FramedTableRow key={line.id}>
+              <FramedTableCell>
                 <div className="font-medium">{line.itemName}</div>
                 <div className="text-[length:var(--text-xs)] text-muted-foreground">
                   {line.unitName}
                 </div>
-              </td>
-              <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums">
+              </FramedTableCell>
+              <FramedTableCell align="right" numeric>
                 {formatQuantity(line.remainingQuantity)}{" "}
                 <span className="font-sans text-muted-foreground">{line.unitName}</span>
-              </td>
-              <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums">
+              </FramedTableCell>
+              <FramedTableCell align="right" numeric>
                 {formatPrice(line.unitPrice) ?? "—"}
-              </td>
-              <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums">
-                {formatPercent(line.taxRatePercent)}
-              </td>
-              <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums font-semibold">
-                {formatPrice(lineTotalForQuantity(line, line.remainingQuantity)) ?? "—"}
-              </td>
-            </tr>
+              </FramedTableCell>
+              <FramedTableCell align="right" numeric>
+                {formatPercent(line.taxRatePercent, { fallback: "0%" })}
+              </FramedTableCell>
+              <FramedTableCell align="right" numeric strong>
+                {formatPrice(calculateSalesLineTotalForQuantity(line, line.remainingQuantity)) ?? "—"}
+              </FramedTableCell>
+            </FramedTableRow>
           ))}
         </tbody>
       </SalesFulfillmentTable>
@@ -442,7 +447,7 @@ function ShippedItemsSection({
   );
   const totalAmount = shipment.lines.reduce((sum, shipmentLine) => {
     const orderLine = orderLinesById.get(shipmentLine.salesOrderLineId);
-    return sum + Number(lineTotalForQuantity(orderLine, shipmentLine.quantity));
+    return sum + Number(calculateSalesLineTotalForQuantity(orderLine, shipmentLine.quantity));
   }, 0);
 
   return (
@@ -457,40 +462,40 @@ function ShippedItemsSection({
         </span>
       </div>
       <SalesFulfillmentTable>
-        <thead className="bg-[var(--color-surface-muted)] text-[11px] uppercase tracking-normal text-muted-foreground">
+        <FramedTableHead>
           <tr>
-            <th className="px-(--space-3) py-(--space-2) text-left font-medium">Item</th>
-            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Quantity</th>
-            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Price per unit</th>
-            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Tax %</th>
-            <th className="px-(--space-3) py-(--space-2) text-right font-medium">Total price</th>
+            <FramedTableHeaderCell>Item</FramedTableHeaderCell>
+            <FramedTableHeaderCell align="right">Quantity</FramedTableHeaderCell>
+            <FramedTableHeaderCell align="right">Price per unit</FramedTableHeaderCell>
+            <FramedTableHeaderCell align="right">Tax %</FramedTableHeaderCell>
+            <FramedTableHeaderCell align="right">Total price</FramedTableHeaderCell>
           </tr>
-        </thead>
+        </FramedTableHead>
         <tbody>
           {shipment.lines.map((shipmentLine) => {
             const orderLine = orderLinesById.get(shipmentLine.salesOrderLineId);
             return (
-              <tr key={shipmentLine.id} className="border-t border-[var(--color-line)]">
-                <td className="px-(--space-3) py-(--space-2)">
+              <FramedTableRow key={shipmentLine.id}>
+                <FramedTableCell>
                   <div className="font-medium">{shipmentLine.itemName}</div>
                   <div className="text-[length:var(--text-xs)] text-muted-foreground">
                     {shipmentLine.unitName}
                   </div>
-                </td>
-                <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums">
+                </FramedTableCell>
+                <FramedTableCell align="right" numeric>
                   {formatQuantity(shipmentLine.quantity)}{" "}
                   <span className="font-sans text-muted-foreground">{shipmentLine.unitName}</span>
-                </td>
-                <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums">
+                </FramedTableCell>
+                <FramedTableCell align="right" numeric>
                   {formatPrice(orderLine?.unitPrice) ?? "—"}
-                </td>
-                <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums">
-                  {formatPercent(orderLine?.taxRatePercent)}
-                </td>
-                <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums font-semibold">
-                  {formatPrice(lineTotalForQuantity(orderLine, shipmentLine.quantity)) ?? "—"}
-                </td>
-              </tr>
+                </FramedTableCell>
+                <FramedTableCell align="right" numeric>
+                  {formatPercent(orderLine?.taxRatePercent, { fallback: "0%" })}
+                </FramedTableCell>
+                <FramedTableCell align="right" numeric strong>
+                  {formatPrice(calculateSalesLineTotalForQuantity(orderLine, shipmentLine.quantity)) ?? "—"}
+                </FramedTableCell>
+              </FramedTableRow>
             );
           })}
         </tbody>
@@ -506,26 +511,10 @@ function ShippedItemsSection({
 
 function SalesFulfillmentTable({ children }: { children: React.ReactNode }) {
   return (
-    <div className="overflow-x-auto border border-[var(--color-line)]">
-      <table className="w-full border-collapse text-sm">{children}</table>
-    </div>
+    <TableFrame>
+      <FramedTable>{children}</FramedTable>
+    </TableFrame>
   );
-}
-
-function lineTotalForQuantity(
-  line: SalesOrderDetailLine | undefined,
-  quantity: string
-) {
-  if (!line) return "0";
-  const subtotal = Number(quantity || 0) * Number(line.unitPrice || 0);
-  const tax = subtotal * (Number(line.taxRatePercent || 0) / 100);
-  return (subtotal + tax).toFixed(2);
-}
-
-function formatPercent(value: string | null | undefined) {
-  const parsed = value == null ? NaN : Number(value);
-  if (!Number.isFinite(parsed)) return "0%";
-  return `${parsed.toFixed(1)}%`;
 }
 
 function LinkedManufacturingOrdersSection({ order }: { order: SalesOrderDetail }) {
@@ -538,21 +527,21 @@ function LinkedManufacturingOrdersSection({ order }: { order: SalesOrderDetail }
         order.linkedManufacturingOrders.length === 1 ? "" : "s"
       }`}
     >
-      <div className="overflow-x-auto border border-[var(--color-line)]">
-        <table className="w-full border-collapse text-sm">
-          <thead className="bg-[var(--color-surface-muted)] text-[11px] uppercase tracking-normal text-muted-foreground">
+      <TableFrame>
+        <FramedTable>
+          <FramedTableHead>
             <tr>
-              <th className="px-(--space-3) py-(--space-2) text-left font-medium">Order</th>
-              <th className="px-(--space-3) py-(--space-2) text-left font-medium">Product</th>
-              <th className="px-(--space-3) py-(--space-2) text-right font-medium">Planned</th>
-              <th className="px-(--space-3) py-(--space-2) text-left font-medium">Status</th>
-              <th className="px-(--space-3) py-(--space-2) text-left font-medium">Deadline</th>
+              <FramedTableHeaderCell>Order</FramedTableHeaderCell>
+              <FramedTableHeaderCell>Product</FramedTableHeaderCell>
+              <FramedTableHeaderCell align="right">Planned</FramedTableHeaderCell>
+              <FramedTableHeaderCell>Status</FramedTableHeaderCell>
+              <FramedTableHeaderCell>Deadline</FramedTableHeaderCell>
             </tr>
-          </thead>
+          </FramedTableHead>
           <tbody>
             {order.linkedManufacturingOrders.map((linkedOrder) => (
-              <tr key={linkedOrder.id} className="border-t border-[var(--color-line)]">
-                <td className="px-(--space-3) py-(--space-2)">
+              <FramedTableRow key={linkedOrder.id}>
+                <FramedTableCell>
                   <Link
                     href={`/manufacturing/order/${linkedOrder.id}`}
                     className="font-medium text-foreground underline-offset-2 hover:underline"
@@ -560,24 +549,24 @@ function LinkedManufacturingOrdersSection({ order }: { order: SalesOrderDetail }
                   >
                     {linkedOrder.orderNumber}
                   </Link>
-                </td>
-                <td className="px-(--space-3) py-(--space-2) text-muted-foreground">
+                </FramedTableCell>
+                <FramedTableCell muted>
                   {linkedOrder.productName}
-                </td>
-                <td className="px-(--space-3) py-(--space-2) text-right font-mono tabular-nums">
+                </FramedTableCell>
+                <FramedTableCell align="right" numeric>
                   {formatQuantity(linkedOrder.plannedQuantity)} {linkedOrder.unitName}
-                </td>
-                <td className="px-(--space-3) py-(--space-2)">
+                </FramedTableCell>
+                <FramedTableCell>
                   {manufacturingProductionStatusLabel(linkedOrder.productionStatus)}
-                </td>
-                <td className="px-(--space-3) py-(--space-2) text-muted-foreground">
+                </FramedTableCell>
+                <FramedTableCell muted>
                   {linkedOrder.plannedDate ? formatDate(linkedOrder.plannedDate) : "—"}
-                </td>
-              </tr>
+                </FramedTableCell>
+              </FramedTableRow>
             ))}
           </tbody>
-        </table>
-      </div>
+        </FramedTable>
+      </TableFrame>
     </CardSection>
   );
 }

@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
+import { jsonOk } from "@/lib/api/responses";
 import { AuthorizationError } from "@/lib/authz";
 import { generateDueDailyManufacturingReports } from "@/lib/reports/daily-manufacturing";
 
@@ -21,7 +21,7 @@ function assertCronAccess(request: Request) {
 export const GET = apiHandler(async (request: Request) => {
   assertCronAccess(request);
   const summary = await generateDueDailyManufacturingReports();
-  return NextResponse.json({ ok: true, ...summary });
+  return jsonOk(summary);
 });
 
 export const POST = GET;

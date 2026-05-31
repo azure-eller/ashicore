@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { jsonError } from "@/lib/api/responses";
 
 export const APP_ROLES = ["owner", "admin", "member"] as const;
 
@@ -481,6 +481,6 @@ export class AuthorizationError extends Error {
   }
 
   toResponse() {
-    return NextResponse.json({ error: this.message }, { status: this.status });
+    return jsonError(this.message, this.status);
   }
 }

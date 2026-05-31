@@ -13,9 +13,17 @@ import {
   type ColDef,
   type ERPGridPersistentState,
 } from "@/components/erp-data-grid";
+import { SelectionCountBadge } from "@/components/selection-count-badge";
+import {
+  WorkflowStatusFilter,
+  type WorkflowStatusFilterValue,
+} from "@/components/workflow-status-filter";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { DateTimeText } from "@/components/date-time-text";
-import { Badge } from "@/components/ui/badge";
+import { fulfillmentStatusBlockTone } from "@/components/fulfillment-status-block";
+import { clampProgressPercent, ProgressMeter } from "@/components/progress-meter";
+import { StatusDetailMenuTable } from "@/components/status-detail-menu-table";
+import { AttributeBadges } from "@/components/attribute-badges";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -23,7 +31,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { StatusBlock, type StatusBlockTone } from "@/components/ui/status-block";
+import { StatusBlock } from "@/components/ui/status-block";
 import {
   Select,
   SelectContent,
@@ -41,7 +49,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatDate, formatQuantity } from "@/lib/format";
 import {
   getIngredientsDisplayState,
@@ -63,14 +70,13 @@ import {
 } from "@/components/card-page/order-status-configs";
 import type { ManufacturingOrderListRow } from "./types";
 
-const BADGE_VARIANTS = ["secondary", "outline", "default"] as const;
 const OPEN_MANUFACTURING_STATUSES = ["open"] as const;
 const DONE_MANUFACTURING_STATUSES = ["done"] as const;
 const MANUFACTURING_ORDERS_VIEW_KEY = "manufacturing.orders";
 const DEFAULT_MANUFACTURING_ORDERS_PREFERENCE: ManufacturingOrdersPreference = {
   version: 1,
 };
-type ManufacturingWorkflowFilterValue = "open" | "done";
+type ManufacturingWorkflowFilterValue = WorkflowStatusFilterValue;
 const ALL_RESOURCES_FILTER = "__all";
 const NO_RESOURCE_FILTER = "__none";
 
@@ -90,18 +96,6 @@ function keepManufacturingRankDraggable(
         ) ?? [],
     },
   };
-}
-
-function AttributeBadges({ attrs }: { attrs: string[] }) {
-  return attrs.map((attr, index) => (
-    <Badge
-      key={`${attr}-${index}`}
-      variant={BADGE_VARIANTS[index % BADGE_VARIANTS.length]}
-      className="text-xs font-normal"
-    >
-      {attr}
-    </Badge>
-  ));
 }
 
 function ProductCell({ order }: { order: ManufacturingOrderListRow }) {
@@ -135,11 +129,6 @@ function PlannedQuantityCell({ order }: { order: ManufacturingOrderListRow }) {
   );
 }
 
-function clampPercent(value: number) {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(100, Math.round(value)));
-}
-
 function getOutputProgress(order: ManufacturingOrderListRow) {
   const planned = Number(order.plannedQuantity);
   const actual = Number(order.actualQuantity ?? "0");
@@ -148,7 +137,7 @@ function getOutputProgress(order: ManufacturingOrderListRow) {
   }
 
   return {
-    percent: clampPercent((actual / planned) * 100),
+    percent: clampProgressPercent((actual / planned) * 100),
     label: `${formatQuantity(order.actualQuantity ?? "0")}/${formatQuantity(order.plannedQuantity)} ${order.unitName} produced`,
   };
 }
@@ -170,7 +159,7 @@ function getOrderProgress(order: ManufacturingOrderListRow) {
     const useOutputProgress = outputProgress != null && outputPercent > batchPercent;
 
     return {
-      percent: clampPercent(useOutputProgress ? outputPercent : batchPercent),
+      percent: clampProgressPercent(useOutputProgress ? outputPercent : batchPercent),
       label: useOutputProgress
         ? outputProgress.label
         : totalBatchCount > 0
@@ -188,10 +177,10 @@ function getOrderProgress(order: ManufacturingOrderListRow) {
   }
 
   return {
-    percent: clampPercent(order.pickProgressPercent),
+    percent: clampProgressPercent(order.pickProgressPercent),
     label:
       order.pickProgressPercent > 0
-        ? `${clampPercent(order.pickProgressPercent)}% picked`
+        ? `${clampProgressPercent(order.pickProgressPercent)}% picked`
         : "Progress",
   };
 }
@@ -205,44 +194,17 @@ function ProductionProgressBar({ order }: { order: ManufacturingOrderListRow }) 
     batchCount > 1 &&
     (!Number.isFinite(actualQuantity) ||
       actualQuantity <= 0 ||
-      progress.percent <= clampPercent(
+      progress.percent <= clampProgressPercent(
         (order.completedBatchCount / batchCount) * 100
       ));
 
   return (
-    <span
-      className="block min-w-0"
-      aria-label={progress.label}
-      title={progress.label}
-    >
-      {showBatchSegments ? (
-        <span
-          className="grid h-(--space-2) gap-px"
-          style={{
-            gridTemplateColumns: `repeat(${batchCount}, minmax(0, 1fr))`,
-          }}
-        >
-          {Array.from({ length: batchCount }, (_, index) => (
-            <span
-              key={index}
-              className={
-                index < order.completedBatchCount
-                  ? "bg-current"
-                  : "bg-[color-mix(in_oklab,currentColor,transparent_78%)]"
-              }
-              aria-hidden="true"
-            />
-          ))}
-        </span>
-      ) : (
-        <span className="block h-(--space-2) bg-[color-mix(in_oklab,currentColor,transparent_78%)]">
-          <span
-            className="block h-full bg-current transition-[width]"
-            style={{ width: `${progress.percent}%` }}
-          />
-        </span>
-      )}
-    </span>
+    <ProgressMeter
+      label={progress.label}
+      percent={progress.percent}
+      segmentCount={showBatchSegments ? batchCount : undefined}
+      completedSegmentCount={order.completedBatchCount}
+    />
   );
 }
 
@@ -272,26 +234,21 @@ function getProductionState(order: ManufacturingOrderListRow): FulfillmentDispla
   return getProductionDisplayState(productionState);
 }
 
-const fulfillmentToneToStatusBlockTone: Record<
-  FulfillmentDisplayState["tone"],
-  StatusBlockTone
-> = {
-  destructive: "danger",
-  muted: "muted",
-  secondary: "warning",
-  success: "success",
-  warning: "warning",
-};
-
 function IngredientsStatusCell({ order }: { order: ManufacturingOrderListRow }) {
   const state = getIngredientState(order);
-  const rows = order.ingredientCoverage;
+  const rows = order.ingredientCoverage.map((row) => ({
+    id: row.itemId,
+    item: row.itemName,
+    needed: formatQuantity(row.needed),
+    available: formatQuantity(row.available),
+    short: Number(row.available) < Number(row.needed),
+  }));
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <StatusBlock
-          tone={fulfillmentToneToStatusBlockTone[state.tone]}
+          tone={fulfillmentStatusBlockTone[state.tone]}
           actionable
           actionVariant="button"
           onClick={(event) => event.stopPropagation()}
@@ -302,40 +259,7 @@ function IngredientsStatusCell({ order }: { order: ManufacturingOrderListRow }) 
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[420px]">
         <DropdownMenuLabel>Ingredients</DropdownMenuLabel>
-        {rows.length === 0 ? (
-          <div className="px-(--space-3) py-(--space-4) text-[length:var(--text-sm)] text-muted-foreground">
-            No ingredient demand.
-          </div>
-        ) : (
-          <div className="max-h-[320px] overflow-y-auto">
-            <div className="grid grid-cols-[minmax(0,1fr)_64px_64px] gap-x-(--space-5) border-b border-border px-(--space-3) py-(--space-2) text-[length:var(--text-xs)] font-medium text-muted-foreground">
-              <div>Item</div>
-              <div className="text-right">Needed</div>
-              <div className="text-right">Available</div>
-            </div>
-            {rows.map((row) => {
-              const isShort = Number(row.available) < Number(row.needed);
-              const valueClassName = isShort
-                ? "text-destructive"
-                : "text-muted-foreground";
-
-              return (
-                <div
-                  key={row.itemId}
-                  className={`grid grid-cols-[minmax(0,1fr)_64px_64px] items-start gap-x-(--space-5) border-b border-border/60 px-(--space-3) py-(--space-3) text-[length:var(--text-sm)] last:border-b-0 ${isShort ? "text-destructive" : ""}`}
-                >
-                  <div className="min-w-0 truncate font-medium">{row.itemName}</div>
-                  <div className={`text-right font-mono text-[length:var(--text-xs)] tabular-nums ${valueClassName}`}>
-                    {formatQuantity(row.needed)}
-                  </div>
-                  <div className={`text-right font-mono text-[length:var(--text-xs)] tabular-nums ${valueClassName}`}>
-                    {formatQuantity(row.available)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <StatusDetailMenuTable emptyMessage="No ingredient demand." rows={rows} />
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -789,14 +713,7 @@ export function OrdersTable({
               onClick={() => setDeleteDialogOpen(true)}
             >
               <HugeiconsIcon icon={Delete02Icon} className="h-4 w-4" aria-hidden />
-              {selectedCount > 0 ? (
-                <span
-                  aria-hidden
-                  className="absolute -top-(--space-2) -right-(--space-2) flex h-(--space-8) min-w-(--space-8) items-center justify-center bg-primary px-(--space-1) font-mono text-[length:var(--text-2xs)] font-medium tabular-nums text-primary-foreground"
-                >
-                  {selectedCount}
-                </span>
-              ) : null}
+              <SelectionCountBadge count={selectedCount} />
             </Button>
             <Button asChild aria-label="New Order">
               <Link href="/manufacturing/order">
@@ -904,41 +821,12 @@ function ManufacturingStatusFilter({
   );
 
   return (
-    <ToggleGroup
-      type="single"
-      variant="segmented"
-      size="sm"
+    <WorkflowStatusFilter
       value={value}
-      onValueChange={(nextValue) => {
-        if (nextValue === "open" || nextValue === "done") {
-          onStatusChange(nextValue);
-        }
-      }}
-      aria-label="Filter manufacturing orders by status"
-      className="max-w-full flex-wrap bg-muted p-(--space-1)"
-    >
-      <ToggleGroupItem
-        value="open"
-        aria-label="Show open orders"
-        className="gap-(--space-3)"
-        onClick={() => onStatusChange("open")}
-      >
-        Open
-        <span className="font-mono text-[length:var(--text-2xs)] tabular-nums text-muted-foreground">
-          {openCount}
-        </span>
-      </ToggleGroupItem>
-      <ToggleGroupItem
-        value="done"
-        aria-label="Show done orders"
-        className="gap-(--space-3)"
-        onClick={() => onStatusChange("done")}
-      >
-        Done
-        <span className="font-mono text-[length:var(--text-2xs)] tabular-nums text-muted-foreground">
-          {doneCount}
-        </span>
-      </ToggleGroupItem>
-    </ToggleGroup>
+      openCount={openCount}
+      doneCount={doneCount}
+      ariaLabel="Filter manufacturing orders by status"
+      onValueChange={onStatusChange}
+    />
   );
 }

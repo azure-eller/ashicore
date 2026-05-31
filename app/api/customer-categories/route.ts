@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { jsonCreated } from "@/lib/api/responses";
 import { apiHandler } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleAccess, assertModuleReadAccess } from "@/lib/dal/auth";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import { insertCustomerCategorySchema } from "@/lib/schemas/customer-categories";
@@ -18,12 +20,11 @@ export const GET = apiHandler(async (request) => {
 
 export const POST = apiHandler(async (request) => {
   await assertModuleAccess("sales", "admin", request.headers);
-  const body = await request.json();
-  const data = insertCustomerCategorySchema.parse(body);
+  const data = await parseJsonBody(request, insertCustomerCategorySchema);
 
   try {
     const category = await createCustomerCategory(data);
-    return NextResponse.json(category, { status: 201 });
+    return jsonCreated(category);
   } catch (error) {
     if (error instanceof SalesError) return error.toResponse();
     throw error;
@@ -32,8 +33,7 @@ export const POST = apiHandler(async (request) => {
 
 export const DELETE = apiHandler(async (request) => {
   await assertModuleAccess("sales", "admin", request.headers);
-  const body = await request.json();
-  const data = bulkDeleteSchema.parse(body);
+  const data = await parseJsonBody(request, bulkDeleteSchema);
 
   try {
     const result = await deleteCustomerCategories(data.ids);

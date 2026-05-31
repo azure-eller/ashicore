@@ -1,8 +1,7 @@
-import { normalizeNumeric, roundQuantity } from "@/lib/format";
+import { normalizeNumeric, parseNumberOrZero, roundQuantity } from "@/lib/format";
 
 export function toAllocationQuantity(value: string | number | null | undefined) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return parseNumberOrZero(value);
 }
 
 export function allocationQuantityString(value: number) {
