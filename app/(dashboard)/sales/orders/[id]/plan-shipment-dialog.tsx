@@ -14,7 +14,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { DatePicker } from "@/components/ui/date-picker";
-import { TableFrame } from "@/components/table-frame";
+import {
+  FramedTable,
+  FramedTableBody,
+  FramedTableCell,
+  FramedTableHeaderCell,
+  FramedTableHead,
+  FramedTableRow,
+  TableFrame,
+} from "@/components/table-frame";
 import {
   Select,
   SelectContent,
@@ -22,14 +30,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { apiJson } from "@/lib/client/api";
 import { formatQuantity } from "@/lib/format";
 import {
@@ -229,18 +229,18 @@ function PlanShipmentDialogForm({
             </div>
 
             <TableFrame>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Item</TableHead>
-                    <TableHead className="text-right">Ordered</TableHead>
-                    <TableHead className="text-right">Planned</TableHead>
-                    <TableHead className="text-right">Shipped</TableHead>
-                    <TableHead className="text-right">Remaining</TableHead>
-                    <TableHead className="w-36 text-right">This shipment</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+              <FramedTable>
+                <FramedTableHead>
+                  <FramedTableRow>
+                    <FramedTableHeaderCell>Item</FramedTableHeaderCell>
+                    <FramedTableHeaderCell className="text-right">Ordered</FramedTableHeaderCell>
+                    <FramedTableHeaderCell className="text-right">Planned</FramedTableHeaderCell>
+                    <FramedTableHeaderCell className="text-right">Shipped</FramedTableHeaderCell>
+                    <FramedTableHeaderCell className="text-right">Remaining</FramedTableHeaderCell>
+                    <FramedTableHeaderCell className="w-36 text-right">This shipment</FramedTableHeaderCell>
+                  </FramedTableRow>
+                </FramedTableHead>
+                <FramedTableBody>
                   {order.lines.map((line) => {
                     const maxQuantity = getOrderDetailShipmentLineCapacity({
                       lineId: line.id,
@@ -250,28 +250,28 @@ function PlanShipmentDialogForm({
                         : undefined,
                     });
                     return (
-                      <TableRow key={line.id}>
-                        <TableCell>
+                      <FramedTableRow key={line.id}>
+                        <FramedTableCell>
                           <div>{line.itemName}</div>
                           {line.itemSku ? (
                             <div className="text-xs text-muted-foreground">
                               {line.itemSku}
                             </div>
                           ) : null}
-                        </TableCell>
-                        <TableCell className="text-right font-mono tabular-nums">
+                        </FramedTableCell>
+                        <FramedTableCell className="text-right font-mono tabular-nums">
                           {formatQuantity(line.quantity)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono tabular-nums">
+                        </FramedTableCell>
+                        <FramedTableCell className="text-right font-mono tabular-nums">
                           {formatQuantity(line.plannedQuantity)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono tabular-nums">
+                        </FramedTableCell>
+                        <FramedTableCell className="text-right font-mono tabular-nums">
                           {formatQuantity(line.shippedQuantity)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono tabular-nums">
+                        </FramedTableCell>
+                        <FramedTableCell className="text-right font-mono tabular-nums">
                           {formatQuantity(line.unplannedRemainingQuantity)}
-                        </TableCell>
-                        <TableCell>
+                        </FramedTableCell>
+                        <FramedTableCell>
                           <Input
                             type="number"
                             inputMode="decimal"
@@ -297,12 +297,12 @@ function PlanShipmentDialogForm({
                           <div className="mt-1 text-xs text-muted-foreground">
                             Max {formatShipmentQuantityCapacity(maxQuantity)}
                           </div>
-                        </TableCell>
-                      </TableRow>
+                        </FramedTableCell>
+                      </FramedTableRow>
                     );
                   })}
-                </TableBody>
-              </Table>
+                </FramedTableBody>
+              </FramedTable>
             </TableFrame>
 
             {mutation.isError ? (

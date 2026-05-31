@@ -31,6 +31,20 @@ The design system has **three token layers**. Full spec: `docs/design-system/01_
 
 `Button`, `Input`, `InputGroup`, `StatusLabel`, `StatusRibbon`, `Spinner`, `Combobox`, plus the create-page shell components (`CreatePageShell`, `CreatePageHeader`, `CreatePageGrid`, `CreateSection`, `CreateSidebarCard`). All of these consume V2 tokens directly — compose them rather than re-styling at the page level.
 
+## Tables
+
+Use `ERPDataGrid` / `ERPDataGridList` for operational datasets: main list
+pages, editable line grids, sorting/filtering/resizing, selection-heavy flows,
+and repeated scanning workflows.
+
+Use the framed table components in `components/table-frame.tsx` for compact HTML
+tables: dialog previews, read-only summaries, report fragments, history
+snapshots, and small input tables that do not need grid behavior.
+
+Feature code must not import `@/components/ui/table` directly. That file is the
+raw shadcn primitive; route product code through `TableFrame`, `FramedTable`,
+`FramedTableHeaderCell`, `FramedTableCell`, and `FramedTableEmptyRow` instead.
+
 ## Dashboard Module Layouts
 
 Module layouts own the outer dashboard gutter. Use `DashboardModuleShell` in

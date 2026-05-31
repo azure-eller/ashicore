@@ -18,13 +18,13 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  FramedTable,
+  FramedTableBody,
+  FramedTableCell,
+  FramedTableHeaderCell,
+  FramedTableHead,
+  FramedTableRow,
+} from "@/components/table-frame";
 import { ManufacturingCompletionDialog } from "@/components/manufacturing/manufacturing-completion-dialog";
 import { NoticePanel } from "@/components/notice-panel";
 import {
@@ -230,10 +230,10 @@ function ShipOrderDialog({
         </DialogHeader>
         {mode === "partial" ? (
           <div className="space-y-(--space-4)">
-            <Table containerClassName="border border-[var(--color-line)]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10">
+            <FramedTable containerClassName="border border-[var(--color-line)]">
+              <FramedTableHead>
+                <FramedTableRow>
+                  <FramedTableHeaderCell className="w-10">
                     <Checkbox
                       checked={rows.length > 0 && rows.every((row) => row.selected)}
                       onCheckedChange={(checked) => {
@@ -246,14 +246,14 @@ function ShipOrderDialog({
                       }}
                       aria-label="Select all items"
                     />
-                  </TableHead>
-                  <TableHead>Item</TableHead>
-                  <TableHead>Location</TableHead>
-                  <TableHead className="w-44 text-right">Quantity to deliver</TableHead>
-                  <TableHead className="w-44 text-right">Quantity left available</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+                  </FramedTableHeaderCell>
+                  <FramedTableHeaderCell>Item</FramedTableHeaderCell>
+                  <FramedTableHeaderCell>Location</FramedTableHeaderCell>
+                  <FramedTableHeaderCell className="w-44 text-right">Quantity to deliver</FramedTableHeaderCell>
+                  <FramedTableHeaderCell className="w-44 text-right">Quantity left available</FramedTableHeaderCell>
+                </FramedTableRow>
+              </FramedTableHead>
+              <FramedTableBody>
                 {rows.map((row) => {
                   const quantity = Number(normalizeDialogQuantity(row.quantity));
                   const remaining = Number(row.remainingQuantity);
@@ -265,8 +265,8 @@ function ShipOrderDialog({
                     row.selected &&
                     (!Number.isFinite(quantity) || quantity <= 0 || quantity > remaining);
                   return (
-                    <TableRow key={row.salesOrderLineId}>
-                      <TableCell>
+                    <FramedTableRow key={row.salesOrderLineId}>
+                      <FramedTableCell>
                         <Checkbox
                           checked={row.selected}
                           onCheckedChange={(checked) => {
@@ -280,12 +280,12 @@ function ShipOrderDialog({
                           }}
                           aria-label={`Select ${row.itemName}`}
                         />
-                      </TableCell>
-                      <TableCell className={row.selected ? "" : "text-muted-foreground"}>
+                      </FramedTableCell>
+                      <FramedTableCell className={row.selected ? "" : "text-muted-foreground"}>
                         {row.itemName}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">Default</TableCell>
-                      <TableCell className="text-right">
+                      </FramedTableCell>
+                      <FramedTableCell className="text-muted-foreground">Default</FramedTableCell>
+                      <FramedTableCell className="text-right">
                         {row.selected ? (
                           <div className="flex items-center justify-end gap-(--space-2)">
                             <Input
@@ -309,16 +309,16 @@ function ShipOrderDialog({
                         ) : (
                           <span className="text-muted-foreground">Qty to deliver</span>
                         )}
-                      </TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">
+                      </FramedTableCell>
+                      <FramedTableCell className="text-right font-mono tabular-nums">
                         {formatQuantity(String(left))}{" "}
                         <span className="font-sans text-muted-foreground">{row.unitName}</span>
-                      </TableCell>
-                    </TableRow>
+                      </FramedTableCell>
+                    </FramedTableRow>
                   );
                 })}
-              </TableBody>
-            </Table>
+              </FramedTableBody>
+            </FramedTable>
           </div>
         ) : null}
         {warning ? <NegativeStockNotice items={[warning]} /> : null}

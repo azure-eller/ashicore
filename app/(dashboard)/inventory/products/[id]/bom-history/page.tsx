@@ -3,16 +3,16 @@ import { redirect } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { Separator } from "@/components/ui/separator";
-import { TableFrame } from "@/components/table-frame";
-import { TooltipHeader } from "@/components/tooltip-header";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  FramedTable,
+  FramedTableBody,
+  FramedTableCell,
+  FramedTableHeaderCell,
+  FramedTableHead,
+  FramedTableRow,
+  TableFrame,
+} from "@/components/table-frame";
+import { TooltipHeader } from "@/components/tooltip-header";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 import { getBomRevisionHistory, getItem } from "@/app/(dashboard)/inventory/queries";
@@ -137,51 +137,51 @@ export default async function ProductBomHistoryPage({
             </div>
 
             <TableFrame>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Component</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead className="text-right">
+              <FramedTable>
+                <FramedTableHead>
+                  <FramedTableRow>
+                    <FramedTableHeaderCell>Component</FramedTableHeaderCell>
+                    <FramedTableHeaderCell>Type</FramedTableHeaderCell>
+                    <FramedTableHeaderCell className="text-right">
                       <TooltipHeader label="Qty" tooltip={BOM_QTY_PER_UNIT_TOOLTIP} />
-                    </TableHead>
-                    <TableHead>Requirements</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+                    </FramedTableHeaderCell>
+                    <FramedTableHeaderCell>Requirements</FramedTableHeaderCell>
+                  </FramedTableRow>
+                </FramedTableHead>
+                <FramedTableBody>
                   {selectedRevision.components.map((component) => {
                     const minimumLotAgeDays = getMinimumLotAgeDays(component.constraints);
 
                     return (
-                      <TableRow key={component.id}>
-                        <TableCell>
+                      <FramedTableRow key={component.id}>
+                        <FramedTableCell>
                           <Link
                             href={itemDetailHref(component.componentItemType, component.componentId)}
                             className="hover:underline"
                           >
                             {component.componentName}
                           </Link>
-                        </TableCell>
-                        <TableCell>
+                        </FramedTableCell>
+                        <FramedTableCell>
                           <Badge variant="outline">{component.componentItemType}</Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
+                        </FramedTableCell>
+                        <FramedTableCell className="text-right">
                           <QuantityWithUnit
                             value={component.quantity}
                             unitName={component.unitName}
                             className="justify-end"
                           />
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
+                        </FramedTableCell>
+                        <FramedTableCell className="text-sm text-muted-foreground">
                           {minimumLotAgeDays
                             ? formatMinimumLotAgeRequirement(minimumLotAgeDays)
                             : "\u2014"}
-                        </TableCell>
-                      </TableRow>
+                        </FramedTableCell>
+                      </FramedTableRow>
                     );
                   })}
-                </TableBody>
-              </Table>
+                </FramedTableBody>
+              </FramedTable>
             </TableFrame>
           </div>
         </div>
