@@ -510,6 +510,11 @@ function deliveryAddressKey(address: DeliveryAddressFields | undefined) {
   const normalized = normalizeDeliveryAddress(address);
   if (normalized.shipAddressEntryId)
     return `address:${normalized.shipAddressEntryId}`;
+  return deliveryAddressContentKey(normalized);
+}
+
+function deliveryAddressContentKey(address: DeliveryAddressFields | undefined) {
+  const normalized = normalizeDeliveryAddress(address);
   return [
     normalized.shipLine1,
     normalized.shipLine2,
@@ -1877,15 +1882,17 @@ export function PurchaseOrderCard({
     const patch: Partial<PurchaseOrderFormValues> = {
       ...nextAddress,
     };
-    const nextDeliveryNote = nextAddress.shipDeliveryInstructions
-      ? deliveryInfoNote(nextAddress.shipDeliveryInstructions)
+    const nextDeliveryInstructions = nextAddress.shipDeliveryInstructions;
+    const nextDeliveryNote = nextDeliveryInstructions
+      ? deliveryInfoNote(nextDeliveryInstructions)
       : null;
     const currentNotes = draftValues.notes?.trim() ?? "";
     if (nextDeliveryNote && !currentNotes) {
       patch.notes = nextDeliveryNote;
     } else if (
       nextDeliveryNote &&
-      !currentNotes.includes(nextAddress.shipDeliveryInstructions)
+      nextDeliveryInstructions &&
+      !currentNotes.includes(nextDeliveryInstructions)
     ) {
       patch.notes = `${currentNotes}\n\n${nextDeliveryNote}`;
     }
@@ -1956,16 +1963,12 @@ export function PurchaseOrderCard({
       ? initialData.supplierEmail
       : selectedSupplier?.email ?? null;
   const currentDeliveryAddress: DeliveryAddressFields = {
-    shipAddressEntryId: draftValues.shipAddressEntryId,
-    shipContactName: draftValues.shipContactName,
-    shipContactPhone: draftValues.shipContactPhone,
     shipLine1: draftValues.shipLine1,
     shipLine2: draftValues.shipLine2,
     shipCity: draftValues.shipCity,
     shipRegion: draftValues.shipRegion,
     shipPostcode: draftValues.shipPostcode,
     shipCountry: draftValues.shipCountry,
-    shipDeliveryInstructions: draftValues.shipDeliveryInstructions,
   };
   const autosaveState = canAutosaveDraft ? purchaseOrderEngine.status : "idle";
   const autosaveMessage = canAutosaveDraft
@@ -2601,6 +2604,13 @@ function DeliveryAddressInput({
   const canEditCurrent = currentAddressId !== "";
   const optionIds = options.map((option) => option.id);
   const optionMap = new Map(options.map((option) => [option.id, option]));
+  const optionByContent = new Map(
+    options.map((option) => [deliveryAddressContentKey(option), option]),
+  );
+  const currentContentKey = deliveryAddressContentKey(value);
+  const matchedCurrentOption =
+    optionMap.get(currentAddressId) ?? optionByContent.get(currentContentKey) ?? null;
+  const currentComboboxValue = matchedCurrentOption?.id ?? currentAddressId;
   const items = canEditCurrent
     ? [...optionIds, EDIT_DELIVERY_ADDRESS_VALUE, ADD_DELIVERY_ADDRESS_VALUE]
     : [...optionIds, ADD_DELIVERY_ADDRESS_VALUE];
@@ -2627,7 +2637,7 @@ function DeliveryAddressInput({
       ) : (
       <Combobox
         items={items}
-        value={currentAddressId}
+        value={currentComboboxValue}
         onValueChange={(nextValue) => {
           if (!nextValue) {
             onChange(null);
@@ -2638,8 +2648,7 @@ function DeliveryAddressInput({
             return;
           }
           if (nextValue === EDIT_DELIVERY_ADDRESS_VALUE) {
-            const option = optionMap.get(currentAddressId);
-            if (option) onEdit(option);
+            if (matchedCurrentOption) onEdit(matchedCurrentOption);
             return;
           }
 
