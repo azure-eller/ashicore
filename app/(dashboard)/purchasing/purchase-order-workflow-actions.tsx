@@ -43,7 +43,7 @@ function billDisplay(status: PurchaseBillStatus): {
 } {
   if (status === "pushed") return { label: "Bill created", tone: "success" };
   if (status === "failed") return { label: "Bill failed", tone: "danger" };
-  if (status === "pending") return { label: "Creating bill", tone: "warning" };
+  if (status === "pending") return { label: "Bill pending", tone: "warning" };
   return { label: "Not billed", tone: "muted" };
 }
 
@@ -110,6 +110,7 @@ export function PurchaseBillActionControl({
   status,
   externalId,
   externalNumber,
+  busy = false,
   disabled = false,
   disabledReason,
   onCreate,
@@ -117,12 +118,15 @@ export function PurchaseBillActionControl({
   status: PurchaseBillStatus;
   externalId?: string | null;
   externalNumber?: string | null;
+  busy?: boolean;
   disabled?: boolean;
   disabledReason?: string | null;
   onCreate: () => void;
 }) {
-  const display = billDisplay(status);
-  const createDisabled = disabled || status === "pending" || status === "pushed";
+  const display = busy
+    ? { label: "Creating bill", tone: "warning" as const }
+    : billDisplay(status);
+  const createDisabled = disabled || busy || status === "pushed";
 
   return (
     <StatusActionMenu
@@ -152,7 +156,7 @@ export function PurchaseBillActionControl({
           disabled={createDisabled}
           onSelect={onCreate}
         >
-          {status === "failed" ? "Retry bill" : "Create bill"}
+          {status === "failed" || status === "pending" ? "Retry bill" : "Create bill"}
         </StatusActionMenuItem>
       )}
     </StatusActionMenu>

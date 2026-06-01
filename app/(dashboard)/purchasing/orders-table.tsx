@@ -134,7 +134,8 @@ function PurchaseBillCell({ order }: { order: PurchaseOrderListRow }) {
   return (
     <>
       <PurchaseBillActionControl
-        status={mutation.isPending ? "pending" : status}
+        status={status}
+        busy={mutation.isPending}
         externalId={externalId}
         externalNumber={externalNumber}
         disabled={Boolean(disabledReason)}

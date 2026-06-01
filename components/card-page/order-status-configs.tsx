@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   type OrderStatusControlConfig,
   type OrderStatusOption,
@@ -31,7 +31,11 @@ import {
   shipSalesOrder,
   SalesOrderApiError,
 } from "@/lib/api/clients/sales-orders";
-import { updatePurchaseOrderStatus } from "@/lib/api/clients/purchase-orders";
+import {
+  getPurchaseOrderDetail,
+  receivePurchaseOrder,
+  updatePurchaseOrderStatus,
+} from "@/lib/api/clients/purchase-orders";
 import {
   patchManufacturingOrder,
   startManufacturingOrder,
@@ -51,6 +55,7 @@ import type {
   SalesOrderListRow,
 } from "@/app/(dashboard)/sales/types";
 import type { ManufacturingPickProgressStatus } from "@/app/(dashboard)/manufacturing/types";
+import type { PurchaseOrderDetailLine } from "@/app/(dashboard)/purchasing/types";
 import type { ManufacturingOrderStatus } from "@/lib/schemas/manufacturing-orders";
 import type { PurchaseOrderStatus } from "@/lib/schemas/purchase-orders";
 
@@ -536,21 +541,161 @@ function ReceiveConfirmDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const mutation = useMutation({
-    mutationFn: () => updatePurchaseOrderStatus(orderId, "received"),
-    onSuccess: () => onDone(),
+  const orderQuery = useQuery({
+    queryKey: ["purchase-order-receive", orderId],
+    queryFn: () => getPurchaseOrderDetail(orderId),
   });
+  const initialRows =
+    orderQuery.data?.lines.flatMap((line) => {
+      const row = toReceivableRow(line);
+      if (!row || Number(row.remainingQuantity) <= 0) return [];
+      return [{ ...row, quantity: row.remainingQuantity }];
+    }) ?? [];
 
   return (
     <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
-      <DialogContent>
+      <DialogContent size="3xl">
         <DialogHeader>
-          <DialogTitle>Mark as received?</DialogTitle>
+          <DialogTitle>Receive purchase order</DialogTitle>
           <DialogDescription>
-            All remaining lines will be committed to inventory at their listed receiving
-            locations.
+            Enter the quantities received for each material.
           </DialogDescription>
         </DialogHeader>
+        {orderQuery.isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading purchase order...</p>
+        ) : orderQuery.isError ? (
+          <p className="text-sm text-destructive">
+            {orderQuery.error instanceof Error
+              ? orderQuery.error.message
+              : "Failed to load purchase order."}
+          </p>
+        ) : (
+          <ReceiveForm
+            key={orderQuery.dataUpdatedAt}
+            orderId={orderId}
+            initialRows={initialRows}
+            onClose={onClose}
+            onDone={onDone}
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReceiveForm({
+  orderId,
+  initialRows,
+  onClose,
+  onDone,
+}: {
+  orderId: string;
+  initialRows: ReceiveDialogRow[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [rows, setRows] = useState<ReceiveDialogRow[]>(initialRows);
+  const mutation = useMutation({
+    mutationFn: () =>
+      receivePurchaseOrder(orderId, {
+        lines: rows
+          .map((row) => ({
+            lineId: row.lineId,
+            quantityReceived: normalizeDialogQuantity(row.quantity),
+            disposition: "available" as const,
+          }))
+          .filter((line) => Number(line.quantityReceived) > 0),
+      }),
+    onSuccess: () => onDone(),
+  });
+  const invalidRows = rows.filter((row) => {
+    const quantity = Number(normalizeDialogQuantity(row.quantity));
+    const remaining = Number(row.remainingQuantity);
+    return (
+      row.quantity.trim() !== "" &&
+      (!Number.isFinite(quantity) || quantity < 0 || quantity > remaining)
+    );
+  });
+  const selectedRows = rows.filter((row) => Number(normalizeDialogQuantity(row.quantity)) > 0);
+  const canSubmit =
+    !mutation.isPending && selectedRows.length > 0 && invalidRows.length === 0;
+
+  if (rows.length === 0) {
+    return (
+      <>
+        <p className="text-sm text-muted-foreground">
+          There are no remaining quantities to receive.
+        </p>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <FramedTable containerClassName="border border-[var(--color-line)]">
+        <FramedTableHead>
+          <FramedTableRow>
+            <FramedTableHeaderCell>Item</FramedTableHeaderCell>
+            <FramedTableHeaderCell className="w-36 text-right">Ordered</FramedTableHeaderCell>
+            <FramedTableHeaderCell className="w-36 text-right">Received</FramedTableHeaderCell>
+            <FramedTableHeaderCell className="w-36 text-right">Remaining</FramedTableHeaderCell>
+            <FramedTableHeaderCell className="w-44 text-right">Receive now</FramedTableHeaderCell>
+          </FramedTableRow>
+        </FramedTableHead>
+        <FramedTableBody>
+          {rows.map((row) => {
+            const quantity = Number(normalizeDialogQuantity(row.quantity));
+            const remaining = Number(row.remainingQuantity);
+            const invalid =
+              row.quantity.trim() !== "" &&
+              (!Number.isFinite(quantity) || quantity < 0 || quantity > remaining);
+
+            return (
+              <FramedTableRow key={row.lineId}>
+                <FramedTableCell>{row.itemName}</FramedTableCell>
+                <FramedTableCell className="text-right font-mono tabular-nums">
+                  {formatQuantity(row.quantityOrdered)}{" "}
+                  <span className="font-sans text-muted-foreground">{row.unitName}</span>
+                </FramedTableCell>
+                <FramedTableCell className="text-right font-mono tabular-nums">
+                  {formatQuantity(row.quantityReceived)}{" "}
+                  <span className="font-sans text-muted-foreground">{row.unitName}</span>
+                </FramedTableCell>
+                <FramedTableCell className="text-right font-mono tabular-nums">
+                  {formatQuantity(row.remainingQuantity)}{" "}
+                  <span className="font-sans text-muted-foreground">{row.unitName}</span>
+                </FramedTableCell>
+                <FramedTableCell className="text-right">
+                  <div className="flex items-center justify-end gap-(--space-2)">
+                    <Input
+                      className="h-(--height-input-sm) w-28 text-right font-mono tabular-nums"
+                      inputMode="decimal"
+                      value={row.quantity}
+                      aria-invalid={invalid}
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        setRows((current) =>
+                          current.map((candidate) =>
+                            candidate.lineId === row.lineId
+                              ? { ...candidate, quantity: value }
+                              : candidate
+                          )
+                        );
+                      }}
+                    />
+                    <span className="text-muted-foreground">{row.unitName}</span>
+                  </div>
+                </FramedTableCell>
+              </FramedTableRow>
+            );
+          })}
+        </FramedTableBody>
+      </FramedTable>
         {mutation.isError ? (
           <p className="text-sm text-destructive">
             {mutation.error instanceof Error ? mutation.error.message : "Failed to receive."}
@@ -560,11 +705,35 @@ function ReceiveConfirmDialog({
           <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>
             Cancel
           </Button>
-          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+          <Button onClick={() => mutation.mutate()} disabled={!canSubmit}>
             {mutation.isPending ? "Receiving..." : "Mark received"}
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    </>
   );
+}
+
+type ReceiveDialogRow = {
+  lineId: string;
+  itemName: string;
+  unitName: string;
+  quantityOrdered: string;
+  quantityReceived: string;
+  remainingQuantity: string;
+  quantity: string;
+};
+
+function toReceivableRow(
+  line: PurchaseOrderDetailLine,
+): Omit<ReceiveDialogRow, "quantity"> | null {
+  if (!line.id) return null;
+
+  return {
+    lineId: line.id,
+    itemName: line.itemName,
+    unitName: line.purchaseUnitName,
+    quantityOrdered: line.quantityOrdered,
+    quantityReceived: line.quantityReceived,
+    remainingQuantity: line.quantityRemaining,
+  };
 }

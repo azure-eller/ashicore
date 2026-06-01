@@ -2090,9 +2090,8 @@ export function PurchaseOrderCard({
           workflowControls={
             savedOrderId ? (
               <PurchaseBillActionControl
-                status={
-                  purchaseBillMutation.isPending ? "pending" : purchaseBillStatus
-                }
+                status={purchaseBillStatus}
+                busy={purchaseBillMutation.isPending}
                 externalId={purchaseBillExternalId}
                 externalNumber={purchaseBillExternalNumber}
                 disabled={!canWrite || Boolean(billActionDisabledReason)}
