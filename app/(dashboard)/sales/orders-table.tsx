@@ -165,7 +165,11 @@ function SalesItemsActionCell({
 }: {
   order: SalesOrderListRow;
 }) {
-  const state = getSalesItemsAvailabilityState(order);
+  const hasLines = order.lines.length > 0;
+  const state =
+    !hasLines
+      ? ({ label: "Not applicable", tone: "muted" } satisfies FulfillmentDisplayState)
+      : getSalesItemsAvailabilityState(order);
   const tone = fulfillmentStatusBlockTone[state.tone];
   const hasManualReservation =
     parseQuantity(order.fulfillmentSummary.manualReservationQty) > 0;
@@ -183,6 +187,14 @@ function SalesItemsActionCell({
     available: formatQuantity(line.demandQueueInStockQty ?? "0"),
     expected: formatQuantity(line.demandQueueExpectedQty ?? "0"),
   }));
+
+  if (!hasLines) {
+    return (
+      <StatusBlock tone={tone} aria-label={`Sales items: ${state.label}`}>
+        {state.label}
+      </StatusBlock>
+    );
+  }
 
   return (
     <DropdownMenu>
@@ -309,7 +321,9 @@ function salesOrderMatchesSearch(
     order.totalAmount,
     getOrderShipmentSchedule(order).date,
     getOrderShipmentSchedule(order).label,
-    getSalesItemsState(order, allocationMode).label,
+    order.lines.length === 0
+      ? "Not applicable"
+      : getSalesItemsState(order, allocationMode).label,
     getIngredientsState(order).label,
     getProductionState(order).label,
     getDeliveryState(order).label,
@@ -549,7 +563,11 @@ function OrdersTableContent({
         minWidth: 150,
         cellClass: "statusBlockCell",
         valueGetter: ({ data }) =>
-          data ? getSalesItemsAvailabilityState(data).label : "",
+          data
+            ? data.lines.length === 0
+              ? "Not applicable"
+              : getSalesItemsAvailabilityState(data).label
+            : "",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
           data ? (
             <SalesItemsActionCell order={data} />

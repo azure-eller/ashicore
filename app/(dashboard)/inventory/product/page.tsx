@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/lib/dal/auth";
+import { hasModuleAccess } from "@/lib/authz";
 import { getUnitDefinitions } from "@/app/(dashboard)/inventory/queries";
 import type { ItemCardDto } from "@/lib/api/clients/item-cards";
 import { ProductCard } from "../products/[id]/product-card";
@@ -28,7 +29,7 @@ function emptyCard(itemType: "product", unitDefinitionId: string): ItemCardDto {
 }
 
 export default async function ProductDraftPage() {
-  await requireModuleAccess("inventory", "operate");
+  const context = await requireModuleAccess("inventory", "operate");
   const units = await getUnitDefinitions();
   const defaultUnit =
     units.find((unit) => unit.name.toLowerCase() === "each") ?? units[0];
@@ -46,6 +47,7 @@ export default async function ProductDraftPage() {
         size: unit.size,
         uom: unit.uom,
       }))}
+      canAdminInventory={hasModuleAccess(context.assignedRoles, "inventory", "admin")}
     />
   );
 }

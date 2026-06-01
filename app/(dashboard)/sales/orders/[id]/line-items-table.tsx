@@ -277,10 +277,7 @@ export function LineItemsTable({
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) =>
           data ? (
             <FulfillmentStatusBlock
-              state={getIngredientsDisplayState(
-                data.fulfillmentSummary.ingredientsState,
-                data.fulfillmentSummary.ingredientsExpectedDate,
-              )}
+              state={lineIngredientsState(data)}
               className="w-full justify-center"
             />
           ) : null,
@@ -294,7 +291,7 @@ export function LineItemsTable({
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) =>
           data ? (
             <FulfillmentStatusBlock
-              state={getProductionDisplayState(data.fulfillmentSummary.productionState)}
+              state={lineProductionState(data)}
               className="w-full justify-center"
             />
           ) : null,
@@ -594,6 +591,10 @@ function lineSalesItemsState(
   line: SalesOrderDetailLine,
   orderStatus: SalesOrderDetail["status"],
 ): FulfillmentDisplayState {
+  if (isBlankSalesOrderLine(line)) {
+    return { label: "Not applicable", tone: "muted" };
+  }
+
   if (orderStatus === "done") {
     return { label: "Complete", tone: "success" };
   }
@@ -611,6 +612,25 @@ function lineSalesItemsState(
   }
 
   return getSalesItemsDisplayState("available", null);
+}
+
+function lineIngredientsState(line: SalesOrderDetailLine): FulfillmentDisplayState {
+  if (isBlankSalesOrderLine(line)) {
+    return { label: "Not applicable", tone: "muted" };
+  }
+
+  return getIngredientsDisplayState(
+    line.fulfillmentSummary.ingredientsState,
+    line.fulfillmentSummary.ingredientsExpectedDate,
+  );
+}
+
+function lineProductionState(line: SalesOrderDetailLine): FulfillmentDisplayState {
+  if (isBlankSalesOrderLine(line)) {
+    return { label: "Not applicable", tone: "muted" };
+  }
+
+  return getProductionDisplayState(line.fulfillmentSummary.productionState);
 }
 
 function sumNumeric(values: Array<string | null | undefined>): number {

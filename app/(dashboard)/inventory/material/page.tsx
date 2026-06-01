@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/lib/dal/auth";
+import { hasModuleAccess } from "@/lib/authz";
 import { getUnitDefinitions } from "@/app/(dashboard)/inventory/queries";
 import { getSuppliers } from "@/app/(dashboard)/purchasing/queries";
 import type { ItemCardDto } from "@/lib/api/clients/item-cards";
@@ -29,7 +30,7 @@ function emptyCard(itemType: "material", unitDefinitionId: string): ItemCardDto 
 }
 
 export default async function MaterialDraftPage() {
-  await requireModuleAccess("inventory", "operate");
+  const context = await requireModuleAccess("inventory", "operate");
   const [units, suppliers] = await Promise.all([getUnitDefinitions(), getSuppliers()]);
   const defaultUnit =
     units.find((unit) => unit.name.toLowerCase() === "each") ?? units[0];
@@ -54,6 +55,7 @@ export default async function MaterialDraftPage() {
         code: supplier.code,
       }))}
       initialLots={[]}
+      canAdminInventory={hasModuleAccess(context.assignedRoles, "inventory", "admin")}
     />
   );
 }
