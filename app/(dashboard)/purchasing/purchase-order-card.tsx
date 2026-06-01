@@ -1729,6 +1729,28 @@ export function PurchaseOrderCard({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "email"],
     mutationFn: async () => {
       if (!savedOrderId) throw new Error("Save the purchase order first.");
+      if (displayStatus === "draft") {
+        const statusResponse = await fetch(
+          `/api/purchase-orders/${savedOrderId}/status`,
+          {
+            method: "PATCH",
+            headers: createIdempotencyHeaders("purchase-order-status", {
+              "Content-Type": "application/json",
+            }),
+            body: JSON.stringify({ status: "ordered" }),
+          },
+        );
+        const statusBody = await statusResponse.json().catch(() => null);
+
+        if (!statusResponse.ok) {
+          throw new Error(
+            statusBody?.error ?? "Failed to set purchase order to Ordered.",
+          );
+        }
+
+        setDisplayStatus("ordered");
+      }
+
       const response = await fetch(`/api/purchase-orders/${savedOrderId}/email`, {
         method: "POST",
         headers: createIdempotencyHeaders("purchase-order-email", {
@@ -2009,7 +2031,7 @@ export function PurchaseOrderCard({
     cardSaveState === "failed"
       ? "Save changes before creating a supplier bill."
       : displayStatus === "draft"
-        ? "Submit the purchase order before creating a supplier bill."
+        ? "Set this PO to Ordered before creating a supplier bill."
         : displayStatus === "cancelled"
           ? "Cancelled purchase orders cannot be billed."
           : purchaseBillStatus === "pending"
@@ -2115,9 +2137,12 @@ export function PurchaseOrderCard({
                     disabled:
                       !canWrite ||
                       purchaseOrderEmailMutation.isPending ||
-                      displayStatus === "draft" ||
                       !currentSupplierEmail,
-                    tooltip: poEmailError ?? "",
+                    tooltip:
+                      poEmailError ??
+                      (displayStatus === "draft"
+                        ? "Sending this email will set the PO to Ordered."
+                        : ""),
                   },
                 ]
               : []

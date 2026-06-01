@@ -484,8 +484,21 @@ const PURCHASE_STATUS_OPTIONS: OrderStatusOption[] = [
   { value: "ordered", label: "Ordered", tone: "info" },
   { value: "partial", label: "Partially received", tone: "warning" },
   { value: "received", label: "Received", tone: "success" },
-  { value: "cancelled", label: "Cancelled", tone: "danger" },
 ];
+
+function purchaseStatusOptions(status: PurchaseOrderStatus) {
+  const current = PURCHASE_STATUS_OPTIONS.find((option) => option.value === status);
+  const next =
+    status === "draft"
+      ? PURCHASE_STATUS_OPTIONS.find((option) => option.value === "ordered")
+      : status === "ordered" || status === "partial"
+        ? PURCHASE_STATUS_OPTIONS.find((option) => option.value === "received")
+        : null;
+
+  return [current, next].filter(
+    (option): option is OrderStatusOption => Boolean(option),
+  );
+}
 
 function canPurchaseOrderTransition(from: PurchaseOrderStatus, to: PurchaseOrderStatus) {
   if (from === "draft") return to === "ordered";
@@ -496,7 +509,7 @@ function canPurchaseOrderTransition(from: PurchaseOrderStatus, to: PurchaseOrder
 
 export const purchaseOrderStatusConfig: OrderStatusControlConfig<PurchaseStatusContext> = {
   type: "purchase",
-  options: () => PURCHASE_STATUS_OPTIONS,
+  options: ({ status }) => purchaseStatusOptions(status),
   current: ({ status }) => status,
   transitionKind: (from, to) => {
     if (to === from) return "noop";

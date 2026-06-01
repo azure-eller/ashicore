@@ -263,7 +263,7 @@ export async function sendPurchaseOrderEmail(params: {
     throw new DomainError("Purchase order not found.", 404);
   }
   if (data.order.status === "draft") {
-    throw new DomainError("Submit the purchase order before sending it.", 400);
+    throw new DomainError("Set this PO to Ordered before sending it.", 400);
   }
   if (data.order.status === "cancelled") {
     throw new DomainError("Cancelled purchase orders cannot be emailed.", 409);

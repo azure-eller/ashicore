@@ -71,7 +71,7 @@ export function PurchaseOrderEmailActionControl({
   const title =
     error ??
     (orderStatus === "draft"
-      ? "Submit the purchase order before sending."
+      ? "Set this PO to Ordered before sending."
       : !supplierEmail
         ? "Supplier has no email on file."
         : supplierEmail ?? undefined);
