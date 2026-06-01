@@ -25,6 +25,10 @@ Stocktakes support creation-mode snapshots plus lot-aware blind counts:
 - count entry happens on the stocktake detail page and is blind: draft UIs do
   not show expected/current stock or variance
 - lot-tracked items with active available lots snapshot those lots and count per lot
+- during a lot-tracked count, operators can add a **found lot** — a lot present on
+  the floor that does not match a snapshotted lot or any existing lot record for
+  the item — by entering its lot number; it's recorded under the item as a found
+  lot rather than editing an existing lot row
 - lot-untracked items are counted at item level; their single `INTERNAL-UNTRACKED`
   storage lot remains hidden
 - blank counted quantities mean "leave unchanged"
@@ -43,7 +47,7 @@ unit cost includes absorbed standard operation cost.
 
 - `inventory.stocktakes` stores the header and workflow state
 - `inventory.stocktake_items` stores copied item snapshots plus expected, counted, variance, applied-delta, and note fields
-- `inventory.stocktake_lot_items` stores copied lot snapshots plus expected, counted, variance, applied-delta, and note fields
+- `inventory.stocktake_lot_items` stores copied lot snapshots plus expected, counted, variance, applied-delta, and note fields; `is_found = true` rows are operator-added found lots, whose `lot_id` starts null
 
 Snapshot rows must keep:
 
@@ -85,6 +89,8 @@ Saving counts updates only the stocktake snapshot rows:
 Saving counts must not mutate live stock.
 
 Draft saves may submit only changed item or lot lines. Clearing a saved count should submit that line with `countedQty = null`. The UI autosaves count fields on blur; there is no separate Save button.
+
+Lot count submissions are a union. An existing lot carries its `lotLineId`; a **found lot** carries `isFound: true` with the parent `stocktakeItemId`, the entered `lotNumber`, and a required `countedQty` (no `lotLineId` — the server assigns one and may keep `lot_id` null). Found lots can only be added to lot-tracked items. A found lot count may be zero or greater; only positive variance changes stock quantity and creates the lot during completion. A found lot number must be new for that item: submitting one that exactly matches either a snapshotted lot or any lot record for the item is rejected, including zero-balance or non-available lots (count it as the existing lot instead). Lot numbers are trimmed before matching; matching is case-sensitive after trimming. Found lots are deduped per item by `(stocktakeItemId, lotNumber)`.
 
 If a user explicitly enters the snapshot quantity, keep it as a saved count with zero variance. That still counts as progress, but it should not create a stock movement unless completion later sees a live-stock delta.
 
