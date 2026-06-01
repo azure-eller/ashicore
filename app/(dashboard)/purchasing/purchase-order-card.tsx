@@ -586,6 +586,13 @@ function collectDeliveryAddressOptions(values: PurchaseOrderFormValues) {
   return [...options.values()];
 }
 
+function deliveryInfoNote(instructions: string) {
+  const value = instructions.trim();
+  if (!value) return null;
+  if (/^delivery info:/i.test(value)) return value;
+  return `Delivery info:\n${value}`;
+}
+
 function PurchaseMaterialCell({
   data,
   materialMap,
@@ -1870,8 +1877,17 @@ export function PurchaseOrderCard({
     const patch: Partial<PurchaseOrderFormValues> = {
       ...nextAddress,
     };
-    if (nextAddress.shipDeliveryInstructions && !draftValues.notes?.trim()) {
-      patch.notes = nextAddress.shipDeliveryInstructions;
+    const nextDeliveryNote = nextAddress.shipDeliveryInstructions
+      ? deliveryInfoNote(nextAddress.shipDeliveryInstructions)
+      : null;
+    const currentNotes = draftValues.notes?.trim() ?? "";
+    if (nextDeliveryNote && !currentNotes) {
+      patch.notes = nextDeliveryNote;
+    } else if (
+      nextDeliveryNote &&
+      !currentNotes.includes(nextAddress.shipDeliveryInstructions)
+    ) {
+      patch.notes = `${currentNotes}\n\n${nextDeliveryNote}`;
     }
     commitPurchaseOrderDraft(patch);
   };
@@ -1940,12 +1956,16 @@ export function PurchaseOrderCard({
       ? initialData.supplierEmail
       : selectedSupplier?.email ?? null;
   const currentDeliveryAddress: DeliveryAddressFields = {
+    shipAddressEntryId: draftValues.shipAddressEntryId,
+    shipContactName: draftValues.shipContactName,
+    shipContactPhone: draftValues.shipContactPhone,
     shipLine1: draftValues.shipLine1,
     shipLine2: draftValues.shipLine2,
     shipCity: draftValues.shipCity,
     shipRegion: draftValues.shipRegion,
     shipPostcode: draftValues.shipPostcode,
     shipCountry: draftValues.shipCountry,
+    shipDeliveryInstructions: draftValues.shipDeliveryInstructions,
   };
   const autosaveState = canAutosaveDraft ? purchaseOrderEngine.status : "idle";
   const autosaveMessage = canAutosaveDraft
