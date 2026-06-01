@@ -747,6 +747,7 @@ export async function getItems(filters?: {
                 name: items.name,
                 sku: items.sku,
                 itemType: items.itemType,
+                lotTrackingMode: itemFamilies.lotTrackingMode,
                 optionCombinationKey: items.optionCombinationKey,
                 stock: stockSubquery,
                 lastCountedAt: lastCountedAtSubquery,
@@ -856,6 +857,8 @@ export async function getItems(filters?: {
                   displayName,
                   sku: row.sku,
                   itemType: row.itemType as ItemType,
+                  lotTrackingMode:
+                    row.lotTrackingMode === "untracked" ? "untracked" : "tracked",
                   stock: row.stock,
                   committedQty: row.committedQty,
                   demandQty: row.demandQty,

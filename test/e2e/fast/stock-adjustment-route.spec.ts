@@ -99,6 +99,15 @@ test.describe("non-lot stock adjustment route", () => {
       category: `Stock Adjust ${ts}`,
       stock: 5,
     });
+    const itemListResponse = await testFetch("/api/items?itemType=material");
+    expect(itemListResponse.status, await itemListResponse.text()).toBe(200);
+    const itemList = (await itemListResponse.json()) as Array<{
+      id: string;
+      lotTrackingMode?: string;
+    }>;
+    expect(itemList.find((item) => item.id === itemId)?.lotTrackingMode).toBe(
+      "untracked"
+    );
 
     const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
       method: "POST",
@@ -551,6 +560,15 @@ test.describe("lot-tracked stock adjustment route", () => {
     });
     expect(lotId).toBeTruthy();
     const newLotNumber = `LOT-B-${ts}`;
+    const itemListResponse = await testFetch("/api/items?itemType=material");
+    expect(itemListResponse.status, await itemListResponse.text()).toBe(200);
+    const itemList = (await itemListResponse.json()) as Array<{
+      id: string;
+      lotTrackingMode?: string;
+    }>;
+    expect(itemList.find((item) => item.id === itemId)?.lotTrackingMode).toBe(
+      "tracked"
+    );
 
     // Resolve the item's unit cost the same way the kernel does for a stocktake
     // gain, normalized to the scale-6 unit_cost column. The new lot the

@@ -61,6 +61,7 @@ export type ItemRow = {
   displayName: string;
   sku: string | null;
   itemType: ItemType;
+  lotTrackingMode: "tracked" | "untracked";
   stock: string;
   committedQty: string;
   demandQty: string;
