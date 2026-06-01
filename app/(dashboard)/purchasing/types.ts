@@ -29,6 +29,7 @@ export type SupplierOption = {
   id: string;
   name: string;
   code: string | null;
+  email?: string | null;
 };
 
 export type PurchaseOrderMaterialOption = {
@@ -47,6 +48,8 @@ export type PurchaseOrderListRow = {
   id: string;
   orderNumber: string;
   supplierName: string;
+  supplierEmail: string | null;
+  accountingPurchaseAccountCode: string | null;
   status: PurchaseOrderStatus;
   expectedDate: string | null;
   totalAmount: string;
@@ -61,6 +64,11 @@ export type PurchaseOrderListRow = {
   purchaseBillExternalId: string | null;
   purchaseBillExternalNumber: string | null;
   purchaseBillPushedAt: Date | null;
+  hasAdditionalCosts: boolean;
+  additionalCostTotal: string;
+  xeroPoEmailStatus: "sent" | "failed" | "skipped" | null;
+  xeroPoEmailError: string | null;
+  xeroPoEmailedAt: Date | null;
 };
 
 export type PurchaseOrderDetailLine = {
@@ -188,6 +196,7 @@ export type PurchaseOrderEditData = {
   id: string;
   orderNumber: string;
   supplierId: string;
+  supplierEmail: string | null;
   status: PurchaseOrderStatus;
   expectedDate: string | null;
   notes: string | null;
@@ -203,6 +212,9 @@ export type PurchaseOrderEditData = {
   purchaseBillExternalNumber: string | null;
   purchaseBillStatus: "pending" | "pushed" | "failed" | null;
   purchaseBillError: string | null;
+  xeroPoEmailStatus: "sent" | "failed" | "skipped" | null;
+  xeroPoEmailError: string | null;
+  xeroPoEmailedAt: Date | null;
   lines: Array<{
     itemId: string;
     quantityOrdered: string;

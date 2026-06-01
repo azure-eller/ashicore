@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { AgGridReact } from "ag-grid-react";
 import {
@@ -82,8 +83,9 @@ export type EditableLineDataGridProps<TData> = {
    * blank row is suppressed. Use for list-style editable grids whose rows
    * come from elsewhere (e.g. the variant table — variants are generated
    * from option combinations, not row-add).
-   */
+  */
   enableAddRow?: boolean;
+  footerActions?: ReactNode;
   addDisabledReason?: string | null;
   canDeleteRow?: (row: TData, rows: TData[]) => boolean;
   getDeleteDisabledReason?: (row: TData, rows: TData[]) => string | null;
@@ -198,6 +200,7 @@ export function EditableLineDataGrid<TData>({
   initializeBlankRow = false,
   isBlankRow: _isBlankRow,
   enableAddRow = true,
+  footerActions,
   addDisabledReason,
   canDeleteRow,
   getDeleteDisabledReason,
@@ -522,20 +525,23 @@ export function EditableLineDataGrid<TData>({
 
       {error ? <FieldError>{error}</FieldError> : null}
 
-      {enableAddRow ? (
-        <div>
-          <button
-            type="button"
-            className={styles.addRowButton}
-            onClick={() => {
-              void handleAddRow();
-            }}
-            disabled={Boolean(addDisabledReason)}
-            title={addDisabledReason ?? undefined}
-          >
-            <span aria-hidden="true">+</span>
-            {addLabel}
-          </button>
+      {enableAddRow || footerActions ? (
+        <div className="flex flex-wrap items-center gap-(--space-6)">
+          {enableAddRow ? (
+            <button
+              type="button"
+              className={styles.addRowButton}
+              onClick={() => {
+                void handleAddRow();
+              }}
+              disabled={Boolean(addDisabledReason)}
+              title={addDisabledReason ?? undefined}
+            >
+              <span aria-hidden="true">+</span>
+              {addLabel}
+            </button>
+          ) : null}
+          {footerActions}
         </div>
       ) : null}
     </div>

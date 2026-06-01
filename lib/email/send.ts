@@ -9,6 +9,7 @@ export type TransactionalEmailAttachment = {
   filename: string;
   /** Base64-encoded content. */
   content: string;
+  contentType?: string;
 };
 
 export type TransactionalEmailInput = {
@@ -21,12 +22,18 @@ export type TransactionalEmailInput = {
     | "invoice"
     | "daily-manufacturing-report";
   to: string;
+  replyTo?: string;
+  bcc?: string | string[];
   subject: string;
   html: string;
   text: string;
   attachments?: TransactionalEmailAttachment[];
   idempotencyKey?: string;
 };
+
+export type TransactionalEmailResult =
+  | { delivery: "sent" }
+  | { delivery: "outbox"; filePath: string };
 
 function sanitizeFileSegment(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -67,14 +74,24 @@ async function writeEmailOutbox(email: TransactionalEmailInput) {
   );
 
   console.info(`[email:${email.tag}] Wrote local email delivery to ${filePath}`);
+  return filePath;
 }
 
-export async function sendTransactionalEmail(email: TransactionalEmailInput) {
+export async function sendTransactionalEmail(
+  email: TransactionalEmailInput,
+  options: { allowOutboxDelivery?: boolean } = {},
+): Promise<TransactionalEmailResult> {
   const senderConfig = getEmailSenderConfig();
 
   if (!senderConfig || (await shouldWriteEmailOutbox())) {
-    await writeEmailOutbox(email);
-    return;
+    if (options.allowOutboxDelivery === false) {
+      throw new Error(
+        "Live email delivery is not configured for this dev server. No email was sent.",
+      );
+    }
+
+    const filePath = await writeEmailOutbox(email);
+    return { delivery: "outbox", filePath };
   }
 
   const headers: Record<string, string> = {
@@ -91,12 +108,15 @@ export async function sendTransactionalEmail(email: TransactionalEmailInput) {
     body: JSON.stringify({
       from: senderConfig.from,
       to: email.to,
+      reply_to: email.replyTo,
+      bcc: email.bcc,
       subject: email.subject,
       html: email.html,
       text: email.text,
       attachments: email.attachments?.map((file) => ({
         filename: file.filename,
         content: file.content,
+        content_type: file.contentType,
       })),
     }),
   });
@@ -105,4 +125,6 @@ export async function sendTransactionalEmail(email: TransactionalEmailInput) {
     const body = await response.text().catch(() => "");
     throw new Error(`Failed to send ${email.tag} email: ${body || response.statusText}`);
   }
+
+  return { delivery: "sent" };
 }

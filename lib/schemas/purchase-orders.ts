@@ -176,6 +176,13 @@ const cleanedAdditionalCostsSchema = z
   });
 
 const basePurchaseOrderSchema = createInsertSchema(purchaseOrders, {
+  orderNumber: z
+    .string()
+    .trim()
+    .min(1, "Purchase order number is required")
+    .max(64, "Purchase order number must be 64 characters or fewer")
+    .optional()
+    .nullable(),
   supplierId: z.string().min(1, "Supplier is required"),
   expectedDate: nullableString.refine(
     (value) => value == null || isValidIsoDate(value),
@@ -202,7 +209,6 @@ const basePurchaseOrderSchema = createInsertSchema(purchaseOrders, {
 }).omit({
   id: true,
   organizationId: true,
-  orderNumber: true,
   supplierName: true,
   status: true,
   subtotalAmount: true,
@@ -290,7 +296,18 @@ export const createPurchaseBillSchema = z
 
 export type CreatePurchaseBill = z.infer<typeof createPurchaseBillSchema>;
 
+export const sendPurchaseOrderEmailSchema = z.object({
+  to: z.email("Supplier email must be a valid email address"),
+  replyTo: z.email("Reply-to must be a valid email address").optional().nullable(),
+  bcc: z.email("Bcc must be a valid email address").optional().nullable(),
+  subject: z.string().trim().min(1, "Subject is required").max(200),
+  message: z.string().trim().max(2000).optional().nullable(),
+});
+
+export type SendPurchaseOrderEmail = z.infer<typeof sendPurchaseOrderEmailSchema>;
+
 export const purchaseOrderDefaultValues: InsertPurchaseOrder = {
+  orderNumber: null,
   supplierId: "",
   expectedDate: null,
   shippingCost: "0",

@@ -5,7 +5,7 @@ import {
   normalizeNumeric,
   summarizeItems,
 } from "@/lib/format";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import {
   items,
   itemFamilies,
@@ -268,6 +268,7 @@ async function getLockedPurchaseOrderInTx(tx: Tx, id: string) {
   const [order] = await tx
     .select({
       id: purchaseOrders.id,
+      orderNumber: purchaseOrders.orderNumber,
       status: purchaseOrders.status,
     })
     .from(purchaseOrders)
@@ -277,14 +278,83 @@ async function getLockedPurchaseOrderInTx(tx: Tx, id: string) {
   return order ?? null;
 }
 
-async function generateOrderNumber(tx: Tx) {
-  const result = await tx.execute(
-    sql`SELECT nextval('purchasing.order_number_seq') AS val`,
-  );
-  const raw = (result.rows[0] as { val: string | number }).val;
-  const sequenceValue = Number(raw);
+async function generateOrderNumber(tx: Tx, orgId: string) {
   const year = new Date().getFullYear();
-  return `PO-${year}-${String(sequenceValue).padStart(4, "0")}`;
+
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await tx.execute(
+      sql`SELECT nextval('purchasing.order_number_seq') AS val`,
+    );
+    const raw = (result.rows[0] as { val: string | number }).val;
+    const sequenceValue = Number(raw);
+    const orderNumber = `PO-${year}-${String(sequenceValue).padStart(4, "0")}`;
+
+    const [existing] = await tx
+      .select({ id: purchaseOrders.id })
+      .from(purchaseOrders)
+      .where(
+        and(
+          eq(purchaseOrders.organizationId, orgId),
+          eq(purchaseOrders.orderNumber, orderNumber),
+          isNull(purchaseOrders.deletedAt),
+        ),
+      )
+      .limit(1);
+
+    if (!existing) {
+      return orderNumber;
+    }
+  }
+
+  throw new PurchasingError(
+    "Unable to generate a unique purchase order number.",
+    500,
+  );
+}
+
+async function resolvePurchaseOrderNumberInTx(
+  tx: Tx,
+  orgId: string,
+  requested: string | null | undefined,
+  options: { excludeId?: string } = {},
+) {
+  const orderNumber = requested?.trim();
+  if (!orderNumber) {
+    throw new PurchasingError("Purchase order number is required.", 400, {
+      errors: {
+        orderNumber: ["Purchase order number is required."],
+      },
+    });
+  }
+
+  const conditions = [
+    eq(purchaseOrders.organizationId, orgId),
+    eq(purchaseOrders.orderNumber, orderNumber),
+    isNull(purchaseOrders.deletedAt),
+  ];
+  if (options.excludeId) {
+    conditions.push(ne(purchaseOrders.id, options.excludeId));
+  }
+
+  const [existing] = await tx
+    .select({ id: purchaseOrders.id })
+    .from(purchaseOrders)
+    .where(and(...conditions))
+    .limit(1);
+
+  if (existing) {
+    throw new PurchasingError(
+      "A purchase order with this number already exists.",
+      400,
+      {
+        errors: {
+          orderNumber: ["A purchase order with this number already exists."],
+        },
+      },
+    );
+  }
+
+  return orderNumber;
 }
 
 async function getValidatedSupplierInTx(tx: Tx, supplierId: string) {
@@ -973,6 +1043,9 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
             id: purchaseOrders.id,
             orderNumber: purchaseOrders.orderNumber,
             supplierName: purchaseOrders.supplierName,
+            supplierEmail: suppliers.email,
+            accountingPurchaseAccountCode:
+              purchaseOrders.accountingPurchaseAccountCode,
             status: purchaseOrders.status,
             expectedDate: purchaseOrders.expectedDate,
             shippingCost: trimScale(purchaseOrders.shippingCost).as(
@@ -990,8 +1063,20 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
             purchaseBillExternalId: purchaseBillSyncs.externalDocumentId,
             purchaseBillExternalNumber: purchaseBillSyncs.externalDocumentNumber,
             purchaseBillPushedAt: purchaseBillSyncs.pushedAt,
+            xeroPoEmailStatus: purchaseOrderSyncs.emailStatus,
+            xeroPoEmailError: purchaseOrderSyncs.emailError,
+            xeroPoEmailedAt: purchaseOrderSyncs.emailedAt,
           })
           .from(purchaseOrders)
+          .leftJoin(suppliers, eq(purchaseOrders.supplierId, suppliers.id))
+          .leftJoin(
+            purchaseOrderSyncs,
+            and(
+              eq(purchaseOrderSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+              eq(purchaseOrderSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_ORDER),
+              eq(purchaseOrderSyncs.documentId, purchaseOrders.id),
+            ),
+          )
           .leftJoin(
             purchaseBillSyncs,
             and(
@@ -1012,21 +1097,30 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
         }
 
         const orderIds = orderRows.map((order) => order.id);
-        const lines = await tx
-          .select({
-            purchaseOrderId: purchaseOrderLines.purchaseOrderId,
-            itemName: purchaseOrderLines.itemName,
-            quantity: trimScale(purchaseOrderLines.quantityOrdered).as(
-              "quantity",
+        const [lines, additionalCosts] = await Promise.all([
+          tx
+            .select({
+              purchaseOrderId: purchaseOrderLines.purchaseOrderId,
+              itemName: purchaseOrderLines.itemName,
+              quantity: trimScale(purchaseOrderLines.quantityOrdered).as(
+                "quantity",
+              ),
+              sortOrder: purchaseOrderLines.sortOrder,
+            })
+            .from(purchaseOrderLines)
+            .where(inArray(purchaseOrderLines.purchaseOrderId, orderIds))
+            .orderBy(
+              asc(purchaseOrderLines.sortOrder),
+              asc(purchaseOrderLines.createdAt),
             ),
-            sortOrder: purchaseOrderLines.sortOrder,
-          })
-          .from(purchaseOrderLines)
-          .where(inArray(purchaseOrderLines.purchaseOrderId, orderIds))
-          .orderBy(
-            asc(purchaseOrderLines.sortOrder),
-            asc(purchaseOrderLines.createdAt),
-          );
+          tx
+            .select({
+              purchaseOrderId: purchaseOrderAdditionalCosts.purchaseOrderId,
+              amount: trimScale(purchaseOrderAdditionalCosts.amount).as("amount"),
+            })
+            .from(purchaseOrderAdditionalCosts)
+            .where(inArray(purchaseOrderAdditionalCosts.purchaseOrderId, orderIds)),
+        ]);
 
         const linesByOrderId = new Map<
           string,
@@ -1037,12 +1131,27 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
           bucket.push({ itemName: line.itemName, quantity: line.quantity });
           linesByOrderId.set(line.purchaseOrderId, bucket);
         });
+        const additionalCostTotalsByOrderId = new Map<string, number>();
+        additionalCosts.forEach((cost) => {
+          additionalCostTotalsByOrderId.set(
+            cost.purchaseOrderId,
+            (additionalCostTotalsByOrderId.get(cost.purchaseOrderId) ?? 0) +
+              Number(cost.amount),
+          );
+        });
 
         return orderRows.map((order) => ({
           ...order,
           status: order.status as PurchaseOrderStatus,
           purchaseBillStatus:
             order.purchaseBillStatus as PurchaseOrderListRow["purchaseBillStatus"],
+          xeroPoEmailStatus:
+            order.xeroPoEmailStatus as PurchaseOrderListRow["xeroPoEmailStatus"],
+          hasAdditionalCosts:
+            (additionalCostTotalsByOrderId.get(order.id) ?? 0) > 0,
+          additionalCostTotal: (
+            additionalCostTotalsByOrderId.get(order.id) ?? 0
+          ).toFixed(4),
           itemSummary: summarizeItems(linesByOrderId.get(order.id) ?? []),
         }));
       });
@@ -1206,6 +1315,7 @@ export async function getEditablePurchaseOrder(
         id: purchaseOrders.id,
         orderNumber: purchaseOrders.orderNumber,
         supplierId: purchaseOrders.supplierId,
+        supplierEmail: suppliers.email,
         status: purchaseOrders.status,
         expectedDate: purchaseOrders.expectedDate,
         notes: purchaseOrders.notes,
@@ -1222,8 +1332,20 @@ export async function getEditablePurchaseOrder(
         purchaseBillExternalNumber: purchaseBillSyncs.externalDocumentNumber,
         purchaseBillStatus: purchaseBillSyncs.pushStatus,
         purchaseBillError: purchaseBillSyncs.pushError,
+        xeroPoEmailStatus: purchaseOrderSyncs.emailStatus,
+        xeroPoEmailError: purchaseOrderSyncs.emailError,
+        xeroPoEmailedAt: purchaseOrderSyncs.emailedAt,
       })
       .from(purchaseOrders)
+      .leftJoin(suppliers, eq(purchaseOrders.supplierId, suppliers.id))
+      .leftJoin(
+        purchaseOrderSyncs,
+        and(
+          eq(purchaseOrderSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(purchaseOrderSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_ORDER),
+          eq(purchaseOrderSyncs.documentId, purchaseOrders.id),
+        ),
+      )
       .leftJoin(
         purchaseBillSyncs,
         and(
@@ -1262,6 +1384,8 @@ export async function getEditablePurchaseOrder(
       status: order.status as PurchaseOrderEditData["status"],
       purchaseBillStatus:
         order.purchaseBillStatus as PurchaseOrderEditData["purchaseBillStatus"],
+      xeroPoEmailStatus:
+        order.xeroPoEmailStatus as PurchaseOrderEditData["xeroPoEmailStatus"],
       lines: lines.map((line) => ({
         itemId: line.itemId,
         quantityOrdered: line.quantityOrdered,
@@ -1408,7 +1532,11 @@ export async function createPurchaseOrderInTx(
   options: CreatePurchaseOrderDraftOptions = {},
 ) {
   const prepared = await preparePurchaseOrderPayload(tx, orgId, data);
-  const orderNumber = options.orderNumber ?? (await generateOrderNumber(tx));
+  const orderNumber =
+    options.orderNumber ??
+    (data.orderNumber == null
+      ? await generateOrderNumber(tx, orgId)
+      : await resolvePurchaseOrderNumberInTx(tx, orgId, data.orderNumber));
 
   const [order] = await tx
     .insert(purchaseOrders)
@@ -1772,6 +1900,12 @@ export async function updatePurchaseOrder(
     }
 
     const prepared = await preparePurchaseOrderPayload(tx, orgId, data);
+    const nextOrderNumber =
+      data.orderNumber === undefined || data.orderNumber == null
+        ? order.orderNumber
+        : await resolvePurchaseOrderNumberInTx(tx, orgId, data.orderNumber, {
+            excludeId: id,
+          });
     const existingLines = await getPurchaseOrderLinesInTx(tx, id);
     const existingLineByItemId = new Map(
       existingLines.map((line) => [line.itemId, line]),
@@ -1939,6 +2073,7 @@ export async function updatePurchaseOrder(
     await tx
       .update(purchaseOrders)
       .set({
+        orderNumber: nextOrderNumber,
         supplierId: prepared.supplierId,
         supplierName: prepared.supplierName,
         expectedDate: prepared.expectedDate,
@@ -2005,7 +2140,7 @@ export async function updatePurchaseOrder(
         );
     }
 
-    return { id };
+    return { id, orderNumber: nextOrderNumber };
   });
 }
 

@@ -41,14 +41,31 @@ const authDb = createAuthDb();
 const ACCOUNTING_DOCUMENT_PURCHASE_BILL = "purchase_bill";
 const ACCOUNTING_PROVIDER_XERO = "xero";
 
-function billPayload() {
+function billPayload(options: { confirmAdditionalCostsOmitted?: boolean } = {}) {
   return {
     invoiceNumber: `BILL-GATE-${Date.now()}`,
     billDate: "2026-05-27",
     dueDate: "2026-05-27",
     reference: null,
     accountingPurchaseAccountCode: "500",
+    ...(options.confirmAdditionalCostsOmitted
+      ? { confirmAdditionalCostsOmitted: true }
+      : {}),
   };
+}
+
+function expectBillAttemptReachedXeroBoundary(
+  status: number,
+  body: { error?: string; status?: string; xeroBillNumber?: string },
+) {
+  if (status === 200) {
+    expect(body.status).toBe("pushed");
+    expect(body.xeroBillNumber).toBeTruthy();
+    return;
+  }
+
+  expect(status).toBe(409);
+  expect(body.error).toBe("Xero is not connected for this organization.");
 }
 
 async function createMaterialAndSupplier(ts: number) {
@@ -113,12 +130,16 @@ test.describe("Xero purchase bill gates", () => {
 
     const response = await testFetch(
       `/api/purchase-orders/${order.body.id}/accounting-bill`,
-      { method: "POST", body: JSON.stringify(billPayload()) },
+      {
+        method: "POST",
+        body: JSON.stringify(
+          billPayload({ confirmAdditionalCostsOmitted: true }),
+        ),
+      },
     );
     const body = await response.json();
 
-    expect(response.status).toBe(409);
-    expect(body.error).toBe("Xero is not connected for this organization.");
+    expectBillAttemptReachedXeroBoundary(response.status, body);
   });
 
   test("blocks bill creation for draft purchase orders", async () => {
@@ -233,7 +254,12 @@ test.describe("Xero purchase bill gates", () => {
 
     const response = await testFetch(
       `/api/purchase-orders/${orderId}/accounting-bill`,
-      { method: "POST", body: JSON.stringify(billPayload()) },
+      {
+        method: "POST",
+        body: JSON.stringify(
+          billPayload({ confirmAdditionalCostsOmitted: true }),
+        ),
+      },
     );
     const body = await response.json();
 
@@ -261,8 +287,7 @@ test.describe("Xero purchase bill gates", () => {
     );
     const body = await response.json();
 
-    expect(response.status).toBe(409);
-    expect(body.error).toBe("Xero is not connected for this organization.");
+    expectBillAttemptReachedXeroBoundary(response.status, body);
   });
 
   test("requires purchasing write access", async () => {

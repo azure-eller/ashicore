@@ -28,27 +28,6 @@ function PurchaseStatusCell({ order }: { order: PurchaseOrderListRow }) {
   );
 }
 
-function PurchaseBillStatusCell({ order }: { order: PurchaseOrderListRow }) {
-  if (order.purchaseBillStatus === "pushed") {
-    return (
-      <span className="text-sm">
-        {order.purchaseBillExternalNumber ?? "Bill created"}
-      </span>
-    );
-  }
-  if (order.purchaseBillStatus === "pending") {
-    return <span className="text-sm text-muted-foreground">Syncing</span>;
-  }
-  if (order.purchaseBillStatus === "failed") {
-    return (
-      <span className="text-sm text-destructive" title={order.purchaseBillError ?? undefined}>
-        Sync failed
-      </span>
-    );
-  }
-  return <span className="text-sm text-muted-foreground">Not billed</span>;
-}
-
 function createColumns(): ColDef<PurchaseOrderListRow>[] {
   return [
     {
@@ -101,13 +80,6 @@ function createColumns(): ColDef<PurchaseOrderListRow>[] {
         data ? <PurchaseStatusCell order={data} /> : null,
     },
     {
-      field: "purchaseBillStatus",
-      headerName: "Bill",
-      width: 150,
-      cellRenderer: ({ data }: ICellRendererParams<PurchaseOrderListRow>) =>
-        data ? <PurchaseBillStatusCell order={data} /> : null,
-    },
-    {
       field: "expectedDate",
       headerName: "Expected",
       headerTooltip: EXPECTED_DELIVERY_DATE_TOOLTIP,
@@ -139,8 +111,7 @@ export function OrdersTable({
         endpoint: "/api/purchase-orders",
         invalidateQueryKeys: [["purchase-orders"]],
         defaultErrorMessage: "Failed to delete purchase orders.",
-        confirmTitle: (count) =>
-          `Delete ${count} order${count !== 1 ? "s" : ""}?`,
+        confirmTitle: (count) => `Delete ${count} order${count !== 1 ? "s" : ""}?`,
         confirmDescription: (count) =>
           `Unreceived purchase order${count !== 1 ? "s" : ""} will be removed from normal views and expected inventory will be released. Received orders cannot be deleted.`,
       }}

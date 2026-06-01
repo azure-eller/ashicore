@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Cancel01Icon,
+  CancelCircleIcon,
+  CheckmarkCircle02Icon,
+  Loading03Icon,
   MoreVerticalIcon,
 } from "@hugeicons/core-free-icons";
 import {
@@ -23,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import type { CardSaveState } from "./card-save-status";
 import { CardSaveStatusIndicator } from "./card-save-status";
+import { cn } from "@/lib/utils";
 import styles from "./card-page.module.css";
 
 export type CardHeaderAction = {
@@ -40,6 +44,7 @@ export type CardHeaderIconAction = {
   onClick: () => void;
   disabled?: boolean;
   tooltip?: string | null;
+  status?: "idle" | "pending" | "success" | "failed";
 };
 
 export type CardPageHeaderProps = {
@@ -50,6 +55,8 @@ export type CardPageHeaderProps = {
   statusBadge?: ReactNode;
   /** Interactive order-status control rendered in the top-right cluster. */
   statusControl?: ReactNode;
+  /** Additional compact workflow controls rendered in the top-right cluster. */
+  workflowControls?: ReactNode;
   saveState?: CardSaveState | null;
   saveMessage?: string | null;
   primaryAction?: CardHeaderAction;
@@ -67,6 +74,7 @@ export function CardPageHeader({
   meta,
   statusBadge,
   statusControl,
+  workflowControls,
   saveState,
   saveMessage,
   primaryAction,
@@ -115,6 +123,7 @@ export function CardPageHeader({
           <CardSaveStatusIndicator state={saveState} message={saveMessage} />
         ) : null}
         {statusControl}
+        {workflowControls}
         {primaryAction ? <HeaderActionButton action={primaryAction} /> : null}
         {iconActions.map((action) => (
           <IconActionButton key={action.label} action={action} />
@@ -197,6 +206,29 @@ function IconActionButton({ action }: { action: CardHeaderIconAction }) {
       disabled={action.disabled}
     >
       <HugeiconsIcon icon={action.icon} size={14} />
+      {action.status && action.status !== "idle" ? (
+        <span
+          className={cn(
+            styles.iconStatusBadge,
+            action.status === "success" && styles.iconStatusSuccess,
+            action.status === "failed" && styles.iconStatusFailed,
+            action.status === "pending" && styles.iconStatusPending,
+          )}
+          aria-hidden="true"
+        >
+          <HugeiconsIcon
+            icon={
+              action.status === "success"
+                ? CheckmarkCircle02Icon
+                : action.status === "failed"
+                  ? CancelCircleIcon
+                  : Loading03Icon
+            }
+            size={14}
+            className={action.status === "pending" ? "animate-spin" : undefined}
+          />
+        </span>
+      ) : null}
     </button>
   );
 

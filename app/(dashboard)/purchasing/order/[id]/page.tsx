@@ -68,12 +68,16 @@ export default async function PurchaseOrderDetailPage({
         id: supplier.id,
         name: supplier.name,
         code: supplier.code,
+        email: supplier.email,
       }))}
       materials={materials}
       addresses={addresses}
       orderTitle={order.orderNumber}
       canWrite={canWrite}
       canViewLedger={canViewLedger}
+      userEmail={context.email}
+      userName={context.name}
+      organizationName={context.organizationName}
       xeroBillSetupStatus={
         !xeroConnection
           ? "not_connected"

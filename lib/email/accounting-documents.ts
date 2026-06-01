@@ -101,6 +101,7 @@ export function buildAccountingDocumentEmail(params: AccountingDocumentEmailInpu
   const noun = params.documentType === "invoice" ? "invoice" : "purchase order";
   const title = params.documentType === "invoice" ? "Invoice" : "Purchase Order";
   const actionLabel = params.documentType === "invoice" ? "View invoice" : "PDF attached";
+  const totalLabel = params.documentType === "invoice" ? "Amount Due" : "Order Total";
   const dueLabel = formatDateLabel(params.dueDate);
   const total = formatMoney(params.totalAmount);
   const escapedTitle = escapeHtml(title);
@@ -177,7 +178,7 @@ export function buildAccountingDocumentEmail(params: AccountingDocumentEmailInpu
     `<tr><th align="left" style="color:${EMAIL_INK};font-size:13px;line-height:18px;padding:0 0 12px;text-align:left;">Description</th><th align="right" style="color:${EMAIL_INK};font-size:13px;line-height:18px;padding:0 0 12px;text-align:right;">Amount</th></tr>`,
     rows,
     '<tr>',
-    `<td style="padding:16px 0;border-top:1px solid ${EMAIL_LINE};color:${EMAIL_INK};font-size:16px;font-weight:700;">Amount Due</td>`,
+    `<td style="padding:16px 0;border-top:1px solid ${EMAIL_LINE};color:${EMAIL_INK};font-size:16px;font-weight:700;">${escapeHtml(totalLabel)}</td>`,
     `<td style="padding:16px 0;border-top:1px solid ${EMAIL_LINE};color:${EMAIL_INK};font-size:20px;font-weight:700;text-align:right;white-space:nowrap;">USD ${escapedTotal}</td>`,
     "</tr>",
     "</table>",
@@ -200,7 +201,7 @@ export function buildAccountingDocumentEmail(params: AccountingDocumentEmailInpu
     "",
     bodyCopy,
     "",
-    `Amount due: ${total} USD`,
+    `${totalLabel}: ${total} USD`,
     dueLabel ? `Due: ${dueLabel}` : null,
     params.actionUrl ? `View online: ${params.actionUrl}` : "PDF attached.",
     "",

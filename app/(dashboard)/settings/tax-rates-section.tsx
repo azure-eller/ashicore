@@ -30,8 +30,6 @@ export type TaxRatesSectionData = {
   defaultPurchaseTaxRateId: string | null;
 };
 
-const NO_TAX_VALUE = "none";
-
 export function TaxRatesSection({ initialData }: { initialData: TaxRatesSectionData }) {
   const [rates, setRates] = useState<TaxRateRow[]>(initialData.rates);
   const [defaultSalesTaxRateId, setDefaultSalesTaxRateId] = useState(
@@ -67,7 +65,7 @@ export function TaxRatesSection({ initialData }: { initialData: TaxRatesSectionD
       {
         field: "name",
         kind: "text",
-        headerName: "Name",
+        headerName: "Tax name",
         flex: 1,
         minWidth: 240,
         editable: true,
@@ -190,17 +188,16 @@ function DefaultTaxSelect({
     <Field>
       <FieldLabel>{label}</FieldLabel>
       <Select
-        value={value ?? NO_TAX_VALUE}
-        onValueChange={(next) => onChange(next === NO_TAX_VALUE ? null : next)}
+        value={value ?? ""}
+        onValueChange={(next) => onChange(next)}
       >
         <SelectTrigger className="w-full">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={NO_TAX_VALUE}>0% — Tax exempt</SelectItem>
           {rates.map((rate) => (
             <SelectItem key={rate.id} value={rate.id}>
-              {rate.ratePercent}% — {rate.name}
+              {rate.ratePercent}% - {rate.name}
             </SelectItem>
           ))}
         </SelectContent>

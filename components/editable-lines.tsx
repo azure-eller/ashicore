@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   CellClassParams,
   ColDef,
@@ -36,6 +36,7 @@ type LineFieldBase<TData> = {
   colId?: string;
   headerName: string;
   headerTooltip?: string;
+  headerClass?: ColDef<TData>["headerClass"];
   width?: number;
   minWidth?: number;
   maxWidth?: number;
@@ -81,6 +82,8 @@ type SharedLinesProps<TData> = {
   rowHasError?: (row: TData) => boolean;
   error?: string | null;
   className?: string;
+  rowHeight?: number;
+  headerHeight?: number;
   defaultColDef?: ColDef<TData>;
   onGridReady?: (event: GridReadyEvent<TData>) => void;
 };
@@ -121,6 +124,7 @@ function buildLineColumns<TData>(fields: LineField<TData>[]): ColDef<TData>[] {
       colId: field.colId,
       headerName: field.headerName,
       headerTooltip: field.headerTooltip,
+      headerClass: field.headerClass,
       width: field.width,
       minWidth: field.minWidth,
       maxWidth: field.maxWidth,
@@ -218,6 +222,7 @@ type MutableLinesProps<TData> = SharedLinesProps<TData> & {
   getDeleteDisabledReason?: (row: TData, rows: TData[]) => string | null;
   onDeleteRow?: (row: TData, rows: TData[]) => void | Promise<void>;
   onAddRow?: () => TData | null | Promise<TData | null>;
+  footerActions?: ReactNode;
   initializeBlankRow?: boolean;
 };
 
@@ -226,6 +231,8 @@ export function MutableLines<TData>({
   rows: sourceRows,
   createRow,
   fields,
+  rowHeight = 42,
+  headerHeight,
   initializeBlankRow = true,
   isBlankRow: _isBlankRow,
   ...props
@@ -240,7 +247,8 @@ export function MutableLines<TData>({
       columns={columns}
       rows={sourceRows}
       createRow={createRow}
-      rowHeight={42}
+      rowHeight={rowHeight}
+      headerHeight={headerHeight}
       initializeBlankRow={initializeBlankRow}
       enableAddRow={!readOnly}
       enableReorder={!readOnly}

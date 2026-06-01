@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { Invoice, LineAmountTypes, type Invoices, type LineItem } from "xero-node";
 import {
@@ -75,6 +76,7 @@ type SupplierForBill = {
 type LineForBill = {
   itemName: string;
   itemSku: string | null;
+  xeroItemCode: string | null;
   purchaseUnitName: string;
   stockingUnitName: string;
   purchaseToStockFactor: string;
@@ -200,6 +202,14 @@ async function loadPurchaseOrderForBillInTx(
     .select({
       itemName: purchaseOrderLines.itemName,
       itemSku: purchaseOrderLines.itemSku,
+      xeroItemCode: sql<string | null>`(
+        SELECT ${integrationExternalRecords.externalCode}
+        FROM ${integrationExternalRecords}
+        WHERE ${integrationExternalRecords.provider} = ${ACCOUNTING_PROVIDER_XERO}
+          AND ${integrationExternalRecords.entityType} = 'item'
+          AND ${integrationExternalRecords.localRecordId} = ${purchaseOrderLines.itemId}
+        LIMIT 1
+      )`,
       purchaseUnitName: purchaseOrderLines.purchaseUnitName,
       stockingUnitName: purchaseOrderLines.stockingUnitName,
       purchaseToStockFactor: purchaseOrderLines.purchaseToStockFactor,
@@ -241,7 +251,19 @@ function additionalCostTotal(additionalCosts: AdditionalCostForBill[]) {
 }
 
 function billLineAmount(line: LineForBill) {
-  return Number(line.quantityOrdered) * Number(line.unitCost);
+  return Number(line.lineTotal);
+}
+
+function billReference(input: CreatePurchaseBill, order: OrderForBill) {
+  return input.reference?.trim() || order.orderNumber;
+}
+
+function billCreateOperation(invoiceNumber: string) {
+  const digest = createHash("sha256")
+    .update(invoiceNumber.trim().toLowerCase())
+    .digest("hex")
+    .slice(0, 32);
+  return `create-v2:${digest}`;
 }
 
 function isRecentPending(order: OrderForBill) {
@@ -280,7 +302,7 @@ function buildSnapshot(params: {
     invoiceNumber: params.input.invoiceNumber,
     billDate: params.input.billDate,
     dueDate: params.input.dueDate,
-    reference: params.input.reference?.trim() || params.data.order.orderNumber,
+    reference: billReference(params.input, params.data.order),
     supplier: {
       id: params.data.supplier.id,
       name: params.data.supplier.name,
@@ -458,13 +480,6 @@ export async function createPurchaseBillAccountingSync(
   orderId: string,
   input: CreatePurchaseBill,
 ): Promise<CreatePurchaseBillResult> {
-  const idempotencyKey = buildXeroIdempotencyKey(
-    orgId,
-    "purchase-bill",
-    orderId,
-    `v1:${input.invoiceNumber}`,
-  );
-
   const data = await withOrgContext(orgId, async (tx) => {
     const loaded = await loadPurchaseOrderForBillInTx(tx, orderId);
     if (!loaded) return null;
@@ -520,7 +535,7 @@ export async function createPurchaseBillAccountingSync(
   const taxType = connection.purchaseOrderDefaultTaxType ?? connection.defaultTaxType;
   const defaultAccountCode = input.accountingPurchaseAccountCode;
 
-  const locked = await withOrgContext(orgId, async (tx) => {
+  const prepared = await withOrgContext(orgId, async (tx) => {
     const loaded = await loadPurchaseOrderForBillInTx(tx, orderId);
     if (!loaded) return null;
     assertBillablePurchaseOrder(loaded);
@@ -531,6 +546,29 @@ export async function createPurchaseBillAccountingSync(
       return { status: "pushed" as const, order: loaded.order };
     }
 
+    const lineItems: LineItem[] = loaded.lines.map((line) => ({
+      itemCode: line.xeroItemCode ?? undefined,
+      description: lineDescription(line),
+      quantity: Number(line.quantityOrdered),
+      unitAmount: Number(line.unitCost),
+      accountCode: defaultAccountCode,
+      taxType: taxType ?? undefined,
+    }));
+    const snapshot = buildSnapshot({
+      input,
+      data: loaded,
+      lineItems,
+      defaultAccountCode,
+      taxType,
+    });
+    const payloadHash = hashXeroPayload(snapshot);
+    const idempotencyKey = buildXeroIdempotencyKey(
+      orgId,
+      "purchase-bill",
+      orderId,
+      billCreateOperation(input.invoiceNumber),
+    );
+
     await markAccountingDocumentPushAttempt(tx, {
       organizationId: orgId,
       provider: ACCOUNTING_PROVIDER_XERO,
@@ -540,17 +578,24 @@ export async function createPurchaseBillAccountingSync(
       providerDocumentType: PROVIDER_DOCUMENT_TYPE,
       idempotencyKey,
     });
-    return { status: "ready" as const, data: loaded };
+    return {
+      status: "ready" as const,
+      data: loaded,
+      lineItems,
+      snapshot,
+      payloadHash,
+      idempotencyKey,
+    };
   });
 
-  if (!locked) {
+  if (!prepared) {
     throw new XeroError("Purchase order not found.", 404);
   }
 
-  if (locked.status === "pushed") {
+  if (prepared.status === "pushed") {
     if (
-      !locked.order.xeroBillNumber ||
-      locked.order.xeroBillNumber !== input.invoiceNumber
+      !prepared.order.xeroBillNumber ||
+      prepared.order.xeroBillNumber !== input.invoiceNumber
     ) {
       throw new XeroError(
         "This purchase order already has a Xero bill. Void it in Xero before recreating.",
@@ -559,32 +604,20 @@ export async function createPurchaseBillAccountingSync(
     }
 
     return {
-      xeroBillId: locked.order.xeroBillId!,
-      xeroBillNumber: locked.order.xeroBillNumber,
+      xeroBillId: prepared.order.xeroBillId!,
+      xeroBillNumber: prepared.order.xeroBillNumber,
       status: "pushed",
       created: false,
       adopted: false,
     };
   }
 
-  const currentData = locked.data;
-  const lineItems: LineItem[] = currentData.lines.map((line) => ({
-    itemCode: line.itemSku ?? undefined,
-    description: lineDescription(line),
-    quantity: Number(line.quantityOrdered),
-    unitAmount: Number(line.unitCost),
-    accountCode: defaultAccountCode,
-    taxType: taxType ?? undefined,
-  }));
-  const snapshot = buildSnapshot({
-    input,
-    data: currentData,
-    lineItems,
-    defaultAccountCode,
-    taxType,
-  });
-  const payloadHash = hashXeroPayload(snapshot);
-  const reference = input.reference?.trim() || currentData.order.orderNumber;
+  const currentData = prepared.data;
+  const lineItems = prepared.lineItems;
+  const snapshot = prepared.snapshot;
+  const payloadHash = prepared.payloadHash;
+  const idempotencyKey = prepared.idempotencyKey;
+  const reference = billReference(input, currentData.order);
   const expectedSubTotal = currentData.lines.reduce(
     (sum, line) => sum + billLineAmount(line),
     0,

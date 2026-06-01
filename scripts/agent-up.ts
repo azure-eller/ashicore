@@ -20,6 +20,16 @@ const root = getGitTopLevel();
 const HEALTH_TIMEOUT_MS = 90_000;
 const LOG_PATH = path.resolve(root, ".tmp", "agent-dev-server.log");
 
+function requestedDevPort(): number | null {
+  const raw = process.env.AGENT_DEV_PORT;
+  if (!raw) return null;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`AGENT_DEV_PORT must be a valid TCP port, got "${raw}".`);
+  }
+  return port;
+}
+
 async function waitForHealth(baseUrl: string, pid: number) {
   const start = Date.now();
   while (Date.now() - start < HEALTH_TIMEOUT_MS) {
@@ -138,7 +148,7 @@ async function main() {
         /* already gone */
       }
     }
-    port = await getFreePort();
+    port = requestedDevPort() ?? (await getFreePort());
     baseUrl = `http://localhost:${port}`;
     pid = startDevServer(port);
     console.log(`Starting dev server on ${baseUrl} (pid ${pid})...`);

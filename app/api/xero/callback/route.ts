@@ -16,7 +16,12 @@ import {
   tokenSetToPersistable,
   upsertXeroConnection,
 } from "@/lib/xero/client";
-import { XeroError } from "@/lib/xero/errors";
+import {
+  extractXeroMessage,
+  extractXeroStatusCode,
+  redactXeroError,
+  XeroError,
+} from "@/lib/xero/errors";
 import {
   buildXeroSignupName,
   createXeroSignupIntent,
@@ -282,10 +287,12 @@ export const GET = apiHandler(async (request: Request) => {
     });
     console.error("Xero OAuth callback failed:", {
       name: (error as Error)?.name,
-      status:
-        (error as { response?: { statusCode?: number } })?.response
-          ?.statusCode ??
-        (error as { statusCode?: number })?.statusCode,
+      message: extractXeroMessage(error),
+      status: extractXeroStatusCode(error),
+      cause:
+        error && typeof error === "object"
+          ? redactXeroError((error as { cause?: unknown }).cause)
+          : undefined,
     });
     if (!isSignupCallback) {
       await tryRecordConnectCallbackFailure(

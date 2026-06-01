@@ -14,7 +14,7 @@ export default async function PurchaseOrderDraftPage({
 }: {
   searchParams: Promise<SearchParamRecord>;
 }) {
-  await requireModuleWriteAccess("purchasing");
+  const context = await requireModuleWriteAccess("purchasing");
   const params = await searchParams;
   const [supplierRows, materials, addresses, taxSettings] = await Promise.all([
     getSuppliers(),
@@ -66,10 +66,14 @@ export default async function PurchaseOrderDraftPage({
         id: supplier.id,
         name: supplier.name,
         code: supplier.code,
+        email: supplier.email,
       }))}
       materials={materials}
       addresses={addresses}
       defaultValues={defaultValues}
+      userEmail={context.email}
+      userName={context.name}
+      organizationName={context.organizationName}
       taxRates={taxSettings.rates}
       defaultTaxRateId={taxSettings.defaultPurchaseTaxRateId}
     />

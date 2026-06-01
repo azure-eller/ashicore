@@ -53,6 +53,16 @@ function isPublicRoute(pathname: string) {
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const host = request.headers.get("host") ?? "";
+  if (
+    !process.env.VERCEL_ENV &&
+    (host === "0.0.0.0" || host.startsWith("0.0.0.0:"))
+  ) {
+    const url = request.nextUrl.clone();
+    url.hostname = "localhost";
+    return NextResponse.redirect(url);
+  }
+
   const requestId = request.headers.get(REQUEST_ID_HEADER) ?? crypto.randomUUID();
   const forwardedHeaders = new Headers(request.headers);
 

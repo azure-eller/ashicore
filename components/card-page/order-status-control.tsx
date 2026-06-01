@@ -2,16 +2,11 @@
 
 import { useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Tick02Icon } from "@hugeicons/core-free-icons";
+import type { StatusBlockTone } from "@/components/ui/status-block";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { StatusBlock, type StatusBlockTone } from "@/components/ui/status-block";
-import { cn } from "@/lib/utils";
+  StatusActionMenu,
+  StatusActionMenuItem,
+} from "@/components/card-page/status-action-menu";
 
 /**
  * One status control, shared by every order type (sales / manufacturing / purchase),
@@ -136,51 +131,32 @@ export function OrderStatusControl<Ctx>({
 
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <StatusBlock
-            actionable
-            tone={tone}
-            footer={footer}
-            actionVariant={actionVariant}
-            aria-label={`Change status: ${currentOption?.label ?? current}`}
-            title="Change status"
-            disabled={busy}
-            onClick={(event) => event.stopPropagation()}
-          >
-            {currentOption?.label ?? current}
-          </StatusBlock>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="w-[220px] p-0"
-          onClick={(event) => event.stopPropagation()}
-        >
-          {options.map((option) => {
-            const active = option.value === current;
-            const kind = config.transitionKind(current, option.value, ctx);
-            const selectable = kind === "instant" || kind === "dialog";
-            return (
-              <DropdownMenuItem
-                key={option.value}
-                onSelect={(event) => {
-                  event.preventDefault();
-                  handleSelect(option.value);
-                }}
-                className={cn(
-                  "h-8 cursor-pointer gap-2 rounded-none px-3 text-[12.5px]",
-                  active && "bg-[var(--color-accent-soft)] text-[var(--color-accent)]",
-                  !selectable && !active && "cursor-not-allowed opacity-50",
-                )}
-              >
-                <span className={cn("inline-block h-3 w-3", TONE_SWATCH[option.tone])} />
-                <span className="flex-1">{option.label}</span>
-                {active ? <HugeiconsIcon icon={Tick02Icon} size={14} aria-hidden /> : null}
-              </DropdownMenuItem>
-            );
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <StatusActionMenu
+        label={currentOption?.label ?? current}
+        tone={tone}
+        footer={footer}
+        actionVariant={actionVariant}
+        ariaLabel={`Change status: ${currentOption?.label ?? current}`}
+        title="Change status"
+        disabled={busy}
+      >
+        {options.map((option) => {
+          const active = option.value === current;
+          const kind = config.transitionKind(current, option.value, ctx);
+          const selectable = kind === "instant" || kind === "dialog";
+          return (
+            <StatusActionMenuItem
+              key={option.value}
+              active={active}
+              disabled={!selectable && !active}
+              swatchClassName={TONE_SWATCH[option.tone]}
+              onSelect={() => handleSelect(option.value)}
+            >
+              {option.label}
+            </StatusActionMenuItem>
+          );
+        })}
+      </StatusActionMenu>
       {dialogTarget && config.renderDialog
         ? config.renderDialog({
             to: dialogTarget,

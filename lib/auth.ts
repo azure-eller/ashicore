@@ -14,6 +14,8 @@ import {
 } from "@/lib/authz";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
+import { withOrgContext } from "@/lib/db/with-org-context";
+import { initializeDefaultTaxSettingsInTx } from "@/lib/tax-settings/defaults";
 import { xeroSignupAuthPlugin } from "@/lib/xero/signup-auth-plugin";
 
 const authModuleInitStartedAt = performance.now();
@@ -199,6 +201,62 @@ const twoFactorOtpCleanupPlugin = (): BetterAuthPlugin => ({
   },
 });
 
+const organizationTaxDefaultsPlugin = (): BetterAuthPlugin => ({
+  id: "ashicore-organization-tax-defaults",
+  hooks: {
+    after: [
+      {
+        matcher(ctx) {
+          return ctx.path === "/organization/create";
+        },
+        handler: createAuthMiddleware(async (ctx) => {
+          const createdOrganization = await getReturnedOrganization(ctx);
+          if (!createdOrganization?.id) {
+            return;
+          }
+
+          await withOrgContext(createdOrganization.id, (tx) =>
+            initializeDefaultTaxSettingsInTx(tx, createdOrganization.id),
+          );
+        }),
+      },
+    ],
+  },
+});
+
+async function getReturnedOrganization(ctx: AuthMiddlewareContext) {
+  const returned = ctx.context.returned;
+  if (!returned) {
+    return null;
+  }
+
+  if (returned instanceof Response) {
+    if (!returned.ok) {
+      return null;
+    }
+
+    return parseOrganizationResponse(await returned.clone().json());
+  }
+
+  return parseOrganizationResponse(returned);
+}
+
+function parseOrganizationResponse(value: unknown): { id: string } | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as { id?: unknown; organization?: { id?: unknown } };
+  const id =
+    typeof record.id === "string"
+      ? record.id
+      : typeof record.organization?.id === "string"
+        ? record.organization.id
+        : null;
+
+  return id ? { id } : null;
+}
+
 type AuthMiddlewareContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
 
 async function getTwoFactorCookieKey(ctx: AuthMiddlewareContext) {
@@ -250,6 +308,7 @@ export const auth = betterAuth({
     },
   },
   plugins: [
+    organizationTaxDefaultsPlugin(),
     twoFactorOtpCleanupPlugin(),
     twoFactor({
       issuer: "Ashicore",

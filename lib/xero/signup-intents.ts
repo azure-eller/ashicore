@@ -14,6 +14,7 @@ import {
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { buildAssignedRoles } from "@/lib/authz";
 import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/constants";
+import { initializeDefaultTaxSettingsInTx } from "@/lib/tax-settings/defaults";
 import { encryptXeroToken } from "./token-crypto";
 
 const CLAIM_TOKEN_BYTES = 32;
@@ -280,6 +281,10 @@ export async function createPasswordlessOwnerOrg(params: {
       createdAt: now,
     });
   });
+
+  await withOrgContext(organizationId, (tx) =>
+    initializeDefaultTaxSettingsInTx(tx, organizationId),
+  );
 
   return { id: organizationId, name, slug };
 }

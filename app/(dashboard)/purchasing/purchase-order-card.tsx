@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import type {
@@ -12,16 +12,10 @@ import type {
   ValueFormatterParams,
   ValueSetterParams,
 } from "ag-grid-community";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Attachment01Icon,
-  Delete02Icon,
-  Download01Icon,
+  FileDollarIcon,
+  Mail01Icon,
 } from "@hugeicons/core-free-icons";
-import { AddressBookFields } from "@/components/address-book-fields";
-import { AttachmentListItem } from "@/components/attachment-list";
-import { FileDropzone } from "@/components/file-dropzone";
-import { makeUniqueAddressLabel } from "@/lib/address-label";
 import {
   type InsertPurchaseOrder,
   type PurchaseOrderStatus,
@@ -30,43 +24,26 @@ import {
   insertPurchaseOrderSchema,
   purchaseOrderDefaultValues,
 } from "@/lib/schemas/purchase-orders";
-import { ApiJsonError, apiJson } from "@/lib/client/api";
-import {
-  ConfiguredBadge,
-  type ConfiguredBadgeConfig,
-} from "@/components/configured-badge";
-import { InsetPanel } from "@/components/inset-panel";
-import { ListFrame, ListFrameItem } from "@/components/list-frame";
-import { createClientId } from "@/lib/client-id";
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import {
   formatPrice,
   formatDate,
-  buildFormErrorStateFromFieldErrors,
-  buildFormErrorStateFromIssues,
-  type FormErrorState,
+  formatAddressLines,
   getFieldArrayError,
-  getFirstFormErrorMessage,
-  getIndexedFormErrorMessage,
-  getNestedFormErrorMessage,
-  normalizeNullableTextValue,
+  normalizeAddressFields,
   normalizeMoney,
-  normalizeTextValue,
-  parseNonNegativeNumber,
   parsePositive,
 } from "@/lib/format";
 import {
-  isNonNegativeNumberString,
-  isPositiveNumberString,
-} from "@/lib/schemas/shared";
-import {
   calculatePurchaseOrderLandedCosts,
-  normalizeLandedDisplayNumber,
+  normalizeLandedStockUnitCost,
   type LandedCostLineResult,
 } from "@/lib/purchasing/landed-cost";
 import { Button } from "@/components/ui/button";
 import {
   Field,
   FieldError,
+  FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
 import {
@@ -82,24 +59,17 @@ import {
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
+  ComboboxSeparator,
 } from "@/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
-import {
-  DeliveryAddressInput,
-  makeDeliveryAddressOption,
-  normalizeDeliveryAddress,
-  type DeliveryAddressFields,
-  type DeliveryAddressOption,
-} from "@/components/delivery-address-input";
+import { Textarea } from "@/components/ui/textarea";
+import { AddressFields } from "@/components/address-fields";
 import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
@@ -109,18 +79,13 @@ import { DetailHeaderTitle } from "@/components/card-page/detail-header-title";
 import { NotesField } from "@/components/card-page/notes-field";
 import { TotalsSummary } from "@/components/card-page/totals-summary";
 import { type CardSaveState } from "@/components/card-page/card-save-status";
-import {
-  CardFormRow,
-  ReadOnlyFieldValue,
-  underlineControlClass,
-} from "@/components/card-page/form-cell";
+import { underlineControlClass } from "@/components/card-page/form-cell";
 import {
   PO_LINE_TOTAL_TOOLTIP,
   PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP,
   PURCHASE_COST_AMOUNT_TOOLTIP,
   PURCHASE_COST_DISTRIBUTION_TOOLTIP,
   PURCHASE_COST_REFERENCE_TOOLTIP,
-  PURCHASE_LANDED_UNIT_TOOLTIP,
   PURCHASE_MATERIAL_TOOLTIP,
   PO_ORDERED_QTY_TOOLTIP,
   PURCHASE_UNIT_COST_TOOLTIP,
@@ -133,6 +98,12 @@ import type {
   SupplierOption,
 } from "./types";
 import { SupplierSelect } from "./supplier-select";
+import {
+  PurchaseBillDialog,
+  PurchaseOrderEmailDialog,
+  type PurchaseBillDialogValues,
+  type PurchaseOrderEmailDialogValues,
+} from "./purchase-order-workflow-dialogs";
 import { OrderStatusControl } from "@/components/card-page/order-status-control";
 import { purchaseOrderStatusConfig } from "@/components/card-page/order-status-configs";
 import styles from "@/components/card-page/card-page.module.css";
@@ -148,7 +119,8 @@ type ApiError = {
   errors?: Record<string, string[]>;
 };
 
-type FieldErrorState = FormErrorState;
+type FieldErrorState = Record<string, unknown>;
+type FieldErrorShape = { message: string };
 
 type XeroAccountOption = {
   code: string;
@@ -173,6 +145,10 @@ export type XeroBillSetupStatus =
   | "not_connected"
   | "ready";
 
+const ACCOUNTING_NOT_CONNECTED_MESSAGE =
+  "Connect accounting software before creating supplier bills.";
+const ADD_DELIVERY_ADDRESS_VALUE = "__add_delivery_address__";
+const EDIT_DELIVERY_ADDRESS_VALUE = "__edit_delivery_address__";
 const EMPTY_DELIVERY_ADDRESS = {
   shipAddressEntryId: null,
   shipContactName: null,
@@ -233,14 +209,6 @@ type PurchaseOrderLinePayloadRow = PurchaseOrderFormValues["lines"][number];
 type PurchaseOrderLineGridRow = PurchaseOrderLinePayloadRow & {
   clientRowId: string;
 };
-type PurchaseBillDialogValues = {
-  invoiceNumber: string;
-  billDate: string;
-  dueDate: string;
-  reference: string;
-  accountingPurchaseAccountCode: string;
-  confirmAdditionalCostsOmitted: boolean;
-};
 type PurchaseOrderLineColumnKey =
   | "itemId"
   | "quantityOrdered"
@@ -262,7 +230,7 @@ function createPurchaseOrderLineRow(
     ...blankPurchaseOrderLine,
     ...values,
     itemId: values?.itemId ?? "",
-    clientRowId: createClientId(),
+    clientRowId: crypto.randomUUID(),
   };
 }
 
@@ -318,7 +286,7 @@ function createPurchaseOrderAdditionalCostRow(
   values?: Partial<PurchaseOrderAdditionalCostPayloadRow>,
 ): PurchaseOrderAdditionalCostGridRow {
   return {
-    clientRowId: createClientId(),
+    clientRowId: crypto.randomUUID(),
     costType: values?.costType ?? blankPurchaseOrderAdditionalCost.costType,
     reference: values?.reference ?? blankPurchaseOrderAdditionalCost.reference,
     distributionMethod:
@@ -353,13 +321,21 @@ function toPurchaseOrderAdditionalCostPayloadRows(
     );
 }
 
-const normalizeGridText = normalizeTextValue;
-const normalizeNullableGridText = normalizeNullableTextValue;
+function normalizeGridText(value: unknown) {
+  if (value == null) return "";
+  return String(value).trim();
+}
+
+function normalizeNullableGridText(value: unknown) {
+  const text = normalizeGridText(value);
+  return text === "" ? null : text;
+}
 
 function validateNonNegativeMoneyCell(value: unknown, message: string) {
   const text = normalizeGridText(value);
   if (text === "") return [message];
-  return isNonNegativeNumberString(text) ? null : [message];
+  const parsed = Number(text);
+  return Number.isFinite(parsed) && parsed >= 0 ? null : [message];
 }
 
 function getPurchaseOrderAdditionalCostCellError(
@@ -367,7 +343,14 @@ function getPurchaseOrderAdditionalCostCellError(
   rowIndex: number,
   key: PurchaseOrderAdditionalCostColumnKey,
 ) {
-  return getIndexedFormErrorMessage(error, rowIndex, key);
+  if (!error || typeof error !== "object") return null;
+  const rowError = (error as Record<string, unknown>)[rowIndex];
+  if (!rowError || typeof rowError !== "object") return null;
+  const cellError = (rowError as Record<string, unknown>)[key];
+  if (!cellError || typeof cellError !== "object") return null;
+  return "message" in cellError && typeof cellError.message === "string"
+    ? cellError.message
+    : null;
 }
 
 function getPurchaseOrderLineCellError(
@@ -375,10 +358,21 @@ function getPurchaseOrderLineCellError(
   rowIndex: number,
   key: PurchaseOrderLineColumnKey,
 ) {
-  return getIndexedFormErrorMessage(error, rowIndex, key);
+  if (!error || typeof error !== "object") return null;
+  const rowError = (error as Record<string, unknown>)[rowIndex];
+  if (!rowError || typeof rowError !== "object") return null;
+  const cellError = (rowError as Record<string, unknown>)[key];
+  if (!cellError || typeof cellError !== "object") return null;
+  return "message" in cellError && typeof cellError.message === "string"
+    ? cellError.message
+    : null;
 }
 
-const parseNonNegative = parseNonNegativeNumber;
+function parseNonNegative(value: string | null | undefined) {
+  if (value == null || value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
 
 function lineTotalLabel(
   quantityOrdered: string | null | undefined,
@@ -403,56 +397,6 @@ function lineTotalBeforeTax(
   return quantity * cost;
 }
 
-function formatQuantityWithUnit(
-  quantity: string | number | null | undefined,
-  unit: string | null | undefined,
-) {
-  const value =
-    typeof quantity === "number"
-      ? normalizeLandedDisplayNumber(quantity)
-      : quantity;
-  return [value, unit].filter(Boolean).join(" ");
-}
-
-function lineUnitConversionLabel(params: {
-  quantityOrdered: string | null | undefined;
-  purchaseUnitName: string | null | undefined;
-  stockQuantityOrdered: string | number | null | undefined;
-  stockingUnitName: string | null | undefined;
-  purchaseToStockFactor: string | null | undefined;
-}) {
-  if (!params.quantityOrdered) return "\u2014";
-  const purchase = formatQuantityWithUnit(
-    params.quantityOrdered,
-    params.purchaseUnitName,
-  );
-  const stock = formatQuantityWithUnit(
-    params.stockQuantityOrdered,
-    params.stockingUnitName,
-  );
-  if (
-    !stock ||
-    params.purchaseUnitName === params.stockingUnitName ||
-    Number(params.purchaseToStockFactor ?? "1") === 1
-  ) {
-    return purchase;
-  }
-  return `${purchase} -> ${stock}`;
-}
-
-function purchaseBillStatusLabel(status: string | null | undefined) {
-  if (status === "pending") return "Syncing";
-  if (status === "pushed") return "Bill created in Xero";
-  if (status === "failed") return "Sync failed";
-  return "Not billed";
-}
-
-const purchaseBillStatusBadgeConfig = {
-  pending: { label: purchaseBillStatusLabel("pending"), variant: "secondary" },
-  pushed: { label: purchaseBillStatusLabel("pushed"), variant: "outline" },
-  failed: { label: purchaseBillStatusLabel("failed"), variant: "destructive" },
-} satisfies ConfiguredBadgeConfig<"pending" | "pushed" | "failed">;
-
 function todayIsoDate() {
   const today = new Date();
   const month = String(today.getMonth() + 1).padStart(2, "0");
@@ -460,15 +404,25 @@ function todayIsoDate() {
   return `${today.getFullYear()}-${month}-${day}`;
 }
 
-function FileTypeBadge({ file }: { file: PurchaseOrderFormAttachment }) {
-  const type = file.contentType.includes("pdf")
-    ? "PDF"
-    : file.contentType.startsWith("image/")
-      ? "IMG"
-      : file.filename.split(".").pop()?.slice(0, 3).toUpperCase() || "FILE";
+type DeliveryAddressFields = {
+  shipAddressEntryId?: string | null;
+  shipContactName?: string | null;
+  shipContactPhone?: string | null;
+  shipLine1?: string | null;
+  shipLine2?: string | null;
+  shipCity?: string | null;
+  shipRegion?: string | null;
+  shipPostcode?: string | null;
+  shipCountry?: string | null;
+  shipDeliveryInstructions?: string | null;
+};
 
-  return <Badge variant="outline">{type}</Badge>;
-}
+type DeliveryAddressOption = Required<DeliveryAddressFields> & {
+  id: string;
+  label: string;
+  addressEntryId: string | null;
+  notes: string | null;
+};
 
 type AddressEntry = {
   id: string;
@@ -522,6 +476,79 @@ const EMPTY_ADDRESS_DIALOG_VALUES: AddressDialogValues = {
   notes: null,
 };
 
+function normalizeDeliveryAddress(
+  address: DeliveryAddressFields | undefined,
+): Required<DeliveryAddressFields> {
+  const normalized = normalizeAddressFields({
+    line1: address?.shipLine1,
+    line2: address?.shipLine2,
+    city: address?.shipCity,
+    region: address?.shipRegion,
+    postcode: address?.shipPostcode,
+    country: address?.shipCountry,
+  });
+
+  return {
+    shipAddressEntryId: address?.shipAddressEntryId ?? null,
+    shipContactName: address?.shipContactName?.trim() || null,
+    shipContactPhone: address?.shipContactPhone?.trim() || null,
+    shipLine1: normalized.line1,
+    shipLine2: normalized.line2,
+    shipCity: normalized.city,
+    shipRegion: normalized.region,
+    shipPostcode: normalized.postcode,
+    shipCountry: normalized.country,
+    shipDeliveryInstructions: address?.shipDeliveryInstructions?.trim() || null,
+  };
+}
+
+function deliveryAddressKey(address: DeliveryAddressFields | undefined) {
+  const normalized = normalizeDeliveryAddress(address);
+  if (normalized.shipAddressEntryId)
+    return `address:${normalized.shipAddressEntryId}`;
+  return [
+    normalized.shipLine1,
+    normalized.shipLine2,
+    normalized.shipCity,
+    normalized.shipRegion,
+    normalized.shipPostcode,
+    normalized.shipCountry,
+  ]
+    .map((part) => part ?? "")
+    .join("\u001f")
+    .replace(/^\u001f+|\u001f+$/g, "");
+}
+
+function deliveryAddressLabel(address: DeliveryAddressFields) {
+  const lines = formatAddressLines({
+    line1: address.shipLine1,
+    line2: address.shipLine2,
+    city: address.shipCity,
+    region: address.shipRegion,
+    postcode: address.shipPostcode,
+    country: address.shipCountry,
+  });
+  return lines.join(", ");
+}
+
+function makeDeliveryAddressOption(
+  address: DeliveryAddressFields | undefined,
+  label?: string | null,
+  notes?: string | null,
+): DeliveryAddressOption | null {
+  const normalized = normalizeDeliveryAddress(address);
+  const id = deliveryAddressKey(normalized);
+  if (id === "") return null;
+
+  return {
+    ...normalized,
+    id,
+    addressEntryId: normalized.shipAddressEntryId,
+    label: label?.trim() || deliveryAddressLabel(normalized),
+    notes: notes ?? null,
+  };
+}
+
 function addressEntryToOption(
   entry: AddressEntry,
 ): DeliveryAddressOption | null {
@@ -555,37 +582,6 @@ function collectDeliveryAddressOptions(values: PurchaseOrderFormValues) {
   return [...options.values()];
 }
 
-function landedStockUnitCostLabel(
-  value: number | null | undefined,
-  stockingUnitName: string | null | undefined,
-) {
-  if (value == null) return "\u2014";
-  return `${formatPrice(normalizeLandedDisplayNumber(value)) ?? "\u2014"} / ${
-    stockingUnitName ?? "stock unit"
-  }`;
-}
-
-function purchaseUnitDisplay(
-  purchaseUnitName: string | null | undefined,
-  stockingUnitName: string | null | undefined,
-) {
-  if (
-    purchaseUnitName &&
-    stockingUnitName &&
-    purchaseUnitName !== stockingUnitName
-  ) {
-    return {
-      label: `${purchaseUnitName} -> ${stockingUnitName}`,
-      tooltip: "Purchase unit converts to stocking unit.",
-    };
-  }
-
-  return {
-    label: purchaseUnitName ?? stockingUnitName ?? "\u2014",
-    tooltip: null,
-  };
-}
-
 function PurchaseMaterialCell({
   data,
   materialMap,
@@ -610,32 +606,10 @@ function PurchaseUnitCell({
   materialMap: Map<string, PurchaseOrderMaterialOption>;
 }) {
   const material = data?.itemId ? materialMap.get(data.itemId) : undefined;
-  const unitDisplay = purchaseUnitDisplay(
-    material?.purchaseUnitName,
-    material?.stockingUnitName,
-  );
 
-  return <span className="text-muted-foreground">{unitDisplay.label}</span>;
-}
-
-function PurchaseLandedUnitCell({
-  data,
-  node,
-  materialMap,
-  landedCosts,
-}: ICellRendererParams<PurchaseOrderLineGridRow> & {
-  materialMap: Map<string, PurchaseOrderMaterialOption>;
-  landedCosts: LandedCostLineResult[];
-}) {
-  const material = data?.itemId ? materialMap.get(data.itemId) : undefined;
   return (
-    <span className="font-medium">
-      {landedStockUnitCostLabel(
-        node.rowIndex == null
-          ? null
-          : landedCosts[node.rowIndex]?.landedStockUnitCost,
-        material?.stockingUnitName,
-      )}
+    <span className="text-muted-foreground">
+      {material?.purchaseUnitName ?? material?.stockingUnitName ?? "\u2014"}
     </span>
   );
 }
@@ -658,30 +632,31 @@ function PurchaseLineTotalCell({
   );
 }
 
-function PurchaseStockQuantityCell({
+function PurchaseLandedCostCell({
   data,
-  node,
   materialMap,
-  landedCosts,
+  landedCostByRowId,
 }: ICellRendererParams<PurchaseOrderLineGridRow> & {
   materialMap: Map<string, PurchaseOrderMaterialOption>;
-  landedCosts: LandedCostLineResult[];
+  landedCostByRowId: Map<string, LandedCostLineResult>;
 }) {
+  const result = data?.clientRowId
+    ? landedCostByRowId.get(data.clientRowId)
+    : null;
+  const unitCost = normalizeLandedStockUnitCost(result?.landedStockUnitCost ?? null);
   const material = data?.itemId ? materialMap.get(data.itemId) : undefined;
-  const stockQuantity =
-    node.rowIndex == null
-      ? null
-      : landedCosts[node.rowIndex]?.stockQuantityOrdered;
+
+  if (!unitCost) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+
   return (
-    <span className="block truncate text-muted-foreground">
-      {lineUnitConversionLabel({
-        quantityOrdered: data?.quantityOrdered,
-        purchaseUnitName:
-          material?.purchaseUnitName ?? material?.stockingUnitName,
-        stockQuantityOrdered: stockQuantity,
-        stockingUnitName: material?.stockingUnitName,
-        purchaseToStockFactor: material?.purchaseToStockFactor,
-      })}
+    <span className="block truncate font-medium">
+      {formatPrice(unitCost) ?? "$0.00"}
+      <span className="text-muted-foreground">
+        {" / "}
+        {material?.stockingUnitName ?? "unit"}
+      </span>
     </span>
   );
 }
@@ -690,30 +665,69 @@ function hasAutosaveMinimum(values: PurchaseOrderFormValues) {
   return Boolean(values.supplierId?.trim());
 }
 
+function setFieldErrorPath(
+  target: FieldErrorState,
+  path: Array<string | number>,
+  message: string,
+) {
+  let current: Record<string, unknown> = target;
+  path.forEach((part, index) => {
+    const key = String(part);
+    if (index === path.length - 1) {
+      current[key] = { message } satisfies FieldErrorShape;
+      return;
+    }
+    const next = current[key];
+    if (!next || typeof next !== "object") {
+      current[key] = {};
+    }
+    current = current[key] as Record<string, unknown>;
+  });
+}
+
 function purchaseOrderValidationErrors(values: PurchaseOrderFormValues) {
   const parsed = insertPurchaseOrderSchema.safeParse(values);
   if (parsed.success) return null;
 
-  return buildFormErrorStateFromIssues(parsed.error.issues);
+  const errors: FieldErrorState = {};
+  parsed.error.issues.forEach((issue) => {
+    setFieldErrorPath(
+      errors,
+      issue.path.filter((part): part is string | number => typeof part !== "symbol"),
+      issue.message,
+    );
+  });
+  return errors;
 }
 
 function purchaseOrderApiFieldErrors(error: ApiError) {
-  return buildFormErrorStateFromFieldErrors(error.errors);
+  if (!error.errors) return {};
+  const errors: FieldErrorState = {};
+  Object.entries(error.errors).forEach(([field, messages]) => {
+    setFieldErrorPath(errors, field.split("."), messages[0] ?? "Invalid value");
+  });
+  return errors;
 }
 
-function toApiError(error: unknown, fallback: string): ApiError {
-  if (error instanceof ApiJsonError) {
-    return {
-      error: error.message,
-      errors: error.errors,
-    };
-  }
+function fieldErrorMessage(error: unknown) {
+  return error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+    ? error.message
+    : null;
+}
 
-  if (error instanceof Error) {
-    return { error: error.message };
+function firstFieldErrorMessage(errors: FieldErrorState): string | null {
+  for (const value of Object.values(errors)) {
+    const message = fieldErrorMessage(value);
+    if (message) return message;
+    if (value && typeof value === "object") {
+      const nested = firstFieldErrorMessage(value as FieldErrorState);
+      if (nested) return nested;
+    }
   }
-
-  return { error: fallback };
+  return null;
 }
 
 export function PurchaseOrderCard({
@@ -725,6 +739,9 @@ export function PurchaseOrderCard({
   orderTitle,
   canWrite = true,
   canViewLedger = false,
+  userEmail = "",
+  userName = "",
+  organizationName = "Ashicore",
   xeroBillSetupStatus = "not_connected",
   xeroPurchaseBillDefaultAccountCode = null,
   taxRates = initialData?.taxRates ?? [],
@@ -738,6 +755,9 @@ export function PurchaseOrderCard({
   orderTitle?: string | null;
   canWrite?: boolean;
   canViewLedger?: boolean;
+  userEmail?: string;
+  userName?: string;
+  organizationName?: string;
   xeroBillSetupStatus?: XeroBillSetupStatus;
   xeroPurchaseBillDefaultAccountCode?: string | null;
   taxRates?: PurchaseOrderTaxRateOption[];
@@ -746,13 +766,14 @@ export function PurchaseOrderCard({
   const router = useRouter();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const detachFileInputRef = useRef<(() => void) | null>(null);
+  const attachmentInputId = useId();
   const fallbackPath = initialData
     ? `/purchasing/order/${initialData.id}`
     : "/purchasing/orders";
   const [formError, setFormError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrorState>({});
   const [fileActionError, setFileActionError] = useState<string | null>(null);
-  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const savedOrderIdRef = useRef<string | null>(initialData?.id ?? null);
   const [savedOrderId, setSavedOrderId] = useState<string | null>(
     initialData?.id ?? null,
@@ -766,14 +787,23 @@ export function PurchaseOrderCard({
   const [attachments, setAttachments] = useState<PurchaseOrderFormAttachment[]>(
     initialData?.attachments ?? [],
   );
+  const [poEmailStatus, setPoEmailStatus] = useState<
+    "sent" | "failed" | "skipped" | "pending" | null
+  >(initialData?.xeroPoEmailStatus ?? null);
+  const [poEmailError, setPoEmailError] = useState(
+    initialData?.xeroPoEmailError ?? null,
+  );
+  const [poEmailDialogOpen, setPoEmailDialogOpen] = useState(false);
+  const [poEmailDialogValues, setPoEmailDialogValues] =
+    useState<PurchaseOrderEmailDialogValues>(() => ({
+      to: initialData?.supplierEmail ?? "",
+      replyTo: userEmail,
+      bcc: userEmail,
+      subject: `${initialData?.orderNumber ?? "Purchase order"} from ${organizationName}`,
+      message: "",
+    }));
   const [purchaseBillStatus, setPurchaseBillStatus] = useState(
     initialData?.purchaseBillStatus ?? null,
-  );
-  const [purchaseBillError, setPurchaseBillError] = useState(
-    initialData?.purchaseBillError ?? null,
-  );
-  const [purchaseBillExternalId, setPurchaseBillExternalId] = useState(
-    initialData?.purchaseBillExternalId ?? null,
   );
   const [purchaseBillExternalNumber, setPurchaseBillExternalNumber] = useState(
     initialData?.purchaseBillExternalNumber ?? null,
@@ -786,20 +816,24 @@ export function PurchaseOrderCard({
         invoiceNumber: "",
         billDate: today,
         dueDate: today,
-        reference: initialData?.orderNumber ?? "",
         accountingPurchaseAccountCode:
           initialData?.accountingPurchaseAccountCode ??
           xeroPurchaseBillDefaultAccountCode ??
           "",
         confirmAdditionalCostsOmitted: false,
       };
-  });
+    });
   const xeroAccountsQuery = useQuery({
     queryKey: ["xero-accounts"],
-    queryFn: () =>
-      apiJson<{ accounts: XeroAccountOption[] }>("/api/xero/accounts", {
-        fallbackError: "Failed to load Xero accounts.",
-      }),
+    enabled: xeroBillSetupStatus === "ready",
+    queryFn: async () => {
+      const response = await fetch("/api/xero/accounts");
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error ?? "Failed to load accounting accounts.");
+      }
+      return response.json() as Promise<{ accounts: XeroAccountOption[] }>;
+    },
   });
   const xeroAccounts = useMemo(
     () => xeroAccountsQuery.data?.accounts ?? [],
@@ -847,6 +881,7 @@ export function PurchaseOrderCard({
     defaultTaxRateId != null ? taxRateMap.get(defaultTaxRateId) ?? null : null;
   const initialFormValues: PurchaseOrderFormValues = initialData
     ? {
+        orderNumber: initialData.orderNumber,
         supplierId: initialData.supplierId,
         expectedDate: initialData.expectedDate,
         shippingCost: initialData.shippingCost,
@@ -870,6 +905,7 @@ export function PurchaseOrderCard({
       }
     : {
         ...(defaultValues ?? purchaseOrderDefaultValues),
+        orderNumber: defaultValues?.orderNumber ?? null,
         accountingPurchaseAccountCode: null,
         shipLine1: defaultValues?.shipLine1 ?? null,
         shipLine2: defaultValues?.shipLine2 ?? null,
@@ -892,27 +928,34 @@ export function PurchaseOrderCard({
       if (validationErrors) {
         setFieldErrors(validationErrors);
         throw {
-          error: getFirstFormErrorMessage(validationErrors) ?? "Fix highlighted fields.",
+          error: firstFieldErrorMessage(validationErrors) ?? "Fix highlighted fields.",
         } satisfies ApiError;
       }
 
       setFormError(null);
       setFieldErrors({});
-      try {
-        return await apiJson<{ id: string; orderNumber: string }>(
-          orderId ? `/api/purchase-orders/${orderId}` : "/api/purchase-orders",
-          {
-            method: orderId ? "PUT" : "POST",
-            body: values,
-            fallbackError: "Failed to save purchase order.",
-          },
-        );
-      } catch (caught) {
-        const error = toApiError(caught, "Failed to save purchase order.");
+      const response = await fetch(
+        orderId ? `/api/purchase-orders/${orderId}` : "/api/purchase-orders",
+        {
+          method: orderId ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(values),
+        },
+      );
+
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const error = {
+          error: body?.error ?? "Failed to save purchase order.",
+          errors: body?.errors,
+        } satisfies ApiError;
         setFieldErrors(purchaseOrderApiFieldErrors(error));
-        setFormError(error.error ?? "Failed to save purchase order.");
+        setFormError(error.error);
         throw error;
       }
+
+      return body as { id: string; orderNumber: string };
     },
     [],
   );
@@ -944,8 +987,14 @@ export function PurchaseOrderCard({
       return persistPurchaseOrder(orderId, draft);
     },
     getResultId: (result) => result.id,
-    applyPersistedIdentity: (draft) => draft,
-    mergeServerOwnedFields: (draft) => draft,
+    applyPersistedIdentity: (draft, result) => ({
+      ...draft,
+      orderNumber: draft.orderNumber ?? result.orderNumber,
+    }),
+    mergeServerOwnedFields: (draft, result) => ({
+      ...draft,
+      orderNumber: result.orderNumber ?? draft.orderNumber,
+    }),
     onPersisted: (id) => {
       savedOrderIdRef.current = id;
       setSavedOrderId(id);
@@ -998,11 +1047,20 @@ export function PurchaseOrderCard({
   const [additionalCostGridRows, setAdditionalCostGridRows] = useState<
     PurchaseOrderAdditionalCostGridRow[]
   >(initialAdditionalCostRows);
+  const [additionalCostsExpanded, setAdditionalCostsExpanded] = useState(
+    () => initialAdditionalCostRows.some((row) => !isBlankPurchaseOrderAdditionalCost(row)),
+  );
+
+  useEffect(() => {
+    if (additionalCostsExpanded && additionalCostGridRows.length === 0) {
+      setAdditionalCostsExpanded(false);
+    }
+  }, [additionalCostGridRows.length, additionalCostsExpanded]);
 
   const watchedSupplierId = draftValues.supplierId;
   const watchedShippingCost = draftValues.shippingCost;
   const watchedAdditionalCosts = draftValues.additionalCosts;
-  const watchedNotes = draftValues.notes;
+  const watchedAdditionalInfo = draftValues.notes;
   const additionalCostRows = watchedAdditionalCosts ?? [];
   const landedCostPreview = useMemo(
     () =>
@@ -1020,6 +1078,16 @@ export function PurchaseOrderCard({
       }),
     [lineGridRows, materialMap, watchedAdditionalCosts, watchedShippingCost],
   );
+  const landedCostByRowId = useMemo(() => {
+    return new Map(
+      lineGridRows.map((row, index) => [
+        row.clientRowId,
+        landedCostPreview.lines[index],
+      ]).filter((entry): entry is [string, LandedCostLineResult] =>
+        Boolean(entry[1]),
+      ),
+    );
+  }, [landedCostPreview.lines, lineGridRows]);
   const materialsTotal = landedCostPreview.materialSubtotal;
   const distributedAdditionalCostTotal =
     landedCostPreview.distributedAdditionalCostTotal;
@@ -1047,19 +1115,6 @@ export function PurchaseOrderCard({
     (cost) => !isBlankPurchaseOrderAdditionalCost(cost),
   ).length;
   const canAutosaveDraft = Boolean(watchedSupplierId?.trim());
-  const xeroAccountsByCode = useMemo(
-    () => new Map(xeroAccounts.map((account) => [account.code, account])),
-    [xeroAccounts],
-  );
-  const xeroAccountLabel = useCallback(
-    (code: string) => {
-      const account = xeroAccountsByCode.get(code);
-      if (!account) return code;
-      const metadata = [account.type, account.class].filter(Boolean).join(" · ");
-      return `${account.code} - ${account.name}${metadata ? ` (${metadata})` : ""}`;
-    },
-    [xeroAccountsByCode],
-  );
   const lineColumns = useMemo<LineField<PurchaseOrderLineGridRow>[]>(() => {
     const nonBlankRows = lineGridRows.filter(
       (row) => !isBlankPurchaseOrderLine(row),
@@ -1100,17 +1155,17 @@ export function PurchaseOrderCard({
           : null;
       };
 
-    return [
+    const columns: LineField<PurchaseOrderLineGridRow>[] = [
       {
         field: "itemId",
         kind: "inventory-item",
-        headerName: "Material",
+        headerName: "Item",
         headerTooltip: PURCHASE_MATERIAL_TOOLTIP,
-        minWidth: 220,
-        flex: 1.55,
+        minWidth: 300,
+        flex: 1.6,
         editable: (data) => !billAffectingReadOnly && !receivedMaterialIds.has(data?.itemId ?? ""),
         options: materialOptions,
-        placeholder: "Search materials...",
+        placeholder: "Search or create item",
         emptyMessage: "No materials found",
         requiredMessage: "Material is required",
         isRowBlank: isBlankPurchaseOrderLine,
@@ -1146,11 +1201,27 @@ export function PurchaseOrderCard({
         tooltipValueGetter: cellTooltip("itemId"),
       },
       {
+        colId: "supplierItemCode",
+        kind: "display",
+        headerName: "Supplier item code",
+        minWidth: 160,
+        flex: 0.8,
+        cellRenderer: () => <span className="text-muted-foreground">—</span>,
+      },
+      {
+        colId: "internalBarcode",
+        kind: "display",
+        headerName: "Internal barcode",
+        minWidth: 160,
+        flex: 0.8,
+        cellRenderer: () => <span className="text-muted-foreground">—</span>,
+      },
+      {
         field: "quantityOrdered",
         kind: "number",
-        headerName: "Ordered Qty",
+        headerName: "Quantity",
         headerTooltip: PO_ORDERED_QTY_TOOLTIP,
-        minWidth: 116,
+        minWidth: 104,
         flex: 0.5,
         editable: !billAffectingReadOnly,
         valueSetter: (
@@ -1167,7 +1238,8 @@ export function PurchaseOrderCard({
             quantityOrdered: normalizeNullableGridText(value),
           };
           if (isBlankPurchaseOrderLine(nextRow)) return null;
-          return isPositiveNumberString(nextRow.quantityOrdered ?? "")
+          const parsed = Number(nextRow.quantityOrdered);
+          return Number.isFinite(parsed) && parsed > 0
             ? null
             : ["Quantity must be greater than 0"];
         },
@@ -1182,36 +1254,19 @@ export function PurchaseOrderCard({
         kind: "display",
         headerName: "UoM",
         headerTooltip: PURCHASE_UNIT_TOOLTIP,
-        minWidth: 118,
-        flex: 0.55,
+        minWidth: 96,
+        flex: 0.4,
         cellRenderer: (
           params: ICellRendererParams<PurchaseOrderLineGridRow>,
         ) => <PurchaseUnitCell {...params} materialMap={materialMap} />,
       },
       {
-        colId: "stockQuantity",
-        kind: "display",
-        headerName: "Stock Qty",
-        headerTooltip: "Purchase quantity converted to stocking units.",
-        minWidth: 178,
-        flex: 0.85,
-        cellRenderer: (
-          params: ICellRendererParams<PurchaseOrderLineGridRow>,
-        ) => (
-          <PurchaseStockQuantityCell
-            {...params}
-            materialMap={materialMap}
-            landedCosts={landedCostPreview.lines}
-          />
-        ),
-      },
-      {
         field: "unitCost",
         kind: "number",
-        headerName: "Unit Cost",
+        headerName: "Price per unit",
         headerTooltip: PURCHASE_UNIT_COST_TOOLTIP,
-        minWidth: 128,
-        flex: 0.55,
+        minWidth: 132,
+        flex: 0.65,
         editable: !billAffectingReadOnly,
         valueSetter: (
           params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
@@ -1227,7 +1282,8 @@ export function PurchaseOrderCard({
           if (isBlankPurchaseOrderLine(nextRow)) return null;
           const text = nextRow.unitCost?.trim() ?? "";
           if (!text) return ["Unit cost is required"];
-          return isNonNegativeNumberString(text)
+          const parsed = Number(text);
+          return Number.isFinite(parsed) && parsed >= 0
             ? null
             : ["Unit cost must be 0 or greater"];
         },
@@ -1240,27 +1296,21 @@ export function PurchaseOrderCard({
         tooltipValueGetter: cellTooltip("unitCost"),
       },
       {
-        colId: "landedUnit",
+        colId: "lineTotal",
         kind: "display",
-        headerName: "Landed/Unit",
-        headerTooltip: PURCHASE_LANDED_UNIT_TOOLTIP,
+        headerName: "Total price",
+        headerTooltip: PO_LINE_TOTAL_TOOLTIP,
         minWidth: 136,
-        flex: 0.7,
+        flex: 0.65,
         cellRenderer: (
           params: ICellRendererParams<PurchaseOrderLineGridRow>,
-        ) => (
-          <PurchaseLandedUnitCell
-            {...params}
-            materialMap={materialMap}
-            landedCosts={landedCostPreview.lines}
-          />
-        ),
+        ) => <PurchaseLineTotalCell {...params} taxRateMap={taxRateMap} />,
       },
       {
         field: "taxRateId",
         kind: "select",
-        headerName: "Tax %",
-        minWidth: 120,
+        headerName: "Tax",
+        minWidth: 128,
         flex: 0.5,
         editable: !billAffectingReadOnly,
         values: ["", ...taxRates.map((rate) => rate.id)],
@@ -1276,21 +1326,32 @@ export function PurchaseOrderCard({
           return true;
         },
       },
-      {
-        colId: "lineTotal",
+    ];
+
+    if (additionalCostsExpanded) {
+      columns.push({
+        colId: "landedCost",
         kind: "display",
-        headerName: "Line Total",
-        headerTooltip: PO_LINE_TOTAL_TOOLTIP,
-        minWidth: 128,
-        flex: 0.55,
+        headerName: "Landed cost",
+        minWidth: 156,
+        flex: 0.7,
         cellRenderer: (
           params: ICellRendererParams<PurchaseOrderLineGridRow>,
-        ) => <PurchaseLineTotalCell {...params} taxRateMap={taxRateMap} />,
-      },
-    ];
+        ) => (
+          <PurchaseLandedCostCell
+            {...params}
+            materialMap={materialMap}
+            landedCostByRowId={landedCostByRowId}
+          />
+        ),
+      });
+    }
+
+    return columns;
   }, [
+    additionalCostsExpanded,
     fieldErrors.lines,
-    landedCostPreview.lines,
+    landedCostByRowId,
     lineGridRows,
     materialMap,
     materialOptions,
@@ -1472,8 +1533,17 @@ export function PurchaseOrderCard({
     billAffectingReadOnly,
   ]);
   const handleAdditionalCostRowsChange = useCallback(
-    (rows: PurchaseOrderAdditionalCostGridRow[]) => {
+    (
+      rows: PurchaseOrderAdditionalCostGridRow[],
+      change?: { type?: string },
+    ) => {
       setAdditionalCostGridRows(rows);
+      if (
+        change?.type === "row_deleted" &&
+        rows.every((row) => isBlankPurchaseOrderAdditionalCost(row))
+      ) {
+        setAdditionalCostsExpanded(false);
+      }
       commitPurchaseOrderDraft({
         additionalCosts: toPurchaseOrderAdditionalCostPayloadRows(rows),
       });
@@ -1494,11 +1564,17 @@ export function PurchaseOrderCard({
     mutationFn: async ({ orderId, file }: { orderId: string; file: File }) => {
       const formData = new FormData();
       formData.set("file", file);
-      return apiJson<PurchaseOrderFormAttachment>(`/api/purchase-orders/${orderId}/files`, {
+      const response = await fetch(`/api/purchase-orders/${orderId}/files`, {
         method: "POST",
         body: formData,
-        fallbackError: "Failed to upload file.",
       });
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to upload file.");
+      }
+
+      return body as PurchaseOrderFormAttachment;
     },
     onMutate: () => setFileActionError(null),
     onSuccess: (file) => {
@@ -1512,10 +1588,15 @@ export function PurchaseOrderCard({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "file-delete"],
     mutationFn: async (fileId: string) => {
       if (!savedOrderId) throw new Error("Save the purchase order first.");
-      await apiJson<void>(`/api/purchase-orders/${savedOrderId}/files/${fileId}`, {
-        method: "DELETE",
-        fallbackError: "Failed to delete file.",
-      });
+      const response = await fetch(
+        `/api/purchase-orders/${savedOrderId}/files/${fileId}`,
+        { method: "DELETE" },
+      );
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to delete file.");
+      }
 
       return fileId;
     },
@@ -1530,10 +1611,19 @@ export function PurchaseOrderCard({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "duplicate"],
     mutationFn: async () => {
       if (!savedOrderId) throw new Error("Save the purchase order first.");
-      return apiJson<{ id: string }>(`/api/purchase-orders/${savedOrderId}/duplicate`, {
-        method: "POST",
-        fallbackError: "Failed to duplicate purchase order.",
-      });
+      const response = await fetch(
+        `/api/purchase-orders/${savedOrderId}/duplicate`,
+        {
+          method: "POST",
+        },
+      );
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to duplicate purchase order.");
+      }
+
+      return body as { id: string };
     },
     onSuccess: async (order) => {
       await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
@@ -1545,12 +1635,25 @@ export function PurchaseOrderCard({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "status"],
     mutationFn: async (status: PurchaseOrderStatus) => {
       if (!savedOrderId) throw new Error("Save the purchase order first.");
-      return apiJson<{ id: string }>(`/api/purchase-orders/${savedOrderId}/status`, {
-        method: "PATCH",
-        body: { status },
-        idempotencyKey: "purchase-order-status",
-        fallbackError: "Failed to update purchase order status.",
-      });
+      const response = await fetch(
+        `/api/purchase-orders/${savedOrderId}/status`,
+        {
+          method: "PATCH",
+          headers: createIdempotencyHeaders("purchase-order-status", {
+            "Content-Type": "application/json",
+          }),
+          body: JSON.stringify({ status }),
+        },
+      );
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          body?.error ?? "Failed to update purchase order status.",
+        );
+      }
+
+      return body as { id: string };
     },
     onSuccess: async (_result, status) => {
       setDisplayStatus(status);
@@ -1562,71 +1665,143 @@ export function PurchaseOrderCard({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "purchase-bill"],
     mutationFn: async (values: PurchaseBillDialogValues) => {
       if (!savedOrderId) throw new Error("Save the purchase order first.");
-      return apiJson<{
+      const response = await fetch(
+        `/api/purchase-orders/${savedOrderId}/accounting-bill`,
+        {
+          method: "POST",
+          headers: createIdempotencyHeaders("purchase-order-bill", {
+            "Content-Type": "application/json",
+          }),
+          body: JSON.stringify(values),
+        },
+      );
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const message =
+          typeof body?.error === "string" &&
+          body.error.toLowerCase().includes("not connected")
+            ? ACCOUNTING_NOT_CONNECTED_MESSAGE
+            : body?.error ?? "Failed to create supplier bill.";
+        throw new Error(message);
+      }
+
+      return body as {
         xeroBillId: string;
         xeroBillNumber: string;
         status: "pushed";
         created: boolean;
         adopted: boolean;
-      }>(
-        `/api/purchase-orders/${savedOrderId}/accounting-bill`,
-        {
-          method: "POST",
-          body: values,
-          idempotencyKey: "purchase-order-bill",
-          fallbackError: "Failed to create Xero bill.",
-        },
-      );
+      };
     },
     onMutate: () => {
       setFormError(null);
-      setPurchaseBillError(null);
       setPurchaseBillStatus("pending");
       return { previousStatus: purchaseBillStatus };
     },
     onSuccess: async (result) => {
       setPurchaseBillStatus("pushed");
-      setPurchaseBillExternalId(result.xeroBillId);
       setPurchaseBillExternalNumber(result.xeroBillNumber);
       setPurchaseBillDialogOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
     },
     onError: (error: Error, _values, context) => {
       setPurchaseBillStatus(context?.previousStatus ?? null);
-      setPurchaseBillError(error.message);
+    },
+  });
+  const purchaseOrderEmailMutation = useMutation({
+    mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "email"],
+    mutationFn: async () => {
+      if (!savedOrderId) throw new Error("Save the purchase order first.");
+      const response = await fetch(`/api/purchase-orders/${savedOrderId}/email`, {
+        method: "POST",
+        headers: createIdempotencyHeaders("purchase-order-email", {
+          "Content-Type": "application/json",
+        }),
+        body: JSON.stringify({
+          to: poEmailDialogValues.to,
+          replyTo: poEmailDialogValues.replyTo || null,
+          bcc: poEmailDialogValues.bcc || null,
+          subject: poEmailDialogValues.subject,
+          message: poEmailDialogValues.message || null,
+        }),
+      });
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to send purchase order.");
+      }
+
+      return body as { status: "sent"; recipientEmail: string };
+    },
+    onMutate: () => {
+      setFormError(null);
+      setPoEmailError(null);
+      setPoEmailStatus("pending");
+      return { previousStatus: poEmailStatus };
+    },
+    onSuccess: async () => {
+      setPoEmailStatus("sent");
+      setPoEmailDialogOpen(false);
+      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+    },
+    onError: (error: Error) => {
+      setPoEmailStatus("failed");
+      setPoEmailError(error.message);
     },
   });
 
-  const ensureSavedOrder = async () => {
+  const ensureSavedOrder = useCallback(async () => {
     await purchaseOrderEngine.flush();
     const orderId = savedOrderIdRef.current;
     if (!orderId) {
       const message =
         purchaseOrderEngine.error ??
-        getFirstFormErrorMessage(fieldErrors) ??
+        firstFieldErrorMessage(fieldErrors) ??
         "Choose a supplier before uploading files.";
       setFormError(message);
       throw new Error(message);
     }
     return orderId;
-  };
+  }, [fieldErrors, purchaseOrderEngine]);
 
-  const handleFileInput = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
+  const handleFileInput = useCallback(async (files: FileList | File[] | null) => {
+    const filesToUpload = files ? Array.from(files) : [];
+    if (filesToUpload.length === 0) return;
 
     try {
       const orderId = await ensureSavedOrder();
-      for (const file of Array.from(files)) {
+      for (const file of filesToUpload) {
         uploadFileMutation.mutate({ orderId, file });
       }
     } catch (error) {
       setFileActionError(
         error instanceof Error
           ? error.message
-          : "Save the purchase order before uploading files.",
+        : "Save the purchase order before uploading files.",
       );
     }
-  };
+  }, [ensureSavedOrder, uploadFileMutation]);
+  const attachFileInput = useCallback(
+    (input: HTMLInputElement | null) => {
+      detachFileInputRef.current?.();
+      detachFileInputRef.current = null;
+      fileInputRef.current = input;
+
+      if (!input) return;
+      const handleNativeFileInput = () => {
+        const files = Array.from(input.files ?? []);
+        void handleFileInput(files);
+        input.value = "";
+      };
+
+      input.addEventListener("change", handleNativeFileInput);
+      detachFileInputRef.current = () => {
+        input.removeEventListener("change", handleNativeFileInput);
+      };
+    },
+    [handleFileInput],
+  );
 
   const addressMutation = useMutation({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "delivery-address"],
@@ -1637,18 +1812,24 @@ export function PurchaseOrderCard({
       id: string | null;
       values: AddressDialogValues;
     }) => {
-      try {
-        return await apiJson<AddressEntry>(
-          id ? `/api/addresses/${id}` : "/api/addresses",
-          {
-            method: id ? "PUT" : "POST",
-            body: values,
-            fallbackError: "Failed to save address.",
-          },
-        );
-      } catch (error) {
-        throw toApiError(error, "Failed to save address.");
+      const response = await fetch(
+        id ? `/api/addresses/${id}` : "/api/addresses",
+        {
+          method: id ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(values),
+        },
+      );
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw {
+          error: body?.error ?? "Failed to save address.",
+          errors: body?.errors,
+        } satisfies ApiError;
       }
+
+      return body as AddressEntry;
     },
     onSuccess: (entry) => {
       const option = addressEntryToOption(entry);
@@ -1682,7 +1863,13 @@ export function PurchaseOrderCard({
     const nextAddress = address
       ? normalizeDeliveryAddress(address)
       : EMPTY_DELIVERY_ADDRESS;
-    commitPurchaseOrderDraft(nextAddress);
+    const patch: Partial<PurchaseOrderFormValues> = {
+      ...nextAddress,
+    };
+    if (nextAddress.shipDeliveryInstructions && !draftValues.notes?.trim()) {
+      patch.notes = nextAddress.shipDeliveryInstructions;
+    }
+    commitPurchaseOrderDraft(patch);
   };
 
   const openAddressDialog = () => {
@@ -1709,10 +1896,28 @@ export function PurchaseOrderCard({
 
   const handleAddressDialogSubmit = (values: AddressDialogValues) => {
     if (addressDialogState == null) return;
-    const label = makeUniqueAddressLabel(
-      values,
-      deliveryAddressOptions.map((option) => option.label),
-    );
+    const baseLabel =
+      values.label.trim() ||
+      formatAddressLines({
+        line1: values.line1,
+        line2: values.line2,
+        city: values.city,
+        region: values.region,
+        postcode: values.postcode,
+        country: values.country,
+      }).join(", ") ||
+      "Address";
+    let label = baseLabel;
+    if (!values.label.trim()) {
+      const labels = new Set(
+        deliveryAddressOptions.map((option) => option.label),
+      );
+      let suffix = 2;
+      while (labels.has(label)) {
+        label = `${baseLabel} (${suffix})`;
+        suffix += 1;
+      }
+    }
     addressMutation.mutate({
       id: addressDialogState.option?.addressEntryId ?? null,
       values: { ...values, label },
@@ -1726,6 +1931,10 @@ export function PurchaseOrderCard({
   const selectedSupplier = supplierOptionsSorted.find(
     (supplier) => supplier.id === watchedSupplierId,
   );
+  const currentSupplierEmail =
+    initialData?.supplierId === watchedSupplierId
+      ? initialData.supplierEmail
+      : selectedSupplier?.email ?? null;
   const currentDeliveryAddress: DeliveryAddressFields = {
     shipLine1: draftValues.shipLine1,
     shipLine2: draftValues.shipLine2,
@@ -1757,45 +1966,60 @@ export function PurchaseOrderCard({
         : null;
   const displayTitle = savedOrderId ? (
     <DetailHeaderTitle
-      recordNumber={savedOrderNumber ?? ""}
+      recordNumber={draftValues.orderNumber ?? savedOrderNumber ?? ""}
       name={selectedSupplier?.name ?? null}
     />
   ) : (
     "New purchase order"
   );
-  const materialColumns = lineColumns.map((column) => {
-    if (column.field === "itemId") return { ...column, headerName: "Item" };
-    if (column.field === "quantityOrdered")
-      return { ...column, headerName: "Quantity" };
-    if (column.field === "unitCost")
-      return { ...column, headerName: "Price per unit" };
-    if (column.colId === "lineTotal")
-      return { ...column, headerName: "Total price" };
-    if (column.colId === "landedUnit")
-      return { ...column, headerName: "Landed cost" };
-    return column;
-  });
   const totalUnits = lineGridRows.reduce((sum, line) => {
     const quantity = parsePositive(line.quantityOrdered);
     return sum + (quantity ?? 0);
   }, 0);
   const billActionDisabledReason =
-    xeroBillSetupStatus === "not_connected"
-      ? "Connect Xero before creating supplier bills."
-      : cardSaveState === "saving" ||
-          cardSaveState === "not_saved" ||
-          cardSaveState === "failed"
-        ? "Save changes before creating a supplier bill."
-        : displayStatus === "draft"
-          ? "Submit the purchase order before creating a Xero bill."
-          : displayStatus === "cancelled"
-            ? "Cancelled purchase orders cannot be billed."
-            : purchaseBillStatus === "pending"
-              ? "Xero bill sync is already running."
-              : null;
+    cardSaveState === "saving" ||
+    cardSaveState === "not_saved" ||
+    cardSaveState === "failed"
+      ? "Save changes before creating a supplier bill."
+      : displayStatus === "draft"
+        ? "Submit the purchase order before creating a supplier bill."
+        : displayStatus === "cancelled"
+          ? "Cancelled purchase orders cannot be billed."
+          : purchaseBillStatus === "pending"
+            ? "Bill sync is already running."
+            : null;
+  const openPurchaseOrderEmailDialog = () => {
+    setPoEmailError(null);
+    setPoEmailDialogValues({
+      to: currentSupplierEmail ?? "",
+      replyTo: userEmail,
+      bcc: userEmail,
+      subject: `${savedOrderNumber ?? "Purchase order"} from ${organizationName}`,
+      message: `Hi,\n\nYou should find the necessary documents for ${savedOrderNumber ?? "this order"} attached to this email.\nPlease let me know if anything is missing.\n\nBest regards,\n${userName || userEmail}\n${organizationName}`,
+    });
+    setPoEmailDialogOpen(true);
+  };
+  const openPurchaseBillDialog = () => {
+    if (xeroBillSetupStatus === "not_connected") {
+      setFormError(ACCOUNTING_NOT_CONNECTED_MESSAGE);
+      return;
+    }
+
+    setFormError(null);
+    setPurchaseBillDialogOpen(true);
+  };
 
   return (
     <>
+      <input
+        id={attachmentInputId}
+        ref={attachFileInput}
+        type="file"
+        multiple
+        className="sr-only"
+        aria-hidden="true"
+        tabIndex={-1}
+      />
       <CardPage>
         <CardPageHeader
           title={displayTitle}
@@ -1814,6 +2038,63 @@ export function PurchaseOrderCard({
           }
           saveState={cardSaveState}
           saveMessage={cardSaveMessage}
+          iconActions={
+            savedOrderId
+              ? [
+                  {
+                    label:
+                      purchaseBillStatus === "pushed"
+                        ? `Supplier bill ${purchaseBillExternalNumber ?? ""}`.trim()
+                        : purchaseBillStatus === "failed"
+                          ? "Retry supplier bill"
+                          : "Create supplier bill",
+                    icon: FileDollarIcon,
+                    status:
+                      purchaseBillMutation.isPending ||
+                      purchaseBillStatus === "pending"
+                        ? "pending"
+                        : purchaseBillStatus === "pushed"
+                          ? "success"
+                          : purchaseBillStatus === "failed"
+                            ? "failed"
+                            : "idle",
+                    onClick: openPurchaseBillDialog,
+                    disabled:
+                      !canWrite ||
+                      purchaseBillMutation.isPending ||
+                      purchaseBillStatus === "pending" ||
+                      purchaseBillStatus === "pushed" ||
+                      Boolean(billActionDisabledReason),
+                    tooltip: billActionDisabledReason ?? purchaseBillExternalNumber ?? "",
+                  },
+                  {
+                    label:
+                      purchaseOrderEmailMutation.isPending
+                        ? "Sending PO email"
+                        : poEmailStatus === "sent"
+                          ? "Resend PO email"
+                          : poEmailStatus === "failed"
+                            ? "Retry PO email"
+                            : "Send PO email",
+                    icon: Mail01Icon,
+                    status: purchaseOrderEmailMutation.isPending
+                      ? "pending"
+                      : poEmailStatus === "sent"
+                        ? "success"
+                        : poEmailStatus === "failed"
+                          ? "failed"
+                          : "idle",
+                    onClick: openPurchaseOrderEmailDialog,
+                    disabled:
+                      !canWrite ||
+                      purchaseOrderEmailMutation.isPending ||
+                      displayStatus === "draft" ||
+                      !currentSupplierEmail,
+                    tooltip: poEmailError ?? "",
+                  },
+                ]
+              : []
+          }
           showPrint={false}
           menuActions={[
             ...(savedOrderId && canViewLedger
@@ -1871,27 +2152,31 @@ export function PurchaseOrderCard({
               <FieldError>{formError}</FieldError>
             </CardSection>
           )}
-          {xeroAccountsQuery.error ? (
+          {xeroBillSetupStatus === "ready" && xeroAccountsQuery.error ? (
             <CardSection>
               <FieldError>
                 {xeroAccountsQuery.error instanceof Error
                   ? xeroAccountsQuery.error.message
-                  : "Failed to load Xero accounts."}
+                  : "Failed to load accounting accounts."}
               </FieldError>
             </CardSection>
           ) : null}
 
           <>
             <CardSection title="Order details">
-              <CardFormRow columns="purchase-order">
+              <div className={`${styles.formRow} ${styles.formRowFour}`}>
                 <div className={styles.formField}>
                   <SupplierSelect
                     suppliers={supplierOptionsSorted}
                     value={draftValues.supplierId}
-                    onValueChange={(nextValue) =>
-                      commitPurchaseOrderDraft({ supplierId: nextValue ?? "" })
-                    }
-                    errorMessage={getNestedFormErrorMessage(fieldErrors.supplierId) ?? undefined}
+                    onValueChange={(nextValue) => {
+                      if ((nextValue ?? "") !== draftValues.supplierId) {
+                        setPoEmailStatus(null);
+                        setPoEmailError(null);
+                      }
+                      commitPurchaseOrderDraft({ supplierId: nextValue ?? "" });
+                    }}
+                    errorMessage={fieldErrorMessage(fieldErrors.supplierId) ?? undefined}
                     inputClassName={underlineControlClass(
                       !savedOrderId && !draftValues.supplierId,
                     )}
@@ -1901,14 +2186,41 @@ export function PurchaseOrderCard({
                   />
                 </div>
                 <div className={styles.formField}>
+                  <Field data-invalid={Boolean(fieldErrors.orderNumber)}>
+                    <FieldLabel className={styles.formLabel} htmlFor="purchaseOrderNumber">
+                      Purchase order
+                    </FieldLabel>
+                    {readOnly ? (
+                      <div className={styles.readOnlyFieldValue}>
+                        {draftValues.orderNumber ?? savedOrderNumber ?? "—"}
+                      </div>
+                    ) : (
+                      <Input
+                        id="purchaseOrderNumber"
+                        value={draftValues.orderNumber ?? savedOrderNumber ?? ""}
+                        disabled={!savedOrderId}
+                        onChange={(event) =>
+                          commitPurchaseOrderDraft({
+                            orderNumber: event.target.value,
+                          })
+                        }
+                        className={styles.underlineControl}
+                      />
+                    )}
+                    {fieldErrors.orderNumber ? (
+                      <FieldError>{fieldErrorMessage(fieldErrors.orderNumber)}</FieldError>
+                    ) : null}
+                  </Field>
+                </div>
+                <div className={styles.formField}>
                   <Field data-invalid={Boolean(fieldErrors.expectedDate)}>
                     <FieldLabel className={styles.formLabel} htmlFor="expectedDate">
                       Expected arrival <span className={styles.requiredMark}>*</span>
                     </FieldLabel>
                     {readOnly ? (
-                      <ReadOnlyFieldValue mono>
+                      <div className={`${styles.readOnlyFieldValue} ${styles.mono}`}>
                         {draftValues.expectedDate ? formatDate(draftValues.expectedDate) : "—"}
-                      </ReadOnlyFieldValue>
+                      </div>
                     ) : (
                       <DatePicker
                         id="expectedDate"
@@ -1919,7 +2231,7 @@ export function PurchaseOrderCard({
                       />
                     )}
                     {fieldErrors.expectedDate ? (
-                      <FieldError>{getNestedFormErrorMessage(fieldErrors.expectedDate)}</FieldError>
+                      <FieldError>{fieldErrorMessage(fieldErrors.expectedDate)}</FieldError>
                     ) : null}
                   </Field>
                 </div>
@@ -1935,16 +2247,15 @@ export function PurchaseOrderCard({
                     inputClassName={styles.underlineControl}
                     labelClassName={styles.formLabel}
                     readOnly={billAffectingReadOnly}
-                    readOnlyClassName={styles.readOnlyAddress}
                   />
                 </div>
-              </CardFormRow>
+              </div>
             </CardSection>
 
             <CardSection title="Materials" count={`· ${lineCount}`}>
               <MutableLines
                 rows={lineGridRows}
-                fields={materialColumns}
+                fields={lineColumns}
                 getRowId={getLineRowId}
                 createRow={createLineRow}
                 onRowsChange={handleLineRowsChange}
@@ -1958,116 +2269,60 @@ export function PurchaseOrderCard({
                 }
                 emptyMessage="No materials yet."
                 error={linesError}
+                footerActions={
+                  !additionalCostsExpanded ? (
+                    <button
+                      type="button"
+                      className="inline-flex min-h-7 items-center gap-(--space-1) rounded-(--radius-none) border-0 bg-transparent px-(--space-3) py-0 text-sm font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={billAffectingReadOnly}
+                      onClick={() => {
+                        setAdditionalCostsExpanded(true);
+                        setAdditionalCostGridRows((rows) =>
+                          rows.length > 0 ? rows : [createAdditionalCostRow()],
+                        );
+                      }}
+                    >
+                      <span aria-hidden="true">+</span>
+                      Additional costs
+                    </button>
+                  ) : null
+                }
               />
             </CardSection>
 
-            <CardSection title="Additional costs" count={`· ${additionalCostCount}`}>
-              <MutableLines
-                rows={additionalCostGridRows}
-                fields={additionalCostColumns}
-                getRowId={getAdditionalCostRowId}
-                createRow={createAdditionalCostRow}
-                onRowsChange={handleAdditionalCostRowsChange}
-                addLabel="Add cost"
-                readOnly={billAffectingReadOnly}
-                emptyMessage="No additional costs yet."
-                error={additionalCostsError}
-              />
-            </CardSection>
-
-            {savedOrderId ? (
-              <CardSection title="Accounting">
-                <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                  <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <ConfiguredBadge
-                        value={purchaseBillStatus ?? "not_billed"}
-                        config={purchaseBillStatusBadgeConfig}
-                        fallback={{
-                          label: purchaseBillStatusLabel(purchaseBillStatus),
-                          variant: "secondary",
-                        }}
-                      />
-                      {purchaseBillExternalNumber ? (
-                        <span className="text-sm text-muted-foreground">
-                          {purchaseBillExternalNumber}
-                        </span>
-                      ) : null}
-                    </div>
-                    {purchaseBillError ? (
-                      <p className="text-sm text-destructive">
-                        {purchaseBillError}
-                      </p>
-                    ) : billActionDisabledReason ? (
-                      <p className="text-sm text-muted-foreground">
-                        {billActionDisabledReason}
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
-                    {purchaseBillStatus === "pushed" ? (
-                      <Button variant="outline" size="sm" asChild>
-                        <a
-                          href={
-                            purchaseBillExternalId
-                              ? `https://go.xero.com/AccountsPayable/View.aspx?InvoiceID=${encodeURIComponent(purchaseBillExternalId)}`
-                              : "https://go.xero.com/AccountsPayable/"
-                          }
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open in Xero
-                        </a>
-                      </Button>
-                    ) : null}
-                    {purchaseBillStatus !== "pushed" ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setPurchaseBillDialogOpen(true)}
-                        disabled={
-                          !canWrite ||
-                          purchaseBillMutation.isPending ||
-                          Boolean(billActionDisabledReason)
-                        }
-                        title={billActionDisabledReason ?? undefined}
-                      >
-                        {purchaseBillStatus === "failed" ? "Retry" : "Create Xero Bill"}
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
+            {additionalCostsExpanded ? (
+              <CardSection title="Additional costs" count={`· ${additionalCostCount}`}>
+                <MutableLines
+                  rows={additionalCostGridRows}
+                  fields={additionalCostColumns}
+                  getRowId={getAdditionalCostRowId}
+                  createRow={createAdditionalCostRow}
+                  onRowsChange={handleAdditionalCostRowsChange}
+                  addLabel="Add cost"
+                  readOnly={billAffectingReadOnly}
+                  emptyMessage="No additional costs yet."
+                  error={additionalCostsError}
+                />
               </CardSection>
             ) : null}
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <CardSection
-                title="Notes"
-                actions={
-                  <button
-                    type="button"
-                    className={styles.iconBtn}
-                    aria-label="Attachments"
-                    title="Attachments"
-                    onClick={() => setAttachmentsOpen(true)}
-                  >
-                    <HugeiconsIcon icon={Attachment01Icon} size={14} />
-                  </button>
-                }
-              >
+              <CardSection aria-label="Additional info">
                 <NotesField
-                  label="Notes"
-                  value={watchedNotes ?? ""}
+                  label="Additional info"
+                  value={watchedAdditionalInfo ?? ""}
                   disabled={readOnly}
                   readOnlyValue={readOnly}
-                  rows={6}
+                  rows={3}
+                  className="min-h-24"
+                  readOnlyClassName="min-h-24"
+                  placeholder="Supplier-facing notes shown on the purchase order."
                   onCommit={(next) => {
                     commitPurchaseOrderDraft({ notes: next });
                   }}
                 />
-                {fieldErrors.notes ? <FieldError>{getNestedFormErrorMessage(fieldErrors.notes)}</FieldError> : null}
+                {fieldErrors.notes ? <FieldError>{fieldErrorMessage(fieldErrors.notes)}</FieldError> : null}
               </CardSection>
-
               <CardSection title="Totals">
                 <TotalsSummary
                   rows={[
@@ -2110,252 +2365,39 @@ export function PurchaseOrderCard({
           </>
         </CardPageBody>
       </CardPage>
-      <Dialog
+      <PurchaseOrderEmailDialog
+        open={poEmailDialogOpen}
+        orderId={savedOrderId}
+        orderNumber={savedOrderNumber}
+        attachments={attachments}
+        values={poEmailDialogValues}
+        error={poEmailError}
+        pending={purchaseOrderEmailMutation.isPending}
+        uploadPending={uploadFileMutation.isPending}
+        deletePending={deleteFileMutation.isPending}
+        fileError={fileActionError}
+        onValuesChange={setPoEmailDialogValues}
+        onOpenChange={(open) => setPoEmailDialogOpen(open)}
+        onAddDocuments={() => fileInputRef.current?.click()}
+        onDeleteDocument={(fileId) => deleteFileMutation.mutate(fileId)}
+        onSend={() => purchaseOrderEmailMutation.mutate()}
+      />
+      <PurchaseBillDialog
         open={purchaseBillDialogOpen}
-        onOpenChange={(open) => {
-          if (!open && !purchaseBillMutation.isPending) {
-            setPurchaseBillDialogOpen(false);
-          }
-        }}
-      >
-        <DialogContent size="md">
-          <DialogHeader>
-            <DialogTitle>Create Xero Bill</DialogTitle>
-            <DialogDescription>
-              Creates a draft supplier bill in Xero for all purchase order lines.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4">
-            <Field>
-              <FieldLabel htmlFor="purchase-bill-invoice-number">
-                Supplier invoice number
-              </FieldLabel>
-              <Input
-                id="purchase-bill-invoice-number"
-                value={purchaseBillDialogValues.invoiceNumber}
-                onChange={(event) =>
-                  setPurchaseBillDialogValues((current) => ({
-                    ...current,
-                    invoiceNumber: event.target.value,
-                  }))
-                }
-              />
-            </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field>
-                <FieldLabel htmlFor="purchase-bill-date">Bill date</FieldLabel>
-                <DatePicker
-                  id="purchase-bill-date"
-                  value={purchaseBillDialogValues.billDate}
-                  onChange={(value) =>
-                    setPurchaseBillDialogValues((current) => ({
-                      ...current,
-                      billDate: value || todayIsoDate(),
-                    }))
-                  }
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="purchase-bill-due-date">Due date</FieldLabel>
-                <DatePicker
-                  id="purchase-bill-due-date"
-                  value={purchaseBillDialogValues.dueDate}
-                  onChange={(value) =>
-                    setPurchaseBillDialogValues((current) => ({
-                      ...current,
-                      dueDate: value || current.billDate,
-                    }))
-                  }
-                />
-              </Field>
-            </div>
-            <Field>
-              <FieldLabel htmlFor="purchase-bill-reference">Reference</FieldLabel>
-              <Input
-                id="purchase-bill-reference"
-                value={purchaseBillDialogValues.reference}
-                onChange={(event) =>
-                  setPurchaseBillDialogValues((current) => ({
-                    ...current,
-                    reference: event.target.value,
-                  }))
-                }
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="purchase-bill-account">Default account</FieldLabel>
-              {xeroAccounts.length > 0 ? (
-                <Combobox
-                  items={xeroAccounts.map((account) => account.code)}
-                  value={purchaseBillDialogValues.accountingPurchaseAccountCode}
-                  onValueChange={(value) =>
-                    setPurchaseBillDialogValues((current) => ({
-                      ...current,
-                      accountingPurchaseAccountCode: value ?? "",
-                    }))
-                  }
-                  itemToStringLabel={xeroAccountLabel}
-                >
-                  <ComboboxInput
-                    id="purchase-bill-account"
-                    placeholder="Choose account"
-                    className="w-full min-w-0"
-                  />
-                  <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
-                    <ComboboxEmpty>No accounts found</ComboboxEmpty>
-                    <ComboboxList>
-                      {(code: string) => (
-                        <ComboboxItem key={code} value={code}>
-                          {xeroAccountLabel(code)}
-                        </ComboboxItem>
-                      )}
-                    </ComboboxList>
-                  </ComboboxContent>
-                </Combobox>
-              ) : (
-                <Input
-                  id="purchase-bill-account"
-                  value={purchaseBillDialogValues.accountingPurchaseAccountCode}
-                  onChange={(event) =>
-                    setPurchaseBillDialogValues((current) => ({
-                      ...current,
-                      accountingPurchaseAccountCode: event.target.value,
-                    }))
-                  }
-                  placeholder={
-                    xeroAccountsQuery.isLoading ? "Loading accounts..." : "500"
-                  }
-                />
-              )}
-            </Field>
-            {hasAdditionalCostsForBill ? (
-              <InsetPanel
-                as="label"
-                className="flex items-start gap-3 text-sm"
-              >
-                <Checkbox
-                  checked={
-                    purchaseBillDialogValues.confirmAdditionalCostsOmitted
-                  }
-                  onCheckedChange={(checked) =>
-                    setPurchaseBillDialogValues((current) => ({
-                      ...current,
-                      confirmAdditionalCostsOmitted: checked === true,
-                    }))
-                  }
-                />
-                <span>
-                  This PO has{" "}
-                  {formatPrice(additionalCostsForBillTotal.toFixed(4)) ??
-                    "$0.00"}{" "}
-                  in additional costs. These affect ERP costing but are not sent
-                  to Xero in v1.
-                </span>
-              </InsetPanel>
-            ) : null}
-            {purchaseBillMutation.error ? (
-              <FieldError>
-                {(purchaseBillMutation.error as Error).message}
-              </FieldError>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setPurchaseBillDialogOpen(false)}
-              disabled={purchaseBillMutation.isPending}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => purchaseBillMutation.mutate(purchaseBillDialogValues)}
-              disabled={
-                purchaseBillMutation.isPending ||
-                purchaseBillDialogValues.invoiceNumber.trim() === "" ||
-                purchaseBillDialogValues.accountingPurchaseAccountCode.trim() === "" ||
-                (hasAdditionalCostsForBill &&
-                  !purchaseBillDialogValues.confirmAdditionalCostsOmitted)
-              }
-            >
-              {purchaseBillMutation.isPending ? "Creating..." : "Create bill"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={attachmentsOpen} onOpenChange={setAttachmentsOpen}>
-        <DialogContent size="2xl">
-          <DialogHeader>
-            <DialogTitle>Attachments</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(event) => {
-                void handleFileInput(event.target.files);
-                event.currentTarget.value = "";
-              }}
-            />
-            {!readOnly ? (
-              <FileDropzone
-                disabled={uploadFileMutation.isPending}
-                onBrowse={() => fileInputRef.current?.click()}
-                onFiles={(files) => {
-                  void handleFileInput(files);
-                }}
-              />
-            ) : null}
-            {fileActionError ? (
-              <p className="text-sm text-destructive">{fileActionError}</p>
-            ) : null}
-            <ListFrame>
-              {attachments.length > 0 ? (
-                attachments.map((file) => (
-                  <AttachmentListItem
-                    key={file.id}
-                    filename={file.filename}
-                    sizeBytes={file.sizeBytes}
-                    leading={<FileTypeBadge file={file} />}
-                    className="gap-2 px-3 py-2.5"
-                    actions={
-                      <>
-                        {savedOrderId ? (
-                      <Button variant="ghost" size="icon-sm" asChild>
-                        <a
-                          href={`/api/purchase-orders/${savedOrderId}/files/${file.id}`}
-                          aria-label={`Download ${file.filename}`}
-                        >
-                          <HugeiconsIcon icon={Download01Icon} />
-                        </a>
-                      </Button>
-                        ) : null}
-                        {!readOnly ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Delete ${file.filename}`}
-                        onClick={() => deleteFileMutation.mutate(file.id)}
-                        disabled={deleteFileMutation.isPending}
-                      >
-                        <HugeiconsIcon icon={Delete02Icon} />
-                      </Button>
-                        ) : null}
-                      </>
-                    }
-                  />
-                ))
-              ) : (
-                <ListFrameItem className="px-3 py-5 text-center text-sm text-muted-foreground">
-                  No attachments.
-                </ListFrameItem>
-              )}
-            </ListFrame>
-          </div>
-        </DialogContent>
-      </Dialog>
+        values={purchaseBillDialogValues}
+        hasAdditionalCosts={hasAdditionalCostsForBill}
+        additionalCostTotal={additionalCostsForBillTotal.toFixed(4)}
+        xeroAccounts={xeroAccounts}
+        error={
+          purchaseBillMutation.error instanceof Error
+            ? purchaseBillMutation.error.message
+            : null
+        }
+        pending={purchaseBillMutation.isPending}
+        onValuesChange={setPurchaseBillDialogValues}
+        onOpenChange={(open) => setPurchaseBillDialogOpen(open)}
+        onCreate={() => purchaseBillMutation.mutate(purchaseBillDialogValues)}
+      />
       <Dialog
         open={addressDialogState != null}
         onOpenChange={(open) => {
@@ -2378,18 +2420,109 @@ export function PurchaseOrderCard({
                   "Failed to save address."}
               </FieldError>
             ) : null}
-            <AddressBookFields
+            <FieldGroup className="gap-4">
+              <Controller
+                control={addressForm.control}
+                name="label"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="address-label">Label</FieldLabel>
+                    <Input
+                      {...field}
+                      id="address-label"
+                      value={field.value ?? ""}
+                      onChange={(event) => field.onChange(event.target.value)}
+                      aria-invalid={fieldState.invalid}
+                      autoComplete="organization"
+                    />
+                    {fieldState.invalid && (
+                      <FieldError errors={[fieldState.error]} />
+                    )}
+                  </Field>
+                )}
+              />
+              <FieldGroup className="grid gap-4 sm:grid-cols-2">
+                <Controller
+                  control={addressForm.control}
+                  name="contactName"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor="address-contact-name">
+                        Contact Name
+                      </FieldLabel>
+                      <Input
+                        {...field}
+                        id="address-contact-name"
+                        value={field.value ?? ""}
+                        onChange={(event) =>
+                          field.onChange(event.target.value || null)
+                        }
+                        aria-invalid={fieldState.invalid}
+                        autoComplete="name"
+                      />
+                      {fieldState.invalid && (
+                        <FieldError errors={[fieldState.error]} />
+                      )}
+                    </Field>
+                  )}
+                />
+                <Controller
+                  control={addressForm.control}
+                  name="contactPhone"
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor="address-contact-phone">
+                        Contact Phone
+                      </FieldLabel>
+                      <Input
+                        {...field}
+                        id="address-contact-phone"
+                        value={field.value ?? ""}
+                        onChange={(event) =>
+                          field.onChange(event.target.value || null)
+                        }
+                        aria-invalid={fieldState.invalid}
+                        autoComplete="tel"
+                      />
+                      {fieldState.invalid && (
+                        <FieldError errors={[fieldState.error]} />
+                      )}
+                    </Field>
+                  )}
+                />
+              </FieldGroup>
+            </FieldGroup>
+            <AddressFields
               control={addressForm.control}
-              addressNames={ADDRESS_DIALOG_FIELD_NAMES}
+              names={ADDRESS_DIALOG_FIELD_NAMES}
               idPrefix="po-line-ship"
-              labelName="label"
-              contactNameName="contactName"
-              contactPhoneName="contactPhone"
-              contactNameLabel="Contact Name"
-              contactPhoneLabel="Contact Phone"
-              notesName="deliveryInstructions"
-              notesLabel="Delivery Instructions"
             />
+            <FieldGroup className="mt-4 gap-4">
+              <Controller
+                control={addressForm.control}
+                name="deliveryInstructions"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="address-delivery-instructions">
+                      Default delivery instructions
+                    </FieldLabel>
+                    <Textarea
+                      {...field}
+                      id="address-delivery-instructions"
+                      value={field.value ?? ""}
+                      onChange={(event) =>
+                        field.onChange(event.target.value || null)
+                      }
+                      aria-invalid={fieldState.invalid}
+                      rows={3}
+                    />
+                    {fieldState.invalid && (
+                      <FieldError errors={[fieldState.error]} />
+                    )}
+                  </Field>
+                )}
+              />
+            </FieldGroup>
           </form>
           <DialogFooter>
             <Button
@@ -2414,5 +2547,132 @@ export function PurchaseOrderCard({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+function DeliveryAddressInput({
+  id,
+  label,
+  value,
+  options,
+  onChange,
+  onAddNew,
+  onEdit,
+  inputClassName,
+  labelClassName,
+  readOnly = false,
+}: {
+  id: string;
+  label?: ReactNode;
+  value: DeliveryAddressFields | undefined;
+  options: DeliveryAddressOption[];
+  onChange: (address: DeliveryAddressFields | null) => void;
+  onAddNew: () => void;
+  onEdit: (address: DeliveryAddressOption) => void;
+  inputClassName?: string;
+  labelClassName?: string;
+  readOnly?: boolean;
+}) {
+  const currentAddressId = deliveryAddressKey(value);
+  const canEditCurrent = currentAddressId !== "";
+  const optionIds = options.map((option) => option.id);
+  const optionMap = new Map(options.map((option) => [option.id, option]));
+  const items = canEditCurrent
+    ? [...optionIds, EDIT_DELIVERY_ADDRESS_VALUE, ADD_DELIVERY_ADDRESS_VALUE]
+    : [...optionIds, ADD_DELIVERY_ADDRESS_VALUE];
+  const addressLines = formatAddressLines({
+    line1: value?.shipLine1 ?? null,
+    line2: value?.shipLine2 ?? null,
+    city: value?.shipCity ?? null,
+    region: value?.shipRegion ?? null,
+    postcode: value?.shipPostcode ?? null,
+    country: value?.shipCountry ?? null,
+  });
+
+  return (
+    <Field>
+      <FieldLabel className={labelClassName ?? (label ? undefined : "sr-only")} htmlFor={id}>
+        {label ?? "Delivery Address"}
+      </FieldLabel>
+      {readOnly ? (
+        <div className={styles.readOnlyAddress}>
+          {addressLines.length > 0
+            ? addressLines.map((line) => <div key={line}>{line}</div>)
+            : "No delivery address set"}
+        </div>
+      ) : (
+      <Combobox
+        items={items}
+        value={currentAddressId}
+        onValueChange={(nextValue) => {
+          if (!nextValue) {
+            onChange(null);
+            return;
+          }
+          if (nextValue === ADD_DELIVERY_ADDRESS_VALUE) {
+            onAddNew();
+            return;
+          }
+          if (nextValue === EDIT_DELIVERY_ADDRESS_VALUE) {
+            const option = optionMap.get(currentAddressId);
+            if (option) onEdit(option);
+            return;
+          }
+
+          onChange(optionMap.get(nextValue) ?? null);
+        }}
+        itemToStringLabel={(itemId) => {
+          if (itemId === ADD_DELIVERY_ADDRESS_VALUE) return "Add new address";
+          if (itemId === EDIT_DELIVERY_ADDRESS_VALUE)
+            return "Edit selected address";
+          return optionMap.get(itemId)?.label ?? "";
+        }}
+      >
+        <ComboboxInput
+          id={id}
+          placeholder="Address"
+          showClear={currentAddressId !== ""}
+          className={inputClassName ?? "w-full min-w-0"}
+        />
+        <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
+          <ComboboxEmpty>No addresses found</ComboboxEmpty>
+          <ComboboxList>
+            {(itemId: string) => {
+              if (itemId === ADD_DELIVERY_ADDRESS_VALUE) {
+                return (
+                  <ComboboxItem key={itemId} value={itemId}>
+                    Add new address
+                  </ComboboxItem>
+                );
+              }
+              if (itemId === EDIT_DELIVERY_ADDRESS_VALUE) {
+                return (
+                  <ComboboxItem key={itemId} value={itemId}>
+                    Edit selected address
+                  </ComboboxItem>
+                );
+              }
+
+              return (
+                <ComboboxItem key={itemId} value={itemId}>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate">
+                      {optionMap.get(itemId)?.label}
+                    </span>
+                    {optionMap.get(itemId)?.shipContactName ? (
+                      <span className="truncate text-xs text-muted-foreground">
+                        {optionMap.get(itemId)?.shipContactName}
+                      </span>
+                    ) : null}
+                  </span>
+                </ComboboxItem>
+              );
+            }}
+          </ComboboxList>
+          {optionIds.length > 0 ? <ComboboxSeparator /> : null}
+        </ComboboxContent>
+      </Combobox>
+      )}
+    </Field>
   );
 }

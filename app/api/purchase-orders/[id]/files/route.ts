@@ -1,20 +1,30 @@
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
-import { jsonNotFound, jsonCreated } from "@/lib/api/responses";
+import { jsonCreated, jsonNotFound } from "@/lib/api/responses";
 import {
-  assertPrivateBlobStorageConfigured,
   deletePrivateBlobQuietly,
   readRequiredPrivateFormFile,
+  sanitizeBlobPathPart,
   uploadPrivateFile,
 } from "@/lib/blob-storage";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
+import { DomainError } from "@/lib/errors/domain-error";
 import {
   createPurchaseOrderAttachment,
   getPurchaseOrderFileUploadTarget,
 } from "@/app/(dashboard)/purchasing/queries";
+import {
+  canUseLocalAttachmentStorage,
+  deleteLocalAttachment,
+  writeLocalAttachment,
+} from "@/lib/attachments/local-file-storage";
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const authContext = await assertModuleWriteAccess("purchasing", request.headers);
-  assertPrivateBlobStorageConfigured();
+  const useBlobStorage = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+
+  if (!useBlobStorage && !canUseLocalAttachmentStorage()) {
+    throw new DomainError("Private file storage is not configured.", 503);
+  }
 
   const { id } = await (ctx as RouteContext).params;
   const uploadFile = await readRequiredPrivateFormFile(request);
@@ -24,12 +34,28 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     return jsonNotFound("Purchase order not found");
   }
 
-  const upload = await uploadPrivateFile(uploadFile, [
-    "attachments",
-    authContext.orgId,
-    "purchase-orders",
-    id,
-  ]);
+  const upload = useBlobStorage
+    ? await uploadPrivateFile(uploadFile, [
+        "attachments",
+        authContext.orgId,
+        "purchase-orders",
+        id,
+      ])
+    : {
+        ...uploadFile,
+        storageKey: [
+          "attachments",
+          authContext.orgId,
+          "purchase-orders",
+          id,
+          `${crypto.randomUUID()}-${sanitizeBlobPathPart(uploadFile.filename)}`,
+        ].join("/"),
+        blobUrl: "",
+      };
+
+  if (!useBlobStorage) {
+    upload.blobUrl = await writeLocalAttachment(upload.storageKey, uploadFile.file);
+  }
 
   try {
     const file = await createPurchaseOrderAttachment({
@@ -46,13 +72,21 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     });
 
     if (!file) {
-      await deletePrivateBlobQuietly(upload.blobUrl);
+      if (useBlobStorage) {
+        await deletePrivateBlobQuietly(upload.blobUrl);
+      } else {
+        await deleteLocalAttachment(upload.blobUrl).catch(() => undefined);
+      }
       return jsonNotFound("Purchase order not found");
     }
 
     return jsonCreated(file);
   } catch (error) {
-    await deletePrivateBlobQuietly(upload.blobUrl);
+    if (useBlobStorage) {
+      await deletePrivateBlobQuietly(upload.blobUrl);
+    } else {
+      await deleteLocalAttachment(upload.blobUrl).catch(() => undefined);
+    }
     throw error;
   }
 });
