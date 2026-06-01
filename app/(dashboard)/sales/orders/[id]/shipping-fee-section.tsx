@@ -109,7 +109,7 @@ export function ShippingFeeSection({
           </tbody>
         </FramedTable>
       </TableFrame>
-      <div className="mt-(--space-4) flex justify-end gap-(--space-6) text-[length:var(--text-sm)]">
+      <div className="mt-(--space-4) flex justify-end gap-(--space-6) text-[length:var(--text-base)] leading-[var(--leading-base)]">
         <span className="text-muted-foreground">Total shipping fee</span>
         <span className="font-mono font-semibold tabular-nums">
           {formatPrice(String(total)) ?? "$0.00"}

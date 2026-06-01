@@ -79,7 +79,11 @@ import { DetailHeaderTitle } from "@/components/card-page/detail-header-title";
 import { NotesField } from "@/components/card-page/notes-field";
 import { TotalsSummary } from "@/components/card-page/totals-summary";
 import { type CardSaveState } from "@/components/card-page/card-save-status";
-import { underlineControlClass } from "@/components/card-page/form-cell";
+import {
+  ReadOnlyFieldValue,
+  underlineControlClass,
+} from "@/components/card-page/form-cell";
+import { CardField } from "@/components/card-page/card-field";
 import {
   PO_LINE_TOTAL_TOOLTIP,
   PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP,
@@ -2213,27 +2217,27 @@ export function PurchaseOrderCard({
                   </Field>
                 </div>
                 <div className={styles.formField}>
-                  <Field data-invalid={Boolean(fieldErrors.expectedDate)}>
-                    <FieldLabel className={styles.formLabel} htmlFor="expectedDate">
-                      Expected arrival <span className={styles.requiredMark}>*</span>
-                    </FieldLabel>
+                  <CardField
+                    label="Expected arrival"
+                    htmlFor="expectedDate"
+                    required
+                    invalid={Boolean(fieldErrors.expectedDate)}
+                    error={fieldErrorMessage(fieldErrors.expectedDate)}
+                  >
                     {readOnly ? (
-                      <div className={`${styles.readOnlyFieldValue} ${styles.mono}`}>
+                      <ReadOnlyFieldValue mono>
                         {draftValues.expectedDate ? formatDate(draftValues.expectedDate) : "—"}
-                      </div>
+                      </ReadOnlyFieldValue>
                     ) : (
                       <DatePicker
                         id="expectedDate"
                         value={draftValues.expectedDate ?? ""}
                         onChange={(value) => commitPurchaseOrderDraft({ expectedDate: value || null })}
                         aria-invalid={Boolean(fieldErrors.expectedDate)}
-                        className={styles.underlineControl}
+                        className={underlineControlClass(Boolean(fieldErrors.expectedDate))}
                       />
                     )}
-                    {fieldErrors.expectedDate ? (
-                      <FieldError>{fieldErrorMessage(fieldErrors.expectedDate)}</FieldError>
-                    ) : null}
-                  </Field>
+                  </CardField>
                 </div>
                 <div className={styles.formField}>
                   <DeliveryAddressInput
@@ -2595,7 +2599,7 @@ function DeliveryAddressInput({
         {label ?? "Delivery Address"}
       </FieldLabel>
       {readOnly ? (
-        <div className={styles.readOnlyAddress}>
+        <div className={styles.readOnlyFieldValue}>
           {addressLines.length > 0
             ? addressLines.map((line) => <div key={line}>{line}</div>)
             : "No delivery address set"}

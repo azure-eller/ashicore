@@ -47,7 +47,7 @@ export function FramedTable({
   const table = (
     <table
       className={cn(
-        "w-full border-collapse text-[length:var(--text-sm)] leading-[var(--leading-sm)]",
+        "w-full border-collapse text-[length:var(--text-md)] leading-[var(--leading-md)]",
         className,
       )}
       {...props}
@@ -74,7 +74,7 @@ export function FramedTableHead({
   return (
     <thead
       className={cn(
-        "bg-[var(--color-surface-muted)] text-left text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-medium text-muted-foreground",
+        "bg-[var(--color-surface-muted)] text-left text-[length:var(--text-sm)] leading-[var(--leading-sm)] font-medium text-muted-foreground",
         sticky && "sticky top-0 z-10",
         className,
       )}

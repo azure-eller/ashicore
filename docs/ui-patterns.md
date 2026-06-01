@@ -60,6 +60,17 @@ Use `CreatePageShell` inside the module shell for standalone create/edit forms.
 Use `CardPage` inside the module shell for editable detail cards. Use
 `SettingsPanel` and `SettingsKeyValueRow` for settings surfaces.
 
+Record-card fields should compose `components/card-page/card-field.tsx`
+primitives. Card pages should not locally decide field label typography,
+underline control styling, invalid/disabled treatment, or select/input height.
+Use the composable `CardField` / `CardReadOnlyValue` path for unusual fields and
+the focused wrappers (`CardTextField`, `CardNumberField`, `CardSelectField`,
+`CardCheckboxField`) only where they remove real repetition. Raw shadcn
+`Field`, `FieldLabel`, `Input`, and `Select` composition should stay inside the
+shared card primitives or exceptional dialog internals. When a dialog reuses a
+card field wrapper, pass `controlStyle="dialog"` so the label and validation
+behavior stay standardized without forcing card underline/density styling.
+
 Dashboard navigation state may update active nav affordances optimistically, but
 it must not unmount the dashboard route tree to show loading. Segment
 `loading.tsx` files and local Suspense fallbacks own loading UI.

@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { Field, FieldLabel } from "@/components/ui/field";
+import { CardField } from "@/components/card-page/card-field";
 import {
   Combobox,
   ComboboxContent,
@@ -94,8 +94,7 @@ export function CategoryComboboxField({
   }
 
   return (
-    <Field>
-      <FieldLabel htmlFor={inputId}>{label}</FieldLabel>
+    <CardField label={label} htmlFor={inputId}>
       <Combobox
         items={options}
         value={normalizedValue}
@@ -133,6 +132,6 @@ export function CategoryComboboxField({
           </ComboboxList>
         </ComboboxContent>
       </Combobox>
-    </Field>
+    </CardField>
   );
 }

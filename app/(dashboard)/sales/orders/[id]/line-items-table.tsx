@@ -137,7 +137,7 @@ export function LineItemsTable({
               <span className="font-medium">
                 {data.itemName || <span className="text-muted-foreground">Search items...</span>}
               </span>
-              <span className="text-[length:var(--text-xs)] text-muted-foreground">
+              <span className="text-[length:var(--text-sm)] text-muted-foreground">
                 {data.unitName}
               </span>
             </div>
@@ -148,7 +148,7 @@ export function LineItemsTable({
         kind: "display",
         headerName: "SKU",
         width: 120,
-        cellClass: "text-[length:var(--text-xs)]",
+        cellClass: "text-[length:var(--text-base)]",
         mono: true,
         muted: true,
         valueFormatter: ({ value }) => (value ? String(value) : "—"),
@@ -169,7 +169,7 @@ export function LineItemsTable({
             <div className="flex flex-col items-end justify-center leading-tight py-(--space-1) font-mono tabular-nums">
               <span>{formatQuantity(data.quantity) ?? "0"}</span>
               {shipped > 0 ? (
-                <span className="text-[length:var(--text-xs)] text-muted-foreground">
+                <span className="text-[length:var(--text-sm)] text-muted-foreground">
                   {formatQuantity(data.shippedQuantity)} shipped
                 </span>
               ) : null}

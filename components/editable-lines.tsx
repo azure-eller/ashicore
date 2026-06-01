@@ -231,7 +231,7 @@ export function MutableLines<TData>({
   rows: sourceRows,
   createRow,
   fields,
-  rowHeight = 42,
+  rowHeight,
   headerHeight,
   initializeBlankRow = true,
   isBlankRow: _isBlankRow,
@@ -277,7 +277,6 @@ export function ManagedEditableLines<TData>({
       {...props}
       columns={columns}
       addLabel="Add row"
-      rowHeight={42}
       enableAddRow={false}
       enableReorder={editable}
       enableDelete={editable}
@@ -297,7 +296,6 @@ export function FixedEditableLines<TData>({ fields, ...props }: FixedEditableLin
       {...props}
       columns={columns}
       addLabel="Add row"
-      rowHeight={42}
       enableAddRow={false}
       enableReorder={false}
       enableDelete={false}
@@ -328,7 +326,6 @@ export function ReadOnlyLines<TData>({
       createRow={createRow ?? (() => props.rows[0] as TData)}
       onRowsChange={() => undefined}
       addLabel="Add row"
-      rowHeight={42}
       enableAddRow={false}
       enableReorder={false}
       enableDelete={false}

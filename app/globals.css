@@ -138,10 +138,11 @@
   --height-subnav: 54px;
   --height-nav: 64px;
   --height-statusbar: 45px;
-  --height-block: 24px;
   --height-input-sm: 39px;
   --height-input-md: 45px;
   --height-input-lg: 54px;
+  --height-card-table-header: 36px;
+  --height-card-table-row: 44px;
 
   --shadow-none: none;
   --shadow-sticky: 0 1px 0 var(--color-line);

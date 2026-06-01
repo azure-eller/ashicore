@@ -1,15 +1,12 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Field, FieldLabel } from "@/components/ui/field";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  CardCheckboxField,
+  CardField,
+  CardSelectField,
+} from "@/components/card-page/card-field";
 import { CardSection } from "@/components/card-page/card-page";
 import { CardPageTwoColumn } from "@/components/card-page/card-page-two-column";
 import {
@@ -106,21 +103,18 @@ export function MaterialGeneralInfoTab({
               onFamilyChange={onFamilyChange}
               onFamilyCommit={onFamilyCommit}
             />
-            <Field>
-              <FieldLabel>Tracking</FieldLabel>
-              <label className="flex items-center gap-(--space-2) text-[length:var(--text-sm)]">
-                <Checkbox
-                  checked={card.family.lotTrackingMode === "tracked"}
-                  disabled={isDraft || !canAdminInventory}
-                  onCheckedChange={(checked) =>
-                    onFamilyCommit({
-                      lotTrackingMode: checked === true ? "tracked" : "untracked",
-                    })
-                  }
-                />
-                <span>Lot tracked</span>
-              </label>
-            </Field>
+            <CardField label="Tracking">
+              <CardCheckboxField
+                label="Lot tracked"
+                checked={card.family.lotTrackingMode === "tracked"}
+                disabled={isDraft || !canAdminInventory}
+                onCheckedChange={(checked) =>
+                  onFamilyCommit({
+                    lotTrackingMode: checked === true ? "tracked" : "untracked",
+                  })
+                }
+              />
+            </CardField>
           </>
         }
       />
@@ -198,30 +192,22 @@ function MaterialUnitSelectField({
   onFamilyCommit: (patch?: DraftFamilyPatch) => void;
 }) {
   return (
-    <Field>
-      <FieldLabel>Unit of measure</FieldLabel>
-      <Select
-        value={currentUnitId}
-        onValueChange={(value) => {
-          if (disabled) return;
-          if (value === currentUnitId) return;
-          const patch = { unitDefinitionId: value };
-          onFamilyChange(patch, Number.POSITIVE_INFINITY);
-          onFamilyCommit(patch);
-        }}
-        disabled={disabled}
-      >
-        <SelectTrigger className="w-full">
-          <SelectValue placeholder="Select a unit" />
-        </SelectTrigger>
-        <SelectContent>
-          {unitOptions.map((unit) => (
-            <SelectItem key={unit.id} value={unit.id}>
-              {unit.name} ({unit.size} {unit.uom})
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </Field>
+    <CardSelectField
+      label="Unit of measure"
+      value={currentUnitId}
+      onValueChange={(value) => {
+        if (disabled) return;
+        if (value === currentUnitId) return;
+        const patch = { unitDefinitionId: value };
+        onFamilyChange(patch, Number.POSITIVE_INFINITY);
+        onFamilyCommit(patch);
+      }}
+      disabled={disabled}
+      placeholder="Select a unit"
+      options={unitOptions.map((unit) => ({
+        value: unit.id,
+        label: `${unit.name} (${unit.size} ${unit.uom})`,
+      }))}
+    />
   );
 }

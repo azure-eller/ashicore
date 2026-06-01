@@ -11,16 +11,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { FieldError } from "@/components/ui/field";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  CardCheckboxField,
+  CardField,
+  CardSelectField,
+  CardTextField,
+} from "@/components/card-page/card-field";
 import {
   copyBomFromVariant,
   copyBomToVariants,
@@ -157,8 +154,7 @@ function DialogBody({
       </DialogHeader>
 
       {direction === "to" ? (
-        <Field>
-          <FieldLabel>Target variants</FieldLabel>
+        <CardField label="Target variants" controlStyle="dialog">
           {otherVariants.length === 0 ? (
             <p className="text-[length:var(--text-sm)] text-muted-foreground">
               No sibling variants available.
@@ -166,53 +162,45 @@ function DialogBody({
           ) : (
             <div className="space-y-(--space-2)">
               {otherVariants.map((variant) => (
-                <label
+                <CardCheckboxField
                   key={variant.id}
-                  className="flex items-center gap-(--space-2) text-[length:var(--text-sm)]"
-                >
-                  <Checkbox
-                    checked={selectedIds.has(variant.id)}
-                    onCheckedChange={(checked) => {
-                      setSelectedIds((prev) => {
-                        const next = new Set(prev);
-                        if (checked === true) next.add(variant.id);
-                        else next.delete(variant.id);
-                        return next;
-                      });
-                    }}
-                  />
-                  {variant.displayName}
-                </label>
+                  label={variant.displayName}
+                  checked={selectedIds.has(variant.id)}
+                  controlStyle="dialog"
+                  onCheckedChange={(checked) => {
+                    setSelectedIds((prev) => {
+                      const next = new Set(prev);
+                      if (checked === true) next.add(variant.id);
+                      else next.delete(variant.id);
+                      return next;
+                    });
+                  }}
+                />
               ))}
             </div>
           )}
-        </Field>
+        </CardField>
       ) : (
-        <Field>
-          <FieldLabel>Source variant</FieldLabel>
-          <Select
-            value={sourceId}
-            onValueChange={setSourceId}
-            disabled={otherVariants.length === 0}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="None available" />
-            </SelectTrigger>
-            <SelectContent>
-              {otherVariants.map((variant) => (
-                <SelectItem key={variant.id} value={variant.id}>
-                  {variant.displayName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </Field>
+        <CardSelectField
+          label="Source variant"
+          value={sourceId}
+          onValueChange={setSourceId}
+          controlStyle="dialog"
+          disabled={otherVariants.length === 0}
+          placeholder="None available"
+          options={otherVariants.map((variant) => ({
+            value: variant.id,
+            label: variant.displayName,
+          }))}
+        />
       )}
 
-      <Field>
-        <FieldLabel>Revision note</FieldLabel>
-        <Input value={note} onChange={(event) => setNote(event.target.value)} />
-      </Field>
+      <CardTextField
+        label="Revision note"
+        value={note}
+        controlStyle="dialog"
+        onChange={(event) => setNote(event.target.value)}
+      />
 
       {errorMessage ? <FieldError>{errorMessage}</FieldError> : null}
 

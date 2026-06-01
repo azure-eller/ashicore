@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import styles from "./card-page.module.css";
 
 export function CommitInput({
+  id: providedId,
   label,
   type,
   value,
@@ -21,6 +22,7 @@ export function CommitInput({
   commitUnchangedValue,
   onCommit,
 }: {
+  id?: string;
   label: string;
   type?: string;
   value: string | null | undefined;
@@ -34,7 +36,8 @@ export function CommitInput({
   commitUnchangedValue?: boolean;
   onCommit: (value: string | null) => void;
 }) {
-  const id = useId();
+  const generatedId = useId();
+  const id = providedId ?? generatedId;
   const normalizedValue = value ?? "";
   const [draft, setDraft] = useState(normalizedValue);
 

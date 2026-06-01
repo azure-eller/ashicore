@@ -32,9 +32,9 @@ import {
   CardSection,
 } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
+import { CardField } from "@/components/card-page/card-field";
 import {
   CardFormRow,
-  CellShell,
   underlineControlClass,
 } from "@/components/card-page/form-cell";
 import { CommitInput } from "@/components/card-page/commit-input";
@@ -348,8 +348,14 @@ export function SupplierCard({
       <CardPageBody>
         <CardSection>
           <CardFormRow columns="three">
-            <CellShell label="Name" required invalid={isDraft && !display.name.trim()}>
+            <CardField
+              label="Name"
+              htmlFor="supplier-name"
+              required
+              invalid={isDraft && !display.name.trim()}
+            >
               <CommitInput
+                id="supplier-name"
                 label="Name"
                 value={display.name}
                 disabled={readOnly}
@@ -360,49 +366,60 @@ export function SupplierCard({
                   if (name) commitSupplierPatch({ name });
                 }}
               />
-            </CellShell>
-            <CellShell label={<TooltipHeader label="Code" tooltip={SUPPLIER_CODE_TOOLTIP} />}>
+            </CardField>
+            <CardField
+              label={<TooltipHeader label="Code" tooltip={SUPPLIER_CODE_TOOLTIP} />}
+              htmlFor="supplier-code"
+            >
               <CommitInput
+                id="supplier-code"
                 label="Code"
                 value={display.code ?? ""}
                 disabled={readOnly}
                 onCommit={(code) => commitSupplierPatch({ code })}
               />
-            </CellShell>
-            <CellShell label="Contact name">
+            </CardField>
+            <CardField label="Contact name" htmlFor="supplier-contact-name">
               <CommitInput
+                id="supplier-contact-name"
                 label="Contact name"
                 value={display.contactName ?? ""}
                 disabled={readOnly}
                 onCommit={(contactName) => commitSupplierPatch({ contactName })}
               />
-            </CellShell>
-            <CellShell label="Email">
+            </CardField>
+            <CardField label="Email" htmlFor="supplier-email">
               <CommitInput
+                id="supplier-email"
                 label="Email"
                 type="email"
                 value={display.email ?? ""}
                 disabled={readOnly}
                 onCommit={(email) => commitSupplierPatch({ email })}
               />
-            </CellShell>
-            <CellShell label="Phone">
+            </CardField>
+            <CardField label="Phone" htmlFor="supplier-phone">
               <CommitInput
+                id="supplier-phone"
                 label="Phone"
                 value={display.phone ?? ""}
                 disabled={readOnly}
                 onCommit={(phone) => commitSupplierPatch({ phone })}
               />
-            </CellShell>
-            <CellShell label={<TooltipHeader label="Payment terms" tooltip={PAYMENT_TERMS_TOOLTIP} />}>
+            </CardField>
+            <CardField
+              label={<TooltipHeader label="Payment terms" tooltip={PAYMENT_TERMS_TOOLTIP} />}
+              htmlFor="supplier-payment-terms"
+            >
               <CommitInput
+                id="supplier-payment-terms"
                 label="Payment terms"
                 value={display.paymentTerms ?? ""}
                 disabled={readOnly}
                 onCommit={(paymentTerms) => commitSupplierPatch({ paymentTerms })}
               />
-            </CellShell>
-            <CellShell label="Billing address">
+            </CardField>
+            <CardField label="Billing address" htmlFor="supplier-billing-address">
               <SupplierAddressInput
                 id="supplier-billing-address"
                 value={billingAddress}
@@ -412,7 +429,7 @@ export function SupplierCard({
                 onAddNew={openAddressDialog}
                 onEdit={openEditAddressDialog}
               />
-            </CellShell>
+            </CardField>
           </CardFormRow>
         </CardSection>
 

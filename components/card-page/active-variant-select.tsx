@@ -1,5 +1,7 @@
 "use client";
 
+import { useId } from "react";
+
 import {
   Select,
   SelectContent,
@@ -7,8 +9,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { CardField } from "@/components/card-page/card-field";
 import type { ItemCardVariantDto } from "@/lib/api/clients/item-cards";
+import styles from "./card-page.module.css";
 
 export type ActiveVariantSelectProps = {
   variants: ItemCardVariantDto[];
@@ -35,12 +38,17 @@ export function ActiveVariantSelect({
   label = "Active Variant",
   inline = false,
 }: ActiveVariantSelectProps) {
+  const generatedId = useId();
+  const triggerId = `active-variant-${generatedId}`;
   const visible = variants.filter((variant) => variant.deletedAt == null);
   if (visible.length === 0) return null;
   if (hideWhenSingle && visible.length === 1) return null;
 
   const trigger = (
-    <SelectTrigger className="w-full md:w-[420px]">
+    <SelectTrigger
+      id={inline ? undefined : triggerId}
+      className={`${styles.underlineControl} w-full justify-between md:w-[420px]`}
+    >
       <SelectValue placeholder="Select a variant" />
     </SelectTrigger>
   );
@@ -65,12 +73,11 @@ export function ActiveVariantSelect({
   }
 
   return (
-    <Field>
-      <FieldLabel>{label}</FieldLabel>
+    <CardField label={label} htmlFor={triggerId}>
       <Select value={value} onValueChange={onChange}>
         {trigger}
         {content}
       </Select>
-    </Field>
+    </CardField>
   );
 }

@@ -131,7 +131,7 @@ function StatusBlockContent({
         ) : null}
       </span>
       {marker ? (
-        <span className="ml-auto inline-flex min-w-(--space-10) items-center justify-center border-l border-[var(--status-block-divider)] px-(--space-2) text-[10px] font-bold">
+        <span className="ml-auto inline-flex min-w-(--space-10) items-center justify-center border-l border-[var(--status-block-divider)] px-(--space-2) text-[length:var(--text-xs)] font-bold">
           {marker}
         </span>
       ) : null}
@@ -161,8 +161,8 @@ export function StatusBlock({
   ...props
 }: StatusBlockProps) {
   const baseClassName = cn(
-    "inline-flex h-(--height-block) shrink-0 items-stretch overflow-hidden rounded-(--radius-none)",
-    "text-[length:var(--text-xs)] leading-none font-bold uppercase tracking-[var(--tracking-wide)]",
+    "inline-flex h-(--height-input-sm) shrink-0 items-stretch overflow-hidden rounded-(--radius-none)",
+    "text-[length:var(--text-sm)] leading-none font-bold uppercase tracking-[var(--tracking-wide)]",
     "text-[color:var(--status-block-fg)]",
     "bg-[var(--tone-bg)]",
     actionable &&

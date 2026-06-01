@@ -125,11 +125,15 @@
 
 .grid :global(.ag-cell.statusBlockCell .ag-cell-value) {
   align-items: stretch;
+  display: flex;
+  height: 100%;
+  width: 100%;
 }
 
 .grid :global(.ag-cell.statusBlockCell [data-slot="status-block"]) {
   height: 100%;
   width: 100%;
+  justify-content: center;
 }
 
 .grid :global(.ag-cell.muted) {
@@ -154,9 +158,13 @@
 }
 
 .editableGrid :global(.ag-cell) {
-  font-size: var(--text-base);
-  line-height: var(--leading-base);
+  font-size: var(--text-md);
+  line-height: var(--leading-md);
   padding-block: 0;
+}
+
+.editableGrid :global(.ag-header-cell-text) {
+  font-size: var(--text-sm);
 }
 
 .editableGrid :global(.ag-cell.ag-cell-inline-editing) {
@@ -196,10 +204,10 @@
   cursor: pointer;
   display: inline-flex;
   font: inherit;
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   font-weight: var(--weight-medium);
   gap: var(--space-1);
-  min-height: 28px;
+  min-height: var(--height-input-md);
   padding: 0 var(--space-3);
 }
 

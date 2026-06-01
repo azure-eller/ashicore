@@ -44,11 +44,11 @@ export function TotalsStrip({
         {notesEditable ? (
           <NotesEditor initial={notesValue} controller={controller} />
         ) : notesValue ? (
-          <div className="whitespace-pre-wrap text-[13px] text-[var(--color-ink)]">
+          <div className="whitespace-pre-wrap text-[length:var(--text-md)] leading-[var(--leading-md)] text-[var(--color-ink)]">
             {notesValue}
           </div>
         ) : (
-          <div className="text-[13px] text-[var(--color-muted-2)]">No notes</div>
+          <div className="text-[length:var(--text-md)] leading-[var(--leading-md)] text-[var(--color-muted-2)]">No notes</div>
         )}
       </div>
 
@@ -103,7 +103,7 @@ function NotesEditor({
         controller.patchHeader({ notes: next });
       }}
       rows={3}
-      className="resize-y min-h-[48px]"
+      className="min-h-[64px] resize-y text-[length:var(--text-md)] leading-[var(--leading-md)]"
       placeholder="Add notes for the warehouse or customer."
     />
   );

@@ -16,6 +16,8 @@ read_when:
 
 ## Card Building Blocks
 
+- `CardField`, `CardReadOnlyValue`, `CardTextField`, `CardNumberField`, `CardSelectField`, and `CardCheckboxField` — `components/card-page/card-field.tsx`
+  - Field wrappers default to card underline/density styling. Use `controlStyle="dialog"` when reusing them inside dialogs that should keep standard dialog control chrome.
 - `CardPageHeader` — `components/card-page/card-page-header.tsx`
 - `CardTabs` — `components/card-page/card-tabs.tsx`
 - `CardPageTwoColumn` — `components/card-page/card-page-two-column.tsx`

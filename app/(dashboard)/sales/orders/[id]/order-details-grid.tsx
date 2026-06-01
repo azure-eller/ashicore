@@ -15,9 +15,9 @@ import {
 } from "@/components/delivery-address-input";
 import { EntityCombobox } from "@/components/entity-combobox";
 import { CardSection } from "@/components/card-page/card-page";
+import { CardField } from "@/components/card-page/card-field";
 import {
   CardFormRow,
-  CellShell,
   DisabledFieldTooltip,
   ReadOnlyFieldValue,
   underlineControlClass,
@@ -163,7 +163,7 @@ function TextCell<Field extends keyof PatchSalesOrderHeader>({
   const { controller } = useDetailsContext();
 
   return (
-    <CellShell label={label} required={required}>
+    <CardField label={label} required={required}>
       {editable ? (
         <CommitInput
           label={label}
@@ -185,7 +185,7 @@ function TextCell<Field extends keyof PatchSalesOrderHeader>({
           </ReadOnlyFieldValue>
         </DisabledFieldTooltip>
       )}
-    </CellShell>
+    </CardField>
   );
 }
 
@@ -205,7 +205,7 @@ function DateCell({
   const { controller } = useDetailsContext();
 
   return (
-    <CellShell label={label} required={required}>
+    <CardField label={label} required={required}>
       {editable ? (
         <DatePicker
           aria-label={label}
@@ -222,7 +222,7 @@ function DateCell({
           {value || "—"}
         </ReadOnlyFieldValue>
       )}
-    </CellShell>
+    </CardField>
   );
 }
 
@@ -238,7 +238,7 @@ function CustomerCell({
   const { controller } = useDetailsContext();
 
   return (
-    <CellShell label="Customer" required invalid={editable && !order.customerId}>
+    <CardField label="Customer" required invalid={editable && !order.customerId}>
       {editable ? (
         <>
           <EntityCombobox
@@ -268,7 +268,7 @@ function CustomerCell({
           <ReadOnlyFieldValue>{order.customerName}</ReadOnlyFieldValue>
         </>
       )}
-    </CellShell>
+    </CardField>
   );
 }
 
@@ -286,16 +286,16 @@ function ProjectCell({
 
   if (!editable) {
     return (
-      <CellShell label="Project / Job">
+      <CardField label="Project / Job">
         <ReadOnlyFieldValue>
           {order.customerProjectName || "No project"}
         </ReadOnlyFieldValue>
-      </CellShell>
+      </CardField>
     );
   }
 
   return (
-    <CellShell label="Project / Job">
+    <CardField label="Project / Job">
       <DisabledFieldTooltip
         reason={
           projects.length === 0
@@ -328,7 +328,7 @@ function ProjectCell({
           </SelectContent>
         </Select>
       </DisabledFieldTooltip>
-    </CellShell>
+    </CardField>
   );
 }
 
@@ -455,9 +455,9 @@ function AddressCell({
       <>
         <ReadOnlyAddressCell label="Ship to" address={currentShippingAddress} />
         {billingSameAsShipping ? (
-          <CellShell label="Billing">
+          <CardField label="Billing">
             <ReadOnlyFieldValue>Same as shipping address</ReadOnlyFieldValue>
-          </CellShell>
+          </CardField>
         ) : (
           <ReadOnlyAddressCell label="Billing" address={currentBillingAddress} />
         )}
@@ -467,7 +467,7 @@ function AddressCell({
 
   return (
     <>
-      <CellShell label="Ship to">
+      <CardField label="Ship to">
         <DeliveryAddressInput
           id="sales-order-shipping-address"
           value={currentShippingAddress}
@@ -477,8 +477,8 @@ function AddressCell({
           onEdit={(option) => openEditAddressDialog("shipping", option)}
           inputClassName={underlineControlClass()}
         />
-      </CellShell>
-      <CellShell label="Billing">
+      </CardField>
+      <CardField label="Billing">
         <DeliveryAddressInput
           id="sales-order-billing-address"
           value={billingSameAsShipping ? undefined : currentBillingAddress}
@@ -500,7 +500,7 @@ function AddressCell({
           }}
           onSubmit={handleAddressDialogSubmit}
         />
-      </CellShell>
+      </CardField>
     </>
   );
 }
@@ -530,17 +530,17 @@ function ReadOnlyAddressCell({
   });
 
   return (
-    <CellShell label={label}>
+    <CardField label={label}>
       {lines.length > 0 ? (
-        <div className={cardStyles.readOnlyAddress}>
+        <div className={cardStyles.readOnlyFieldValue}>
           {lines.map((line, idx) => (
             <div key={idx}>{line}</div>
           ))}
         </div>
       ) : (
-        <div className={cardStyles.readOnlyAddress}>No address set</div>
+        <div className={cardStyles.readOnlyFieldValue}>No address set</div>
       )}
-    </CellShell>
+    </CardField>
   );
 }
 

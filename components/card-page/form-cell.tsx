@@ -2,29 +2,8 @@ import type { ReactNode } from "react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { CardReadOnlyValue } from "./card-field";
 import cardStyles from "./card-page.module.css";
-
-export function CellShell({
-  label,
-  required,
-  invalid,
-  children,
-}: {
-  label: ReactNode;
-  required?: boolean;
-  invalid?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <div className={cardStyles.formField}>
-      <label className={`${cardStyles.formLabel} ${invalid ? cardStyles.formLabelInvalid : ""}`}>
-        {label}
-        {required ? <span className={cardStyles.requiredMark}> *</span> : null}
-      </label>
-      {children}
-    </div>
-  );
-}
 
 export function CardFormRow({
   children,
@@ -85,11 +64,8 @@ export function ReadOnlyFieldValue({
   className?: string;
 }) {
   return (
-    <div
-      className={cn(cardStyles.readOnlyFieldValue, mono && cardStyles.mono, className)}
-      title={title}
-    >
+    <CardReadOnlyValue mono={mono} title={title} className={className}>
       {children}
-    </div>
+    </CardReadOnlyValue>
   );
 }

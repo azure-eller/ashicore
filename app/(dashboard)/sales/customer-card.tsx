@@ -40,15 +40,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   StatusBadge,
   type StatusBadgeConfig,
@@ -66,8 +59,12 @@ import {
 } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import {
+  CardField,
+  CardSelectField,
+  CardTextField,
+} from "@/components/card-page/card-field";
+import {
   CardFormRow,
-  CellShell,
   ReadOnlyFieldValue,
   underlineControlClass,
 } from "@/components/card-page/form-cell";
@@ -443,8 +440,14 @@ export function CustomerCard({
       <CardPageBody>
         <CardSection title="Customer at a glance">
           <CardFormRow columns="three">
-            <CellShell label="Customer name" required invalid={isDraft && !display.name.trim()}>
+            <CardField
+              label="Customer name"
+              htmlFor="customer-name"
+              required
+              invalid={isDraft && !display.name.trim()}
+            >
               <CommitInput
+                id="customer-name"
                 label="Customer name"
                 value={display.name}
                 disabled={readOnly}
@@ -455,25 +458,27 @@ export function CustomerCard({
                   if (name) commitCustomerPatch({ name });
                 }}
               />
-            </CellShell>
-            <CellShell label="Email">
+            </CardField>
+            <CardField label="Email" htmlFor="customer-email">
               <CommitInput
+                id="customer-email"
                 label="Email"
                 type="email"
                 value={display.email ?? ""}
                 disabled={readOnly}
                 onCommit={(email) => commitCustomerPatch({ email })}
               />
-            </CellShell>
-            <CellShell label="Phone">
+            </CardField>
+            <CardField label="Phone" htmlFor="customer-phone">
               <CommitInput
+                id="customer-phone"
                 label="Phone"
                 value={display.phone ?? ""}
                 disabled={readOnly}
                 onCommit={(phone) => commitCustomerPatch({ phone })}
               />
-            </CellShell>
-            <CellShell label="Shipping address">
+            </CardField>
+            <CardField label="Shipping address" htmlFor="customer-shipping-address">
               <CustomerAddressInput
                 id="customer-shipping-address"
                 target="shipping"
@@ -484,8 +489,8 @@ export function CustomerCard({
                 onAddNew={() => openAddressDialog("shipping")}
                 onEdit={(option) => openEditAddressDialog("shipping", option)}
               />
-            </CellShell>
-            <CellShell label="Billing address">
+            </CardField>
+            <CardField label="Billing address" htmlFor="customer-billing-address">
               <CustomerAddressInput
                 id="customer-billing-address"
                 target="billing"
@@ -498,12 +503,12 @@ export function CustomerCard({
                 onAddNew={() => openAddressDialog("billing")}
                 onEdit={(option) => openEditAddressDialog("billing", option)}
               />
-            </CellShell>
-            <CellShell label="Customer since">
+            </CardField>
+            <CardField label="Customer since">
               <ReadOnlyFieldValue>
                 {display.createdAt ? formatDate(toDateOnlyString(display.createdAt)) : "-"}
               </ReadOnlyFieldValue>
-            </CellShell>
+            </CardField>
           </CardFormRow>
         </CardSection>
 
@@ -890,75 +895,73 @@ function CustomerProjectDialog({
         </DialogHeader>
         <div className="grid gap-(--space-8)">
           <CardFormRow columns="three">
-            <CellShell label="Project name" required>
-              <Input
-                className={styles.underlineControl}
-                value={draft.name}
-                disabled={readOnly}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, name: event.target.value }))
-                }
-              />
-            </CellShell>
-            <CellShell label="Status">
-              <Select
-                value={draft.status}
-                disabled={readOnly}
-                onValueChange={(status: ProjectGridRow["status"]) =>
-                  setDraft((current) => ({ ...current, status }))
-                }
-              >
-                <SelectTrigger className={styles.underlineControl}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="planning">Planning</SelectItem>
-                  <SelectItem value="active">In Progress</SelectItem>
-                  <SelectItem value="hold">On Hold</SelectItem>
-                  <SelectItem value="done">Done</SelectItem>
-                </SelectContent>
-              </Select>
-            </CellShell>
+            <CardTextField
+              label="Project name"
+              value={draft.name}
+              required
+              disabled={readOnly}
+              controlStyle="dialog"
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, name: event.target.value }))
+              }
+            />
+            <CardSelectField
+              label="Status"
+              value={draft.status}
+              disabled={readOnly}
+              controlStyle="dialog"
+              onValueChange={(status) =>
+                setDraft((current) => ({ ...current, status: status as ProjectGridRow["status"] }))
+              }
+              options={[
+                { value: "planning", label: "Planning" },
+                { value: "active", label: "In Progress" },
+                { value: "hold", label: "On Hold" },
+                { value: "done", label: "Done" },
+              ]}
+            />
           </CardFormRow>
 
           <CardFormRow columns="three">
-            <CellShell label="Start date">
-              <Input
-                type="date"
-                className={styles.underlineControl}
-                value={draft.startDate ?? ""}
-                disabled={readOnly}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    startDate: event.target.value || null,
-                  }))
-                }
-              />
-            </CellShell>
-            <CellShell label="Target date">
-              <Input
-                type="date"
-                className={styles.underlineControl}
-                value={draft.targetEndDate ?? ""}
-                disabled={readOnly}
-                onChange={(event) =>
-                  setDraft((current) => ({
-                    ...current,
-                    targetEndDate: event.target.value || null,
-                  }))
-                }
-              />
-            </CellShell>
+            <CardTextField
+              label="Start date"
+              type="date"
+              value={draft.startDate ?? ""}
+              disabled={readOnly}
+              controlStyle="dialog"
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  startDate: event.target.value || null,
+                }))
+              }
+            />
+            <CardTextField
+              label="Target date"
+              type="date"
+              value={draft.targetEndDate ?? ""}
+              disabled={readOnly}
+              controlStyle="dialog"
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  targetEndDate: event.target.value || null,
+                }))
+              }
+            />
           </CardFormRow>
 
-          <Field>
-            <FieldLabel htmlFor="customer-project-summary">Summary</FieldLabel>
+          <CardField
+            label="Summary"
+            htmlFor="customer-project-summary"
+            controlStyle="dialog"
+          >
             <Textarea
               id="customer-project-summary"
               value={draft.summary ?? ""}
               disabled={readOnly}
               rows={5}
+              className="text-[length:var(--text-md)] leading-[var(--leading-md)]"
               onChange={(event) =>
                 setDraft((current) => ({
                   ...current,
@@ -966,7 +969,7 @@ function CustomerProjectDialog({
                 }))
               }
             />
-          </Field>
+          </CardField>
 
           <div className="grid gap-(--space-4)">
             <h3 className={styles.sectionHeading}>Linked sales orders</h3>

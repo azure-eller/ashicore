@@ -76,6 +76,7 @@ function createColumns(): ColDef<PurchaseOrderListRow>[] {
       headerName: "Status",
       headerTooltip: PURCHASE_ORDER_STATUS_COLUMN_TOOLTIP,
       width: 150,
+      cellClass: "statusBlockCell",
       cellRenderer: ({ data }: ICellRendererParams<PurchaseOrderListRow>) =>
         data ? <PurchaseStatusCell order={data} /> : null,
     },

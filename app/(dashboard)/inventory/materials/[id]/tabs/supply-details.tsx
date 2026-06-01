@@ -2,17 +2,14 @@
 
 import { useCallback, useMemo, useState } from "react";
 import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
-import { Input } from "@/components/ui/input";
-import { Field, FieldLabel } from "@/components/ui/field";
-import { Checkbox } from "@/components/ui/checkbox";
-import { EntityCombobox } from "@/components/entity-combobox";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  CardCheckboxField,
+  CardField,
+  CardReadOnlyValue,
+  CardSelectField,
+} from "@/components/card-page/card-field";
+import { underlineControlClass } from "@/components/card-page/form-cell";
+import { EntityCombobox } from "@/components/entity-combobox";
 import { CardSection } from "@/components/card-page/card-page";
 import { CommitInput } from "@/components/card-page/commit-input";
 import {
@@ -61,9 +58,10 @@ export function MaterialSupplyDetailsTab({
     <>
       <CardSection title="Card defaults">
         <div className="grid gap-(--space-4) md:grid-cols-2">
-          <Field>
-            <FieldLabel>Default supplier</FieldLabel>
+          <CardField label="Default supplier" htmlFor="material-default-supplier">
             <EntityCombobox
+              inputId="material-default-supplier"
+              inputClassName={underlineControlClass()}
               options={supplierOptions}
               value={card.family.defaultSupplierId}
               onValueChange={(value) => onFamilyChange({ defaultSupplierId: value })}
@@ -83,56 +81,44 @@ export function MaterialSupplyDetailsTab({
                 ) : null
               }
             />
-          </Field>
-          <Field>
-            <FieldLabel>Supplier currency</FieldLabel>
-            <Input value="USD (Base)" disabled />
-          </Field>
+          </CardField>
+          <CardField label="Supplier currency">
+            <CardReadOnlyValue>USD (Base)</CardReadOnlyValue>
+          </CardField>
 
-          <Field className="md:col-span-2">
-            <label className="flex items-center gap-(--space-2) text-[length:var(--text-sm)]">
-              <Checkbox
-                checked={purchaseUnitOn}
-                onCheckedChange={(checked) => {
-                  if (checked === true) {
-                    setPurchaseUnitOn(true);
-                    return;
-                  }
-                  if (purchaseUnitOn) {
-                    setPurchaseUnitOn(false);
-                    onFamilyChange({
-                      purchaseUnitDefinitionId: null,
-                      purchaseToStockFactor: null,
-                    });
-                  }
-                }}
-              />
-              Use a different purchase unit
-            </label>
-          </Field>
+          <CardCheckboxField
+            className="md:col-span-2"
+            label="Use a different purchase unit"
+            checked={purchaseUnitOn}
+            onCheckedChange={(checked) => {
+              if (checked === true) {
+                setPurchaseUnitOn(true);
+                return;
+              }
+              if (purchaseUnitOn) {
+                setPurchaseUnitOn(false);
+                onFamilyChange({
+                  purchaseUnitDefinitionId: null,
+                  purchaseToStockFactor: null,
+                });
+              }
+            }}
+          />
 
           {purchaseUnitOn ? (
             <>
-              <Field>
-                <FieldLabel>Default purchase unit of measure</FieldLabel>
-                <Select
-                  value={card.family.purchaseUnitDefinitionId ?? ""}
-                  onValueChange={(value) =>
-                    onFamilyChange({ purchaseUnitDefinitionId: value })
-                  }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select a purchase unit" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {unitOptions.map((unit) => (
-                      <SelectItem key={unit.id} value={unit.id}>
-                        {unit.name} ({unit.size} {unit.uom})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
+              <CardSelectField
+                label="Default purchase unit of measure"
+                value={card.family.purchaseUnitDefinitionId ?? ""}
+                onValueChange={(value) =>
+                  onFamilyChange({ purchaseUnitDefinitionId: value })
+                }
+                placeholder="Select a purchase unit"
+                options={unitOptions.map((unit) => ({
+                  value: unit.id,
+                  label: `${unit.name} (${unit.size} ${unit.uom})`,
+                }))}
+              />
               <ConversionField
                 stockUnitName={card.family.unitName ?? ""}
                 value={card.family.purchaseToStockFactor}
@@ -314,8 +300,7 @@ function ConversionField({
   disabled?: boolean;
 }) {
   return (
-    <Field>
-      <FieldLabel>Unit conversion rate</FieldLabel>
+    <CardField label="Unit conversion rate">
       <div className="flex items-center gap-(--space-2)">
         <span className="text-[length:var(--text-sm)] text-muted-foreground">
           1 purchase unit =
@@ -336,10 +321,10 @@ function ConversionField({
         </span>
       </div>
       {value ? (
-        <p className="text-[length:var(--text-xs)] text-muted-foreground mt-(--space-1)">
+        <p className="mt-(--space-1) text-[length:var(--text-sm)] text-muted-foreground">
           Current: 1 purchase unit = {formatQuantity(value)} {stockUnitName}
         </p>
       ) : null}
-    </Field>
+    </CardField>
   );
 }

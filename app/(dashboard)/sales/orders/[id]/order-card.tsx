@@ -406,7 +406,7 @@ function RemainingItemsSection({ lines }: { lines: SalesOrderDetailLine[] }) {
             <FramedTableRow key={line.id}>
               <FramedTableCell>
                 <div className="font-medium">{line.itemName}</div>
-                <div className="text-[length:var(--text-xs)] text-muted-foreground">
+                <div className="text-[length:var(--text-sm)] text-muted-foreground">
                   {line.unitName}
                 </div>
               </FramedTableCell>
@@ -455,7 +455,7 @@ function ShippedItemsSection({
       title="Shipped items"
       count={`· ${shipment.shipmentNumber} · ${formatQuantity(String(totalQuantity))} units`}
     >
-      <div className="mb-(--space-3) flex flex-wrap items-center justify-between gap-(--space-4) text-[length:var(--text-xs)] text-muted-foreground">
+      <div className="mb-(--space-3) flex flex-wrap items-center justify-between gap-(--space-4) text-[length:var(--text-sm)] text-muted-foreground">
         <span>Picked date</span>
         <span className="font-mono tabular-nums text-foreground">
           {shipment.shippedAt ? formatDateTime(shipment.shippedAt, timeZone) : "—"}
@@ -478,7 +478,7 @@ function ShippedItemsSection({
               <FramedTableRow key={shipmentLine.id}>
                 <FramedTableCell>
                   <div className="font-medium">{shipmentLine.itemName}</div>
-                  <div className="text-[length:var(--text-xs)] text-muted-foreground">
+                  <div className="text-[length:var(--text-sm)] text-muted-foreground">
                     {shipmentLine.unitName}
                   </div>
                 </FramedTableCell>

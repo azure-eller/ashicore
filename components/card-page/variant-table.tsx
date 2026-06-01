@@ -28,9 +28,10 @@ import {
 } from "@/components/editable-line-data-grid";
 import { Button } from "@/components/ui/button";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
+import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { CardField } from "@/components/card-page/card-field";
 import {
   addInitialStock,
   deleteVariant,
@@ -305,54 +306,95 @@ function StockQuantityAdjustmentBody({
 
       {isIncrease ? (
         <div className="grid gap-(--space-4) md:grid-cols-2">
-          <Field>
-            <FieldLabel>Quantity to add</FieldLabel>
+          <CardField
+            label="Quantity to add"
+            htmlFor="stock-adjust-quantity-add"
+            controlStyle="dialog"
+          >
             <div className="flex items-center gap-(--space-2)">
-              <Input value={String(delta)} readOnly className={styles.mono} />
+              <Input
+                id="stock-adjust-quantity-add"
+                value={String(delta)}
+                readOnly
+                className={styles.mono}
+              />
               {unitLabel ? (
                 <span className="text-[length:var(--text-sm)] text-muted-foreground">
                   {unitLabel}
                 </span>
               ) : null}
             </div>
-          </Field>
-          <Field>
-            <FieldLabel>Cost per unit</FieldLabel>
+          </CardField>
+          <CardField
+            label="Cost per unit"
+            htmlFor="stock-adjust-cost-per-unit"
+            controlStyle="dialog"
+          >
             <div className="flex items-center gap-(--space-2)">
               <Input
+                id="stock-adjust-cost-per-unit"
                 value={costPerUnit}
                 onChange={(event) => setCostPerUnit(event.target.value)}
                 inputMode="decimal"
               />
               <span className="text-[length:var(--text-sm)] text-muted-foreground">USD</span>
             </div>
-          </Field>
-          <Field>
-            <FieldLabel>Occurred at</FieldLabel>
-            <DateTimePicker value={occurredAt} onChange={setOccurredAt} />
-          </Field>
-          <Field>
-            <FieldLabel>Note</FieldLabel>
-            <Input value={note} onChange={(event) => setNote(event.target.value)} />
-          </Field>
+          </CardField>
+          <CardField
+            label="Occurred at"
+            htmlFor="stock-adjust-occurred-at"
+            controlStyle="dialog"
+          >
+            <DateTimePicker
+              id="stock-adjust-occurred-at"
+              value={occurredAt}
+              onChange={setOccurredAt}
+            />
+          </CardField>
+          <CardField
+            label="Note"
+            htmlFor="stock-adjust-note-increase"
+            controlStyle="dialog"
+          >
+            <Input
+              id="stock-adjust-note-increase"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+            />
+          </CardField>
         </div>
       ) : !lotTracked ? (
         <div className="grid gap-(--space-4)">
-          <Field>
-            <FieldLabel>Quantity after adjustment</FieldLabel>
+          <CardField
+            label="Quantity after adjustment"
+            htmlFor="stock-adjust-quantity-after"
+            controlStyle="dialog"
+          >
             <div className="flex items-center gap-(--space-2)">
-              <Input value={adjustment.nextQuantity} readOnly className={styles.mono} />
+              <Input
+                id="stock-adjust-quantity-after"
+                value={adjustment.nextQuantity}
+                readOnly
+                className={styles.mono}
+              />
               {unitLabel ? (
                 <span className="text-[length:var(--text-sm)] text-muted-foreground">
                   {unitLabel}
                 </span>
               ) : null}
             </div>
-          </Field>
-          <Field>
-            <FieldLabel>Note</FieldLabel>
-            <Input value={note} onChange={(event) => setNote(event.target.value)} />
-          </Field>
+          </CardField>
+          <CardField
+            label="Note"
+            htmlFor="stock-adjust-note-untracked"
+            controlStyle="dialog"
+          >
+            <Input
+              id="stock-adjust-note-untracked"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+            />
+          </CardField>
         </div>
       ) : lotsQuery.isLoading ? (
         <div className="grid min-h-40 place-items-center">
@@ -402,10 +444,17 @@ function StockQuantityAdjustmentBody({
               ))
             )}
           </div>
-          <Field>
-            <FieldLabel>Note</FieldLabel>
-            <Input value={note} onChange={(event) => setNote(event.target.value)} />
-          </Field>
+          <CardField
+            label="Note"
+            htmlFor="stock-adjust-note-lot-tracked"
+            controlStyle="dialog"
+          >
+            <Input
+              id="stock-adjust-note-lot-tracked"
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+            />
+          </CardField>
           <p className="text-[length:var(--text-sm)] text-muted-foreground">
             Reducing {formatQuantity(String(adjustedDelta))} of{" "}
             {formatQuantity(String(decreaseNeeded))} {unitLabel ?? ""}.
@@ -916,9 +965,6 @@ export function VariantTable({
         onDeleteRow={(row) => setConfirmDeleteVariant(row)}
         onAddRow={() => addVariantMutation.mutateAsync()}
         addDisabledReason={addDisabledReason}
-        // Match Calm Matrix design: 30px header, 34px body row.
-        headerHeight={30}
-        rowHeight={34}
         rowHasError={(row) => row.duplicateCombinationWarnings.length > 0}
       />
 

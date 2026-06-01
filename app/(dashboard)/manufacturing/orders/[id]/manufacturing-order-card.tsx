@@ -56,12 +56,12 @@ import {
   type AllocationTarget,
 } from "@/app/(dashboard)/sales/sales-order-allocator";
 import { CardPage, CardPageBanner, CardPageBody, CardSection } from "@/components/card-page/card-page";
+import { CardField } from "@/components/card-page/card-field";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import {
   CardFormRow,
-  CellShell,
   DisabledFieldTooltip,
   ReadOnlyFieldValue,
   underlineControlClass,
@@ -438,7 +438,12 @@ function OrderDetailsSection({
   return (
     <CardSection title="Order details">
       <CardFormRow>
-        <CellShell label="Product" required invalid={canEditPlanning && !order.productId}>
+        <CardField
+          label="Product"
+          htmlFor="manufacturing-order-product"
+          required
+          invalid={canEditPlanning && !order.productId}
+        >
           {canEditPlanning ? (
             <DisabledFieldTooltip reason={productDisabledReason}>
               <Select
@@ -447,6 +452,7 @@ function OrderDetailsSection({
                 disabled={productSelectDisabled}
               >
                 <SelectTrigger
+                  id="manufacturing-order-product"
                   aria-label="Product"
                   aria-invalid={canEditPlanning && !order.productId}
                   className={underlineControlClass(
@@ -470,10 +476,11 @@ function OrderDetailsSection({
               {order.productName || "Select product"}
             </ReadOnlyFieldValue>
           )}
-        </CellShell>
-        <CellShell label="Production deadline">
+        </CardField>
+        <CardField label="Production deadline" htmlFor="manufacturing-order-planned-date">
           {canEditMetadata ? (
             <DatePicker
+              id="manufacturing-order-planned-date"
               aria-label="Planned date"
               value={order.plannedDate ?? ""}
               className={underlineControlClass()}
@@ -489,24 +496,29 @@ function OrderDetailsSection({
               {order?.plannedDate ? formatDate(order.plannedDate) : "—"}
             </ReadOnlyFieldValue>
           )}
-        </CellShell>
-        <CellShell label="Manufacturing location">
+        </CardField>
+        <CardField label="Manufacturing location">
           <ReadOnlyFieldValue>Default location</ReadOnlyFieldValue>
-        </CellShell>
+        </CardField>
       </CardFormRow>
       <CardFormRow>
-        <CellShell label={plannedFieldLabel}>
+        <CardField
+          label={plannedFieldLabel}
+          htmlFor={canEditPlanning ? "manufacturing-order-planned-input" : undefined}
+        >
           {canEditPlanning ? (
             <>
               <div className={styles.suffixField}>
                 {isBatchProduct ? (
                   <BatchCountInput
+                    id="manufacturing-order-planned-input"
                     label={plannedFieldLabel}
                     value={plannedInputValue}
                     onChange={controller.updatePlannedInput}
                   />
                 ) : (
                   <CommitInput
+                    id="manufacturing-order-planned-input"
                     label={plannedFieldLabel}
                     value={plannedInputValue}
                     inputMode="decimal"
@@ -542,8 +554,11 @@ function OrderDetailsSection({
               ) : null}
             </>
           )}
-        </CellShell>
-        <CellShell label="Sales order">
+        </CardField>
+        <CardField
+          label="Sales order"
+          htmlFor={canEditPlanning ? "manufacturing-order-sales-order" : undefined}
+        >
           {canEditPlanning ? (
             <DisabledFieldTooltip reason={salesOrderDisabledReason}>
               <Select
@@ -552,6 +567,7 @@ function OrderDetailsSection({
                 disabled={salesOrderDisabledReason != null}
               >
                 <SelectTrigger
+                  id="manufacturing-order-sales-order"
                   aria-label="Sales order"
                   className={underlineControlClass(false, "w-full justify-between")}
                 >
@@ -575,7 +591,7 @@ function OrderDetailsSection({
                 : "Make to stock"}
             </ReadOnlyFieldValue>
           )}
-        </CellShell>
+        </CardField>
       </CardFormRow>
     </CardSection>
   );
@@ -691,10 +707,12 @@ function makeBlankIngredient(requirementMultiplier: string, sortOrder: number) {
 }
 
 function BatchCountInput({
+  id,
   label,
   value,
   onChange,
 }: {
+  id?: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -708,6 +726,7 @@ function BatchCountInput({
 
   return (
     <Input
+      id={id}
       aria-label={label}
       inputMode="numeric"
       value={draft}
@@ -1143,7 +1162,7 @@ function IngredientsSection({
                         <SelectItem key={option.itemId} value={option.itemId}>
                           <div className="flex flex-col">
                             <span>{option.itemName}</span>
-                            <span className="text-[length:var(--text-xs)] text-muted-foreground">
+                            <span className="text-[length:var(--text-sm)] text-muted-foreground">
                               {option.label}
                             </span>
                           </div>
@@ -1156,12 +1175,12 @@ function IngredientsSection({
               <div className="flex min-w-0 flex-col">
                 <Link
                   href={inventoryItemHref(params.data)}
-                  className="truncate text-[13px] font-medium text-[var(--color-ink)] hover:text-[var(--color-accent)] hover:underline"
+                  className="truncate text-[length:var(--text-md)] font-medium text-[var(--color-ink)] hover:text-[var(--color-accent)] hover:underline"
                 >
                   {params.data.itemName}
                 </Link>
               {sub ? (
-                <span className="text-[11px] text-[var(--color-muted)] capitalize">{sub}</span>
+                <span className="text-[length:var(--text-sm)] text-[var(--color-muted)] capitalize">{sub}</span>
               ) : null}
               </div>
             </div>
@@ -1222,7 +1241,7 @@ function IngredientsSection({
           const ingredient = params.data;
           if (ingredient.lotTrackingMode === "untracked") {
             return (
-              <span className="text-[11.5px] text-[var(--color-muted)]">
+              <span className="text-[length:var(--text-sm)] text-[var(--color-muted)]">
                 FIFO
               </span>
             );
@@ -1259,7 +1278,7 @@ function IngredientsSection({
           if (!canEditIngredientLots) {
             return (
               <span
-                className="text-[11.5px] text-[var(--color-muted)]"
+                className="text-[length:var(--text-sm)] text-[var(--color-muted)]"
                 title={lotLockReason ?? undefined}
               >
                 {summary.count > 0 ? (
@@ -1404,7 +1423,7 @@ function OperationsSection({ order }: { order: ManufacturingOrderDetail | null }
               <span className={styles.mono}>
                 — / {formatQuantity(params.data.plannedMinutes)}
               </span>
-              <span className="text-[11px] text-[var(--color-muted)]">minutes</span>
+              <span className="text-[length:var(--text-sm)] text-[var(--color-muted)]">minutes</span>
             </div>
           );
         },
@@ -1455,7 +1474,7 @@ function NotesSection({
         readOnlyValue={!canEdit}
         rows={3}
         className="min-h-20"
-        readOnlyClassName="min-h-20 bg-[var(--color-surface-alt)] text-[13px] text-[var(--color-ink)]"
+        readOnlyClassName="min-h-20 bg-[var(--color-surface-alt)] text-[length:var(--text-md)] leading-[var(--leading-md)] text-[var(--color-ink)]"
         placeholder="Notes for this order…"
         onCommit={(next) => {
           if (next !== order.notes) controller.patchHeader({ notes: next });

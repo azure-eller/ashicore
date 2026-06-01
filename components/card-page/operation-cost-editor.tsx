@@ -30,15 +30,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldError, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { FieldError } from "@/components/ui/field";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  CardNumberField,
+  CardSelectField,
+  CardTextField,
+} from "@/components/card-page/card-field";
 
 const CREATE_NEW_RESOURCE = "__create_new_resource__";
 
@@ -364,52 +361,45 @@ function CreateResourceDialog({
           <DialogTitle>Create resource</DialogTitle>
         </DialogHeader>
         <div className="grid gap-(--space-4)">
-          <Field>
-            <FieldLabel htmlFor="resource-name">Name</FieldLabel>
-            <Input
-              id="resource-name"
-              value={form.name}
-              onChange={(event) =>
-                setForm((current) => ({ ...current, name: event.target.value }))
-              }
-              autoFocus
-            />
-            {formErrors.name ? <FieldError>{formErrors.name}</FieldError> : null}
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="resource-type">Type</FieldLabel>
-            <Select
-              value={form.resourceType}
-              onValueChange={(value) =>
-                setForm((current) => ({ ...current, resourceType: value }))
-              }
-            >
-              <SelectTrigger id="resource-type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="labor">Labor</SelectItem>
-                <SelectItem value="machine">Machine</SelectItem>
-                <SelectItem value="overhead">Overhead</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="resource-rate">Loaded cost per hour</FieldLabel>
-            <Input
-              id="resource-rate"
-              value={form.loadedCostPerHour}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  loadedCostPerHour: event.target.value,
-                }))
-              }
-            />
-            {formErrors.loadedCostPerHour ? (
-              <FieldError>{formErrors.loadedCostPerHour}</FieldError>
-            ) : null}
-          </Field>
+          <CardTextField
+            id="resource-name"
+            label="Name"
+            value={form.name}
+            controlStyle="dialog"
+            onChange={(event) =>
+              setForm((current) => ({ ...current, name: event.target.value }))
+            }
+            autoFocus
+            error={formErrors.name}
+            invalid={Boolean(formErrors.name)}
+          />
+          <CardSelectField
+            label="Type"
+            value={form.resourceType}
+            controlStyle="dialog"
+            onValueChange={(value) =>
+              setForm((current) => ({ ...current, resourceType: value }))
+            }
+            options={[
+              { value: "labor", label: "Labor" },
+              { value: "machine", label: "Machine" },
+              { value: "overhead", label: "Overhead" },
+            ]}
+          />
+          <CardNumberField
+            id="resource-rate"
+            label="Loaded cost per hour"
+            value={form.loadedCostPerHour}
+            controlStyle="dialog"
+            onChange={(event) =>
+              setForm((current) => ({
+                ...current,
+                loadedCostPerHour: event.target.value,
+              }))
+            }
+            error={formErrors.loadedCostPerHour}
+            invalid={Boolean(formErrors.loadedCostPerHour)}
+          />
           {formError ? <FieldError>{formError}</FieldError> : null}
         </div>
         <DialogFooter>

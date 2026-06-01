@@ -3,7 +3,7 @@
 import { useEffect, useId, useState } from "react";
 
 import { InsetPanel } from "@/components/inset-panel";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { CardField } from "@/components/card-page/card-field";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
@@ -41,12 +41,11 @@ export function NotesField({
   }, [normalizedValue]);
 
   return (
-    <Field>
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+    <CardField label={label} htmlFor={id}>
       {readOnlyValue ? (
         <InsetPanel
           className={cn(
-            "min-h-36 whitespace-pre-wrap p-(--space-4) text-[length:var(--text-sm)]",
+            "min-h-36 whitespace-pre-wrap p-(--space-4) text-[length:var(--text-md)] leading-[var(--leading-md)]",
             readOnlyClassName,
           )}
         >
@@ -55,7 +54,7 @@ export function NotesField({
       ) : (
         <Textarea
           id={id}
-          className={cn("min-h-36", className)}
+          className={cn("min-h-36 text-[length:var(--text-md)] leading-[var(--leading-md)]", className)}
           value={draft}
           disabled={disabled}
           rows={rows}
@@ -71,6 +70,6 @@ export function NotesField({
           }}
         />
       )}
-    </Field>
+    </CardField>
   );
 }

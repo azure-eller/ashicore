@@ -107,7 +107,7 @@ export function ShipmentsTable({
         flex: 1,
         minWidth: 200,
         mono: true,
-        cellClass: "text-[length:var(--text-xs)]",
+        cellClass: "text-[length:var(--text-base)]",
       },
       {
         field: "status",
@@ -188,7 +188,7 @@ export function ShipmentsTable({
               <span className="font-semibold">
                 {m.contributionMargin ? (formatPrice(m.contributionMargin) ?? "—") : "—"}
               </span>
-              <span className="text-[length:var(--text-xs)] text-muted-foreground">
+              <span className="text-[length:var(--text-sm)] text-muted-foreground">
                 {m.marginPercent ? `${Number.parseFloat(m.marginPercent).toFixed(1)}%` : "—"}
               </span>
             </div>
@@ -316,16 +316,16 @@ function dateSetter(field: "scheduledDate") {
 
 function ShipmentLinesList({ shipment }: { shipment: SalesShipmentRow }) {
   if (shipment.lines.length === 0) {
-    return <span className="text-[length:var(--text-xs)] text-muted-foreground">No lines</span>;
+    return <span className="text-[length:var(--text-sm)] text-muted-foreground">No lines</span>;
   }
   return (
     <div className="flex flex-col gap-1 py-(--space-1)">
       {shipment.lines.map((line) => (
-        <div key={line.id} className="flex items-baseline gap-2 text-[length:var(--text-xs)]">
+        <div key={line.id} className="flex items-baseline gap-2 text-[length:var(--text-sm)]">
           <span className="font-mono tabular-nums min-w-[30px] text-right font-medium">
             {formatQuantity(line.quantity)}
           </span>
-          <span className="inline-flex h-[15px] items-center px-[5px] bg-[var(--color-surface-sunk)] text-[var(--color-ink-2)] text-[9.5px] font-semibold uppercase tracking-[0.04em]">
+          <span className="inline-flex h-[18px] items-center px-[6px] bg-[var(--color-surface-sunk)] text-[var(--color-ink-2)] text-[length:var(--text-xs)] font-semibold uppercase tracking-[0.04em]">
             {line.unitName}
           </span>
           <span>{line.itemName}</span>

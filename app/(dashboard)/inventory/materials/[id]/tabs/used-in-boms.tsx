@@ -57,8 +57,8 @@ export function MaterialUsedInBomsTab({ usedInBoms }: MaterialUsedInBomsTabProps
         rows={usedInBoms}
         columns={columns}
         getRowId={(row) => row.id}
-        headerHeight={30}
-        rowHeight={34}
+        headerHeight={36}
+        rowHeight={44}
       />
     </CardSection>
   );

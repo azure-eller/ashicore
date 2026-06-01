@@ -10,9 +10,9 @@ import type { z } from "zod";
 import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import type { CardSaveState } from "@/components/card-page/card-save-status";
+import { CardField } from "@/components/card-page/card-field";
 import {
   CardFormRow,
-  CellShell,
   ReadOnlyFieldValue,
 } from "@/components/card-page/form-cell";
 import {
@@ -853,7 +853,7 @@ export function StocktakeDetail({
         <CardPageBody>
           <CardSection title="Stocktake at a glance">
             <CardFormRow columns="three">
-              <CellShell label="Name" required>
+              <CardField label="Name" required>
                 <Input
                   aria-label="Name"
                   className={styles.underlineControl}
@@ -869,16 +869,16 @@ export function StocktakeDetail({
                     if (name !== stocktake.name) commitStocktakePatch({ name });
                   }}
                 />
-              </CellShell>
-              <CellShell label="Created from">
+              </CardField>
+              <CardField label="Created from">
                 <ReadOnlyFieldValue>{formatScope(stocktake.scope)}</ReadOnlyFieldValue>
-              </CellShell>
-              <CellShell label="Lines">
+              </CardField>
+              <CardField label="Lines">
                 <ReadOnlyFieldValue>{rows.length}</ReadOnlyFieldValue>
-              </CellShell>
+              </CardField>
             </CardFormRow>
             <CardFormRow>
-              <CellShell label="Reason">
+              <CardField label="Reason">
                 <Input
                   aria-label="Reason"
                   className={styles.underlineControl}
@@ -893,7 +893,7 @@ export function StocktakeDetail({
                     }
                   }}
                 />
-              </CellShell>
+              </CardField>
             </CardFormRow>
           </CardSection>
 

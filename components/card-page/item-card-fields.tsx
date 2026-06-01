@@ -1,10 +1,9 @@
 "use client";
 
-import { Field, FieldLabel } from "@/components/ui/field";
 import { CommitInput } from "@/components/card-page/commit-input";
+import { CardField } from "@/components/card-page/card-field";
 import { NotesField } from "@/components/card-page/notes-field";
 import { type UpdateItemCardInput } from "@/lib/api/clients/item-cards";
-import styles from "./card-page.module.css";
 
 type DraftItemCardPatch = Partial<UpdateItemCardInput>;
 
@@ -31,13 +30,12 @@ export function ItemCardCommitField({
   onFamilyChange,
   onFamilyCommit,
 }: ItemCardFieldProps) {
+  const inputId = `item-card-${String(field)}`;
+
   return (
-    <Field>
-      <FieldLabel>
-        {label}
-        {required ? <span className={styles.requiredMark}> *</span> : null}
-      </FieldLabel>
+    <CardField label={label} htmlFor={inputId} required={required}>
       <CommitInput
+        id={inputId}
         label={label}
         autoFocus={autoFocus}
         value={value}
@@ -56,7 +54,7 @@ export function ItemCardCommitField({
           onFamilyCommit({ [field]: next } as DraftItemCardPatch);
         }}
       />
-    </Field>
+    </CardField>
   );
 }
 
