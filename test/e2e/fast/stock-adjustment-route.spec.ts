@@ -1,0 +1,840 @@
+import { and, desc, eq } from "drizzle-orm";
+import { test, expect } from "../fixtures";
+import { normalizeNumericScale } from "../../../lib/format";
+import {
+  inventoryEvents,
+  inventoryItemBalances,
+  inventoryLocations,
+  inventoryLotBalances,
+  lots,
+} from "../../../lib/db/schema";
+import {
+  consumeStockFifoInTx,
+  createPositiveStockEventInTx,
+  resolvePositiveStockUnitCostInTx,
+} from "../../../lib/inventory/kernel";
+import { createItem, getOrgId, getUnitId, testFetch } from "../../helpers/api";
+
+test.describe("non-lot stock adjustment route", () => {
+  const ts = Date.now();
+  const orgId = getOrgId();
+  const unitId = getUnitId();
+
+  async function createUntrackedMaterialWithStock(
+    db: Parameters<Parameters<typeof test>[2]>[0]["db"],
+    {
+      name,
+      sku,
+      category,
+      stock,
+    }: { name: string; sku: string; category: string; stock: number }
+  ) {
+    const item = await createItem({
+      itemType: "material",
+      name,
+      unitDefinitionId: unitId,
+      sku,
+      category,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(item.status).toBe(201);
+    const itemId = item.body.id as string;
+
+    const modeResponse = await testFetch(`/api/item-cards/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name,
+        category,
+        description: null,
+        unitDefinitionId: unitId,
+        lotTrackingMode: "untracked",
+      }),
+    });
+    expect(
+      modeResponse.status,
+      JSON.stringify(await modeResponse.json().catch(() => null))
+    ).toBe(200);
+
+    if (stock > 0) {
+      const [location] = await db
+        .select({ id: inventoryLocations.id })
+        .from(inventoryLocations)
+        .where(
+          and(
+            eq(inventoryLocations.organizationId, orgId),
+            eq(inventoryLocations.isDefault, true)
+          )
+        );
+      if (!location?.id) throw new Error("Default inventory location not found.");
+
+      await db.transaction(async (tx) => {
+        await createPositiveStockEventInTx(tx, {
+          organizationId: orgId,
+          locationId: location.id,
+          itemId,
+          quantity: stock,
+          unitCost: "2.00",
+          eventType: "manual_adjustment_increase",
+          eventSubtype: "stock_adjustment_route_seed",
+          referenceType: "item",
+          referenceId: itemId,
+        });
+      });
+    }
+
+    return itemId;
+  }
+
+  test("non-lot adjustment sets new on-hand and records reason", async ({
+    db,
+  }) => {
+    const itemId = await createUntrackedMaterialWithStock(db, {
+      name: `Stock Adjust Reason ${ts}`,
+      sku: `STOCK-ADJ-REASON-${ts}`,
+      category: `Stock Adjust ${ts}`,
+      stock: 5,
+    });
+
+    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Damage",
+        note: "spill",
+        newQuantity: "2",
+      }),
+    });
+    expect(response.status, await response.text()).toBe(200);
+
+    const [event] = await db
+      .select({
+        eventType: inventoryEvents.eventType,
+        quantity: inventoryEvents.quantity,
+        metadata: inventoryEvents.metadata,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_decrease")
+        )
+      )
+      .orderBy(desc(inventoryEvents.occurredAt), desc(inventoryEvents.id));
+
+    expect(event).toBeTruthy();
+    expect(event.eventType).toBe("manual_adjustment_decrease");
+    expect(event.metadata?.reason).toBe("Damage");
+
+    const [itemBalance] = await db
+      .select({ onHandQty: inventoryItemBalances.onHandQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, itemId));
+    expect(itemBalance.onHandQty).toBe("2.0000");
+  });
+
+  test("adjustment increases on-hand and records reason", async ({ db }) => {
+    const itemId = await createUntrackedMaterialWithStock(db, {
+      name: `Stock Adjust Increase ${ts}`,
+      sku: `STOCK-ADJ-INCREASE-${ts}`,
+      category: `Stock Adjust Increase ${ts}`,
+      stock: 5,
+    });
+
+    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Found",
+        newQuantity: "9",
+      }),
+    });
+    expect(response.status, await response.text()).toBe(200);
+
+    const [event] = await db
+      .select({
+        eventType: inventoryEvents.eventType,
+        quantity: inventoryEvents.quantity,
+        unitCost: inventoryEvents.unitCost,
+        metadata: inventoryEvents.metadata,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_increase")
+        )
+      )
+      .orderBy(desc(inventoryEvents.occurredAt), desc(inventoryEvents.id));
+
+    expect(event).toBeTruthy();
+    expect(event.quantity).toBe("4.0000");
+    expect(event.metadata?.reason).toBe("Found");
+
+    // The non-lot increase branch must cost like a stocktake gain too: resolve
+    // the item's unit cost instead of writing a zero-cost event. Normalize to
+    // the scale-6 unit_cost column the event is stored against.
+    const resolvedCost = normalizeNumericScale(
+      Number.parseFloat(
+        await db.transaction((tx) =>
+          resolvePositiveStockUnitCostInTx(tx, {
+            itemId,
+            reason: "stocktake_cost_policy",
+          })
+        )
+      ),
+      6
+    );
+    expect(resolvedCost).not.toBe("0.000000");
+    expect(event.unitCost).not.toBe("0.000000");
+    expect(event.unitCost).toBe("2.000000");
+    expect(Number.parseFloat(event.unitCost!)).toBe(
+      Number.parseFloat(resolvedCost)
+    );
+
+    const [itemBalance] = await db
+      .select({ onHandQty: inventoryItemBalances.onHandQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, itemId));
+    expect(itemBalance.onHandQty).toBe("9.0000");
+  });
+
+  test("adjustment sets absolute on-hand even from negative stock", async ({
+    db,
+  }) => {
+    const itemId = await createUntrackedMaterialWithStock(db, {
+      name: `Stock Adjust Negative ${ts}`,
+      sku: `STOCK-ADJ-NEGATIVE-${ts}`,
+      category: `Stock Adjust Negative ${ts}`,
+      stock: 0,
+    });
+
+    const [location] = await db
+      .select({ id: inventoryLocations.id })
+      .from(inventoryLocations)
+      .where(
+        and(
+          eq(inventoryLocations.organizationId, orgId),
+          eq(inventoryLocations.isDefault, true)
+        )
+      );
+    if (!location?.id) throw new Error("Default inventory location not found.");
+
+    // Drive the item into stock debt (-3) via a negative-allowed consume.
+    await db.transaction(async (tx) => {
+      await consumeStockFifoInTx(tx, {
+        organizationId: orgId,
+        locationId: location.id,
+        itemId,
+        quantity: 3,
+        eventType: "manual_adjustment_decrease",
+        actorUserId: null,
+        allowNegativeStock: true,
+      });
+    });
+
+    const [debtBalance] = await db
+      .select({ onHandQty: inventoryItemBalances.onHandQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, itemId));
+    expect(debtBalance.onHandQty).toBe("-3.0000");
+
+    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Correction",
+        newQuantity: "5",
+      }),
+    });
+    expect(response.status, await response.text()).toBe(200);
+
+    const [event] = await db
+      .select({
+        eventType: inventoryEvents.eventType,
+        quantity: inventoryEvents.quantity,
+        metadata: inventoryEvents.metadata,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_increase")
+        )
+      )
+      .orderBy(desc(inventoryEvents.occurredAt), desc(inventoryEvents.id));
+
+    expect(event).toBeTruthy();
+    expect(event.quantity).toBe("8.0000");
+    expect(event.metadata?.reason).toBe("Correction");
+
+    const [itemBalance] = await db
+      .select({ onHandQty: inventoryItemBalances.onHandQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, itemId));
+    expect(itemBalance.onHandQty).toBe("5.0000");
+  });
+
+  test("adjustment with no change writes no event", async ({ db }) => {
+    const itemId = await createUntrackedMaterialWithStock(db, {
+      name: `Stock Adjust Noop ${ts}`,
+      sku: `STOCK-ADJ-NOOP-${ts}`,
+      category: `Stock Adjust Noop ${ts}`,
+      stock: 5,
+    });
+
+    const beforeCount = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_increase")
+        )
+      );
+
+    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Recount",
+        newQuantity: "5",
+      }),
+    });
+    expect(response.status, await response.text()).toBe(200);
+
+    const afterIncrease = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_increase")
+        )
+      );
+    const afterDecrease = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_decrease")
+        )
+      );
+
+    // The seed used a manual_adjustment_increase event; assert no NEW adjustment
+    // events landed for the no-op (count unchanged, none of either direction).
+    expect(afterIncrease.length).toBe(beforeCount.length);
+    expect(afterDecrease.length).toBe(0);
+  });
+
+  test("adjustment is idempotent on a retried key", async ({ db }) => {
+    const itemId = await createUntrackedMaterialWithStock(db, {
+      name: `Stock Adjust Idempotent ${ts}`,
+      sku: `STOCK-ADJ-IDEMPOTENT-${ts}`,
+      category: `Stock Adjust Idempotent ${ts}`,
+      stock: 5,
+    });
+
+    // Use an INCREASE so the positive stock event persists the request
+    // Idempotency-Key on inventory_events. Without the begin/finish envelope the
+    // new flow has no idempotency claim/replay, so any second mutation that
+    // reuses the key trips inventory_events_idempotency_key_uidx and surfaces as
+    // a 500 instead of replaying / cleanly conflicting.
+    const idempotencyKey = `stock-adjust-retry-${ts}`;
+    const body = JSON.stringify({
+      reason: "Recount",
+      newQuantity: "9",
+    });
+
+    const first = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    });
+    expect(first.status, await first.text()).toBe(200);
+
+    // A true retry (identical body, same key) replays cleanly as 200.
+    const replay = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    });
+    expect(replay.status, await replay.text()).toBe(200);
+
+    // Reusing the same key with a DIFFERENT payload must not crash with a raw
+    // unique-constraint 500. The shared begin/finish envelope claims the key and
+    // rejects the divergent reuse as an idempotency conflict (409) instead.
+    const conflicting = await testFetch(
+      `/api/items/${itemId}/stock-adjustments`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify({ reason: "Recount", newQuantity: "12" }),
+      }
+    );
+    expect(conflicting.status, await conflicting.text()).not.toBe(500);
+
+    // Exactly one keyed adjustment event was ever written for this key.
+    const events = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_increase"),
+          eq(inventoryEvents.idempotencyKey, idempotencyKey)
+        )
+      );
+    expect(events.length).toBe(1);
+
+    const [itemBalance] = await db
+      .select({ onHandQty: inventoryItemBalances.onHandQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, itemId));
+    expect(itemBalance.onHandQty).toBe("9.0000");
+  });
+
+  test("adjustment rejects a blank reason", async ({ db }) => {
+    const itemId = await createUntrackedMaterialWithStock(db, {
+      name: `Stock Adjust Blank ${ts}`,
+      sku: `STOCK-ADJ-BLANK-${ts}`,
+      category: `Stock Adjust Blank ${ts}`,
+      stock: 5,
+    });
+
+    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "  ",
+        newQuantity: "3",
+      }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  test("legacy add-initial-stock POST still works", async ({ db }) => {
+    // Guards the production web caller `addInitialStock`
+    // (lib/api/clients/item-cards.ts) that posts a `reason`-less body. A body
+    // without a `reason` key must fall through to the legacy add-initial-stock
+    // contract and return 200.
+    const itemId = await createUntrackedMaterialWithStock(db, {
+      name: `Stock Adjust Legacy ${ts}`,
+      sku: `STOCK-ADJ-LEGACY-${ts}`,
+      category: `Stock Adjust Legacy ${ts}`,
+      stock: 0,
+    });
+
+    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        quantity: "3",
+        costPerUnit: "2.00",
+        occurredAt: new Date().toISOString(),
+        note: "legacy add-initial-stock",
+      }),
+    });
+    expect(response.status, await response.text()).toBe(200);
+
+    const [itemBalance] = await db
+      .select({ onHandQty: inventoryItemBalances.onHandQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, itemId));
+    expect(itemBalance.onHandQty).toBe("3.0000");
+  });
+});
+
+test.describe("lot-tracked stock adjustment route", () => {
+  const ts = Date.now();
+  const orgId = getOrgId();
+  const unitId = getUnitId();
+
+  async function getDefaultLocationId(
+    db: Parameters<Parameters<typeof test>[2]>[0]["db"]
+  ) {
+    const [location] = await db
+      .select({ id: inventoryLocations.id })
+      .from(inventoryLocations)
+      .where(
+        and(
+          eq(inventoryLocations.organizationId, orgId),
+          eq(inventoryLocations.isDefault, true)
+        )
+      );
+    if (!location?.id) throw new Error("Default inventory location not found.");
+    return location.id;
+  }
+
+  // Seed a lot-tracked item, optionally with one existing lot at a known qty.
+  // Mirrors the kernel spec: create the item, flip it to `tracked`, then post a
+  // positive stock event with an explicit lotNumber so the kernel creates the
+  // lot (the same path stocktake "found lots" use).
+  async function createTrackedMaterialWithLot(
+    db: Parameters<Parameters<typeof test>[2]>[0]["db"],
+    {
+      name,
+      sku,
+      category,
+      lotNumber,
+      stock,
+    }: {
+      name: string;
+      sku: string;
+      category: string;
+      lotNumber?: string;
+      stock?: number;
+    }
+  ) {
+    const item = await createItem({
+      itemType: "material",
+      name,
+      unitDefinitionId: unitId,
+      sku,
+      category,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(item.status).toBe(201);
+    const itemId = item.body.id as string;
+
+    const modeResponse = await testFetch(`/api/item-cards/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name,
+        category,
+        description: null,
+        unitDefinitionId: unitId,
+        lotTrackingMode: "tracked",
+      }),
+    });
+    expect(
+      modeResponse.status,
+      JSON.stringify(await modeResponse.json().catch(() => null))
+    ).toBe(200);
+
+    let lotId: string | null = null;
+    if (lotNumber && (stock ?? 0) > 0) {
+      const locationId = await getDefaultLocationId(db);
+      await db.transaction(async (tx) => {
+        const created = await createPositiveStockEventInTx(tx, {
+          organizationId: orgId,
+          locationId,
+          itemId,
+          quantity: stock!,
+          unitCost: "2.00",
+          eventType: "manual_adjustment_increase",
+          eventSubtype: "lot_stock_adjustment_route_seed",
+          referenceType: "item",
+          referenceId: itemId,
+          lotNumber,
+        });
+        lotId = created.lotId;
+      });
+    }
+
+    return { itemId, lotId };
+  }
+
+  test("lot adjustment edits an existing lot, creates a new lot, records reason", async ({
+    db,
+  }) => {
+    const { itemId, lotId } = await createTrackedMaterialWithLot(db, {
+      name: `Lot Adjust Edit ${ts}`,
+      sku: `LOT-ADJ-EDIT-${ts}`,
+      category: `Lot Adjust ${ts}`,
+      lotNumber: `LOT-A-${ts}`,
+      stock: 10,
+    });
+    expect(lotId).toBeTruthy();
+    const newLotNumber = `LOT-B-${ts}`;
+
+    // Resolve the item's unit cost the same way the kernel does for a stocktake
+    // gain, normalized to the scale-6 unit_cost column. The new lot the
+    // adjustment creates must land at exactly this cost.
+    const resolvedCost = normalizeNumericScale(
+      Number.parseFloat(
+        await db.transaction((tx) =>
+          resolvePositiveStockUnitCostInTx(tx, {
+            itemId,
+            reason: "stocktake_cost_policy",
+          })
+        )
+      ),
+      6
+    );
+    expect(resolvedCost).not.toBe("0.000000");
+
+    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Cycle count",
+        lots: [
+          { lotId, newQuantity: "7" },
+          { lotNumber: newLotNumber, newQuantity: "4" },
+        ],
+      }),
+    });
+    expect(response.status, await response.text()).toBe(200);
+
+    // The -3 on LOT-A is a manual_adjustment_decrease carrying the reason.
+    const [decrease] = await db
+      .select({
+        eventType: inventoryEvents.eventType,
+        quantity: inventoryEvents.quantity,
+        metadata: inventoryEvents.metadata,
+        lotId: inventoryEvents.lotId,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_decrease")
+        )
+      )
+      .orderBy(desc(inventoryEvents.occurredAt), desc(inventoryEvents.id));
+    expect(decrease).toBeTruthy();
+    expect(decrease.quantity).toBe("3.0000");
+    expect(decrease.metadata?.reason).toBe("Cycle count");
+    expect(decrease.lotId).toBe(lotId);
+
+    // The +4 new lot is a manual_adjustment_increase carrying the reason.
+    const [increase] = await db
+      .select({
+        eventType: inventoryEvents.eventType,
+        quantity: inventoryEvents.quantity,
+        metadata: inventoryEvents.metadata,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_increase")
+        )
+      )
+      .orderBy(desc(inventoryEvents.occurredAt), desc(inventoryEvents.id));
+    expect(increase).toBeTruthy();
+    expect(increase.quantity).toBe("4.0000");
+    expect(increase.metadata?.reason).toBe("Cycle count");
+
+    // A new lot row + balance for LOT-B exists at qty 4.
+    const [newLot] = await db
+      .select({ id: lots.id, quantity: lots.quantity })
+      .from(lots)
+      .where(
+        and(eq(lots.itemId, itemId), eq(lots.lotNumber, newLotNumber))
+      );
+    expect(newLot).toBeTruthy();
+    expect(newLot.quantity).toBe("4.0000");
+
+    const [newLotBalance] = await db
+      .select({
+        quantity: inventoryLotBalances.quantity,
+        unitCost: inventoryLotBalances.unitCost,
+      })
+      .from(inventoryLotBalances)
+      .where(
+        and(
+          eq(inventoryLotBalances.itemId, itemId),
+          eq(inventoryLotBalances.lotId, newLot.id),
+          eq(inventoryLotBalances.disposition, "available")
+        )
+      );
+    expect(newLotBalance?.quantity).toBe("4.0000");
+    // The new lot must carry the item's RESOLVED unit cost, exactly like a
+    // stocktake found-gain. A manual positive adjustment is economically the
+    // same event and must not write a zero-cost lot that later understates COGS.
+    // The unit_cost column is numeric(18,6), so it reads back scale-6.
+    expect(newLotBalance?.unitCost).not.toBe("0.000000");
+    expect(newLotBalance?.unitCost).toBe("2.000000");
+    expect(Number.parseFloat(newLotBalance!.unitCost!)).toBe(
+      Number.parseFloat(resolvedCost)
+    );
+
+    // LOT-A balance is now 7.
+    const [lotABalance] = await db
+      .select({
+        quantity: inventoryLotBalances.quantity,
+        unitCost: inventoryLotBalances.unitCost,
+      })
+      .from(inventoryLotBalances)
+      .where(
+        and(
+          eq(inventoryLotBalances.itemId, itemId),
+          eq(inventoryLotBalances.lotId, lotId as unknown as string),
+          eq(inventoryLotBalances.disposition, "available")
+        )
+      );
+    expect(lotABalance?.quantity).toBe("7.0000");
+    // The existing lot was seeded at unit cost 2.00. "I miscounted this lot,
+    // add the missing units" must NOT dilute its cost toward zero: the append
+    // must reuse the lot's own cost so the weighted average is a no-op.
+    expect(lotABalance?.unitCost).toBe("2.000000");
+  });
+
+  test("lot adjustment replays cleanly on a retried key", async ({ db }) => {
+    const { itemId, lotId } = await createTrackedMaterialWithLot(db, {
+      name: `Lot Adjust Idempotent ${ts}`,
+      sku: `LOT-ADJ-IDEMPOTENT-${ts}`,
+      category: `Lot Adjust Idempotent ${ts}`,
+      lotNumber: `LIA-${ts}`,
+      stock: 10,
+    });
+    expect(lotId).toBeTruthy();
+    const newLotNumber = `LIB-${ts}`;
+    const idempotencyKey = `lot-stock-adjust-retry-${ts}`;
+    const body = JSON.stringify({
+      reason: "Cycle count",
+      lots: [
+        { lotId, newQuantity: "7" },
+        { lotNumber: newLotNumber, newQuantity: "4" },
+      ],
+    });
+
+    const first = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    });
+    expect(first.status, await first.text()).toBe(200);
+
+    // A true retry (identical multi-lot body, same key) replays via the shared
+    // begin/finish envelope as a clean 200 with no duplicate events.
+    const replay = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body,
+    });
+    expect(replay.status, await replay.text()).toBe(200);
+
+    // Exactly one event ever claimed this request key. The shared begin/finish
+    // envelope hands the key to only the FIRST firing kernel call (here the -3
+    // decrease on LOT-A); the retry replays the envelope rather than re-keying.
+    const keyedEvents = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.idempotencyKey, idempotencyKey)
+        )
+      );
+    expect(keyedEvents.length).toBe(1);
+
+    // No duplicate adjustment events of either direction overall.
+    const allIncreases = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_increase")
+        )
+      );
+    const allDecreases = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_decrease")
+        )
+      );
+    // One seed increase + one new-lot increase from the adjustment; the -3 on
+    // LOT-A is a single decrease. The replay must add none of these.
+    expect(allIncreases.length).toBe(2);
+    expect(allDecreases.length).toBe(1);
+
+    // LOT-A balance settled at 7 (the replay did not re-apply the -3).
+    const [lotABalance] = await db
+      .select({ quantity: inventoryLotBalances.quantity })
+      .from(inventoryLotBalances)
+      .where(
+        and(
+          eq(inventoryLotBalances.itemId, itemId),
+          eq(inventoryLotBalances.lotId, lotId as unknown as string),
+          eq(inventoryLotBalances.disposition, "available")
+        )
+      );
+    expect(lotABalance?.quantity).toBe("7.0000");
+  });
+
+  test("new lot without a lot number is rejected", async ({ db }) => {
+    const { itemId } = await createTrackedMaterialWithLot(db, {
+      name: `Lot Adjust NoNumber ${ts}`,
+      sku: `LOT-ADJ-NONUMBER-${ts}`,
+      category: `Lot Adjust NoNumber ${ts}`,
+    });
+
+    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Found",
+        lots: [{ newQuantity: "3" }],
+      }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  test("unknown lotId for this item is rejected with 404", async ({ db }) => {
+    const { itemId } = await createTrackedMaterialWithLot(db, {
+      name: `Lot Adjust Unknown ${ts}`,
+      sku: `LOT-ADJ-UNKNOWN-${ts}`,
+      category: `Lot Adjust Unknown ${ts}`,
+      lotNumber: `LU-${ts}`,
+      stock: 5,
+    });
+
+    // A random UUID that is not a real lot for this item must resolve to a clean
+    // 404, not crash the kernel's FOR UPDATE select with a bare 500.
+    const foreignLotId = "00000000-0000-4000-8000-000000000000";
+    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Correction",
+        lots: [{ lotId: foreignLotId, newQuantity: "3" }],
+      }),
+    });
+    expect(response.status, await response.text()).toBe(404);
+  });
+
+  test("zeroed new lot is dropped", async ({ db }) => {
+    const { itemId } = await createTrackedMaterialWithLot(db, {
+      name: `Lot Adjust ZeroNew ${ts}`,
+      sku: `LOT-ADJ-ZERONEW-${ts}`,
+      category: `Lot Adjust ZeroNew ${ts}`,
+    });
+    const zeroedLotNumber = `LOT-Z-${ts}`;
+
+    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Correction",
+        lots: [{ lotNumber: zeroedLotNumber, newQuantity: "0" }],
+      }),
+    });
+    expect(response.status, await response.text()).toBe(200);
+
+    const zeroedLots = await db
+      .select({ id: lots.id })
+      .from(lots)
+      .where(
+        and(eq(lots.itemId, itemId), eq(lots.lotNumber, zeroedLotNumber))
+      );
+    expect(zeroedLots).toHaveLength(0);
+
+    const events = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_increase")
+        )
+      );
+    expect(events).toHaveLength(0);
+  });
+});

@@ -27,6 +27,7 @@ import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation"
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatQuantity, normalizeNumeric } from "@/lib/format";
 import { ApiJsonError, apiJson } from "@/lib/client/api";
@@ -208,12 +209,16 @@ export function StocktakeDetail({
       (error instanceof Error ? error.message : "Failed to save counts."),
   });
 
-  const completeMutation = useMutation<void, ApiError, boolean>({
-    mutationFn: async (confirmStale = false) => {
+  const completeMutation = useMutation<
+    void,
+    ApiError,
+    { confirmStale: boolean; reason: string }
+  >({
+    mutationFn: async ({ confirmStale, reason }) => {
       try {
         await apiJson<void>(`/api/stocktakes/${stocktake.id}/complete`, {
           method: "POST",
-          body: { confirmStale },
+          body: { confirmStale, reason },
           idempotencyKey: "stocktake-complete",
           fallbackError: "Failed to complete stocktake.",
         });
@@ -259,7 +264,10 @@ export function StocktakeDetail({
 
   const confirmCompletion = async () => {
     try {
-      await completeMutation.mutateAsync(reviewConfirmStale);
+      await completeMutation.mutateAsync({
+        confirmStale: reviewConfirmStale,
+        reason: stocktakeReason,
+      });
       setReviewOpen(false);
     } catch {
       return;
@@ -979,11 +987,25 @@ export function StocktakeDetail({
               </tbody>
             </FramedTable>
           </TableFrame>
+          <div className="space-y-2">
+            <Label htmlFor="stocktake-reason">
+              Reason <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="stocktake-reason"
+              value={stocktakeReason}
+              onChange={(event) => setStocktakeReason(event.target.value)}
+              placeholder="Reason for adjustment"
+            />
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setReviewOpen(false)}>
               Back
             </Button>
-            <Button onClick={confirmCompletion} disabled={completeMutation.isPending}>
+            <Button
+              onClick={confirmCompletion}
+              disabled={completeMutation.isPending || stocktakeReason.trim() === ""}
+            >
               {completeMutation.isPending ? "Completing..." : "Complete stocktake"}
             </Button>
           </DialogFooter>

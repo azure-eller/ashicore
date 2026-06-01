@@ -80,10 +80,18 @@ test.describe("stocktake workflow operating story", () => {
     await expect(page.locator("main")).toContainText("Draft");
   });
 
+  test("rejects completion when the reason is blank", async () => {
+    const complete = await testFetch(`/api/stocktakes/${stocktakeId}/complete`, {
+      method: "POST",
+      body: JSON.stringify({ confirmStale: false, reason: "  " }),
+    });
+    expect(complete.status).toBe(400);
+  });
+
   test("commits the saved count as authoritative stock truth", async ({ db }) => {
     const complete = await testFetch(`/api/stocktakes/${stocktakeId}/complete`, {
       method: "POST",
-      body: JSON.stringify({ confirmStale: false }),
+      body: JSON.stringify({ confirmStale: false, reason: "Cycle count" }),
     });
     expect(complete.status).toBe(200);
 
@@ -116,7 +124,11 @@ test.describe("stocktake workflow operating story", () => {
     expect(stock.total).toBe("4.0000");
 
     const events = await db
-      .select({ eventType: inventoryEvents.eventType, quantity: inventoryEvents.quantity })
+      .select({
+        eventType: inventoryEvents.eventType,
+        quantity: inventoryEvents.quantity,
+        reason: sql<string | null>`${inventoryEvents.metadata}->>'reason'`,
+      })
       .from(inventoryEvents)
       .where(sql`${inventoryEvents.metadata}->>'stocktakeId' = ${stocktakeId}`);
     expect(events).toEqual(
@@ -124,9 +136,17 @@ test.describe("stocktake workflow operating story", () => {
         expect.objectContaining({
           eventType: "stocktake_gain",
           quantity: "4.0000",
+          reason: "Cycle count",
         }),
       ])
     );
+
+    // The completion reason was persisted onto the stocktake row.
+    const [reconciled] = await db
+      .select({ reason: stocktakes.reason })
+      .from(stocktakes)
+      .where(eq(stocktakes.id, stocktakeId));
+    expect(reconciled.reason).toBe("Cycle count");
 
     await page.goto(`/inventory/stocktakes/${stocktakeId}`);
     await expect(page.locator("main").getByText("Completed", { exact: true }).first()).toBeVisible();
@@ -209,7 +229,7 @@ test.describe("stocktake found-lot operating story", () => {
       `/api/stocktakes/${foundStocktakeId}/complete`,
       {
         method: "POST",
-        body: JSON.stringify({ confirmStale: false }),
+        body: JSON.stringify({ confirmStale: false, reason: "Cycle count" }),
       }
     );
     expect(complete.status, await complete.text()).toBe(200);

@@ -789,7 +789,7 @@ test.describe("inventory kernel invariants", () => {
     const completePromise = postJsonWithKey(
       `/api/stocktakes/${stocktakeId}/complete`,
       key("race-stocktake", ts),
-      { confirmStale: false }
+      { confirmStale: false, reason: "Cycle count" }
     );
 
     const [shipResponse, completeResponse] = await Promise.all([

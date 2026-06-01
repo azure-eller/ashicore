@@ -18,6 +18,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   try {
     const stocktake = await completeStocktake(id, data.confirmStale, {
       idempotencyKey,
+      reason: data.reason,
     });
 
     if (!stocktake) {

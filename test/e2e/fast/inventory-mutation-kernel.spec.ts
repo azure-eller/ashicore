@@ -725,7 +725,7 @@ test.describe("inventory mutation kernel heartbeat", () => {
       `/api/stocktakes/${stocktake.id}/complete`,
       {
         method: "POST",
-        body: JSON.stringify({ confirmStale: false }),
+        body: JSON.stringify({ confirmStale: false, reason: "Cycle count" }),
       }
     );
     expect(completeResponse.status).toBe(200);
@@ -968,7 +968,7 @@ test.describe("inventory mutation kernel heartbeat", () => {
       `/api/stocktakes/${stocktake.id}/complete`,
       {
         method: "POST",
-        body: JSON.stringify({ confirmStale: false }),
+        body: JSON.stringify({ confirmStale: false, reason: "Cycle count" }),
       }
     );
     expect(completeResponse.status).toBe(200);

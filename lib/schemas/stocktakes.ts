@@ -302,6 +302,7 @@ export type UpdateStocktakeCounts = z.infer<typeof updateStocktakeSchema>;
 
 export const completeStocktakeSchema = z.object({
   confirmStale: z.boolean().optional().default(false),
+  reason: z.string().trim().min(1, "Reason is required."),
 });
 
 export type CompleteStocktake = z.infer<typeof completeStocktakeSchema>;

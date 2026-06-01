@@ -1111,7 +1111,7 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
 export async function completeStocktake(
   id: string,
   confirmStale: CompleteStocktake["confirmStale"],
-  options?: { idempotencyKey?: string }
+  options?: { idempotencyKey?: string; reason?: string }
 ) {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
@@ -1247,10 +1247,18 @@ export async function completeStocktake(
       countedLines.map((line) => line.itemId)
     );
 
+    const reason = options?.reason?.trim() || stocktake.reason || null;
+    if (options?.reason) {
+      await tx
+        .update(stocktakes)
+        .set({ reason, updatedAt: new Date() })
+        .where(eq(stocktakes.id, id));
+    }
+
     await reconcileStocktakeCountInTx(tx, {
       organizationId: orgId,
       stocktakeId: id,
-      reason: stocktake.reason,
+      reason,
       actorUserId: userId,
       idempotencyKey: deriveInventoryIdempotencyKey(
         options?.idempotencyKey,
