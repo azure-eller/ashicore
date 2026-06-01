@@ -79,14 +79,16 @@ export async function getProducedTodayOrders(
         manufacturingOrders,
         eq(manufacturingOrderOutputs.manufacturingOrderId, manufacturingOrders.id)
       )
-      .innerJoin(items, eq(manufacturingOrders.productId, items.id))
+      // LEFT join + no sellable filter: "produced today" counts EVERY completed
+      // production — non-sellable intermediates (media prep, totes) included, and
+      // a missing product row never drops the output. Mirrors the report below.
+      .leftJoin(items, eq(manufacturingOrders.productId, items.id))
       .where(
         and(
           sql`${manufacturingOrderOutputs.createdAt} >= ${window.startAt}`,
           sql`${manufacturingOrderOutputs.createdAt} < ${window.endAt}`,
           gt(manufacturingOrderOutputs.quantity, "0"),
-          isNull(manufacturingOrders.deletedAt),
-          eq(items.sellable, true)
+          isNull(manufacturingOrders.deletedAt)
         )
       )
       .groupBy(

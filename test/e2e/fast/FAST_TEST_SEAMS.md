@@ -13,3 +13,4 @@ that is worth running on every serious PR.
 | `xero-purchase-bill-gates.spec.ts` | Purchase bill sync blocks unsafe accounting pushes before contacting Xero. |
 | `manufacturing-demand-and-completion.spec.ts` | Manufacturing creates ingredient demand and completion consumes inputs while producing output once. |
 | `planning-demand-queue.spec.ts` | Demand queue scarce-stock math covers higher-ranked demand first without overclaiming available stock. |
+| `produced-today.spec.ts` | "Produced today" counts every completed production for the org day, including non-sellable intermediates — not only sellable finished goods. |
