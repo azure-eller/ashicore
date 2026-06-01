@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { getEmailSenderConfig } from "@/lib/email/config";
@@ -55,23 +56,39 @@ async function shouldWriteEmailOutbox() {
 async function writeEmailOutbox(email: TransactionalEmailInput) {
   await fs.mkdir(EMAIL_OUTBOX_DIR, { recursive: true });
 
+  const fileNamePrefix = email.idempotencyKey
+    ? createHash("sha256").update(email.idempotencyKey).digest("hex").slice(0, 16)
+    : String(Date.now());
   const filePath = path.join(
     EMAIL_OUTBOX_DIR,
-    `${Date.now()}-${email.tag}-${sanitizeFileSegment(email.to)}.json`
+    `${fileNamePrefix}-${email.tag}-${sanitizeFileSegment(email.to)}.json`
   );
 
-  await fs.writeFile(
-    filePath,
-    JSON.stringify(
-      {
-        ...email,
-        createdAt: new Date().toISOString(),
-      },
-      null,
-      2
-    ),
-    "utf8"
-  );
+  try {
+    await fs.writeFile(
+      filePath,
+      JSON.stringify(
+        {
+          ...email,
+          createdAt: new Date().toISOString(),
+        },
+        null,
+        2
+      ),
+      { encoding: "utf8", flag: email.idempotencyKey ? "wx" : "w" }
+    );
+  } catch (error) {
+    if (
+      email.idempotencyKey &&
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "EEXIST"
+    ) {
+      return filePath;
+    }
+
+    throw error;
+  }
 
   console.info(`[email:${email.tag}] Wrote local email delivery to ${filePath}`);
   return filePath;
