@@ -23,6 +23,13 @@ import {
   ComboboxList,
 } from "@/components/ui/combobox";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   COUNTRY_OPTIONS,
   DEFAULT_COUNTRY,
   getRegionOptions,
@@ -78,6 +85,7 @@ export function AddressFields<TFieldValues extends FieldValues>({
   const regionOptions = getRegionOptions(selectedCountry);
   const regionValues = regionOptions.map((option) => option.value);
   const countryValues = COUNTRY_OPTIONS.map((option) => option.value);
+  const emptyRegionValue = "__empty_region__";
 
   return (
     <FieldGroup>
@@ -144,47 +152,49 @@ export function AddressFields<TFieldValues extends FieldValues>({
         <Controller
           control={control}
           name={names.region}
-          render={({ field, fieldState }) => (
-            <Field data-invalid={fieldState.invalid}>
-              <FieldLabel htmlFor={`${idPrefix}-region`}>
-                {selectedCountry === DEFAULT_COUNTRY ? "State" : "State / Province"}
-              </FieldLabel>
-              <Combobox
-                items={regionValues}
-                value={normalizeRegion(selectedCountry, field.value as string | null) ?? ""}
-                onValueChange={(value) =>
-                  field.onChange(normalizeRegion(selectedCountry, value))
-                }
-                itemToStringLabel={(value) => {
-                  const option = regionOptions.find((region) => region.value === value);
-                  return option?.label ?? value;
-                }}
-              >
-                <ComboboxInput
-                  id={`${idPrefix}-region`}
-                  placeholder="State"
-                  aria-invalid={fieldState.invalid}
-                  onBlur={(event) =>
-                    field.onChange(normalizeRegion(selectedCountry, event.currentTarget.value))
-                  }
-                />
-                <ComboboxContent>
-                  <ComboboxEmpty>No states found</ComboboxEmpty>
-                  <ComboboxList>
-                    {(value: string) => {
-                      const option = regionOptions.find((region) => region.value === value);
-                      return (
-                        <ComboboxItem key={value} value={value}>
-                          {option?.label ?? value}
-                        </ComboboxItem>
-                      );
-                    }}
-                  </ComboboxList>
-                </ComboboxContent>
-              </Combobox>
-              {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </Field>
-          )}
+          render={({ field, fieldState }) => {
+            const normalizedRegion =
+              normalizeRegion(selectedCountry, field.value as string | null) ?? "";
+            const regionSelectOptions =
+              normalizedRegion && !regionValues.includes(normalizedRegion)
+                ? [...regionOptions, { value: normalizedRegion, label: normalizedRegion }]
+                : regionOptions;
+
+            return (
+              <Field data-invalid={fieldState.invalid}>
+                <FieldLabel htmlFor={`${idPrefix}-region`}>
+                  {selectedCountry === DEFAULT_COUNTRY ? "State" : "State / Province"}
+                </FieldLabel>
+                <Select
+                  value={normalizedRegion || emptyRegionValue}
+                  onValueChange={(value) => {
+                    field.onChange(
+                      value === emptyRegionValue
+                        ? null
+                        : normalizeRegion(selectedCountry, value),
+                    );
+                  }}
+                >
+                  <SelectTrigger
+                    id={`${idPrefix}-region`}
+                    className="w-full"
+                    aria-invalid={fieldState.invalid}
+                  >
+                    <SelectValue placeholder="State" />
+                  </SelectTrigger>
+                  <SelectContent position="popper" align="start">
+                    <SelectItem value={emptyRegionValue}>State</SelectItem>
+                    {regionSelectOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+              </Field>
+            );
+          }}
         />
 
         <Controller
