@@ -10,7 +10,6 @@ import {
   StatusActionMenu,
   StatusActionMenuItem,
 } from "@/components/card-page/status-action-menu";
-import type { PurchaseOrderStatus } from "@/lib/schemas/purchase-orders";
 
 type PurchaseOrderEmailStatus = "sent" | "failed" | "skipped" | "pending" | null;
 type PurchaseBillStatus = "pending" | "pushed" | "failed" | null;
@@ -42,16 +41,15 @@ function billDisplay(status: PurchaseBillStatus): {
   label: string;
   tone: StatusBlockTone;
 } {
-  if (status === "pushed") return { label: "Billed", tone: "success" };
-  if (status === "failed") return { label: "Failed", tone: "danger" };
-  if (status === "pending") return { label: "Syncing", tone: "warning" };
+  if (status === "pushed") return { label: "Bill created", tone: "success" };
+  if (status === "failed") return { label: "Bill failed", tone: "danger" };
+  if (status === "pending") return { label: "Creating bill", tone: "warning" };
   return { label: "Not billed", tone: "muted" };
 }
 
 export function PurchaseOrderEmailActionControl({
   orderId,
   status,
-  orderStatus,
   supplierEmail,
   error,
   disabled = false,
@@ -59,7 +57,6 @@ export function PurchaseOrderEmailActionControl({
 }: {
   orderId?: string | null;
   status: PurchaseOrderEmailStatus;
-  orderStatus: PurchaseOrderStatus;
   supplierEmail?: string | null;
   error?: string | null;
   disabled?: boolean;
@@ -67,14 +64,12 @@ export function PurchaseOrderEmailActionControl({
 }) {
   const display = emailDisplay(status);
   const sendDisabled =
-    disabled || !orderId || status === "pending" || orderStatus === "draft" || !supplierEmail;
+    disabled || !orderId || status === "pending" || !supplierEmail;
   const title =
     error ??
-    (orderStatus === "draft"
-      ? "Set this PO to Ordered before sending."
-      : !supplierEmail
-        ? "Supplier has no email on file."
-        : supplierEmail ?? undefined);
+    (!supplierEmail
+      ? "Supplier has no email on file."
+      : supplierEmail ?? undefined);
 
   return (
     <StatusActionMenu
@@ -86,7 +81,6 @@ export function PurchaseOrderEmailActionControl({
     >
       <StatusActionMenuItem
         active
-        disabled
         swatchClassName={TONE_SWATCH[display.tone]}
       >
         {display.label}
@@ -136,11 +130,9 @@ export function PurchaseBillActionControl({
       tone={display.tone}
       ariaLabel="Bill actions"
       title={disabledReason ?? externalNumber ?? undefined}
-      disabled={disabled && status !== "pushed"}
     >
       <StatusActionMenuItem
         active
-        disabled
         swatchClassName={TONE_SWATCH[display.tone]}
       >
         {display.label}

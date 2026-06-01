@@ -484,6 +484,7 @@ const PURCHASE_STATUS_OPTIONS: OrderStatusOption[] = [
   { value: "ordered", label: "Ordered", tone: "info" },
   { value: "partial", label: "Partially received", tone: "warning" },
   { value: "received", label: "Received", tone: "success" },
+  { value: "cancelled", label: "Cancelled", tone: "danger" },
 ];
 
 function purchaseStatusOptions(status: PurchaseOrderStatus) {

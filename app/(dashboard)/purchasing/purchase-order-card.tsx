@@ -12,10 +12,7 @@ import type {
   ValueFormatterParams,
   ValueSetterParams,
 } from "ag-grid-community";
-import {
-  FileDollarIcon,
-  Mail01Icon,
-} from "@hugeicons/core-free-icons";
+import { Mail01Icon } from "@hugeicons/core-free-icons";
 import {
   type InsertPurchaseOrder,
   type PurchaseOrderStatus,
@@ -108,6 +105,7 @@ import {
   type PurchaseBillDialogValues,
   type PurchaseOrderEmailDialogValues,
 } from "./purchase-order-workflow-dialogs";
+import { PurchaseBillActionControl } from "./purchase-order-workflow-actions";
 import { OrderStatusControl } from "@/components/card-page/order-status-control";
 import { purchaseOrderStatusConfig } from "@/components/card-page/order-status-configs";
 import styles from "@/components/card-page/card-page.module.css";
@@ -823,6 +821,9 @@ export function PurchaseOrderCard({
   );
   const [purchaseBillExternalNumber, setPurchaseBillExternalNumber] = useState(
     initialData?.purchaseBillExternalNumber ?? null,
+  );
+  const [purchaseBillExternalId, setPurchaseBillExternalId] = useState(
+    initialData?.purchaseBillExternalId ?? null,
   );
   const [purchaseBillDialogOpen, setPurchaseBillDialogOpen] = useState(false);
   const [purchaseBillDialogValues, setPurchaseBillDialogValues] =
@@ -1717,6 +1718,7 @@ export function PurchaseOrderCard({
     },
     onSuccess: async (result) => {
       setPurchaseBillStatus("pushed");
+      setPurchaseBillExternalId(result.xeroBillId);
       setPurchaseBillExternalNumber(result.xeroBillNumber);
       setPurchaseBillDialogOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
@@ -2085,37 +2087,25 @@ export function PurchaseOrderCard({
               />
             ) : null
           }
+          workflowControls={
+            savedOrderId ? (
+              <PurchaseBillActionControl
+                status={
+                  purchaseBillMutation.isPending ? "pending" : purchaseBillStatus
+                }
+                externalId={purchaseBillExternalId}
+                externalNumber={purchaseBillExternalNumber}
+                disabled={!canWrite || Boolean(billActionDisabledReason)}
+                disabledReason={billActionDisabledReason}
+                onCreate={openPurchaseBillDialog}
+              />
+            ) : null
+          }
           saveState={cardSaveState}
           saveMessage={cardSaveMessage}
           iconActions={
             savedOrderId
               ? [
-                  {
-                    label:
-                      purchaseBillStatus === "pushed"
-                        ? `Supplier bill ${purchaseBillExternalNumber ?? ""}`.trim()
-                        : purchaseBillStatus === "failed"
-                          ? "Retry supplier bill"
-                          : "Create supplier bill",
-                    icon: FileDollarIcon,
-                    status:
-                      purchaseBillMutation.isPending ||
-                      purchaseBillStatus === "pending"
-                        ? "pending"
-                        : purchaseBillStatus === "pushed"
-                          ? "success"
-                          : purchaseBillStatus === "failed"
-                            ? "failed"
-                            : "idle",
-                    onClick: openPurchaseBillDialog,
-                    disabled:
-                      !canWrite ||
-                      purchaseBillMutation.isPending ||
-                      purchaseBillStatus === "pending" ||
-                      purchaseBillStatus === "pushed" ||
-                      Boolean(billActionDisabledReason),
-                    tooltip: billActionDisabledReason ?? purchaseBillExternalNumber ?? "",
-                  },
                   {
                     label:
                       purchaseOrderEmailMutation.isPending
