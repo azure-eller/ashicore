@@ -11,6 +11,7 @@ import {
   manufacturingOrders,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
+import { getItemDisplayNamesByIdInTx } from "@/lib/inventory/item-display";
 
 export type ProducedTodayOperationResource = {
   id: string | null;
@@ -66,6 +67,7 @@ export async function getProducedTodayOrders(
     const rows = await tx
       .select({
         manufacturingOrderId: manufacturingOrders.id,
+        productId: manufacturingOrders.productId,
         productName: manufacturingOrders.productName,
         productSku: manufacturingOrders.productSku,
         productCategory: items.category,
@@ -93,6 +95,7 @@ export async function getProducedTodayOrders(
       )
       .groupBy(
         manufacturingOrders.id,
+        manufacturingOrders.productId,
         manufacturingOrders.productName,
         manufacturingOrders.productSku,
         items.category,
@@ -104,6 +107,10 @@ export async function getProducedTodayOrders(
       return [];
     }
 
+    const displayNamesByItemId = await getItemDisplayNamesByIdInTx(
+      tx,
+      rows.map((row) => row.productId)
+    );
     const orderIds = rows.map((row) => row.manufacturingOrderId);
     const resourceRows = await tx
       .select({
@@ -143,7 +150,7 @@ export async function getProducedTodayOrders(
 
     return rows.map((row) => ({
       manufacturingOrderId: row.manufacturingOrderId,
-      productName: row.productName,
+      productName: displayNamesByItemId.get(row.productId) ?? row.productName,
       productSku: row.productSku,
       productCategory: row.productCategory,
       unitName: row.unitName,
