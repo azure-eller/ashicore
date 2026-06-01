@@ -300,14 +300,15 @@ test.describe("stocktake found-lot operating story", () => {
         )
       );
 
-    // Seed a real live lot for the item: a found lot reusing this number must
-    // be rejected because it already exists in the ledger.
+    // Seed an existing lot number for the item: a found lot reusing this number
+    // must be rejected, but the test should not bypass the inventory kernel by
+    // inventing stock quantity.
     const existingLotNumber = `EXISTING-${Date.now()}`;
     await db.insert(lots).values({
       organizationId: getOrgId(),
       itemId: material.id,
       lotNumber: existingLotNumber,
-      quantity: "5",
+      quantity: "0",
       receivedAt: new Date(),
     });
 

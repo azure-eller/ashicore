@@ -555,6 +555,18 @@ type ValidatedCustomerRow = {
   name: string;
   customerCategoryId: string | null;
   customerCategoryName: string | null;
+  billingLine1: string | null;
+  billingLine2: string | null;
+  billingCity: string | null;
+  billingRegion: string | null;
+  billingPostcode: string | null;
+  billingCountry: string | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
 };
 
 type PricingScheduleRecord = {
@@ -3166,6 +3178,18 @@ async function getValidatedCustomerInTx(tx: Tx, customerId: string) {
       name: customers.name,
       customerCategoryId: customers.customerCategoryId,
       customerCategoryName: customerCategories.name,
+      billingLine1: customers.billingLine1,
+      billingLine2: customers.billingLine2,
+      billingCity: customers.billingCity,
+      billingRegion: customers.billingRegion,
+      billingPostcode: customers.billingPostcode,
+      billingCountry: customers.billingCountry,
+      shipLine1: customers.shipLine1,
+      shipLine2: customers.shipLine2,
+      shipCity: customers.shipCity,
+      shipRegion: customers.shipRegion,
+      shipPostcode: customers.shipPostcode,
+      shipCountry: customers.shipCountry,
     })
     .from(customers)
     .leftJoin(
@@ -3437,6 +3461,30 @@ async function prepareOrderPayload(
     0
   ) + parseFloat(shippingFeeTaxAmount);
   const totalAmount = subtotalAmount + taxAmount;
+  const customerHasShipAddress =
+    customer.shipLine1 != null ||
+    customer.shipLine2 != null ||
+    customer.shipCity != null ||
+    customer.shipRegion != null ||
+    customer.shipPostcode != null ||
+    customer.shipCountry != null;
+  const fallbackShipAddress = customerHasShipAddress
+    ? {
+        shipLine1: customer.shipLine1,
+        shipLine2: customer.shipLine2,
+        shipCity: customer.shipCity,
+        shipRegion: customer.shipRegion,
+        shipPostcode: customer.shipPostcode,
+        shipCountry: customer.shipCountry,
+      }
+    : {
+        shipLine1: customer.billingLine1,
+        shipLine2: customer.billingLine2,
+        shipCity: customer.billingCity,
+        shipRegion: customer.billingRegion,
+        shipPostcode: customer.billingPostcode,
+        shipCountry: customer.billingCountry,
+      };
 
   return {
     customerId: customer.id,
@@ -3446,18 +3494,18 @@ async function prepareOrderPayload(
     shipDate: payload.shipDate ?? null,
     requestedDate: payload.requestedDate ?? null,
     notes: payload.notes ?? null,
-    shipLine1: payload.shipLine1 ?? null,
-    shipLine2: payload.shipLine2 ?? null,
-    shipCity: payload.shipCity ?? null,
-    shipRegion: payload.shipRegion ?? null,
-    shipPostcode: payload.shipPostcode ?? null,
-    shipCountry: payload.shipCountry ?? null,
-    billingLine1: payload.billingLine1 ?? null,
-    billingLine2: payload.billingLine2 ?? null,
-    billingCity: payload.billingCity ?? null,
-    billingRegion: payload.billingRegion ?? null,
-    billingPostcode: payload.billingPostcode ?? null,
-    billingCountry: payload.billingCountry ?? null,
+    shipLine1: payload.shipLine1 ?? fallbackShipAddress.shipLine1,
+    shipLine2: payload.shipLine2 ?? fallbackShipAddress.shipLine2,
+    shipCity: payload.shipCity ?? fallbackShipAddress.shipCity,
+    shipRegion: payload.shipRegion ?? fallbackShipAddress.shipRegion,
+    shipPostcode: payload.shipPostcode ?? fallbackShipAddress.shipPostcode,
+    shipCountry: payload.shipCountry ?? fallbackShipAddress.shipCountry,
+    billingLine1: payload.billingLine1 ?? customer.billingLine1,
+    billingLine2: payload.billingLine2 ?? customer.billingLine2,
+    billingCity: payload.billingCity ?? customer.billingCity,
+    billingRegion: payload.billingRegion ?? customer.billingRegion,
+    billingPostcode: payload.billingPostcode ?? customer.billingPostcode,
+    billingCountry: payload.billingCountry ?? customer.billingCountry,
     shippingFeeDescription: payload.shippingFeeDescription ?? null,
     shippingFeeAmount,
     shippingFeeTaxAmount,

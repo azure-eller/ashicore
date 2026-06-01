@@ -97,6 +97,8 @@ test.describe("sales fulfillment operating story", () => {
     expect(order).toMatchObject({
       customerId,
       customerName: customer.name,
+      shipLine1: "44 Fulfillment Road",
+      shipCity: "Crawford",
     });
 
     const line = await readSalesOrderLine(db, orderId, productId);

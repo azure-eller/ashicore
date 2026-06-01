@@ -7,7 +7,6 @@ import {
   inventoryLotBalances,
   manufacturingOrderIngredients,
   manufacturingOrders,
-  lots,
   stockAllocations,
 } from "../../../lib/db/schema";
 import {
@@ -208,18 +207,17 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       })
       .returning({ id: stockAllocations.id, lotId: stockAllocations.sourceId });
 
-    await db
-      .update(inventoryLotBalances)
-      .set({ quantity: "0", updatedAt: new Date() })
-      .where(eq(inventoryLotBalances.lotId, allocation.lotId));
-    await db
-      .update(lots)
-      .set({ quantity: "0", updatedAt: new Date() })
-      .where(eq(lots.id, allocation.lotId));
-    await db
-      .update(inventoryItemBalances)
-      .set({ onHandQty: "0", updatedAt: new Date() })
-      .where(eq(inventoryItemBalances.itemId, fixture.componentId));
+    const emptyLot = await testFetch(
+      `/api/items/${fixture.componentId}/lots/${allocation.lotId}/quantity`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          quantity: "0",
+          note: "test stale allocation setup",
+        }),
+      }
+    );
+    expect(emptyLot.status).toBe(200);
 
     const blocked = await testFetch(
       `/api/manufacturing-orders/${order.body.id}/ingredients/${ingredient.id}/pick`,
