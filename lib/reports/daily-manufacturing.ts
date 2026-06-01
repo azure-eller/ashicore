@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { render } from "@react-email/components";
 import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { toRows } from "@/lib/db/query-result";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import {
@@ -56,14 +57,6 @@ type ClaimResult = {
   runId: string;
   window: ReportWindow;
 };
-
-function toRows<T>(result: unknown): T[] {
-  if (Array.isArray(result)) return result as T[];
-  if (result && typeof result === "object" && "rows" in result) {
-    return (result as { rows: T[] }).rows;
-  }
-  return [];
-}
 
 function formatSubjectDate(reportDate: string) {
   const [year, month, day] = reportDate.split("-");
