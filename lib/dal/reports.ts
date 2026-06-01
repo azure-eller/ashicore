@@ -15,7 +15,7 @@ import {
   reportSchedules,
   user,
 } from "@/lib/db/schema";
-import { REPORT_TYPES } from "@/lib/reports/constants";
+import { REPORT_TYPES, notificationKindFor } from "@/lib/reports/constants";
 import type { UpdateDailyManufacturingReportScheduleInput } from "@/lib/schemas/reports";
 
 export type ReportScheduleMember = {
@@ -185,7 +185,11 @@ export async function getNotificationsForRequest(requestHeaders: HeadersInit) {
 
     return {
       unreadCount: rows.filter((row) => row.readAt == null).length,
-      notifications: rows,
+      notifications: rows.map((row) => ({
+        ...row,
+        // Server-owned presentational taxonomy for the mobile inbox icon tile.
+        kind: notificationKindFor(row.type, row.entityType),
+      })),
     };
   });
 }
