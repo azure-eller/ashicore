@@ -3,6 +3,7 @@ import {
   varchar,
   text,
   numeric,
+  date,
   timestamp,
   pgPolicy,
   index,
@@ -26,6 +27,7 @@ export const lots = inventorySchema
         .notNull()
         .default("0"),
       receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+      expiresOn: date("expires_on", { mode: "string" }),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     },

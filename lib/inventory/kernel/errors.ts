@@ -73,6 +73,30 @@ export class InsufficientStockError extends DomainError<{
   }
 }
 
+export class LinkedManufacturingOutputUnavailableError extends DomainError<{
+  itemId: string;
+  available: number;
+  requested: number;
+}> {
+  readonly itemId: string;
+  readonly available: number;
+  readonly requested: number;
+
+  constructor(params: { itemId: string; available: number; requested: number }) {
+    super(
+      `Linked make-to-order output is not available. Available: ${params.available}, requested: ${params.requested}.`,
+      409,
+      {
+        name: "LinkedManufacturingOutputUnavailableError",
+        extra: params,
+      }
+    );
+    this.itemId = params.itemId;
+    this.available = params.available;
+    this.requested = params.requested;
+  }
+}
+
 export class InventoryDispositionError extends DomainError<{
   itemId?: string;
   lotId?: string;

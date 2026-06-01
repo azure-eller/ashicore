@@ -436,6 +436,9 @@ export type SaveManufacturingOutputAllocation = z.infer<
 >;
 
 export const createManufacturingOrdersFromSalesOrderSchema = z.object({
+  manufacturingStrategy: z
+    .enum(["make_to_order", "make_to_stock"])
+    .default("make_to_order"),
   plannedDate: nullableString.refine(
     (value) => value == null || isValidIsoDate(value),
     "Planned date must be a real date in YYYY-MM-DD format"

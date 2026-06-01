@@ -42,8 +42,12 @@ export type SalesIngredientShortageSummary = {
   itemName: string;
   itemSku: string | null;
   unitName: string;
+  availabilityStatus: "expected" | "missing";
   requiredQty: number;
   shortQty: number;
+  availableQty: number;
+  expectedQty: number;
+  missingQty: number;
 };
 
 export type SalesFulfillmentDemandLine = {
@@ -546,6 +550,10 @@ function deriveProductionState(
     return "blocked";
   }
 
+  if (order.hasManufacturableLines && order.shortQty > 0) {
+    return "make";
+  }
+
   if (linkedOpenOrders.some((mo) => mo.productionStatus === "in_progress")) {
     return "in_progress";
   }
@@ -561,10 +569,6 @@ function deriveProductionState(
     return "done";
   }
 
-  if (order.hasManufacturableLines && order.shortQty > 0) {
-    return "make";
-  }
-
   return "not_applicable";
 }
 
@@ -575,13 +579,16 @@ function rollupIngredientCoverages(
     return { ingredientsState: "not_applicable", ingredientsExpectedDate: null };
   }
 
-  if (coverages.some((coverage) => coverage.state === "not_available")) {
-    return { ingredientsState: "not_available", ingredientsExpectedDate: null };
-  }
-
   const expectedDates = coverages
     .map((coverage) => coverage.expectedDate)
     .filter((date): date is string => date != null);
+
+  if (coverages.some((coverage) => coverage.state === "not_available")) {
+    return {
+      ingredientsState: "not_available",
+      ingredientsExpectedDate: expectedDates.sort().at(-1) ?? null,
+    };
+  }
 
   if (coverages.some((coverage) => coverage.state === "expected")) {
     return {
@@ -603,6 +610,7 @@ function coverageForNeeds(
   for (const need of needs) {
     let remaining = need.quantity;
     let expectedDate: string | null = null;
+    let expectedQty = 0;
     let consumedExpected = false;
     const supplies = supplyByItemId.get(need.itemId) ?? [];
 
@@ -616,16 +624,7 @@ function coverageForNeeds(
     }
 
     const currentShortQty = remaining;
-    if (currentShortQty > 0) {
-      shortages.push({
-        itemId: need.itemId,
-        itemName: need.itemName,
-        itemSku: need.itemSku,
-        unitName: need.unitName,
-        requiredQty: need.quantity,
-        shortQty: currentShortQty,
-      });
-    }
+    const availableQty = roundQuantity(need.quantity - currentShortQty);
 
     for (const supply of supplies.filter((slice) => slice.expectedDate != null)) {
       if (remaining <= 0) break;
@@ -634,12 +633,45 @@ function coverageForNeeds(
       const consumed = Math.min(remaining, supply.quantity);
       supply.quantity = roundQuantity(supply.quantity - consumed);
       remaining = roundQuantity(remaining - consumed);
+      expectedQty = roundQuantity(expectedQty + consumed);
       consumedExpected = true;
       expectedDate =
         [expectedDate, supply.expectedDate]
           .filter((date): date is string => date != null)
           .sort()
           .at(-1) ?? null;
+    }
+
+    if (currentShortQty > 0) {
+      if (expectedQty > 0) {
+        shortages.push({
+          itemId: need.itemId,
+          itemName: need.itemName,
+          itemSku: need.itemSku,
+          unitName: need.unitName,
+          availabilityStatus: "expected",
+          requiredQty: need.quantity,
+          shortQty: expectedQty,
+          availableQty,
+          expectedQty,
+          missingQty: 0,
+        });
+      }
+
+      if (remaining > 0) {
+        shortages.push({
+          itemId: need.itemId,
+          itemName: need.itemName,
+          itemSku: need.itemSku,
+          unitName: need.unitName,
+          availabilityStatus: "missing",
+          requiredQty: need.quantity,
+          shortQty: remaining,
+          availableQty,
+          expectedQty: 0,
+          missingQty: remaining,
+        });
+      }
     }
 
     if (remaining <= 0 && !consumedExpected) {
@@ -652,10 +684,30 @@ function coverageForNeeds(
       continue;
     }
 
-    coverages.push({ state: "not_available", expectedDate: null });
+    coverages.push({
+      state: "not_available",
+      expectedDate: expectedQty > 0 ? expectedDate : null,
+    });
   }
 
   return { coverages, shortages };
+}
+
+function preclaimIngredientSupply(
+  supplyByItemId: Map<string, IngredientSupplySlice[]>,
+  claimsByItemId: Map<string, number>
+) {
+  for (const [itemId, claimQty] of claimsByItemId) {
+    let remaining = claimQty;
+    for (const supply of supplyByItemId.get(itemId) ?? []) {
+      if (remaining <= 0) break;
+      if (supply.quantity <= 0) continue;
+
+      const consumed = Math.min(remaining, supply.quantity);
+      supply.quantity = roundQuantity(supply.quantity - consumed);
+      remaining = roundQuantity(remaining - consumed);
+    }
+  }
 }
 
 function aggregateNeeds(needs: IngredientNeed[]) {
@@ -847,7 +899,8 @@ async function getBomIngredientNeedsInTx(
 async function getIngredientSupplyByItemIdInTx(
   tx: Tx,
   orgId: string,
-  itemIds: string[]
+  itemIds: string[],
+  options: { excludeManufacturingOrderIds?: string[] } = {}
 ) {
   const uniqueItemIds = [...new Set(itemIds)];
   const supplyByItemId = new Map<string, IngredientSupplySlice[]>();
@@ -915,6 +968,40 @@ async function getIngredientSupplyByItemIdInTx(
       )
     )
     .groupBy(manufacturingOrders.productId, manufacturingOrders.plannedDate);
+  const manufacturingDemandRows = await tx
+    .select({
+      itemId: manufacturingOrderIngredients.itemId,
+      quantity: trimScale(
+        sql`COALESCE(SUM(GREATEST(${manufacturingOrderIngredients.plannedQuantity} - ${manufacturingOrderIngredients.pickedQuantity}, 0)), 0)`
+      ).as("quantity"),
+    })
+    .from(manufacturingOrderIngredients)
+    .innerJoin(
+      manufacturingOrders,
+      eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrders.id)
+    )
+    .where(
+      and(
+        eq(manufacturingOrders.organizationId, orgId),
+        eq(manufacturingOrders.status, "open"),
+        isNull(manufacturingOrders.deletedAt),
+        isNull(manufacturingOrders.completedAt),
+        isNull(manufacturingOrders.cancelledAt),
+        inArray(manufacturingOrderIngredients.itemId, uniqueItemIds),
+        options.excludeManufacturingOrderIds &&
+        options.excludeManufacturingOrderIds.length > 0
+          ? sql`${manufacturingOrders.id} NOT IN (${sql.join(
+              options.excludeManufacturingOrderIds.map((id) => sql`${id}`),
+              sql`, `
+            )})`
+          : undefined,
+        sql`${manufacturingOrderIngredients.plannedQuantity} > ${manufacturingOrderIngredients.pickedQuantity}`
+      )
+    )
+    .groupBy(manufacturingOrderIngredients.itemId);
+  const manufacturingDemandByItemId = new Map(
+    manufacturingDemandRows.map((row) => [row.itemId, parseQuantity(row.quantity)])
+  );
 
   const pushSupply = (supply: IngredientSupplySlice) => {
     if (supply.quantity <= 0) return;
@@ -949,6 +1036,7 @@ async function getIngredientSupplyByItemIdInTx(
       );
     });
   }
+  preclaimIngredientSupply(supplyByItemId, manufacturingDemandByItemId);
 
   return supplyByItemId;
 }
@@ -976,24 +1064,9 @@ export async function getSalesFulfillmentReadModelsInTx(
     orgId,
     linkedOpenMoLinks
   );
-  const linkedLineIdsByOrderId = new Map<string, Set<string>>();
-  for (const order of orders) {
-    linkedLineIdsByOrderId.set(
-      order.id,
-      new Set(
-        order.linkedManufacturingOrders
-          .map((mo) => mo.salesOrderLineId)
-          .filter((lineId): lineId is string => typeof lineId === "string")
-      )
-    );
-  }
   const bomNeeds = await getBomIngredientNeedsInTx(
     tx,
-    orders.flatMap((order) =>
-      order.manufacturableLines.filter(
-        (line) => !linkedLineIdsByOrderId.get(order.id)?.has(line.salesOrderLineId)
-      )
-    )
+    orders.flatMap((order) => order.manufacturableLines)
   );
   const bomNeedsByOrderId = new Map<string, IngredientNeed[]>();
   for (const need of bomNeeds) {
@@ -1013,7 +1086,12 @@ export async function getSalesFulfillmentReadModelsInTx(
   const ingredientSupplyByItemId = await getIngredientSupplyByItemIdInTx(
     tx,
     orgId,
-    allIngredientItemIds
+    allIngredientItemIds,
+    {
+      excludeManufacturingOrderIds: linkedOpenMoLinks.map(
+        (link) => link.manufacturingOrderId
+      ),
+    }
   );
 
   const orderSortLineByOrderId = new Map<string, SalesFulfillmentDemandLine>();
@@ -1050,11 +1128,13 @@ export async function getSalesFulfillmentReadModelsInTx(
     }
 
     const linkedNeeds = aggregateNeeds(linkedNeedsByOrderId.get(order.id) ?? []);
-    const bomOrderNeeds = bomNeedsByOrderId.get(order.id) ?? [];
+    const bomOrderNeeds =
+      salesItemsState === "expected" && order.shortQty <= 0
+        ? []
+        : (bomNeedsByOrderId.get(order.id) ?? []);
     const ingredientNeeds = aggregateNeeds([...linkedNeeds, ...bomOrderNeeds]);
-    const linkedLineIds = linkedLineIdsByOrderId.get(order.id);
     const hasUnlinkedManufacturableLines = order.manufacturableLines.some(
-      (line) => !linkedLineIds?.has(line.salesOrderLineId)
+      (line) => line.status === "will_create" && parseQuantity(line.quantity) > 0
     );
 
     const ingredientCoverage =

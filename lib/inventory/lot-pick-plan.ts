@@ -5,6 +5,8 @@ import { trimScale } from "@/lib/db/numeric";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 
+const UNBATCHED_LOT_NUMBER = "UNBATCHED";
+
 export type LotPickPlanKind = "allocated" | "fifo" | "picked" | "production";
 export type LotPickPlanStatus = "ready" | "waiting" | "short";
 export type LotPickPlanSourceType = "inventory_lot" | "manufacturing_order";
@@ -43,6 +45,7 @@ export async function buildFifoLotPickPlanInTx(
       lotId: inventoryLotBalances.lotId,
       lotNumber: lots.lotNumber,
       quantity: trimScale(inventoryLotBalances.quantity).as("quantity"),
+      expiresOn: lots.expiresOn,
     })
     .from(inventoryLotBalances)
     .innerJoin(lots, eq(lots.id, inventoryLotBalances.lotId))
@@ -52,10 +55,20 @@ export async function buildFifoLotPickPlanInTx(
         eq(inventoryLotBalances.locationId, location.id),
         eq(inventoryLotBalances.itemId, params.itemId),
         eq(inventoryLotBalances.disposition, "available"),
+        sql`(${lots.expiresOn} IS NULL OR ${lots.expiresOn} >= CURRENT_DATE)`,
         sql`${inventoryLotBalances.quantity} > 0`
       )
     )
-    .orderBy(asc(inventoryLotBalances.receivedAt), asc(inventoryLotBalances.lotId));
+    .orderBy(
+      sql`CASE
+        WHEN ${lots.lotNumber} = ${UNBATCHED_LOT_NUMBER} THEN 0
+        WHEN ${lots.expiresOn} IS NULL THEN 2
+        ELSE 1
+      END`,
+      asc(lots.expiresOn),
+      asc(inventoryLotBalances.receivedAt),
+      asc(inventoryLotBalances.lotId)
+    );
 
   for (const row of lotRows) {
     if (remaining <= 0) break;

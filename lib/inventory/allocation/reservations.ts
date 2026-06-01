@@ -3,6 +3,7 @@ import {
   inventoryItemBalances,
   inventoryLotBalances,
   inventoryReservationsSummary,
+  lots,
   stockAllocations,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -119,15 +120,28 @@ async function loadReservationRowsInTx(
 
 async function loadActiveInventoryLotPinTargetsInTx(
   tx: Tx,
-  params: { organizationId: string; itemId: string }
+  params: { organizationId: string; locationId: string; itemId: string }
 ) {
   const rows = await tx
     .select({
       demandType: stockAllocations.demandType,
       demandId: stockAllocations.demandId,
       quantity: stockAllocations.quantity,
+      lotNumber: lots.lotNumber,
+      sourceAvailableQty: inventoryLotBalances.quantity,
     })
     .from(stockAllocations)
+    .innerJoin(lots, eq(stockAllocations.sourceId, lots.id))
+    .innerJoin(
+      inventoryLotBalances,
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.lotId, lots.id),
+        eq(inventoryLotBalances.disposition, "available")
+      )
+    )
     .where(
       and(
         eq(stockAllocations.organizationId, params.organizationId),
@@ -146,6 +160,7 @@ async function loadActiveInventoryLotPinTargetsInTx(
     demandType: AllocationDemandType;
     demandId: string;
     quantity: number;
+    reservationQuantity: number;
   }>();
   for (const row of rows) {
     if (
@@ -156,10 +171,19 @@ async function loadActiveInventoryLotPinTargetsInTx(
     }
     const key = demandKey(row);
     const current = targets.get(key);
+    const quantity = Number(row.quantity);
+    const sourceAvailableQty = Number(row.sourceAvailableQty);
+    const reservationQuantity =
+      row.lotNumber === "UNBATCHED"
+        ? Math.min(quantity, Math.max(0, sourceAvailableQty))
+        : quantity;
     targets.set(key, {
       demandType: row.demandType,
       demandId: row.demandId,
-      quantity: roundQuantity((current?.quantity ?? 0) + Number(row.quantity)),
+      quantity: roundQuantity((current?.quantity ?? 0) + quantity),
+      reservationQuantity: roundQuantity(
+        (current?.reservationQuantity ?? 0) + reservationQuantity
+      ),
     });
   }
 
@@ -180,13 +204,14 @@ export async function reconcileAllocationPinsToReservationsInTx(
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
   const targets = await loadActiveInventoryLotPinTargetsInTx(tx, {
     organizationId: params.organizationId,
+    locationId: location.id,
     itemId: params.itemId,
   });
 
   for (const demand of params.affectedDemands) {
     const key = demandKey(demand);
     if (!targets.has(key) && params.releaseUnpinnedAffectedDemands === true) {
-      targets.set(key, { ...demand, quantity: 0 });
+      targets.set(key, { ...demand, quantity: 0, reservationQuantity: 0 });
     }
   }
 
@@ -198,7 +223,7 @@ export async function reconcileAllocationPinsToReservationsInTx(
   });
   const pinnedKeys = new Set(
     [...targets.entries()]
-      .filter(([, target]) => target.quantity > 0)
+      .filter(([, target]) => target.reservationQuantity > 0)
       .map(([key]) => key)
   );
   const reservationRows = await loadReservationRowsInTx(tx, {
@@ -213,7 +238,7 @@ export async function reconcileAllocationPinsToReservationsInTx(
   const surplusDeltas = [...targets.entries()]
     .map(([, target]) => {
       const current = currentByKey.get(demandKey(target)) ?? 0;
-      const surplus = roundQuantity(current - target.quantity);
+      const surplus = roundQuantity(current - target.reservationQuantity);
       return surplus > 0 ? { target, surplus } : null;
     })
     .filter((row): row is NonNullable<typeof row> => row != null)
@@ -245,7 +270,7 @@ export async function reconcileAllocationPinsToReservationsInTx(
   }
 
   const sortedTargets = [...targets.values()]
-    .filter((target) => target.quantity > 0)
+    .filter((target) => target.reservationQuantity > 0)
     .sort((left, right) => {
       const leftOrder = demandOrderByKey.get(demandKey(left)) ?? left;
       const rightOrder = demandOrderByKey.get(demandKey(right)) ?? right;
@@ -334,7 +359,7 @@ export async function reconcileAllocationPinsToReservationsInTx(
       continue;
     }
 
-    let needed = roundQuantity(target.quantity - current);
+    let needed = roundQuantity(target.reservationQuantity - current);
     if (needed <= 0) continue;
 
     let available = await getReservableAvailableInTx(tx, {
@@ -388,7 +413,7 @@ export async function reconcileAllocationPinsToReservationsInTx(
       locationId: location.id,
       itemId: params.itemId,
     });
-    needed = roundQuantity(target.quantity - (currentByKey.get(key) ?? 0));
+    needed = roundQuantity(target.reservationQuantity - (currentByKey.get(key) ?? 0));
     if (needed > available) {
       throw new AllocationError(
         "Pinned allocation cannot be fully reserved without displacing higher-priority or pinned demand.",
@@ -421,7 +446,7 @@ export async function reconcileAllocationPinsToReservationsInTx(
         .map((row) => roundQuantity(Number(row.quantity)))
         .at(0) ?? 0;
     currentByKey.set(key, refreshedQty);
-    if (roundQuantity(refreshedQty - target.quantity) < 0) {
+    if (roundQuantity(refreshedQty - target.reservationQuantity) < 0) {
       throw new AllocationError(
         "Pinned allocation cannot be fully reserved without displacing higher-priority or pinned demand.",
         409
@@ -441,7 +466,7 @@ export async function reconcileAllocationPinsToReservationsInTx(
   for (const target of targets.values()) {
     if (skippedClosedDemandKeys.has(demandKey(target))) continue;
     const finalQty = finalByKey.get(demandKey(target)) ?? 0;
-    if (roundQuantity(finalQty - target.quantity) !== 0) {
+    if (roundQuantity(finalQty - target.reservationQuantity) !== 0) {
       throw new AllocationError(
         "Pinned allocation could not be reconciled to inventory reservations.",
         409

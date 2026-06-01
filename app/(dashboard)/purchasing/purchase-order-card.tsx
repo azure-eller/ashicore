@@ -603,7 +603,7 @@ function PurchaseMaterialCell({
   materialMap: Map<string, PurchaseOrderMaterialOption>;
 }) {
   if (!data?.itemId) {
-    return <span className="text-muted-foreground">Search materials...</span>;
+    return <span className="text-muted-foreground">Search items...</span>;
   }
 
   return (
@@ -862,7 +862,6 @@ export function PurchaseOrderCard({
       materials.map((material) => ({
         ...material,
         displayName: material.name,
-        itemType: "material" as const,
         unitName: material.stockingUnitName,
       })),
     [materials],
@@ -1194,6 +1193,10 @@ export function PurchaseOrderCard({
           {
             href: "/inventory/material",
             label: "Create material",
+          },
+          {
+            href: "/inventory/product",
+            label: "Create product",
           },
         ],
         getSecondaryText: (current) =>
@@ -1987,12 +1990,16 @@ export function PurchaseOrderCard({
       ? initialData.supplierEmail
       : selectedSupplier?.email ?? null;
   const currentDeliveryAddress: DeliveryAddressFields = {
+    shipAddressEntryId: null,
+    shipContactName: null,
+    shipContactPhone: null,
     shipLine1: draftValues.shipLine1,
     shipLine2: draftValues.shipLine2,
     shipCity: draftValues.shipCity,
     shipRegion: draftValues.shipRegion,
     shipPostcode: draftValues.shipPostcode,
     shipCountry: draftValues.shipCountry,
+    shipDeliveryInstructions: null,
   };
   const autosaveState = canAutosaveDraft ? purchaseOrderEngine.status : "idle";
   const autosaveMessage = canAutosaveDraft

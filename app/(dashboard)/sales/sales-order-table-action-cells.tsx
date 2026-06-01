@@ -93,6 +93,8 @@ function LinkedManufacturingProgressBar({
 
 export function ProductionActionCell({ order, state }: ProductionActionCellProps) {
   const [makeToOrderOpen, setMakeToOrderOpen] = useState(false);
+  const [manufacturingStrategy, setManufacturingStrategy] =
+    useState<"make_to_order" | "make_to_stock">("make_to_order");
   const isMakeAction = order.status === "open" && state.label === "Make";
   const hasOpenManufacturingOrders = order.openManufacturingOrders.length > 0;
   const showProgress =
@@ -130,17 +132,24 @@ export function ProductionActionCell({ order, state }: ProductionActionCellProps
           {isMakeAction ? (
             <>
               <DropdownMenuItem
-                onSelect={() => setMakeToOrderOpen(true)}
+                onSelect={() => {
+                  setManufacturingStrategy("make_to_order");
+                  setMakeToOrderOpen(true);
+                }}
                 className="gap-(--space-6) py-(--space-5) text-[length:var(--text-sm)]"
               >
                 <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-(--space-8)" />
                 Make to order
               </DropdownMenuItem>
-              <DropdownMenuItem asChild className="gap-(--space-6) py-(--space-5) text-[length:var(--text-sm)]">
-                <Link href="/manufacturing/order">
-                  <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-(--space-8)" />
-                  Make to stock
-                </Link>
+              <DropdownMenuItem
+                onSelect={() => {
+                  setManufacturingStrategy("make_to_stock");
+                  setMakeToOrderOpen(true);
+                }}
+                className="gap-(--space-6) py-(--space-5) text-[length:var(--text-sm)]"
+              >
+                <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-(--space-8)" />
+                Make to stock
               </DropdownMenuItem>
             </>
           ) : (
@@ -166,6 +175,7 @@ export function ProductionActionCell({ order, state }: ProductionActionCellProps
         open={makeToOrderOpen}
         onOpenChange={setMakeToOrderOpen}
         showTrigger={false}
+        manufacturingStrategy={manufacturingStrategy}
         salesOrderLabel={`${order.orderNumber} - ${order.customerName}`}
         initialPlannedDate={defaultManufacturingPlannedDate(order.shipDate)}
         openManufacturingOrders={order.openManufacturingOrders.map((mo) => ({

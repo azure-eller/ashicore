@@ -13,7 +13,7 @@ read_when:
 Purchasing v1 includes:
 
 - supplier CRUD
-- draft purchase orders for materials only
+- draft purchase orders for purchasable materials and products
 - supplier and material snapshots on saved orders
 - `draft`, `ordered`, `partial`, and `received` statuses
 - partial receiving into lot-backed inventory

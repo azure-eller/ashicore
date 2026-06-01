@@ -1527,7 +1527,9 @@ async function getSupplierSuggestionsInTx(
 ): Promise<Map<string, SupplierSuggestion>> {
   const uniqueItemIds = [
     ...new Set(
-      itemsList.filter((item) => item.itemType === "material").map((item) => item.id)
+      itemsList
+        .filter((item) => item.itemType === "material" || item.itemType === "product")
+        .map((item) => item.id)
     ),
   ];
   const itemById = new Map(itemsList.map((item) => [item.id, item]));
@@ -1954,6 +1956,7 @@ function buildPlanningRows(args: {
       itemDemandFacts.map((fact) => fact.requiredDate)
     );
     const supplierSuggestion = args.supplierSuggestions.get(item.id);
+    const bom = args.bomByProductId?.get(item.id);
     const replenishment = computeReplenishmentMetadata({
       item,
       itemDemandFacts,
@@ -1963,17 +1966,27 @@ function buildPlanningRows(args: {
       supplierSuggestion,
       horizonStart: args.horizonStart,
     });
+    const hasBom = Boolean(bom && bom.components.length > 0);
+    const hasProductPurchaseSetup =
+      item.itemType === "product" &&
+      (item.defaultPurchasePrice != null ||
+        supplierSuggestion?.supplierSource === "supplier_item" ||
+        supplierSuggestion?.supplierSource === "history");
     const planningType =
       item.itemType === "material"
         ? "buy"
         : item.itemType === "product"
-          ? "make"
+          ? hasBom && hasProductPurchaseSetup
+            ? "buy_or_make"
+            : hasBom
+              ? "make"
+              : "buy"
           : "unknown";
     const production =
-      planningType === "make"
+      planningType === "make" || planningType === "buy_or_make"
         ? computeProductionMetadata({
             item,
-            bom: args.bomByProductId?.get(item.id),
+            bom,
             shortageQuantity,
             earliestRequiredDate,
             horizonStart: args.horizonStart,
@@ -2001,6 +2014,8 @@ function buildPlanningRows(args: {
           ? "buy"
           : shortageQuantity <= 0
             ? "none"
+            : planningType === "buy_or_make"
+              ? "review"
             : planningType === "make"
               ? "make"
               : "review";
@@ -2502,12 +2517,14 @@ function buildRecommendations(args: {
   for (const row of args.rows) {
     const shortageQuantity = toQuantity(row.shortageQuantity);
     const recommendationQuantity =
-      row.planningType === "buy"
+      row.planningType === "buy" || row.planningType === "buy_or_make"
         ? row.suggestedOrderQuantity ?? row.shortageQuantity
         : row.shortageQuantity;
     if (
       toQuantity(recommendationQuantity) <= 0 ||
-      (row.planningType !== "buy" && shortageQuantity <= 0)
+      (row.planningType !== "buy" &&
+        row.planningType !== "buy_or_make" &&
+        shortageQuantity <= 0)
     ) {
       continue;
     }
@@ -2517,7 +2534,7 @@ function buildRecommendations(args: {
       continue;
     }
 
-    if (row.planningType === "buy") {
+    if (row.planningType === "buy" || row.planningType === "buy_or_make") {
       const supplierSuggestion = args.supplierSuggestions.get(item.id) ?? {
         supplierId: null,
         supplierName: null,
@@ -2604,10 +2621,12 @@ function buildRecommendations(args: {
             ? `Draft a purchase order for ${recommendationQuantity} ${item.name}.`
             : `Review purchasing setup for ${item.name}.`,
       });
-      continue;
+      if (row.planningType === "buy") {
+        continue;
+      }
     }
 
-    if (row.planningType === "make") {
+    if (row.planningType === "make" || row.planningType === "buy_or_make") {
       const bom = args.bomByProductId.get(item.id);
       const hasBom = Boolean(bom && bom.components.length > 0);
       const canDraftManufacturingOrder = hasBom;

@@ -46,6 +46,7 @@ type Props = {
   buttonSize?: "default" | "sm" | "lg";
   buttonClassName?: string;
   initialPlannedDate?: string;
+  manufacturingStrategy?: "make_to_order" | "make_to_stock";
   openManufacturingOrders?: Array<{
     id: string;
     orderNumber: string;
@@ -135,6 +136,7 @@ export function CreateManufacturingOrdersDialog({
   buttonSize = "sm",
   buttonClassName,
   initialPlannedDate,
+  manufacturingStrategy = "make_to_order",
   openManufacturingOrders = [],
   initialLineQuantities,
 }: Props) {
@@ -222,6 +224,7 @@ export function CreateManufacturingOrdersDialog({
         method: "POST",
         body: {
           plannedDate: effectivePlannedDate || null,
+          manufacturingStrategy,
           salesOrderLineIds: effectiveSelectedLineIds,
           priorityRank: null,
           lineQuantities: effectiveSelectedLineIds.map((lineId) => ({
@@ -229,6 +232,9 @@ export function CreateManufacturingOrdersDialog({
             quantity: (() => {
               const line = creatableLines.find((candidate) => candidate.salesOrderLineId === lineId);
               if (!line) return "0";
+              if (manufacturingStrategy === "make_to_order") {
+                return line.quantity;
+              }
               const inputQuantity =
                 lineQuantities[lineId] ??
                 defaultLineInputQuantity(line, initialLineQuantityMap.get(lineId));
@@ -289,6 +295,9 @@ export function CreateManufacturingOrdersDialog({
     effectiveSelectedLineIds.every((lineId) => {
       const line = creatableLines.find((candidate) => candidate.salesOrderLineId === lineId);
       if (!line) return false;
+      if (manufacturingStrategy === "make_to_order") {
+        return Number(line.quantity) > 0;
+      }
       const value =
         lineQuantities[lineId] ??
         defaultLineInputQuantity(line, initialLineQuantityMap.get(lineId));
@@ -319,8 +328,12 @@ export function CreateManufacturingOrdersDialog({
         <DialogHeader>
           <DialogTitle>
             {isSingleLineMode
-              ? "Create Manufacturing Order"
-              : "Create Manufacturing Orders"}
+              ? manufacturingStrategy === "make_to_stock"
+                ? "Create Make-to-Stock Order"
+                : "Create Manufacturing Order"
+              : manufacturingStrategy === "make_to_stock"
+                ? "Create Make-to-Stock Orders"
+                : "Create Manufacturing Orders"}
           </DialogTitle>
           {effectiveSalesOrderLabel ? (
             <DialogDescription>
@@ -363,8 +376,12 @@ export function CreateManufacturingOrdersDialog({
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-medium">
                   {isSingleLineMode
-                    ? "New Manufacturing Order"
-                    : "New Manufacturing Orders"}
+                    ? manufacturingStrategy === "make_to_stock"
+                      ? "New Make-to-Stock Order"
+                      : "New Manufacturing Order"
+                    : manufacturingStrategy === "make_to_stock"
+                      ? "New Make-to-Stock Orders"
+                      : "New Manufacturing Orders"}
                 </h3>
                 <span className="text-sm text-muted-foreground">
                   {orderLabel(effectiveSelectedLineIds.length)}
@@ -401,6 +418,7 @@ export function CreateManufacturingOrdersDialog({
                       {previewQuery.data.lines.map((line) => {
                         const isCreatable = line.status === "will_create";
                         const lineIsBatch = isBatchLine(line);
+                        const canEditQuantity = manufacturingStrategy === "make_to_stock";
                         const inputQuantity =
                           lineQuantities[line.salesOrderLineId] ??
                           defaultLineInputQuantity(
@@ -433,7 +451,7 @@ export function CreateManufacturingOrdersDialog({
                               ) : null}
                             </FramedTableCell>
                             <FramedTableCell>
-                              {isCreatable ? (
+                              {isCreatable && canEditQuantity ? (
                                 <Input
                                   inputMode={lineIsBatch ? "numeric" : "decimal"}
                                   value={inputQuantity}
@@ -452,7 +470,7 @@ export function CreateManufacturingOrdersDialog({
                                 />
                               ) : (
                                 <span className="block text-right">
-                                  {lineIsBatch
+                                  {canEditQuantity && lineIsBatch
                                     ? defaultLineInputQuantity(
                                         line,
                                         initialLineQuantityMap.get(line.salesOrderLineId)
@@ -462,7 +480,7 @@ export function CreateManufacturingOrdersDialog({
                               )}
                             </FramedTableCell>
                             <FramedTableCell>
-                              {lineIsBatch ? (
+                              {canEditQuantity && lineIsBatch ? (
                                 <div>
                                   <div>batches</div>
                                   <div className="text-xs text-muted-foreground">

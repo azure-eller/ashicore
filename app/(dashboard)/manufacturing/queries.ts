@@ -55,6 +55,10 @@ import {
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
+  lockManufacturingPriorityQueueInTx,
+  lockSalesPriorityQueueInTx,
+} from "@/lib/manufacturing-priority-lock";
+import {
   addExpectedFromManufacturingInTx,
   addIngredientDemandForManufacturingInTx,
   editExpectedFromManufacturingInTx,
@@ -172,6 +176,10 @@ function plannedSalesOrderLineQuantitySql() {
   ), 0)`;
 }
 
+function effectiveManufacturingPriorityRankSql() {
+  return sql<number | null>`COALESCE(${salesOrders.priorityRank}, ${manufacturingOrders.priorityRank})`;
+}
+
 type ProductSnapshot = {
   id: string;
   name: string;
@@ -219,6 +227,7 @@ type LockedManufacturingOrder = {
   salesOrderLineId: string | null;
   salesOrderNumber: string | null;
   salesCustomerName: string | null;
+  requestedQuantity: string;
   plannedQuantity: string;
   plannedDate: string | null;
   priorityRank: number | null;
@@ -572,6 +581,9 @@ async function getLockedManufacturingOrderInTx(
       salesOrderLineId: manufacturingOrders.salesOrderLineId,
       salesOrderNumber: manufacturingOrders.salesOrderNumber,
       salesCustomerName: manufacturingOrders.salesCustomerName,
+      requestedQuantity: trimScale(manufacturingOrders.requestedQuantity).as(
+        "requestedQuantity"
+      ),
       plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as("plannedQuantity"),
       plannedDate: manufacturingOrders.plannedDate,
       priorityRank: manufacturingOrders.priorityRank,
@@ -659,7 +671,44 @@ async function assertPriorityRankAvailableInTx(
   }
 }
 
+async function assertSalesPriorityRankAvailableInTx(
+  tx: Tx,
+  orgId: string,
+  priorityRank: number | null,
+  excludeId?: string
+) {
+  if (priorityRank == null) {
+    return;
+  }
+
+  const filters = [
+    eq(salesOrders.organizationId, orgId),
+    eq(salesOrders.priorityRank, priorityRank),
+    eq(salesOrders.status, "open"),
+    isNull(salesOrders.deletedAt),
+  ];
+
+  if (excludeId) {
+    filters.push(ne(salesOrders.id, excludeId));
+  }
+
+  const [conflict] = await tx
+    .select({ id: salesOrders.id })
+    .from(salesOrders)
+    .where(and(...filters))
+    .for("update");
+
+  if (conflict) {
+    throw new ManufacturingError(
+      `Priority rank ${priorityRank} is already assigned to another active sales order.`,
+      409
+    );
+  }
+}
+
 async function rerankOpenManufacturingOrdersInTx(tx: Tx, orgId: string) {
+  await lockManufacturingPriorityQueueInTx(tx, orgId);
+
   const rows = await tx
     .select({
       id: manufacturingOrders.id,
@@ -913,6 +962,56 @@ async function validateSalesLineLinkInTx(
       salesOrderLineId: ["Select an active sales order line for this product"],
     },
   });
+}
+
+function assertLinkedMtoIdentityUnchanged(
+  existing: {
+    productId: string;
+    salesOrderId: string | null;
+    salesOrderLineId: string | null;
+    plannedQuantity: string;
+    requestedQuantity: string;
+  },
+  values: {
+    productId?: string | null;
+    salesOrderId?: string | null;
+    salesOrderLineId?: string | null;
+    plannedQuantity?: string | null;
+  }
+) {
+  if (!existing.salesOrderId || !existing.salesOrderLineId) return;
+
+  const nextProductId = values.productId ?? existing.productId;
+  const nextSalesOrderId = values.salesOrderId ?? existing.salesOrderId;
+  const nextSalesOrderLineId =
+    values.salesOrderLineId ?? existing.salesOrderLineId;
+  const nextPlannedQuantity =
+    values.plannedQuantity == null
+      ? Number(existing.plannedQuantity)
+      : Number(values.plannedQuantity);
+
+  if (
+    nextProductId !== existing.productId ||
+    nextSalesOrderId !== existing.salesOrderId ||
+    nextSalesOrderLineId !== existing.salesOrderLineId ||
+    nextPlannedQuantity !== Number(existing.plannedQuantity) ||
+    nextPlannedQuantity !== Number(existing.requestedQuantity)
+  ) {
+    throw new ManufacturingError(
+      "Linked make-to-order manufacturing orders must keep the sales line product, quantity, and link.",
+      400,
+      {
+        errors: {
+          salesOrderLineId: [
+            "Linked make-to-order manufacturing orders cannot change product, quantity, or sales order link.",
+          ],
+          plannedQuantity: [
+            "Linked make-to-order manufacturing orders must match the sales line quantity.",
+          ],
+        },
+      }
+    );
+  }
 }
 
 async function prepareCreateIngredientsInTx(
@@ -1335,6 +1434,28 @@ async function getTotalOutputQuantityForOrderInTx(
     .where(eq(manufacturingOrderOutputs.manufacturingOrderId, manufacturingOrderId));
 
   return parseFloat(row?.quantity ?? "0");
+}
+
+async function assertLinkedMtoOutputWithinSalesDemandInTx(
+  tx: Tx,
+  order: LockedManufacturingOrder,
+  outputQuantity: number
+) {
+  if (!order.salesOrderId || !order.salesOrderLineId) return;
+
+  const requiredQuantity = Number(order.requestedQuantity);
+  if (!Number.isFinite(requiredQuantity)) return;
+
+  const existingOutputQuantity = await getTotalOutputQuantityForOrderInTx(
+    tx,
+    order.id
+  );
+  if (existingOutputQuantity + outputQuantity <= requiredQuantity) return;
+
+  throw new ManufacturingError(
+    "Linked make-to-order output cannot exceed the sales order quantity.",
+    400
+  );
 }
 
 async function insertManufacturingOrderInTx(
@@ -3510,7 +3631,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             productFamilyName: itemFamilies.name,
             salesOrderNumber: manufacturingOrders.salesOrderNumber,
             salesCustomerName: manufacturingOrders.salesCustomerName,
-            priorityRank: manufacturingOrders.priorityRank,
+            priorityRank: effectiveManufacturingPriorityRankSql().as("priorityRank"),
             requestedQuantity: trimScale(manufacturingOrders.requestedQuantity).as(
               "requestedQuantity"
             ),
@@ -3533,12 +3654,13 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             completedAt: manufacturingOrders.completedAt,
           })
           .from(manufacturingOrders)
+          .leftJoin(salesOrders, eq(manufacturingOrders.salesOrderId, salesOrders.id))
           .leftJoin(items, eq(manufacturingOrders.productId, items.id))
           .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
           .where(isNull(manufacturingOrders.deletedAt))
           .orderBy(
-            sql`${manufacturingOrders.priorityRank} IS NULL`,
-            asc(manufacturingOrders.priorityRank),
+            sql`${effectiveManufacturingPriorityRankSql()} IS NULL`,
+            asc(effectiveManufacturingPriorityRankSql()),
             asc(manufacturingOrders.plannedDate),
             asc(manufacturingOrders.orderNumber),
             asc(manufacturingOrders.id)
@@ -4250,6 +4372,7 @@ export async function getManufacturingOrder(
         updatedAt: manufacturingOrders.updatedAt,
       })
       .from(manufacturingOrders)
+      .leftJoin(salesOrders, eq(manufacturingOrders.salesOrderId, salesOrders.id))
       .leftJoin(items, eq(manufacturingOrders.productId, items.id))
       .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
       .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)));
@@ -4523,11 +4646,12 @@ export async function getManufacturingOrderEditData(
         plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
           "plannedQuantity"
         ),
-        priorityRank: manufacturingOrders.priorityRank,
+        priorityRank: effectiveManufacturingPriorityRankSql().as("priorityRank"),
         plannedDate: manufacturingOrders.plannedDate,
         notes: manufacturingOrders.notes,
       })
       .from(manufacturingOrders)
+      .leftJoin(salesOrders, eq(manufacturingOrders.salesOrderId, salesOrders.id))
       .where(
         and(
           eq(manufacturingOrders.id, id),
@@ -4646,6 +4770,8 @@ export async function createManufacturingOrderInTx(
   payload: InsertManufacturingOrder,
   actorUserId?: string | null
 ): Promise<{ id: string }> {
+  await lockManufacturingPriorityQueueInTx(tx, orgId);
+
   const product = await getValidatedProductInTx(tx, payload.productId);
   const plannedQuantity = Number(payload.plannedQuantity);
 
@@ -4729,6 +4855,8 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
   payload: CreateManufacturingOrdersFromSalesOrder,
   actorUserId?: string | null
 ): Promise<ManufacturingOrdersFromSalesOrderResult> {
+  await lockManufacturingPriorityQueueInTx(tx, orgId);
+
   const [order] = await tx
     .select({
       id: salesOrders.id,
@@ -4815,7 +4943,10 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
     }
 
     const product = await getValidatedProductInTx(tx, line.itemId);
-    const requestedQuantity = quantityByLineId.get(line.salesOrderLineId) ?? line.quantity;
+    const requestedQuantity =
+      payload.manufacturingStrategy === "make_to_stock"
+        ? quantityByLineId.get(line.salesOrderLineId) ?? line.quantity
+        : line.quantity;
     const plannedQuantity = Number(requestedQuantity);
     const { bomRevisionId, ingredients } = await prepareCreateIngredientsFromBomInTx(
       tx,
@@ -4826,12 +4957,15 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
     const createdOrder = await insertManufacturingOrderInTx(tx, orgId, {
       product,
       bomRevisionId,
-      salesLink: {
-        salesOrderId: order.id,
-        salesOrderLineId: line.salesOrderLineId,
-        salesOrderNumber: order.orderNumber,
-        customerName: order.customerName,
-      },
+      salesLink:
+        payload.manufacturingStrategy === "make_to_stock"
+          ? null
+          : {
+              salesOrderId: order.id,
+              salesOrderLineId: line.salesOrderLineId,
+              salesOrderNumber: order.orderNumber,
+              customerName: order.customerName,
+            },
       requestedQuantity,
       plannedQuantity,
       manufacturingMode: scalingPlan.manufacturingMode,
@@ -4882,6 +5016,8 @@ export async function updateManufacturingOrder(
   payload: UpdateManufacturingOrder
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
+    await lockManufacturingPriorityQueueInTx(tx, orgId);
+
     const existing = await getLockedManufacturingOrderInTx(tx, id);
 
     if (!existing) {
@@ -4932,6 +5068,8 @@ export async function updateManufacturingOrder(
         );
       }
     }
+
+    assertLinkedMtoIdentityUnchanged(existing, payload);
 
     const nextProductId = payload.productId ?? existing.productId;
     const productChanged = nextProductId !== existing.productId;
@@ -5160,6 +5298,10 @@ export async function patchManufacturingOrder(
       updates.notes = payload.notes ?? null;
     }
     if (payload.salesOrderId !== undefined || payload.salesOrderLineId !== undefined) {
+      assertLinkedMtoIdentityUnchanged(existing, {
+        salesOrderId: payload.salesOrderId,
+        salesOrderLineId: payload.salesOrderLineId,
+      });
       const salesLink = await validateSalesLineLinkInTx(
         tx,
         {
@@ -5301,6 +5443,8 @@ export async function updateManufacturingOrderPriority(
   payload: UpdateManufacturingOrderPriority
 ): Promise<{ id: string } | null> {
   return withAuthedOrgContext(async (tx, orgId) => {
+    await lockManufacturingPriorityQueueInTx(tx, orgId);
+
     const order = await getLockedManufacturingOrderInTx(tx, id);
 
     if (!order) {
@@ -5309,6 +5453,38 @@ export async function updateManufacturingOrderPriority(
 
     if (order.status !== "open") {
       return { id: order.id };
+    }
+
+    if (order.salesOrderId) {
+      await lockSalesPriorityQueueInTx(tx, orgId);
+      await assertSalesPriorityRankAvailableInTx(
+        tx,
+        orgId,
+        payload.priorityRank,
+        order.salesOrderId
+      );
+
+      const [updatedSalesOrder] = await tx
+        .update(salesOrders)
+        .set({
+          priorityRank: payload.priorityRank,
+          updatedAt: new Date(),
+        })
+        .where(eq(salesOrders.id, order.salesOrderId))
+        .returning({ id: salesOrders.id });
+
+      await tx
+        .update(manufacturingOrders)
+        .set({ priorityRank: null, updatedAt: new Date() })
+        .where(
+          and(
+            eq(manufacturingOrders.organizationId, orgId),
+            eq(manufacturingOrders.salesOrderId, order.salesOrderId),
+            isNull(manufacturingOrders.deletedAt)
+          )
+        );
+
+      return updatedSalesOrder ? { id: order.id } : null;
     }
 
     await assertPriorityRankAvailableInTx(tx, orgId, payload.priorityRank, id);
@@ -5330,11 +5506,13 @@ export async function reorderManufacturingOrderPriorityRanks(
   payload: ReorderManufacturingOrderPriorityRanks
 ): Promise<{ updated: number }> {
   return withAuthedOrgContext(async (tx, orgId) => {
+    await lockManufacturingPriorityQueueInTx(tx, orgId);
+
     const orders = await tx
       .select({
         id: manufacturingOrders.id,
         status: manufacturingOrders.status,
-        priorityRank: manufacturingOrders.priorityRank,
+        salesOrderId: manufacturingOrders.salesOrderId,
       })
       .from(manufacturingOrders)
       .where(
@@ -5349,7 +5527,7 @@ export async function reorderManufacturingOrderPriorityRanks(
     const rankedOpenOrders = await tx
       .select({
         id: manufacturingOrders.id,
-        priorityRank: manufacturingOrders.priorityRank,
+        priorityRank: effectiveManufacturingPriorityRankSql().as("priorityRank"),
         orderNumber: manufacturingOrders.orderNumber,
       })
       .from(manufacturingOrders)
@@ -5357,6 +5535,7 @@ export async function reorderManufacturingOrderPriorityRanks(
         and(
           eq(manufacturingOrders.organizationId, orgId),
           eq(manufacturingOrders.status, "open"),
+          isNull(manufacturingOrders.salesOrderId),
           isNull(manufacturingOrders.deletedAt)
         )
       )
@@ -5372,17 +5551,83 @@ export async function reorderManufacturingOrderPriorityRanks(
       "Manufacturing order ranking does not match active orders."
     );
 
-    const submittedOpenIds = payload.orderIds.filter((id) => {
+    const submittedOpenRows = payload.orderIds.flatMap((id) => {
       const order = orders.find((candidate) => candidate.id === id);
-      return order?.status === "open";
+      return order?.status === "open" ? [order] : [];
     });
+    const submittedOpenUnlinkedIds = submittedOpenRows
+      .filter((order) => order.salesOrderId == null)
+      .map((order) => order.id);
+    const submittedLinkedSalesOrderIds = [
+      ...new Set(
+        submittedOpenRows
+          .map((order) => order.salesOrderId)
+          .filter((id): id is string => id != null)
+      ),
+    ];
 
     const orderedIds = mergeSubmittedOrderIds(
       rankedOpenOrders.map((order) => order.id),
-      submittedOpenIds
+      submittedOpenUnlinkedIds
     );
 
     const now = new Date();
+    if (submittedLinkedSalesOrderIds.length > 0) {
+      await lockSalesPriorityQueueInTx(tx, orgId);
+      const rankedOpenSalesOrders = await tx
+        .select({
+          id: salesOrders.id,
+          orderNumber: salesOrders.orderNumber,
+        })
+        .from(salesOrders)
+        .where(
+          and(
+            eq(salesOrders.organizationId, orgId),
+            eq(salesOrders.status, "open"),
+            isNull(salesOrders.deletedAt)
+          )
+        )
+        .orderBy(
+          asc(sql`COALESCE(${salesOrders.priorityRank}, 2147483647)`),
+          asc(salesOrders.orderNumber),
+          asc(salesOrders.id)
+        )
+        .for("update");
+      const orderedSalesIds = mergeSubmittedOrderIds(
+        rankedOpenSalesOrders.map((order) => order.id),
+        submittedLinkedSalesOrderIds
+      );
+
+      await tx
+        .update(salesOrders)
+        .set({ priorityRank: null, updatedAt: now })
+        .where(
+          and(
+            eq(salesOrders.organizationId, orgId),
+            eq(salesOrders.status, "open"),
+            isNull(salesOrders.deletedAt)
+          )
+        );
+
+      for (const [index, id] of orderedSalesIds.entries()) {
+        await tx
+          .update(salesOrders)
+          .set({ priorityRank: index + 1, updatedAt: now })
+          .where(eq(salesOrders.id, id));
+      }
+
+      await tx
+        .update(manufacturingOrders)
+        .set({ priorityRank: null, updatedAt: now })
+        .where(
+          and(
+            eq(manufacturingOrders.organizationId, orgId),
+            inArray(manufacturingOrders.salesOrderId, submittedLinkedSalesOrderIds),
+            isNull(manufacturingOrders.deletedAt)
+          )
+        );
+    }
+
     await tx
       .update(manufacturingOrders)
       .set({
@@ -5393,6 +5638,7 @@ export async function reorderManufacturingOrderPriorityRanks(
         and(
           eq(manufacturingOrders.organizationId, orgId),
           eq(manufacturingOrders.status, "open"),
+          isNull(manufacturingOrders.salesOrderId),
           isNull(manufacturingOrders.deletedAt)
         )
       );
@@ -5407,7 +5653,7 @@ export async function reorderManufacturingOrderPriorityRanks(
         .where(eq(manufacturingOrders.id, id));
     }
 
-    return { updated: orderedIds.length };
+    return { updated: orderedIds.length + submittedLinkedSalesOrderIds.length };
   });
 }
 
@@ -5684,6 +5930,11 @@ export async function recordManufacturingOutput(
       manufacturingOrderId: orderId,
       manufacturingOrderBatchId: batch?.id ?? null,
     });
+    await assertLinkedMtoOutputWithinSalesDemandInTx(
+      tx,
+      order,
+      outputQuantity
+    );
 
     const ingredientRows =
       batch != null
@@ -6070,6 +6321,7 @@ async function getManufacturingOutputAllocationInTx(
         plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as("plannedQuantity"),
         actualQuantity: trimScale(manufacturingOrders.actualQuantity).as("actualQuantity"),
         status: manufacturingOrders.status,
+        salesOrderLineId: manufacturingOrders.salesOrderLineId,
       })
       .from(manufacturingOrders)
       .innerJoin(items, eq(manufacturingOrders.productId, items.id))
@@ -6167,7 +6419,9 @@ async function getManufacturingOutputAllocationInTx(
       );
     }
 
-    const productionDestinations = candidates
+    const productionDestinations = order.salesOrderLineId
+      ? []
+      : candidates
       .map((candidate) => {
         const consumedQty = Math.max(
           Number(candidate.pickedQuantity),
@@ -6254,6 +6508,16 @@ async function getManufacturingOutputAllocationInTx(
         )
       );
     });
+    const salesFilters = [
+      eq(salesOrders.organizationId, orgId),
+      eq(salesOrderLines.itemId, order.productId),
+      isNull(salesOrders.deletedAt),
+      eq(salesOrders.status, "open"),
+    ];
+    if (order.salesOrderLineId) {
+      salesFilters.push(eq(salesOrderLines.id, order.salesOrderLineId));
+    }
+
     const salesCandidates = await tx
       .select({
         salesOrderLineId: salesOrderLines.id,
@@ -6269,12 +6533,7 @@ async function getManufacturingOutputAllocationInTx(
       .from(salesOrderLines)
       .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
       .where(
-        and(
-          eq(salesOrders.organizationId, orgId),
-          eq(salesOrderLines.itemId, order.productId),
-          isNull(salesOrders.deletedAt),
-          eq(salesOrders.status, "open")
-        )
+        and(...salesFilters)
       )
       .orderBy(asc(salesOrders.shipDate), asc(salesOrders.orderNumber));
     const salesDestinations = salesCandidates
@@ -6368,6 +6627,20 @@ export async function saveManufacturingOutputAllocation(
         throw new ManufacturingError("Each production destination can only appear once.", 400);
       }
       seenIngredientIds.add(allocation.ingredientId);
+    }
+
+    if (order.salesOrderLineId) {
+      if (
+        normalizedProduction.length > 0 ||
+        normalizedSales.some(
+          (allocation) => allocation.salesOrderLineId !== order.salesOrderLineId
+        )
+      ) {
+        throw new ManufacturingError(
+          "Linked make-to-order output can only be assigned to its linked sales line.",
+          409
+        );
+      }
     }
 
     await tx
@@ -6811,9 +7084,11 @@ async function completeBatchModeManufacturingOrder(
 async function completeDiscreteManufacturingOrder(
   id: string,
   payload: CompleteManufacturingOrder,
-  options?: { idempotencyKey?: string }
+  options?: { idempotencyKey?: string; ingredientTrackedLotDefault?: "unbatched" }
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
+    await lockManufacturingPriorityQueueInTx(tx, orgId);
+
     const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
       organizationId: orgId,
       operationName: "completeManufacturingOrder",
@@ -6887,6 +7162,11 @@ async function completeDiscreteManufacturingOrder(
     }
 
     const actualQuantity = Number(payload.actualQuantity);
+    await assertLinkedMtoOutputWithinSalesDemandInTx(
+      tx,
+      order,
+      actualQuantity
+    );
     const ingredientRows = await getTemplateIngredientsInTx(tx, id);
 
     await validateActiveIngredientItemsInTx(
@@ -6946,6 +7226,7 @@ async function completeDiscreteManufacturingOrder(
               `variance:${ingredient.id}`
             ),
             allowNegativeStock: payload.confirmNegativeStock === true,
+            trackedLotDefault: options?.ingredientTrackedLotDefault,
           });
         } catch (error) {
           if (error instanceof InsufficientStockError) {
@@ -7068,7 +7349,7 @@ async function completeDiscreteManufacturingOrder(
 export async function completeManufacturingOrder(
   id: string,
   payload: CompleteManufacturingOrder,
-  options?: { idempotencyKey?: string }
+  options?: { idempotencyKey?: string; ingredientTrackedLotDefault?: "unbatched" }
 ): Promise<{ id: string }> {
   const order = await getManufacturingOrderCompletionTarget(id);
 
@@ -7175,6 +7456,8 @@ export async function completeManufacturingBatch(
   options?: { idempotencyKey?: string }
 ): Promise<{ id: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
+    await lockManufacturingPriorityQueueInTx(tx, orgId);
+
     const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
       organizationId: orgId,
       operationName: "completeManufacturingBatch",
@@ -7335,6 +7618,11 @@ export async function completeManufacturingBatch(
     }
 
     const actualQuantity = Number(payload.actualQuantity);
+    await assertLinkedMtoOutputWithinSalesDemandInTx(
+      tx,
+      order,
+      actualQuantity
+    );
     const allocationTotals = await getPickAllocationTotalsInTx(
       tx,
       ingredientRows.map((ingredient) => ingredient.id)
@@ -8007,6 +8295,8 @@ export async function deleteManufacturingOrder(
   id: string
 ): Promise<{ deleted: boolean; error?: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
+    await lockManufacturingPriorityQueueInTx(tx, orgId);
+
     const deleted = await deleteManufacturingOrdersInTx(tx, {
       organizationId: orgId,
       actorUserId: userId,
@@ -8021,6 +8311,8 @@ export async function deleteManufacturingOrders(
   ids: string[]
 ): Promise<{ deletedCount: number; error?: string }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
+    await lockManufacturingPriorityQueueInTx(tx, orgId);
+
     const deleted = await deleteManufacturingOrdersInTx(tx, {
       organizationId: orgId,
       actorUserId: userId,

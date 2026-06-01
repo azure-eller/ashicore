@@ -124,6 +124,7 @@ type PreparedPurchaseOrderAdditionalCost = {
 
 type MaterialValidationRow = {
   id: string;
+  itemType: string;
   name: string;
   sku: string | null;
   stockingUnitName: string;
@@ -452,12 +453,13 @@ async function getPurchaseOrderAttachmentsInTx(
   return rows.map(mapPurchaseOrderAttachment);
 }
 
-async function getValidatedMaterialsInTx(tx: Tx, itemIds: string[]) {
+async function getValidatedPurchasableItemsInTx(tx: Tx, itemIds: string[]) {
   const uniqueIds = [...new Set(itemIds)];
 
   const rows = await tx
     .select({
       id: items.id,
+      itemType: sql<"material" | "product">`${items.itemType}`,
       name: sql<string>`COALESCE(${itemFamilies.name}, ${items.name})`,
       sku: items.sku,
       stockingUnitName: unitDefinitions.name,
@@ -490,7 +492,7 @@ async function getValidatedMaterialsInTx(tx: Tx, itemIds: string[]) {
     .where(
       and(
         inArray(items.id, uniqueIds),
-        eq(items.itemType, "material"),
+        inArray(items.itemType, ["material", "product"]),
         isNull(items.deletedAt),
       ),
     );
@@ -500,7 +502,7 @@ async function getValidatedMaterialsInTx(tx: Tx, itemIds: string[]) {
   );
 
   if (itemMap.size !== uniqueIds.length) {
-    throw new PurchasingError("Material not found", 404);
+    throw new PurchasingError("Item not found", 404);
   }
 
   return itemMap;
@@ -644,7 +646,7 @@ async function preparePurchaseOrderPayload(
   affectedItemIds: string[];
 }> {
   const supplier = await getValidatedSupplierInTx(tx, payload.supplierId);
-  const materials = await getValidatedMaterialsInTx(
+  const materials = await getValidatedPurchasableItemsInTx(
     tx,
     payload.lines.map((line) => line.itemId),
   );
@@ -715,7 +717,7 @@ async function preparePurchaseOrderPayload(
     const material = materials.get(line.itemId);
 
     if (!material) {
-      throw new PurchasingError("Material not found", 404);
+      throw new PurchasingError("Item not found", 404);
     }
 
     const quantityOrdered = Number(line.quantityOrdered);
@@ -996,6 +998,7 @@ export async function getPurchaseOrderMaterialOptions(): Promise<
     return tx
       .select({
         id: items.id,
+        itemType: sql<"material" | "product">`${items.itemType}`,
         name: sql<string>`COALESCE(${itemFamilies.name}, ${items.name})`,
         sku: items.sku,
         stockingUnitName: unitDefinitions.name,
@@ -1028,7 +1031,9 @@ export async function getPurchaseOrderMaterialOptions(): Promise<
         unitDefinitions,
         eq(items.unitDefinitionId, unitDefinitions.id),
       )
-      .where(and(eq(items.itemType, "material"), isNull(items.deletedAt)))
+      .where(
+        and(inArray(items.itemType, ["material", "product"]), isNull(items.deletedAt))
+      )
       .orderBy(asc(items.name));
   });
 }
@@ -2503,7 +2508,7 @@ export async function receivePurchaseOrder(
       );
     }
 
-    await getValidatedMaterialsInTx(
+    await getValidatedPurchasableItemsInTx(
       tx,
       receiveEntries.map((entry) => entry.line.itemId),
     );

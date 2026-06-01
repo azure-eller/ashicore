@@ -117,6 +117,32 @@ function applySyntheticAssignmentsToSources(
   });
 }
 
+function exposeNegativeUnbatchedForPrimaryDemand(
+  sources: AllocationWorkspace["sources"],
+  primaryDemand: AllocationDemandRow | null
+) {
+  if (!primaryDemand) return sources;
+
+  const primaryShortQty = toQuantity(primaryDemand.shortQty);
+  return sources.map((source) => {
+    if (
+      source.sourceType !== "inventory_lot" ||
+      source.label !== "UNBATCHED" ||
+      toQuantity(source.totalQty) > 0
+    ) {
+      return source;
+    }
+
+    const maxQty = roundQuantity(toQuantity(source.currentPrimaryQty) + primaryShortQty);
+    return {
+      ...source,
+      freeQty: quantityString(maxQty),
+      maxQtyForPrimaryDemand: quantityString(maxQty),
+      canAllocate: maxQty > 0,
+    };
+  });
+}
+
 async function loadItemInTx(tx: Tx, itemId: string) {
   const [row] = await tx
     .select({
@@ -620,6 +646,8 @@ export async function getAllocationWorkspaceInTx(
           assignments: primaryRows.flatMap((row) => row.assignments),
           isPrimary: true,
         } satisfies AllocationDemandRow);
+
+  sources = exposeNegativeUnbatchedForPrimaryDemand(sources, aggregatePrimaryDemand);
 
   const totals = demands.reduce(
     (acc, demand) => {

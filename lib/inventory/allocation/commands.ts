@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import {
   inventoryLotBalances,
+  lots,
   manufacturingOrderIngredients,
   manufacturingOrders,
   stockAllocations,
@@ -78,21 +79,23 @@ async function validateSourceInTx(
     }
     const [row] = await tx
       .select({
+        lotNumber: lots.lotNumber,
         quantity: trimScale(sql`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`).as(
           "quantity"
         ),
       })
       .from(inventoryLotBalances)
+      .innerJoin(lots, eq(inventoryLotBalances.lotId, lots.id))
       .where(
         and(
           eq(inventoryLotBalances.organizationId, params.organizationId),
           eq(inventoryLotBalances.itemId, params.itemId),
           eq(inventoryLotBalances.lotId, params.sourceId),
-          eq(inventoryLotBalances.disposition, "available"),
-          sql`${inventoryLotBalances.quantity} > 0`
+          eq(inventoryLotBalances.disposition, "available")
         )
-      );
-    if (toQuantity(row?.quantity) <= 0) {
+      )
+      .groupBy(lots.lotNumber);
+    if (toQuantity(row?.quantity) <= 0 && row?.lotNumber !== "UNBATCHED") {
       throw new AllocationError("Inventory lot source is not available.", 409);
     }
     return;

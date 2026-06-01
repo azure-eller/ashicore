@@ -376,7 +376,12 @@ function buildRows(
         const manualAlloc = parseQuantity(demandLine.allocatedQty);
         const segmentPinnedQty = sumDemandQueueSegments(
           demandLine,
-          new Set(["pinned_in_stock", "pinned_expected", "pinned_late"])
+          new Set([
+            "pinned_in_stock",
+            "pinned_expected",
+            "pinned_late",
+            "pinned_expected_late",
+          ])
         );
         const segmentQueueCoveredQty = sumDemandQueueSegments(
           demandLine,
@@ -384,7 +389,7 @@ function buildRows(
         );
         const segmentExpectedQty = sumDemandQueueSegments(
           demandLine,
-          new Set(["expected", "pinned_expected"])
+          new Set(["expected", "pinned_expected", "pinned_expected_late"])
         );
         const segmentShortQty = sumDemandQueueSegments(
           demandLine,
@@ -392,7 +397,7 @@ function buildRows(
         );
         const segmentPinnedDateInvalidQty = sumDemandQueueSegments(
           demandLine,
-          new Set(["pinned_late"])
+          new Set(["pinned_late", "pinned_expected_late"])
         );
         const hasDemandQueueCoverage =
           demandLine.demandQueueInStockQty != null ||

@@ -1,11 +1,31 @@
 import "server-only";
 
-import { and, eq, sql } from "drizzle-orm";
-import { inventoryLotBalances, lots, organization, stockAllocations } from "@/lib/db/schema";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+  bomRevisionComponents,
+  bomRevisions,
+  inventoryLotBalances,
+  items,
+  lots,
+  manufacturingOrders,
+  organization,
+  purchaseOrderLines,
+  purchaseOrders,
+  salesOrderLines,
+  salesOrders,
+  salesShipmentLines,
+  salesShipments,
+  stockAllocations,
+  unitDefinitions,
+} from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { serializeDbTimestamp } from "@/lib/db/timestamps";
 import { roundQuantity, todayInTimeZone } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
+import {
+  calculateIngredientPlannedQuantity,
+  normalizeRecipeBasis,
+} from "@/lib/manufacturing/consumption";
 import {
   allocationQuantityString,
   toAllocationQuantity,
@@ -17,7 +37,7 @@ import {
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import { allocationDemandAdapters } from "./adapters";
 import { loadAllocationSourcesForItemInTx } from "./sources";
-import type { AllocationDemandType } from "./types";
+import type { AllocationDemandAdapterRow, AllocationDemandType } from "./types";
 import { compareDemandOrder, compareNullableDate } from "./priority";
 
 // Demand-queue mode computes item-level quantity coverage from supply chunks.
@@ -25,8 +45,8 @@ import { compareDemandOrder, compareNullableDate } from "./priority";
 // Manufacturing-component demand claims supply before sales demand.
 
 export type DemandQueueSupplyChunk = {
-  kind: "on_hand" | "expected_mo";
-  sourceType?: "inventory_lot" | "manufacturing_order";
+  kind: "on_hand" | "expected_mo" | "expected_po";
+  sourceType?: "inventory_lot" | "manufacturing_order" | "purchase_order_line";
   sourceId?: string;
   linkedDemand?: {
     demandType: AllocationDemandType;
@@ -102,6 +122,12 @@ export type CoverageSegment =
       sourceId: string;
       availableDate: string | null;
     }
+  | {
+      kind: "pinned_expected_late";
+      qty: number;
+      sourceId: string;
+      availableDate: string | null;
+    }
   | { kind: "short"; qty: number };
 
 export type DemandQueueCoverageSegment =
@@ -120,6 +146,12 @@ export type DemandQueueCoverageSegment =
       sourceId: string;
       availableDate: string | null;
     }
+  | {
+      kind: "pinned_expected_late";
+      qty: string;
+      sourceId: string;
+      availableDate: string | null;
+    }
   | { kind: "short"; qty: string };
 
 function serializeCoverageSegment(
@@ -133,8 +165,11 @@ function compareSupplyOrder(
   right: DemandQueueSupplyChunk
 ) {
   // On-hand is consumed before expected supply; expected supply earliest-first.
-  if (left.kind !== right.kind) return left.kind === "on_hand" ? -1 : 1;
-  return compareNullableDate(left.availableDate, right.availableDate);
+  if (left.kind === "on_hand" && right.kind !== "on_hand") return -1;
+  if (left.kind !== "on_hand" && right.kind === "on_hand") return 1;
+  const dateCompare = compareNullableDate(left.availableDate, right.availableDate);
+  if (dateCompare !== 0) return dateCompare;
+  return left.kind.localeCompare(right.kind);
 }
 
 function expectedSupplyCanCoverDemand(
@@ -178,16 +213,27 @@ function segmentQty(row: DemandQueueCoverageRow, kinds: CoverageSegment["kind"][
 function assertCoverageSegmentsMatchTotals(row: DemandQueueCoverageRow) {
   const checks = [
     [segmentQty(row, ["in_stock", "pinned_in_stock"]), row.inStockQty],
-    [segmentQty(row, ["expected", "pinned_expected"]), row.expectedQty],
     [
-      segmentQty(row, ["pinned_in_stock", "pinned_expected", "pinned_late"]),
+      segmentQty(row, ["expected", "pinned_expected", "pinned_expected_late"]),
+      row.expectedQty,
+    ],
+    [
+      segmentQty(row, [
+        "pinned_in_stock",
+        "pinned_expected",
+        "pinned_late",
+        "pinned_expected_late",
+      ]),
       row.pinnedQty,
     ],
     [
       segmentQty(row, ["pinned_in_stock", "pinned_expected"]),
       row.pinnedDateValidQty,
     ],
-    [segmentQty(row, ["pinned_late"]), row.pinnedDateInvalidQty],
+    [
+      segmentQty(row, ["pinned_late", "pinned_expected_late"]),
+      row.pinnedDateInvalidQty,
+    ],
     [segmentQty(row, ["in_stock", "expected"]), row.queueCoveredQty],
     [segmentQty(row, ["short"]), row.shortQty],
   ];
@@ -310,12 +356,29 @@ export function computeDemandQueueCoverage(params: {
         coverage.pinnedDateInvalidQty = roundQuantity(
           coverage.pinnedDateInvalidQty + claim
         );
-        coverage.segments.push({
-          kind: "pinned_late",
-          qty: claim,
-          sourceId: pin.sourceId,
-          availableDate: chunk.availableDate,
-        });
+        if (chunk.kind === "expected_mo") {
+          coverage.expectedQty = roundQuantity(coverage.expectedQty + claim);
+          coverage.segments.push({
+            kind: "pinned_expected_late",
+            qty: claim,
+            sourceId: pin.sourceId,
+            availableDate: chunk.availableDate,
+          });
+          if (
+            chunk.availableDate &&
+            (coverage.earliestExpectedDate == null ||
+              chunk.availableDate < coverage.earliestExpectedDate)
+          ) {
+            coverage.earliestExpectedDate = chunk.availableDate;
+          }
+        } else {
+          coverage.segments.push({
+            kind: "pinned_late",
+            qty: claim,
+            sourceId: pin.sourceId,
+            availableDate: chunk.availableDate,
+          });
+        }
       }
     }
   }
@@ -457,6 +520,164 @@ function isDemandQueuePinSourceType(
   return value === "inventory_lot" || value === "manufacturing_order";
 }
 
+async function getSalesBomIngredientDemandsForItemInTx(
+  tx: Tx,
+  params: { organizationId: string; itemId: string }
+): Promise<AllocationDemandAdapterRow[]> {
+  const rows = await tx
+    .select({
+      salesOrderLineId: salesOrderLines.id,
+      salesOrderId: salesOrderLines.salesOrderId,
+      orderNumber: salesOrders.orderNumber,
+      customerName: salesOrders.customerName,
+      shipDate: salesOrders.shipDate,
+      priorityRank: salesOrders.priorityRank,
+      orderedQty: trimScale(salesOrderLines.quantity).as("orderedQty"),
+      cancelledQty: trimScale(salesOrderLines.cancelledQuantity).as("cancelledQty"),
+      sortOrder: salesOrderLines.sortOrder,
+      lineCreatedAt: salesOrderLines.createdAt,
+      productId: salesOrderLines.itemId,
+      productName: salesOrderLines.itemName,
+      componentId: bomRevisionComponents.componentId,
+      componentName: items.name,
+      unitName: unitDefinitions.name,
+      componentQuantity: trimScale(bomRevisionComponents.quantity).as(
+        "componentQuantity"
+      ),
+      bomRevisionComponentId: bomRevisionComponents.id,
+      recipeBasis: bomRevisions.recipeBasis,
+      outputQuantity: trimScale(bomRevisions.outputQuantity).as("outputQuantity"),
+    })
+    .from(salesOrderLines)
+    .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+    .innerJoin(
+      bomRevisions,
+      and(
+        eq(bomRevisions.productId, salesOrderLines.itemId),
+        eq(bomRevisions.isCurrent, true)
+      )
+    )
+    .innerJoin(
+      bomRevisionComponents,
+      eq(bomRevisionComponents.bomRevisionId, bomRevisions.id)
+    )
+    .innerJoin(items, eq(items.id, bomRevisionComponents.componentId))
+    .leftJoin(unitDefinitions, eq(unitDefinitions.id, items.unitDefinitionId))
+    .where(
+      and(
+        eq(salesOrders.organizationId, params.organizationId),
+        eq(salesOrders.status, "open"),
+        eq(bomRevisionComponents.componentId, params.itemId),
+        isNull(salesOrders.deletedAt)
+      )
+    )
+    .orderBy(
+      asc(sql`COALESCE(${salesOrders.priorityRank}, 2147483647)`),
+      asc(salesOrders.shipDate),
+      asc(salesOrders.orderNumber),
+      asc(salesOrderLines.sortOrder),
+      asc(salesOrderLines.createdAt)
+    );
+
+  const lineIds = rows.map((row) => row.salesOrderLineId);
+  if (lineIds.length === 0) return [];
+
+  const shippedRows = await tx
+    .select({
+      salesOrderLineId: salesShipmentLines.salesOrderLineId,
+      shippedQty: trimScale(sql`COALESCE(SUM(${salesShipmentLines.quantity}), 0)`).as(
+        "shippedQty"
+      ),
+    })
+    .from(salesShipmentLines)
+    .innerJoin(salesShipments, eq(salesShipmentLines.salesShipmentId, salesShipments.id))
+    .where(
+      and(
+        inArray(salesShipmentLines.salesOrderLineId, lineIds),
+        eq(salesShipments.status, "shipped")
+      )
+    )
+    .groupBy(salesShipmentLines.salesOrderLineId);
+  const linkedManufacturingRows = await tx
+    .select({
+      salesOrderLineId: manufacturingOrders.salesOrderLineId,
+      plannedQty: trimScale(
+        sql`COALESCE(SUM(${manufacturingOrders.plannedQuantity}), 0)`
+      ).as("plannedQty"),
+    })
+    .from(manufacturingOrders)
+    .where(
+      and(
+        inArray(manufacturingOrders.salesOrderLineId, lineIds),
+        isNull(manufacturingOrders.deletedAt),
+        isNull(manufacturingOrders.cancelledAt),
+        inArray(manufacturingOrders.status, ["open", "done"])
+      )
+    )
+    .groupBy(manufacturingOrders.salesOrderLineId);
+
+  const shippedByLineId = new Map(
+    shippedRows.map((row) => [row.salesOrderLineId, toQuantity(row.shippedQty)])
+  );
+  const linkedManufacturingByLineId = new Map(
+    linkedManufacturingRows.flatMap((row) =>
+      row.salesOrderLineId
+        ? [[row.salesOrderLineId, toQuantity(row.plannedQty)] as const]
+        : []
+    )
+  );
+
+  return rows.flatMap((row): AllocationDemandAdapterRow[] => {
+    const orderedQty = toQuantity(row.orderedQty);
+    const cancelledQty = toQuantity(row.cancelledQty);
+    const shippedQty = shippedByLineId.get(row.salesOrderLineId) ?? 0;
+    const linkedManufacturingQty =
+      linkedManufacturingByLineId.get(row.salesOrderLineId) ?? 0;
+    const remainingProductQty = roundQuantity(
+      orderedQty - cancelledQty - Math.max(shippedQty, linkedManufacturingQty)
+    );
+    if (remainingProductQty <= 0) return [];
+
+    const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
+    const recipeOutputQuantity = toQuantity(row.outputQuantity);
+    const numberOfBatches =
+      recipeBasis === "batch" && recipeOutputQuantity > 0
+        ? Math.ceil(remainingProductQty / recipeOutputQuantity)
+        : null;
+    const openQty = toQuantity(
+      calculateIngredientPlannedQuantity({
+        recipeBasis,
+        quantityPerRecipeBasis: row.componentQuantity,
+        outputQuantity: remainingProductQty,
+        numberOfBatches,
+      })
+    );
+    if (openQty <= 0) return [];
+
+    return [
+      {
+        demandType: "manufacturing_order_ingredient",
+        demandId: `sales_bom:${row.salesOrderLineId}:${row.bomRevisionComponentId}`,
+        parentDemandId: row.salesOrderLineId,
+        salesOrderId: row.salesOrderId,
+        itemId: row.componentId,
+        itemName: row.componentName,
+        unitName: row.unitName ?? "unit",
+        label: row.orderNumber,
+        contextLabel: row.productName,
+        requiredDate: row.shipDate,
+        openQty: quantityString(openQty),
+        href: `/sales/orders/${row.salesOrderId}`,
+        sortDate: row.shipDate,
+        sortLabel: `${row.orderNumber}:${row.sortOrder}:${row.lineCreatedAt.toISOString()}`,
+        priorityRank: row.priorityRank,
+        priorityDate: row.shipDate,
+        priorityLabel: row.orderNumber,
+      },
+    ];
+  });
+}
+
 async function getUntrackedOnHandSupplyInTx(
   tx: Tx,
   params: { organizationId: string; itemId: string }
@@ -499,6 +720,49 @@ async function getUntrackedOnHandSupplyInTx(
   };
 }
 
+async function getOpenPurchaseSupplyInTx(
+  tx: Tx,
+  params: { organizationId: string; itemId: string }
+): Promise<DemandQueueSupplyChunk[]> {
+  const rows = await tx
+    .select({
+      id: purchaseOrderLines.id,
+      orderNumber: purchaseOrders.orderNumber,
+      expectedDate: purchaseOrders.expectedDate,
+      quantity: trimScale(
+        sql`GREATEST(${purchaseOrderLines.stockQuantityOrdered} - ${purchaseOrderLines.stockQuantityReceived}, 0)`
+      ).as("quantity"),
+    })
+    .from(purchaseOrderLines)
+    .innerJoin(purchaseOrders, eq(purchaseOrderLines.purchaseOrderId, purchaseOrders.id))
+    .where(
+      and(
+        eq(purchaseOrders.organizationId, params.organizationId),
+        eq(purchaseOrderLines.itemId, params.itemId),
+        inArray(purchaseOrders.status, ["ordered", "partial"]),
+        isNull(purchaseOrders.deletedAt),
+        sql`${purchaseOrderLines.stockQuantityOrdered} > ${purchaseOrderLines.stockQuantityReceived}`
+      )
+    )
+    .orderBy(
+      asc(purchaseOrders.expectedDate),
+      asc(purchaseOrders.orderNumber),
+      asc(purchaseOrderLines.sortOrder),
+      asc(purchaseOrderLines.id)
+    );
+
+  return rows
+    .map((row) => ({
+      kind: "expected_po" as const,
+      sourceType: "purchase_order_line" as const,
+      sourceId: row.id,
+      quantity: toQuantity(row.quantity),
+      availableDate: row.expectedDate,
+      label: row.orderNumber,
+    }))
+    .filter((row) => row.quantity > 0);
+}
+
 export async function getDemandQueueCoverageForItemInTx(
   tx: Tx,
   params: {
@@ -512,14 +776,18 @@ export async function getDemandQueueCoverageForItemInTx(
   }
 ): Promise<DemandQueueItemCoverage | null> {
   const demandRows = (
-    await Promise.all(
-      allocationDemandAdapters.map((adapter) =>
+    await Promise.all([
+      ...allocationDemandAdapters.map((adapter) =>
         adapter.loadOpenDemandsForItemInTx(tx, {
           organizationId: params.organizationId,
           itemId: params.itemId,
         })
-      )
-    )
+      ),
+      getSalesBomIngredientDemandsForItemInTx(tx, {
+        organizationId: params.organizationId,
+        itemId: params.itemId,
+      }),
+    ])
   ).flat();
 
   if (demandRows.length === 0) return null;
@@ -536,10 +804,16 @@ export async function getDemandQueueCoverageForItemInTx(
           itemId: params.itemId,
         })
       : null;
+  const purchaseSupply = await getOpenPurchaseSupplyInTx(tx, {
+    organizationId: params.organizationId,
+    itemId: params.itemId,
+  });
   // Demand-queue planning uses physical/projected quantity (totalQty), never the
-  // manual-allocation-aware freeQty. Expected supply = open MO remaining output.
+  // manual-allocation-aware freeQty. Expected supply = open PO remaining quantity
+  // and open MO remaining output.
   const supply: DemandQueueSupplyChunk[] = [
     ...(untrackedOnHandSupply ? [untrackedOnHandSupply] : []),
+    ...purchaseSupply,
     ...sources
       .filter(
         (source) =>
@@ -654,7 +928,7 @@ export async function getDemandQueueCoverageForItemInTx(
     .filter((chunk) => chunk.kind === "on_hand")
     .reduce((sum, chunk) => sum + chunk.quantity, 0);
   const expectedSupplyQty = supply
-    .filter((chunk) => chunk.kind === "expected_mo")
+    .filter((chunk) => chunk.kind === "expected_mo" || chunk.kind === "expected_po")
     .reduce((sum, chunk) => sum + chunk.quantity, 0);
   const claimedByManufacturing = coverage
     .filter((row) => row.demandType === "manufacturing_order_ingredient")

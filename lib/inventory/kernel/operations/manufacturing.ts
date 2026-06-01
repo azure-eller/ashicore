@@ -886,6 +886,7 @@ export async function reconcileIngredientActualsInTx(
     actorUserId?: string | null;
     idempotencyKey?: string | null;
     allowNegativeStock?: boolean;
+    trackedLotDefault?: "unbatched";
   }
 ): Promise<{ newTotalQuantity: number; newTotalCost: number }> {
   const replay = await beginInventoryOperationInTx<{
@@ -902,6 +903,7 @@ export async function reconcileIngredientActualsInTx(
       actualConsumedQuantity: params.actualConsumedQuantity,
       referenceType: params.referenceType,
       referenceId: params.referenceId,
+      trackedLotDefault: params.trackedLotDefault ?? null,
     },
   });
 
@@ -956,6 +958,7 @@ export async function reconcileIngredientActualsInTx(
             metadata: { manufacturingOrderIngredientId: params.ingredient.id },
             unavailableByLotId,
             allowNegativeStock: params.allowNegativeStock ?? false,
+            trackedLotDefault: params.trackedLotDefault,
           })
         : { allocations: [], eventIds: [] };
     const consumed = {

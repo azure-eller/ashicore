@@ -4,6 +4,7 @@ import {
   itemVariantValues,
   items,
   manufacturingOrders,
+  manufacturingOrderOutputs,
   salesOrderLines,
   salesOrders,
   salesShipmentLines,
@@ -227,7 +228,21 @@ export async function getSalesOrderManufacturingSummariesInTx(
         .select({
           salesOrderLineId: manufacturingOrders.salesOrderLineId,
           plannedQuantity: trimScale(
-            sql`COALESCE(SUM(${manufacturingOrders.plannedQuantity}), 0)`
+            sql`COALESCE(SUM(
+              CASE
+                WHEN ${manufacturingOrders.status} = 'done' OR ${manufacturingOrders.completedAt} IS NOT NULL THEN
+                  COALESCE(
+                    ${manufacturingOrders.actualQuantity},
+                    (
+                      SELECT SUM(${manufacturingOrderOutputs.quantity})
+                      FROM ${manufacturingOrderOutputs}
+                      WHERE ${manufacturingOrderOutputs.manufacturingOrderId} = ${manufacturingOrders.id}
+                    ),
+                    0
+                  )
+                ELSE ${manufacturingOrders.plannedQuantity}
+              END
+            ), 0)`
           ).as("plannedQuantity"),
         })
         .from(manufacturingOrders)

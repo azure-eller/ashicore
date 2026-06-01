@@ -34,6 +34,7 @@ export type SupplierOption = {
 
 export type PurchaseOrderMaterialOption = {
   id: string;
+  itemType: "material" | "product";
   name: string;
   sku: string | null;
   stockingUnitName: string;

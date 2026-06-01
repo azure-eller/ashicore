@@ -237,6 +237,8 @@ function IngredientsStatusCell({ order }: { order: SalesOrderListRow }) {
     item: shortage.itemName,
     needed: formatQuantity(shortage.requiredQty),
     available: formatQuantity(shortage.availableQty),
+    expected: formatQuantity(shortage.expectedQty),
+    short: shortage.availabilityStatus === "missing",
   }));
 
   return (

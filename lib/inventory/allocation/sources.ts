@@ -22,6 +22,7 @@ import type { AllocationDemandRef, AllocationSourceRow } from "./types";
 
 const toQuantity = toAllocationQuantity;
 const quantityString = allocationQuantityString;
+const UNBATCHED_LOT_NUMBER = "UNBATCHED";
 
 function sameDemand(
   row: { demandType: string; demandId: string },
@@ -123,6 +124,7 @@ export async function loadAllocationSourcesForItemInTx(
           lotNumber: lots.lotNumber,
           quantity: trimScale(inventoryLotBalances.quantity).as("quantity"),
           receivedAt: inventoryLotBalances.receivedAt,
+          expiresOn: lots.expiresOn,
           createdAt: lots.createdAt,
         })
         .from(inventoryLotBalances)
@@ -133,10 +135,20 @@ export async function loadAllocationSourcesForItemInTx(
             eq(inventoryLotBalances.locationId, location.id),
             eq(inventoryLotBalances.itemId, params.itemId),
             eq(inventoryLotBalances.disposition, "available"),
-            sql`${inventoryLotBalances.quantity} > 0`
+            sql`(${lots.expiresOn} IS NULL OR ${lots.expiresOn} >= CURRENT_DATE)`,
+            or(
+              sql`${inventoryLotBalances.quantity} > 0`,
+              eq(lots.lotNumber, UNBATCHED_LOT_NUMBER)
+            )
           )
         )
         .orderBy(
+          sql`CASE
+            WHEN ${lots.lotNumber} = ${UNBATCHED_LOT_NUMBER} THEN 0
+            WHEN ${lots.expiresOn} IS NULL THEN 2
+            ELSE 1
+          END`,
+          asc(lots.expiresOn),
           asc(inventoryLotBalances.receivedAt),
           asc(lots.createdAt),
           asc(lots.lotNumber),

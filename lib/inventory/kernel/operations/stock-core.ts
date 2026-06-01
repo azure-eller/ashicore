@@ -57,6 +57,7 @@ type RestockEventType = "unpick_restock" | "manufacturing_variance_gain";
 const DEFAULT_DISPOSITION: InventoryDisposition = "available";
 // Lot master identity is per org+item; per-location debt lives in lot balances.
 const NEGATIVE_STOCK_LOT_NUMBER = "UNBATCHED-NEGATIVE-STOCK";
+const UNBATCHED_LOT_NUMBER = "UNBATCHED";
 export const INTERNAL_UNTRACKED_LOT_NUMBER = "INTERNAL-UNTRACKED";
 
 export type FifoAllocation = {
@@ -640,6 +641,7 @@ export async function createPositiveStockEventInTx(
     lotNumber?: string | null;
     occurredAt?: Date;
     receivedAt?: Date;
+    expiresOn?: string | null;
     metadata?: Record<string, unknown> | null;
     disposition?: InventoryDisposition;
   }
@@ -691,11 +693,13 @@ export async function createPositiveStockEventInTx(
       lotNumber,
       quantity,
       receivedAt,
+      expiresOn: params.expiresOn ?? null,
     })
     .returning({
       id: lots.id,
       lotNumber: lots.lotNumber,
       receivedAt: lots.receivedAt,
+      expiresOn: lots.expiresOn,
     });
 
   const [event] = await insertInventoryEventsInTx(tx, [
@@ -1235,6 +1239,7 @@ async function getLockedFifoLotsInTx(
     itemId: string;
     minimumReceivedDate?: string | null;
     allowIneligibleLots?: boolean;
+    trackedLotDefault?: "unbatched";
   }
 ) {
   const eligibilityCondition = params.minimumReceivedDate
@@ -1248,6 +1253,7 @@ async function getLockedFifoLotsInTx(
       quantity: inventoryLotBalances.quantity,
       unitCost: inventoryLotBalances.unitCost,
       receivedAt: inventoryLotBalances.receivedAt,
+      expiresOn: lots.expiresOn,
     })
     .from(inventoryLotBalances)
     .innerJoin(
@@ -1261,6 +1267,10 @@ async function getLockedFifoLotsInTx(
         eq(inventoryLotBalances.itemId, params.itemId),
         eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
         sql`${inventoryLotBalances.quantity} > 0`,
+        params.trackedLotDefault === "unbatched"
+          ? eq(lots.lotNumber, UNBATCHED_LOT_NUMBER)
+          : undefined,
+        sql`(${lots.expiresOn} IS NULL OR ${lots.expiresOn} >= CURRENT_DATE)`,
         params.minimumReceivedDate && !params.allowIneligibleLots
           ? eligibilityCondition
           : undefined
@@ -1269,7 +1279,12 @@ async function getLockedFifoLotsInTx(
     .orderBy(
       params.minimumReceivedDate && params.allowIneligibleLots
         ? sql`CASE WHEN ${eligibilityCondition} THEN 0 ELSE 1 END`
-        : asc(inventoryLotBalances.receivedAt),
+        : sql`CASE
+            WHEN ${lots.lotNumber} = ${UNBATCHED_LOT_NUMBER} THEN 0
+            WHEN ${lots.expiresOn} IS NULL THEN 2
+            ELSE 1
+          END`,
+      asc(lots.expiresOn),
       asc(inventoryLotBalances.receivedAt),
       asc(inventoryLotBalances.lotId)
     )
@@ -1295,6 +1310,7 @@ export async function consumeStockFifoInTx(
     allowIneligibleLots?: boolean;
     allowNegativeStock?: boolean;
     unavailableByLotId?: Map<string, number>;
+    trackedLotDefault?: "unbatched";
   }
 ) {
   await lockItemsInTx(tx, [params.itemId]);
@@ -1313,10 +1329,13 @@ export async function consumeStockFifoInTx(
     (sum, quantity) => roundQuantity(sum + quantity),
     0
   );
-  const netAvailable = roundQuantity(
-    (await getCurrentAvailableLotBalanceQtyAtLocationInTx(tx, params)) -
-      protectedQuantity
-  );
+  const netAvailable =
+    params.trackedLotDefault === "unbatched"
+      ? roundQuantity(totalAvailable)
+      : roundQuantity(
+          (await getCurrentAvailableLotBalanceQtyAtLocationInTx(tx, params)) -
+            protectedQuantity
+        );
 
   if (netAvailable < params.quantity && !params.allowNegativeStock) {
     throw new InsufficientStockError({

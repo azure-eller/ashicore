@@ -1,13 +1,19 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { roundQuantity } from "@/lib/format";
 import {
   inventoryDemandSummary,
+  inventoryLotBalances,
   inventoryReservationsSummary,
+  manufacturingOrderOutputs,
+  manufacturingOrders,
   salesOrderLines,
   stockAllocations,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
-import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
+import {
+  InsufficientStockError,
+  LinkedManufacturingOutputUnavailableError,
+} from "@/lib/inventory/kernel/errors";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import {
@@ -18,6 +24,7 @@ import {
 } from "@/lib/inventory/kernel/operations/common";
 import {
   consumeStockFifoInTx,
+  consumeSpecificLotInTx,
   getCurrentAvailableLotBalanceQtyAtLocationInTx,
   getCurrentAvailableQtyAtLocationInTx,
 } from "@/lib/inventory/kernel/operations/stock-core";
@@ -26,6 +33,122 @@ import {
   consumeLotAllocationsForDemandInTx,
   getUnavailableLotAllocationQtyByLotIdInTx,
 } from "@/lib/inventory/kernel/operations/stock-allocations";
+
+async function consumeLinkedManufacturingOutputForSalesLineInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    locationId: string;
+    salesOrderLineId: string;
+    itemId: string;
+    quantity: number;
+    eventType: "sales_consumption";
+    eventSubtype: "sales_ship";
+    referenceType: "sales_shipment" | "sales_order";
+    referenceId: string;
+    actorUserId?: string | null;
+    idempotencyKey?: string | null;
+    occurredAt?: Date;
+    metadata?: Record<string, unknown> | null;
+    unavailableByLotId?: Map<string, number>;
+  }
+) {
+  const linkedOrders = await tx
+    .select({ id: manufacturingOrders.id })
+    .from(manufacturingOrders)
+    .where(
+      and(
+        eq(manufacturingOrders.organizationId, params.organizationId),
+        eq(manufacturingOrders.productId, params.itemId),
+        eq(manufacturingOrders.salesOrderLineId, params.salesOrderLineId),
+        sql`${manufacturingOrders.deletedAt} IS NULL`,
+        sql`${manufacturingOrders.status} <> 'cancelled'`
+      )
+    );
+  const linkedOrderIds = linkedOrders.map((order) => order.id);
+
+  const outputLots = await tx
+    .select({
+      lotId: manufacturingOrderOutputs.lotId,
+    })
+    .from(manufacturingOrderOutputs)
+    .innerJoin(
+      manufacturingOrders,
+      eq(manufacturingOrders.id, manufacturingOrderOutputs.manufacturingOrderId)
+    )
+    .where(
+      and(
+        linkedOrderIds.length > 0
+          ? inArray(manufacturingOrderOutputs.manufacturingOrderId, linkedOrderIds)
+          : sql`false`,
+        eq(manufacturingOrderOutputs.disposition, "available"),
+        sql`${manufacturingOrderOutputs.quantity} > 0`
+      )
+    )
+    .orderBy(
+      asc(manufacturingOrderOutputs.outputNumber),
+      asc(manufacturingOrderOutputs.createdAt),
+      asc(manufacturingOrderOutputs.lotId)
+    );
+
+  let remaining = roundQuantity(params.quantity);
+  const eventIds: string[] = [];
+  let idempotencyUsed = false;
+  const seenLotIds = new Set<string>();
+
+  for (const output of outputLots) {
+    if (remaining <= 0) break;
+    if (seenLotIds.has(output.lotId)) continue;
+    seenLotIds.add(output.lotId);
+
+    const [balance] = await tx
+      .select({ quantity: inventoryLotBalances.quantity })
+      .from(inventoryLotBalances)
+      .where(
+        and(
+          eq(inventoryLotBalances.organizationId, params.organizationId),
+          eq(inventoryLotBalances.locationId, params.locationId),
+          eq(inventoryLotBalances.itemId, params.itemId),
+          eq(inventoryLotBalances.lotId, output.lotId),
+          eq(inventoryLotBalances.disposition, "available"),
+          sql`${inventoryLotBalances.quantity} > 0`
+        )
+      )
+      .for("update");
+    const protectedQty = params.unavailableByLotId?.get(output.lotId) ?? 0;
+    const usableQty = roundQuantity(
+      Math.max(0, parseFloat(balance?.quantity ?? "0") - protectedQty)
+    );
+    const consumedQty = roundQuantity(Math.min(remaining, usableQty));
+    if (consumedQty <= 0) continue;
+
+    const consumed = await consumeSpecificLotInTx(tx, {
+      organizationId: params.organizationId,
+      locationId: params.locationId,
+      itemId: params.itemId,
+      lotId: output.lotId,
+      quantity: consumedQty,
+      eventType: params.eventType,
+      eventSubtype: params.eventSubtype,
+      referenceType: params.referenceType,
+      referenceId: params.referenceId,
+      actorUserId: params.actorUserId ?? null,
+      idempotencyKey: !idempotencyUsed ? params.idempotencyKey ?? null : null,
+      occurredAt: params.occurredAt,
+      metadata: params.metadata ?? null,
+    });
+    eventIds.push(...consumed.eventIds);
+    idempotencyUsed = idempotencyUsed || consumed.eventIds.length > 0;
+    remaining = roundQuantity(remaining - consumedQty);
+  }
+
+  return {
+    hasLinkedManufacturingOrder: linkedOrderIds.length > 0,
+    eventIds,
+    remainingQuantity: remaining,
+    idempotencyUsed,
+  };
+}
 
 export async function reserveForSalesInTx(
   tx: Tx,
@@ -732,17 +855,51 @@ export async function consumeForShipmentInTx(
       eventIds.push(...consumed.eventIds);
     }
 
+    const unavailableByLotId = params.allowNegativeStock
+      ? undefined
+      : await getUnavailableLotAllocationQtyByLotIdInTx(tx, {
+          organizationId: params.organizationId,
+          itemId: line.itemId,
+          excludeDemand: {
+            demandType: activeDemandRef.demandType,
+            demandId: activeDemandRef.demandId,
+          },
+        });
+
     if (remaining > 0) {
-      const unavailableByLotId = params.allowNegativeStock
-        ? undefined
-        : await getUnavailableLotAllocationQtyByLotIdInTx(tx, {
-            organizationId: params.organizationId,
-            itemId: line.itemId,
-            excludeDemand: {
-              demandType: activeDemandRef.demandType,
-              demandId: activeDemandRef.demandId,
-            },
-          });
+      const consumedLinkedOutput =
+        await consumeLinkedManufacturingOutputForSalesLineInTx(tx, {
+          organizationId: params.organizationId,
+          locationId: location.id,
+          salesOrderLineId: line.salesOrderLineId,
+          itemId: line.itemId,
+          quantity: remaining,
+          eventType: "sales_consumption",
+          eventSubtype: "sales_ship",
+          referenceType: params.salesShipmentId ? "sales_shipment" : "sales_order",
+          referenceId: params.salesShipmentId ?? params.salesOrderId,
+          actorUserId: params.actorUserId ?? null,
+          idempotencyKey:
+            index === 0 && !idempotencyUsed ? params.idempotencyKey ?? null : null,
+          occurredAt: params.shippedAt,
+          metadata,
+          unavailableByLotId,
+        });
+      idempotencyUsed =
+        idempotencyUsed || consumedLinkedOutput.idempotencyUsed;
+      remaining = consumedLinkedOutput.remainingQuantity;
+      eventIds.push(...consumedLinkedOutput.eventIds);
+
+      if (remaining > 0 && consumedLinkedOutput.hasLinkedManufacturingOrder) {
+        throw new LinkedManufacturingOutputUnavailableError({
+          itemId: line.itemId,
+          available: roundQuantity(line.quantity - remaining),
+          requested: line.quantity,
+        });
+      }
+    }
+
+    if (remaining > 0) {
       const consumed = await consumeStockFifoInTx(tx, {
         organizationId: params.organizationId,
         locationId: location.id,

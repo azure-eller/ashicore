@@ -283,16 +283,22 @@ async function getPurchaseQuantityForStockQuantityInTx(
       id: items.id,
     })
     .from(items)
-    .where(and(eq(items.id, itemId), eq(items.itemType, "material"), isNull(items.deletedAt)))
+    .where(
+      and(
+        eq(items.id, itemId),
+        inArray(items.itemType, ["material", "product"]),
+        isNull(items.deletedAt)
+      )
+    )
     .limit(1);
 
   if (!item) {
-    throw new PlanningError("Material not found.", 404);
+    throw new PlanningError("Item not found.", 404);
   }
 
   const factor = Number.parseFloat(purchaseToStockFactor);
   if (!Number.isFinite(factor) || factor <= 0) {
-    throw new PlanningError("Material purchase conversion is invalid.", 400);
+    throw new PlanningError("Item purchase conversion is invalid.", 400);
   }
 
   return normalizeNumeric(roundQuantity(Number.parseFloat(stockQuantity) / factor));

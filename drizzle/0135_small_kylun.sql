@@ -1,0 +1,1 @@
+ALTER TABLE "inventory"."lots" ADD COLUMN IF NOT EXISTS "expires_on" date;

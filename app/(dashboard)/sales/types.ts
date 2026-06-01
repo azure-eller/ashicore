@@ -381,8 +381,11 @@ export type SalesOrderFulfillmentSummary = {
     itemName: string;
     itemSku: string | null;
     unitName: string;
+    availabilityStatus: "expected" | "missing";
     requiredQty: string;
     shortQty: string;
+    expectedQty: string;
+    missingQty: string;
     availableQty: string;
   }>;
   productionState:

@@ -764,9 +764,16 @@ export async function confirmSalesOrder(
 /**
  * POST /api/sales-orders/:id/ship
  */
-export async function fulfillSalesOrder(id: string) {
+export async function fulfillSalesOrder(
+  id: string,
+  options?: {
+    confirmNegativeStock?: boolean;
+    completeLinkedManufacturing?: boolean;
+  }
+) {
   const res = await testFetch(`/api/sales-orders/${id}/ship`, {
     method: "POST",
+    body: JSON.stringify(options ?? {}),
   });
   const body = await res.json().catch(() => null);
   return { status: res.status, body };
