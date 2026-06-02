@@ -756,6 +756,7 @@ export async function getOpenManufacturingIngredientItemIdsInTx(
       manufacturingOrders,
       eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrders.id)
     )
+    .innerJoin(items, eq(manufacturingOrderIngredients.itemId, items.id))
     .where(
       and(
         eq(manufacturingOrders.organizationId, organizationId),
@@ -763,6 +764,8 @@ export async function getOpenManufacturingIngredientItemIdsInTx(
         isNull(manufacturingOrders.deletedAt),
         isNull(manufacturingOrders.completedAt),
         isNull(manufacturingOrders.cancelledAt),
+        eq(items.itemType, "product"),
+        eq(items.sellable, true),
         sql`${manufacturingOrderIngredients.plannedQuantity} > COALESCE(${manufacturingOrderIngredients.pickedQuantity}, 0)`
       )
     )
