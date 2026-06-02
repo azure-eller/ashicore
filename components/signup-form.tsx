@@ -18,9 +18,20 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { authClient } from "@/lib/auth-client"
+import {
+  orgSetupPathForPlanIntent,
+  type BillingPlanIntent,
+} from "@/lib/billing/plan-intent"
 
-export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
+export function SignupForm({
+  plan = "free",
+  ...props
+}: React.ComponentProps<typeof Card> & { plan?: BillingPlanIntent }) {
   const router = useRouter()
+  const signInHref =
+    plan === "paid"
+      ? `/sign-in?next=${encodeURIComponent(orgSetupPathForPlanIntent(plan))}`
+      : "/sign-in"
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -42,7 +53,9 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
       setLoading(false)
       return
     }
-    router.push("/mfa-setup")
+    router.push(
+      `/mfa-setup?next=${encodeURIComponent(orgSetupPathForPlanIntent(plan))}`
+    )
   }
 
   return (
@@ -104,7 +117,7 @@ export function SignupForm({ ...props }: React.ComponentProps<typeof Card>) {
               </Button>
               <FieldDescription className="text-center">
                 Already have an account?{" "}
-                <a href="/sign-in">Sign in</a>
+                <a href={signInHref}>Sign in</a>
               </FieldDescription>
             </Field>
           </FieldGroup>

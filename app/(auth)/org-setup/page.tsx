@@ -2,9 +2,16 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { OrgSetupForm } from "@/components/org-setup-form";
 import { auth } from "@/lib/auth";
+import { parseBillingPlanIntent } from "@/lib/billing/plan-intent";
 import { getPendingInvitationForEmail, isMfaEnrolled } from "@/lib/dal/auth";
 
-export default async function Page() {
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ plan?: string }>;
+}) {
+  const params = await searchParams;
+  const plan = parseBillingPlanIntent(params.plan);
   const requestHeaders = await headers();
   const session = await auth.api.getSession({ headers: requestHeaders });
 
@@ -13,7 +20,7 @@ export default async function Page() {
   }
 
   if (!isMfaEnrolled(session)) {
-    redirect("/mfa-setup?next=/org-setup");
+    redirect(`/mfa-setup?next=${encodeURIComponent(`/org-setup?plan=${plan}`)}`);
   }
 
   const organizations = await auth.api.listOrganizations({
@@ -28,5 +35,5 @@ export default async function Page() {
     }
   }
 
-  return <OrgSetupForm organizations={organizations} />;
+  return <OrgSetupForm organizations={organizations} plan={plan} />;
 }

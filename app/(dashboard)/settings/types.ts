@@ -56,6 +56,20 @@ export type AgentAccessPageData = {
   chatGptBuilderUrl: string;
 };
 
+export type BillingPageData = {
+  plan: "free" | "core";
+  status: "active" | "past_due" | "canceled";
+  stripeCustomerId: string | null;
+  cancelAtPeriodEnd: boolean;
+  currentPeriodEnd: string | null;
+  skuCount: number;
+  skuLimit: number | null;
+  canCreateSku: boolean;
+  enforcementEnabled: boolean;
+  billingConfigured: boolean;
+  checkoutConfigured: boolean;
+};
+
 export type PublicInvitationDetails = {
   id: string;
   email: string;

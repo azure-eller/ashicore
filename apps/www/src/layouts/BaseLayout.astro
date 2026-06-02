@@ -6,6 +6,7 @@ import {
   navItems,
   PUBLIC_SITE_URL,
   SIGN_IN_URL,
+  SIGN_UP_URL,
   SITE_NAME,
 } from "../lib/site";
 
@@ -48,6 +49,7 @@ const pageTitle = title === SITE_NAME ? SITE_NAME : `${title} | ${SITE_NAME}`;
         </nav>
         <div class="header-actions">
           <a class="button secondary" href={SIGN_IN_URL}>Sign in</a>
+          <a class="button" href={SIGN_UP_URL}>Create account</a>
         </div>
       </header>
       <slot />

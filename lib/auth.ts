@@ -1,8 +1,9 @@
 import { betterAuth, type BetterAuthPlugin } from "better-auth";
-import { createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
+import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAccessControl, organization, twoFactor } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
+import { eq } from "drizzle-orm";
 import { APP_DOMAIN, APP_URL } from "@/lib/app-brand";
 import { getCanonicalAppUrl } from "@/lib/app-url";
 import {
@@ -224,6 +225,46 @@ const organizationTaxDefaultsPlugin = (): BetterAuthPlugin => ({
   },
 });
 
+const organizationBillingSafetyPlugin = (): BetterAuthPlugin => ({
+  id: "ashicore-organization-billing-safety",
+  hooks: {
+    before: [
+      {
+        matcher(ctx) {
+          return ctx.path === "/organization/delete";
+        },
+        handler: createAuthMiddleware(async (ctx) => {
+          const body = ctx.body as { organizationId?: unknown } | undefined;
+          const organizationId =
+            typeof body?.organizationId === "string" ? body.organizationId : null;
+
+          if (!organizationId) {
+            throw new APIError("BAD_REQUEST", {
+              message: "organizationId is required.",
+            });
+          }
+
+          const [org] = await db
+            .select({
+              plan: schema.organization.plan,
+              status: schema.organization.status,
+            })
+            .from(schema.organization)
+            .where(eq(schema.organization.id, organizationId))
+            .limit(1);
+
+          if (org?.plan === "core" && org.status !== "canceled") {
+            throw new APIError("BAD_REQUEST", {
+              message:
+                "Cancel the organization's billing subscription before deleting this organization.",
+            });
+          }
+        }),
+      },
+    ],
+  },
+});
+
 async function getReturnedOrganization(ctx: AuthMiddlewareContext) {
   const returned = ctx.context.returned;
   if (!returned) {
@@ -308,6 +349,7 @@ export const auth = betterAuth({
     },
   },
   plugins: [
+    organizationBillingSafetyPlugin(),
     organizationTaxDefaultsPlugin(),
     twoFactorOtpCleanupPlugin(),
     twoFactor({

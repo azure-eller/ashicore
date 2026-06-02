@@ -942,7 +942,6 @@ async function createItemFromCandidateInTx(
     cleanString(candidate.xeroItemCode) ??
     "Imported Xero item";
   const defaultPurchasePrice = candidate.latestUnitCost ?? candidate.xeroItemUnitPrice;
-
   const [created] = await tx
     .insert(items)
     .values({

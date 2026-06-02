@@ -275,6 +275,26 @@ async function ensureExistingOrgMembership() {
   }
 }
 
+async function ensureTestOrganizationBilling(orgId: string) {
+  const connectionString = getOwnerConnectionString();
+
+  if (!connectionString) {
+    return;
+  }
+
+  const client = new Client({ connectionString });
+  await client.connect();
+
+  try {
+    await client.query(
+      "UPDATE system.organization SET plan = 'core', status = 'active', cancel_at_period_end = false, current_period_end = NULL WHERE id = $1",
+      [orgId]
+    );
+  } finally {
+    await client.end();
+  }
+}
+
 async function ensureOrganization(baseUrl: string, cookies: string) {
   let orgs = await listOrganizations(baseUrl, cookies);
   let testOrg = orgs.find((org) => org.slug === TEST_ACCOUNT_ORG_SLUG);
@@ -406,6 +426,7 @@ export async function ensureTestAccount(
     );
   }
 
+  await ensureTestOrganizationBilling(testOrg.id);
   cookies = await setActiveOrganization(baseUrl, cookies, testOrg.id);
   const testUnitId = await createDefaultUnit(baseUrl, cookies);
   const existingTimestamp = readExistingTimestamp(envPath);

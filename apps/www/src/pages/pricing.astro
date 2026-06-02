@@ -1,65 +1,73 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
 import { SIGN_UP_URL } from "../lib/site";
+
+const freeSignupUrl = `${SIGN_UP_URL}?plan=free`;
+const paidSignupUrl = `${SIGN_UP_URL}?plan=paid`;
 ---
 
 <BaseLayout
   title="Pricing"
-  description="Ashicore is free for six months for companies joining the launch program."
+  description="Ashicore has a free plan for small manufacturers getting started and a flat paid plan at $199/month for unlimited SKUs."
   path="/pricing"
 >
     <main class="content-page">
-    <p class="kicker">Launch program</p>
-    <h1 class="page-title">Six months free for early customers.</h1>
+    <p class="kicker">Pricing</p>
+    <h1 class="page-title">Start free. Upgrade when the SKU limit gets in the way.</h1>
     <p class="page-description">
-      Ashicore is cutting-edge operating-core software for teams ready to run
-      inventory, manufacturing, sales, purchasing, and planning in the AI era.
+      Ashicore gives small manufacturers operational control across inventory,
+      manufacturing, sales, purchasing, and planning. Free has no time limit and
+      does not require a credit card.
     </p>
 
-    <section class="pricing-panel" aria-labelledby="pricing-offer">
-      <div class="pricing-offer">
-        <p class="pricing-price" id="pricing-offer">
-          <span class="price-free">$0</span>
-          <span class="price-was">$299/month</span>
+    <section class="pricing-panel two-up" aria-label="Ashicore plans">
+      <article class="pricing-card">
+        <p class="plan-name">Free</p>
+        <p class="pricing-price">
+          <span class="price-main">$0</span>
+          <span class="price-period">forever</span>
         </p>
-        <p class="price-term">
-          Free for your first six months. After that, standard pricing is $299 per
-          month unless we agree on a different plan before renewal.
-        </p>
-        <div class="hero-actions">
-          <a class="button" href={SIGN_UP_URL}>
-            Create account
-          </a>
-        </div>
-      </div>
-      <aside class="pricing-proof" aria-label="Launch program details">
-        <h2>Built with real operators. Now opening to more companies.</h2>
-        <p>
-          Ashicore was shaped in collaboration with real businesses solving
-          real operational problems. The launch program gives qualified teams a
-          direct path into the platform while the offer is available.
-        </p>
+        <p class="price-term">No credit card. Up to 30 SKUs.</p>
         <ul class="pricing-list">
-          <li>Full Ashicore service access during the first six months.</li>
           <li>Inventory, manufacturing, sales, purchasing, and planning workflows.</li>
-          <li>Accounting handoff and agent-ready operational context.</li>
-          <li>Direct onboarding path for companies adopting the platform now.</li>
+          <li>30-SKU cap across products, materials, variants, and imported items.</li>
+          <li>All current data stays readable if the account goes over the limit.</li>
         </ul>
-      </aside>
+        <div class="hero-actions">
+          <a class="button secondary" href={freeSignupUrl}>Create free account</a>
+        </div>
+      </article>
+
+      <article class="pricing-card highlighted">
+        <p class="plan-name">Paid</p>
+        <p class="pricing-price">
+          <span class="price-main">$199</span>
+          <span class="price-period">/ month</span>
+        </p>
+        <p class="price-term">Flat monthly price. Unlimited SKUs.</p>
+        <ul class="pricing-list">
+          <li>Inventory, manufacturing, sales, purchasing, and planning workflows.</li>
+          <li>Unlimited products, materials, variants, and imported catalog items.</li>
+          <li>Stripe Checkout for upgrade and Stripe Customer Portal for billing changes.</li>
+        </ul>
+        <div class="hero-actions">
+          <a class="button" href={paidSignupUrl}>Create account</a>
+        </div>
+      </article>
     </section>
 
     <article class="content-body">
-      <h2>Why the offer exists</h2>
+      <h2>How signup works</h2>
       <p>
-        Ashicore was built in close collaboration with operators who needed
-        modern business software for real inventory, production, sales, and
-        purchasing workflows. We are now opening access beyond the initial
-        pilot group.
+        New teams create an Ashicore account, secure it with MFA, and create an
+        organization. Free opens the app immediately. Paid continues to Stripe
+        Checkout after the organization is ready.
       </p>
       <p>
-        The six-month offer is simple: if Ashicore fits your operation, you get
-        a serious head start on cutting-edge business software while the launch
-        program is open.
+        Canceling the paid plan never deletes catalog data. If the organization returns
+        to Free with more than 30 SKUs, existing items remain available and new
+        SKU creation is blocked until the plan is upgraded or the count is back
+        under the limit.
       </p>
     </article>
   </main>

@@ -95,6 +95,7 @@ import type { QualityDispositionAction } from "@/lib/schemas/inventory-dispositi
 import type { LotQuantityAdjustment } from "@/lib/schemas/lot-adjustment";
 import type { InsertUnitDefinition } from "@/lib/schemas/units";
 import { DomainError } from "@/lib/errors/domain-error";
+import { assertCanCreateSkuInTx } from "@/lib/billing/dal";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type {
   DuplicateCombinationWarning,
@@ -2310,6 +2311,8 @@ export async function createItemWithLot(
     if (replay.replayed) {
       return replay.result;
     }
+
+    await assertCanCreateSkuInTx(tx, orgId);
 
     const normalizedCurrentStockUnitCost =
       data.itemType === "material"

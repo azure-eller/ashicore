@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -19,8 +19,17 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { authClient } from "@/lib/auth-client"
+import {
+  appEntryPathForPlanIntent,
+  type BillingPlanIntent,
+} from "@/lib/billing/plan-intent"
+import { apiJson } from "@/lib/client/api"
 
 const DEFAULT_APP_ENTRY_PATH = "/sales/orders"
+
+type BillingActionResponse = {
+  url?: string
+}
 
 type OrganizationOption = {
   id: string
@@ -31,15 +40,38 @@ type OrganizationOption = {
 export function OrgSetupForm({
   className,
   organizations,
+  plan,
   ...props
 }: React.ComponentProps<"div"> & {
   organizations: OrganizationOption[]
+  plan?: BillingPlanIntent
 }) {
   const router = useRouter()
+  const selectedPlan = plan ?? "free"
   const [name, setName] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [activatingOrgId, setActivatingOrgId] = useState<string | null>(null)
+
+  const finishOnboarding = useCallback(async () => {
+    if (selectedPlan !== "paid") {
+      router.replace(DEFAULT_APP_ENTRY_PATH)
+      return
+    }
+
+    const response = await apiJson<BillingActionResponse>("/api/billing/checkout", {
+      method: "POST",
+      idempotencyKey: "billing-checkout",
+      fallbackError: "Could not start billing checkout.",
+    })
+
+    if (response.url) {
+      window.location.assign(response.url)
+      return
+    }
+
+    router.replace(appEntryPathForPlanIntent(selectedPlan))
+  }, [router, selectedPlan])
 
   useEffect(() => {
     if (organizations.length !== 1) {
@@ -66,7 +98,16 @@ export function OrgSetupForm({
         return
       }
 
-      router.replace(DEFAULT_APP_ENTRY_PATH)
+      try {
+        await finishOnboarding()
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : "Could not finish organization setup."
+        )
+        setActivatingOrgId(null)
+      }
     }
 
     void activateOnlyOrganization()
@@ -74,7 +115,7 @@ export function OrgSetupForm({
     return () => {
       cancelled = true
     }
-  }, [organizations, router])
+  }, [finishOnboarding, organizations])
 
   async function activateOrganization(organizationId: string) {
     setError(null)
@@ -90,7 +131,14 @@ export function OrgSetupForm({
       return
     }
 
-    router.replace(DEFAULT_APP_ENTRY_PATH)
+    try {
+      await finishOnboarding()
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Could not finish organization setup."
+      )
+      setActivatingOrgId(null)
+    }
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -131,7 +179,14 @@ export function OrgSetupForm({
       return
     }
 
-    router.replace(DEFAULT_APP_ENTRY_PATH)
+    try {
+      await finishOnboarding()
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Could not finish organization setup."
+      )
+      setLoading(false)
+    }
   }
 
   return (
@@ -213,7 +268,11 @@ export function OrgSetupForm({
               )}
               <Field>
                 <Button type="submit" disabled={loading}>
-                  {loading ? "Creating…" : "Create Organization"}
+                  {loading
+                    ? selectedPlan === "paid"
+                      ? "Preparing checkout..."
+                      : "Creating..."
+                    : "Create Organization"}
                 </Button>
               </Field>
             </FieldGroup>

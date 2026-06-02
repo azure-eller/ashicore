@@ -17,13 +17,21 @@ import {
   manufacturingOrderIngredients,
   manufacturingOrders,
   manufacturingResources,
+  organization,
   stockAllocations,
   stocktakeItems,
   stocktakeLotItems,
   stocktakes,
+  unitDefinitions,
   variantOptionValues,
   variantOptions,
 } from "../../../lib/db/schema";
+import {
+  assertCanCreateSkuInTx,
+  BillingEntitlementError,
+  getSkuEntitlementInTx,
+} from "../../../lib/billing/entitlements";
+import { withOrgContext } from "../../../lib/db/with-org-context";
 import {
   consumeStockFifoInTx,
   createPositiveStockEventInTx,
@@ -1176,5 +1184,80 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(clonedOptions).toHaveLength(1);
     expect(clonedValues).toHaveLength(2);
     expect(clonedAssignments).toHaveLength(2);
+  });
+
+  test("billing entitlements count every item row and Core state controls the cap", async ({
+    db,
+  }) => {
+    const id = randomUUID();
+    const billingOrgId = `billing-fast-${id}`;
+
+    await db.insert(organization).values({
+      id: billingOrgId,
+      name: `Billing Fast ${id}`,
+      slug: `billing-fast-${id}`,
+      createdAt: new Date(),
+      plan: "free",
+      status: "active",
+    });
+
+    await withOrgContext(billingOrgId, async (tx) => {
+      const [unit] = await tx
+        .insert(unitDefinitions)
+        .values({
+          organizationId: billingOrgId,
+          name: "Each",
+          size: "1",
+          uom: "ea",
+        })
+        .returning({ id: unitDefinitions.id });
+
+      await tx.insert(items).values(
+        Array.from({ length: 30 }, (_, index) => ({
+          organizationId: billingOrgId,
+          name: `Billing Fast Item ${index}`,
+          sku: `BILL-FAST-${id}-${index}`,
+          itemType: "material",
+          unitDefinitionId: unit.id,
+          safetyStock: "0",
+          defaultPurchasePrice: "1",
+          currentStockUnitCost: "1",
+          defaultSellingPrice: null,
+          sellable: false,
+          manufacturingMode: "discrete",
+          deletedAt: index === 0 ? new Date() : null,
+        })),
+      );
+
+      const freeEntitlement = await getSkuEntitlementInTx(tx, billingOrgId);
+      expect(freeEntitlement.skuCount).toBe(30);
+      expect(freeEntitlement.canCreateSku).toBe(false);
+      await expect(assertCanCreateSkuInTx(tx, billingOrgId)).rejects.toBeInstanceOf(
+        BillingEntitlementError,
+      );
+    });
+
+    await db
+      .update(organization)
+      .set({
+        plan: "core",
+        status: "active",
+        stripeCustomerId: `cus_${id}`,
+        cancelAtPeriodEnd: true,
+        currentPeriodEnd: new Date(1_800_000_000 * 1000),
+      })
+      .where(eq(organization.id, billingOrgId));
+
+    await withOrgContext(billingOrgId, async (tx) => {
+      const coreEntitlement = await getSkuEntitlementInTx(tx, billingOrgId);
+      expect(coreEntitlement.plan).toBe("core");
+      expect(coreEntitlement.status).toBe("active");
+      expect(coreEntitlement.cancelAtPeriodEnd).toBe(true);
+      expect(coreEntitlement.currentPeriodEnd?.toISOString()).toBe(
+        "2027-01-15T08:00:00.000Z",
+      );
+      expect(coreEntitlement.skuLimit).toBeNull();
+      expect(coreEntitlement.canCreateSku).toBe(true);
+    });
   });
 });

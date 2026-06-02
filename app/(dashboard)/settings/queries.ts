@@ -12,3 +12,5 @@ export {
   getTeamPageData,
   getTeamPageDataForRequest,
 } from "@/lib/dal/auth";
+
+export { getBillingStateForCurrentOrg } from "@/lib/billing/dal";

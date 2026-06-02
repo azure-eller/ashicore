@@ -37,6 +37,7 @@ export default async function SettingsLayout({
     showTaxes,
     showReports: showTeam,
     showAddresses,
+    showBilling: showTeam,
   });
 
   return (

@@ -557,17 +557,33 @@ a:hover {
 
 .pricing-panel {
   display: grid;
-  grid-template-columns: minmax(0, 0.92fr) minmax(320px, 0.58fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px;
   margin-top: 42px;
   border: 1px solid var(--ash-line);
   background: var(--ash-line);
 }
 
-.pricing-offer,
-.pricing-proof {
+.pricing-panel.two-up {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.pricing-card {
   background: var(--ash-surface);
   padding: 30px;
+}
+
+.pricing-card.highlighted {
+  border-top: 4px solid var(--ash-active-accent);
+}
+
+.plan-name {
+  margin: 0 0 18px;
+  color: var(--ash-muted);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .pricing-price {
@@ -578,19 +594,17 @@ a:hover {
   margin: 0;
 }
 
-.price-free {
-  font-size: clamp(58px, 9vw, 112px);
+.price-main {
+  font-size: clamp(52px, 7vw, 84px);
   line-height: 0.9;
   font-weight: 800;
   letter-spacing: 0;
 }
 
-.price-was {
+.price-period {
   color: var(--ash-muted);
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 700;
-  text-decoration: line-through;
-  text-decoration-thickness: 2px;
 }
 
 .price-term {
@@ -624,19 +638,6 @@ a:hover {
   height: 10px;
   margin-top: 6px;
   background: var(--ash-accent);
-}
-
-.pricing-proof h2 {
-  margin: 0;
-  font-size: 24px;
-  line-height: 1.2;
-}
-
-.pricing-proof p {
-  margin: 16px 0 0;
-  color: var(--ash-muted);
-  font-size: 15px;
-  line-height: 1.55;
 }
 
 .content-page {
@@ -1124,6 +1125,10 @@ a:hover {
   }
 
   .pricing-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .pricing-panel.two-up {
     grid-template-columns: 1fr;
   }
 

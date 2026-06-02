@@ -4,6 +4,7 @@ import {
   text,
   timestamp,
   boolean,
+  check,
   index,
   jsonb,
   uniqueIndex,
@@ -111,10 +112,22 @@ export const organization = systemSchema.table(
     slug: text("slug").notNull().unique(),
     logo: text("logo"),
     timeZone: text("time_zone").notNull().default("America/Denver"),
+    plan: varchar("plan", { length: 20 }).notNull().default("free"),
+    status: varchar("status", { length: 20 }).notNull().default("active"),
+    stripeCustomerId: text("stripe_customer_id"),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
     createdAt: timestamp("created_at").notNull(),
     metadata: text("metadata"),
   },
-  (table) => [uniqueIndex("organization_slug_uidx").on(table.slug)],
+  (table) => [
+    uniqueIndex("organization_slug_uidx").on(table.slug),
+    uniqueIndex("organization_stripe_customer_id_uidx")
+      .on(table.stripeCustomerId)
+      .where(sql`stripe_customer_id IS NOT NULL`),
+    check("organization_plan_check", sql`plan IN ('free', 'core')`),
+    check("organization_status_check", sql`status IN ('active', 'past_due', 'canceled')`),
+  ],
 );
 
 export const member = systemSchema.table(

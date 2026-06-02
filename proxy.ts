@@ -36,6 +36,7 @@ function isPublicRoute(pathname: string) {
     pathname === "/api/xero/sign-up" ||
     pathname === "/api/xero/callback" ||
     pathname === "/api/reports/sparkline.png" ||
+    pathname === "/api/stripe/webhook" ||
     pathname === "/api/internal/sentry/autofix" ||
     bearerProtectedInternalRoutes.has(pathname) ||
     pathname === "/android" ||
