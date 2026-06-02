@@ -18,27 +18,6 @@ import { PRICING_SOURCE_TYPES } from "./pricing-schedules";
 export const SALES_ORDER_STATUSES = ["open", "done"] as const;
 export type SalesOrderStatus = (typeof SALES_ORDER_STATUSES)[number];
 
-export const SALES_SHIPMENT_STATUSES = ["planned", "shipped"] as const;
-export type SalesShipmentStatus = (typeof SALES_SHIPMENT_STATUSES)[number];
-
-export const SALES_SHIPMENT_FULFILLMENT_TYPES = ["delivery", "pickup"] as const;
-export type SalesShipmentFulfillmentType =
-  (typeof SALES_SHIPMENT_FULFILLMENT_TYPES)[number];
-
-export const SALES_SHIPMENT_COST_TYPES = [
-  "freight",
-  "delivery_labor",
-  "fuel",
-  "packaging",
-  "accessorial",
-  "other",
-] as const;
-export type SalesShipmentCostType = (typeof SALES_SHIPMENT_COST_TYPES)[number];
-
-export const SALES_SHIPMENT_COST_STATUSES = ["estimated", "actual"] as const;
-export type SalesShipmentCostStatus =
-  (typeof SALES_SHIPMENT_COST_STATUSES)[number];
-
 const rawOrderLineSchema = z.object({
   itemId: z.string().default(""),
   quantity: nullableString,
@@ -135,109 +114,6 @@ const cleanedLinesSchema = z
     });
   });
 
-const rawOrderShipmentLineSchema = z.object({
-  itemId: z.string().default(""),
-  quantity: nullableString,
-});
-
-type RawOrderShipmentLine = z.input<typeof rawOrderShipmentLineSchema>;
-
-const rawOrderShipmentSchema = z.object({
-  fulfillmentType: z.enum(SALES_SHIPMENT_FULFILLMENT_TYPES).default("delivery"),
-  scheduledDate: nullableString,
-  deliveryDate: nullableString,
-  notes: nullableString,
-  lines: z.array(rawOrderShipmentLineSchema).default([]),
-});
-
-type RawOrderShipment = z.input<typeof rawOrderShipmentSchema>;
-
-function isBlankShipmentLine(line: RawOrderShipmentLine) {
-  const itemId = typeof line.itemId === "string" ? line.itemId.trim() : "";
-  const quantity = line.quantity?.trim() ?? "";
-  return itemId === "" && quantity === "";
-}
-
-function isBlankShipment(shipment: RawOrderShipment) {
-  const scheduledDate = shipment.scheduledDate?.trim() ?? "";
-  const deliveryDate = shipment.deliveryDate?.trim() ?? "";
-  const notes = shipment.notes?.trim() ?? "";
-  const lines = shipment.lines ?? [];
-  return (
-    scheduledDate === "" &&
-    deliveryDate === "" &&
-    notes === "" &&
-    lines.every(isBlankShipmentLine)
-  );
-}
-
-const cleanedOrderShipmentsSchema = z
-  .array(rawOrderShipmentSchema)
-  .default([])
-  .transform((shipments) =>
-    shipments
-      .filter((shipment) => !isBlankShipment(shipment))
-      .map((shipment) => ({
-        ...shipment,
-        deliveryDate: shipment.scheduledDate,
-        lines: shipment.lines.filter((line) => !isBlankShipmentLine(line)),
-      }))
-  )
-  .superRefine((shipments, ctx) => {
-    shipments.forEach((shipment, index) => {
-      if (!shipment.scheduledDate) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Ship date is required",
-          path: [index, "scheduledDate"],
-        });
-      } else if (!isValidIsoDate(shipment.scheduledDate)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Ship date must be a real date in YYYY-MM-DD format",
-          path: [index, "scheduledDate"],
-        });
-      }
-
-      if (shipment.lines.length === 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "At least one shipment quantity is required",
-          path: [index, "lines"],
-        });
-      }
-
-      const seen = new Set<string>();
-      shipment.lines.forEach((line, lineIndex) => {
-        const itemId = line.itemId.trim();
-        const quantity = line.quantity?.trim() ?? "";
-
-        if (!itemId) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Item is required",
-            path: [index, "lines", lineIndex, "itemId"],
-          });
-        } else if (seen.has(itemId)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "This item is already included",
-            path: [index, "lines", lineIndex, "itemId"],
-          });
-        }
-        seen.add(itemId);
-
-        if (!isPositiveNumberString(quantity)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Quantity must be greater than 0",
-            path: [index, "lines", lineIndex, "quantity"],
-          });
-        }
-      });
-    });
-  });
-
 const baseSalesOrderSchema = createInsertSchema(salesOrders, {
   orderNumber: nullableString.refine(
     (value) => value == null || value.length <= 32,
@@ -292,51 +168,10 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
   deletedAt: true,
   createdAt: true,
   updatedAt: true,
-})
+  })
   .extend({
     lines: cleanedLinesSchema,
-    shipments: cleanedOrderShipmentsSchema.default([]),
     confirmOversell: z.boolean().optional(),
-  })
-  .superRefine((values, ctx) => {
-    const orderQtyByItemId = new Map<string, number>();
-    values.lines.forEach((line) => {
-      orderQtyByItemId.set(line.itemId, Number(line.quantity));
-    });
-
-    const shipmentQtyByItemId = new Map<string, number>();
-    values.shipments.forEach((shipment, shipmentIndex) => {
-      shipment.lines.forEach((line, lineIndex) => {
-        if (!orderQtyByItemId.has(line.itemId)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Shipment item must be on the order",
-            path: ["shipments", shipmentIndex, "lines", lineIndex, "itemId"],
-          });
-          return;
-        }
-
-        shipmentQtyByItemId.set(
-          line.itemId,
-          (shipmentQtyByItemId.get(line.itemId) ?? 0) + Number(line.quantity)
-        );
-      });
-    });
-
-    shipmentQtyByItemId.forEach((quantity, itemId) => {
-      const orderQty = orderQtyByItemId.get(itemId) ?? 0;
-      if (quantity <= orderQty) return;
-
-      values.shipments.forEach((shipment, shipmentIndex) => {
-        const lineIndex = shipment.lines.findIndex((line) => line.itemId === itemId);
-        if (lineIndex < 0) return;
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Shipment quantities cannot exceed ordered quantity",
-          path: ["shipments", shipmentIndex, "lines", lineIndex, "quantity"],
-        });
-      });
-    });
   });
 
 export const insertSalesOrderSchema = baseSalesOrderSchema;
@@ -366,7 +201,7 @@ const patchMoneyString = z
 /**
  * Partial header-only patch for the inline-edit flow on the new Calm Matrix
  * Sales Order page. Mirrors the Item Detail PATCH pattern: every field is
- * optional, lines and shipments are NOT touched, no idempotency-replay of the
+ * optional, lines are NOT touched, no idempotency-replay of the
  * full order. Use this for per-field saves; use `updateSalesOrderSchema` for
  * the legacy full-document PUT.
  */
@@ -418,7 +253,7 @@ export type PatchSalesOrderHeader = z.infer<typeof patchSalesOrderHeaderSchema>;
 
 /**
  * Per-line patch for inline-edit cells in the line items table (§2). Touches
- * only `sales_order_lines`; does not recreate shipments or release
+ * only `sales_order_lines`; does not release
  * reservations. Use {@link updateSalesOrderSchema} via PUT for line add/remove
  * or item changes, which still need the full-order recreation flow.
  */
@@ -473,13 +308,13 @@ export const bulkConfirmSalesOrdersSchema = z.object({
 });
 export type BulkConfirmSalesOrders = z.infer<typeof bulkConfirmSalesOrdersSchema>;
 
-const rawShipmentLineSchema = z.object({
+const rawShipLineSchema = z.object({
   salesOrderLineId: z.string().min(1, "Line is required"),
   quantity: nullableString,
 });
 
-const shipmentLinesSchema = z
-  .array(rawShipmentLineSchema)
+const shipLinesSchema = z
+  .array(rawShipLineSchema)
   .transform((lines) =>
     lines.filter((line) => (line.quantity?.trim() ?? "") !== "")
   )
@@ -487,7 +322,7 @@ const shipmentLinesSchema = z
     if (lines.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "At least one shipment line is required",
+        message: "At least one line is required",
         path: [],
       });
       return;
@@ -515,68 +350,13 @@ const shipmentLinesSchema = z
     });
   });
 
-export const salesShipmentInputSchema = z.object({
-  fulfillmentType: z.enum(SALES_SHIPMENT_FULFILLMENT_TYPES).default("delivery"),
-  scheduledDate: nullableString.refine((value) => {
-    if (value == null) return true;
-    return isValidIsoDate(value);
-  }, "Ship date must be a real date in YYYY-MM-DD format"),
-  deliveryDate: nullableString,
-  notes: nullableString,
-  splitFromShipmentId: z.string().uuid().nullable().optional(),
-  lines: shipmentLinesSchema,
-});
-export type SalesShipmentInput = z.infer<typeof salesShipmentInputSchema>;
-
-export const salesFulfillmentPlanInputSchema = z.object({
-  shipDate: nullableString.refine((value) => {
-    if (value == null) return true;
-    return isValidIsoDate(value);
-  }, "Ship date must be a real date in YYYY-MM-DD format"),
-  deliveryDate: nullableString,
-  fulfillmentType: z.enum(SALES_SHIPMENT_FULFILLMENT_TYPES).default("delivery"),
-  shipmentId: z.string().uuid().nullable().optional(),
-  shipmentNotes: nullableString,
-  shipmentLines: shipmentLinesSchema,
-});
-export type SalesFulfillmentPlanInput = z.infer<
-  typeof salesFulfillmentPlanInputSchema
->;
-
-export const shipSalesShipmentSchema = z.object({
-  syncAccounting: z.boolean().optional(),
-  confirmNegativeStock: z.boolean().optional(),
-});
-export type ShipSalesShipment = z.infer<typeof shipSalesShipmentSchema>;
-
 export const shipSalesOrderSchema = z.object({
   syncAccounting: z.boolean().optional(),
   confirmNegativeStock: z.boolean().optional(),
   completeLinkedManufacturing: z.boolean().optional(),
-  lines: shipmentLinesSchema.optional(),
+  lines: shipLinesSchema.optional(),
 });
 export type ShipSalesOrder = z.infer<typeof shipSalesOrderSchema>;
-
-export const salesShipmentCostsInputSchema = z.object({
-  customerFreightChargeAmount: optionalMoneyString(),
-  costs: z.array(
-    z.object({
-      costType: z.enum(SALES_SHIPMENT_COST_TYPES),
-      costStatus: z.enum(SALES_SHIPMENT_COST_STATUSES),
-      amount: positiveMoneyString(),
-      vendorName: nullableString,
-      referenceNumber: nullableString,
-      incurredDate: nullableString.refine((value) => {
-        if (value == null) return true;
-        return isValidIsoDate(value);
-      }, "Incurred date must be a real date in YYYY-MM-DD format"),
-      notes: nullableString,
-    })
-  ),
-});
-export type SalesShipmentCostsInput = z.infer<
-  typeof salesShipmentCostsInputSchema
->;
 
 export const salesOrderDefaultValues: InsertSalesOrder = {
   orderNumber: null,
@@ -610,6 +390,5 @@ export const salesOrderDefaultValues: InsertSalesOrder = {
       taxRateId: null,
     },
   ],
-  shipments: [],
   confirmOversell: false,
 };

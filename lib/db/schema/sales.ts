@@ -569,6 +569,12 @@ export const salesOrderLines = salesSchema
       })
         .notNull()
         .default("0"),
+      shippedQuantity: numeric("shipped_quantity", {
+        precision: 12,
+        scale: 4,
+      })
+        .notNull()
+        .default("0"),
       listUnitPrice: numeric("list_unit_price", { precision: 10, scale: 2 }),
       unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull(),
       taxRateId: uuid("tax_rate_id").references(() => taxRates.id, {
@@ -619,7 +625,7 @@ export const salesOrderLines = salesSchema
       ),
       check(
         "sales_order_lines_cancelled_quantity_check",
-        sql`cancelled_quantity >= 0 AND cancelled_quantity <= quantity`
+        sql`cancelled_quantity >= 0 AND shipped_quantity >= 0 AND cancelled_quantity + shipped_quantity <= quantity`
       ),
       pgPolicy("sales_order_lines_org_isolation", {
         for: "all",
@@ -632,164 +638,6 @@ export const salesOrderLines = salesSchema
         withCheck: sql`sales_order_id IN (
           SELECT id
           FROM sales.sales_orders
-          WHERE organization_id = current_setting('app.current_org_id', true)
-        )`,
-      }),
-    ]
-  )
-  .enableRLS();
-
-export const salesShipments = salesSchema
-  .table(
-    "sales_shipments",
-    {
-      id: uuid("id").primaryKey().defaultRandom(),
-      organizationId: text("organization_id").notNull(),
-      salesOrderId: uuid("sales_order_id")
-        .notNull()
-        .references(() => salesOrders.id),
-      shipmentNumber: varchar("shipment_number", { length: 50 }).notNull(),
-      sequence: integer("sequence").notNull(),
-      status: varchar("status", { length: 20 }).notNull().default("planned"),
-      fulfillmentType: varchar("fulfillment_type", { length: 20 })
-        .notNull()
-        .default("delivery"),
-      scheduledDate: date("scheduled_date", { mode: "string" }),
-      deliveryDate: date("delivery_date", { mode: "string" }),
-      shippedAt: timestamp("shipped_at", { withTimezone: true }),
-      notes: text("notes"),
-      customerFreightChargeAmount: numeric("customer_freight_charge_amount", {
-        precision: 12,
-        scale: 2,
-      }),
-      orderNumber: varchar("order_number", { length: 32 }).notNull(),
-      customerName: varchar("customer_name", { length: 255 }).notNull(),
-      shipLine1: varchar("ship_line1", { length: 255 }),
-      shipLine2: varchar("ship_line2", { length: 255 }),
-      shipCity: varchar("ship_city", { length: 120 }),
-      shipRegion: varchar("ship_region", { length: 120 }),
-      shipPostcode: varchar("ship_postcode", { length: 30 }),
-      shipCountry: varchar("ship_country", { length: 120 }),
-      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    },
-    (table) => [
-      index("sales_shipments_org_id_idx").on(table.organizationId),
-      index("sales_shipments_order_id_idx").on(table.salesOrderId),
-      index("sales_shipments_status_idx").on(table.status),
-      uniqueIndex("sales_shipments_org_number_uidx").on(
-        table.organizationId,
-        table.shipmentNumber
-      ),
-      uniqueIndex("sales_shipments_order_sequence_uidx").on(
-        table.salesOrderId,
-        table.sequence
-      ),
-      check(
-        "sales_shipments_status_check",
-        sql`status IN ('planned', 'shipped')`
-      ),
-      check(
-        "sales_shipments_fulfillment_type_check",
-        sql`fulfillment_type IN ('delivery', 'pickup')`
-      ),
-      check(
-        "sales_shipments_shipped_at_check",
-        sql`(status = 'shipped' AND shipped_at IS NOT NULL) OR (status <> 'shipped' AND shipped_at IS NULL)`
-      ),
-      pgPolicy("sales_shipments_org_isolation", {
-        for: "all",
-        to: "public",
-        using: sql`organization_id = current_setting('app.current_org_id', true)`,
-        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
-      }),
-    ]
-  )
-  .enableRLS();
-
-export const salesShipmentCosts = salesSchema
-  .table(
-    "sales_shipment_costs",
-    {
-      id: uuid("id").primaryKey().defaultRandom(),
-      organizationId: text("organization_id").notNull(),
-      salesShipmentId: uuid("sales_shipment_id")
-        .notNull()
-        .references(() => salesShipments.id, { onDelete: "cascade" }),
-      costType: varchar("cost_type", { length: 30 }).notNull(),
-      costStatus: varchar("cost_status", { length: 20 }).notNull(),
-      amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
-      vendorName: varchar("vendor_name", { length: 255 }),
-      referenceNumber: varchar("reference_number", { length: 120 }),
-      incurredDate: date("incurred_date", { mode: "string" }),
-      notes: text("notes"),
-      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    },
-    (table) => [
-      index("sales_shipment_costs_org_id_idx").on(table.organizationId),
-      index("sales_shipment_costs_shipment_id_idx").on(table.salesShipmentId),
-      index("sales_shipment_costs_status_idx").on(table.organizationId, table.costStatus),
-      check(
-        "sales_shipment_costs_type_check",
-        sql`cost_type IN ('freight', 'delivery_labor', 'fuel', 'packaging', 'accessorial', 'other')`
-      ),
-      check(
-        "sales_shipment_costs_status_check",
-        sql`cost_status IN ('estimated', 'actual')`
-      ),
-      check("sales_shipment_costs_amount_check", sql`amount > 0`),
-      pgPolicy("sales_shipment_costs_org_isolation", {
-        for: "all",
-        to: "public",
-        using: sql`organization_id = current_setting('app.current_org_id', true)`,
-        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
-      }),
-    ]
-  )
-  .enableRLS();
-
-export const salesShipmentLines = salesSchema
-  .table(
-    "sales_shipment_lines",
-    {
-      id: uuid("id").primaryKey().defaultRandom(),
-      salesShipmentId: uuid("sales_shipment_id")
-        .notNull()
-        .references(() => salesShipments.id),
-      salesOrderLineId: uuid("sales_order_line_id")
-        .notNull()
-        .references(() => salesOrderLines.id),
-      itemId: uuid("item_id")
-        .notNull()
-        .references(() => items.id),
-      itemName: varchar("item_name", { length: 255 }).notNull(),
-      itemSku: varchar("item_sku", { length: 50 }),
-      unitName: varchar("unit_name", { length: 50 }).notNull(),
-      quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
-      sortOrder: integer("sort_order").notNull().default(0),
-      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    },
-    (table) => [
-      index("sales_shipment_lines_shipment_id_idx").on(table.salesShipmentId),
-      index("sales_shipment_lines_order_line_id_idx").on(table.salesOrderLineId),
-      uniqueIndex("sales_shipment_lines_shipment_line_uidx").on(
-        table.salesShipmentId,
-        table.salesOrderLineId
-      ),
-      check("sales_shipment_lines_quantity_check", sql`quantity > 0`),
-      pgPolicy("sales_shipment_lines_org_isolation", {
-        for: "all",
-        to: "public",
-        using: sql`sales_shipment_id IN (
-          SELECT id
-          FROM sales.sales_shipments
-          WHERE organization_id = current_setting('app.current_org_id', true)
-        )`,
-        withCheck: sql`sales_shipment_id IN (
-          SELECT id
-          FROM sales.sales_shipments
           WHERE organization_id = current_setting('app.current_org_id', true)
         )`,
       }),

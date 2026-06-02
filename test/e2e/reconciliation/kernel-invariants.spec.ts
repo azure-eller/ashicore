@@ -9,7 +9,6 @@ import {
   purchaseOrders,
   salesOrderLines,
   salesOrders,
-  salesShipments,
   stocktakeLotItems,
   stocktakeItems,
 } from "@/lib/db/schema";
@@ -498,7 +497,7 @@ test.describe("inventory kernel invariants", () => {
     await expectProjectionDiffClean(orgId, [itemId]);
   });
 
-  test("replays shipment without tripping the already-shipped guard", async ({ db }) => {
+  test("replays sales order shipping without tripping the already-shipped guard", async ({ db }) => {
     const itemId = await createMaterialFixture(
       `Recon Replay Ship Sand ${ts}`,
       `Recon Replay Ship ${ts}`,
@@ -529,11 +528,10 @@ test.describe("inventory kernel invariants", () => {
     const shipEvents = await db
       .select({ id: inventoryEvents.id })
       .from(inventoryEvents)
-      .innerJoin(salesShipments, eq(inventoryEvents.referenceId, salesShipments.id))
       .where(
         and(
-          eq(inventoryEvents.referenceType, "sales_shipment"),
-          eq(salesShipments.salesOrderId, order.orderId),
+          eq(inventoryEvents.referenceType, "sales_order"),
+          eq(inventoryEvents.referenceId, order.orderId),
           eq(inventoryEvents.eventType, "sales_consumption")
         )
       );

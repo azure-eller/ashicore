@@ -382,53 +382,6 @@ const STEPS: CountStep[] = [
 
   // ───────────── Sales ─────────────
   {
-    table: "sales.sales_shipment_costs",
-    count: (tx, orgId) =>
-      readCount(
-        tx,
-        sql`SELECT COUNT(*)::int AS n FROM sales.sales_shipment_costs WHERE organization_id = ${orgId}`
-      ),
-    delete: async (tx, orgId) => {
-      await tx.execute(
-        sql`DELETE FROM sales.sales_shipment_costs WHERE organization_id = ${orgId}`
-      );
-    },
-  },
-  {
-    table: "sales.sales_shipment_lines",
-    count: (tx, orgId) =>
-      readCount(
-        tx,
-        sql`
-          SELECT COUNT(*)::int AS n FROM sales.sales_shipment_lines
-          WHERE sales_shipment_id IN (
-            SELECT id FROM sales.sales_shipments WHERE organization_id = ${orgId}
-          )
-        `
-      ),
-    delete: async (tx, orgId) => {
-      await tx.execute(sql`
-        DELETE FROM sales.sales_shipment_lines
-        WHERE sales_shipment_id IN (
-          SELECT id FROM sales.sales_shipments WHERE organization_id = ${orgId}
-        )
-      `);
-    },
-  },
-  {
-    table: "sales.sales_shipments",
-    count: (tx, orgId) =>
-      readCount(
-        tx,
-        sql`SELECT COUNT(*)::int AS n FROM sales.sales_shipments WHERE organization_id = ${orgId}`
-      ),
-    delete: async (tx, orgId) => {
-      await tx.execute(
-        sql`DELETE FROM sales.sales_shipments WHERE organization_id = ${orgId}`
-      );
-    },
-  },
-  {
     table: "sales.sales_order_lines",
     count: (tx, orgId) =>
       readCount(

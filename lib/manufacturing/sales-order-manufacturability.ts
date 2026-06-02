@@ -7,8 +7,6 @@ import {
   manufacturingOrderOutputs,
   salesOrderLines,
   salesOrders,
-  salesShipmentLines,
-  salesShipments,
   variantOptions,
   variantOptionValues,
 } from "@/lib/db/schema";
@@ -259,20 +257,13 @@ export async function getSalesOrderManufacturingSummariesInTx(
   const shippedRows = salesOrderLineIds.length
     ? await tx
         .select({
-          salesOrderLineId: salesShipmentLines.salesOrderLineId,
-          shippedQuantity: trimScale(
-            sql`COALESCE(SUM(${salesShipmentLines.quantity}), 0)`
-          ).as("shippedQuantity"),
+          salesOrderLineId: salesOrderLines.id,
+          shippedQuantity: trimScale(salesOrderLines.shippedQuantity).as(
+            "shippedQuantity"
+          ),
         })
-        .from(salesShipmentLines)
-        .innerJoin(salesShipments, eq(salesShipmentLines.salesShipmentId, salesShipments.id))
-        .where(
-          and(
-            inArray(salesShipmentLines.salesOrderLineId, salesOrderLineIds),
-            eq(salesShipments.status, "shipped")
-          )
-        )
-        .groupBy(salesShipmentLines.salesOrderLineId)
+        .from(salesOrderLines)
+        .where(inArray(salesOrderLines.id, salesOrderLineIds))
     : [];
   const bomBackedProductIds = new Set(
     [...bomCoverage.entries()]

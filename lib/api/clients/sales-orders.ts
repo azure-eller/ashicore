@@ -51,20 +51,6 @@ export async function shipSalesOrder(
   });
 }
 
-/** Mark a single planned shipment shipped. 409 carries `.negativeStock`. */
-export async function shipSalesShipment(
-  orderId: string,
-  shipmentId: string,
-  confirmNegativeStock: boolean,
-): Promise<void> {
-  const path = `/api/sales-orders/${orderId}/shipments/${shipmentId}/ship`;
-  await json<void>(path, {
-    method: "POST",
-    idempotencyKey: "shipSalesShipment",
-    body: { confirmNegativeStock },
-  });
-}
-
 /** Create a sales order from the draft card. Returns the new order id. */
 export async function createSalesOrder(
   input: InsertSalesOrder,
@@ -113,30 +99,6 @@ export async function updateSalesOrderFull(
   return json<{ id: string }>(path, {
     method: "PUT",
     idempotencyKey: "updateSalesOrder",
-    body: payload,
-  });
-}
-
-/**
- * Update a planned shipment's header fields (fulfillment type / dates / notes).
- * The PATCH schema requires the full shipment incl. lines, so callers serialize
- * the current shipment and override the changed field.
- */
-export async function patchSalesShipment(
-  orderId: string,
-  shipmentId: string,
-  payload: {
-    fulfillmentType: "delivery" | "pickup";
-    scheduledDate: string | null;
-    deliveryDate: string | null;
-    notes: string | null;
-    lines: { salesOrderLineId: string; quantity: string }[];
-  },
-): Promise<unknown> {
-  const path = `/api/sales-orders/${orderId}/shipments/${shipmentId}`;
-  return json<unknown>(path, {
-    method: "PATCH",
-    idempotencyKey: "updateSalesShipment",
     body: payload,
   });
 }

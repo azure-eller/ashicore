@@ -651,16 +651,6 @@ export async function createSalesOrder(data: {
   shipDate?: string | null;
   requestedDate?: string | null;
   notes?: string | null;
-  shipments?: Array<{
-    fulfillmentType?: "delivery" | "pickup";
-    scheduledDate: string | null;
-    deliveryDate: string | null;
-    notes?: string | null;
-    lines: Array<{
-      itemId: string;
-      quantity: string;
-    }>;
-  }>;
   lines: Array<{
     itemId: string;
     quantity: string;
@@ -683,7 +673,6 @@ export async function createSalesOrder(data: {
       requestedDate: data.requestedDate ?? null,
       notes: data.notes ?? null,
       lines: data.lines,
-      shipments: data.shipments ?? [],
       confirmOversell: data.confirmOversell ?? true,
     }),
   });
@@ -704,16 +693,6 @@ export async function updateSalesOrder(
     shipDate?: string | null;
     requestedDate?: string | null;
     notes?: string | null;
-    shipments?: Array<{
-      fulfillmentType?: "delivery" | "pickup";
-      scheduledDate: string | null;
-      deliveryDate: string | null;
-      notes?: string | null;
-      lines: Array<{
-        itemId: string;
-        quantity: string;
-      }>;
-    }>;
     lines: Array<{
       itemId: string;
       quantity: string;
@@ -736,7 +715,6 @@ export async function updateSalesOrder(
       requestedDate: data.requestedDate ?? null,
       notes: data.notes ?? null,
       lines: data.lines,
-      shipments: data.shipments ?? [],
       confirmOversell: data.confirmOversell ?? true,
     }),
   });

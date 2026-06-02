@@ -1742,9 +1742,9 @@ function ExportHistoryDialog({
                           />
                         </div>
                         <p className="mt-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
-                          {row.sourceType === "sales_shipment"
-                            ? "Shipment invoice"
-                            : "Sales invoice"}{" "}
+                          {row.sourceType === "sales_order"
+                            ? "Sales invoice"
+                            : "Purchase order"}{" "}
                           · {row.partyName}
                           {row.xeroDocumentNumber ? ` · Xero ${row.xeroDocumentNumber}` : ""}
                         </p>

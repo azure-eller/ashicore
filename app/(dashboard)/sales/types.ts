@@ -1,8 +1,4 @@
-import type {
-  SalesOrderStatus,
-  SalesShipmentCostStatus,
-  SalesShipmentCostType,
-} from "@/lib/schemas/sales-orders";
+import type { SalesOrderStatus } from "@/lib/schemas/sales-orders";
 import type {
   CustomerAccountPriority as CustomerPriority,
   CustomerAccountState as CustomerState,
@@ -283,14 +279,11 @@ export type SalesOrderListLine = {
     | "sales_order_line"
     | "manufacturing_order_ingredient";
   salesOrderLineId?: string;
-  salesShipmentLineId?: string;
   manufacturingOrderId?: string;
   manufacturingOrderNumber?: string;
   manufacturingProductName?: string;
   pickedQty?: string | null;
   href?: string | null;
-  shipmentId?: string;
-  shipmentNumber?: string;
   itemId: string;
   itemType?: string | null;
   masterName: string;
@@ -317,20 +310,6 @@ export type SalesOrderListLine = {
   unitName: string;
 };
 
-export type SalesOrderListShipment = {
-  id: string;
-  shipmentNumber: string;
-  sequence: number;
-  status: "planned" | "shipped";
-  fulfillmentType: "delivery" | "pickup";
-  scheduledDate: string | null;
-  deliveryDate: string | null;
-  shippedAt: Date | null;
-  totalAmount: string;
-  lineCount: number;
-  lines: SalesShipmentLine[];
-};
-
 export type SalesAllocationCoverageKind = "explicit";
 export type SalesAllocationSourceType = "inventory_lot" | "manufacturing_order";
 
@@ -338,7 +317,6 @@ export type SalesAllocationLineSummary = {
   demandType: "sales_order_line";
   demandId: string;
   salesOrderLineId: string | null;
-  salesShipmentLineId: string | null;
   itemId: string;
   allocatedQty: string;
   shortQty: string;
@@ -448,7 +426,6 @@ export type SalesOrderListRow = {
   totalAmount: string;
   itemSummary: string;
   lines: SalesOrderListLine[];
-  shipments: SalesOrderListShipment[];
   fulfillmentSummary: SalesOrderFulfillmentSummary;
   hasManufacturableLines: boolean;
   manufacturableLineCount: number;
@@ -520,68 +497,16 @@ export type SalesOrderDetailLine = {
   lotPickPlan?: LotPickPlanEntry[];
 };
 
-export type SalesShipmentLine = {
-  id: string;
-  salesOrderLineId: string;
-  itemId: string;
-  itemName: string;
-  itemSku: string | null;
-  unitName: string;
-  quantity: string;
-  allocatedQty?: string;
-  shortQty?: string;
-  sourceSummary?: string;
-  allocationStatus?: SalesAllocationLineSummary["status"];
-  allocationSources?: SalesAllocationLineSummary["sources"];
-  lotPickPlan?: LotPickPlanEntry[];
-  sortOrder: number;
-};
-
 export type SalesMarginStatus = "estimated" | "actual" | "mixed" | "unknown";
 
 export type SalesMarginSummary = {
   productRevenue: string;
   freightRecovery: string;
   productCogs: string | null;
-  shipmentCosts: string;
+  fulfillmentCosts: string;
   contributionMargin: string | null;
   marginPercent: string | null;
   costStatus: SalesMarginStatus;
-};
-
-export type SalesShipmentCostRow = {
-  id: string;
-  costType: SalesShipmentCostType;
-  costStatus: SalesShipmentCostStatus;
-  amount: string;
-  vendorName: string | null;
-  referenceNumber: string | null;
-  incurredDate: string | null;
-  notes: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-export type SalesShipmentRow = {
-  id: string;
-  shipmentNumber: string;
-  sequence: number;
-  status: "planned" | "shipped";
-  fulfillmentType: "delivery" | "pickup";
-  scheduledDate: string | null;
-  deliveryDate: string | null;
-  shippedAt: Date | null;
-  notes: string | null;
-  customerFreightChargeAmount: string | null;
-  xeroInvoiceId: string | null;
-  xeroInvoiceNumber: string | null;
-  xeroPushStatus: "pending" | "pushed" | "failed" | null;
-  xeroPushError: string | null;
-  lines: SalesShipmentLine[];
-  costs: SalesShipmentCostRow[];
-  marginSummary: SalesMarginSummary;
-  createdAt: Date;
-  updatedAt: Date;
 };
 
 export type SalesOrderDetail = {
@@ -636,7 +561,6 @@ export type SalesOrderDetail = {
   createdAt: Date;
   updatedAt: Date;
   lines: SalesOrderDetailLine[];
-  shipments: SalesShipmentRow[];
   marginSummary: SalesMarginSummary;
   linkedManufacturingOrders: SalesLinkedManufacturingOrder[];
   taxRates: SalesOrderTaxRateOption[];
@@ -664,11 +588,8 @@ export type SalesShippingQueueRow = {
   shipRegion: string | null;
   shipPostcode: string | null;
   shipCountry: string | null;
-  activePlannedShipmentId: string | null;
-  recommendedShipmentId: string | null;
   shippingReadiness: SalesShippingReadiness;
   lines: SalesOrderDetailLine[];
-  shipments: SalesShipmentRow[];
   openManufacturingOrders: SalesOrderDetail["linkedManufacturingOrders"];
 };
 
@@ -709,17 +630,6 @@ export type SalesOrderEditData = {
   }>;
   taxRates: SalesOrderTaxRateOption[];
   defaultTaxRateId: string | null;
-  shipments: Array<{
-    id: string;
-    fulfillmentType: "delivery" | "pickup";
-    scheduledDate: string | null;
-    deliveryDate: string | null;
-    notes: string | null;
-    lines: Array<{
-      itemId: string;
-      quantity: string;
-    }>;
-  }>;
 };
 
 export type NegativeStockWarningPayload = {

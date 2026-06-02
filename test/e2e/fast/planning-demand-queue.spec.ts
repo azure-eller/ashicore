@@ -3,8 +3,6 @@ import { test, expect } from "../fixtures";
 import {
   inventoryDemandSummary,
   inventoryItemBalances,
-  salesShipmentLines,
-  salesShipments,
   salesOrderLines,
   salesOrders,
 } from "../../../lib/db/schema";
@@ -13,7 +11,6 @@ import {
   createItem,
   createManufacturingOrder,
   createSalesOrder,
-  getOrgId,
   getUnitId,
   testFetch,
 } from "../../helpers/api";
@@ -559,7 +556,7 @@ test("linked make-to-order output is constrained without jumping queue stock", a
   ).toBe(false);
 });
 
-test("make-to-order preview ignores queue stock and subtracts linked output only", async ({
+test("make-to-order preview ignores queue stock and subtracts linked output and shipped quantity", async ({
   db,
 }) => {
   const ts = Date.now();
@@ -655,44 +652,21 @@ test("make-to-order preview ignores queue stock and subtracts linked output only
     quantity: "5",
   });
 
-  const orgId = getOrgId();
-  const [shipment] = await db
-    .insert(salesShipments)
-    .values({
-      organizationId: orgId,
-      salesOrderId: order.body.id,
-      shipmentNumber: `MTO-QTY-SHIP-${ts}`,
-      sequence: 1,
-      status: "shipped",
-      fulfillmentType: "delivery",
-      scheduledDate: "2026-05-12",
-      deliveryDate: "2026-05-12",
-      shippedAt: new Date("2026-05-12T12:00:00.000Z"),
-      orderNumber: `MTO-QTY-${ts}`,
-      customerName: `Fast MTO Qty Customer ${ts}`,
-    })
-    .returning({ id: salesShipments.id });
-  await db.insert(salesShipmentLines).values({
-    salesShipmentId: shipment.id,
-    salesOrderLineId: line.id,
-    itemId: productId,
-    itemName: line.itemName,
-    itemSku: line.itemSku,
-    unitName: line.unitName,
-    quantity: "2",
-    sortOrder: 0,
-  });
+  await db
+    .update(salesOrderLines)
+    .set({ shippedQuantity: "2" })
+    .where(eq(salesOrderLines.id, line.id));
 
-  const previewAfterShipmentResponse = await testFetch(
+  const previewAfterShippingResponse = await testFetch(
     `/api/sales-orders/${order.body.id}/manufacturing-orders`
   );
-  expect(previewAfterShipmentResponse.status).toBe(200);
-  const previewAfterShipment = (await previewAfterShipmentResponse.json()) as {
+  expect(previewAfterShippingResponse.status).toBe(200);
+  const previewAfterShipping = (await previewAfterShippingResponse.json()) as {
     lines: Array<{ status: string; quantity: string }>;
   };
-  expect(previewAfterShipment.lines[0]).toMatchObject({
+  expect(previewAfterShipping.lines[0]).toMatchObject({
     status: "will_create",
-    quantity: "5",
+    quantity: "3",
   });
 
   const cancelledOrder = await createSalesOrder({

@@ -37,7 +37,7 @@ async function consumeLinkedManufacturingOutputForSalesLineInTx(
     quantity: number;
     eventType: "sales_consumption";
     eventSubtype: "sales_ship";
-    referenceType: "sales_shipment" | "sales_order";
+    referenceType: "sales_order";
     referenceId: string;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
@@ -617,18 +617,16 @@ export async function releaseReservationForSalesQuantitiesInTx(
   return result;
 }
 
-export async function consumeForShipmentInTx(
+export async function consumeForSalesOrderShippingInTx(
   tx: Tx,
   params: {
     organizationId: string;
     salesOrderId: string;
-    salesShipmentId?: string | null;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
-	    shippedAt?: Date;
-	    allowNegativeStock?: boolean;
-	    lines: Array<{
-      salesShipmentLineId?: string | null;
+    shippedAt?: Date;
+    allowNegativeStock?: boolean;
+    lines: Array<{
       salesOrderLineId: string;
       itemId: string;
       quantity: number;
@@ -639,11 +637,10 @@ export async function consumeForShipmentInTx(
     eventIds: string[];
   }>(tx, {
     organizationId: params.organizationId,
-    operationName: "consumeForShipment",
+    operationName: "consumeForSalesOrderShipping",
     idempotencyKey: params.idempotencyKey ?? null,
     payload: {
       salesOrderId: params.salesOrderId,
-      salesShipmentId: params.salesShipmentId ?? null,
       lines: params.lines,
       shippedAt: params.shippedAt?.toISOString() ?? null,
     },
@@ -713,7 +710,6 @@ export async function consumeForShipmentInTx(
     const metadata = {
       salesOrderId: params.salesOrderId,
       salesOrderLineId: line.salesOrderLineId,
-      salesShipmentId: params.salesShipmentId ?? null,
     };
     let remaining = roundQuantity(line.quantity);
 
@@ -729,8 +725,8 @@ export async function consumeForShipmentInTx(
           quantity: remaining,
           eventType: "sales_consumption",
           eventSubtype: "sales_ship",
-          referenceType: params.salesShipmentId ? "sales_shipment" : "sales_order",
-          referenceId: params.salesShipmentId ?? params.salesOrderId,
+          referenceType: "sales_order",
+          referenceId: params.salesOrderId,
           actorUserId: params.actorUserId ?? null,
           idempotencyKey:
             index === 0 && !idempotencyUsed ? params.idempotencyKey ?? null : null,
@@ -759,8 +755,8 @@ export async function consumeForShipmentInTx(
         quantity: remaining,
         eventType: "sales_consumption",
         eventSubtype: "sales_ship",
-        referenceType: params.salesShipmentId ? "sales_shipment" : "sales_order",
-        referenceId: params.salesShipmentId ?? params.salesOrderId,
+        referenceType: "sales_order",
+        referenceId: params.salesOrderId,
         actorUserId: params.actorUserId ?? null,
         idempotencyKey:
           index === 0 && !idempotencyUsed ? params.idempotencyKey ?? null : null,

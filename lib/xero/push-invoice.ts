@@ -8,8 +8,6 @@ import {
   organization,
   salesOrderLines,
   salesOrders,
-  salesShipmentLines,
-  salesShipments,
 } from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { buildAccountingDocumentEmail } from "@/lib/email/accounting-documents";
@@ -37,7 +35,6 @@ import {
 } from "@/lib/accounting/audit-events";
 
 const ACCOUNTING_DOCUMENT_SALES_ORDER = "sales_order";
-const ACCOUNTING_DOCUMENT_SALES_SHIPMENT = "sales_shipment";
 
 type OrderForPush = {
   id: string;
@@ -88,11 +85,6 @@ type LineForPush = {
   quantity: string;
   unitPrice: string;
   lineTotal: string;
-};
-
-type ShipmentForPush = OrderForPush & {
-  shipmentId: string;
-  shipmentNumber: string;
 };
 
 export type PushInvoiceResult = {
@@ -252,148 +244,6 @@ async function loadOrderForPushInTx(
   return { order, customer, lines };
 }
 
-async function loadShipmentForPushInTx(
-  tx: import("@/lib/db/with-org-context").Tx,
-  orderId: string,
-  shipmentId: string
-): Promise<{
-  order: ShipmentForPush;
-  customer: CustomerForPush;
-  lines: LineForPush[];
-} | null> {
-  const [shipment] = await tx
-    .select({
-      id: salesOrders.id,
-      shipmentId: salesShipments.id,
-      shipmentNumber: salesShipments.shipmentNumber,
-      organizationName: organization.name,
-      orderNumber: salesOrders.orderNumber,
-      status: salesOrders.status,
-      customerId: salesOrders.customerId,
-      customerName: salesOrders.customerName,
-      requestedDate: salesOrders.requestedDate,
-      shippedAt: salesShipments.shippedAt,
-      shipLine1: salesShipments.shipLine1,
-      shipLine2: salesShipments.shipLine2,
-      shipCity: salesShipments.shipCity,
-      shipRegion: salesShipments.shipRegion,
-      shipPostcode: salesShipments.shipPostcode,
-      shipCountry: salesShipments.shipCountry,
-      totalAmount: sql<string>`COALESCE(SUM(${salesShipmentLines.quantity} * ${salesOrderLines.unitPrice}), 0)`,
-      xeroInvoiceId: accountingDocumentSyncs.externalDocumentId,
-      xeroInvoiceNumber: accountingDocumentSyncs.externalDocumentNumber,
-      xeroPushStatus: accountingDocumentSyncs.pushStatus,
-      xeroPushPayloadHash: accountingDocumentSyncs.pushPayloadHash,
-      xeroEmailStatus: accountingDocumentSyncs.emailStatus,
-    })
-    .from(salesShipments)
-    .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
-    .innerJoin(organization, eq(salesOrders.organizationId, organization.id))
-    .innerJoin(salesShipmentLines, eq(salesShipmentLines.salesShipmentId, salesShipments.id))
-    .innerJoin(salesOrderLines, eq(salesShipmentLines.salesOrderLineId, salesOrderLines.id))
-    .leftJoin(
-      accountingDocumentSyncs,
-      and(
-        eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
-        eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_SALES_SHIPMENT),
-        eq(accountingDocumentSyncs.documentId, salesShipments.id)
-      )
-    )
-    .where(
-      and(
-        eq(salesOrders.id, orderId),
-        eq(salesShipments.id, shipmentId),
-        eq(salesShipments.status, "shipped"),
-        isNull(salesOrders.deletedAt)
-      )
-    )
-    .groupBy(
-      salesOrders.id,
-      salesShipments.id,
-      organization.name
-    );
-
-  if (!shipment) return null;
-
-  const [customer] = await tx
-    .select({
-      id: customers.id,
-      name: customers.name,
-      email: customers.email,
-      phone: customers.phone,
-      xeroContactId: sql<string | null>`(
-        SELECT external_id
-        FROM integrations.external_records
-        WHERE organization_id = ${customers.organizationId}
-          AND provider = ${ACCOUNTING_PROVIDER_XERO}
-          AND entity_type = 'customer'
-          AND local_record_id = ${customers.id}
-        LIMIT 1
-      )`,
-      billingLine1: customers.billingLine1,
-      billingLine2: customers.billingLine2,
-      billingCity: customers.billingCity,
-      billingRegion: customers.billingRegion,
-      billingPostcode: customers.billingPostcode,
-      billingCountry: customers.billingCountry,
-      shipLine1: customers.shipLine1,
-      shipLine2: customers.shipLine2,
-      shipCity: customers.shipCity,
-      shipRegion: customers.shipRegion,
-      shipPostcode: customers.shipPostcode,
-      shipCountry: customers.shipCountry,
-    })
-    .from(customers)
-    .where(eq(customers.id, shipment.customerId));
-
-  if (!customer) return null;
-
-  const lines = await tx
-    .select({
-      itemName: salesShipmentLines.itemName,
-      itemSku: salesShipmentLines.itemSku,
-      quantity: salesShipmentLines.quantity,
-      unitPrice: salesOrderLines.unitPrice,
-      lineTotal: sql<string>`${salesShipmentLines.quantity} * ${salesOrderLines.unitPrice}`,
-    })
-    .from(salesShipmentLines)
-    .innerJoin(salesOrderLines, eq(salesShipmentLines.salesOrderLineId, salesOrderLines.id))
-    .where(eq(salesShipmentLines.salesShipmentId, shipmentId))
-    .orderBy(salesShipmentLines.sortOrder);
-
-  return { order: shipment, customer, lines };
-}
-
-async function hasShipmentInvoiceForOrderInTx(
-  tx: import("@/lib/db/with-org-context").Tx,
-  orderId: string
-): Promise<boolean> {
-  const [row] = await tx
-    .select({ id: salesShipments.id })
-    .from(accountingDocumentSyncs)
-    .innerJoin(salesShipments, eq(accountingDocumentSyncs.documentId, salesShipments.id))
-    .where(
-      and(
-        eq(salesShipments.salesOrderId, orderId),
-        eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
-        eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_SALES_SHIPMENT),
-        sql`${accountingDocumentSyncs.externalDocumentId} IS NOT NULL OR ${accountingDocumentSyncs.pushStatus} = 'pushed'`
-      )
-    )
-    .limit(1);
-
-  return row != null;
-}
-
-export async function hasShipmentInvoiceForSalesOrder(
-  orgId: string,
-  orderId: string
-): Promise<boolean> {
-  return withOrgContext(orgId, (tx) =>
-    hasShipmentInvoiceForOrderInTx(tx, orderId)
-  );
-}
-
 async function markPushAttempt(orgId: string, orderId: string): Promise<void> {
   await withOrgContext(orgId, async (tx) => {
     await markAccountingDocumentPushAttempt(tx, {
@@ -401,17 +251,6 @@ async function markPushAttempt(orgId: string, orderId: string): Promise<void> {
       provider: ACCOUNTING_PROVIDER_XERO,
       documentType: ACCOUNTING_DOCUMENT_SALES_ORDER,
       documentId: orderId,
-    });
-  });
-}
-
-async function markShipmentPushAttempt(orgId: string, shipmentId: string): Promise<void> {
-  await withOrgContext(orgId, async (tx) => {
-    await markAccountingDocumentPushAttempt(tx, {
-      organizationId: orgId,
-      provider: ACCOUNTING_PROVIDER_XERO,
-      documentType: ACCOUNTING_DOCUMENT_SALES_SHIPMENT,
-      documentId: shipmentId,
     });
   });
 }
@@ -429,26 +268,6 @@ async function persistPushSuccess(
       provider: ACCOUNTING_PROVIDER_XERO,
       documentType: ACCOUNTING_DOCUMENT_SALES_ORDER,
       documentId: orderId,
-      externalDocumentId: invoiceId,
-      externalDocumentNumber: invoiceNumber,
-      payloadHash,
-    });
-  });
-}
-
-async function persistShipmentPushSuccess(
-  orgId: string,
-  shipmentId: string,
-  invoiceId: string,
-  invoiceNumber: string,
-  payloadHash: string
-): Promise<void> {
-  await withOrgContext(orgId, async (tx) => {
-    await persistAccountingDocumentPushSuccess(tx, {
-      organizationId: orgId,
-      provider: ACCOUNTING_PROVIDER_XERO,
-      documentType: ACCOUNTING_DOCUMENT_SALES_SHIPMENT,
-      documentId: shipmentId,
       externalDocumentId: invoiceId,
       externalDocumentNumber: invoiceNumber,
       payloadHash,
@@ -544,25 +363,6 @@ async function persistEmailOutcome(
   });
 }
 
-async function persistShipmentEmailOutcome(
-  orgId: string,
-  shipmentId: string,
-  outcome:
-    | { status: "sent"; error?: never }
-    | { status: "failed"; error: string }
-    | { status: "skipped"; error?: never }
-): Promise<void> {
-  await withOrgContext(orgId, async (tx) => {
-    await persistAccountingDocumentEmailOutcome(tx, {
-      organizationId: orgId,
-      provider: ACCOUNTING_PROVIDER_XERO,
-      documentType: ACCOUNTING_DOCUMENT_SALES_SHIPMENT,
-      documentId: shipmentId,
-      outcome,
-    });
-  });
-}
-
 async function sendInvoiceEmail(
   params: {
     orgId: string;
@@ -583,7 +383,7 @@ async function sendInvoiceEmail(
     customerEmail: string;
     lines: LineForPush[];
     tenantId: string;
-    localEntityType?: typeof ACCOUNTING_DOCUMENT_SALES_ORDER | typeof ACCOUNTING_DOCUMENT_SALES_SHIPMENT;
+    localEntityType?: typeof ACCOUNTING_DOCUMENT_SALES_ORDER;
     accountingApi: import("xero-node").AccountingApi;
   }
 ): Promise<void> {
@@ -708,18 +508,6 @@ export async function pushSalesOrderToXero(
   if (!orderInvoiceableStatuses.has(data.order.status)) {
     throw new XeroError(
       "Only open or done orders can be invoiced.",
-      409
-    );
-  }
-
-  if (
-    !data.order.xeroInvoiceId &&
-    (await withOrgContext(orgId, (tx) =>
-      hasShipmentInvoiceForOrderInTx(tx, orderId)
-    ))
-  ) {
-    throw new XeroError(
-      "One or more shipments already have invoices. Invoice the remaining shipments individually instead.",
       409
     );
   }
@@ -897,7 +685,6 @@ export async function pushSalesOrderToXero(
           customerEmail: data.customer.email ?? "",
           lines: data.lines,
           tenantId: authed.tenantId,
-          localEntityType: ACCOUNTING_DOCUMENT_SALES_SHIPMENT,
           accountingApi,
         });
         emailStatus = "sent";
@@ -931,223 +718,6 @@ export async function pushSalesOrderToXero(
     adopted,
     emailStatus,
   };
-}
-
-export async function pushSalesShipmentToXero(
-  orgId: string,
-  orderId: string,
-  shipmentId: string,
-  options: PushInvoiceOptions = {}
-): Promise<PushInvoiceResult> {
-  const authed = await getAuthedXeroClient(orgId);
-  const connection = authed.connection;
-
-  if (!connection.defaultAccountCode) {
-    throw new XeroError(
-      "Set a sales invoice account code in Xero settings before creating invoices.",
-      400
-    );
-  }
-
-  const data = await withOrgContext(orgId, async (tx) =>
-    loadShipmentForPushInTx(tx, orderId, shipmentId)
-  );
-  if (!data) {
-    throw new XeroError("Shipped shipment not found.", 404);
-  }
-
-  await markShipmentPushAttempt(orgId, shipmentId);
-
-  const accountingApi = authed.client.accountingApi;
-  const invoiceNumberBase = data.order.shipmentNumber;
-
-  const lineItems: LineItem[] = data.lines.map((line) => ({
-    description: line.itemSku
-      ? `${line.itemName} (${line.itemSku})`
-      : line.itemName,
-    quantity: parseFloat(line.quantity),
-    unitAmount: parseFloat(line.unitPrice),
-    accountCode: connection.defaultAccountCode ?? undefined,
-    taxType: connection.defaultTaxType ?? undefined,
-    lineAmount: parseFloat(line.lineTotal),
-  }));
-
-  const statusPref =
-    connection.invoiceStatusPreference === "DRAFT"
-      ? Invoice.StatusEnum.DRAFT
-      : Invoice.StatusEnum.AUTHORISED;
-
-  const today = new Date().toISOString().slice(0, 10);
-  const invoiceDate = data.order.shippedAt
-    ? new Date(data.order.shippedAt).toISOString().slice(0, 10)
-    : today;
-  const dueDate = data.order.requestedDate ?? today;
-
-  const payloadHash = hashXeroPayload({
-    orderNumber: invoiceNumberBase,
-    statusPref,
-    invoiceDate,
-    dueDate,
-    totalAmount: data.order.totalAmount,
-    accountCode: connection.defaultAccountCode,
-    taxType: connection.defaultTaxType,
-    lines: lineItems.map((line) => ({
-      description: line.description,
-      quantity: line.quantity,
-      unitAmount: line.unitAmount,
-      lineAmount: line.lineAmount,
-    })),
-  });
-
-  let invoiceId: string;
-  let invoiceNumber: string;
-  let created = false;
-  let adopted = false;
-
-  if (data.order.xeroInvoiceId) {
-    invoiceId = data.order.xeroInvoiceId;
-    invoiceNumber = data.order.xeroInvoiceNumber ?? invoiceNumberBase;
-    await persistShipmentPushSuccess(orgId, shipmentId, invoiceId, invoiceNumber, payloadHash);
-  } else {
-    const existing = await findXeroInvoiceForSalesOrder(orgId, invoiceNumberBase);
-    if (existing) {
-      invoiceId = existing.invoiceID;
-      invoiceNumber = existing.invoiceNumber ?? invoiceNumberBase;
-      adopted = true;
-      await persistShipmentPushSuccess(orgId, shipmentId, invoiceId, invoiceNumber, payloadHash);
-    } else {
-      const contactId = await upsertXeroContact(
-        orgId,
-        customerToXeroContact(data.customer),
-        authed.tenantId,
-        accountingApi
-      );
-
-      const invoice: Invoice = {
-        type: Invoice.TypeEnum.ACCREC,
-        contact: { contactID: contactId },
-        lineItems,
-        date: invoiceDate,
-        dueDate,
-        invoiceNumber: invoiceNumberBase,
-        reference: data.order.orderNumber,
-        status: statusPref,
-      };
-
-      try {
-        const response = await accountingApi.createInvoices(
-          authed.tenantId,
-          { invoices: [invoice] },
-          undefined,
-          undefined,
-          buildXeroIdempotencyKey(orgId, "shipment-invoice", shipmentId, "create")
-        );
-        const returned = response.body.invoices?.[0];
-        if (!returned?.invoiceID) {
-          throw new XeroError("Xero did not return an invoice ID.", 502);
-        }
-        invoiceId = returned.invoiceID;
-        invoiceNumber = returned.invoiceNumber ?? invoiceNumberBase;
-        created = true;
-      } catch (error) {
-        if (error instanceof XeroError) throw error;
-        console.error("Xero shipment invoice create failed:", redactXeroError(error));
-        throw new XeroError(
-          `Failed to push shipment invoice to Xero: ${extractXeroMessage(error)}`,
-          502
-        );
-      }
-
-      await persistShipmentPushSuccess(orgId, shipmentId, invoiceId, invoiceNumber, payloadHash);
-    }
-  }
-
-  let emailStatus: PushInvoiceResult["emailStatus"] = null;
-  if (created || adopted) {
-    const decision = decideEmail({
-      statusPref,
-      sendEmail: shouldSendSalesInvoiceEmail(connection, options),
-      customerEmail: data.customer.email,
-      existingEmailStatus: data.order.xeroEmailStatus,
-    });
-
-    if (decision.action === "send") {
-      try {
-        await sendInvoiceEmail({
-          orgId,
-          orderId: shipmentId,
-          persistOutcome: (outcome) =>
-            persistShipmentEmailOutcome(orgId, shipmentId, outcome),
-          organizationName: data.order.organizationName,
-          orderNumber: invoiceNumberBase,
-          invoiceId,
-          invoiceNumber,
-          totalAmount: data.order.totalAmount,
-          dueDate,
-          customerName: data.customer.name,
-          customerEmail: data.customer.email ?? "",
-          lines: data.lines,
-          tenantId: authed.tenantId,
-          accountingApi,
-        });
-        emailStatus = "sent";
-      } catch {
-        emailStatus = "failed";
-      }
-    } else {
-      await persistShipmentEmailOutcome(orgId, shipmentId, { status: "skipped" });
-      emailStatus = "skipped";
-    }
-  }
-
-  await tryRecordAccountingAuditEvent({
-    organizationId: orgId,
-    actor: { type: "process", processName: "xero_push" },
-    eventType: "xero_push",
-    outcome: "success",
-    source: "lib/xero/push-invoice:pushSalesShipmentToXero",
-    tenantId: authed.tenantId,
-    tenantName: authed.tenantName,
-    localEntityType: ACCOUNTING_DOCUMENT_SALES_SHIPMENT,
-    localEntityId: shipmentId,
-    metadata: { created, adopted, emailStatus, orderId },
-  });
-
-  return {
-    xeroInvoiceId: invoiceId,
-    xeroInvoiceNumber: invoiceNumber,
-    status: "pushed",
-    created,
-    adopted,
-    emailStatus,
-  };
-}
-
-export async function markShipmentXeroPushFailed(
-  orgId: string,
-  shipmentId: string,
-  error: unknown
-): Promise<void> {
-  const message = extractXeroMessage(error).slice(0, 500);
-  await withOrgContext(orgId, async (tx) => {
-    await persistAccountingDocumentPushFailure(tx, {
-      organizationId: orgId,
-      provider: ACCOUNTING_PROVIDER_XERO,
-      documentType: ACCOUNTING_DOCUMENT_SALES_SHIPMENT,
-      documentId: shipmentId,
-      error: message,
-    });
-  });
-  await tryRecordAccountingAuditEvent({
-    organizationId: orgId,
-    actor: { type: "process", processName: "xero_push" },
-    eventType: "xero_push",
-    outcome: "failure",
-    source: "lib/xero/push-invoice:markShipmentXeroPushFailed",
-    localEntityType: ACCOUNTING_DOCUMENT_SALES_SHIPMENT,
-    localEntityId: shipmentId,
-    metadata: accountingAuditErrorMetadata(error),
-  });
 }
 
 export async function getOnlineInvoiceUrlForOrder(

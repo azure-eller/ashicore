@@ -525,10 +525,10 @@ function ReportDetail({
               value={payload.summary.productsWithRecordedOutput}
             />
             <MetricTile label="Batches" value={payload.summary.completedBatches} />
-            <MetricTile label="Shipments" value={payload.summary.shipmentsShipped} />
+            <MetricTile label="Sales Orders Shipped" value={payload.summary.salesOrdersShipped} />
             <MetricTile
               label="Shipped line value"
-              value={formatPrice(payload.summary.shippedLineValue) ?? "$0"}
+              value={formatPrice(payload.summary.shippedSalesOrderValue) ?? "$0"}
             />
           </div>
           <div className="text-sm text-muted-foreground">

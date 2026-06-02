@@ -988,6 +988,13 @@
       "when": 1780375356157,
       "tag": "0140_mfa_grace_used",
       "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1780434817527,
+      "tag": "0141_classy_slipstream",
+      "breakpoints": true
     }
   ]
 }

@@ -538,7 +538,6 @@ function mergeServerOwnedFields(
     updatedAt: server.updatedAt,
     marginSummary: server.marginSummary,
     lines: mergeServerOwnedLineFields(draft.lines, server.lines),
-    shipments: server.shipments,
     linkedManufacturingOrders: server.linkedManufacturingOrders,
   };
 }

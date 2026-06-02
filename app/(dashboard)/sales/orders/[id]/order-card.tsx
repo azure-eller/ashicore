@@ -16,11 +16,9 @@ import type {
   SalesOrderDetailLine,
   SalesOrderItemOption,
   SalesOrderTaxRateOption,
-  SalesShipmentRow,
 } from "@/app/(dashboard)/sales/types";
 import {
   formatDate,
-  formatDateTime,
   formatPercent,
   formatPrice,
   formatQuantity,
@@ -127,10 +125,8 @@ export function OrderCard({
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [makeToOrderOpen, setMakeToOrderOpen] = useState(false);
-  const shippedShipments = order.shipments.filter(
-    (shipment) => shipment.status === "shipped" && shipment.lines.length > 0
-  );
-  const hasShippedItems = shippedShipments.length > 0;
+  const shippedLines = order.lines.filter((line) => Number(line.shippedQuantity) > 0);
+  const hasShippedItems = shippedLines.length > 0;
   const remainingLines = order.lines.filter(
     (line) => Number(line.remainingQuantity) > 0
   );
@@ -320,14 +316,7 @@ export function OrderCard({
             {remainingLines.length > 0 ? (
               <RemainingItemsSection lines={remainingLines} />
             ) : null}
-            {shippedShipments.map((shipment) => (
-              <ShippedItemsSection
-                key={shipment.id}
-                order={order}
-                shipment={shipment}
-                timeZone={timeZone}
-              />
-            ))}
+            <ShippedItemsSection lines={shippedLines} />
           </>
         ) : (
           <LineItemsTable
@@ -435,35 +424,23 @@ function RemainingItemsSection({ lines }: { lines: SalesOrderDetailLine[] }) {
 }
 
 function ShippedItemsSection({
-  order,
-  shipment,
-  timeZone,
+  lines,
 }: {
-  order: SalesOrderDetail;
-  shipment: SalesShipmentRow;
-  timeZone: string;
+  lines: SalesOrderDetailLine[];
 }) {
-  const orderLinesById = new Map(order.lines.map((line) => [line.id, line]));
-  const totalQuantity = shipment.lines.reduce(
-    (sum, line) => sum + Number(line.quantity || 0),
+  const totalQuantity = lines.reduce(
+    (sum, line) => sum + Number(line.shippedQuantity || 0),
     0
   );
-  const totalAmount = shipment.lines.reduce((sum, shipmentLine) => {
-    const orderLine = orderLinesById.get(shipmentLine.salesOrderLineId);
-    return sum + Number(calculateSalesLineTotalForQuantity(orderLine, shipmentLine.quantity));
+  const totalAmount = lines.reduce((sum, line) => {
+    return sum + Number(calculateSalesLineTotalForQuantity(line, line.shippedQuantity));
   }, 0);
 
   return (
     <CardSection
       title="Shipped items"
-      count={`· ${shipment.shipmentNumber} · ${formatQuantity(String(totalQuantity))} units`}
+      count={`· ${formatQuantity(String(totalQuantity))} units`}
     >
-      <div className="mb-(--space-3) flex flex-wrap items-center justify-between gap-(--space-4) text-[length:var(--text-sm)] text-muted-foreground">
-        <span>Picked date</span>
-        <span className="font-mono tabular-nums text-foreground">
-          {shipment.shippedAt ? formatDateTime(shipment.shippedAt, timeZone) : "—"}
-        </span>
-      </div>
       <SalesFulfillmentTable>
         <FramedTableHead>
           <tr>
@@ -475,28 +452,27 @@ function ShippedItemsSection({
           </tr>
         </FramedTableHead>
         <tbody>
-          {shipment.lines.map((shipmentLine) => {
-            const orderLine = orderLinesById.get(shipmentLine.salesOrderLineId);
+          {lines.map((line) => {
             return (
-              <FramedTableRow key={shipmentLine.id}>
+              <FramedTableRow key={line.id}>
                 <FramedTableCell>
-                  <div className="font-medium">{shipmentLine.itemName}</div>
+                  <div className="font-medium">{line.itemName}</div>
                   <div className="text-[length:var(--text-sm)] text-muted-foreground">
-                    {shipmentLine.unitName}
+                    {line.unitName}
                   </div>
                 </FramedTableCell>
                 <FramedTableCell align="right" numeric>
-                  {formatQuantity(shipmentLine.quantity)}{" "}
-                  <span className="font-sans text-muted-foreground">{shipmentLine.unitName}</span>
+                  {formatQuantity(line.shippedQuantity)}{" "}
+                  <span className="font-sans text-muted-foreground">{line.unitName}</span>
                 </FramedTableCell>
                 <FramedTableCell align="right" numeric>
-                  {formatPrice(orderLine?.unitPrice) ?? "—"}
+                  {formatPrice(line.unitPrice) ?? "—"}
                 </FramedTableCell>
                 <FramedTableCell align="right" numeric>
-                  {formatPercent(orderLine?.taxRatePercent, { fallback: "0%" })}
+                  {formatPercent(line.taxRatePercent, { fallback: "0%" })}
                 </FramedTableCell>
                 <FramedTableCell align="right" numeric strong>
-                  {formatPrice(calculateSalesLineTotalForQuantity(orderLine, shipmentLine.quantity)) ?? "—"}
+                  {formatPrice(calculateSalesLineTotalForQuantity(line, line.shippedQuantity)) ?? "—"}
                 </FramedTableCell>
               </FramedTableRow>
             );

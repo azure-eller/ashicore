@@ -10,8 +10,6 @@ import {
   integrationConnections,
   salesOrderLines,
   salesOrders,
-  salesShipmentLines,
-  salesShipments,
 } from "../../../lib/db/schema";
 import {
   createCustomer,
@@ -88,7 +86,7 @@ async function withOnlyQuickBooksConnection<T>(
   }
 }
 
-test.describe("sales demand and shipment heartbeat", () => {
+test.describe("sales demand and shipping heartbeat", () => {
   const ts = Date.now();
   const unitId = getUnitId();
 
@@ -204,24 +202,13 @@ test.describe("sales demand and shipment heartbeat", () => {
     expect(events).toHaveLength(1);
     expect(events[0].quantity).toBe("5.0000");
 
-    const [shipment] = await db
+    const [lineState] = await db
       .select({
-        id: salesShipments.id,
-        status: salesShipments.status,
-        shipmentNumber: salesShipments.shipmentNumber,
+        shippedQuantity: salesOrderLines.shippedQuantity,
       })
-      .from(salesShipments)
-      .where(eq(salesShipments.salesOrderId, order.body.id));
-    expect(shipment).toMatchObject({
-      status: "shipped",
-      shipmentNumber: expect.stringMatching(/-S1$/),
-    });
-
-    const shipmentLines = await db
-      .select({ quantity: salesShipmentLines.quantity })
-      .from(salesShipmentLines)
-      .where(eq(salesShipmentLines.salesShipmentId, shipment.id));
-    expect(shipmentLines.map((line) => line.quantity)).toEqual(["5.0000"]);
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, order.body.id));
+    expect(lineState.shippedQuantity).toBe("5.0000");
 
     const [balance] = await db
       .select({
@@ -242,7 +229,7 @@ test.describe("sales demand and shipment heartbeat", () => {
     expect(savedOrder.status).toBe("done");
   });
 
-  test("partial shipping creates shipment history and leaves remaining demand", async ({
+  test("partial shipping updates shipped quantity and leaves remaining demand", async ({
     db,
   }) => {
     const productId = await createStockedProduct("PartialShip", "8");
@@ -277,26 +264,13 @@ test.describe("sales demand and shipment heartbeat", () => {
       .where(eq(salesOrders.id, order.body.id));
     expect(savedOrder.status).toBe("open");
 
-    const [shipment] = await db
+    const [lineState] = await db
       .select({
-        id: salesShipments.id,
-        status: salesShipments.status,
-        shipmentNumber: salesShipments.shipmentNumber,
+        shippedQuantity: salesOrderLines.shippedQuantity,
       })
-      .from(salesShipments)
-      .where(eq(salesShipments.salesOrderId, order.body.id));
-    expect(shipment).toMatchObject({
-      status: "shipped",
-      shipmentNumber: expect.stringMatching(/-S1$/),
-    });
-
-    const shipmentLines = await db
-      .select({ quantity: salesShipmentLines.quantity })
-      .from(salesShipmentLines)
-      .where(eq(salesShipmentLines.salesShipmentId, shipment.id));
-    expect(shipmentLines.map((shipmentLine) => shipmentLine.quantity)).toEqual([
-      "3.0000",
-    ]);
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, order.body.id));
+    expect(lineState.shippedQuantity).toBe("3.0000");
 
     const [balance] = await db
       .select({

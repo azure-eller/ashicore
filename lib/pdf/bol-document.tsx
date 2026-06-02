@@ -104,7 +104,6 @@ export type BolLine = {
 
 export type BolOrder = {
   orderNumber: string;
-  shipmentNumber?: string | null;
   customerName: string;
   contactName: string | null;
   contactTitle: string | null;
@@ -156,9 +155,9 @@ export function BillOfLadingDocument({
 
   return (
     <Document
-      title={`BOL ${order.shipmentNumber ?? order.orderNumber}`}
+      title={`BOL ${order.orderNumber}`}
       author={organizationName}
-      subject={`${title} for ${order.shipmentNumber ?? order.orderNumber}`}
+      subject={`${title} for ${order.orderNumber}`}
     >
       <Page size="LETTER" style={styles.page}>
         <View style={styles.header}>
@@ -168,9 +167,6 @@ export function BillOfLadingDocument({
           </View>
           <View style={styles.meta}>
             <Text style={styles.metaLine}>Order: {order.orderNumber}</Text>
-            {order.shipmentNumber && (
-              <Text style={styles.metaLine}>Shipment: {order.shipmentNumber}</Text>
-            )}
             {order.fulfillmentType && (
               <Text style={styles.metaLine}>
                 Type: {order.fulfillmentType === "pickup" ? "Pickup" : "Delivery"}

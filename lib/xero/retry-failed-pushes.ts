@@ -6,7 +6,6 @@ import {
   organization,
   purchaseOrders,
   salesOrders,
-  salesShipments,
   integrationConnections,
 } from "@/lib/db/schema";
 import {
@@ -36,12 +35,6 @@ export type XeroRetryOrgResult = {
     stillFailed: number;
     skipped: number;
   };
-  salesShipments: {
-    candidates: number;
-    recovered: number;
-    stillFailed: number;
-    skipped: number;
-  };
   purchaseOrders: {
     candidates: number;
     recovered: number;
@@ -55,7 +48,7 @@ export type XeroRetryOrgResult = {
     failedChecks: number;
   };
   errors: Array<{
-    entity: "sales_order" | "sales_shipment" | "purchase_order" | "purchase_bill";
+    entity: "sales_order" | "purchase_order" | "purchase_bill";
     id: string;
     message: string;
   }>;
@@ -121,38 +114,6 @@ async function listFailedSalesOrders(orgId: string): Promise<string[]> {
   });
 }
 
-async function listFailedSalesShipments(
-  orgId: string
-): Promise<Array<{ orderId: string; shipmentId: string }>> {
-  return withOrgContext(orgId, async (tx) => {
-    const rows = await tx
-      .select({
-        orderId: salesShipments.salesOrderId,
-        shipmentId: salesShipments.id,
-      })
-      .from(salesShipments)
-      .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
-      .innerJoin(
-        accountingDocumentSyncs,
-        and(
-          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
-          eq(accountingDocumentSyncs.documentType, "sales_shipment"),
-          eq(accountingDocumentSyncs.documentId, salesShipments.id)
-        )
-      )
-      .where(
-        and(
-          eq(accountingDocumentSyncs.pushStatus, "failed"),
-          sql`${accountingDocumentSyncs.retryCount} < ${MAX_PUSH_ATTEMPTS}`,
-          isNull(salesOrders.deletedAt)
-        )
-      )
-      .orderBy(accountingDocumentSyncs.lastPushAttemptAt)
-      .limit(BATCH_SIZE_PER_ORG);
-    return rows;
-  });
-}
-
 async function listPushedPurchaseBills(
   orgId: string
 ): Promise<Array<{ orderId: string; externalBillId: string }>> {
@@ -206,21 +167,13 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
 
   const {
     pushSalesOrderToXero,
-    pushSalesShipmentToXero,
     markXeroPushFailed,
-    markShipmentXeroPushFailed,
   } = await import("./push-invoice");
 
   for (const orgId of orgIds) {
     const orgResult: XeroRetryOrgResult = {
       orgId,
       salesOrders: { candidates: 0, recovered: 0, stillFailed: 0, skipped: 0 },
-      salesShipments: {
-        candidates: 0,
-        recovered: 0,
-        stillFailed: 0,
-        skipped: 0,
-      },
       purchaseOrders: {
         candidates: 0,
         recovered: 0,
@@ -274,48 +227,6 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
       }
     }
 
-    let shipmentIds: Array<{ orderId: string; shipmentId: string }> = [];
-    try {
-      shipmentIds = await listFailedSalesShipments(orgId);
-    } catch (error) {
-      orgResult.errors.push({
-        entity: "sales_shipment",
-        id: "*",
-        message: `Failed to list candidates: ${(error as Error).message}`,
-      });
-    }
-    orgResult.salesShipments.candidates = shipmentIds.length;
-
-    for (const { orderId, shipmentId } of shipmentIds) {
-      try {
-        await pushSalesShipmentToXero(orgId, orderId, shipmentId, {
-          allowAutoEmail: false,
-        });
-        orgResult.salesShipments.recovered += 1;
-      } catch (error) {
-        if (
-          error instanceof XeroError &&
-          (error.status === 400 || error.status === 404 || error.status === 409)
-        ) {
-          orgResult.salesShipments.skipped += 1;
-          continue;
-        }
-
-        try {
-          await markShipmentXeroPushFailed(orgId, shipmentId, error);
-        } catch {
-          // ignore — best effort.
-        }
-
-        orgResult.salesShipments.stillFailed += 1;
-        orgResult.errors.push({
-          entity: "sales_shipment",
-          id: shipmentId,
-          message: (error as Error).message ?? "unknown",
-        });
-      }
-    }
-
     let purchaseBillIds: Array<{ orderId: string; externalBillId: string }> = [];
     try {
       purchaseBillIds = await listPushedPurchaseBills(orgId);
@@ -364,7 +275,6 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
       source: "GET /api/internal/xero-retry",
       metadata: {
         salesOrders: orgResult.salesOrders,
-        salesShipments: orgResult.salesShipments,
         purchaseOrders: orgResult.purchaseOrders,
         purchaseBills: orgResult.purchaseBills,
         errorCount: orgResult.errors.length,

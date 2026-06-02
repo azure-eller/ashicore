@@ -29,7 +29,6 @@ import {
   purchaseOrders,
   salesOrderLines,
   salesOrders,
-  salesShipments,
   stocktakeItems,
   stocktakeLotItems,
   stocktakes,
@@ -74,11 +73,6 @@ const purchaseOrdersViaLines = alias(
 const directSalesOrders = alias(salesOrders, "ledger_direct_sales_orders");
 const salesOrderLineRefs = alias(salesOrderLines, "ledger_sales_order_line_refs");
 const salesOrdersViaLines = alias(salesOrders, "ledger_sales_orders_via_lines");
-const salesShipmentRefs = alias(salesShipments, "ledger_sales_shipment_refs");
-const salesOrdersViaShipments = alias(
-  salesOrders,
-  "ledger_sales_orders_via_shipments"
-);
 
 const directManufacturingOrders = alias(
   manufacturingOrders,
@@ -143,13 +137,11 @@ function buildDocumentConditions(filters: InventoryLedgerFilters) {
         id
           ? or(
               eq(directSalesOrders.id, id),
-              eq(salesOrdersViaLines.id, id),
-              eq(salesOrdersViaShipments.id, id)
+              eq(salesOrdersViaLines.id, id)
             )
           : or(
               eq(inventoryEvents.referenceType, "sales_order"),
-              eq(inventoryEvents.referenceType, "sales_order_line"),
-              eq(inventoryEvents.referenceType, "sales_shipment")
+              eq(inventoryEvents.referenceType, "sales_order_line")
             ),
       ];
     case "manufacturing_order":
@@ -275,8 +267,6 @@ function buildLedgerWhere(filters: InventoryLedgerFilters, organizationId: strin
       ilike(purchaseOrdersViaLines.orderNumber, pattern),
       ilike(directSalesOrders.orderNumber, pattern),
       ilike(salesOrdersViaLines.orderNumber, pattern),
-      ilike(salesShipmentRefs.shipmentNumber, pattern),
-      ilike(salesOrdersViaShipments.orderNumber, pattern),
       ilike(directManufacturingOrders.orderNumber, pattern),
       ilike(manufacturingOrdersViaIngredients.orderNumber, pattern),
       ilike(manufacturingOrdersViaBatches.orderNumber, pattern),
@@ -388,8 +378,6 @@ function resolveSourceDocument(row: {
   directSalesOrderNumber: string | null;
   salesOrderIdViaLine: string | null;
   salesOrderNumberViaLine: string | null;
-  salesOrderIdViaShipment: string | null;
-  salesOrderNumberViaShipment: string | null;
   directManufacturingOrderId: string | null;
   directManufacturingOrderNumber: string | null;
   manufacturingOrderIdViaIngredient: string | null;
@@ -412,17 +400,11 @@ function resolveSourceDocument(row: {
     };
   }
 
-  if (
-    row.directSalesOrderId ||
-    row.salesOrderIdViaLine ||
-    row.salesOrderIdViaShipment
-  ) {
-    const id =
-      row.directSalesOrderId ?? row.salesOrderIdViaLine ?? row.salesOrderIdViaShipment;
+  if (row.directSalesOrderId || row.salesOrderIdViaLine) {
+    const id = row.directSalesOrderId ?? row.salesOrderIdViaLine;
     const label =
       row.directSalesOrderNumber ??
       row.salesOrderNumberViaLine ??
-      row.salesOrderNumberViaShipment ??
       id ??
       "Sales order";
 
@@ -618,17 +600,6 @@ export async function getInventoryLedger(
             eq(salesOrderLineRefs.salesOrderId, salesOrdersViaLines.id)
           )
           .leftJoin(
-            salesShipmentRefs,
-            and(
-              eq(inventoryEvents.referenceType, "sales_shipment"),
-              eq(inventoryEvents.referenceId, salesShipmentRefs.id)
-            )
-          )
-          .leftJoin(
-            salesOrdersViaShipments,
-            eq(salesShipmentRefs.salesOrderId, salesOrdersViaShipments.id)
-          )
-          .leftJoin(
             directManufacturingOrders,
             and(
               eq(inventoryEvents.referenceType, "manufacturing_order"),
@@ -769,8 +740,6 @@ export async function getInventoryLedger(
         directSalesOrderNumber: directSalesOrders.orderNumber,
         salesOrderIdViaLine: salesOrdersViaLines.id,
         salesOrderNumberViaLine: salesOrdersViaLines.orderNumber,
-        salesOrderIdViaShipment: salesOrdersViaShipments.id,
-        salesOrderNumberViaShipment: salesOrdersViaShipments.orderNumber,
         directManufacturingOrderId: directManufacturingOrders.id,
         directManufacturingOrderNumber: directManufacturingOrders.orderNumber,
         manufacturingOrderIdViaIngredient: manufacturingOrdersViaIngredients.id,
@@ -822,17 +791,6 @@ export async function getInventoryLedger(
       .leftJoin(
         salesOrdersViaLines,
         eq(salesOrderLineRefs.salesOrderId, salesOrdersViaLines.id)
-      )
-      .leftJoin(
-        salesShipmentRefs,
-        and(
-          eq(inventoryEvents.referenceType, "sales_shipment"),
-          eq(inventoryEvents.referenceId, salesShipmentRefs.id)
-        )
-      )
-      .leftJoin(
-        salesOrdersViaShipments,
-        eq(salesShipmentRefs.salesOrderId, salesOrdersViaShipments.id)
       )
       .leftJoin(
         directManufacturingOrders,
@@ -917,8 +875,6 @@ export async function getInventoryLedger(
         directSalesOrderNumber: row.directSalesOrderNumber,
         salesOrderIdViaLine: row.salesOrderIdViaLine,
         salesOrderNumberViaLine: row.salesOrderNumberViaLine,
-        salesOrderIdViaShipment: row.salesOrderIdViaShipment,
-        salesOrderNumberViaShipment: row.salesOrderNumberViaShipment,
         directManufacturingOrderId: row.directManufacturingOrderId,
         directManufacturingOrderNumber: row.directManufacturingOrderNumber,
         manufacturingOrderIdViaIngredient: row.manufacturingOrderIdViaIngredient,

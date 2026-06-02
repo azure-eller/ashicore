@@ -2,8 +2,6 @@ import "server-only";
 
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
-  bomRevisionComponents,
-  bomRevisions,
   inventoryLotBalances,
   items,
   lots,
@@ -12,20 +10,11 @@ import {
   organization,
   purchaseOrderLines,
   purchaseOrders,
-  salesOrderLines,
-  salesOrders,
-  salesShipmentLines,
-  salesShipments,
-  unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { serializeDbTimestamp } from "@/lib/db/timestamps";
 import { roundQuantity, todayInTimeZone } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
-import {
-  calculateIngredientPlannedQuantity,
-  normalizeRecipeBasis,
-} from "@/lib/manufacturing/consumption";
 import {
   allocationQuantityString,
   toAllocationQuantity,
@@ -37,7 +26,7 @@ import {
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import { allocationDemandAdapters } from "./adapters";
 import { loadAllocationSourcesForItemInTx } from "./sources";
-import type { AllocationDemandAdapterRow, AllocationDemandType } from "./types";
+import type { AllocationDemandType } from "./types";
 import { compareDemandOrder, compareNullableDate } from "./priority";
 
 // Demand-queue mode computes item-level quantity coverage from supply chunks.
@@ -390,164 +379,6 @@ export function demandQueueCoverageKey(ref: {
   return `${ref.demandType}:${ref.demandId}` as const;
 }
 
-async function getSalesBomIngredientDemandsForItemInTx(
-  tx: Tx,
-  params: { organizationId: string; itemId: string }
-): Promise<AllocationDemandAdapterRow[]> {
-  const rows = await tx
-    .select({
-      salesOrderLineId: salesOrderLines.id,
-      salesOrderId: salesOrderLines.salesOrderId,
-      orderNumber: salesOrders.orderNumber,
-      customerName: salesOrders.customerName,
-      shipDate: salesOrders.shipDate,
-      priorityRank: salesOrders.priorityRank,
-      orderedQty: trimScale(salesOrderLines.quantity).as("orderedQty"),
-      cancelledQty: trimScale(salesOrderLines.cancelledQuantity).as("cancelledQty"),
-      sortOrder: salesOrderLines.sortOrder,
-      lineCreatedAt: salesOrderLines.createdAt,
-      productId: salesOrderLines.itemId,
-      productName: salesOrderLines.itemName,
-      componentId: bomRevisionComponents.componentId,
-      componentName: items.name,
-      unitName: unitDefinitions.name,
-      componentQuantity: trimScale(bomRevisionComponents.quantity).as(
-        "componentQuantity"
-      ),
-      bomRevisionComponentId: bomRevisionComponents.id,
-      recipeBasis: bomRevisions.recipeBasis,
-      outputQuantity: trimScale(bomRevisions.outputQuantity).as("outputQuantity"),
-    })
-    .from(salesOrderLines)
-    .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
-    .innerJoin(
-      bomRevisions,
-      and(
-        eq(bomRevisions.productId, salesOrderLines.itemId),
-        eq(bomRevisions.isCurrent, true)
-      )
-    )
-    .innerJoin(
-      bomRevisionComponents,
-      eq(bomRevisionComponents.bomRevisionId, bomRevisions.id)
-    )
-    .innerJoin(items, eq(items.id, bomRevisionComponents.componentId))
-    .leftJoin(unitDefinitions, eq(unitDefinitions.id, items.unitDefinitionId))
-    .where(
-      and(
-        eq(salesOrders.organizationId, params.organizationId),
-        eq(salesOrders.status, "open"),
-        eq(bomRevisionComponents.componentId, params.itemId),
-        isNull(salesOrders.deletedAt)
-      )
-    )
-    .orderBy(
-      asc(sql`COALESCE(${salesOrders.priorityRank}, 2147483647)`),
-      asc(salesOrders.shipDate),
-      asc(salesOrders.orderNumber),
-      asc(salesOrderLines.sortOrder),
-      asc(salesOrderLines.createdAt)
-    );
-
-  const lineIds = rows.map((row) => row.salesOrderLineId);
-  if (lineIds.length === 0) return [];
-
-  const shippedRows = await tx
-    .select({
-      salesOrderLineId: salesShipmentLines.salesOrderLineId,
-      shippedQty: trimScale(sql`COALESCE(SUM(${salesShipmentLines.quantity}), 0)`).as(
-        "shippedQty"
-      ),
-    })
-    .from(salesShipmentLines)
-    .innerJoin(salesShipments, eq(salesShipmentLines.salesShipmentId, salesShipments.id))
-    .where(
-      and(
-        inArray(salesShipmentLines.salesOrderLineId, lineIds),
-        eq(salesShipments.status, "shipped")
-      )
-    )
-    .groupBy(salesShipmentLines.salesOrderLineId);
-  const linkedManufacturingRows = await tx
-    .select({
-      salesOrderLineId: manufacturingOrders.salesOrderLineId,
-      plannedQty: trimScale(
-        sql`COALESCE(SUM(${manufacturingOrders.plannedQuantity}), 0)`
-      ).as("plannedQty"),
-    })
-    .from(manufacturingOrders)
-    .where(
-      and(
-        inArray(manufacturingOrders.salesOrderLineId, lineIds),
-        isNull(manufacturingOrders.deletedAt),
-        isNull(manufacturingOrders.cancelledAt),
-        inArray(manufacturingOrders.status, ["open", "done"])
-      )
-    )
-    .groupBy(manufacturingOrders.salesOrderLineId);
-
-  const shippedByLineId = new Map(
-    shippedRows.map((row) => [row.salesOrderLineId, toQuantity(row.shippedQty)])
-  );
-  const linkedManufacturingByLineId = new Map(
-    linkedManufacturingRows.flatMap((row) =>
-      row.salesOrderLineId
-        ? [[row.salesOrderLineId, toQuantity(row.plannedQty)] as const]
-        : []
-    )
-  );
-
-  return rows.flatMap((row): AllocationDemandAdapterRow[] => {
-    const orderedQty = toQuantity(row.orderedQty);
-    const cancelledQty = toQuantity(row.cancelledQty);
-    const shippedQty = shippedByLineId.get(row.salesOrderLineId) ?? 0;
-    const linkedManufacturingQty =
-      linkedManufacturingByLineId.get(row.salesOrderLineId) ?? 0;
-    const remainingProductQty = roundQuantity(
-      orderedQty - cancelledQty - Math.max(shippedQty, linkedManufacturingQty)
-    );
-    if (remainingProductQty <= 0) return [];
-
-    const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
-    const recipeOutputQuantity = toQuantity(row.outputQuantity);
-    const numberOfBatches =
-      recipeBasis === "batch" && recipeOutputQuantity > 0
-        ? Math.ceil(remainingProductQty / recipeOutputQuantity)
-        : null;
-    const openQty = toQuantity(
-      calculateIngredientPlannedQuantity({
-        recipeBasis,
-        quantityPerRecipeBasis: row.componentQuantity,
-        outputQuantity: remainingProductQty,
-        numberOfBatches,
-      })
-    );
-    if (openQty <= 0) return [];
-
-    return [
-      {
-        demandType: "manufacturing_order_ingredient",
-        demandId: `sales_bom:${row.salesOrderLineId}:${row.bomRevisionComponentId}`,
-        parentDemandId: row.salesOrderLineId,
-        salesOrderId: row.salesOrderId,
-        itemId: row.componentId,
-        itemName: row.componentName,
-        unitName: row.unitName ?? "unit",
-        label: row.orderNumber,
-        contextLabel: row.productName,
-        requiredDate: row.shipDate,
-        openQty: quantityString(openQty),
-        href: `/sales/orders/${row.salesOrderId}`,
-        sortDate: row.shipDate,
-        sortLabel: `${row.orderNumber}:${row.sortOrder}:${row.lineCreatedAt.toISOString()}`,
-        priorityRank: row.priorityRank,
-        priorityDate: row.shipDate,
-        priorityLabel: row.orderNumber,
-      },
-    ];
-  });
-}
-
 async function getUntrackedOnHandSupplyInTx(
   tx: Tx,
   params: { organizationId: string; itemId: string }
@@ -653,10 +484,6 @@ export async function getDemandQueueCoverageForItemInTx(
           itemId: params.itemId,
         })
       ),
-      getSalesBomIngredientDemandsForItemInTx(tx, {
-        organizationId: params.organizationId,
-        itemId: params.itemId,
-      }),
     ])
   ).flat();
 

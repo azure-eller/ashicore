@@ -18,7 +18,7 @@ test("supports legacy same-unit package conversions without throwing", () => {
   ).toBe(2);
 });
 
-test("sales allocation remaining demand SQL qualifies joined shipment columns", async () => {
+test("sales allocation remaining demand SQL reads shipped line quantity", async () => {
   const databaseUrl = process.env.DATABASE_URL;
   expect(databaseUrl).toBeTruthy();
 
@@ -31,14 +31,7 @@ test("sales allocation remaining demand SQL qualifies joined shipment columns", 
         SELECT GREATEST(
           "sales"."sales_order_lines"."quantity"
           - "sales"."sales_order_lines"."cancelled_quantity"
-          - COALESCE((
-            SELECT SUM(shipment_lines."quantity")
-            FROM "sales"."sales_shipment_lines" shipment_lines
-            INNER JOIN "sales"."sales_shipments" shipments
-              ON shipments."id" = shipment_lines."sales_shipment_id"
-            WHERE shipment_lines."sales_order_line_id" = "sales"."sales_order_lines"."id"
-              AND shipments."status" = 'shipped'
-          ), 0),
+          - "sales"."sales_order_lines"."shipped_quantity",
           0
         )
         FROM "sales"."sales_order_lines"

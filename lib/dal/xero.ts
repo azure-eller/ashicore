@@ -5,7 +5,6 @@ import {
   accountingDocumentSyncs,
   purchaseOrders,
   salesOrders,
-  salesShipments,
   integrationConnections,
   integrationAuditEvents,
   integrationImportRuns,
@@ -77,7 +76,7 @@ export type XeroSyncEventSummary = {
 
 export type XeroExportHistoryRow = {
   id: string;
-  sourceType: "sales_order" | "sales_shipment" | "purchase_order";
+  sourceType: "sales_order" | "purchase_order";
   sourceNumber: string;
   partyName: string;
   xeroDocumentNumber: string | null;
@@ -216,7 +215,7 @@ export async function getRecentXeroExports({
   if (!includeSales && !includePurchasing) return [];
 
   return withAuthedOrgContext(async (tx, orgId) => {
-    const [salesInvoiceRows, shipmentInvoiceRows, purchaseOrderRows] = await Promise.all([
+    const [salesInvoiceRows, purchaseOrderRows] = await Promise.all([
       includeSales
         ? tx
             .select({
@@ -236,34 +235,6 @@ export async function getRecentXeroExports({
                 eq(accountingDocumentSyncs.organizationId, orgId),
                 eq(accountingDocumentSyncs.provider, XERO_PROVIDER),
                 eq(accountingDocumentSyncs.documentType, "sales_order"),
-                isNotNull(accountingDocumentSyncs.pushStatus)
-              )
-            )
-            .orderBy(
-              desc(accountingDocumentSyncs.lastPushAttemptAt),
-              desc(accountingDocumentSyncs.updatedAt)
-            )
-            .limit(limit)
-        : Promise.resolve([]),
-      includeSales
-        ? tx
-            .select({
-              id: salesShipments.id,
-              sourceNumber: salesShipments.shipmentNumber,
-              partyName: salesShipments.customerName,
-              xeroDocumentNumber: accountingDocumentSyncs.externalDocumentNumber,
-              xeroPushStatus: accountingDocumentSyncs.pushStatus,
-              xeroPushError: accountingDocumentSyncs.pushError,
-              xeroPushedAt: accountingDocumentSyncs.pushedAt,
-              updatedAt: accountingDocumentSyncs.updatedAt,
-            })
-            .from(accountingDocumentSyncs)
-            .innerJoin(salesShipments, eq(accountingDocumentSyncs.documentId, salesShipments.id))
-            .where(
-              and(
-                eq(accountingDocumentSyncs.organizationId, orgId),
-                eq(accountingDocumentSyncs.provider, XERO_PROVIDER),
-                eq(accountingDocumentSyncs.documentType, "sales_shipment"),
                 isNotNull(accountingDocumentSyncs.pushStatus)
               )
             )
@@ -307,10 +278,6 @@ export async function getRecentXeroExports({
       ...salesInvoiceRows.map((row) => ({
         ...row,
         sourceType: "sales_order" as const,
-      })),
-      ...shipmentInvoiceRows.map((row) => ({
-        ...row,
-        sourceType: "sales_shipment" as const,
       })),
       ...purchaseOrderRows.map((row) => ({
         ...row,

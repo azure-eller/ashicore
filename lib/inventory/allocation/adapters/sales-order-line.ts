@@ -1,12 +1,10 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import {
   itemFamilies,
   itemVariantValues,
   items,
   salesOrderLines,
   salesOrders,
-  salesShipmentLines,
-  salesShipments,
   variantOptions,
   variantOptionValues,
 } from "@/lib/db/schema";
@@ -32,20 +30,11 @@ async function getShippedByLineInTx(tx: Tx, salesOrderLineIds: string[]) {
 
   const rows = await tx
     .select({
-      salesOrderLineId: salesShipmentLines.salesOrderLineId,
-      quantity: trimScale(sql`COALESCE(SUM(${salesShipmentLines.quantity}), 0)`).as(
-        "quantity"
-      ),
+      salesOrderLineId: salesOrderLines.id,
+      quantity: trimScale(salesOrderLines.shippedQuantity).as("quantity"),
     })
-    .from(salesShipmentLines)
-    .innerJoin(salesShipments, eq(salesShipmentLines.salesShipmentId, salesShipments.id))
-    .where(
-      and(
-        inArray(salesShipmentLines.salesOrderLineId, salesOrderLineIds),
-        eq(salesShipments.status, "shipped")
-      )
-    )
-    .groupBy(salesShipmentLines.salesOrderLineId);
+    .from(salesOrderLines)
+    .where(inArray(salesOrderLines.id, salesOrderLineIds));
 
   return new Map(rows.map((row) => [row.salesOrderLineId, toQuantity(row.quantity)]));
 }

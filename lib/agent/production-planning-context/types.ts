@@ -88,22 +88,6 @@ export type AgentOpenSalesOrderContext = {
   requiredDate: string | null;
   fulfillmentStatus: string;
   priorityRank: number | null;
-  shipments: Array<{
-    shipmentId: string;
-    shipmentNumber: string;
-    status: string;
-    fulfillmentType: string;
-    scheduledDate: string | null;
-    deliveryDate: string | null;
-    lines: Array<{
-      salesShipmentLineId: string;
-      salesOrderLineId: string;
-      itemId: string;
-      itemName: string;
-      unitName: string | null;
-      quantity: string;
-    }>;
-  }>;
   lines: Array<{
     salesOrderLineId: string;
     itemId: string;
@@ -111,7 +95,6 @@ export type AgentOpenSalesOrderContext = {
     unitName: string | null;
     orderedQty: string;
     shippedQty: string;
-    plannedShipmentQty: string;
     cancelledQty: string;
     openQty: string;
     coveredQty: string;
@@ -336,22 +319,6 @@ export type AgentProductionRawContext = {
     status: string;
     orderDate: string | null;
     shipDate: string | null;
-    shipments: Array<{
-      shipmentId: string;
-      shipmentNumber: string;
-      status: string;
-      fulfillmentType: string;
-      scheduledDate: string | null;
-      deliveryDate: string | null;
-      lines: Array<{
-        salesShipmentLineId: string;
-        salesOrderLineId: string;
-        itemId: string;
-        itemName: string;
-        unitName: string | null;
-        quantity: string;
-      }>;
-    }>;
     unplannedDemand: Array<{
       salesOrderLineId: string;
       itemId: string;
@@ -359,7 +326,6 @@ export type AgentProductionRawContext = {
       unitName: string | null;
       orderedQty: string;
       shippedQty: string;
-      plannedShipmentQty: string;
       cancelledQty: string;
       remainingToPlanQty: string;
       coveredQty: string;

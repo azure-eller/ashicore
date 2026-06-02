@@ -18,8 +18,6 @@ import {
   purchaseOrders,
   salesOrderLines,
   salesOrders,
-  salesShipmentLines,
-  salesShipments,
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
@@ -165,122 +163,13 @@ async function getShippedSalesQuantityByLineInTx(tx: Tx, salesOrderLineIds: stri
 
   const rows = await tx
     .select({
-      salesOrderLineId: salesShipmentLines.salesOrderLineId,
-      quantity: trimScale(sql`COALESCE(SUM(${salesShipmentLines.quantity}), 0)`).as(
-        "quantity"
-      ),
+      salesOrderLineId: salesOrderLines.id,
+      quantity: trimScale(salesOrderLines.shippedQuantity).as("quantity"),
     })
-    .from(salesShipmentLines)
-    .innerJoin(salesShipments, eq(salesShipmentLines.salesShipmentId, salesShipments.id))
-    .where(
-      and(
-        inArray(salesShipmentLines.salesOrderLineId, salesOrderLineIds),
-        eq(salesShipments.status, "shipped")
-      )
-    )
-    .groupBy(salesShipmentLines.salesOrderLineId);
+    .from(salesOrderLines)
+    .where(inArray(salesOrderLines.id, salesOrderLineIds));
 
   return new Map(rows.map((row) => [row.salesOrderLineId, toQuantity(row.quantity)]));
-}
-
-async function getPlannedSalesQuantityByLineInTx(tx: Tx, salesOrderLineIds: string[]) {
-  if (salesOrderLineIds.length === 0) return new Map<string, number>();
-
-  const rows = await tx
-    .select({
-      salesOrderLineId: salesShipmentLines.salesOrderLineId,
-      quantity: trimScale(sql`COALESCE(SUM(${salesShipmentLines.quantity}), 0)`).as(
-        "quantity"
-      ),
-    })
-    .from(salesShipmentLines)
-    .innerJoin(salesShipments, eq(salesShipmentLines.salesShipmentId, salesShipments.id))
-    .where(
-      and(
-        inArray(salesShipmentLines.salesOrderLineId, salesOrderLineIds),
-        eq(salesShipments.status, "planned")
-      )
-    )
-    .groupBy(salesShipmentLines.salesOrderLineId);
-
-  return new Map(rows.map((row) => [row.salesOrderLineId, toQuantity(row.quantity)]));
-}
-
-async function loadPlannedSalesShipmentsByOrderInTx(
-  tx: Tx,
-  salesOrderLineIds: string[]
-): Promise<Map<string, AgentOpenSalesOrderContext["shipments"]>> {
-  if (salesOrderLineIds.length === 0) return new Map();
-
-  const rows = await tx
-    .select({
-      salesOrderId: salesShipments.salesOrderId,
-      shipmentId: salesShipments.id,
-      shipmentNumber: salesShipments.shipmentNumber,
-      status: salesShipments.status,
-      fulfillmentType: salesShipments.fulfillmentType,
-      scheduledDate: salesShipments.scheduledDate,
-      deliveryDate: salesShipments.deliveryDate,
-      sequence: salesShipments.sequence,
-      salesShipmentLineId: salesShipmentLines.id,
-      salesOrderLineId: salesShipmentLines.salesOrderLineId,
-      itemId: salesShipmentLines.itemId,
-      itemName: salesShipmentLines.itemName,
-      unitName: salesShipmentLines.unitName,
-      quantity: trimScale(salesShipmentLines.quantity).as("quantity"),
-      sortOrder: salesShipmentLines.sortOrder,
-      createdAt: salesShipmentLines.createdAt,
-    })
-    .from(salesShipmentLines)
-    .innerJoin(salesShipments, eq(salesShipmentLines.salesShipmentId, salesShipments.id))
-    .where(
-      and(
-        inArray(salesShipmentLines.salesOrderLineId, salesOrderLineIds),
-        eq(salesShipments.status, "planned")
-      )
-    )
-    .orderBy(
-      asc(salesShipments.scheduledDate),
-      asc(salesShipments.deliveryDate),
-      asc(salesShipments.sequence),
-      asc(salesShipmentLines.sortOrder),
-      asc(salesShipmentLines.createdAt)
-    );
-
-  const byOrder = new Map<string, AgentOpenSalesOrderContext["shipments"]>();
-  const byShipment = new Map<
-    string,
-    AgentOpenSalesOrderContext["shipments"][number]
-  >();
-
-  for (const row of rows) {
-    const shipment =
-      byShipment.get(row.shipmentId) ??
-      ({
-        shipmentId: row.shipmentId,
-        shipmentNumber: row.shipmentNumber,
-        status: row.status,
-        fulfillmentType: row.fulfillmentType,
-        scheduledDate: row.scheduledDate,
-        deliveryDate: row.deliveryDate,
-        lines: [],
-      } satisfies AgentOpenSalesOrderContext["shipments"][number]);
-    shipment.lines.push({
-      salesShipmentLineId: row.salesShipmentLineId,
-      salesOrderLineId: row.salesOrderLineId,
-      itemId: row.itemId,
-      itemName: row.itemName,
-      unitName: row.unitName,
-      quantity: row.quantity,
-    });
-    byShipment.set(row.shipmentId, shipment);
-
-    const orderShipments = byOrder.get(row.salesOrderId) ?? [];
-    if (!orderShipments.includes(shipment)) orderShipments.push(shipment);
-    byOrder.set(row.salesOrderId, orderShipments);
-  }
-
-  return byOrder;
 }
 
 function itemDisplayName(row: { name: string; familyName: string | null }) {
@@ -355,14 +244,11 @@ async function loadOpenSalesOrdersInTx(
 
   const lineIds = rows.map((row) => row.lineId);
   const shippedByLine = await getShippedSalesQuantityByLineInTx(tx, lineIds);
-  const plannedByLine = await getPlannedSalesQuantityByLineInTx(tx, lineIds);
-  const shipmentsByOrder = await loadPlannedSalesShipmentsByOrderInTx(tx, lineIds);
   const byOrder = new Map<string, AgentOpenSalesOrderContext>();
 
   for (const row of rows) {
     const orderedQty = toQuantity(row.orderedQty);
     const shippedQty = shippedByLine.get(row.lineId) ?? 0;
-    const plannedShipmentQty = plannedByLine.get(row.lineId) ?? 0;
     const cancelledQty = toQuantity(row.cancelledQty);
     const openQty = roundQuantity(orderedQty - shippedQty - cancelledQty);
     if (openQty <= 0) continue;
@@ -378,7 +264,6 @@ async function loadOpenSalesOrdersInTx(
         requiredDate: row.shipDate ?? row.requestedDate,
         fulfillmentStatus: "open",
         priorityRank: row.priorityRank,
-        shipments: shipmentsByOrder.get(row.salesOrderId) ?? [],
         lines: [],
       } satisfies AgentOpenSalesOrderContext);
 
@@ -389,7 +274,6 @@ async function loadOpenSalesOrdersInTx(
       unitName: row.unitName,
       orderedQty: row.orderedQty,
       shippedQty: quantityString(shippedQty),
-      plannedShipmentQty: quantityString(plannedShipmentQty),
       cancelledQty: row.cancelledQty,
       openQty: quantityString(openQty),
       coveredQty: "0",
@@ -1574,15 +1458,9 @@ function buildRawProductionContext(
       status: order.status,
       orderDate: order.orderDate,
       shipDate: order.requiredDate,
-      shipments: order.shipments,
       unplannedDemand: order.lines
         .map((line) => {
-          const remainingToPlanQty = roundQuantity(
-            Math.max(
-              0,
-              toQuantity(line.openQty) - toQuantity(line.plannedShipmentQty)
-            )
-          );
+          const remainingToPlanQty = toQuantity(line.openQty);
           if (remainingToPlanQty <= 0) return null;
           const coveredQty = Math.min(
             remainingToPlanQty,
@@ -1595,7 +1473,6 @@ function buildRawProductionContext(
             unitName: line.unitName,
             orderedQty: line.orderedQty,
             shippedQty: line.shippedQty,
-            plannedShipmentQty: line.plannedShipmentQty,
             cancelledQty: line.cancelledQty,
             remainingToPlanQty: quantityString(remainingToPlanQty),
             coveredQty: quantityString(coveredQty),

@@ -83,12 +83,11 @@ export function makeDraftOrder(timeZone: string): SalesOrderDetail {
     createdAt: new Date(),
     updatedAt: new Date(),
     lines: [],
-    shipments: [],
     marginSummary: {
       productRevenue: "0",
       freightRecovery: "0",
       productCogs: null,
-      shipmentCosts: "0",
+      fulfillmentCosts: "0",
       contributionMargin: null,
       marginPercent: null,
       costStatus: "unknown",
@@ -246,7 +245,6 @@ export function orderToUpdatePayload(
       pricingBreakLabel: line.pricingBreakLabel,
       isPriceOverridden: line.isPriceOverridden,
     })),
-    shipments: [],
   } as InsertSalesOrder;
 }
 
@@ -292,6 +290,5 @@ export function draftToInsertPayload(
       pricingBreakLabel: line.pricingBreakLabel,
       isPriceOverridden: line.isPriceOverridden,
     })),
-    shipments: [],
   } as InsertSalesOrder;
 }

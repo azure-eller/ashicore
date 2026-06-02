@@ -36,9 +36,6 @@ import {
   pricingSchedules,
   salesOrderLines,
   salesOrders,
-  salesShipmentCosts,
-  salesShipmentLines,
-  salesShipments,
   unitDefinitions,
   variantOptions,
   variantOptionValues,
@@ -58,7 +55,7 @@ import type { Tx } from "@/lib/db/with-org-context";
 import { lockSalesPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
 import {
   beginInventoryOperationInTx,
-  consumeForShipmentInTx,
+  consumeForSalesOrderShippingInTx,
   deriveInventoryIdempotencyKey,
   editExpectedFromManufacturingInTx,
   finishInventoryOperationInTx,
@@ -124,15 +121,11 @@ import type {
 } from "@/lib/schemas/pricing-schedules";
 import type {
   BulkConfirmSalesOrders,
-  SalesFulfillmentPlanInput,
   InsertSalesOrder,
   PatchSalesOrderHeader,
   PatchSalesOrderLine,
   ReorderSalesOrderPriorityRanks,
-  SalesShipmentCostsInput,
-  SalesShipmentInput,
   ShipSalesOrder,
-  ShipSalesShipment,
   UpdateSalesOrder,
 } from "@/lib/schemas/sales-orders";
 import type {
@@ -163,7 +156,6 @@ import type {
   SalesOrderItemOption,
   SalesShippingReadiness,
   SalesMarginSummary,
-  SalesShipmentRow,
 } from "./types";
 import {
   getSalesOrderManufacturingSummariesInTx,
@@ -309,71 +301,22 @@ function formatSalesItemDisplayName(
   return optionLabels.length > 0 ? `${familyName} / ${optionLabels.join(" / ")}` : familyName;
 }
 
-type ShipmentCostSelection = {
-  amount: number;
-  status: SalesMarginSummary["costStatus"];
-};
-
 function parseMoneyValue(value: string | null | undefined): number {
   if (value == null) return 0;
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function combineMarginStatuses(
-  statuses: SalesMarginSummary["costStatus"][]
-): SalesMarginSummary["costStatus"] {
-  if (statuses.length === 0 || statuses.includes("unknown")) {
-    return "unknown";
-  }
-
-  const unique = new Set(statuses);
-  if (unique.size > 1) {
-    return "mixed";
-  }
-
-  return statuses[0] ?? "unknown";
-}
-
-function selectShipmentCostAmount(
-  costs: SalesShipmentRow["costs"],
-  fallbackStatus: SalesMarginSummary["costStatus"]
-): ShipmentCostSelection {
-  const actualCosts = costs.filter((cost) => cost.costStatus === "actual");
-  if (actualCosts.length > 0) {
-    return {
-      amount: actualCosts.reduce((sum, cost) => sum + parseMoneyValue(cost.amount), 0),
-      status: "actual",
-    };
-  }
-
-  const estimatedCosts = costs.filter((cost) => cost.costStatus === "estimated");
-  if (estimatedCosts.length > 0) {
-    return {
-      amount: estimatedCosts.reduce(
-        (sum, cost) => sum + parseMoneyValue(cost.amount),
-        0
-      ),
-      status: "estimated",
-    };
-  }
-
-  return {
-    amount: 0,
-    status: fallbackStatus,
-  };
-}
-
 function buildSalesMarginSummary(params: {
   productRevenue: number;
   freightRecovery: number;
   productCogs: number | null;
-  shipmentCosts: number;
+  fulfillmentCosts: number;
   costStatus: SalesMarginSummary["costStatus"];
 }): SalesMarginSummary {
   const revenue = params.productRevenue + params.freightRecovery;
   const totalCosts =
-    params.productCogs == null ? null : params.productCogs + params.shipmentCosts;
+    params.productCogs == null ? null : params.productCogs + params.fulfillmentCosts;
   const metrics =
     totalCosts == null
       ? null
@@ -386,7 +329,7 @@ function buildSalesMarginSummary(params: {
     productRevenue: normalizeMoney(params.productRevenue),
     freightRecovery: normalizeMoney(params.freightRecovery),
     productCogs: params.productCogs == null ? null : normalizeMoney(params.productCogs),
-    shipmentCosts: normalizeMoney(params.shipmentCosts),
+    fulfillmentCosts: normalizeMoney(params.fulfillmentCosts),
     contributionMargin: metrics?.grossProfit ?? null,
     marginPercent: metrics?.marginPercent ?? null,
     costStatus: params.costStatus,
@@ -419,95 +362,6 @@ async function getActualSalesLineCostsByLineIdInTx(tx: Tx, salesOrderId: string)
     .groupBy(salesOrderLineIdExpr);
 
   return new Map(rows.map((row) => [row.salesOrderLineId, row]));
-}
-
-async function getActualSalesLineCostsByOrderIdInTx(tx: Tx, salesOrderIds: string[]) {
-  if (salesOrderIds.length === 0) {
-    return new Map<string, Map<string, { quantity: string; cogs: string }>>();
-  }
-
-  const salesOrderIdExpr = sql<string>`COALESCE(
-    NULLIF(${inventoryEvents.metadata}->>'salesOrderId', ''),
-    CASE
-      WHEN ${inventoryEvents.referenceType} = 'sales_order' THEN ${inventoryEvents.referenceId}::text
-      ELSE NULL
-    END
-  )`;
-  const salesOrderLineIdExpr = sql<string>`(${inventoryEvents.metadata}->>'salesOrderLineId')`;
-  const rows = await tx
-    .select({
-      salesOrderId: salesOrderIdExpr.as("salesOrderId"),
-      salesOrderLineId: salesOrderLineIdExpr.as("salesOrderLineId"),
-      quantity: trimScale(sql`COALESCE(SUM(${inventoryEvents.quantity}), 0)`).as(
-        "quantity"
-      ),
-      cogs: trimScale(sql`COALESCE(SUM(${inventoryEvents.extendedCost}), 0)`).as(
-        "cogs"
-      ),
-    })
-    .from(inventoryEvents)
-    .where(
-      and(
-        eq(inventoryEvents.eventType, "sales_consumption"),
-        sql`${inventoryEvents.metadata}->>'salesOrderLineId' IS NOT NULL`,
-        or(
-          and(
-            eq(inventoryEvents.referenceType, "sales_order"),
-            inArray(inventoryEvents.referenceId, salesOrderIds)
-          ),
-          inArray(sql<string>`${inventoryEvents.metadata}->>'salesOrderId'`, salesOrderIds)
-        )
-      )
-    )
-    .groupBy(salesOrderIdExpr, salesOrderLineIdExpr);
-
-  const byOrder = new Map<string, Map<string, { quantity: string; cogs: string }>>();
-  for (const row of rows) {
-    if (!row.salesOrderId || !salesOrderIds.includes(row.salesOrderId)) continue;
-    const orderRows = byOrder.get(row.salesOrderId) ?? new Map();
-    orderRows.set(row.salesOrderLineId, {
-      quantity: row.quantity,
-      cogs: row.cogs,
-    });
-    byOrder.set(row.salesOrderId, orderRows);
-  }
-
-  return byOrder;
-}
-
-async function getActualShipmentCogsByShipmentIdInTx(
-  tx: Tx,
-  shipmentIds: string[]
-) {
-  if (shipmentIds.length === 0) {
-    return new Map<string, { quantity: string; cogs: string }>();
-  }
-
-  const rows = await tx
-    .select({
-      shipmentId: inventoryEvents.referenceId,
-      quantity: trimScale(sql`COALESCE(SUM(${inventoryEvents.quantity}), 0)`).as(
-        "quantity"
-      ),
-      cogs: trimScale(sql`COALESCE(SUM(${inventoryEvents.extendedCost}), 0)`).as(
-        "cogs"
-      ),
-    })
-    .from(inventoryEvents)
-    .where(
-      and(
-        inArray(inventoryEvents.referenceId, shipmentIds),
-        eq(inventoryEvents.referenceType, "sales_shipment"),
-        eq(inventoryEvents.eventType, "sales_consumption")
-      )
-    )
-    .groupBy(inventoryEvents.referenceId);
-
-  return new Map(
-    rows.flatMap((row) =>
-      row.shipmentId == null ? [] : [[row.shipmentId, { quantity: row.quantity, cogs: row.cogs }]]
-    )
-  );
 }
 
 type PreparedOrderLineBase = {
@@ -1687,6 +1541,9 @@ async function getOrderLinesInTx(tx: Tx, orderId: string) {
       itemSku: salesOrderLines.itemSku,
       unitName: salesOrderLines.unitName,
       quantity: trimScale(salesOrderLines.quantity).as("quantity"),
+      shippedQuantity: trimScale(salesOrderLines.shippedQuantity).as(
+        "shippedQuantity"
+      ),
       cancelledQuantity: trimScale(salesOrderLines.cancelledQuantity).as(
         "cancelledQuantity"
       ),
@@ -1757,7 +1614,7 @@ async function getLockedSalesOrderInTx(tx: Tx, id: string) {
   return order ?? null;
 }
 
-type ShipmentLineState = {
+type SalesOrderLineShipState = {
   id: string;
   itemId: string;
   itemName: string;
@@ -1770,7 +1627,7 @@ type ShipmentLineState = {
   sortOrder: number;
 };
 
-function normalizeShipmentQuantity(value: number) {
+function normalizeShipQuantity(value: number) {
   return normalizeQuantityNumber(roundQuantity(value));
 }
 
@@ -2038,10 +1895,9 @@ function latestDemandQueueExpectedDate(
   );
 }
 
-async function getShipmentLineStatesInTx(
+async function getSalesOrderLineShipStatesInTx(
   tx: Tx,
-  orderId: string,
-  options?: { excludeShipmentId?: string }
+  orderId: string
 ) {
   const orderLines = await tx
     .select({
@@ -2051,6 +1907,7 @@ async function getShipmentLineStatesInTx(
       itemSku: salesOrderLines.itemSku,
       unitName: salesOrderLines.unitName,
       quantity: salesOrderLines.quantity,
+      shippedQuantity: salesOrderLines.shippedQuantity,
       cancelledQuantity: salesOrderLines.cancelledQuantity,
       sortOrder: salesOrderLines.sortOrder,
     })
@@ -2059,53 +1916,7 @@ async function getShipmentLineStatesInTx(
     .orderBy(asc(salesOrderLines.sortOrder), asc(salesOrderLines.createdAt))
     .for("update");
 
-  const shipmentRows = await tx
-    .select({
-      salesOrderLineId: salesShipmentLines.salesOrderLineId,
-      quantity: salesShipmentLines.quantity,
-      status: salesShipments.status,
-    })
-    .from(salesShipmentLines)
-    .innerJoin(
-      salesShipments,
-      eq(salesShipmentLines.salesShipmentId, salesShipments.id)
-    )
-    .where(
-      and(
-        eq(salesShipments.salesOrderId, orderId),
-        inArray(salesShipments.status, ["planned", "shipped"]),
-        options?.excludeShipmentId
-          ? sql`${salesShipments.id} <> ${options.excludeShipmentId}`
-          : undefined
-      )
-    );
-
-  const shippedByLine = new Map<string, number>();
-  const plannedByLine = new Map<string, number>();
-  const actualLineCosts = await getActualSalesLineCostsByLineIdInTx(tx, orderId);
-
-  for (const [lineId, actual] of actualLineCosts.entries()) {
-    shippedByLine.set(lineId, normalizeShipmentQuantity(Number(actual.quantity)));
-  }
-
-  shipmentRows.forEach((row) => {
-    const quantity = parseFloat(row.quantity);
-    if (row.status === "shipped") {
-      if (!actualLineCosts.has(row.salesOrderLineId)) {
-        shippedByLine.set(
-          row.salesOrderLineId,
-          normalizeShipmentQuantity((shippedByLine.get(row.salesOrderLineId) ?? 0) + quantity)
-        );
-      }
-    } else if (row.status === "planned") {
-      plannedByLine.set(
-        row.salesOrderLineId,
-        normalizeShipmentQuantity((plannedByLine.get(row.salesOrderLineId) ?? 0) + quantity)
-      );
-    }
-  });
-
-  return new Map<string, ShipmentLineState>(
+  return new Map<string, SalesOrderLineShipState>(
     orderLines.map((line) => [
       line.id,
       {
@@ -2116,55 +1927,35 @@ async function getShipmentLineStatesInTx(
         unitName: line.unitName,
         quantity: parseFloat(line.quantity),
         cancelledQuantity: parseFloat(line.cancelledQuantity),
-        shippedQuantity: shippedByLine.get(line.id) ?? 0,
-        plannedQuantity: plannedByLine.get(line.id) ?? 0,
+        shippedQuantity: normalizeShipQuantity(Number(line.shippedQuantity)),
+        plannedQuantity: 0,
         sortOrder: line.sortOrder,
       },
     ])
   );
 }
 
-function remainingToShip(line: ShipmentLineState) {
-  return normalizeShipmentQuantity(
+function remainingToShip(line: SalesOrderLineShipState) {
+  return normalizeShipQuantity(
     line.quantity - line.shippedQuantity - line.cancelledQuantity
   );
 }
 
-function unplannedRemaining(line: ShipmentLineState) {
-  return normalizeShipmentQuantity(remainingToShip(line) - line.plannedQuantity);
-}
-
-function buildShipmentEntries(
-  states: Map<string, ShipmentLineState>,
-  data: SalesShipmentInput
+async function assertSalesOrderHasNoShippedLinesForEditInTx(
+  tx: Tx,
+  orderId: string
 ) {
-  return data.lines.map((line, index) => {
-    const state = states.get(line.salesOrderLineId);
-    if (!state) {
-      throw new SalesError("Sales order line not found.", 404, {
-        errors: {
-          [`lines.${index}.quantity`]: ["Select a valid sales order line"],
-        },
-      });
-    }
+  const states = await getSalesOrderLineShipStatesInTx(tx, orderId);
+  const hasShippedLine = [...states.values()].some(
+    (line) => line.shippedQuantity > 0
+  );
 
-    const quantity = parseFloat(line.quantity ?? "0");
-    const available = unplannedRemaining(state);
-    if (quantity > available) {
-      throw new SalesError("Cannot plan more than the remaining quantity.", 400, {
-        errors: {
-          [`lines.${index}.quantity`]: [
-            `Must be ${normalizeNumeric(available)} or less`,
-          ],
-        },
-      });
-    }
-
-    return {
-      state,
-      quantity,
-    };
-  });
+  if (hasShippedLine) {
+    throw new SalesError(
+      "Partially shipped orders cannot be edited. Create a new sales order for changes.",
+      400
+    );
+  }
 }
 
 async function getOpenLinkedManufacturingOrdersForSalesEditInTx(
@@ -2465,456 +2256,6 @@ async function moveLinkedManufacturingOrdersToReplacementSalesLinesInTx(
   }
 }
 
-async function replaceShipmentLinesInTx(
-  tx: Tx,
-  params: {
-    organizationId: string;
-    shipmentId: string;
-    entries: ReturnType<typeof buildShipmentEntries>;
-    demandLabelSnapshot: string;
-    actorUserId?: string | null;
-  }
-) {
-  const existingLines = await tx
-    .select({
-      id: salesShipmentLines.id,
-      salesOrderLineId: salesShipmentLines.salesOrderLineId,
-      itemId: salesShipmentLines.itemId,
-      quantity: trimScale(salesShipmentLines.quantity).as("quantity"),
-    })
-    .from(salesShipmentLines)
-    .where(eq(salesShipmentLines.salesShipmentId, params.shipmentId))
-    .for("update");
-  const existingByOrderLineId = new Map(
-    existingLines.map((line) => [line.salesOrderLineId, line])
-  );
-  const keptLineIds = new Set<string>();
-  const now = new Date();
-
-  for (const entry of params.entries) {
-    const existing = existingByOrderLineId.get(entry.state.id);
-    if (existing && existing.itemId === entry.state.itemId) {
-      keptLineIds.add(existing.id);
-      await tx
-        .update(salesShipmentLines)
-        .set({
-          itemName: entry.state.itemName,
-          itemSku: entry.state.itemSku,
-          unitName: entry.state.unitName,
-          quantity: normalizeNumeric(entry.quantity),
-          sortOrder: entry.state.sortOrder,
-          updatedAt: now,
-        })
-        .where(eq(salesShipmentLines.id, existing.id));
-      continue;
-    }
-
-    if (existing) {
-      keptLineIds.add(existing.id);
-      await tx
-        .delete(salesShipmentLines)
-        .where(eq(salesShipmentLines.id, existing.id));
-    }
-
-    await tx.insert(salesShipmentLines).values({
-      salesShipmentId: params.shipmentId,
-      salesOrderLineId: entry.state.id,
-      itemId: entry.state.itemId,
-      itemName: entry.state.itemName,
-      itemSku: entry.state.itemSku,
-      unitName: entry.state.unitName,
-      quantity: normalizeNumeric(entry.quantity),
-      sortOrder: entry.state.sortOrder,
-    });
-  }
-
-  const removedLineIds = existingLines
-    .filter((line) => !keptLineIds.has(line.id))
-    .map((line) => line.id);
-  if (removedLineIds.length > 0) {
-    await tx
-      .delete(salesShipmentLines)
-      .where(inArray(salesShipmentLines.id, removedLineIds));
-  }
-}
-
-type FulfillmentPlanOrderSnapshot = {
-  id: string;
-  orderNumber: string;
-  customerId: string;
-  customerName: string;
-  status: string;
-  shipDate: string | null;
-  requestedDate: string | null;
-  shipLine1: string | null;
-  shipLine2: string | null;
-  shipCity: string | null;
-  shipRegion: string | null;
-  shipPostcode: string | null;
-  shipCountry: string | null;
-};
-
-type ShipAddress = {
-  shipLine1: string | null;
-  shipLine2: string | null;
-  shipCity: string | null;
-  shipRegion: string | null;
-  shipPostcode: string | null;
-  shipCountry: string | null;
-};
-
-type CustomerShipAddress = ShipAddress & {
-  billingLine1: string | null;
-  billingLine2: string | null;
-  billingCity: string | null;
-  billingRegion: string | null;
-  billingPostcode: string | null;
-  billingCountry: string | null;
-};
-
-function hasShipAddress(address: ShipAddress) {
-  return [
-    address.shipLine1,
-    address.shipLine2,
-    address.shipCity,
-    address.shipRegion,
-    address.shipPostcode,
-    address.shipCountry,
-  ].some((part) => part != null && part.trim() !== "");
-}
-
-function customerAddressFallback(customer: CustomerShipAddress | null): ShipAddress {
-  if (!customer) {
-    return {
-      shipLine1: null,
-      shipLine2: null,
-      shipCity: null,
-      shipRegion: null,
-      shipPostcode: null,
-      shipCountry: null,
-    };
-  }
-
-  if (hasShipAddress(customer)) {
-    return {
-      shipLine1: customer.shipLine1,
-      shipLine2: customer.shipLine2,
-      shipCity: customer.shipCity,
-      shipRegion: customer.shipRegion,
-      shipPostcode: customer.shipPostcode,
-      shipCountry: customer.shipCountry,
-    };
-  }
-
-  return {
-    shipLine1: customer.billingLine1,
-    shipLine2: customer.billingLine2,
-    shipCity: customer.billingCity,
-    shipRegion: customer.billingRegion,
-    shipPostcode: customer.billingPostcode,
-    shipCountry: customer.billingCountry,
-  };
-}
-
-async function resolveShipmentAddressInTx(
-  tx: Tx,
-  order: ShipAddress & { customerId: string }
-): Promise<ShipAddress> {
-  if (hasShipAddress(order)) {
-    return {
-      shipLine1: order.shipLine1,
-      shipLine2: order.shipLine2,
-      shipCity: order.shipCity,
-      shipRegion: order.shipRegion,
-      shipPostcode: order.shipPostcode,
-      shipCountry: order.shipCountry,
-    };
-  }
-
-  const [customer] = await tx
-    .select({
-      shipLine1: customers.shipLine1,
-      shipLine2: customers.shipLine2,
-      shipCity: customers.shipCity,
-      shipRegion: customers.shipRegion,
-      shipPostcode: customers.shipPostcode,
-      shipCountry: customers.shipCountry,
-      billingLine1: customers.billingLine1,
-      billingLine2: customers.billingLine2,
-      billingCity: customers.billingCity,
-      billingRegion: customers.billingRegion,
-      billingPostcode: customers.billingPostcode,
-      billingCountry: customers.billingCountry,
-    })
-    .from(customers)
-    .where(eq(customers.id, order.customerId));
-
-  return customerAddressFallback(customer ?? null);
-}
-
-type SalesFulfillmentPlanResult = {
-  id: string;
-  shipmentId: string;
-};
-
-type InsertedSalesOrderLineSnapshot = {
-  salesOrderLineId: string;
-  itemId: string;
-  itemName: string;
-  itemSku: string | null;
-  unitName: string;
-  sortOrder: number;
-};
-
-async function createPlannedShipmentsFromOrderPayloadInTx(
-  tx: Tx,
-  orgId: string,
-  order: FulfillmentPlanOrderSnapshot,
-  shipments: InsertSalesOrder["shipments"],
-  lines: InsertedSalesOrderLineSnapshot[]
-) {
-  if (shipments.length === 0) return;
-
-  const shipAddress = await resolveShipmentAddressInTx(tx, {
-    customerId: order.customerId,
-    shipLine1: order.shipLine1,
-    shipLine2: order.shipLine2,
-    shipCity: order.shipCity,
-    shipRegion: order.shipRegion,
-    shipPostcode: order.shipPostcode,
-    shipCountry: order.shipCountry,
-  });
-  const linesByItemId = new Map(lines.map((line) => [line.itemId, line]));
-  let sequence = await getNextShipmentSequenceInTx(tx, order.id);
-
-  for (const shipmentInput of shipments) {
-    const shipmentNumber = `${order.orderNumber}-S${sequence}`;
-    const now = new Date();
-    const [shipment] = await tx
-      .insert(salesShipments)
-      .values({
-        organizationId: orgId,
-        salesOrderId: order.id,
-        shipmentNumber,
-        sequence,
-        status: "planned",
-        fulfillmentType: shipmentInput.fulfillmentType,
-        scheduledDate: shipmentInput.scheduledDate,
-        deliveryDate: shipmentInput.deliveryDate,
-        notes: shipmentInput.notes,
-        orderNumber: order.orderNumber,
-        customerName: order.customerName,
-        ...shipAddress,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning({ id: salesShipments.id });
-
-    await tx.insert(salesShipmentLines).values(
-      shipmentInput.lines.map((line, index) => {
-        const orderLine = linesByItemId.get(line.itemId);
-        if (!orderLine) {
-          throw new SalesError("Shipment item must be on the order.", 400, {
-            errors: {
-              [`shipments.${sequence - 1}.lines.${index}.itemId`]: [
-                "Select a valid order item",
-              ],
-            },
-          });
-        }
-
-        return {
-          salesShipmentId: shipment.id,
-          salesOrderLineId: orderLine.salesOrderLineId,
-          itemId: orderLine.itemId,
-          itemName: orderLine.itemName,
-          itemSku: orderLine.itemSku,
-          unitName: orderLine.unitName,
-          quantity: normalizeNumeric(Number(line.quantity ?? 0)),
-          sortOrder: orderLine.sortOrder,
-        };
-      })
-    );
-
-    sequence += 1;
-  }
-
-  await syncSalesOrderShipDateFromShipmentsInTx(tx, order.id);
-}
-
-async function getActivePlannedShipmentInTx(
-  tx: Tx,
-  orderId: string,
-  shipmentId?: string | null,
-  options?: { excludeShipmentId?: string | null; unscheduledOnly?: boolean }
-) {
-  const conditions = [
-    eq(salesShipments.salesOrderId, orderId),
-    eq(salesShipments.status, "planned"),
-  ];
-
-  if (shipmentId) {
-    conditions.push(eq(salesShipments.id, shipmentId));
-  }
-  if (options?.excludeShipmentId) {
-    conditions.push(sql`${salesShipments.id} <> ${options.excludeShipmentId}`);
-  }
-  if (options?.unscheduledOnly) {
-    conditions.push(sql`${salesShipments.scheduledDate} IS NULL`);
-  }
-
-  const [shipment] = await tx
-    .select({
-      id: salesShipments.id,
-      sequence: salesShipments.sequence,
-      status: salesShipments.status,
-    })
-    .from(salesShipments)
-    .where(and(...conditions))
-    .orderBy(asc(salesShipments.sequence), asc(salesShipments.createdAt))
-    .limit(1)
-    .for("update");
-
-  return shipment ?? null;
-}
-
-async function upsertPlannedShipmentForFulfillmentPlanInTx(
-  tx: Tx,
-  orgId: string,
-  order: FulfillmentPlanOrderSnapshot,
-  data: SalesFulfillmentPlanInput,
-  actorUserId?: string | null,
-  options?: { createNew?: boolean }
-) {
-  const shipAddress = await resolveShipmentAddressInTx(tx, order);
-  const shipmentData: SalesShipmentInput = {
-    fulfillmentType: data.fulfillmentType,
-    scheduledDate: data.shipDate ?? order.shipDate,
-    deliveryDate: data.shipDate ?? order.shipDate,
-    notes: data.shipmentNotes,
-    lines: data.shipmentLines,
-  };
-  const existingShipment =
-    options?.createNew && !data.shipmentId
-      ? null
-      : await getActivePlannedShipmentInTx(tx, order.id, data.shipmentId);
-
-  if (data.shipmentId && !existingShipment) {
-    throw new SalesError("Planned shipment not found.", 404);
-  }
-
-  if (existingShipment) {
-    const states = await getShipmentLineStatesInTx(tx, order.id, {
-      excludeShipmentId: existingShipment.id,
-    });
-    const entries = buildShipmentEntries(states, shipmentData);
-
-    await replaceShipmentLinesInTx(tx, {
-      organizationId: orgId,
-      shipmentId: existingShipment.id,
-      entries,
-      demandLabelSnapshot: `${order.orderNumber}-S${existingShipment.sequence}`,
-      actorUserId,
-    });
-
-    await tx
-      .update(salesShipments)
-      .set({
-        fulfillmentType: shipmentData.fulfillmentType,
-        scheduledDate: shipmentData.scheduledDate,
-        deliveryDate: shipmentData.deliveryDate,
-        notes: shipmentData.notes,
-        ...shipAddress,
-        updatedAt: new Date(),
-      })
-      .where(eq(salesShipments.id, existingShipment.id));
-
-    return existingShipment.id;
-  }
-
-  const states = await getShipmentLineStatesInTx(tx, order.id);
-  const entries = buildShipmentEntries(states, shipmentData);
-  const sequence = await getNextShipmentSequenceInTx(tx, order.id);
-  const shipmentNumber = `${order.orderNumber}-S${sequence}`;
-  const now = new Date();
-
-  const [shipment] = await tx
-    .insert(salesShipments)
-    .values({
-      organizationId: orgId,
-      salesOrderId: order.id,
-      shipmentNumber,
-      sequence,
-      status: "planned",
-      fulfillmentType: shipmentData.fulfillmentType,
-      scheduledDate: shipmentData.scheduledDate,
-      deliveryDate: shipmentData.deliveryDate,
-      notes: shipmentData.notes,
-      orderNumber: order.orderNumber,
-      customerName: order.customerName,
-      ...shipAddress,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning({ id: salesShipments.id });
-
-  await tx.insert(salesShipmentLines).values(
-    entries.map((entry) => ({
-      salesShipmentId: shipment.id,
-      salesOrderLineId: entry.state.id,
-      itemId: entry.state.itemId,
-      itemName: entry.state.itemName,
-      itemSku: entry.state.itemSku,
-      unitName: entry.state.unitName,
-      quantity: normalizeNumeric(entry.quantity),
-      sortOrder: entry.state.sortOrder,
-    }))
-  );
-
-  return shipment.id;
-}
-
-async function syncSalesOrderShipDateFromShipmentsInTx(tx: Tx, orderId: string) {
-  const [row] = await tx
-    .select({
-      scheduledDate: salesShipments.scheduledDate,
-    })
-    .from(salesShipments)
-    .where(
-      and(
-        eq(salesShipments.salesOrderId, orderId),
-        sql`${salesShipments.scheduledDate} IS NOT NULL`
-      )
-    )
-    .orderBy(asc(salesShipments.scheduledDate), asc(salesShipments.sequence))
-    .limit(1);
-
-  await tx
-    .update(salesOrders)
-    .set({ shipDate: row?.scheduledDate ?? null, updatedAt: new Date() })
-    .where(eq(salesOrders.id, orderId));
-}
-
-async function deletePlannedShipmentsInTx(
-  tx: Tx,
-  params: {
-    organizationId: string;
-    shipmentIds: string[];
-    actorUserId?: string | null;
-  }
-) {
-  const shipmentIds = [...new Set(params.shipmentIds)];
-  if (shipmentIds.length === 0) return;
-
-  await tx
-    .delete(salesShipmentLines)
-    .where(inArray(salesShipmentLines.salesShipmentId, shipmentIds));
-  await tx
-    .delete(salesShipmentCosts)
-    .where(inArray(salesShipmentCosts.salesShipmentId, shipmentIds));
-  await tx.delete(salesShipments).where(inArray(salesShipments.id, shipmentIds));
-}
-
 async function getSalesOrderDeleteBlockerInTx(tx: Tx, orderIds: string[]) {
   const [shippedOrder] = await tx
     .select({
@@ -2932,24 +2273,6 @@ async function getSalesOrderDeleteBlockerInTx(tx: Tx, orderIds: string[]) {
   if (shippedOrder) {
     return `Cannot delete sales order ${shippedOrder.orderNumber} because it has already shipped. Shipped fulfillment history must be preserved.`;
   }
-
-  const [shippedShipment] = await tx
-    .select({
-      shipmentNumber: salesShipments.shipmentNumber,
-    })
-    .from(salesShipments)
-    .where(
-      and(
-        inArray(salesShipments.salesOrderId, orderIds),
-        or(eq(salesShipments.status, "shipped"), sql`${salesShipments.shippedAt} IS NOT NULL`)
-      )
-    )
-    .limit(1);
-
-  if (shippedShipment) {
-    return `Cannot delete this sales order because shipment ${shippedShipment.shipmentNumber} has already shipped. Shipped fulfillment history must be preserved.`;
-  }
-
   const [directOrderConsumption] = await tx
     .select({
       orderNumber: salesOrders.orderNumber,
@@ -2998,32 +2321,6 @@ async function getSalesOrderDeleteBlockerInTx(tx: Tx, orderIds: string[]) {
   if (salesLineConsumption) {
     return `Cannot delete sales order ${salesLineConsumption.orderNumber} because inventory has already been consumed for fulfillment. Inventory history must be preserved.`;
   }
-
-  const [shipmentConsumption] = await tx
-    .select({
-      orderNumber: salesOrders.orderNumber,
-    })
-    .from(inventoryEvents)
-    .innerJoin(
-      salesShipments,
-      and(
-        eq(inventoryEvents.referenceType, "sales_shipment"),
-        eq(inventoryEvents.referenceId, salesShipments.id)
-      )
-    )
-    .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
-    .where(
-      and(
-        inArray(salesOrders.id, orderIds),
-        eq(inventoryEvents.eventType, "sales_consumption")
-      )
-    )
-    .limit(1);
-
-  if (shipmentConsumption) {
-    return `Cannot delete sales order ${shipmentConsumption.orderNumber} because inventory has already been consumed for fulfillment. Inventory history must be preserved.`;
-  }
-
   const [pushedOrderInvoice] = await tx
     .select({
       orderNumber: salesOrders.orderNumber,
@@ -3046,30 +2343,6 @@ async function getSalesOrderDeleteBlockerInTx(tx: Tx, orderIds: string[]) {
   if (pushedOrderInvoice) {
     return `Cannot delete sales order ${pushedOrderInvoice.orderNumber} because its invoice has already been pushed to accounting. Accounting history must be preserved.`;
   }
-
-  const [pushedShipmentInvoice] = await tx
-    .select({
-      shipmentNumber: salesShipments.shipmentNumber,
-    })
-    .from(accountingDocumentSyncs)
-    .innerJoin(salesShipments, eq(accountingDocumentSyncs.documentId, salesShipments.id))
-    .where(
-      and(
-        eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
-        eq(accountingDocumentSyncs.documentType, "sales_shipment"),
-        inArray(salesShipments.salesOrderId, orderIds),
-        or(
-          eq(accountingDocumentSyncs.pushStatus, "pushed"),
-          sql`${accountingDocumentSyncs.externalDocumentId} IS NOT NULL`
-        )
-      )
-    )
-    .limit(1);
-
-  if (pushedShipmentInvoice) {
-    return `Cannot delete this sales order because shipment ${pushedShipmentInvoice.shipmentNumber} has already been pushed to accounting. Accounting history must be preserved.`;
-  }
-
   return null;
 }
 
@@ -3183,16 +2456,6 @@ async function deleteSalesLinkedManufacturingOrdersInTx(
   });
 
   return deleted.error ?? null;
-}
-
-async function getNextShipmentSequenceInTx(tx: Tx, salesOrderId: string) {
-  const result = await tx.execute(
-    sql`SELECT COALESCE(MAX(sequence), 0) + 1 AS next_sequence
-        FROM sales.sales_shipments
-        WHERE sales_order_id = ${salesOrderId}`
-  );
-  const raw = (result.rows[0] as { next_sequence: string | number }).next_sequence;
-  return Number(raw);
 }
 
 async function getValidatedCustomerInTx(tx: Tx, customerId: string) {
@@ -5550,169 +4813,8 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
         );
         const linkedManufacturingOrdersBySalesOrderId =
           await getLinkedManufacturingOrdersBySalesOrderIdInTx(tx, orderIds);
-
-        const shipmentSummaryRows = await tx
-          .select({
-            salesOrderId: salesShipments.salesOrderId,
-            id: salesShipments.id,
-            shipmentNumber: salesShipments.shipmentNumber,
-            sequence: salesShipments.sequence,
-            status: salesShipments.status,
-            fulfillmentType: salesShipments.fulfillmentType,
-            scheduledDate: salesShipments.scheduledDate,
-            deliveryDate: salesShipments.deliveryDate,
-            shippedAt: salesShipments.shippedAt,
-            totalAmount: trimScale(
-              sql`COALESCE(SUM(${salesShipmentLines.quantity} * ${salesOrderLines.unitPrice}), 0)`
-            ).as("totalAmount"),
-            lineCount: sql<number>`COUNT(${salesShipmentLines.id})::int`.as(
-              "lineCount"
-            ),
-          })
-          .from(salesShipments)
-          .leftJoin(
-            salesShipmentLines,
-            eq(salesShipmentLines.salesShipmentId, salesShipments.id)
-          )
-          .leftJoin(
-            salesOrderLines,
-            eq(salesOrderLines.id, salesShipmentLines.salesOrderLineId)
-          )
-          .where(inArray(salesShipments.salesOrderId, orderIds))
-          .groupBy(
-            salesShipments.salesOrderId,
-            salesShipments.id,
-            salesShipments.shipmentNumber,
-            salesShipments.sequence,
-            salesShipments.status,
-            salesShipments.fulfillmentType,
-            salesShipments.scheduledDate,
-            salesShipments.deliveryDate,
-            salesShipments.shippedAt
-          )
-          .orderBy(
-            asc(salesShipments.salesOrderId),
-            asc(salesShipments.sequence),
-            asc(salesShipments.id)
-          );
-        const shipmentsBySalesOrderId = new Map<
-          string,
-          SalesOrderListRow["shipments"]
-        >();
-        shipmentSummaryRows.forEach((row) => {
-          const bucket = shipmentsBySalesOrderId.get(row.salesOrderId) ?? [];
-          bucket.push({
-            id: row.id,
-            shipmentNumber: row.shipmentNumber,
-            sequence: row.sequence,
-            status: row.status as SalesOrderListRow["shipments"][number]["status"],
-            fulfillmentType:
-              row.fulfillmentType as SalesOrderListRow["shipments"][number]["fulfillmentType"],
-            scheduledDate: row.scheduledDate,
-            deliveryDate: row.deliveryDate,
-            shippedAt: row.shippedAt,
-            totalAmount: row.totalAmount,
-            lineCount: row.lineCount,
-            lines: [],
-          });
-          shipmentsBySalesOrderId.set(row.salesOrderId, bucket);
-        });
-
-        const shipmentLineRows =
-          shipmentSummaryRows.length === 0
-            ? []
-            : await tx
-                .select({
-                  salesOrderId: salesShipments.salesOrderId,
-                  salesShipmentId: salesShipmentLines.salesShipmentId,
-                  id: salesShipmentLines.id,
-                  salesOrderLineId: salesShipmentLines.salesOrderLineId,
-                  itemId: salesShipmentLines.itemId,
-                  itemName: salesShipmentLines.itemName,
-                  itemSku: salesShipmentLines.itemSku,
-                  unitName: salesShipmentLines.unitName,
-                  quantity: trimScale(salesShipmentLines.quantity).as("quantity"),
-                  sortOrder: salesShipmentLines.sortOrder,
-                })
-                .from(salesShipmentLines)
-                .innerJoin(
-                  salesShipments,
-                  eq(salesShipmentLines.salesShipmentId, salesShipments.id)
-                )
-                .where(inArray(salesShipments.salesOrderId, orderIds))
-                .orderBy(
-                  asc(salesShipments.salesOrderId),
-                  asc(salesShipments.sequence),
-                  asc(salesShipmentLines.sortOrder)
-                );
-
-        const actualLineCostsByOrderId = await getActualSalesLineCostsByOrderIdInTx(
-          tx,
-          orderIds
-        );
-        const shipmentsById = new Map(
-          [...shipmentsBySalesOrderId.values()].flatMap((shipments) =>
-            shipments.map((shipment) => [shipment.id, shipment] as const)
-          )
-        );
         const shippedByLine = new Map<string, number>();
         const plannedByLine = new Map<string, number>();
-        const actualLineIds = new Set<string>();
-        for (const lineCosts of actualLineCostsByOrderId.values()) {
-          for (const [lineId, actual] of lineCosts.entries()) {
-            actualLineIds.add(lineId);
-            shippedByLine.set(lineId, normalizeShipmentQuantity(Number(actual.quantity)));
-          }
-        }
-        shipmentLineRows.forEach((line) => {
-          const shipment = shipmentsById.get(line.salesShipmentId);
-          if (!shipment) return;
-          shipment.lines.push({
-            id: line.id,
-            salesOrderLineId: line.salesOrderLineId,
-            itemId: line.itemId,
-            itemName: line.itemName,
-            itemSku: line.itemSku,
-            unitName: line.unitName,
-            quantity: line.quantity,
-            sortOrder: line.sortOrder,
-          });
-          const quantity = Number(line.quantity);
-          if (!Number.isFinite(quantity)) return;
-          if (shipment.status === "shipped") {
-            if (!actualLineIds.has(line.salesOrderLineId)) {
-              shippedByLine.set(
-                line.salesOrderLineId,
-                normalizeShipmentQuantity(
-                  (shippedByLine.get(line.salesOrderLineId) ?? 0) + quantity
-                )
-              );
-            }
-          } else if (shipment.status === "planned") {
-            plannedByLine.set(
-              line.salesOrderLineId,
-              normalizeShipmentQuantity(
-                (plannedByLine.get(line.salesOrderLineId) ?? 0) + quantity
-              )
-            );
-          }
-        });
-
-        const allocationSummaryByDemandId = new Map<string, SalesAllocationLineSummary>();
-        const allocationSummaryByLineId = new Map<string, SalesAllocationLineSummary>();
-        for (const shipment of shipmentsById.values()) {
-          shipment.lines = shipment.lines.map((line) => {
-            const allocation = allocationSummaryByDemandId.get(line.id);
-            return {
-              ...line,
-              allocatedQty: allocation?.allocatedQty ?? "0",
-              shortQty: allocation?.shortQty ?? "0",
-              sourceSummary: allocation?.sourceSummary ?? "\u2014",
-              allocationStatus: allocation?.status ?? "short",
-              allocationSources: allocation?.sources ?? [],
-            };
-          });
-        }
 
         const orderById = new Map(orderRows.map((order) => [order.id, order]));
         const availabilityLineRows = await tx
@@ -5721,6 +4823,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             salesOrderLineId: salesOrderLines.id,
             itemId: salesOrderLines.itemId,
             quantity: trimScale(salesOrderLines.quantity).as("quantity"),
+            shippedQuantity: trimScale(salesOrderLines.shippedQuantity).as("shippedQuantity"),
             sortOrder: salesOrderLines.sortOrder,
           })
           .from(salesOrderLines)
@@ -5740,12 +4843,16 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
         const orderedQuantityByLineId = new Map(
           availabilityLineRows.map((line) => [line.salesOrderLineId, line.quantity])
         );
+        const allocationSummaryByLineId = new Map<string, SalesAllocationLineSummary>();
+        availabilityLineRows.forEach((line) => {
+          shippedByLine.set(line.salesOrderLineId, normalizeShipQuantity(Number(line.shippedQuantity)));
+        });
         const demandLines = availabilityLineRows.flatMap((line) => {
           const order = orderById.get(line.salesOrderId);
           if (!order || order.status !== "open") return [];
 
           const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
-          const remainingQty = normalizeShipmentQuantity(
+          const remainingQty = normalizeShipQuantity(
             Number(line.quantity) - shippedQty
           );
           if (!Number.isFinite(remainingQty) || remainingQty <= 0) {
@@ -5801,7 +4908,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
               (acc, line) => {
                 const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
                 const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
-                const remainingQty = normalizeShipmentQuantity(
+                const remainingQty = normalizeShipQuantity(
                   Number(line.quantity) - shippedQty
                 );
                 const demandQueueCoverage = demandQueueCoverageBySalesLineId.get(
@@ -5887,7 +4994,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           ).map(serializeLinkedManufacturingOrder);
           const stockBlockers = salesLines.flatMap((line) => {
             const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
-            const remainingQty = normalizeShipmentQuantity(
+            const remainingQty = normalizeShipQuantity(
               Number(line.quantity) - shippedQty
             );
             const demandQueueCoverage = demandQueueCoverageBySalesLineId.get(
@@ -5920,14 +5027,12 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             itemSummary: summarizeItems(salesLines),
             lines: salesLines.map((line) => {
               const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
-              const unplannedAllocation = allocationSummaryByDemandId.get(
-                line.salesOrderLineId
-              );
+              const unplannedAllocation = allocation;
               const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
-              const remainingQty = normalizeShipmentQuantity(
+              const remainingQty = normalizeShipQuantity(
                 Number(line.quantity) - shippedQty
               );
-              const unplannedQty = normalizeShipmentQuantity(
+              const unplannedQty = normalizeShipQuantity(
                 remainingQty - (plannedByLine.get(line.salesOrderLineId) ?? 0)
               );
               const allocatedQty = Number(allocation?.allocatedQty ?? 0);
@@ -5980,7 +5085,6 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 unitName: line.unitName,
               };
             }),
-            shipments: shipmentsBySalesOrderId.get(order.id) ?? [],
             fulfillmentSummary: (() => {
               const allocated = normalizeNumeric(
                 roundQuantity(fulfillmentTotals.allocatedQty)
@@ -6168,8 +5272,6 @@ export async function getSalesShippingQueue(): Promise<SalesShippingQueueRow[]> 
     if (order.status !== "open") {
       return [];
     }
-    const activePlannedShipment =
-      order.shipments.find((shipment) => shipment.status === "planned") ?? null;
     const openManufacturingOrders = order.linkedManufacturingOrders.filter(
       (manufacturingOrder) =>
         manufacturingOrder.status === "open"
@@ -6191,11 +5293,8 @@ export async function getSalesShippingQueue(): Promise<SalesShippingQueueRow[]> 
         shipRegion: order.shipRegion,
         shipPostcode: order.shipPostcode,
         shipCountry: order.shipCountry,
-        activePlannedShipmentId: activePlannedShipment?.id ?? null,
-        recommendedShipmentId: activePlannedShipment?.id ?? null,
         shippingReadiness: order.shippingReadiness,
         lines: order.lines,
-        shipments: order.shipments,
         openManufacturingOrders,
       } satisfies SalesShippingQueueRow,
     ];
@@ -6295,6 +5394,9 @@ export async function getSalesOrder(
         itemSku: salesOrderLines.itemSku,
         unitName: salesOrderLines.unitName,
         quantity: trimScale(salesOrderLines.quantity).as("quantity"),
+        shippedQuantity: trimScale(salesOrderLines.shippedQuantity).as(
+          "shippedQuantity"
+        ),
         cancelledQuantity: trimScale(salesOrderLines.cancelledQuantity).as(
           "cancelledQuantity"
         ),
@@ -6404,291 +5506,43 @@ export async function getSalesOrder(
         actualMarginPercent: actualMargin?.marginPercent ?? null,
       };
     });
-
-    const shipmentRows = await tx
-      .select({
-        id: salesShipments.id,
-        shipmentNumber: salesShipments.shipmentNumber,
-        sequence: salesShipments.sequence,
-        status: salesShipments.status,
-        fulfillmentType: salesShipments.fulfillmentType,
-        scheduledDate: salesShipments.scheduledDate,
-        deliveryDate: salesShipments.deliveryDate,
-        shippedAt: salesShipments.shippedAt,
-        notes: salesShipments.notes,
-        customerFreightChargeAmount: trimScaleNullable(
-          salesShipments.customerFreightChargeAmount
-        ).as("customerFreightChargeAmount"),
-        xeroInvoiceId: accountingDocumentSyncs.externalDocumentId,
-        xeroInvoiceNumber: accountingDocumentSyncs.externalDocumentNumber,
-        xeroPushStatus: accountingDocumentSyncs.pushStatus,
-        xeroPushError: accountingDocumentSyncs.pushError,
-        createdAt: salesShipments.createdAt,
-        updatedAt: salesShipments.updatedAt,
-        lineId: salesShipmentLines.id,
-        salesOrderLineId: salesShipmentLines.salesOrderLineId,
-        itemId: salesShipmentLines.itemId,
-        itemName: salesShipmentLines.itemName,
-        itemSku: salesShipmentLines.itemSku,
-        unitName: salesShipmentLines.unitName,
-        lineQuantity: trimScale(salesShipmentLines.quantity).as("lineQuantity"),
-        sortOrder: salesShipmentLines.sortOrder,
-      })
-      .from(salesShipments)
-      .leftJoin(
-        salesShipmentLines,
-        eq(salesShipmentLines.salesShipmentId, salesShipments.id)
-      )
-      .leftJoin(
-        accountingDocumentSyncs,
-        and(
-          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
-          eq(accountingDocumentSyncs.documentType, "sales_shipment"),
-          eq(accountingDocumentSyncs.documentId, salesShipments.id)
-        )
-      )
-      .where(eq(salesShipments.salesOrderId, id))
-      .orderBy(asc(salesShipments.sequence), asc(salesShipmentLines.sortOrder));
-
-    const shipmentsById = new Map<string, SalesShipmentRow>();
     const shippedByLine = new Map<string, number>();
     const plannedByLine = new Map<string, number>();
-    const actualLineIds = new Set<string>();
-
-    for (const [lineId, actual] of actualLineCosts.entries()) {
-      actualLineIds.add(lineId);
-      shippedByLine.set(lineId, normalizeShipmentQuantity(Number(actual.quantity)));
+    for (const line of lines) {
+      shippedByLine.set(line.id, normalizeShipQuantity(Number(line.shippedQuantity ?? 0)));
     }
-
-    shipmentRows.forEach((row) => {
-      const existing = shipmentsById.get(row.id);
-      const shipment =
-        existing ??
-        ({
-          id: row.id,
-          shipmentNumber: row.shipmentNumber,
-          sequence: row.sequence,
-          status: row.status as SalesShipmentRow["status"],
-          fulfillmentType: row.fulfillmentType as SalesShipmentRow["fulfillmentType"],
-          scheduledDate: row.scheduledDate,
-          deliveryDate: row.deliveryDate,
-          shippedAt: row.shippedAt,
-          notes: row.notes,
-          customerFreightChargeAmount: row.customerFreightChargeAmount,
-          xeroInvoiceId: row.xeroInvoiceId,
-          xeroInvoiceNumber: row.xeroInvoiceNumber,
-          xeroPushStatus: row.xeroPushStatus as SalesShipmentRow["xeroPushStatus"],
-          xeroPushError: row.xeroPushError,
-          lines: [],
-          costs: [],
-          marginSummary: buildSalesMarginSummary({
-            productRevenue: 0,
-            freightRecovery: 0,
-            productCogs: 0,
-            shipmentCosts: 0,
-            costStatus: row.status === "shipped" ? "actual" : "estimated",
-          }),
-          createdAt: row.createdAt,
-          updatedAt: row.updatedAt,
-        } satisfies SalesShipmentRow);
-
-      if (row.lineId && row.salesOrderLineId && row.itemId && row.lineQuantity) {
-        shipment.lines.push({
-          id: row.lineId,
-          salesOrderLineId: row.salesOrderLineId,
-          itemId: row.itemId,
-          itemName: row.itemName ?? "",
-          itemSku: row.itemSku,
-          unitName: row.unitName ?? "",
-          quantity: row.lineQuantity,
-          sortOrder: row.sortOrder ?? 0,
-        });
-
-        const quantity = parseFloat(row.lineQuantity);
-        if (row.status === "shipped") {
-          if (!actualLineIds.has(row.salesOrderLineId)) {
-            shippedByLine.set(
-              row.salesOrderLineId,
-              normalizeShipmentQuantity(
-                (shippedByLine.get(row.salesOrderLineId) ?? 0) + quantity
-              )
-            );
-          }
-        } else if (row.status === "planned") {
-          plannedByLine.set(
-            row.salesOrderLineId,
-            normalizeShipmentQuantity(
-              (plannedByLine.get(row.salesOrderLineId) ?? 0) + quantity
-            )
-          );
-        }
-      }
-
-      shipmentsById.set(row.id, shipment);
-    });
-
-    const shipments = [...shipmentsById.values()];
-    const shipmentIds = shipments.map((shipment) => shipment.id);
-    const shipmentCostRows =
-      shipmentIds.length === 0
-        ? []
-        : await tx
-            .select({
-              id: salesShipmentCosts.id,
-              salesShipmentId: salesShipmentCosts.salesShipmentId,
-              costType: salesShipmentCosts.costType,
-              costStatus: salesShipmentCosts.costStatus,
-              amount: trimScale(salesShipmentCosts.amount).as("amount"),
-              vendorName: salesShipmentCosts.vendorName,
-              referenceNumber: salesShipmentCosts.referenceNumber,
-              incurredDate: salesShipmentCosts.incurredDate,
-              notes: salesShipmentCosts.notes,
-              createdAt: salesShipmentCosts.createdAt,
-              updatedAt: salesShipmentCosts.updatedAt,
-            })
-            .from(salesShipmentCosts)
-            .where(inArray(salesShipmentCosts.salesShipmentId, shipmentIds))
-            .orderBy(
-              asc(salesShipmentCosts.costStatus),
-              asc(salesShipmentCosts.costType),
-              asc(salesShipmentCosts.createdAt)
-            );
-
-    shipmentCostRows.forEach((row) => {
-      const shipment = shipmentsById.get(row.salesShipmentId);
-      if (!shipment) return;
-
-      shipment.costs.push({
-        id: row.id,
-        costType: row.costType as SalesShipmentRow["costs"][number]["costType"],
-        costStatus: row.costStatus as SalesShipmentRow["costs"][number]["costStatus"],
-        amount: row.amount,
-        vendorName: row.vendorName,
-        referenceNumber: row.referenceNumber,
-        incurredDate: row.incurredDate,
-        notes: row.notes,
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt,
-      });
-    });
-
-    const actualShipmentCogs = await getActualShipmentCogsByShipmentIdInTx(
-      tx,
-      shipmentIds
-    );
-    const orderLinesById = new Map(lines.map((line) => [line.id, line]));
-
-    shipments.forEach((shipment) => {
-      const productRevenue = shipment.lines.reduce((sum, shipmentLine) => {
-        const orderLine = orderLinesById.get(shipmentLine.salesOrderLineId);
-        return (
-          sum +
-          parseMoneyValue(orderLine?.unitPrice) *
-            parseMoneyValue(shipmentLine.quantity)
-        );
-      }, 0);
-      let productCogs: number | null = null;
-      let productCostStatus: SalesMarginSummary["costStatus"] = "unknown";
-
-      if (shipment.status === "shipped") {
-        const actual = actualShipmentCogs.get(shipment.id);
-        productCogs = actual == null ? null : parseMoneyValue(actual.cogs);
-        productCostStatus = actual == null ? "unknown" : "actual";
-      } else {
-        let estimatedCogs = 0;
-        let hasMissingCost = false;
-
-        for (const shipmentLine of shipment.lines) {
-          const estimatedUnitCost = estimatedUnitCosts.get(shipmentLine.itemId);
-          if (estimatedUnitCost == null) {
-            hasMissingCost = true;
-            break;
-          }
-
-          estimatedCogs +=
-            parseMoneyValue(estimatedUnitCost) *
-            parseMoneyValue(shipmentLine.quantity);
-        }
-
-        productCogs = hasMissingCost ? null : estimatedCogs;
-        productCostStatus = hasMissingCost ? "unknown" : "estimated";
-      }
-
-      const shipmentCostSelection = selectShipmentCostAmount(
-        shipment.costs,
-        productCostStatus
-      );
-      shipment.marginSummary = buildSalesMarginSummary({
-        productRevenue,
-        freightRecovery: 0,
-        productCogs,
-        shipmentCosts: shipmentCostSelection.amount,
-        costStatus: combineMarginStatuses([
-          productCostStatus,
-          shipmentCostSelection.status,
-        ]),
-      });
-    });
-
-    const activeShipmentSummaries = shipments
-      .map((shipment) => shipment.marginSummary);
     const orderFreightRecovery = parseMoneyValue(order.shippingFeeAmount);
-    const orderShipmentCosts = activeShipmentSummaries.reduce(
-      (sum, summary) => sum + parseMoneyValue(summary.shipmentCosts),
-      0
-    );
-    const orderMarginSummary =
-      order.status === "done"
-        ? (() => {
-            const orderProductCogs = activeShipmentSummaries.some(
-              (summary) => summary.productCogs == null
-            )
-              ? null
-              : activeShipmentSummaries.reduce(
-                  (sum, summary) => sum + parseMoneyValue(summary.productCogs),
-                  0
-                );
-
-            return buildSalesMarginSummary({
-              productRevenue: activeShipmentSummaries.reduce(
-                (sum, summary) => sum + parseMoneyValue(summary.productRevenue),
-                0
-              ),
-              freightRecovery: orderFreightRecovery,
-              productCogs: orderProductCogs,
-              shipmentCosts: orderShipmentCosts,
-              costStatus: combineMarginStatuses(
-                activeShipmentSummaries.map((summary) => summary.costStatus)
-              ),
-            });
-          })()
-        : buildSalesMarginSummary({
-            productRevenue: lines.reduce(
-              (sum, line) => sum + parseMoneyValue(line.lineSubtotal),
-              0
-            ),
-            freightRecovery: orderFreightRecovery,
-            productCogs: lines.some((line) => line.estimatedCogs == null)
-              ? null
-              : lines.reduce(
-                  (sum, line) => sum + parseMoneyValue(line.estimatedCogs),
-                  0
-                ),
-            shipmentCosts: orderShipmentCosts,
-            costStatus: lines.some((line) => line.estimatedCogs == null)
-              ? "unknown"
-              : "estimated",
-          });
+    const orderProductCogs = order.status === "done"
+      ? lines.some((line) => line.actualCogs == null)
+        ? null
+        : lines.reduce((sum, line) => sum + parseMoneyValue(line.actualCogs), 0)
+      : lines.some((line) => line.estimatedCogs == null)
+        ? null
+        : lines.reduce((sum, line) => sum + parseMoneyValue(line.estimatedCogs), 0);
+    const orderMarginSummary = buildSalesMarginSummary({
+      productRevenue: lines.reduce(
+        (sum, line) => sum + parseMoneyValue(line.lineSubtotal),
+        0
+      ),
+      freightRecovery: orderFreightRecovery,
+      productCogs: orderProductCogs,
+      fulfillmentCosts: 0,
+      costStatus: orderProductCogs == null
+        ? "unknown"
+        : order.status === "done"
+          ? "actual"
+          : "estimated",
+    });
 
     const linesWithFulfillment = lines.map((line) => {
       const shippedQuantity = shippedByLine.get(line.id) ?? 0;
       const plannedQuantity = plannedByLine.get(line.id) ?? 0;
       const cancelledQuantity = parseFloat(line.cancelledQuantity);
       const orderedQuantity = parseFloat(line.quantity);
-      const remainingQuantity = normalizeShipmentQuantity(
+      const remainingQuantity = normalizeShipQuantity(
         orderedQuantity - shippedQuantity - cancelledQuantity
       );
-      const unplannedRemainingQuantity = normalizeShipmentQuantity(
+      const unplannedRemainingQuantity = normalizeShipQuantity(
         remainingQuantity - plannedQuantity
       );
 
@@ -7030,7 +5884,6 @@ export async function getSalesOrder(
       lines: linesWithLotGuidance as SalesOrderDetailLine[],
       taxRates: taxSettings.rates,
       defaultTaxRateId: taxSettings.defaultSalesTaxRateId,
-      shipments,
       marginSummary: orderMarginSummary,
       hasManufacturableLines,
       manufacturableLineCount: manufacturingSummary?.manufacturableLineCount ?? 0,
@@ -7091,49 +5944,6 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
       getOrderLinesInTx(tx, id),
       getTaxSettingsInTx(tx, orgId),
     ]);
-    const shipmentRows = await tx
-      .select({
-        id: salesShipments.id,
-        fulfillmentType: salesShipments.fulfillmentType,
-        scheduledDate: salesShipments.scheduledDate,
-        deliveryDate: salesShipments.deliveryDate,
-        notes: salesShipments.notes,
-        itemId: salesShipmentLines.itemId,
-        quantity: trimScale(salesShipmentLines.quantity).as("quantity"),
-      })
-      .from(salesShipments)
-      .leftJoin(
-        salesShipmentLines,
-        eq(salesShipmentLines.salesShipmentId, salesShipments.id)
-      )
-      .where(
-        and(
-          eq(salesShipments.salesOrderId, id),
-          eq(salesShipments.status, "planned")
-        )
-      )
-      .orderBy(asc(salesShipments.sequence), asc(salesShipmentLines.sortOrder));
-    const shipmentsById = new Map<
-      string,
-      SalesOrderEditData["shipments"][number]
-    >();
-    shipmentRows.forEach((row) => {
-      const shipment = shipmentsById.get(row.id) ?? {
-        id: row.id,
-        fulfillmentType: row.fulfillmentType as "delivery" | "pickup",
-        scheduledDate: row.scheduledDate,
-        deliveryDate: row.deliveryDate,
-        notes: row.notes,
-        lines: [],
-      };
-      if (row.itemId && row.quantity) {
-        shipment.lines.push({
-          itemId: row.itemId,
-          quantity: row.quantity,
-        });
-      }
-      shipmentsById.set(row.id, shipment);
-    });
 
     return {
       ...order,
@@ -7154,7 +5964,6 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
       })),
       taxRates: taxSettings.rates,
       defaultTaxRateId: taxSettings.defaultSalesTaxRateId,
-      shipments: [...shipmentsById.values()],
     };
   });
 }
@@ -7253,28 +6062,6 @@ export async function createSalesOrder(
       await rerankOpenSalesOrdersInTx(tx, orgId);
     }
 
-    await createPlannedShipmentsFromOrderPayloadInTx(
-      tx,
-      orgId,
-      {
-        id: order.id,
-        orderNumber,
-        customerId: prepared.customerId,
-        customerName: prepared.customerName,
-        status: "open",
-        shipDate: prepared.shipDate,
-        requestedDate: prepared.requestedDate,
-        shipLine1: prepared.shipLine1,
-        shipLine2: prepared.shipLine2,
-        shipCity: prepared.shipCity,
-        shipRegion: prepared.shipRegion,
-        shipPostcode: prepared.shipPostcode,
-        shipCountry: prepared.shipCountry,
-      },
-      data.shipments,
-      insertedLines
-    );
-
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
       idempotencyKey: options?.idempotencyKey ?? null,
@@ -7326,7 +6113,6 @@ export async function duplicateSalesOrder(
         unitPrice: line.unitPrice,
         taxRateId: line.taxRateId,
       })),
-      shipments: [],
       confirmOversell: true,
     },
     options
@@ -7367,6 +6153,8 @@ export async function updateSalesOrder(
       throw new SalesError("Done orders cannot be changed.", 400);
     }
 
+    await assertSalesOrderHasNoShippedLinesForEditInTx(tx, id);
+
     const prepared = await prepareOrderPayload(tx, orgId, data);
 
     if (isEditableOpenSalesOrderStatus(existingOrder.status)) {
@@ -7388,55 +6176,6 @@ export async function updateSalesOrder(
         idempotencyKey: deriveInventoryIdempotencyKey(
           options?.idempotencyKey,
           "edit-open-order-release"
-        ),
-        reason: "edited",
-        salesOrderLineIds: existingLines.map((line) => line.id),
-      });
-    }
-
-    const existingShipmentRows = await tx
-      .select({ id: salesShipments.id })
-      .from(salesShipments)
-      .where(
-        and(
-          eq(salesShipments.salesOrderId, id),
-          eq(salesShipments.status, "planned")
-        )
-      );
-
-    if (existingShipmentRows.length > 0) {
-      await tx.delete(salesShipmentLines).where(
-        inArray(
-          salesShipmentLines.salesShipmentId,
-          existingShipmentRows.map((shipment) => shipment.id)
-        )
-      );
-      await tx.delete(salesShipmentCosts).where(
-        inArray(
-          salesShipmentCosts.salesShipmentId,
-          existingShipmentRows.map((shipment) => shipment.id)
-        )
-      );
-      await tx
-        .delete(salesShipments)
-        .where(
-          inArray(
-            salesShipments.id,
-            existingShipmentRows.map((shipment) => shipment.id)
-          )
-        );
-    }
-
-    // Existing lines are about to be hard-deleted. Zero the reservation summary
-    // now so the deleted lines don't leave orphaned committedQty.
-    if (existingShipmentRows.length > 0 && existingLines.length > 0) {
-      await releaseReservationForSalesLineInTx(tx, {
-        organizationId: orgId,
-        salesOrderId: id,
-        actorUserId: userId,
-        idempotencyKey: deriveInventoryIdempotencyKey(
-          options?.idempotencyKey,
-          "edit-open-order-release-post-shipment"
         ),
         reason: "edited",
         salesOrderLineIds: existingLines.map((line) => line.id),
@@ -7527,28 +6266,6 @@ export async function updateSalesOrder(
       })),
     });
 
-    await createPlannedShipmentsFromOrderPayloadInTx(
-      tx,
-      orgId,
-      {
-        id,
-        orderNumber,
-        customerId: prepared.customerId,
-        customerName: prepared.customerName,
-        status: "open",
-        shipDate: prepared.shipDate,
-        requestedDate: prepared.requestedDate,
-        shipLine1: prepared.shipLine1,
-        shipLine2: prepared.shipLine2,
-        shipCity: prepared.shipCity,
-        shipRegion: prepared.shipRegion,
-        shipPostcode: prepared.shipPostcode,
-        shipCountry: prepared.shipCountry,
-      },
-      data.shipments,
-      insertedLines
-    );
-
     const result = { id };
 
     await finishInventoryOperationInTx(tx, {
@@ -7624,7 +6341,14 @@ export async function getSalesOrderForBol(
       .where(eq(salesOrderLines.salesOrderId, id))
       .orderBy(asc(salesOrderLines.sortOrder));
 
-    const shipAddress = await resolveShipmentAddressInTx(tx, order);
+    const shipAddress = {
+      shipLine1: order.shipLine1,
+      shipLine2: order.shipLine2,
+      shipCity: order.shipCity,
+      shipRegion: order.shipRegion,
+      shipPostcode: order.shipPostcode,
+      shipCountry: order.shipCountry,
+    };
     const contact = await resolveBolContactInTx(tx, order.customerId);
 
     return {
@@ -7639,797 +6363,6 @@ export async function getSalesOrderForBol(
       lines,
     };
   });
-}
-
-export type BolSalesShipmentData = {
-  orderNumber: string;
-  shipmentNumber: string;
-  customerName: string;
-  contactName: string | null;
-  contactTitle: string | null;
-  contactEmail: string | null;
-  contactPhone: string | null;
-  requestedDate: string | null;
-  scheduledDate: string | null;
-  shippedAt: Date | null;
-  notes: string | null;
-  status: string;
-  fulfillmentType: string;
-  shipLine1: string | null;
-  shipLine2: string | null;
-  shipCity: string | null;
-  shipRegion: string | null;
-  shipPostcode: string | null;
-  shipCountry: string | null;
-  lines: Array<{
-    itemName: string;
-    itemSku: string | null;
-    quantity: string;
-    unitName: string;
-  }>;
-};
-
-export async function getSalesShipmentForBol(
-  orderId: string,
-  shipmentId: string
-): Promise<BolSalesShipmentData | null> {
-  return withAuthedOrgContext(async (tx) => {
-    const [shipment] = await tx
-      .select({
-        orderNumber: salesShipments.orderNumber,
-        shipmentNumber: salesShipments.shipmentNumber,
-        customerName: salesShipments.customerName,
-        customerId: salesOrders.customerId,
-        requestedDate: salesOrders.requestedDate,
-        scheduledDate: salesShipments.scheduledDate,
-        deliveryDate: salesShipments.deliveryDate,
-        shippedAt: salesShipments.shippedAt,
-        notes: salesShipments.notes,
-        status: salesShipments.status,
-        fulfillmentType: salesShipments.fulfillmentType,
-        shipLine1: salesShipments.shipLine1,
-        shipLine2: salesShipments.shipLine2,
-        shipCity: salesShipments.shipCity,
-        shipRegion: salesShipments.shipRegion,
-        shipPostcode: salesShipments.shipPostcode,
-        shipCountry: salesShipments.shipCountry,
-        orderShipLine1: salesOrders.shipLine1,
-        orderShipLine2: salesOrders.shipLine2,
-        orderShipCity: salesOrders.shipCity,
-        orderShipRegion: salesOrders.shipRegion,
-        orderShipPostcode: salesOrders.shipPostcode,
-        orderShipCountry: salesOrders.shipCountry,
-      })
-      .from(salesShipments)
-      .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
-      .where(
-        and(
-          eq(salesShipments.id, shipmentId),
-          eq(salesShipments.salesOrderId, orderId),
-          isNull(salesOrders.deletedAt)
-        )
-      );
-
-    if (!shipment) return null;
-
-    const lines = await tx
-      .select({
-        itemName: salesShipmentLines.itemName,
-        itemSku: salesShipmentLines.itemSku,
-        quantity: trimScale(salesShipmentLines.quantity).as("quantity"),
-        unitName: salesShipmentLines.unitName,
-      })
-      .from(salesShipmentLines)
-      .where(eq(salesShipmentLines.salesShipmentId, shipmentId))
-      .orderBy(asc(salesShipmentLines.sortOrder));
-
-    const shipAddress = hasShipAddress(shipment)
-      ? {
-          shipLine1: shipment.shipLine1,
-          shipLine2: shipment.shipLine2,
-          shipCity: shipment.shipCity,
-          shipRegion: shipment.shipRegion,
-          shipPostcode: shipment.shipPostcode,
-          shipCountry: shipment.shipCountry,
-        }
-      : await resolveShipmentAddressInTx(tx, {
-          customerId: shipment.customerId,
-          shipLine1: shipment.orderShipLine1,
-          shipLine2: shipment.orderShipLine2,
-          shipCity: shipment.orderShipCity,
-          shipRegion: shipment.orderShipRegion,
-          shipPostcode: shipment.orderShipPostcode,
-          shipCountry: shipment.orderShipCountry,
-        });
-    const contact = await resolveBolContactInTx(tx, shipment.customerId);
-
-    return {
-      orderNumber: shipment.orderNumber,
-      shipmentNumber: shipment.shipmentNumber,
-      customerName: shipment.customerName,
-      ...contact,
-      requestedDate: null,
-      scheduledDate: shipment.scheduledDate,
-      shippedAt: shipment.shippedAt,
-      notes: shipment.notes,
-      status: shipment.status,
-      fulfillmentType: shipment.fulfillmentType,
-      ...shipAddress,
-      lines,
-    };
-  });
-}
-
-export async function planSalesOrderFulfillment(
-  orderId: string,
-  data: SalesFulfillmentPlanInput,
-  options?: { idempotencyKey?: string }
-): Promise<SalesFulfillmentPlanResult | null> {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const replay = await beginInventoryOperationInTx<SalesFulfillmentPlanResult | null>(
-      tx,
-      {
-        organizationId: orgId,
-        operationName: "planSalesOrderFulfillment",
-        idempotencyKey: options?.idempotencyKey ?? null,
-        payload: { orderId, data },
-      }
-    );
-
-    if (replay.replayed) return replay.result;
-
-    const [order] = await tx
-      .select({
-        id: salesOrders.id,
-        orderNumber: salesOrders.orderNumber,
-        customerId: salesOrders.customerId,
-        customerName: salesOrders.customerName,
-        status: salesOrders.status,
-        shipDate: salesOrders.shipDate,
-        requestedDate: salesOrders.requestedDate,
-        shipLine1: salesOrders.shipLine1,
-        shipLine2: salesOrders.shipLine2,
-        shipCity: salesOrders.shipCity,
-        shipRegion: salesOrders.shipRegion,
-        shipPostcode: salesOrders.shipPostcode,
-        shipCountry: salesOrders.shipCountry,
-      })
-      .from(salesOrders)
-      .where(and(eq(salesOrders.id, orderId), isNull(salesOrders.deletedAt)))
-      .for("update");
-
-    if (!order) {
-      const result = null;
-      await finishInventoryOperationInTx(tx, {
-        organizationId: orgId,
-        idempotencyKey: options?.idempotencyKey ?? null,
-        result,
-      });
-      return result;
-    }
-
-    if (order.status !== "open") {
-      throw new SalesError(
-        "Only open orders can be planned for fulfillment.",
-        400
-      );
-    }
-
-    const shipmentId = await upsertPlannedShipmentForFulfillmentPlanInTx(
-      tx,
-      orgId,
-      order,
-      data,
-      userId
-    );
-    await syncSalesOrderShipDateFromShipmentsInTx(tx, order.id);
-    const result = {
-      id: order.id,
-      shipmentId,
-    };
-
-    await finishInventoryOperationInTx(tx, {
-      organizationId: orgId,
-      idempotencyKey: options?.idempotencyKey ?? null,
-      result,
-    });
-
-    return result;
-  });
-}
-
-export async function createSalesShipment(
-  orderId: string,
-  data: SalesShipmentInput,
-  options?: { idempotencyKey?: string }
-) {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
-      organizationId: orgId,
-      operationName: "createSalesShipment",
-      idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { orderId, data },
-    });
-
-    if (replay.replayed) return replay.result;
-
-    const [order] = await tx
-      .select({
-        id: salesOrders.id,
-        orderNumber: salesOrders.orderNumber,
-        customerId: salesOrders.customerId,
-        customerName: salesOrders.customerName,
-        status: salesOrders.status,
-        shipLine1: salesOrders.shipLine1,
-        shipLine2: salesOrders.shipLine2,
-        shipCity: salesOrders.shipCity,
-        shipRegion: salesOrders.shipRegion,
-        shipPostcode: salesOrders.shipPostcode,
-        shipCountry: salesOrders.shipCountry,
-      })
-      .from(salesOrders)
-      .where(and(eq(salesOrders.id, orderId), isNull(salesOrders.deletedAt)))
-      .for("update");
-
-    if (!order) {
-      const result = null;
-      await finishInventoryOperationInTx(tx, {
-        organizationId: orgId,
-        idempotencyKey: options?.idempotencyKey ?? null,
-        result,
-      });
-      return result;
-    }
-
-    if (order.status !== "open") {
-      throw new SalesError(
-        "Only open orders can have shipments.",
-        400
-      );
-    }
-
-    const splitSourceId = data.splitFromShipmentId ?? null;
-    if (splitSourceId != null) {
-      throw new SalesError("Split shipments are no longer supported. Create a separate sales order instead.", 400);
-    }
-
-    const existingShipments = await tx
-      .select({ id: salesShipments.id })
-      .from(salesShipments)
-      .where(eq(salesShipments.salesOrderId, orderId))
-      .for("update");
-    if (existingShipments.length > 0) {
-      throw new SalesError(
-        "A sales order can only have one shipment. Create a separate sales order instead.",
-        400
-      );
-    }
-
-    const states = await getShipmentLineStatesInTx(tx, orderId);
-    const entries = buildShipmentEntries(states, data);
-    const sequence = await getNextShipmentSequenceInTx(tx, orderId);
-    const shipmentNumber = `${order.orderNumber}-S${sequence}`;
-    const shipAddress = await resolveShipmentAddressInTx(tx, order);
-    const now = new Date();
-
-    const [shipment] = await tx
-      .insert(salesShipments)
-      .values({
-        organizationId: orgId,
-        salesOrderId: orderId,
-        shipmentNumber,
-        sequence,
-        status: "planned",
-        fulfillmentType: data.fulfillmentType,
-        scheduledDate: data.scheduledDate,
-        deliveryDate: data.scheduledDate,
-        notes: data.notes,
-        orderNumber: order.orderNumber,
-        customerName: order.customerName,
-        ...shipAddress,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning({ id: salesShipments.id });
-
-    await tx.insert(salesShipmentLines).values(
-      entries.map((entry) => ({
-        salesShipmentId: shipment.id,
-        salesOrderLineId: entry.state.id,
-        itemId: entry.state.itemId,
-        itemName: entry.state.itemName,
-        itemSku: entry.state.itemSku,
-        unitName: entry.state.unitName,
-        quantity: normalizeNumeric(entry.quantity),
-        sortOrder: entry.state.sortOrder,
-      }))
-    );
-
-    await syncSalesOrderShipDateFromShipmentsInTx(tx, orderId);
-
-    const result = { id: shipment.id };
-    await finishInventoryOperationInTx(tx, {
-      organizationId: orgId,
-      idempotencyKey: options?.idempotencyKey ?? null,
-      result,
-    });
-    return result;
-  });
-}
-
-export async function updateSalesShipment(
-  orderId: string,
-  shipmentId: string,
-  data: SalesShipmentInput,
-  options?: { idempotencyKey?: string }
-) {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
-      organizationId: orgId,
-      operationName: "updateSalesShipment",
-      idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { orderId, shipmentId, data },
-    });
-
-    if (replay.replayed) return replay.result;
-
-    const [shipment] = await tx
-      .select({
-        id: salesShipments.id,
-        shipmentNumber: salesShipments.shipmentNumber,
-        status: salesShipments.status,
-        orderNumber: salesOrders.orderNumber,
-        customerId: salesOrders.customerId,
-        customerName: salesOrders.customerName,
-        shipDate: salesOrders.shipDate,
-        requestedDate: salesOrders.requestedDate,
-        shipLine1: salesOrders.shipLine1,
-        shipLine2: salesOrders.shipLine2,
-        shipCity: salesOrders.shipCity,
-        shipRegion: salesOrders.shipRegion,
-        shipPostcode: salesOrders.shipPostcode,
-        shipCountry: salesOrders.shipCountry,
-      })
-      .from(salesShipments)
-      .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
-      .where(
-        and(
-          eq(salesShipments.id, shipmentId),
-          eq(salesShipments.salesOrderId, orderId),
-          isNull(salesOrders.deletedAt)
-        )
-      )
-      .for("update");
-
-    if (!shipment) {
-      const result = null;
-      await finishInventoryOperationInTx(tx, {
-        organizationId: orgId,
-        idempotencyKey: options?.idempotencyKey ?? null,
-        result,
-      });
-      return result;
-    }
-
-    if (shipment.status !== "planned") {
-      throw new SalesError("Only planned shipments can be edited.", 400);
-    }
-
-    const states = await getShipmentLineStatesInTx(tx, orderId, {
-      excludeShipmentId: shipmentId,
-    });
-    const entries = buildShipmentEntries(states, data);
-    const shipAddress = await resolveShipmentAddressInTx(tx, shipment);
-    await replaceShipmentLinesInTx(tx, {
-      organizationId: orgId,
-      shipmentId,
-      entries,
-      demandLabelSnapshot: shipment.shipmentNumber,
-      actorUserId: userId,
-    });
-
-    await tx
-      .update(salesShipments)
-      .set({
-        fulfillmentType: data.fulfillmentType,
-        scheduledDate: data.scheduledDate,
-        deliveryDate: data.scheduledDate,
-        notes: data.notes,
-        ...shipAddress,
-        updatedAt: new Date(),
-      })
-      .where(eq(salesShipments.id, shipmentId));
-
-    await syncSalesOrderShipDateFromShipmentsInTx(tx, orderId);
-
-    const result = { id: shipmentId };
-    await finishInventoryOperationInTx(tx, {
-      organizationId: orgId,
-      idempotencyKey: options?.idempotencyKey ?? null,
-      result,
-    });
-    return result;
-  });
-}
-
-export async function updateSalesShipmentCosts(
-  orderId: string,
-  shipmentId: string,
-  data: SalesShipmentCostsInput
-) {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    const [shipment] = await tx
-      .select({
-        id: salesShipments.id,
-        status: salesShipments.status,
-      })
-      .from(salesShipments)
-      .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
-      .where(
-        and(
-          eq(salesShipments.id, shipmentId),
-          eq(salesShipments.salesOrderId, orderId),
-          isNull(salesOrders.deletedAt)
-        )
-      )
-      .for("update");
-
-    if (!shipment) {
-      return null;
-    }
-
-    const now = new Date();
-
-    await tx
-      .update(salesShipments)
-      .set({
-        customerFreightChargeAmount: data.customerFreightChargeAmount,
-        updatedAt: now,
-      })
-      .where(eq(salesShipments.id, shipmentId));
-
-    await tx
-      .delete(salesShipmentCosts)
-      .where(eq(salesShipmentCosts.salesShipmentId, shipmentId));
-
-    if (data.costs.length > 0) {
-      await tx.insert(salesShipmentCosts).values(
-        data.costs.map((cost) => ({
-          organizationId: orgId,
-          salesShipmentId: shipmentId,
-          costType: cost.costType,
-          costStatus: cost.costStatus,
-          amount: cost.amount,
-          vendorName: cost.vendorName,
-          referenceNumber: cost.referenceNumber,
-          incurredDate: cost.incurredDate,
-          notes: cost.notes,
-          createdAt: now,
-          updatedAt: now,
-        }))
-      );
-    }
-
-    return { id: shipmentId };
-  });
-}
-
-export async function deleteSalesShipment(
-  orderId: string,
-  shipmentId: string,
-  options?: { idempotencyKey?: string }
-) {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
-      organizationId: orgId,
-      operationName: "deleteSalesShipment",
-      idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { orderId, shipmentId },
-    });
-
-    if (replay.replayed) return replay.result;
-
-    const [shipment] = await tx
-      .select({
-        id: salesShipments.id,
-        status: salesShipments.status,
-        orderNumber: salesOrders.orderNumber,
-        customerId: salesOrders.customerId,
-        customerName: salesOrders.customerName,
-        shipDate: salesOrders.shipDate,
-        requestedDate: salesOrders.requestedDate,
-        shipLine1: salesOrders.shipLine1,
-        shipLine2: salesOrders.shipLine2,
-        shipCity: salesOrders.shipCity,
-        shipRegion: salesOrders.shipRegion,
-        shipPostcode: salesOrders.shipPostcode,
-        shipCountry: salesOrders.shipCountry,
-      })
-      .from(salesShipments)
-      .innerJoin(salesOrders, eq(salesShipments.salesOrderId, salesOrders.id))
-      .where(
-        and(
-          eq(salesShipments.id, shipmentId),
-          eq(salesShipments.salesOrderId, orderId),
-          isNull(salesOrders.deletedAt)
-        )
-      )
-      .for("update");
-
-    if (!shipment) {
-      const result = null;
-      await finishInventoryOperationInTx(tx, {
-        organizationId: orgId,
-        idempotencyKey: options?.idempotencyKey ?? null,
-        result,
-      });
-      return result;
-    }
-
-    if (shipment.status === "shipped") {
-      throw new SalesError("Shipped shipments cannot be deleted.", 400);
-    }
-
-    await tx
-      .delete(salesShipmentLines)
-      .where(eq(salesShipmentLines.salesShipmentId, shipmentId));
-    await tx
-      .delete(salesShipmentCosts)
-      .where(eq(salesShipmentCosts.salesShipmentId, shipmentId));
-    await tx.delete(salesShipments).where(eq(salesShipments.id, shipmentId));
-
-    await syncSalesOrderShipDateFromShipmentsInTx(tx, orderId);
-
-    const result = { id: shipmentId };
-    await finishInventoryOperationInTx(tx, {
-      organizationId: orgId,
-      idempotencyKey: options?.idempotencyKey ?? null,
-      result,
-    });
-    return result;
-  });
-}
-
-export async function shipSalesShipment(
-  orderId: string,
-  shipmentId: string,
-  payload: ShipSalesShipment = {},
-  options?: { idempotencyKey?: string }
-) {
-  const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
-    const replay = await beginInventoryOperationInTx<{
-      shipmentId: string;
-      orderId: string;
-      orderShipped: boolean;
-    } | null>(tx, {
-      organizationId: orgId,
-      operationName: "shipSalesShipment",
-      idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { orderId, shipmentId, payload },
-    });
-
-    if (replay.replayed) {
-      return { replayed: true as const, result: replay.result, orgId };
-    }
-
-    const order = await getLockedSalesOrderInTx(tx, orderId);
-    if (!order) {
-      const result = null;
-      await finishInventoryOperationInTx(tx, {
-        organizationId: orgId,
-        idempotencyKey: options?.idempotencyKey ?? null,
-        result,
-      });
-      return { replayed: false as const, result, orgId };
-    }
-
-    if (order.status !== "open") {
-      throw new SalesError(
-        "Only open orders can ship shipments.",
-        400
-      );
-    }
-
-    const [shipment] = await tx
-      .select({
-        id: salesShipments.id,
-        status: salesShipments.status,
-      })
-      .from(salesShipments)
-      .where(
-        and(
-          eq(salesShipments.id, shipmentId),
-          eq(salesShipments.salesOrderId, orderId)
-        )
-      )
-      .for("update");
-
-    if (!shipment) {
-      throw new SalesError("Shipment not found.", 404);
-    }
-
-    if (shipment.status === "shipped") {
-      throw new SalesError("Shipment is already shipped.", 400);
-    }
-    const shipmentLines = await tx
-      .select({
-        salesShipmentLineId: salesShipmentLines.id,
-        salesOrderLineId: salesShipmentLines.salesOrderLineId,
-        itemId: salesShipmentLines.itemId,
-        itemName: salesShipmentLines.itemName,
-        quantity: trimScale(salesShipmentLines.quantity).as("quantity"),
-      })
-      .from(salesShipmentLines)
-      .where(eq(salesShipmentLines.salesShipmentId, shipmentId))
-      .orderBy(asc(salesShipmentLines.sortOrder));
-
-    if (shipmentLines.length === 0) {
-      throw new SalesError("Shipment must include at least one line.", 400);
-    }
-
-    const states = await getShipmentLineStatesInTx(tx, orderId, {
-      excludeShipmentId: shipmentId,
-    });
-    for (const line of shipmentLines) {
-      const state = states.get(line.salesOrderLineId);
-      if (!state) {
-        throw new SalesError("Shipment line no longer matches this order.", 400);
-      }
-      const quantity = parseFloat(line.quantity);
-      if (quantity > remainingToShip(state)) {
-        throw new SalesError("Cannot ship more than the remaining quantity.", 400);
-      }
-    }
-
-    if (payload.confirmNegativeStock !== true) {
-      const warning = await buildDemandQueueShippingWarningInTx(tx, {
-        organizationId: orgId,
-        lines: shipmentLines.map((line) => ({
-          salesOrderLineId: line.salesOrderLineId,
-          itemId: line.itemId,
-          itemName: line.itemName,
-          quantity: parseFloat(line.quantity),
-        })),
-      });
-      if (warning) {
-        throw new SalesError(
-          `Cannot ship shipment. Insufficient stock for ${warning.itemName}.`,
-          409,
-          { negativeStock: warning }
-        );
-      }
-    }
-
-    const shippedAt = new Date();
-    try {
-      await consumeForShipmentInTx(tx, {
-        organizationId: orgId,
-        salesOrderId: orderId,
-        salesShipmentId: shipmentId,
-        actorUserId: userId,
-        idempotencyKey: deriveInventoryIdempotencyKey(
-          options?.idempotencyKey,
-          "ship-sales-shipment"
-        ),
-	        shippedAt,
-	        allowNegativeStock: payload.confirmNegativeStock === true,
-	        lines: shipmentLines.map((line) => ({
-          salesShipmentLineId: line.salesShipmentLineId,
-          salesOrderLineId: line.salesOrderLineId,
-          itemId: line.itemId,
-          quantity: parseFloat(line.quantity),
-        })),
-      });
-    } catch (error) {
-      if (error instanceof LinkedManufacturingOutputUnavailableError) {
-        const blockingLine = shipmentLines.find(
-          (line) => line.itemId === error.itemId
-        );
-        throw new SalesError(
-          `Cannot ship shipment. Linked make-to-order output is not available for ${blockingLine?.itemName ?? "one item"}.`,
-          409
-        );
-      }
-
-      if (error instanceof InsufficientStockError) {
-        const blockingLine = shipmentLines.find(
-          (line) => line.itemId === error.itemId
-        );
-        const warning = await buildStockWarningPayloadInTx(tx, {
-          organizationId: orgId,
-          itemId: error.itemId,
-          itemName: blockingLine?.itemName ?? "one item",
-          available: error.available,
-          requested: error.requested,
-          excludeSalesOrderLineIds: shipmentLines.map(
-            (line) => line.salesOrderLineId
-          ),
-        });
-        throw new SalesError(
-          `Cannot ship shipment. Insufficient stock for ${blockingLine?.itemName ?? "one item"}.`,
-          409,
-          {
-            negativeStock: warning,
-          }
-        );
-      }
-      throw error;
-    }
-
-    await tx
-      .update(salesShipments)
-      .set({
-        status: "shipped",
-        shippedAt,
-        updatedAt: shippedAt,
-      })
-      .where(eq(salesShipments.id, shipmentId));
-
-    const finalStates = await getShipmentLineStatesInTx(tx, orderId);
-    const allClosed = [...finalStates.values()].every(
-      (line) => remainingToShip(line) <= 0
-    );
-    const [updatedOrder] = await tx
-      .update(salesOrders)
-      .set({
-        status: allClosed ? "done" : "open",
-        ...(allClosed ? { priorityRank: null } : {}),
-        shippedAt: allClosed ? shippedAt : null,
-        updatedAt: shippedAt,
-      })
-      .where(eq(salesOrders.id, orderId))
-      .returning({ id: salesOrders.id, status: salesOrders.status });
-
-    if (allClosed) {
-      await rerankOpenSalesOrdersInTx(tx, orgId);
-    }
-
-    const result = {
-      shipmentId,
-      orderId: updatedOrder.id,
-      orderShipped: updatedOrder.status === "done",
-    };
-    await finishInventoryOperationInTx(tx, {
-      organizationId: orgId,
-      idempotencyKey: options?.idempotencyKey ?? null,
-      result,
-    });
-    return { replayed: false as const, result, orgId };
-  });
-
-  if (!result.result) return null;
-  if (result.replayed || !result.result.orderShipped || payload.syncAccounting !== true) {
-    return result.result;
-  }
-
-  const {
-    hasShipmentInvoiceForSalesOrder,
-    pushSalesOrderToXero,
-    markXeroPushFailed,
-  } = await import("@/lib/xero/push-invoice");
-  const { XeroError } = await import("@/lib/xero/errors");
-
-  try {
-    if (await hasShipmentInvoiceForSalesOrder(result.orgId, orderId)) {
-      return result.result;
-    }
-    await pushSalesOrderToXero(result.orgId, orderId);
-  } catch (error) {
-    if (
-      error instanceof XeroError &&
-      (error.message.includes("not connected") ||
-        error.status === 409 ||
-        error.status === 500)
-    ) {
-      if (!error.message.includes("not connected")) {
-        await markXeroPushFailed(result.orgId, orderId, error);
-      }
-    } else {
-      await markXeroPushFailed(result.orgId, orderId, error);
-    }
-  }
-
-  return result.result;
 }
 
 async function buildStockWarningPayloadInTx(
@@ -8638,7 +6571,7 @@ export async function shipSalesOrder(
   } & ShipSalesOrder
 ) {
   if (options?.completeLinkedManufacturing === true) {
-    await completeLinkedManufacturingForFullShipment(id, options);
+    await completeLinkedManufacturingForFullOrderShip(id, options);
   }
 
   const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
@@ -8690,7 +6623,7 @@ export async function shipSalesOrder(
     }
 
     const lines = await getOrderLinesInTx(tx, id);
-    const states = await getShipmentLineStatesInTx(tx, id);
+    const states = await getSalesOrderLineShipStatesInTx(tx, id);
     const orderLinesById = new Map(lines.map((line) => [line.id, line]));
     const linesToShip = (() => {
       if (options?.lines) {
@@ -8702,7 +6635,7 @@ export async function shipSalesOrder(
               errors: { lines: ["Sales order line not found."] },
             });
           }
-          const quantity = normalizeShipmentQuantity(Number(input.quantity));
+          const quantity = normalizeShipQuantity(Number(input.quantity));
           const remaining = remainingToShip(state);
           if (!Number.isFinite(quantity) || quantity <= 0) {
             throw new SalesError("Quantity must be greater than 0.", 400, {
@@ -8767,56 +6700,11 @@ export async function shipSalesOrder(
     }
 
     const shippedAt = new Date();
-    const sequence = await getNextShipmentSequenceInTx(tx, id);
-    const shipmentNumber = `${order.orderNumber}-S${sequence}`;
-    const shipAddress = await resolveShipmentAddressInTx(tx, order);
-    const [shipment] = await tx
-      .insert(salesShipments)
-      .values({
-        organizationId: orgId,
-        salesOrderId: id,
-        shipmentNumber,
-        sequence,
-        status: "shipped",
-        fulfillmentType: "delivery",
-        scheduledDate: order.shipDate ?? shippedAt.toISOString().slice(0, 10),
-        deliveryDate: order.shipDate ?? shippedAt.toISOString().slice(0, 10),
-        shippedAt,
-        notes: null,
-        orderNumber: order.orderNumber,
-        customerName: order.customerName,
-        ...shipAddress,
-        createdAt: shippedAt,
-        updatedAt: shippedAt,
-      })
-      .returning({ id: salesShipments.id });
-    const shipmentLineRows = await tx
-      .insert(salesShipmentLines)
-      .values(
-        linesToShip.map((line) => ({
-          salesShipmentId: shipment.id,
-          salesOrderLineId: line.salesOrderLineId,
-          itemId: line.itemId,
-          itemName: line.itemName,
-          itemSku: line.itemSku,
-          unitName: line.unitName,
-          quantity: normalizeNumeric(line.quantity),
-          sortOrder: line.sortOrder,
-        }))
-      )
-      .returning({
-        id: salesShipmentLines.id,
-        salesOrderLineId: salesShipmentLines.salesOrderLineId,
-      });
-    const shipmentLineIdsBySalesLineId = new Map(
-      shipmentLineRows.map((line) => [line.salesOrderLineId, line.id])
-    );
 
     try {
-      await consumeForShipmentInTx(tx, {
+      await consumeForSalesOrderShippingInTx(tx, {
         organizationId: orgId,
         salesOrderId: id,
-        salesShipmentId: shipment.id,
         actorUserId: userId,
         idempotencyKey: deriveInventoryIdempotencyKey(
           options?.idempotencyKey,
@@ -8825,8 +6713,6 @@ export async function shipSalesOrder(
         shippedAt,
         allowNegativeStock: options?.confirmNegativeStock === true,
         lines: linesToShip.map((line) => ({
-          salesShipmentLineId:
-            shipmentLineIdsBySalesLineId.get(line.salesOrderLineId) ?? null,
           salesOrderLineId: line.salesOrderLineId,
           itemId: line.itemId,
           quantity: line.quantity,
@@ -8861,6 +6747,16 @@ export async function shipSalesOrder(
       }
 
       throw error;
+    }
+
+    for (const line of linesToShip) {
+      await tx
+        .update(salesOrderLines)
+        .set({
+          shippedQuantity: sql`${salesOrderLines.shippedQuantity} + ${normalizeNumeric(line.quantity)}`,
+          updatedAt: shippedAt,
+        })
+        .where(eq(salesOrderLines.id, line.salesOrderLineId));
     }
 
     const [currentOrder] = await tx
@@ -8938,7 +6834,7 @@ export async function shipSalesOrder(
       }
     }
 
-    const finalStates = await getShipmentLineStatesInTx(tx, id);
+    const finalStates = await getSalesOrderLineShipStatesInTx(tx, id);
     const allClosed = [...finalStates.values()].every(
       (line) => remainingToShip(line) <= 0
     );
@@ -9023,7 +6919,7 @@ export async function shipSalesOrder(
   return result.shipped;
 }
 
-async function completeLinkedManufacturingForFullShipment(
+async function completeLinkedManufacturingForFullOrderShip(
   salesOrderId: string,
   options: ShipSalesOrder & { idempotencyKey?: string }
 ) {
@@ -9173,29 +7069,6 @@ export async function retryAccountingPushForSalesOrder(id: string) {
   });
 }
 
-export async function retryXeroPushForSalesShipment(orderId: string, shipmentId: string) {
-  return withAuthedOrgContext(async (_tx, orgId) => {
-    const { pushSalesShipmentToXero, markShipmentXeroPushFailed } =
-      await import("@/lib/xero/push-invoice");
-    const { XeroError } = await import("@/lib/xero/errors");
-
-    try {
-      const result = await pushSalesShipmentToXero(orgId, orderId, shipmentId);
-      return { ok: true as const, result };
-    } catch (error) {
-      if (
-        error instanceof XeroError &&
-        (error.status === 400 || error.status === 404 || error.status === 409)
-      ) {
-        throw error;
-      }
-
-      await markShipmentXeroPushFailed(orgId, shipmentId, error);
-      throw error;
-    }
-  });
-}
-
 export async function confirmSalesOrder(
   id: string,
   flags:
@@ -9270,9 +7143,8 @@ export async function bulkConfirmSalesOrders(
 
 /**
  * Per-field header patch for the inline-edit flow on the Calm Matrix Sales
- * Order page. Touches only the salesOrders row — never lines, never shipments,
- * never inventory kernel state. For full-document edits (line edits, shipment
- * recreation, idempotency replay), use {@link updateSalesOrder}.
+ * Order page. Touches only the salesOrders row, never lines or inventory kernel
+ * state. For full-document edits, use {@link updateSalesOrder}.
  */
 export async function patchSalesOrderHeader(
   id: string,
@@ -9402,10 +7274,9 @@ export async function patchSalesOrderHeader(
 
 /**
  * Per-line patch for inline-edit cells. This keeps the existing line id stable
- * for shipment/history references while still going through pricing validation
- * and inventory-kernel demand/reservation deltas for quantity changes. Use
- * {@link updateSalesOrder} via PUT for structural changes (item swap,
- * line add/remove/reorder).
+ * while still going through pricing validation and inventory-kernel
+ * demand/reservation deltas for quantity changes. Use {@link updateSalesOrder}
+ * via PUT for structural changes (item swap, line add/remove/reorder).
  */
 export async function patchSalesOrderLine(
   orderId: string,
@@ -9504,7 +7375,7 @@ export async function patchSalesOrderLine(
     }
 
     if (patch.quantity != null) {
-      const lineState = (await getShipmentLineStatesInTx(tx, orderId)).get(lineId);
+      const lineState = (await getSalesOrderLineShipStatesInTx(tx, orderId)).get(lineId);
       if (!lineState) {
         await finishInventoryOperationInTx(tx, {
           organizationId: orgId,
@@ -9513,14 +7384,13 @@ export async function patchSalesOrderLine(
         });
         return null;
       }
-      const minimumQuantity = normalizeShipmentQuantity(
+      const minimumQuantity = normalizeShipQuantity(
         lineState.shippedQuantity +
-          lineState.plannedQuantity +
           lineState.cancelledQuantity
       );
       if (nextQuantityNumber < minimumQuantity) {
         throw new SalesError(
-          "Quantity cannot be less than planned, shipped, or cancelled quantity.",
+          "Quantity cannot be less than shipped or cancelled quantity.",
           400,
           {
             errors: {
@@ -9683,6 +7553,7 @@ export async function patchSalesOrderLine(
   return result === null ? null : await getSalesOrder(orderId);
 }
 
+
 export async function deleteSalesOrder(
   id: string,
   options?: { idempotencyKey?: string }
@@ -9730,21 +7601,6 @@ export async function deleteSalesOrder(
     }
 
     const deletedAt = new Date();
-
-    const plannedShipmentIds = await tx
-      .select({ id: salesShipments.id })
-      .from(salesShipments)
-      .where(
-        and(
-          eq(salesShipments.salesOrderId, id),
-          eq(salesShipments.status, "planned")
-        )
-      );
-    await deletePlannedShipmentsInTx(tx, {
-      organizationId: orgId,
-      shipmentIds: plannedShipmentIds.map((shipment) => shipment.id),
-      actorUserId: userId,
-    });
 
     await tx
       .update(salesOrders)
@@ -9848,21 +7704,6 @@ export async function deleteSalesOrders(
       throw new SalesError(linkedManufacturingError, 400);
     }
 	    const deletedAt = new Date();
-
-    const plannedShipmentIds = await tx
-      .select({ id: salesShipments.id })
-      .from(salesShipments)
-      .where(
-        and(
-          inArray(salesShipments.salesOrderId, orderIds),
-          eq(salesShipments.status, "planned")
-        )
-      );
-    await deletePlannedShipmentsInTx(tx, {
-      organizationId: orgId,
-      shipmentIds: plannedShipmentIds.map((shipment) => shipment.id),
-      actorUserId: userId,
-    });
 
 	    await tx
       .update(salesOrders)

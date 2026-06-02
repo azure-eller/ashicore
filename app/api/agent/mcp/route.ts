@@ -22,7 +22,7 @@ const handler = createMcpHandler(
       {
         title: "Get Production Planning Context",
         description:
-          "Returns compact raw JSON for production planning: sales shipments, open manufacturing orders, sellable product counts with lots, and product BOM requirements.",
+          "Returns compact raw JSON for production planning: open sales demand, open manufacturing orders, sellable product counts with lots, and product BOM requirements.",
         inputSchema: {
           includeLots: z
             .boolean()

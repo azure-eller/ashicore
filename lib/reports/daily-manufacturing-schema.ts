@@ -20,8 +20,8 @@ export const dailyManufacturingReportPayloadSchema = z.object({
     completedBatches: z.number().int().nonnegative(),
     productsWithRecordedOutput: z.number().int().nonnegative(),
     materialsConsumedFromRecordedOutputs: z.number().int().nonnegative(),
-    shipmentsShipped: z.number().int().nonnegative().default(0),
-    shippedLineValue: z.string().default("0"),
+    salesOrdersShipped: z.number().int().nonnegative().default(0),
+    shippedSalesOrderValue: z.string().default("0"),
   }),
   outputByProduct: z.array(
     z.object({

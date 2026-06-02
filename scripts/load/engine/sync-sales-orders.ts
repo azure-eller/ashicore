@@ -1,8 +1,6 @@
-import { eq, isNull, sql } from "drizzle-orm";
+import { eq, gt, isNull, sql } from "drizzle-orm";
 import {
   items,
-  salesShipmentLines,
-  salesShipments,
   salesOrderLines,
   salesOrders,
   unitDefinitions,
@@ -326,13 +324,7 @@ export async function evaluateSalesImportInTx(
       itemSku: items.sku,
       quantity: salesOrderLines.quantity,
       unitPrice: salesOrderLines.unitPrice,
-      allocated: sql<boolean>`EXISTS (
-        SELECT 1
-        FROM sales.sales_shipment_lines ssl
-        JOIN sales.sales_shipments ss ON ss.id = ssl.sales_shipment_id
-        WHERE ssl.sales_order_line_id = ${salesOrderLines.id}
-          AND ss.status <> 'cancelled'
-      )`,
+      allocated: gt(salesOrderLines.shippedQuantity, "0"),
     })
     .from(salesOrders)
     .leftJoin(salesOrderLines, eq(salesOrderLines.salesOrderId, salesOrders.id))
@@ -727,18 +719,19 @@ export async function applySalesImportOrdersInTx(
           continue;
         }
 
-        const existingShipmentRefs = await tx
-          .select({ id: salesShipmentLines.id })
-          .from(salesShipmentLines)
-          .innerJoin(salesShipments, eq(salesShipments.id, salesShipmentLines.salesShipmentId))
-          .where(eq(salesShipments.salesOrderId, order.existingId))
+        const existingShippedLines = await tx
+          .select({ id: salesOrderLines.id })
+          .from(salesOrderLines)
+          .where(
+            sql`${salesOrderLines.salesOrderId} = ${order.existingId} AND ${salesOrderLines.shippedQuantity} > 0`
+          )
           .limit(1);
-        if (existingShipmentRefs.length > 0) {
+        if (existingShippedLines.length > 0) {
           report.skippedOrders.push({
             label: order.label,
             sourceRows: order.sourceRows,
             issues: [
-              `Existing order ${lockedOrder.orderNumber} has historical shipment lines; import leaves it untouched.`,
+              `Existing order ${lockedOrder.orderNumber} has shipped lines; import leaves it untouched.`,
             ],
           });
           continue;

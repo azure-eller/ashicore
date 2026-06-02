@@ -7,8 +7,6 @@ import {
   pricingSchedules,
   salesOrderLines,
   salesOrders,
-  salesShipmentLines,
-  salesShipments,
 } from "../../../lib/db/schema";
 import {
   createCustomerCategory,
@@ -132,7 +130,7 @@ test.describe("sales fulfillment operating story", () => {
     await expect(row).toContainText(customer.name);
   });
 
-  test("partial shipment keeps the order open and consumes only shipped stock", async ({ db, page }) => {
+  test("partial shipping keeps the order open and consumes only shipped stock", async ({ db, page }) => {
     const line = await readSalesOrderLine(db, orderId, productId);
     const ship = await testFetch(`/api/sales-orders/${orderId}/ship`, {
       method: "POST",
@@ -172,32 +170,19 @@ test.describe("sales fulfillment operating story", () => {
       );
     expect(events.map((event) => event.quantity)).toEqual(["3.0000"]);
 
-    const [shipment] = await db
+    const [lineState] = await db
       .select({
-        id: salesShipments.id,
-        status: salesShipments.status,
-        shipmentNumber: salesShipments.shipmentNumber,
+        shippedQuantity: salesOrderLines.shippedQuantity,
       })
-      .from(salesShipments)
-      .where(eq(salesShipments.salesOrderId, orderId));
-    expect(shipment).toMatchObject({
-      status: "shipped",
-      shipmentNumber: `${orderNumber}-S1`,
-    });
-
-    const shipmentLines = await db
-      .select({ quantity: salesShipmentLines.quantity })
-      .from(salesShipmentLines)
-      .where(eq(salesShipmentLines.salesShipmentId, shipment.id));
-    expect(shipmentLines.map((shipmentLine) => shipmentLine.quantity)).toEqual([
-      "3.0000",
-    ]);
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.id, line.id));
+    expect(lineState.shippedQuantity).toBe("3.0000");
 
     const row = await searchOrderList(page, orderNumber);
     await expect(row).toContainText(orderNumber);
   });
 
-  test("final shipment closes demand and consumes stock once", async ({ db }) => {
+  test("final shipping closes demand and consumes stock once", async ({ db }) => {
     const line = await readSalesOrderLine(db, orderId, productId);
     const ship = await testFetch(`/api/sales-orders/${orderId}/ship`, {
       method: "POST",
@@ -231,19 +216,13 @@ test.describe("sales fulfillment operating story", () => {
       );
     expect(events.map((event) => event.quantity).sort()).toEqual(["3.0000", "3.0000"]);
 
-    const shipments = await db
+    const [lineState] = await db
       .select({
-        id: salesShipments.id,
-        shipmentNumber: salesShipments.shipmentNumber,
-        status: salesShipments.status,
+        shippedQuantity: salesOrderLines.shippedQuantity,
       })
-      .from(salesShipments)
-      .where(eq(salesShipments.salesOrderId, orderId));
-    expect(shipments.map((shipment) => shipment.shipmentNumber).sort()).toEqual([
-      `${orderNumber}-S1`,
-      `${orderNumber}-S2`,
-    ]);
-    expect(shipments.every((shipment) => shipment.status === "shipped")).toBe(true);
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.id, line.id));
+    expect(lineState.shippedQuantity).toBe("6.0000");
 
     const [order] = await db
       .select({

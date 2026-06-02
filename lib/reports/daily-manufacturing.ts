@@ -20,8 +20,7 @@ import {
   reportRuns,
   reportSchedules,
   salesOrderLines,
-  salesShipmentLines,
-  salesShipments,
+  salesOrders,
   user,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
@@ -349,23 +348,21 @@ async function buildDailyManufacturingReportPayloadInTx(
     )
     .orderBy(asc(manufacturingOrderIngredients.itemName));
 
-  const [shipmentSummary] = await tx
+  const [shippedSalesOrderSummary] = await tx
     .select({
-      shipmentsShipped: sql<number>`COUNT(DISTINCT ${salesShipments.id})::int`.as(
-        "shipmentsShipped"
+      salesOrdersShipped: sql<number>`COUNT(DISTINCT ${salesOrders.id})::int`.as(
+        "salesOrdersShipped"
       ),
-      shippedLineValue: trimScale(
-        sql`COALESCE(SUM(${salesShipmentLines.quantity} * ${salesOrderLines.unitPrice}), 0)`
-      ).as("shippedLineValue"),
+      shippedSalesOrderValue: trimScale(
+        sql`COALESCE(SUM(${salesOrderLines.shippedQuantity} * ${salesOrderLines.unitPrice}), 0)`
+      ).as("shippedSalesOrderValue"),
     })
-    .from(salesShipments)
-    .leftJoin(salesShipmentLines, eq(salesShipmentLines.salesShipmentId, salesShipments.id))
-    .leftJoin(salesOrderLines, eq(salesShipmentLines.salesOrderLineId, salesOrderLines.id))
+    .from(salesOrders)
+    .leftJoin(salesOrderLines, eq(salesOrderLines.salesOrderId, salesOrders.id))
     .where(
       and(
-        eq(salesShipments.status, "shipped"),
-        sql`${salesShipments.shippedAt} >= ${params.window.startAt}`,
-        sql`${salesShipments.shippedAt} < ${params.window.endAt}`
+        sql`${salesOrders.shippedAt} >= ${params.window.startAt}`,
+        sql`${salesOrders.shippedAt} < ${params.window.endAt}`
       )
     );
 
@@ -386,8 +383,9 @@ async function buildDailyManufacturingReportPayloadInTx(
       completedBatches: completedBatches.reduce((sum, row) => sum + row.batchCount, 0),
       productsWithRecordedOutput: outputByProduct.length,
       materialsConsumedFromRecordedOutputs: materialsConsumed.length,
-      shipmentsShipped: shipmentSummary?.shipmentsShipped ?? 0,
-      shippedLineValue: shipmentSummary?.shippedLineValue ?? "0",
+      salesOrdersShipped: shippedSalesOrderSummary?.salesOrdersShipped ?? 0,
+      shippedSalesOrderValue:
+        shippedSalesOrderSummary?.shippedSalesOrderValue ?? "0",
     },
     outputByProduct,
     outputByRecordedBy,
