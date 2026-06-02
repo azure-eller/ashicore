@@ -6032,6 +6032,27 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
   );
 }
 
+export async function getOpenSalesProductItemIds(): Promise<string[]> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const rows = await tx
+      .selectDistinct({ itemId: salesOrderLines.itemId })
+      .from(salesOrderLines)
+      .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
+      .innerJoin(items, eq(salesOrderLines.itemId, items.id))
+      .where(
+        and(
+          eq(salesOrders.organizationId, orgId),
+          eq(salesOrders.status, "open"),
+          isNull(salesOrders.deletedAt),
+          eq(items.itemType, "product"),
+          sql`${salesOrderLines.quantity} > ${salesOrderLines.cancelledQuantity}`
+        )
+      );
+
+    return rows.map((row) => row.itemId);
+  });
+}
+
 export async function reorderSalesOrderPriorityRanks(
   payload: ReorderSalesOrderPriorityRanks
 ): Promise<{ updated: number }> {

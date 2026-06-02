@@ -122,6 +122,13 @@ test.describe("planning demand queue operating story", () => {
     await page.goto("/sales/orders");
     await filterList(page, "Search orders", highOrder.orderNumber);
     await expect(page.getByRole("row").filter({ hasText: highOrder.orderNumber })).toBeVisible();
+
+    await page.goto(`/sales/allocation?itemId=${finishedId}`);
+    await expect(page.getByRole("heading", { name: "Allocation · Demand queue" })).toBeVisible();
+    await expect(page.locator("table").first().locator("tr").nth(1)).toContainText(
+      finished.name
+    );
+    await expect(page.getByText("Save allocation")).toHaveCount(0);
   });
 
   test("late expected manufacturing supply does not cover earlier sales demand", async () => {
