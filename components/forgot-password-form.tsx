@@ -46,7 +46,7 @@ export function ForgotPasswordForm({ redirectTo }: { redirectTo: string }) {
 
   if (submitted) {
     return (
-      <Card>
+      <Card className="mx-auto w-full max-w-sm">
         <CardHeader>
           <CardTitle>Check your email</CardTitle>
         </CardHeader>
@@ -60,7 +60,7 @@ export function ForgotPasswordForm({ redirectTo }: { redirectTo: string }) {
   }
 
   return (
-    <Card>
+    <Card className="mx-auto w-full max-w-sm">
       <CardHeader>
         <CardTitle>Reset your password</CardTitle>
         <FieldDescription>

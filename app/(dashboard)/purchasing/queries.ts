@@ -64,7 +64,7 @@ import type {
   ReceivePurchaseOrder,
   UpdatePurchaseOrder,
 } from "@/lib/schemas/purchase-orders";
-import type { InsertSupplier, UpdateSupplier } from "@/lib/schemas/suppliers";
+import type { InsertSupplier, PatchSupplier, UpdateSupplier } from "@/lib/schemas/suppliers";
 import type {
   PurchaseOrderDetail,
   PurchaseOrderDetailLine,
@@ -948,31 +948,52 @@ export async function getSupplier(
 
 export async function createSupplier(data: InsertSupplier) {
   return withAuthedOrgContext(async (tx, orgId) => {
-    const [supplier] = await tx
-      .insert(suppliers)
-      .values({
-        organizationId: orgId,
-        ...data,
-      })
-      .returning({ id: suppliers.id, name: suppliers.name });
-
-    return supplier;
+    return createSupplierInTx(tx, orgId, data);
   });
+}
+
+export async function createSupplierInTx(tx: Tx, orgId: string, data: InsertSupplier) {
+  const [supplier] = await tx
+    .insert(suppliers)
+    .values({
+      organizationId: orgId,
+      ...data,
+    })
+    .returning({ id: suppliers.id, name: suppliers.name });
+
+  return supplier;
 }
 
 export async function updateSupplier(id: string, data: UpdateSupplier) {
   return withAuthedOrgContext(async (tx) => {
-    const [supplier] = await tx
-      .update(suppliers)
-      .set({
-        ...data,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(suppliers.id, id), isNull(suppliers.deletedAt)))
-      .returning({ id: suppliers.id });
-
-    return supplier ?? null;
+    return updateSupplierInTx(tx, id, data);
   });
+}
+
+export async function updateSupplierInTx(tx: Tx, id: string, data: UpdateSupplier) {
+  const [supplier] = await tx
+    .update(suppliers)
+    .set({
+      ...data,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(suppliers.id, id), isNull(suppliers.deletedAt)))
+    .returning({ id: suppliers.id });
+
+  return supplier ?? null;
+}
+
+export async function patchSupplierInTx(tx: Tx, id: string, data: PatchSupplier) {
+  const [supplier] = await tx
+    .update(suppliers)
+    .set({
+      ...data,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(suppliers.id, id), isNull(suppliers.deletedAt)))
+    .returning({ id: suppliers.id });
+
+  return supplier ?? null;
 }
 
 export async function deleteSupplier(id: string) {

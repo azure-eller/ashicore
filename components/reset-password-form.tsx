@@ -43,7 +43,7 @@ export function ResetPasswordForm({
 
   if (!resetToken || errorCode) {
     return (
-      <Card>
+      <Card className="mx-auto w-full max-w-sm">
         <CardHeader>
           <CardTitle>Reset link unavailable</CardTitle>
         </CardHeader>
@@ -82,7 +82,7 @@ export function ResetPasswordForm({
   }
 
   return (
-    <Card>
+    <Card className="mx-auto w-full max-w-sm">
       <CardHeader>
         <CardTitle>Choose a new password</CardTitle>
       </CardHeader>

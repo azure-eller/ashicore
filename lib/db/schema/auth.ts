@@ -21,6 +21,7 @@ export const user = systemSchema.table("user", {
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
   twoFactorEnabled: boolean("two_factor_enabled").default(false),
+  mfaGraceUsed: boolean("mfa_grace_used").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

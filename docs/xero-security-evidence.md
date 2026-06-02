@@ -99,6 +99,14 @@ Retain audit events for at least one year for partner-review and incident
 investigation evidence. Do not purge or rewrite rows without an explicit
 retention policy change and a migration/ops plan.
 
+AI-assisted onboarding import uses Anthropic as a subprocessor for source
+document extraction. Source files are stored in private blob storage and are
+read only by the extraction worker. On successful commit, raw extraction
+leftovers (`draftPackage` and per-file `extractedPackage`) are purged while the
+customer-approved `approvedPackage` is retained as the import audit artifact.
+Canceled imports mark uploaded files deleted and purge the private blobs.
+Abandoned sessions are cleanup-eligible through `expiresAt` / `deletedAt`.
+
 ## Breach Response
 
 For suspected Xero token or token-encryption-key exposure:

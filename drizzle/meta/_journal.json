@@ -967,6 +967,27 @@
       "when": 1780371466425,
       "tag": "0137_first_agent_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 138,
+      "version": "7",
+      "when": 1780375356155,
+      "tag": "0138_onboarding_import",
+      "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1780375356156,
+      "tag": "0139_onboarding_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1780375356157,
+      "tag": "0140_mfa_grace_used",
+      "breakpoints": true
     }
   ]
 }

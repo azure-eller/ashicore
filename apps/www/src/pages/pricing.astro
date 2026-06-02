@@ -1,61 +1,80 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
 import { SIGN_UP_URL } from "../lib/site";
+
+const freeSignupUrl = `${SIGN_UP_URL}${SIGN_UP_URL.includes("?") ? "&" : "?"}plan=free`;
+const paidSignupUrl = `${SIGN_UP_URL}${SIGN_UP_URL.includes("?") ? "&" : "?"}plan=paid`;
 ---
 
 <BaseLayout
   title="Pricing"
-  description="Start Ashicore free, then scale into unlimited SKUs, locations, integrations, and priority onboarding."
+  description="Ashicore has a free plan for small manufacturers getting started and a flat paid plan at $199/month for unlimited SKUs."
   path="/pricing"
 >
-  <main class="content-page pricing-page">
-    <div class="price-head">
-      <span class="eyebrow">Pricing</span>
-      <h1 class="h-section">Choose how you'd like to start.</h1>
-      <p class="lede">
-        Switch plans anytime. No card required to begin.
-      </p>
-    </div>
-
-    <div class="price-grid">
-      <section class="plan free">
-        <div class="plan-top">
-          <span class="plan-name">Free</span>
-          <span class="plan-price">$0<span class="per">/mo</span></span>
-        </div>
-        <p class="plan-desc">
-          Get up and running fast with AI-assisted data entry, on us.
-        </p>
-        <ul class="plan-list">
-          <li><span class="ck">✓</span> Unlimited users</li>
-          <li><span class="ck">✓</span> AI-assisted data entry</li>
-          <li><span class="ck">✓</span> Up to 50 SKUs</li>
-          <li><span class="ck">✓</span> 1 location</li>
-        </ul>
-        <a href={SIGN_UP_URL} class="btn btn-ghost">Start free</a>
-      </section>
-
-      <section class="plan rec">
-        <span class="plan-tag-rec">Recommended</span>
-        <div class="plan-top">
-          <span class="plan-name">Pro</span>
-          <span class="plan-price">$199<span class="per">/mo</span></span>
-        </div>
-        <p class="plan-desc">
-          Scale up with unlimited SKUs, locations, and integrations.
-        </p>
-        <ul class="plan-list">
-          <li><span class="ck">✓</span> Everything in Free</li>
-          <li><span class="ck">✓</span> Unlimited SKUs &amp; recipes</li>
-          <li><span class="ck">✓</span> Multi-location inventory</li>
-          <li><span class="ck">✓</span> Integrations including Shopify and QBO</li>
-          <li><span class="ck">✓</span> Priority onboarding &amp; support</li>
-        </ul>
-        <a href={SIGN_UP_URL} class="btn btn-primary">Choose Pro <span class="arr">→</span></a>
-      </section>
-    </div>
-    <p class="price-foot">
-      No card required to start · switch plans anytime · cancel whenever
+  <main class="content-page">
+    <p class="kicker">Pricing</p>
+    <h1 class="page-title">Choose how you&apos;d like to start.</h1>
+    <p class="page-description">
+      Start free with no credit card. Upgrade when the SKU limit gets in the way.
     </p>
+
+    <section class="pricing-panel two-up" aria-label="Ashicore plans">
+      <article class="pricing-card">
+        <div class="pricing-card-top">
+          <p class="plan-name">Free</p>
+          <p class="pricing-price">
+            <span class="price-main">$0</span>
+            <span class="price-period">forever</span>
+          </p>
+        </div>
+        <p class="price-term">No credit card. Up to 30 SKUs.</p>
+        <ul class="pricing-list">
+          <li>Inventory, manufacturing, sales, purchasing, and planning workflows.</li>
+          <li>AI-assisted data import during onboarding.</li>
+          <li>30-SKU cap across products, materials, variants, and imported items.</li>
+          <li>All current data stays readable if the account goes over the limit.</li>
+        </ul>
+        <div class="hero-actions">
+          <a class="button secondary" href={freeSignupUrl}>Start free</a>
+        </div>
+      </article>
+
+      <article class="pricing-card highlighted">
+        <span class="pricing-ribbon">recommended</span>
+        <div class="pricing-card-top">
+          <p class="plan-name">Paid</p>
+          <p class="pricing-price">
+            <span class="price-main">$199</span>
+            <span class="price-period">/ month</span>
+          </p>
+        </div>
+        <p class="price-term">Flat monthly price. Unlimited SKUs.</p>
+        <ul class="pricing-list">
+          <li>Everything in Free.</li>
+          <li>Unlimited products, materials, variants, and imported catalog items.</li>
+          <li>Stripe Checkout for upgrade and Stripe Customer Portal for billing changes.</li>
+          <li>Priority support while onboarding.</li>
+        </ul>
+        <div class="hero-actions">
+          <a class="button" href={paidSignupUrl}>Choose Paid</a>
+        </div>
+      </article>
+    </section>
+    <p class="pricing-reassurance">No card required to start · switch plans anytime</p>
+
+    <article class="content-body">
+      <h2>How signup works</h2>
+      <p>
+        New teams create an Ashicore account, secure it with MFA, and create an
+        organization. Free continues into guided onboarding. Paid continues to Stripe
+        Checkout after the organization is ready.
+      </p>
+      <p>
+        Canceling the paid plan never deletes catalog data. If the organization returns
+        to Free with more than 30 SKUs, existing items remain available and new
+        SKU creation is blocked until the plan is upgraded or the count is back
+        under the limit.
+      </p>
+    </article>
   </main>
 </BaseLayout>

@@ -21,7 +21,7 @@ function localAttachmentPath(storageKey: string) {
 }
 
 export function canUseLocalAttachmentStorage() {
-  return process.env.NODE_ENV !== "production";
+  return process.env.NODE_ENV !== "production" || process.env.CI === "true";
 }
 
 export function isLocalAttachmentUrl(value: string) {

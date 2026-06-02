@@ -34,12 +34,114 @@ import {
   INTERNAL_UNTRACKED_LOT_NUMBER,
 } from "../../../lib/inventory/kernel";
 import { buildStocktakeCategoryScope } from "../../../lib/schemas/stocktakes";
-import { createItem, getOrgId, getUnitId, testFetch } from "../../helpers/api";
+import {
+  createItem,
+  getBaseUrl,
+  getOrgId,
+  getSessionCookie,
+  getUnitId,
+  testFetch,
+} from "../../helpers/api";
 
 test.describe("inventory mutation kernel heartbeat", () => {
   const ts = Date.now();
   const orgId = getOrgId();
   const unitId = getUnitId();
+
+  test("onboarding import commits opening stock through the kernel", async ({ db }) => {
+    const form = new FormData();
+    form.append(
+      "file",
+      new File(["name,sku,qty\nFast Import Material,IMP-1,5\n"], "inventory.csv", {
+        type: "text/csv",
+      }),
+    );
+
+    const upload = await fetch(`${getBaseUrl()}/api/onboarding/imports`, {
+      method: "POST",
+      headers: { Cookie: getSessionCookie() },
+      body: form,
+    });
+    expect(upload.status).toBe(201);
+    const created = (await upload.json()) as { session: { id: string } };
+
+    const sku = `FAST-IMPORT-${ts}`;
+    const patch = await testFetch(`/api/onboarding/imports/${created.session.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        openingStockAsOf: "2026-06-01",
+        includeBoms: false,
+        package: {
+          version: "1",
+          openingStockAsOf: "2026-06-01",
+          units: [{ tempId: "unit-lb", name: "Pound", size: "1", uom: "lb" }],
+          suppliers: [],
+          customers: [],
+          items: [
+            {
+              tempId: "item-material",
+              itemType: "material",
+              name: `Fast Import Material ${ts}`,
+              sku,
+              unitRef: "unit-lb",
+              lotTrackingMode: "tracked",
+              match: { suggestion: "create" },
+              provenance: [{ fileId: "manual", location: "fast" }],
+              confidence: 1,
+            },
+          ],
+          openingStock: [
+            {
+              itemRef: "item-material",
+              quantity: "5",
+              unitCost: "3.25",
+              receivedAt: "2026-06-01",
+              provenance: [{ fileId: "manual", location: "fast" }],
+              confidence: 1,
+            },
+          ],
+          boms: [],
+          unresolvedQuestions: [],
+        },
+      }),
+    });
+    expect(patch.status).toBe(200);
+    const patched = await patch.json();
+
+    const approved = await testFetch(
+      `/api/onboarding/imports/${created.session.id}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({ previewHash: patched.preview.hash }),
+      },
+    );
+    expect(approved.status).toBe(200);
+
+    const [item] = await db
+      .select({ id: items.id })
+      .from(items)
+      .where(eq(items.sku, sku));
+    expect(item?.id).toBeTruthy();
+
+    const [event] = await db
+      .select({
+        quantity: inventoryEvents.quantity,
+        unitCost: inventoryEvents.unitCost,
+        lotId: inventoryEvents.lotId,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, item.id),
+          eq(inventoryEvents.eventType, "opening_balance"),
+        ),
+      );
+    expect(event).toMatchObject({
+      quantity: "5.0000",
+      unitCost: "3.250000",
+    });
+    expect(event.lotId).toBeTruthy();
+  });
 
   test("manual adjustment writes stock event and projection truth", async ({
     db,

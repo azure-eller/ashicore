@@ -19,6 +19,7 @@ const bearerProtectedInternalRoutes = new Set([
   "/api/internal/accounting-purchase-order-sync",
   "/api/internal/daily-reports",
   "/api/internal/inventory-reconciliation",
+  "/api/internal/process-imports",
   "/api/internal/xero-retry",
   "/api/internal/xero-signup-cleanup",
 ]);

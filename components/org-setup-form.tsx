@@ -2,15 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import {
   Field,
   FieldDescription,
@@ -18,14 +10,13 @@ import {
   FieldLabel,
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { OnboardingAuthShell } from "@/components/onboarding-auth-shell"
 import { authClient } from "@/lib/auth-client"
-import {
-  appEntryPathForPlanIntent,
-  type BillingPlanIntent,
-} from "@/lib/billing/plan-intent"
+import { type BillingPlanIntent } from "@/lib/billing/plan-intent"
 import { apiJson } from "@/lib/client/api"
 
 const DEFAULT_APP_ENTRY_PATH = "/sales/orders"
+const NEW_ORG_ENTRY_PATH = "/onboarding"
 
 type BillingActionResponse = {
   url?: string
@@ -55,7 +46,7 @@ export function OrgSetupForm({
 
   const finishOnboarding = useCallback(async () => {
     if (selectedPlan !== "paid") {
-      router.replace(DEFAULT_APP_ENTRY_PATH)
+      router.replace(`${NEW_ORG_ENTRY_PATH}?plan=free`)
       return
     }
 
@@ -70,7 +61,7 @@ export function OrgSetupForm({
       return
     }
 
-    router.replace(appEntryPathForPlanIntent(selectedPlan))
+    router.replace(DEFAULT_APP_ENTRY_PATH)
   }, [router, selectedPlan])
 
   useEffect(() => {
@@ -190,64 +181,82 @@ export function OrgSetupForm({
   }
 
   return (
-    <div className={cn("flex flex-col gap-6", className)} {...props}>
+    <OnboardingAuthShell
+      activeStep="workspace"
+      plan={selectedPlan}
+      guideTitle="Tell us about your shop"
+      guideLines={[
+        "Just the basics.",
+        "This shapes your units, locations and defaults.",
+        "You can change it all later.",
+      ]}
+      className={className}
+      {...props}
+    >
       {organizations.length === 1 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Opening your organization</CardTitle>
-            <CardDescription>
+        <div className="grid gap-(--space-4)">
+          <div>
+            <h2 className="text-[length:var(--text-lg)] font-semibold leading-[var(--leading-lg)]">
+              Opening your organization
+            </h2>
+            <p className="mt-(--space-2) text-[length:var(--text-sm)] text-muted-foreground">
               {organizations[0].name}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+            </p>
+          </div>
+          {error && (
+            <FieldDescription className="text-destructive">
+              {error}
+            </FieldDescription>
+          )}
+          {!error && (
+            <FieldDescription>
+              {activatingOrgId ? "Activating your workspace…" : "Preparing your workspace…"}
+            </FieldDescription>
+          )}
+        </div>
+      ) : organizations.length > 1 ? (
+        <div className="grid gap-(--space-5)">
+          <div>
+            <h2 className="text-[length:var(--text-lg)] font-semibold leading-[var(--leading-lg)]">
+              Choose your organization
+            </h2>
+            <p className="mt-(--space-2) text-[length:var(--text-sm)] text-muted-foreground">
+              We will continue onboarding in the workspace you select.
+            </p>
+          </div>
+          <FieldGroup>
+            {organizations.map((organization) => (
+              <Field key={organization.id}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-start"
+                  onClick={() => activateOrganization(organization.id)}
+                  disabled={loading || activatingOrgId != null}
+                >
+                  {activatingOrgId === organization.id
+                    ? `Opening ${organization.name}…`
+                    : organization.name}
+                </Button>
+              </Field>
+            ))}
             {error && (
               <FieldDescription className="text-destructive">
                 {error}
               </FieldDescription>
             )}
-            {!error && (
-              <FieldDescription>
-                {activatingOrgId ? "Activating your workspace…" : "Preparing your workspace…"}
-              </FieldDescription>
-            )}
-          </CardContent>
-        </Card>
-      ) : organizations.length > 1 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Choose your organization</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <FieldGroup>
-              {organizations.map((organization) => (
-                <Field key={organization.id}>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="w-full justify-start"
-                    onClick={() => activateOrganization(organization.id)}
-                    disabled={loading || activatingOrgId != null}
-                  >
-                    {activatingOrgId === organization.id
-                      ? `Opening ${organization.name}…`
-                      : organization.name}
-                  </Button>
-                </Field>
-              ))}
-              {error && (
-                <FieldDescription className="text-destructive">
-                  {error}
-                </FieldDescription>
-              )}
-            </FieldGroup>
-          </CardContent>
-        </Card>
+          </FieldGroup>
+        </div>
       ) : (
-      <Card>
-        <CardHeader>
-          <CardTitle>Create your organization</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <div className="grid gap-(--space-5)">
+          <div>
+            <h2 className="text-[length:var(--text-lg)] font-semibold leading-[var(--leading-lg)]">
+              Create your organization
+            </h2>
+            <p className="mt-(--space-2) text-[length:var(--text-sm)] text-muted-foreground">
+              Use the company name customers and suppliers know.
+            </p>
+          </div>
           <form onSubmit={handleSubmit}>
             <FieldGroup>
               <Field>
@@ -267,19 +276,20 @@ export function OrgSetupForm({
                 </FieldDescription>
               )}
               <Field>
-                <Button type="submit" disabled={loading}>
+                <Button type="submit" disabled={loading} className="w-full">
                   {loading
                     ? selectedPlan === "paid"
                       ? "Preparing checkout..."
                       : "Creating..."
-                    : "Create Organization"}
+                    : selectedPlan === "paid"
+                      ? "Continue to checkout"
+                      : "Continue"}
                 </Button>
               </Field>
             </FieldGroup>
           </form>
-        </CardContent>
-      </Card>
+        </div>
       )}
-    </div>
+    </OnboardingAuthShell>
   )
 }

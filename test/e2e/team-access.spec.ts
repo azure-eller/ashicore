@@ -254,10 +254,10 @@ test.describe("Team access", () => {
 
     await page.goto("/sign-up");
     await page.getByLabel("Full Name").fill(`Fresh Owner ${run}`);
-    await page.getByLabel("Email").fill(orgOwnerEmail);
+    await page.getByLabel("Work email").fill(orgOwnerEmail);
     await page.getByLabel(/^Password$/).fill(orgOwnerPassword);
     await page.getByLabel(/^Confirm Password$/).fill(orgOwnerPassword);
-    await page.getByRole("button", { name: "Create Account" }).click();
+    await page.getByRole("button", { name: "Continue" }).click();
     await page.waitForURL((url) =>
       ["/mfa-setup", "/org-setup"].includes(url.pathname)
     );
@@ -266,8 +266,8 @@ test.describe("Team access", () => {
 
     const orgName = `Fresh Org ${run}`;
     await page.getByLabel("Organization name").fill(orgName);
-    await page.getByRole("button", { name: "Create Organization" }).click();
-    await page.waitForURL("**/sales/orders");
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.waitForURL("**/onboarding?plan=free");
 
     const [ownerUser] = await db.select().from(user).where(eq(user.email, orgOwnerEmail));
     expect(ownerUser).toBeTruthy();
@@ -452,7 +452,7 @@ test.describe("Team access", () => {
       browser,
       adminEmail,
       adminPassword,
-      "/sales/orders"
+      "/onboarding?plan=free"
     );
     await adminPage.goto("/settings/team");
     await expect(adminPage.getByRole("heading", { name: "Team" })).toBeVisible();

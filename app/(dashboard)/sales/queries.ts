@@ -5214,53 +5214,65 @@ export async function deleteCustomerProjectFile(
 
 export async function createCustomer(data: InsertCustomer) {
   return withAuthedOrgContext(async (tx, orgId) => {
-    await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
-
-    const [customer] = await tx
-      .insert(customers)
-      .values({
-        organizationId: orgId,
-        ...data,
-      })
-      .returning({ id: customers.id });
-
-    return customer;
+    return createCustomerInTx(tx, orgId, data);
   });
+}
+
+export async function createCustomerInTx(tx: Tx, orgId: string, data: InsertCustomer) {
+  await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
+
+  const [customer] = await tx
+    .insert(customers)
+    .values({
+      organizationId: orgId,
+      ...data,
+    })
+    .returning({ id: customers.id });
+
+  return customer;
 }
 
 export async function updateCustomer(id: string, data: UpdateCustomer) {
   return withAuthedOrgContext(async (tx) => {
-    await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
-
-    const [customer] = await tx
-      .update(customers)
-      .set({
-        ...data,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(customers.id, id), isNull(customers.deletedAt)))
-      .returning({ id: customers.id });
-
-    return customer ?? null;
+    return updateCustomerInTx(tx, id, data);
   });
+}
+
+export async function updateCustomerInTx(tx: Tx, id: string, data: UpdateCustomer) {
+  await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
+
+  const [customer] = await tx
+    .update(customers)
+    .set({
+      ...data,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(customers.id, id), isNull(customers.deletedAt)))
+    .returning({ id: customers.id });
+
+  return customer ?? null;
+}
+
+export async function patchCustomerInTx(tx: Tx, id: string, data: PatchCustomer) {
+  if (data.customerCategoryId !== undefined) {
+    await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
+  }
+
+  const [customer] = await tx
+    .update(customers)
+    .set({
+      ...data,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(customers.id, id), isNull(customers.deletedAt)))
+    .returning({ id: customers.id });
+
+  return customer ?? null;
 }
 
 export async function patchCustomer(id: string, data: PatchCustomer) {
   return withAuthedOrgContext(async (tx) => {
-    if (data.customerCategoryId !== undefined) {
-      await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
-    }
-
-    const [customer] = await tx
-      .update(customers)
-      .set({
-        ...data,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(customers.id, id), isNull(customers.deletedAt)))
-      .returning({ id: customers.id });
-
-    return customer ?? null;
+    return patchCustomerInTx(tx, id, data);
   });
 }
 

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { OrgSetupForm } from "@/components/org-setup-form";
 import { auth } from "@/lib/auth";
 import { parseBillingPlanIntent } from "@/lib/billing/plan-intent";
-import { getPendingInvitationForEmail, isMfaEnrolled } from "@/lib/dal/auth";
+import { getPendingInvitationForEmail, isMfaRequiredForSession } from "@/lib/dal/auth";
 
 export default async function Page({
   searchParams,
@@ -19,7 +19,7 @@ export default async function Page({
     redirect("/sign-in");
   }
 
-  if (!isMfaEnrolled(session)) {
+  if (await isMfaRequiredForSession(session)) {
     redirect(`/mfa-setup?next=${encodeURIComponent(`/org-setup?plan=${plan}`)}`);
   }
 

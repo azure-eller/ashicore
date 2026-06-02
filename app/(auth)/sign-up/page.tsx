@@ -7,7 +7,7 @@ import {
   parseBillingPlanIntent,
 } from "@/lib/billing/plan-intent";
 import { auth } from "@/lib/auth";
-import { isMfaEnrolled } from "@/lib/dal/auth";
+import { isMfaRequiredForSession } from "@/lib/dal/auth";
 
 export default async function SignUpPage({
   searchParams,
@@ -24,7 +24,7 @@ export default async function SignUpPage({
       ? appEntryPathForPlanIntent(plan)
       : orgSetupPathForPlanIntent(plan);
 
-    if (!isMfaEnrolled(session)) {
+    if (await isMfaRequiredForSession(session)) {
       redirect(`/mfa-setup?next=${encodeURIComponent(nextPath)}`);
     }
 

@@ -439,3 +439,33 @@ html.dark [data-sidebar-bar] {
   -webkit-text-fill-color: transparent;
   animation: agent-rainbow-wave 8s linear infinite;
 }
+
+@keyframes onboarding-flow-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.onboarding-flow-screen {
+  opacity: 1;
+  transform: translateY(0);
+  animation: onboarding-flow-enter 500ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.onboarding-guide-line {
+  opacity: 1;
+  transform: translateY(0);
+  animation: onboarding-flow-enter 500ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-flow-screen,
+  .onboarding-guide-line {
+    animation: none;
+  }
+}

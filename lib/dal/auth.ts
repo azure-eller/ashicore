@@ -137,6 +137,20 @@ export function isMfaEnrolled(session: AuthSession): boolean {
   );
 }
 
+export async function isMfaRequiredForSession(session: AuthSession): Promise<boolean> {
+  if (!session || isMfaDisabledForDevOrTest() || isMfaEnrolled(session)) {
+    return false;
+  }
+
+  const [row] = await db
+    .select({ mfaGraceUsed: user.mfaGraceUsed })
+    .from(user)
+    .where(eq(user.id, session.user.id))
+    .limit(1);
+
+  return row?.mfaGraceUsed ?? true;
+}
+
 async function resolveMemberContext(
   requestHeaders: HeadersInit,
   existingSession?: AuthSession
@@ -236,7 +250,7 @@ const getRequestAuthState = cache(async () => {
     };
   }
 
-  if (!isMfaEnrolled(session)) {
+  if (await isMfaRequiredForSession(session)) {
     return {
       session,
       context: null as MemberContext | null,
@@ -252,7 +266,7 @@ const getRequestAuthState = cache(async () => {
 export async function getAuthedMemberContext(): Promise<MemberContext> {
   const { session, context } = await getRequestAuthState();
 
-  if (session && !isMfaEnrolled(session)) {
+  if (session && (await isMfaRequiredForSession(session))) {
     redirect("/mfa-setup");
   }
 
@@ -327,7 +341,7 @@ export async function getAuthedApiMemberContext(
     throw new AuthorizationError("Authentication required.", 401);
   }
 
-  if (!isMfaEnrolled(session)) {
+  if (await isMfaRequiredForSession(session)) {
     throw new AuthorizationError("Multi-factor authentication setup required.", 403);
   }
 

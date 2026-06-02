@@ -2,7 +2,7 @@ import { headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { LoginForm } from "@/components/login-form"
 import { auth } from "@/lib/auth"
-import { isMfaEnrolled } from "@/lib/dal/auth"
+import { isMfaRequiredForSession } from "@/lib/dal/auth"
 
 const DEFAULT_SIGN_IN_TARGET = "/sales/orders"
 
@@ -23,7 +23,7 @@ export default async function Page({
   if (session) {
     const nextPath = target ?? DEFAULT_SIGN_IN_TARGET
 
-    if (!isMfaEnrolled(session)) {
+    if (await isMfaRequiredForSession(session)) {
       redirect(`/mfa-setup?next=${encodeURIComponent(nextPath)}`)
     }
 

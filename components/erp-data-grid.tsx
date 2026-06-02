@@ -18,6 +18,7 @@ import {
   themeQuartz,
   type ColDef,
   type ColGroupDef,
+  type CellValueChangedEvent,
   type GridApi,
   type FirstDataRenderedEvent,
   type GridState,
@@ -116,6 +117,7 @@ export type ERPDataGridProps<TData extends { id: string }> = {
   enableRowSelection?: boolean;
   isRowSelectable?: (row: TData) => boolean;
   onSelectionChange?: (rows: TData[]) => void;
+  onCellValueChanged?: (event: CellValueChangedEvent<TData>) => void;
   enableManagedRowDrag?: boolean;
   suppressMoveWhenRowDragging?: boolean;
   onManagedRowDragReorder?: (rows: TData[]) => void;
@@ -282,6 +284,7 @@ export function ERPDataGrid<TData extends { id: string }>({
   enableRowSelection = false,
   isRowSelectable,
   onSelectionChange,
+  onCellValueChanged,
   enableManagedRowDrag = false,
   suppressMoveWhenRowDragging = false,
   onManagedRowDragReorder,
@@ -662,6 +665,7 @@ export function ERPDataGrid<TData extends { id: string }>({
           onSelectionChanged={(event: SelectionChangedEvent<TData>) => {
             onSelectionChange?.(event.api.getSelectedRows());
           }}
+          onCellValueChanged={onCellValueChanged}
           onGridReady={(event: GridReadyEvent<TData>) => {
             gridApiRef.current = event.api;
             applyPersistedGridState(persistedGridState);

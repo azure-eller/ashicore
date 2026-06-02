@@ -265,6 +265,30 @@ const organizationBillingSafetyPlugin = (): BetterAuthPlugin => ({
   },
 });
 
+const mfaGraceSignInPlugin = (): BetterAuthPlugin => ({
+  id: "ashicore-mfa-grace-sign-in",
+  hooks: {
+    after: [
+      {
+        matcher(ctx) {
+          return ctx.path === "/sign-in/email";
+        },
+        handler: createAuthMiddleware(async (ctx) => {
+          const userId = await getReturnedAuthUserId(ctx);
+          if (!userId) {
+            return;
+          }
+
+          await db
+            .update(schema.user)
+            .set({ mfaGraceUsed: true })
+            .where(eq(schema.user.id, userId));
+        }),
+      },
+    ],
+  },
+});
+
 async function getReturnedOrganization(ctx: AuthMiddlewareContext) {
   const returned = ctx.context.returned;
   if (!returned) {
@@ -282,6 +306,23 @@ async function getReturnedOrganization(ctx: AuthMiddlewareContext) {
   return parseOrganizationResponse(returned);
 }
 
+async function getReturnedAuthUserId(ctx: AuthMiddlewareContext) {
+  const returned = ctx.context.returned;
+  if (!returned) {
+    return null;
+  }
+
+  if (returned instanceof Response) {
+    if (!returned.ok) {
+      return null;
+    }
+
+    return parseAuthUserId(await returned.clone().json());
+  }
+
+  return parseAuthUserId(returned);
+}
+
 function parseOrganizationResponse(value: unknown): { id: string } | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -296,6 +337,22 @@ function parseOrganizationResponse(value: unknown): { id: string } | null {
         : null;
 
   return id ? { id } : null;
+}
+
+function parseAuthUserId(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as { user?: { id?: unknown }; id?: unknown };
+  const id =
+    typeof record.user?.id === "string"
+      ? record.user.id
+      : typeof record.id === "string"
+        ? record.id
+        : null;
+
+  return id;
 }
 
 type AuthMiddlewareContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
@@ -351,6 +408,7 @@ export const auth = betterAuth({
   plugins: [
     organizationBillingSafetyPlugin(),
     organizationTaxDefaultsPlugin(),
+    mfaGraceSignInPlugin(),
     twoFactorOtpCleanupPlugin(),
     twoFactor({
       issuer: "Ashicore",
