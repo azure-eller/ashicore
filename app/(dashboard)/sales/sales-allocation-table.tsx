@@ -49,7 +49,10 @@ import {
 import { apiJson } from "@/lib/client/api";
 import { formatQuantity, parseQuantity } from "@/lib/format";
 import type { ItemRow } from "@/app/(dashboard)/inventory/types";
-import type { DemandQueueCoverageSegment } from "@/lib/inventory/allocation/demand-queue";
+import type {
+  DemandQueueCoverageSegment,
+  DemandQueueSupplySource,
+} from "@/lib/inventory/allocation/demand-queue";
 import {
   AllocationSourceDialog,
   SALES_ORDERS_ALLOCATOR_VIEW_KEY,
@@ -77,6 +80,7 @@ const DEFAULT_ALLOCATOR_PREFERENCE: AllocatorPreference = {
 type AllocationProduct = AllocatorProduct & {
   stockQty: number;
   incomingQty: number;
+  sources: DemandQueueSupplySource[];
   isStandalone: boolean;
   hasActiveDemand: boolean;
 };
@@ -85,6 +89,7 @@ export type ProductCoverageRow = {
   itemId: string;
   stockQty: string;
   incomingQty: string;
+  sources: DemandQueueSupplySource[];
 };
 
 export type ManufacturingAllocationDemandRow = {
@@ -244,6 +249,7 @@ function getInventoryProducts(inventory: ItemRow[]) {
       unitName: row.unit ?? "units",
       stockQty: parseQuantity(row.availableQty),
       incomingQty: parseQuantity(row.expectedQty),
+      sources: [],
       isStandalone: true,
       hasActiveDemand: false,
     });
@@ -290,6 +296,7 @@ function getAllocatorProducts(
         unitName: line.unitName,
         stockQty: parseQuantity(inventoryItem?.availableQty),
         incomingQty: parseQuantity(inventoryItem?.expectedQty),
+        sources: existing?.sources ?? [],
         isStandalone,
         hasActiveDemand: true,
       });
@@ -312,6 +319,7 @@ function getAllocatorProducts(
         unitName: existing?.unitName ?? ingredient.unitName,
         stockQty: existing?.stockQty ?? parseQuantity(inventoryItem.availableQty),
         incomingQty: existing?.incomingQty ?? parseQuantity(inventoryItem.expectedQty),
+        sources: existing?.sources ?? [],
         isStandalone: existing?.isStandalone ?? true,
         hasActiveDemand: true,
       });
@@ -1546,6 +1554,7 @@ export function SalesAllocationTable({
         ...product,
         stockQty: parseQuantity(coverage.stockQty),
         incomingQty: parseQuantity(coverage.incomingQty),
+        sources: coverage.sources,
       };
     });
   }, [allProducts, initialProductCoverage]);
@@ -1695,6 +1704,7 @@ export function SalesAllocationTable({
         line: cell.line,
         product: cell.product,
         targetQty: quantityString(cell.demand),
+        sources: cell.product.sources,
       });
     },
     []

@@ -92,6 +92,7 @@ function buildProductCoverageFromDemandQueue(
     itemId: item.itemId,
     stockQty: item.onHandQty,
     incomingQty: item.expectedQty,
+    sources: item.sources,
   }));
 }
 

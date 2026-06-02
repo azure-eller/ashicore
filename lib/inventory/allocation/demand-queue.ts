@@ -96,13 +96,39 @@ type DemandQueueCoverageState = DemandQueueCoverageRow & {
 };
 
 export type CoverageSegment =
-  | { kind: "in_stock"; qty: number }
-  | { kind: "expected"; qty: number; availableDate: string | null }
+  | {
+      kind: "in_stock";
+      qty: number;
+      sourceType?: DemandQueueSupplyChunk["sourceType"];
+      sourceId?: string;
+      sourceLabel?: string | null;
+    }
+  | {
+      kind: "expected";
+      qty: number;
+      availableDate: string | null;
+      sourceType?: DemandQueueSupplyChunk["sourceType"];
+      sourceId?: string;
+      sourceLabel?: string | null;
+    }
   | { kind: "short"; qty: number };
 
 export type DemandQueueCoverageSegment =
-  | { kind: "in_stock"; qty: string }
-  | { kind: "expected"; qty: string; availableDate: string | null }
+  | {
+      kind: "in_stock";
+      qty: string;
+      sourceType?: DemandQueueSupplyChunk["sourceType"];
+      sourceId?: string;
+      sourceLabel?: string | null;
+    }
+  | {
+      kind: "expected";
+      qty: string;
+      availableDate: string | null;
+      sourceType?: DemandQueueSupplyChunk["sourceType"];
+      sourceId?: string;
+      sourceLabel?: string | null;
+    }
   | { kind: "short"; qty: string };
 
 function serializeCoverageSegment(
@@ -232,13 +258,22 @@ export function computeDemandQueueCoverage(params: {
 
       if (chunk.kind === "on_hand") {
         coverage.inStockQty = roundQuantity(coverage.inStockQty + claim);
-        coverage.segments.push({ kind: "in_stock", qty: claim });
+        coverage.segments.push({
+          kind: "in_stock",
+          qty: claim,
+          sourceType: chunk.sourceType,
+          sourceId: chunk.sourceId,
+          sourceLabel: chunk.label,
+        });
       } else {
         coverage.expectedQty = roundQuantity(coverage.expectedQty + claim);
         coverage.segments.push({
           kind: "expected",
           qty: claim,
           availableDate: chunk.availableDate,
+          sourceType: chunk.sourceType,
+          sourceId: chunk.sourceId,
+          sourceLabel: chunk.label,
         });
         if (
           chunk.availableDate &&
@@ -315,6 +350,26 @@ export type DemandQueueCoverageDemand = {
   segments: DemandQueueCoverageSegment[];
 };
 
+export type DemandQueueSourceClaim = {
+  demandType: AllocationDemandType;
+  demandId: string;
+  label: string;
+  contextLabel: string | null;
+  requiredDate: string | null;
+  qty: string;
+};
+
+export type DemandQueueSupplySource = {
+  sourceType: NonNullable<DemandQueueSupplyChunk["sourceType"]>;
+  sourceId: string;
+  label: string | null;
+  date: string | null;
+  totalQty: string;
+  claimedQty: string;
+  availableQty: string;
+  claims: DemandQueueSourceClaim[];
+};
+
 export type DemandQueueItemCoverage = {
   itemId: string;
   itemName: string;
@@ -324,6 +379,7 @@ export type DemandQueueItemCoverage = {
   claimedByManufacturingQty: string;
   sellableQty: string;
   shortQty: string;
+  sources: DemandQueueSupplySource[];
   demands: DemandQueueCoverageDemand[];
 };
 
@@ -689,6 +745,55 @@ export async function getDemandQueueCoverageForItemInTx(
       params.includeManufacturingDetail ||
       row.demandType !== "manufacturing_order_ingredient"
   );
+  const claimsBySourceKey = new Map<string, DemandQueueSourceClaim[]>();
+  for (const demand of visibleCoverage) {
+    for (const segment of demand.segments) {
+      if (segment.kind === "short") continue;
+      if (!segment.sourceType || !segment.sourceId) continue;
+      const key = `${segment.sourceType}:${segment.sourceId}`;
+      claimsBySourceKey.set(key, [
+        ...(claimsBySourceKey.get(key) ?? []),
+        {
+          demandType: demand.demandType,
+          demandId: demand.demandId,
+          label: demand.label,
+          contextLabel: demand.contextLabel,
+          requiredDate: demand.requiredDate,
+          qty: quantityString(segment.qty),
+        },
+      ]);
+    }
+  }
+  const visibleSources = supply
+    .filter(
+      (
+        chunk
+      ): chunk is DemandQueueSupplyChunk & {
+        sourceType: NonNullable<DemandQueueSupplyChunk["sourceType"]>;
+        sourceId: string;
+      } => Boolean(chunk.sourceType && chunk.sourceId)
+    )
+    .map((chunk) => {
+      const key = `${chunk.sourceType}:${chunk.sourceId}`;
+      const claims = claimsBySourceKey.get(key) ?? [];
+      const claimedQty = claims.reduce(
+        (sum, claim) => sum + toQuantity(claim.qty),
+        0
+      );
+
+      return {
+        sourceType: chunk.sourceType,
+        sourceId: chunk.sourceId,
+        label: chunk.label,
+        date: chunk.availableDate,
+        totalQty: quantityString(chunk.quantity),
+        claimedQty: quantityString(claimedQty),
+        availableQty: quantityString(
+          Math.max(0, roundQuantity(chunk.quantity - claimedQty))
+        ),
+        claims,
+      };
+    });
   const visibleShortTotal = visibleCoverage.reduce((sum, row) => sum + row.shortQty, 0);
 
   const first = demandRows[0];
@@ -701,6 +806,7 @@ export async function getDemandQueueCoverageForItemInTx(
     claimedByManufacturingQty: quantityString(claimedByManufacturing),
     sellableQty: quantityString(Math.max(0, totalSupply - claimedByManufacturing)),
     shortQty: quantityString(visibleShortTotal),
+    sources: visibleSources,
     demands: visibleCoverage.map((row) => ({
       demandType: row.demandType,
       demandId: row.demandId,

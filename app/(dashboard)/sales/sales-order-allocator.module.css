@@ -1,7 +1,7 @@
 .sourceDialog {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  width: min(720px, calc(100vw - var(--space-16)));
+  width: min(860px, calc(100vw - var(--space-16)));
   max-height: calc(100vh - var(--space-16));
   overflow: hidden;
   border-radius: var(--radius-none);
@@ -110,7 +110,7 @@
 .sourcesHeader,
 .sourceRow {
   display: grid;
-  grid-template-columns: 1.5fr 64px 1.5fr 64px 90px;
+  grid-template-columns: minmax(280px, 1fr) 66px 66px 58px 82px;
   align-items: center;
   gap: var(--space-7);
 }
@@ -127,6 +127,7 @@
 }
 
 .sourcesHeader span:nth-child(2),
+.sourcesHeader span:nth-child(3),
 .sourcesHeader span:nth-child(4),
 .sourcesHeader span:nth-child(5) {
   text-align: right;
@@ -203,6 +204,30 @@
   line-height: var(--leading-2xs);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.sourceClaims {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+  color: var(--color-muted);
+  font-size: var(--text-2xs);
+  line-height: var(--leading-2xs);
+}
+
+.sourceClaims span {
+  overflow-wrap: anywhere;
+}
+
+.sourceNumber {
+  justify-self: end;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-variant-numeric: tabular-nums;
 }
 
 .allocateCell {

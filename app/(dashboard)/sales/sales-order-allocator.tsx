@@ -10,6 +10,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatDate, formatQuantity, parseQuantity } from "@/lib/format";
+import type {
+  DemandQueueCoverageSegment,
+  DemandQueueSupplySource,
+} from "@/lib/inventory/allocation/demand-queue";
 import type { SalesOrdersAllocatorPreference } from "@/lib/view-preferences";
 import type { SalesOrderListLine } from "./types";
 import styles from "./sales-order-allocator.module.css";
@@ -33,6 +37,7 @@ export type AllocationTarget = {
   line: SalesOrderListLine & { id: string };
   product: AllocatorProduct;
   targetQty: string;
+  sources: DemandQueueSupplySource[];
 };
 
 type CoverageRow = {
@@ -41,6 +46,11 @@ type CoverageRow = {
   meta: string | null;
   quantity: string;
   tone: "stock" | "expected" | "short";
+};
+
+type SourceDialogRow = DemandQueueSupplySource & {
+  key: string;
+  thisDemandQty: string;
 };
 
 export function productLabel(line: SalesOrderListLine) {
@@ -129,6 +139,60 @@ function segmentRows(target: AllocationTarget): CoverageRow[] {
   return fallbackRows;
 }
 
+function sourceKey(sourceType: string | undefined, sourceId: string | undefined) {
+  return sourceType && sourceId ? `${sourceType}:${sourceId}` : null;
+}
+
+function segmentSourceKey(segment: DemandQueueCoverageSegment) {
+  if (segment.kind === "short") return null;
+  return sourceKey(segment.sourceType, segment.sourceId);
+}
+
+function sourceRows(target: AllocationTarget): SourceDialogRow[] {
+  const thisDemandQtyBySource = new Map<string, number>();
+  for (const segment of target.line.demandQueueSegments ?? []) {
+    const key = segmentSourceKey(segment);
+    if (!key) continue;
+    thisDemandQtyBySource.set(
+      key,
+      (thisDemandQtyBySource.get(key) ?? 0) + parseQuantity(segment.qty)
+    );
+  }
+
+  return target.sources.map((source) => {
+    const key = sourceKey(source.sourceType, source.sourceId) ?? source.sourceId;
+    return {
+      ...source,
+      key,
+      thisDemandQty: quantityString(thisDemandQtyBySource.get(key) ?? 0),
+    };
+  });
+}
+
+function sourceDateLabel(source: DemandQueueSupplySource) {
+  if (!source.date) return null;
+  const date = source.date.includes("T") ? source.date.slice(0, 10) : source.date;
+  if (source.sourceType === "inventory_lot") return `Received ${formatDate(date)}`;
+  if (source.sourceType === "manufacturing_order") return `Expected ${formatDate(date)}`;
+  return `Expected ${formatDate(date)}`;
+}
+
+function sourceBadgeLabel(source: DemandQueueSupplySource) {
+  if (source.sourceType === "manufacturing_order") return "MO";
+  if (source.sourceType === "purchase_order_line") return "PO";
+  return "LOT";
+}
+
+function sourceBadgeType(source: DemandQueueSupplySource) {
+  return source.sourceType === "manufacturing_order" ? "manufacturing_order" : "inventory_lot";
+}
+
+function claimLabel(claim: DemandQueueSupplySource["claims"][number]) {
+  const context = claim.contextLabel ? ` · ${claim.contextLabel}` : "";
+  const date = claim.requiredDate ? ` · ${formatDate(claim.requiredDate)}` : "";
+  return `${claim.label}${context}${date}`;
+}
+
 export function AllocationSourceDialog({
   target,
   onOpenChange,
@@ -136,8 +200,14 @@ export function AllocationSourceDialog({
   target: AllocationTarget | null;
   onOpenChange: (open: boolean) => void;
 }) {
-  const rows = target ? segmentRows(target) : [];
-  const coveredQty = rows
+  const rows = target
+    ? target.sources.length > 0
+      ? sourceRows(target)
+      : segmentRows(target)
+    : [];
+  const sourceDetailRows = target && target.sources.length > 0 ? sourceRows(target) : [];
+  const coverageRows = target && target.sources.length === 0 ? segmentRows(target) : [];
+  const coveredQty = (target ? segmentRows(target) : [])
     .filter((row) => row.tone !== "short")
     .reduce((sum, row) => sum + parseQuantity(row.quantity), 0);
   const targetQty = parseQuantity(target?.targetQty);
@@ -194,16 +264,66 @@ export function AllocationSourceDialog({
               <div className={styles.sourcesTable}>
                 <div className={styles.sourcesHeader}>
                   <span>Source</span>
-                  <span />
-                  <span />
-                  <span />
+                  <span>Total</span>
+                  <span>Claimed</span>
+                  <span>Open</span>
                   <span>This demand</span>
                 </div>
                 <div className={styles.sourcesRows}>
                   {rows.length === 0 ? (
                     <div className={styles.emptySources}>No coverage.</div>
+                  ) : sourceDetailRows.length > 0 ? (
+                    sourceDetailRows.map((row) => (
+                      <div
+                        key={row.key}
+                        className={styles.sourceRow}
+                        data-selected={parseQuantity(row.thisDemandQty) > 0}
+                      >
+                        <div className={styles.sourceCell}>
+                          <span
+                            className={styles.sourceBadge}
+                            data-type={sourceBadgeType(row)}
+                          >
+                            {sourceBadgeLabel(row)}
+                          </span>
+                          <div className={styles.sourceIdentity}>
+                            <span className={styles.sourceId}>
+                              {row.label ?? row.sourceId}
+                            </span>
+                            {sourceDateLabel(row) ? (
+                              <span className={styles.sourceMeta}>
+                                {sourceDateLabel(row)}
+                              </span>
+                            ) : null}
+                            {row.claims.length > 0 ? (
+                              <div className={styles.sourceClaims}>
+                                {row.claims.map((claim) => (
+                                  <span key={`${claim.demandType}:${claim.demandId}`}>
+                                    {formatQuantity(claim.qty)} {claimLabel(claim)}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className={styles.sourceNumber}>
+                          {formatQuantity(row.totalQty)}
+                        </div>
+                        <div className={styles.sourceNumber}>
+                          {formatQuantity(row.claimedQty)}
+                        </div>
+                        <div className={styles.sourceNumber}>
+                          {formatQuantity(row.availableQty)}
+                        </div>
+                        <div className={styles.allocateCell}>
+                          <span className={styles.sourceInput}>
+                            {formatQuantity(row.thisDemandQty)}
+                          </span>
+                        </div>
+                      </div>
+                    ))
                   ) : (
-                    rows.map((row) => (
+                    coverageRows.map((row) => (
                       <div
                         key={row.key}
                         className={styles.sourceRow}
