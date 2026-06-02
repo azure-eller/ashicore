@@ -5,7 +5,6 @@ export * from "./lots";
 export * from "./inventory-events";
 export * from "./inventory-projections";
 export * from "./inventory-idempotency";
-export * from "./stock-allocations";
 export * from "./quality-disposition-events";
 export * from "./stocktakes";
 export * from "./bom";

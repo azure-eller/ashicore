@@ -960,6 +960,13 @@
       "when": 1780352192357,
       "tag": "0136_faithful_hellion",
       "breakpoints": true
+    },
+    {
+      "idx": 137,
+      "version": "7",
+      "when": 1780371466425,
+      "tag": "0137_first_agent_brand",
+      "breakpoints": true
     }
   ]
 }

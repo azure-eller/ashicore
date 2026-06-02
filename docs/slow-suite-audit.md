@@ -25,7 +25,7 @@ Current executable slow suite:
 | Purchasing | 1 | `purchasing-order.spec.ts` |
 | Manufacturing/SO-MO | 3 | `manufacturing-order.spec.ts`, `mo-execute-and-fulfill.spec.ts`, `so-mo-linkage.spec.ts` |
 | Inventory/catalog/cost/stocktake | 4 | `inventory-form.spec.ts`, `inventory-visibility.spec.ts`, `cost-basis-story.spec.ts`, `stocktake.spec.ts` |
-| Planning/allocation | 1 | `demand-queue-allocation.spec.ts` |
+| Planning | 1 | `demand-queue-allocation.spec.ts` |
 
 Current footprint: 11 slow spec files and about 12.9k lines. The bloat is not the domain split itself; it is incident-shaped checks inside large serial files, especially SO/MO linkage, MO execute/fulfill, sales order, stocktake, and manufacturing order.
 
@@ -47,7 +47,7 @@ Final story files:
 | `sales-fulfillment.spec.ts` | `ci:slow:sales` | A customer places an order, demand appears, stock is shipped partially/finally, and the order/inventory state remains correct. | customer snapshot/context, demand creation, partial/final shipment, order status, inventory consumption once, delete releases commitments | every customer field, list rendering, stale UI copy, unrelated delete guard matrix | `serial-only` | Ordered lifecycle story. |
 | `purchasing-receiving.spec.ts` | `ci:slow:purchasing` | A buyer creates/submits a PO, receives it in parts, and expected supply becomes physical stock. | supplier/PO creation, submit, partial receive, final receive, expected supply closed, lot/balance truth | every supplier field, table behavior, status copy | `serial-only` | Ordered lifecycle story. |
 | `manufacturing-execution.spec.ts` | `ci:slow:manufacturing` | An operator creates/releases/picks/completes an MO and ingredient/output stock is correct. | BOM snapshot, release demand, pick, completion, output lot and compact cost truth, delete rolls back expected output | every error code, every idempotency replay, BR/RA incident archive | `serial-only` | Ordered lifecycle story. |
-| `planning-allocation-story.spec.ts` | `ci:slow:planning` | A planner resolves scarce stock across ranked demand, expected PO/MO supply, and a shared component blocker. | rank priority, shortage, expected supply, shared component visibility, make/buy signal | every planning tab, drag/drop, parked planning flows, copy strings | `serial-only` | Cross-domain planning needs its own lane. |
+| `planning-demand-queue-story.spec.ts` | `ci:slow:planning` | A planner resolves scarce stock across ranked demand, expected PO/MO supply, and a shared component blocker. | rank priority, shortage, expected supply, shared component visibility, make/buy signal | every planning tab, drag/drop, parked planning flows, copy strings | `serial-only` | Cross-domain planning needs its own lane. |
 | `stocktake-workflow.spec.ts` | `ci:slow:stocktake` | An operator opens a stocktake, saves/reloads sparse counts, completes, and sees reconciled state. | draft persistence, sparse counts, reload/continue, commit, completed reconciliation state | re-proving basic count-to-event math already covered by fast | `serial-only` | Ordered workflow story. |
 
 Planning slow selection decision: `test:slow:planning` and `ci:slow:planning` are real lanes. `test:slow:inventory` and `ci:slow:inventory` are retired; inventory-affecting work routes to the relevant operating story plus `test:fast:inventory` / `verify:inventory`.
@@ -63,7 +63,7 @@ Planning slow selection decision: `test:slow:planning` and `ci:slow:planning` ar
 | Confirmed order create/edit/demand tests | `keep` | `sales-fulfillment.spec.ts` | This is the core sales operating story. |
 | Open shortage order delete | `fold` | `sales-fulfillment.spec.ts` or planning story | Keep only if it proves demand release in the main story. |
 | Confirmed order cards/actions/status UI tests | `delete` | None | These are UI surface checks unless tied directly to completing the order workflow. |
-| Manufacturable/non-manufacturable production action tests | `fold` | `planning-allocation-story.spec.ts` or manufacturing story | Keep one representative make/buy or create-MO visibility assertion; delete duplicates. |
+| Manufacturable/non-manufacturable production action tests | `fold` | `planning-demand-queue-story.spec.ts` or manufacturing story | Keep one representative make/buy or create-MO visibility assertion; delete duplicates. |
 | Sales deletion guard tests, including skipped/fixme blocks | `delete` or `convert to verify:*` | Future verification only if needed | Current shape is stale-client and historical guard coverage, not the core operating story. |
 | `customer-crm.spec.ts` UI create/reload | `rewrite` | `customer-sales-workspace.spec.ts` | Keep only if customer workspace data feeds sales/shipping/pricing context. |
 | Customer file upload/download/delete cleanup | `delete` or defer | Future integration story | Credential-gated file storage checks are not a core slow story unless customer file management is declared first-class. |
@@ -76,14 +76,14 @@ Planning slow selection decision: `test:slow:planning` and `ci:slow:planning` ar
 | `manufacturing-order.spec.ts` overall | `rewrite` | `manufacturing-execution.spec.ts` | Contains the right MO lifecycle but should shrink to one operator story plus one or two class-level invariants. |
 | BOM-backed fixtures and sales traceability | `fold` | `manufacturing-execution.spec.ts` setup | Keep as compact setup, preferably API-first. |
 | Open MO create/link/edit/recalculate | `keep` | `manufacturing-execution.spec.ts` | Core MO setup and BOM snapshot behavior. |
-| Create MOs from confirmed SO / skip non-manufacturable | `fold` | `planning-allocation-story.spec.ts` or manufacturing story | Keep one representative make-from-demand assertion; avoid duplicate SO/MO linkage coverage. |
+| Create MOs from confirmed SO / skip non-manufacturable | `fold` | `planning-demand-queue-story.spec.ts` or manufacturing story | Keep one representative make-from-demand assertion; avoid duplicate SO/MO linkage coverage. |
 | Delete released/in-progress MO returns expected/picked stock | `fold` | `manufacturing-execution.spec.ts` if natural | Keep one cancellation/reversal branch, not multiple deletion permutations. |
 | Sales-allocated batch completion, FIFO completion, produced lot | `keep` | `manufacturing-execution.spec.ts` | This is the core stock correctness story. |
 | Subassembly completion | `fold` | `manufacturing-execution.spec.ts` only if compact | Keep only if subassembly is central enough to the operator story. |
-| MO output allocation promises / lot holds | `fold` | `planning-allocation-story.spec.ts` | Planning/allocation story owns expected output visibility. |
+| MO expected output visibility / lot holds | `fold` | `planning-demand-queue-story.spec.ts` | Planning story owns expected output visibility. |
 | Decimal ingredient and six-decimal cost precision | `convert to verify:*` unless naturally covered | `verify:inventory` or future `verify:cost-basis` | Precision math is better as deterministic verification unless it is part of the main MO workflow. |
 | Active-item delete guard | `delete` or convert | Future verification | Not an operator-day story unless deletion is a domain workflow. |
-| `mo-execute-and-fulfill.spec.ts` overall | `rewrite/delete heavily` | `manufacturing-execution.spec.ts`, `planning-allocation-story.spec.ts`, cost verification | This file is mostly scenario IDs, fixmes, API errors, derived values, and idempotency incidents. |
+| `mo-execute-and-fulfill.spec.ts` overall | `rewrite/delete heavily` | `manufacturing-execution.spec.ts`, `planning-demand-queue-story.spec.ts`, cost verification | This file is mostly scenario IDs, fixmes, API errors, derived values, and idempotency incidents. |
 | S01/S02 cross-feature MO execute/fulfill | `fold` | `manufacturing-execution.spec.ts` | Keep one real end-to-end release/pick/complete/ship path if it can be made active and compact. |
 | S03/S04/S06/S22 fixmes | `delete` | None | Parked fixmes should not survive the rewrite. |
 | S05/S07 negative-stock override errors | `delete` or convert | Future verification if still core | Error override behavior is not a canonical slow story. |
@@ -95,15 +95,14 @@ Planning slow selection decision: `test:slow:planning` and `ci:slow:planning` ar
 | S17 shipment costs margin side effects | `delete` | None | Accounting/BOL side-effect guard is not the MO operating story. |
 | S19/S21 concurrency/idempotency | `convert to verify:*` or delete | Future domain verification | Concurrency safety is important, but browser slow is a poor default home. |
 | `so-mo-linkage.spec.ts` overall | `rewrite/delete heavily` | planning/manufacturing stories | This is the largest regression archive: BR/RA/T incident naming, races, stale forms, bulk operations, and permissions. |
-| Direct/bulk SO-linked MO create | `fold` | `planning-allocation-story.spec.ts` or manufacturing story | Keep one representative SO demand to MO claim path. |
+| Direct/bulk SO-linked MO create | `fold` | `planning-demand-queue-story.spec.ts` or manufacturing story | Keep one representative SO demand to MO claim path. |
 | SO line rewrite / drift tests | `delete` or convert | Future domain verification | Historical stale-line regression shape. |
 | Cancel/completed MO claim behavior | `fold` | manufacturing story | Keep one terminal/cancel state effect if natural. |
 | Item delete/module permission guards | `delete` or auth lane if truly auth | None for slow rewrite | Mixed permission regression coverage; not a business story. |
 | Parallel create/replay/concurrency tests | `convert to verify:*` or delete | Future domain verification | Preserve only a class-level invariant if the domain layer needs it; do not keep all variants. |
 | Bulk atomic failure tests | `delete` or convert | Future verification | API atomicity matrix, not slow story. |
-| Allocation rewrite helpers/stale form tests | `delete` or convert | Future verification | Helper-specific regression coverage. |
-| `demand-queue-allocation.spec.ts` manual reservation | `fold` | `planning-allocation-story.spec.ts` if still supported | Keep only if manual reservation is part of the compact planning story. |
-| `demand-queue-allocation.spec.ts` MO ingredient demand vs sales demand | `keep/fold` | `planning-allocation-story.spec.ts` | Good candidate for the canonical planning story, especially shared component and expected MO output behavior. |
+| Demand queue rewrite helpers/stale form tests | `delete` or convert | Future verification | Helper-specific regression coverage. |
+| `demand-queue-allocation.spec.ts` MO ingredient demand vs sales demand | `keep/fold` | `planning-demand-queue-story.spec.ts` | Good candidate for the canonical planning story, especially shared component and expected MO output behavior. |
 | `stocktake.spec.ts` overall | `rewrite` | `stocktake-workflow.spec.ts` | Keep workflow persistence and reconciliation; remove duplicate cost/math branches. |
 | Fixture creation | `fold` | stocktake setup | Use compact setup. |
 | Positive stock default purchase price requirement | `convert to verify:*` or cost story | `verify:inventory` or `cost-basis-story.spec.ts` | Validation/cost math, not stocktake workflow. |

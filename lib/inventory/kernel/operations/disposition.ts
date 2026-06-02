@@ -19,10 +19,7 @@ import {
 } from "@/lib/inventory/kernel/operations/common";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import { InventoryDispositionError } from "@/lib/inventory/kernel/errors";
-import {
-  decrementPhysicalLotQuantityInTx,
-  releaseExcessLotAllocationsInTx,
-} from "./stock-core";
+import { decrementPhysicalLotQuantityInTx } from "./stock-core";
 
 type LotDispositionBalance = {
   organizationId: string;
@@ -220,17 +217,6 @@ export async function changeLotDispositionInTx(
     },
   ]);
 
-  if (params.fromDisposition === "available") {
-    await releaseExcessLotAllocationsInTx(tx, {
-      organizationId: params.organizationId,
-      locationId: location.id,
-      itemId: params.itemId,
-      lotId: params.lotId,
-      remainingLotQuantity: roundQuantity(Number(balance.quantity) - quantity),
-      actorUserId: params.actorUserId ?? null,
-    });
-  }
-
   const [qualityEvent] = await tx
     .insert(qualityDispositionEvents)
     .values({
@@ -353,17 +339,6 @@ export async function scrapLotDispositionInTx(
       quantityDelta: -quantity,
     },
   ]);
-
-  if (params.fromDisposition === "available") {
-    await releaseExcessLotAllocationsInTx(tx, {
-      organizationId: params.organizationId,
-      locationId: location.id,
-      itemId: params.itemId,
-      lotId: params.lotId,
-      remainingLotQuantity: roundQuantity(Number(balance.quantity) - quantity),
-      actorUserId: params.actorUserId ?? null,
-    });
-  }
 
   await applyItemBalanceDeltasInTx(tx, [
     {

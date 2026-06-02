@@ -20,7 +20,7 @@ Manufacturing v1 now covers both planning and simple execution:
 - mobile-first execution flow through the Android app
 - discrete orders picked once, then completed once
 - batch-mode orders executed one batch at a time
-- ingredient lot allocations on direct create/edit, with FIFO defaults
+- ingredient lot choice at pick time
 - universal partial output through the execution API/mobile workflow, without a product-level mode
 
 Still excluded in v1:
@@ -166,23 +166,16 @@ Release behavior differs by manufacturing mode:
 
 Only released, non-deleted manufacturing orders contribute to expected supply projections.
 
-Only released manufacturing orders can be selected as supply in the Sales Allocation tab. Draft manufacturing orders remain editable planning snapshots and must not be treated as allocatable sales supply.
+Only released manufacturing orders contribute expected supply in demand coverage. Draft manufacturing orders remain editable planning snapshots and must not be treated as sales supply.
 
 On release, manufacturing now does two inventory-side things through the kernel:
 
 - emits `expected_increase` for the finished-product output side
 - emits `demand_increase` for the ingredient side
-- records opportunistic active lot allocations for direct MO ingredient demand; manual selections win, otherwise FIFO fills from available lots
 
-Ingredient lot allocations never block creating an MO. If available lots cannot
-cover the whole ingredient need, the MO is still created and only the covered
-lot quantities are held. Automatic FIFO lot holding is opt-in through
-`autoAllocateIngredientLots`; clients that do not present a lot review surface
-must omit it or send `false`. Sales-order bulk MO creation does not silently hold
-ingredient lots because that flow has no lot review step.
-
-Lot-untracked ingredients do not expose manual lot allocation. They still consume
-internal available lots FIFO through the inventory kernel when picked.
+MO release does not choose or hold ingredient lots. Lot selection happens during
+the pick flow. Lot-untracked ingredients still consume internal available lots
+FIFO through the inventory kernel when picked.
 
 For batch-mode orders, expected supply is remaining unfinished output only:
 
@@ -208,7 +201,7 @@ Discrete picking rules:
 
 - pick the full remaining quantity only
 - no partial quantity entry in v1
-- consume selected ingredient lot allocations first, then FIFO for any unallocated remainder
+- consume picked lot rows first, then FIFO for any unpicked remainder
 
 Batch picking rules:
 

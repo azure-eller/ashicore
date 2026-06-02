@@ -315,48 +315,12 @@ async function main() {
 
     await client.query(
       `
-        CREATE TEMP TABLE split_allocation_demands_to_cancel (
-          demand_type text NOT NULL,
-          demand_id uuid NOT NULL
-        ) ON COMMIT DROP
-      `
-    );
-    await client.query(
-      `
         CREATE TEMP TABLE split_moved_line_quantities (
           sales_order_line_id uuid PRIMARY KEY,
           quantity numeric NOT NULL
         ) ON COMMIT DROP
       `
     );
-    await client.query(
-      `
-        INSERT INTO split_allocation_demands_to_cancel (demand_type, demand_id)
-        SELECT 'sales_order_line', sol.id
-        FROM sales.sales_order_lines sol
-        WHERE sol.sales_order_id = ANY($1::uuid[])
-        UNION
-        SELECT 'sales_shipment_line', ssl.id
-        FROM sales.sales_shipment_lines ssl
-        JOIN sales.sales_shipments ss ON ss.id = ssl.sales_shipment_id
-        WHERE ss.sales_order_id = ANY($1::uuid[])
-      `,
-      [orderIds]
-    );
-    const allocationCount = await client.query<{ count: string }>(
-      `
-        SELECT COUNT(*) AS count
-        FROM inventory.stock_allocations sa
-        JOIN split_allocation_demands_to_cancel d
-          ON d.demand_type = sa.demand_type
-         AND d.demand_id = sa.demand_id
-        WHERE sa.status = 'active'
-      `
-    );
-    console.log(
-      `  releasing ${allocationCount.rows[0]?.count ?? "0"} active allocation rows on split orders`
-    );
-
     const mismatches = await client.query<{
       order_number: string;
       item_name: string;
@@ -679,20 +643,6 @@ async function main() {
       );
     }
 
-    const cancelledAllocations = await client.query<{ id: string }>(
-      `
-        UPDATE inventory.stock_allocations sa
-        SET status = 'cancelled',
-            cancelled_at = now(),
-            updated_at = now()
-        FROM split_allocation_demands_to_cancel d
-        WHERE d.demand_type = sa.demand_type
-          AND d.demand_id = sa.demand_id
-          AND sa.status = 'active'
-        RETURNING sa.id
-      `
-    );
-    console.log(`  released ${cancelledAllocations.rows.length} allocation rows.`);
 
     if (apply) {
       await client.query("COMMIT");

@@ -27,12 +27,6 @@ import {
   getCurrentAvailableQtyAtLocationInTx,
   restockExistingLotInTx,
 } from "@/lib/inventory/kernel/operations/stock-core";
-import {
-  consumeLotAllocationsForDemandInTx,
-  getUnavailableLotAllocationQtyByLotIdInTx,
-  materializeManufacturingOrderSourceAllocationsForLotInTx,
-  reconcileInventoryLotAllocationsForItemsInTx,
-} from "@/lib/inventory/kernel/operations/stock-allocations";
 
 export async function addExpectedFromManufacturingInTx(
   tx: Tx,
@@ -354,11 +348,6 @@ export async function pickManufacturingIngredientInTx(
 
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
   await lockItemsInTx(tx, [params.itemId]);
-  await reconcileInventoryLotAllocationsForItemsInTx(tx, {
-    organizationId: params.organizationId,
-    itemIds: [params.itemId],
-    actorUserId: params.actorUserId ?? null,
-  });
   const [ownReservationRow] = await tx
     .select({ quantity: inventoryReservationsSummary.quantity })
     .from(inventoryReservationsSummary)
@@ -385,11 +374,9 @@ export async function pickManufacturingIngredientInTx(
     });
   }
 
-  const heldConsumed = await consumeLotAllocationsForDemandInTx(tx, {
+  const consumed = await consumeStockFifoInTx(tx, {
     organizationId: params.organizationId,
     locationId: location.id,
-    demandType: "manufacturing_order_ingredient",
-    demandId: params.ingredientId,
     itemId: params.itemId,
     quantity: params.quantity,
     eventType: "manufacturing_ingredient_consumption",
@@ -398,44 +385,11 @@ export async function pickManufacturingIngredientInTx(
     referenceId: params.manufacturingOrderId,
     actorUserId: params.actorUserId ?? null,
     idempotencyKey: params.idempotencyKey ?? null,
-    metadata: { manufacturingOrderIngredientId: params.ingredientId },
+    minimumReceivedDate: params.minimumReceivedDate ?? null,
+    allowIneligibleLots: params.confirmRequirementOverride ?? false,
     allowNegativeStock: params.allowNegativeStock ?? false,
+    metadata: { manufacturingOrderIngredientId: params.ingredientId },
   });
-
-  const unavailableByLotId = await getUnavailableLotAllocationQtyByLotIdInTx(tx, {
-    organizationId: params.organizationId,
-    itemId: params.itemId,
-    excludeDemand: {
-      demandType: "manufacturing_order_ingredient",
-      demandId: params.ingredientId,
-    },
-  });
-  const fifoConsumed =
-    heldConsumed.remainingQuantity > 0
-      ? await consumeStockFifoInTx(tx, {
-          organizationId: params.organizationId,
-          locationId: location.id,
-          itemId: params.itemId,
-          quantity: heldConsumed.remainingQuantity,
-          eventType: "manufacturing_ingredient_consumption",
-          eventSubtype: "manufacturing_pick",
-          referenceType: "manufacturing_order",
-          referenceId: params.manufacturingOrderId,
-          actorUserId: params.actorUserId ?? null,
-          idempotencyKey: heldConsumed.idempotencyUsed
-            ? null
-            : params.idempotencyKey ?? null,
-          minimumReceivedDate: params.minimumReceivedDate ?? null,
-          allowIneligibleLots: params.confirmRequirementOverride ?? false,
-          allowNegativeStock: params.allowNegativeStock ?? false,
-          metadata: { manufacturingOrderIngredientId: params.ingredientId },
-          unavailableByLotId,
-        })
-      : { allocations: [], eventIds: [] };
-  const consumed = {
-    allocations: [...heldConsumed.allocations, ...fifoConsumed.allocations],
-    eventIds: [...heldConsumed.eventIds, ...fifoConsumed.eventIds],
-  };
 
   if (consumed.allocations.length > 0) {
     await tx.insert(manufacturingPickAllocations).values(
@@ -694,17 +648,6 @@ export async function produceManufacturedStockInTx(
       })
     : await createPositiveStockEventInTx(tx, stockEventParams);
 
-  if ((params.outputDisposition ?? "available") === "available") {
-    await materializeManufacturingOrderSourceAllocationsForLotInTx(tx, {
-      organizationId: params.organizationId,
-      sourceManufacturingOrderId: params.manufacturingOrderId,
-      itemId: params.productId,
-      lotId: created.lotId,
-      quantity: params.quantity,
-      actorUserId: params.actorUserId ?? null,
-    });
-  }
-
   const existingExpected = await tx
     .select({
       itemId: inventoryExpectedSummary.itemId,
@@ -916,11 +859,9 @@ export async function reconcileIngredientActualsInTx(
   let firstEventId: string | null = null;
 
   if (delta > VARIANCE_EPSILON) {
-    const heldConsumed = await consumeLotAllocationsForDemandInTx(tx, {
+    const consumed = await consumeStockFifoInTx(tx, {
       organizationId: params.organizationId,
       locationId: location.id,
-      demandType: "manufacturing_order_ingredient",
-      demandId: params.ingredient.id,
       itemId: params.ingredient.itemId,
       quantity: delta,
       eventType: "manufacturing_variance_loss",
@@ -931,40 +872,8 @@ export async function reconcileIngredientActualsInTx(
       idempotencyKey: params.idempotencyKey ?? null,
       metadata: { manufacturingOrderIngredientId: params.ingredient.id },
       allowNegativeStock: params.allowNegativeStock ?? false,
+      trackedLotDefault: params.trackedLotDefault,
     });
-    const unavailableByLotId = await getUnavailableLotAllocationQtyByLotIdInTx(tx, {
-      organizationId: params.organizationId,
-      itemId: params.ingredient.itemId,
-      excludeDemand: {
-        demandType: "manufacturing_order_ingredient",
-        demandId: params.ingredient.id,
-      },
-    });
-    const fifoConsumed =
-      heldConsumed.remainingQuantity > 0
-        ? await consumeStockFifoInTx(tx, {
-            organizationId: params.organizationId,
-            locationId: location.id,
-            itemId: params.ingredient.itemId,
-            quantity: heldConsumed.remainingQuantity,
-            eventType: "manufacturing_variance_loss",
-            eventSubtype: "manufacturing_actuals",
-            referenceType: params.referenceType,
-            referenceId: params.referenceId,
-            actorUserId: params.actorUserId ?? null,
-            idempotencyKey: heldConsumed.idempotencyUsed
-              ? null
-              : params.idempotencyKey ?? null,
-            metadata: { manufacturingOrderIngredientId: params.ingredient.id },
-            unavailableByLotId,
-            allowNegativeStock: params.allowNegativeStock ?? false,
-            trackedLotDefault: params.trackedLotDefault,
-          })
-        : { allocations: [], eventIds: [] };
-    const consumed = {
-      allocations: [...heldConsumed.allocations, ...fifoConsumed.allocations],
-      eventIds: [...heldConsumed.eventIds, ...fifoConsumed.eventIds],
-    };
     firstEventId = consumed.eventIds[0] ?? null;
 
     if (consumed.allocations.length > 0) {

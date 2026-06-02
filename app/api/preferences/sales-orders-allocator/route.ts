@@ -1,33 +1,10 @@
-import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
-import { parseJsonBody } from "@/lib/api/request-body";
-import { assertModuleReadAccess } from "@/lib/dal/auth";
-import {
-  getUserViewPreferencePayload,
-  saveUserViewPreferencePayload,
-} from "@/lib/dal/user-view-preferences";
-import { salesOrdersAllocatorPreferenceSchema } from "@/lib/view-preferences";
+import { jsonError } from "@/lib/api/responses";
 
-const SALES_ORDERS_ALLOCATOR_VIEW_KEY = "sales.orders.allocator";
+export const GET = apiHandler(async () =>
+  jsonError("Sales order allocator preferences have been removed.", 410)
+);
 
-export const GET = apiHandler(async (request: Request) => {
-  await assertModuleReadAccess("sales", request.headers);
-  const payload = await getUserViewPreferencePayload(
-    SALES_ORDERS_ALLOCATOR_VIEW_KEY
-  );
-  const preference = salesOrdersAllocatorPreferenceSchema.parse(payload);
-  return NextResponse.json(preference);
-});
-
-export const PUT = apiHandler(async (request: Request) => {
-  await assertModuleReadAccess("sales", request.headers);
-  const preference = await parseJsonBody(
-    request,
-    salesOrdersAllocatorPreferenceSchema,
-  );
-  const payload = await saveUserViewPreferencePayload(
-    SALES_ORDERS_ALLOCATOR_VIEW_KEY,
-    preference
-  );
-  return NextResponse.json(salesOrdersAllocatorPreferenceSchema.parse(payload));
-});
+export const PUT = apiHandler(async () =>
+  jsonError("Sales order allocator preferences have been removed.", 410)
+);

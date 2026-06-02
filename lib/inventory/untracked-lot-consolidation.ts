@@ -117,16 +117,6 @@ async function collapseHistoricalLotReferencesInTx(
       AND lot_id = ANY(${oldLotIdArray})
   `);
   await tx.execute(sql`
-    UPDATE inventory.stock_allocations
-    SET source_id = ${params.canonicalLotId},
-        source_label_snapshot = ${INTERNAL_UNTRACKED_LOT_NUMBER},
-        updated_at = now()
-    WHERE organization_id = ${params.organizationId}
-      AND item_id = ${params.itemId}
-      AND source_type = 'inventory_lot'
-      AND source_id = ANY(${oldLotIdArray})
-  `);
-  await tx.execute(sql`
     UPDATE manufacturing.manufacturing_order_batches b
     SET lot_id = ${params.canonicalLotId},
         updated_at = now()
@@ -447,15 +437,6 @@ export async function convertUntrackedFamilyLotsToTrackedInTx(
       WHERE organization_id = ${params.organizationId}
         AND item_id = ${row.id}
         AND lot_id = ${canonical.id}
-    `);
-    await tx.execute(sql`
-      UPDATE inventory.stock_allocations
-      SET source_label_snapshot = ${lotNumber},
-          updated_at = now()
-      WHERE organization_id = ${params.organizationId}
-        AND item_id = ${row.id}
-        AND source_type = 'inventory_lot'
-        AND source_id = ${canonical.id}
     `);
     await tx.execute(sql`
       UPDATE inventory.stocktake_lot_items sli

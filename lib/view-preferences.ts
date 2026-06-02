@@ -19,19 +19,6 @@ const gridStateSchema = z
   )
   .default({});
 
-export const salesOrdersAllocatorPreferenceSchema = z.object({
-  version: z.literal(1).default(1),
-  updatedAt: z.string().datetime().optional(),
-  hiddenProductIds: z.array(z.string().uuid()).default([]),
-  collapsedWeeks: z.array(z.string()).default([]),
-  unplannedOpen: z.boolean().default(true),
-  manufacturingOpen: z.boolean().default(true),
-});
-
-export type SalesOrdersAllocatorPreference = z.infer<
-  typeof salesOrdersAllocatorPreferenceSchema
->;
-
 export const manufacturingOrdersPreferenceSchema = z.object({
   version: z.literal(1).default(1),
   updatedAt: z.string().datetime().optional(),
@@ -43,10 +30,6 @@ export type ManufacturingOrdersPreference = z.infer<
 >;
 
 const viewPreferenceDefinitions = {
-  "sales.orders.allocator": {
-    module: "sales",
-    schema: salesOrdersAllocatorPreferenceSchema,
-  },
   "manufacturing.orders": {
     module: "manufacturing",
     schema: manufacturingOrdersPreferenceSchema,

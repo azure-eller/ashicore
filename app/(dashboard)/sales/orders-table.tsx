@@ -61,7 +61,6 @@ import { displaySalesOrderNotes } from "@/lib/sales/import-notes";
 import {
   getSalesItemsAvailabilityState,
   getSalesItemsState,
-  type SalesAllocationMode,
 } from "@/lib/sales/order-display-status";
 import {
   getIngredientsDisplayState,
@@ -171,15 +170,6 @@ function SalesItemsActionCell({
       ? ({ label: "Not applicable", tone: "muted" } satisfies FulfillmentDisplayState)
       : getSalesItemsAvailabilityState(order);
   const tone = fulfillmentStatusBlockTone[state.tone];
-  const hasManualReservation =
-    parseQuantity(order.fulfillmentSummary.manualReservationQty) > 0;
-  const manualReservationTitle = hasManualReservation
-    ? `Manual reservation${
-        order.fulfillmentSummary.manualReservationSummary
-          ? `: ${order.fulfillmentSummary.manualReservationSummary}`
-          : ""
-      }`
-    : undefined;
   const rows = order.lines.map((line) => ({
     id: line.id ?? line.itemId,
     item: formatOrderLineItemName(line),
@@ -203,8 +193,6 @@ function SalesItemsActionCell({
           tone={tone}
           actionable
           actionVariant="button"
-          marker={hasManualReservation ? "M" : undefined}
-          title={manualReservationTitle}
           onClick={(event) => event.stopPropagation()}
           aria-label={`Sales items: ${state.label}`}
         >
@@ -307,8 +295,7 @@ function compareSalesOrderRank(
 
 function salesOrderMatchesSearch(
   order: SalesOrderListRow,
-  searchValue: string,
-  allocationMode: SalesAllocationMode
+  searchValue: string
 ) {
   const normalizedSearch = searchValue.trim().toLowerCase();
 
@@ -325,7 +312,7 @@ function salesOrderMatchesSearch(
     getOrderShipmentSchedule(order).label,
     order.lines.length === 0
       ? "Not applicable"
-      : getSalesItemsState(order, allocationMode).label,
+      : getSalesItemsState(order).label,
     getIngredientsState(order).label,
     getProductionState(order).label,
     getDeliveryState(order).label,
@@ -348,14 +335,10 @@ function RankCell({ rowIndex, order }: { rowIndex: number; order: SalesOrderList
 
 export function OrdersTable({
   initialData,
-  allocationMode,
 }: {
   initialData: SalesOrderListRow[];
-  allocationMode: SalesAllocationMode;
 }) {
-  return (
-    <OrdersTableContent initialData={initialData} allocationMode={allocationMode} />
-  );
+  return <OrdersTableContent initialData={initialData} />;
 }
 
 function LastSyncStatus({ dataUpdatedAt }: { dataUpdatedAt: number }) {
@@ -373,10 +356,8 @@ function LastSyncStatus({ dataUpdatedAt }: { dataUpdatedAt: number }) {
 
 function OrdersTableContent({
   initialData,
-  allocationMode,
 }: {
   initialData: SalesOrderListRow[];
-  allocationMode: SalesAllocationMode;
 }) {
   const queryClient = useQueryClient();
   const gridApiRef = useRef<GridApi<SalesOrderListRow> | null>(null);
@@ -452,7 +433,7 @@ function OrdersTableContent({
     const filteredOrders = orders.filter(
       (order) =>
         (allowedStatuses as readonly string[]).includes(order.status) &&
-        salesOrderMatchesSearch(order, searchValue, allocationMode)
+        salesOrderMatchesSearch(order, searchValue)
     );
 
     if (statusFilter === "done") {
@@ -460,7 +441,7 @@ function OrdersTableContent({
     }
 
     return [...filteredOrders].sort(compareSalesOrderRank);
-  }, [allocationMode, orders, searchValue, statusFilter]);
+  }, [orders, searchValue, statusFilter]);
   useEffect(() => {
     if (
       !hasAutoSizedColumnsRef.current &&

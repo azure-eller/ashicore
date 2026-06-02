@@ -37,7 +37,6 @@ export default async function DashboardLayout({
         <DashboardTopNav
           user={user}
           assignedRoles={context.assignedRoles}
-          allocationMode={context.allocationMode}
           activeOrganizationId={context.orgId}
           organizationName={context.organizationName}
           organizations={organizations.map((organization) => ({

@@ -169,21 +169,6 @@ async function getIngredientConstraintsByIngredientIdInTx(
 
 export const manufacturingOrderIngredientAllocationAdapter: AllocationDemandAdapter = {
   demandType: "manufacturing_order_ingredient",
-  async loadPrimaryDemandInTx(tx, params) {
-    const rows = await loadManufacturingIngredientRowsInTx(
-      tx,
-      and(
-        eq(manufacturingOrderIngredients.id, params.demandId),
-        eq(manufacturingOrders.organizationId, params.organizationId),
-        eq(manufacturingOrders.status, "open"),
-        isNull(manufacturingOrders.deletedAt),
-        isNull(manufacturingOrders.completedAt),
-        isNull(manufacturingOrders.cancelledAt),
-        sql`${manufacturingOrderIngredients.plannedQuantity} > COALESCE(${manufacturingOrderIngredients.pickedQuantity}, 0)`
-      )
-    );
-    return rows[0] ?? null;
-  },
   async loadOpenDemandsForItemInTx(tx, params) {
     return loadManufacturingIngredientRowsInTx(
       tx,
@@ -197,9 +182,5 @@ export const manufacturingOrderIngredientAllocationAdapter: AllocationDemandAdap
         sql`${manufacturingOrderIngredients.plannedQuantity} > COALESCE(${manufacturingOrderIngredients.pickedQuantity}, 0)`
       )
     );
-  },
-  async validateDemandItemInTx(tx, params) {
-    const demand = await this.loadPrimaryDemandInTx(tx, params);
-    return demand?.itemId === params.itemId ? demand : null;
   },
 };

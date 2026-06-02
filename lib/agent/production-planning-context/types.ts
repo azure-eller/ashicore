@@ -11,11 +11,6 @@ import type {
   ProductionDemandPath,
   SupplyFact,
 } from "@/lib/planning/types";
-import type {
-  AllocationDemandType,
-  AllocationSourceType,
-} from "@/lib/inventory/allocation/types";
-
 export type AgentPlanningItemRow = Omit<
   PlanningItemRow,
   "unitCost" | "unitCostSource"
@@ -60,9 +55,8 @@ export type AgentProductionSummary = {
   openManufacturingOrderCount: number;
   openPurchaseOrderCount: number;
   relevantItemCount: number;
-  activeAllocationCount: number;
-  allocationNeedCount: number;
-  allocatableNowCount: number;
+  coverageNeedCount: number;
+  coverableNowCount: number;
   supplyRecommendationCount: number;
   makeRecommendationCount: number;
   buyRecommendationCount: number;
@@ -76,9 +70,7 @@ export type AgentAttentionQueueItem = {
     | "sales_order_shortage"
     | "production_needed"
     | "material_shortage"
-    | "mo_unallocated"
-    | "allocation_conflict"
-    | "allocation_needed"
+    | "coverage_shortage"
     | "missing_bom"
     | "purchase_needed"
     | "planning_warning";
@@ -110,8 +102,6 @@ export type AgentOpenSalesOrderContext = {
       itemName: string;
       unitName: string | null;
       quantity: string;
-      allocatedQty: string;
-      unallocatedQty: string;
     }>;
   }>;
   lines: Array<{
@@ -124,13 +114,10 @@ export type AgentOpenSalesOrderContext = {
     plannedShipmentQty: string;
     cancelledQty: string;
     openQty: string;
-    directAllocatedQty: string;
-    shipmentAllocatedQty: string;
-    allocatedQty: string;
+    coveredQty: string;
     shortQty: string;
     productionStatus:
       | "available"
-      | "allocated"
       | "needs_make"
       | "blocked"
       | "unknown";
@@ -152,13 +139,6 @@ export type AgentOpenManufacturingOrderContext = {
   priorityRank: number | null;
   salesOrderId: string | null;
   salesOrderLineId: string | null;
-  outputAllocations: Array<{
-    allocationId: string;
-    demandType: AllocationDemandType;
-    demandId: string;
-    demandLabel: string;
-    quantity: string;
-  }>;
   ingredients: Array<{
     manufacturingOrderIngredientId: string;
     itemId: string;
@@ -166,7 +146,6 @@ export type AgentOpenManufacturingOrderContext = {
     unitName: string | null;
     requiredQty: string;
     pickedQty: string;
-    allocatedQty: string;
     shortQty: string;
   }>;
 };
@@ -201,9 +180,6 @@ export type AgentInventoryContext = {
   expectedQty: string;
   /** Planning-derived net projected quantity after demand and open supply. */
   projectedQty: string;
-  inventoryLotAllocatedQty: string;
-  manufacturingOutputAllocatedQty: string;
-  totalActiveAllocationQty: string;
   lots: Array<{
     lotId: string;
     lotCode: string | null;
@@ -213,25 +189,10 @@ export type AgentInventoryContext = {
     disposition: string;
     onHandQty: string;
     availableQty: string;
-    allocatedQty: string;
   }>;
 };
 
-export type AgentAllocationContext = {
-  allocationId: string;
-  itemId: string;
-  itemName: string;
-  demandType: AllocationDemandType;
-  demandId: string;
-  demandLabel: string;
-  sourceType: AllocationSourceType;
-  sourceId: string;
-  sourceLabel: string;
-  quantity: string;
-  status: "active";
-};
-
-export type AgentAllocationNeedContext = {
+export type AgentCoverageNeedContext = {
   demandType: "sales_order_line" | "manufacturing_order_ingredient";
   demandId: string;
   demandLabel: string;
@@ -241,16 +202,16 @@ export type AgentAllocationNeedContext = {
   priorityRank: number | null;
   requiredDate: string | null;
   requiredQty: string;
-  allocatedQty: string;
-  unallocatedQty: string;
-  allocationRankForItem: number;
+  coveredQty: string;
+  shortQty: string;
+  coverageRankForItem: number;
   availableQty: string;
   availableQtyBeforeThisNeed: string;
   availableQtyAfterThisNeed: string;
   projectedQty: string;
   projectedQtyAfterThisNeed: string;
   readiness:
-    | "allocate_available_inventory"
+    | "covered_by_available_inventory"
     | "available_after_open_supply"
     | "create_supply"
     | "blocked"
@@ -278,7 +239,7 @@ export type AgentSupplyRecommendationContext = {
 
 export type AgentDecisionQueueItem = {
   decisionType:
-    | "allocate_inventory"
+    | "cover_demand"
     | "create_manufacturing_order"
     | "create_purchase_order"
     | "review_item_setup"
@@ -290,18 +251,18 @@ export type AgentDecisionQueueItem = {
   unitName: string | null;
   quantity: string | null;
   requiredDate: string | null;
-  demandType?: AgentAllocationNeedContext["demandType"];
+  demandType?: AgentCoverageNeedContext["demandType"];
   demandId?: string;
   recommendationId?: string;
   blockerId?: string;
-  readiness?: AgentAllocationNeedContext["readiness"];
+  readiness?: AgentCoverageNeedContext["readiness"];
   reasonCodes?: AgentSupplyRecommendationContext["reasonCodes"];
   sourceRefs: PlanningSourceRef[];
 };
 
 export type AgentDecisionSupportContext = {
   decisionQueue: AgentDecisionQueueItem[];
-  allocationNeeds: AgentAllocationNeedContext[];
+  coverageNeeds: AgentCoverageNeedContext[];
   supplyRecommendations: AgentSupplyRecommendationContext[];
 };
 
@@ -346,7 +307,6 @@ export type AgentProductionPlanningContext = {
   manufacturingOrders: AgentOpenManufacturingOrderContext[];
   purchaseOrders: AgentOpenPurchaseOrderContext[];
   inventory: AgentInventoryContext[];
-  allocations: AgentAllocationContext[];
   decisionSupport: AgentDecisionSupportContext;
   topLevelBoms: AgentTopLevelBomContext[];
   planning: {
@@ -390,8 +350,6 @@ export type AgentProductionRawContext = {
         itemName: string;
         unitName: string | null;
         quantity: string;
-        allocatedQty: string;
-        unallocatedQty: string;
       }>;
     }>;
     unplannedDemand: Array<{
@@ -404,8 +362,8 @@ export type AgentProductionRawContext = {
       plannedShipmentQty: string;
       cancelledQty: string;
       remainingToPlanQty: string;
-      allocatedQty: string;
-      unallocatedQty: string;
+      coveredQty: string;
+      shortQty: string;
       productionStatus: AgentOpenSalesOrderContext["lines"][number]["productionStatus"];
     }>;
   }>;
@@ -423,7 +381,6 @@ export type AgentProductionRawContext = {
     expectedOutputDate: string | null;
     linkedSalesOrderId: string | null;
     linkedSalesOrderLineId: string | null;
-    outputAllocations: AgentOpenManufacturingOrderContext["outputAllocations"];
   }>;
   productCounts: Array<{
     itemId: string;
@@ -433,12 +390,9 @@ export type AgentProductionRawContext = {
     availableQty: string;
     reservedQty: string;
     expectedQty: string;
-    inventoryLotAllocatedQty: string;
-    manufacturingOutputAllocatedQty: string;
-    totalActiveAllocationQty: string;
     openSalesDemandQty: string;
-    openSalesAllocatedQty: string;
-    openSalesUnallocatedQty: string;
+    openSalesCoveredQty: string;
+    openSalesShortQty: string;
     openManufacturingSupplyQty: string;
     lotCounts: Array<{
       lotId: string;
@@ -448,7 +402,6 @@ export type AgentProductionRawContext = {
       disposition: string;
       onHandQty: string;
       availableQty: string;
-      allocatedQty: string;
     }>;
   }>;
   productBoms: Array<{

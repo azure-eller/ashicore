@@ -6,26 +6,22 @@ import {
   inventoryEvents,
   inventoryItemBalances,
   inventoryReservationsSummary,
-  lots,
   salesOrderLines,
   salesOrders,
   salesShipmentLines,
   salesShipments,
-  stockAllocations,
 } from "../../../lib/db/schema";
 import {
   createCustomer,
   createItem,
   createSalesOrder,
   fulfillSalesOrder,
-  getOrgId,
   getUnitId,
   testFetch,
 } from "../../helpers/api";
 
 test.describe("sales demand and shipment heartbeat", () => {
   const ts = Date.now();
-  const orgId = getOrgId();
   const unitId = getUnitId();
 
   async function createStockedProduct(label: string, stock: string) {
@@ -42,7 +38,7 @@ test.describe("sales demand and shipment heartbeat", () => {
       safetyStock: "0",
       bom: [],
     });
-    expect(component.status).toBe(201);
+    expect(component.status, JSON.stringify(component.body)).toBe(201);
 
     const product = await createItem({
       itemType: "product",
@@ -58,7 +54,7 @@ test.describe("sales demand and shipment heartbeat", () => {
       safetyStock: "0",
       bom: [{ componentId: component.body.id, quantity: "1" }],
     });
-    expect(product.status).toBe(201);
+    expect(product.status, JSON.stringify(product.body)).toBe(201);
 
     return product.body.id as string;
   }
@@ -359,9 +355,10 @@ test.describe("sales demand and shipment heartbeat", () => {
   });
 
   test("shipping a lower-priority order warns before taking demand-queue stock", async () => {
-    const productId = await createStockedProduct("QueueConflictShip", "50");
+    const conflictTs = Date.now().toString(36);
+    const productId = await createStockedProduct(`QCS${conflictTs}`, "50");
     const customer = await createCustomer({
-      name: `Fast Queue Conflict Ship Customer ${ts}`,
+      name: `Fast Queue Conflict Ship Customer ${conflictTs}`,
     });
     expect(customer.status).toBe(201);
 
@@ -371,14 +368,18 @@ test.describe("sales demand and shipment heartbeat", () => {
       shipDate: "2026-05-08",
       lines: [{ itemId: productId, quantity: "50", unitPrice: "15.00" }],
     });
-    expect(higherPriorityOrder.status).toBe(201);
+    expect(higherPriorityOrder.status, JSON.stringify(higherPriorityOrder.body)).toBe(
+      201
+    );
     const lowerPriorityOrder = await createSalesOrder({
       customerId: customer.body.id,
       orderDate: "2026-05-07",
       shipDate: "2026-05-10",
       lines: [{ itemId: productId, quantity: "50", unitPrice: "15.00" }],
     });
-    expect(lowerPriorityOrder.status).toBe(201);
+    expect(lowerPriorityOrder.status, JSON.stringify(lowerPriorityOrder.body)).toBe(
+      201
+    );
 
     const salesOrdersResponse = await testFetch("/api/sales-orders");
     expect(salesOrdersResponse.status).toBe(200);
@@ -428,67 +429,4 @@ test.describe("sales demand and shipment heartbeat", () => {
     });
   });
 
-  test("shipping warns before taking stock manually pinned to another order", async ({
-    db,
-  }) => {
-    const productId = await createStockedProduct("PinnedShip", "50");
-    const customer = await createCustomer({ name: `Fast Pinned Ship Customer ${ts}` });
-    expect(customer.status).toBe(201);
-
-    const pinnedOrder = await createSalesOrder({
-      customerId: customer.body.id,
-      orderDate: "2026-05-07",
-      shipDate: "2026-05-10",
-      lines: [{ itemId: productId, quantity: "50", unitPrice: "15.00" }],
-    });
-    expect(pinnedOrder.status).toBe(201);
-    const shippingOrder = await createSalesOrder({
-      customerId: customer.body.id,
-      orderDate: "2026-05-07",
-      shipDate: "2026-05-08",
-      lines: [{ itemId: productId, quantity: "50", unitPrice: "15.00" }],
-    });
-    expect(shippingOrder.status).toBe(201);
-
-    const [pinnedLine] = await db
-      .select({ id: salesOrderLines.id })
-      .from(salesOrderLines)
-      .where(eq(salesOrderLines.salesOrderId, pinnedOrder.body.id));
-    const [lot] = await db
-      .select({ id: lots.id })
-      .from(lots)
-      .where(eq(lots.itemId, productId));
-    expect(lot?.id).toBeTruthy();
-
-    await db.insert(stockAllocations).values({
-      organizationId: orgId,
-      demandType: "sales_order_line",
-      demandId: pinnedLine.id,
-      itemId: productId,
-      sourceType: "inventory_lot",
-      sourceId: lot.id,
-      quantity: "50.0000",
-      status: "active",
-    });
-
-    const ship = await fulfillSalesOrder(shippingOrder.body.id);
-    expect(ship.status).toBe(409);
-    expect(ship.body.negativeStock).toMatchObject({
-      itemId: productId,
-      reason: "commitment_conflict",
-      committedToOthers: 50,
-    });
-    expect(ship.body.negativeStock.commitments[0]).toMatchObject({
-      referenceType: "sales_order",
-      referenceId: pinnedOrder.body.id,
-      quantity: 50,
-    });
-
-    const confirmedShip = await testFetch(`/api/sales-orders/${shippingOrder.body.id}/ship`, {
-      method: "POST",
-      headers: Object.fromEntries(createIdempotencyHeaders("shipSalesOrder").entries()),
-      body: JSON.stringify({ confirmNegativeStock: true }),
-    });
-    expect(confirmedShip.status).toBe(200);
-  });
 });

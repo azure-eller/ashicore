@@ -30,8 +30,6 @@ import { db } from "@/lib/db";
 import { invitation, member, organization, user } from "@/lib/db/schema";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
-import { getOrganizationAllocationMode } from "@/lib/dal/organization-settings";
-import type { AllocationMode } from "@/lib/schemas/organization";
 
 type MemberContext = {
   userId: string;
@@ -39,7 +37,6 @@ type MemberContext = {
   memberId: string;
   organizationName: string;
   organizationTimeZone: string;
-  allocationMode: AllocationMode;
   role: AppRole;
   assignedRoles: string[];
   name: string;
@@ -205,7 +202,6 @@ async function resolveMemberContext(
     memberId: membership.id,
     organizationName: membership.organization.name,
     organizationTimeZone: membership.organization.timeZone,
-    allocationMode: getOrganizationAllocationMode(membership.organization.metadata),
     role: normalizeAppRole(membership.role),
     assignedRoles: membership.role.split(",").map((value) => value.trim()).filter(Boolean),
     name: session.user.name ?? "",

@@ -92,7 +92,6 @@ read_when:
 ## Manufacturing
 
 - `LotStrategyChip` — `components/manufacturing/lot-strategy-chip.tsx`
-- `ManufacturingIngredientLotCard` — `components/manufacturing/ingredient-lot-card.tsx`
 - `useMoSaveStatus` — `components/manufacturing/use-mo-save-status.ts`
 
 ## Shell And Navigation

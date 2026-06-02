@@ -304,9 +304,6 @@ export type SalesOrderListLine = {
   sourceSummary?: string;
   allocationStatus?: SalesAllocationLineSummary["status"];
   allocationSources?: SalesAllocationLineSummary["sources"];
-  demandQueuePinnedQty?: string;
-  demandQueuePinnedDateValidQty?: string;
-  demandQueuePinnedDateInvalidQty?: string;
   demandQueueQueueCoveredQty?: string;
   demandQueueSegments?: DemandQueueCoverageSegment[];
   demandQueueInStockQty?: string;
@@ -361,8 +358,6 @@ export type SalesOrderFulfillmentSummary = {
   allocatedQty: string;
   shortQty: string;
   productionAllocatedQty: string;
-  manualReservationQty: string;
-  manualReservationSummary: string | null;
   availabilityState: "complete" | "available" | "expected" | "not_available";
   expectedDate: string | null;
   label: string;
@@ -509,14 +504,12 @@ export type SalesOrderDetailLine = {
   onHandQty: string | null;
   availableQty: string | null;
   allocatedQty: string;
+  reservedQty: string;
   potential: string | null;
   shortQty: string;
   sourceSummary: string;
   allocationStatus: SalesAllocationLineSummary["status"];
   allocationSources: SalesAllocationLineSummary["sources"];
-  demandQueuePinnedQty: string;
-  demandQueuePinnedDateValidQty: string;
-  demandQueuePinnedDateInvalidQty: string;
   demandQueueQueueCoveredQty: string;
   demandQueueSegments: DemandQueueCoverageSegment[];
   demandQueueInStockQty: string;
@@ -654,99 +647,6 @@ export type SalesOrderTaxRateOption = {
   id: string;
   name: string;
   ratePercent: string;
-};
-
-export type SalesAllocationSource = {
-  sourceType: SalesAllocationSourceType;
-  sourceId: string | null;
-  label: string;
-  status: "available" | "open" | "done";
-  date: string | null;
-  receivedAt?: string | null;
-  createdAt?: string | null;
-  priorityRank: number | null;
-  lotNumber?: string | null;
-  totalQty: string;
-  allocatedQty: string;
-  freeQty: string;
-  currentTargetQty: string;
-  maxQty: string;
-  canAllocate: boolean;
-};
-
-export type SalesAllocationDemandRow = {
-  demandType: "sales_order_line";
-  demandId: string;
-  salesOrderLineId: string;
-  salesShipmentLineId: string | null;
-  salesOrderId: string;
-  orderNumber: string;
-  orderStatus: SalesOrderStatus;
-  customerName: string;
-  shipDate: string | null;
-  itemId: string;
-  itemName: string;
-  unitName: string;
-  orderedQty: string;
-  shippedQty: string;
-  cancelledQty: string;
-  remainingQty: string;
-  allocatedQty: string;
-  shortQty: string;
-  sourceSummary: string;
-  sources: Array<{
-    sourceType: SalesAllocationSourceType;
-    sourceId: string | null;
-    label: string;
-    quantity: string;
-    coverageKind: SalesAllocationCoverageKind;
-  }>;
-  isTarget: boolean;
-};
-
-export type SalesAllocationVariantOption = {
-  itemId: string;
-  itemName: string;
-  unitName: string;
-  salesOrderLineId: string | null;
-  isCurrent: boolean;
-};
-
-export type SalesAllocationSheetData = {
-  targetItem: {
-    itemId: string;
-    itemName: string;
-    unitName: string;
-  };
-  targetLine:
-    | (SalesAllocationDemandRow & {
-        allocationManagedAt: Date | null;
-      })
-    | null;
-  variantOptions: SalesAllocationVariantOption[];
-  salesOrderItems: Array<{
-    itemId: string;
-    itemName: string;
-    unitName: string;
-    salesOrderLineId: string;
-    allocatedQty: string;
-    remainingQty: string;
-    shortQty: string;
-    isCurrent: boolean;
-    variantOptions: SalesAllocationVariantOption[];
-  }>;
-  editableAllocations: Array<{
-    sourceType: SalesAllocationSourceType;
-    sourceId: string | null;
-    sourceLabel: string;
-    quantity: string;
-    freeQuantity: string;
-    maxQuantity: string;
-    coverageKind: SalesAllocationCoverageKind;
-  }>;
-  supplySources: SalesAllocationSource[];
-  demandRows: SalesAllocationDemandRow[];
-  uncoveredDemandQty: string;
 };
 
 export type SalesShippingQueueRow = {

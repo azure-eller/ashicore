@@ -47,14 +47,6 @@ import {
   isManufacturingStatusDisabled,
   manufacturingOrderStatusConfig,
 } from "@/components/card-page/order-status-configs";
-import {
-  LotStrategyChip,
-  type PickedLotSummary,
-} from "@/components/manufacturing/lot-strategy-chip";
-import {
-  AllocationSourceDialog,
-  type AllocationTarget,
-} from "@/app/(dashboard)/sales/sales-order-allocator";
 import { CardPage, CardPageBanner, CardPageBody, CardSection } from "@/components/card-page/card-page";
 import { CardField } from "@/components/card-page/card-field";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
@@ -76,9 +68,6 @@ import type {
   ManufacturingOrderIngredientDetail,
   ManufacturingOrderOperationCostDetail,
 } from "@/app/(dashboard)/manufacturing/types";
-import type {
-  ManufacturingLotStrategy,
-} from "@/lib/schemas/manufacturing-orders";
 import styles from "@/components/card-page/card-page.module.css";
 import {
   useManufacturingOrderDraftController,
@@ -135,7 +124,6 @@ export function ManufacturingOrderCard({
 }) {
   const queryClient = useQueryClient();
   const router = useRouter();
-  const [lotPickerTarget, setLotPickerTarget] = useState<AllocationTarget | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const goBack = useSmartBack("/manufacturing/orders");
   const initialDraft = useMemo(() => makeDraftManufacturingOrder(), []);
@@ -311,9 +299,6 @@ export function ManufacturingOrderCard({
           ingredientOptions={ingredientOptions}
           canEditPlanning={editState.canEditPlanning}
           planningLockedReason={editState.planningLockedReason}
-          canEditLotAllocations={order == null || order.status === "open"}
-          metadataLockedReason={editState.metadataLockedReason}
-          onOpenLotPicker={(ingredient) => setLotPickerTarget(buildLotPickerTarget(order, ingredient))}
         />
         <OperationsSection order={order} />
         <NotesSection
@@ -322,17 +307,6 @@ export function ManufacturingOrderCard({
           canEdit={editState.canEditMetadata}
         />
       </CardPageBody>
-
-      <AllocationSourceDialog
-        target={lotPickerTarget}
-        onOpenChange={(open) => {
-          if (!open) setLotPickerTarget(null);
-        }}
-        onSaved={() => {
-          void controller.refreshFromServer();
-          void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
-        }}
-      />
 
       {deleteConfirm.dialog}
     </CardPage>
@@ -807,53 +781,10 @@ function getManufacturingExecutionStartedReason(order: ManufacturingOrderDetail 
   return null;
 }
 
-function buildLotPickerTarget(
-  order: ManufacturingOrderDetail,
-  ingredient: ManufacturingOrderIngredientDetail
-): AllocationTarget {
-  return {
-    demandType: "manufacturing_order_ingredient",
-    demandLabel: order.orderNumber,
-    demandContext: ingredient.itemName,
-    line: {
-      id: ingredient.id,
-      itemId: ingredient.itemId,
-      masterName: ingredient.itemName,
-      attrs: [],
-      itemSku: ingredient.itemSku,
-      quantity: ingredient.plannedQuantity,
-      remainingQty: ingredient.plannedQuantity,
-      allocatedQty: normalizeNumeric(
-        (ingredient.lotAllocations ?? []).reduce(
-          (total, allocation) => total + Number(allocation.quantity ?? 0),
-          0
-        )
-      ),
-      pickedQty: ingredient.pickedQuantity,
-      unitName: ingredient.unitName,
-    },
-    product: {
-      itemId: ingredient.itemId,
-      label: ingredient.itemName,
-      familyLabel: ingredient.itemName,
-      variantLabel: "",
-      sku: ingredient.itemSku,
-      unitName: ingredient.unitName,
-    },
-    targetQty: ingredient.plannedQuantity,
-  };
-}
-
 function inventoryItemHref(ingredient: ManufacturingOrderIngredientDetail) {
   return ingredient.itemType === "material"
     ? `/inventory/materials/${ingredient.itemId}`
     : `/inventory/products/${ingredient.itemId}`;
-}
-
-function inventoryItemLotsHref(ingredient: ManufacturingOrderIngredientDetail) {
-  return ingredient.itemType === "material"
-    ? `/inventory/materials/${ingredient.itemId}`
-    : `/inventory/products/${ingredient.itemId}/lots`;
 }
 
 function ingredientSelectionOptions(ingredient: ManufacturingOrderIngredientDetail) {
@@ -894,18 +825,12 @@ function IngredientsSection({
   ingredientOptions,
   canEditPlanning,
   planningLockedReason,
-  canEditLotAllocations,
-  metadataLockedReason,
-  onOpenLotPicker,
 }: {
   order: ManufacturingOrderDetail;
   controller: ManufacturingOrderDraftController;
   ingredientOptions: ManufacturingIngredientOption[];
   canEditPlanning: boolean;
   planningLockedReason: string | null;
-  canEditLotAllocations: boolean;
-  metadataLockedReason: string | null;
-  onOpenLotPicker: (ingredient: ManufacturingOrderIngredientDetail) => void;
 }) {
   const [confirmDelete, setConfirmDelete] =
     useState<ManufacturingOrderIngredientDetail | null>(null);
@@ -1232,85 +1157,6 @@ function IngredientsSection({
           ) : null,
       },
       {
-        colId: "lotAllocation",
-        headerName: "Lot allocation",
-        flex: 1.2,
-        minWidth: 240,
-        cellRenderer: (params: ICellRendererParams<ManufacturingOrderIngredientDetail>) => {
-          if (!params.data || !controller.hasPersistedOrder) return null;
-          const ingredient = params.data;
-          if (ingredient.lotTrackingMode === "untracked") {
-            return (
-              <span className="text-[length:var(--text-sm)] text-[var(--color-muted)]">
-                FIFO
-              </span>
-            );
-          }
-          const picked = Number(ingredient.pickedQuantity);
-          const canEditIngredientLots =
-            canEditLotAllocations &&
-            ingredient.pickStatus === "not_picked" &&
-            !ingredient.id.startsWith("draft-") &&
-            (!Number.isFinite(picked) || picked <= 0);
-          const lotLockReason = !canEditLotAllocations
-            ? metadataLockedReason
-            : "Lot allocations cannot be changed after this ingredient has been picked.";
-          const lotAllocations = ingredient.lotAllocations ?? [];
-          const totalAllocated = lotAllocations.reduce(
-            (total, allocation) => total + Number(allocation.quantity ?? 0),
-            0
-          );
-          const summary: PickedLotSummary = {
-            count: lotAllocations.length,
-            firstLot:
-              lotAllocations[0]?.sourceLabel ??
-              lotAllocations[0]?.lotNumber ??
-              null,
-            firstLotHref:
-              lotAllocations[0]?.lotId != null
-                ? inventoryItemLotsHref(ingredient)
-                : null,
-            totalQty:
-              lotAllocations.length > 0
-                ? formatQuantity(normalizeNumeric(totalAllocated))
-                : null,
-          };
-          if (!canEditIngredientLots) {
-            return (
-              <span
-                className="text-[length:var(--text-sm)] text-[var(--color-muted)]"
-                title={lotLockReason ?? undefined}
-              >
-                {summary.count > 0 ? (
-                  <Link
-                    href={summary.firstLotHref ?? inventoryItemLotsHref(ingredient)}
-                    className="font-mono text-[var(--color-accent)] hover:underline"
-                  >
-                    {summary.count === 1
-                      ? `${summary.firstLot ?? "Lot"}${summary.totalQty ? ` (${summary.totalQty})` : ""}`
-                      : `${summary.firstLot ?? "Lot"} +${summary.count - 1} more`}
-                  </Link>
-                ) : (
-                  "—"
-                )}
-              </span>
-            );
-          }
-          return (
-            <LotStrategyChip
-              orderId={order.id}
-              ingredientId={ingredient.id}
-              strategy={ingredient.lotStrategy as ManufacturingLotStrategy}
-              summary={summary}
-              onOpenPicker={() => onOpenLotPicker(ingredient)}
-              onChanged={() => {
-                void controller.refreshFromServer();
-              }}
-            />
-          );
-        },
-      },
-      {
         field: "actualCostTotal",
         headerName: "Cost",
         type: "rightAligned",
@@ -1320,18 +1166,13 @@ function IngredientsSection({
       },
     ],
     [
-      canEditLotAllocations,
       canEditPlanning,
-      controller,
       applyApprovedIngredientSelection,
       getApprovedIngredientSelection,
       ingredientOptions,
       batchCount,
       isBatchMode,
-      metadataLockedReason,
-      onOpenLotPicker,
       optionMap,
-      order.id,
       plannedOutputQuantity,
       quantityBasisHeader,
       quantityBasisValue,

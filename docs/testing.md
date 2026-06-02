@@ -40,7 +40,7 @@ Slow lanes are one canonical story file per operating workflow. There is no gene
 - receiving / expected supply → `pnpm test:slow:purchasing`
 - manufacturing stock or output cost → `pnpm test:slow:manufacturing`
 - stocktake / reconciliation → `pnpm test:slow:stocktake`
-- allocation / planning → `pnpm test:slow:planning`
+- planning → `pnpm test:slow:planning`
 - sales shipment / consumption → `pnpm test:slow:sales`
 - kernel / projection / math → `pnpm test:fast:inventory`, `pnpm verify:inventory`, and the relevant story lane
 

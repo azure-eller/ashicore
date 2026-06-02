@@ -1,7 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   bomRevisionComponentConstraints,
   bomRevisionComponents,
@@ -21,7 +20,6 @@ import {
   salesOrders,
   salesShipmentLines,
   salesShipments,
-  stockAllocations,
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
@@ -36,9 +34,8 @@ import { calculateIngredientPlannedQuantity, normalizeRecipeBasis } from "@/lib/
 import { buildPlanningSnapshotInTx } from "@/lib/planning/service";
 import type { PlanningSnapshot } from "@/lib/planning/types";
 import type {
-  AgentAllocationContext,
-  AgentAllocationNeedContext,
   AgentAttentionQueueItem,
+  AgentCoverageNeedContext,
   AgentDecisionSupportContext,
   AgentDecisionQueueItem,
   AgentInventoryContext,
@@ -120,7 +117,7 @@ function addDefined(set: Set<string>, value: string | null | undefined) {
 }
 
 function sourceRef(args: {
-  sourceType: AgentAllocationNeedContext["demandType"];
+  sourceType: AgentCoverageNeedContext["demandType"];
   sourceId: string;
   label: string;
   itemId: string;
@@ -268,7 +265,6 @@ async function loadPlannedSalesShipmentsByOrderInTx(
         deliveryDate: row.deliveryDate,
         lines: [],
       } satisfies AgentOpenSalesOrderContext["shipments"][number]);
-    const quantity = toQuantity(row.quantity);
     shipment.lines.push({
       salesShipmentLineId: row.salesShipmentLineId,
       salesOrderLineId: row.salesOrderLineId,
@@ -276,8 +272,6 @@ async function loadPlannedSalesShipmentsByOrderInTx(
       itemName: row.itemName,
       unitName: row.unitName,
       quantity: row.quantity,
-      allocatedQty: "0",
-      unallocatedQty: quantityString(quantity),
     });
     byShipment.set(row.shipmentId, shipment);
 
@@ -289,160 +283,15 @@ async function loadPlannedSalesShipmentsByOrderInTx(
   return byOrder;
 }
 
-function demandAllocationKey(demandType: string, demandId: string) {
-  return `${demandType}:${demandId}`;
-}
-
 function itemDisplayName(row: { name: string; familyName: string | null }) {
   return row.familyName ?? row.name;
-}
-
-async function loadActiveAllocationContextInTx(
-  tx: Tx,
-  organizationId: string
-): Promise<AgentAllocationContext[]> {
-  const lineRefs = alias(salesOrderLines, "agent_allocation_sales_order_lines");
-  const lineOrderRefs = alias(salesOrders, "agent_allocation_sales_orders");
-  const ingredientRefs = alias(
-    manufacturingOrderIngredients,
-    "agent_allocation_mo_ingredients"
-  );
-  const ingredientOrderRefs = alias(
-    manufacturingOrders,
-    "agent_allocation_ingredient_orders"
-  );
-  const sourceManufacturingOrders = alias(
-    manufacturingOrders,
-    "agent_allocation_source_mos"
-  );
-
-  const rows = await tx
-    .select({
-      allocationId: stockAllocations.id,
-      itemId: stockAllocations.itemId,
-      itemName: items.name,
-      familyName: itemFamilies.name,
-      demandType: stockAllocations.demandType,
-      demandId: stockAllocations.demandId,
-      sourceType: stockAllocations.sourceType,
-      sourceId: stockAllocations.sourceId,
-      quantity: trimScale(stockAllocations.quantity).as("quantity"),
-      demandLabelSnapshot: stockAllocations.demandLabelSnapshot,
-      sourceLabelSnapshot: stockAllocations.sourceLabelSnapshot,
-      salesOrderNumber: lineOrderRefs.orderNumber,
-      ingredientOrderNumber: ingredientOrderRefs.orderNumber,
-      lotNumber: lots.lotNumber,
-      sourceManufacturingOrderNumber: sourceManufacturingOrders.orderNumber,
-    })
-    .from(stockAllocations)
-    .innerJoin(items, eq(stockAllocations.itemId, items.id))
-    .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
-    .leftJoin(
-      lineRefs,
-      and(
-        eq(stockAllocations.demandType, "sales_order_line"),
-        eq(stockAllocations.demandId, lineRefs.id)
-      )
-    )
-    .leftJoin(lineOrderRefs, eq(lineRefs.salesOrderId, lineOrderRefs.id))
-    .leftJoin(
-      ingredientRefs,
-      and(
-        eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
-        eq(stockAllocations.demandId, ingredientRefs.id)
-      )
-    )
-    .leftJoin(
-      ingredientOrderRefs,
-      eq(ingredientRefs.manufacturingOrderId, ingredientOrderRefs.id)
-    )
-    .leftJoin(
-      lots,
-      and(
-        eq(stockAllocations.sourceType, "inventory_lot"),
-        eq(stockAllocations.sourceId, lots.id)
-      )
-    )
-    .leftJoin(
-      sourceManufacturingOrders,
-      and(
-        eq(stockAllocations.sourceType, "manufacturing_order"),
-        eq(stockAllocations.sourceId, sourceManufacturingOrders.id)
-      )
-    )
-    .where(
-      and(
-        eq(stockAllocations.organizationId, organizationId),
-        eq(stockAllocations.status, "active"),
-        or(
-          and(
-            eq(stockAllocations.demandType, "sales_order_line"),
-            inArray(lineOrderRefs.status, [...OPEN_SALES_ORDER_STATUSES]),
-            isNull(lineOrderRefs.deletedAt)
-          ),
-          and(
-            eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
-            eq(ingredientOrderRefs.status, "open"),
-            isNull(ingredientOrderRefs.deletedAt),
-            isNull(ingredientOrderRefs.completedAt),
-            isNull(ingredientOrderRefs.cancelledAt)
-          )
-        )
-      )
-    )
-    .orderBy(asc(stockAllocations.createdAt), asc(stockAllocations.id));
-
-  return rows
-    .filter(
-      (row): row is typeof row & {
-        demandType: AgentAllocationContext["demandType"];
-        sourceType: AgentAllocationContext["sourceType"];
-      } =>
-        (row.demandType === "sales_order_line" ||
-          row.demandType === "manufacturing_order_ingredient") &&
-        (row.sourceType === "inventory_lot" ||
-          row.sourceType === "manufacturing_order")
-    )
-    .map((row) => ({
-      allocationId: row.allocationId,
-      itemId: row.itemId,
-      itemName: itemDisplayName({ name: row.itemName, familyName: row.familyName }),
-      demandType: row.demandType,
-      demandId: row.demandId,
-      demandLabel:
-        row.demandLabelSnapshot ??
-        row.salesOrderNumber ??
-        row.ingredientOrderNumber ??
-        row.demandId,
-      sourceType: row.sourceType,
-      sourceId: row.sourceId,
-      sourceLabel:
-        row.sourceLabelSnapshot ??
-        row.lotNumber ??
-        row.sourceManufacturingOrderNumber ??
-        row.sourceId,
-      quantity: row.quantity,
-      status: "active",
-    }));
-}
-
-function sumAllocationsByDemand(allocations: AgentAllocationContext[]) {
-  const totals = new Map<string, number>();
-  for (const allocation of allocations) {
-    const key = demandAllocationKey(allocation.demandType, allocation.demandId);
-    totals.set(key, roundQuantity((totals.get(key) ?? 0) + toQuantity(allocation.quantity)));
-  }
-  return totals;
 }
 
 function productionStatusForSalesLine(args: {
   itemId: string;
   openQty: number;
-  allocatedQty: number;
   snapshot: PlanningSnapshot;
 }) {
-  if (args.openQty > 0 && args.allocatedQty >= args.openQty) return "allocated";
-
   const hasBlocker = args.snapshot.productionBlockerFacts.some(
     (blocker) =>
       blocker.parentItemId === args.itemId || blocker.componentItemId === args.itemId
@@ -464,7 +313,6 @@ function productionStatusForSalesLine(args: {
 
 async function loadOpenSalesOrdersInTx(
   tx: Tx,
-  allocations: AgentAllocationContext[],
   snapshot: PlanningSnapshot
 ): Promise<AgentOpenSalesOrderContext[]> {
   const rows = await tx
@@ -508,7 +356,6 @@ async function loadOpenSalesOrdersInTx(
   const lineIds = rows.map((row) => row.lineId);
   const shippedByLine = await getShippedSalesQuantityByLineInTx(tx, lineIds);
   const plannedByLine = await getPlannedSalesQuantityByLineInTx(tx, lineIds);
-  const allocatedByDemand = sumAllocationsByDemand(allocations);
   const shipmentsByOrder = await loadPlannedSalesShipmentsByOrderInTx(tx, lineIds);
   const byOrder = new Map<string, AgentOpenSalesOrderContext>();
 
@@ -519,12 +366,6 @@ async function loadOpenSalesOrdersInTx(
     const cancelledQty = toQuantity(row.cancelledQty);
     const openQty = roundQuantity(orderedQty - shippedQty - cancelledQty);
     if (openQty <= 0) continue;
-
-    const directAllocatedQty =
-      allocatedByDemand.get(demandAllocationKey("sales_order_line", row.lineId)) ?? 0;
-    const shipmentAllocatedQty = 0;
-    const allocatedQty = roundQuantity(directAllocatedQty + shipmentAllocatedQty);
-    const shortQty = roundQuantity(Math.max(0, openQty - allocatedQty));
 
     const order =
       byOrder.get(row.salesOrderId) ??
@@ -551,14 +392,11 @@ async function loadOpenSalesOrdersInTx(
       plannedShipmentQty: quantityString(plannedShipmentQty),
       cancelledQty: row.cancelledQty,
       openQty: quantityString(openQty),
-      directAllocatedQty: quantityString(directAllocatedQty),
-      shipmentAllocatedQty: quantityString(shipmentAllocatedQty),
-      allocatedQty: quantityString(allocatedQty),
-      shortQty: quantityString(shortQty),
+      coveredQty: "0",
+      shortQty: quantityString(openQty),
       productionStatus: productionStatusForSalesLine({
         itemId: row.itemId,
         openQty,
-        allocatedQty,
         snapshot,
       }),
     });
@@ -567,19 +405,15 @@ async function loadOpenSalesOrdersInTx(
 
   return [...byOrder.values()].map((order) => {
     const hasShort = order.lines.some((line) => toQuantity(line.shortQty) > 0);
-    const isAllocated = order.lines.every(
-      (line) => toQuantity(line.allocatedQty) >= toQuantity(line.openQty)
-    );
     return {
       ...order,
-      fulfillmentStatus: isAllocated ? "allocated" : hasShort ? "short" : "open",
+      fulfillmentStatus: hasShort ? "short" : "open",
     };
   });
 }
 
 async function loadOpenManufacturingOrdersInTx(
-  tx: Tx,
-  allocations: AgentAllocationContext[]
+  tx: Tx
 ): Promise<AgentOpenManufacturingOrderContext[]> {
   const rows = await tx
     .select({
@@ -626,21 +460,6 @@ async function loadOpenManufacturingOrdersInTx(
       asc(manufacturingOrderIngredients.sortOrder)
     );
 
-  const allocatedByDemand = sumAllocationsByDemand(allocations);
-  const outputAllocationsBySource = new Map<string, AgentOpenManufacturingOrderContext["outputAllocations"]>();
-  for (const allocation of allocations) {
-    if (allocation.sourceType !== "manufacturing_order") continue;
-    const bucket = outputAllocationsBySource.get(allocation.sourceId) ?? [];
-    bucket.push({
-      allocationId: allocation.allocationId,
-      demandType: allocation.demandType,
-      demandId: allocation.demandId,
-      demandLabel: allocation.demandLabel,
-      quantity: allocation.quantity,
-    });
-    outputAllocationsBySource.set(allocation.sourceId, bucket);
-  }
-
   const byOrder = new Map<string, AgentOpenManufacturingOrderContext>();
   for (const row of rows) {
     const completedQty = toQuantity(row.completedQty);
@@ -662,16 +481,10 @@ async function loadOpenManufacturingOrdersInTx(
         priorityRank: row.priorityRank,
         salesOrderId: row.salesOrderId,
         salesOrderLineId: row.salesOrderLineId,
-        outputAllocations:
-          outputAllocationsBySource.get(row.manufacturingOrderId) ?? [],
         ingredients: [],
       } satisfies AgentOpenManufacturingOrderContext);
 
     if (row.ingredientId) {
-      const allocatedQty =
-        allocatedByDemand.get(
-          demandAllocationKey("manufacturing_order_ingredient", row.ingredientId)
-        ) ?? 0;
       const requiredQty = toQuantity(row.requiredQty);
       const pickedQty = toQuantity(row.pickedQty);
       const unpickedRequiredQty = Math.max(0, roundQuantity(requiredQty - pickedQty));
@@ -682,8 +495,7 @@ async function loadOpenManufacturingOrdersInTx(
         unitName: row.ingredientUnitName,
         requiredQty: row.requiredQty ?? "0",
         pickedQty: row.pickedQty ?? "0",
-        allocatedQty: quantityString(allocatedQty),
-        shortQty: quantityString(Math.max(0, unpickedRequiredQty - allocatedQty)),
+        shortQty: quantityString(unpickedRequiredQty),
       });
     }
 
@@ -911,7 +723,6 @@ function collectRelevantItemIds(args: {
   salesOrders: AgentOpenSalesOrderContext[];
   manufacturingOrders: AgentOpenManufacturingOrderContext[];
   purchaseOrders: AgentOpenPurchaseOrderContext[];
-  allocations: AgentAllocationContext[];
 }) {
   const itemIds = new Set<string>();
   for (const row of args.snapshot.rows) addDefined(itemIds, row.item.id);
@@ -940,7 +751,6 @@ function collectRelevantItemIds(args: {
   for (const order of args.purchaseOrders) {
     for (const line of order.lines) addDefined(itemIds, line.itemId);
   }
-  for (const allocation of args.allocations) addDefined(itemIds, allocation.itemId);
   return [...itemIds].sort();
 }
 
@@ -949,7 +759,6 @@ async function loadRelevantInventoryContextInTx(
   params: {
     itemIds: string[];
     snapshot: PlanningSnapshot;
-    allocations: AgentAllocationContext[];
     includeLots: boolean;
   }
 ): Promise<AgentInventoryContext[]> {
@@ -1002,33 +811,6 @@ async function loadRelevantInventoryContextInTx(
   const inventoryFactsByItemId = new Map(
     params.snapshot.inventoryFacts.map((fact) => [fact.itemId, fact])
   );
-  const inventoryLotAllocatedByItem = new Map<string, number>();
-  const manufacturingOutputAllocatedByItem = new Map<string, number>();
-  const allocatedByLot = new Map<string, number>();
-  for (const allocation of params.allocations) {
-    if (allocation.sourceType === "inventory_lot") {
-      inventoryLotAllocatedByItem.set(
-        allocation.itemId,
-        roundQuantity(
-          (inventoryLotAllocatedByItem.get(allocation.itemId) ?? 0) +
-            toQuantity(allocation.quantity)
-        )
-      );
-      allocatedByLot.set(
-        allocation.sourceId,
-        roundQuantity((allocatedByLot.get(allocation.sourceId) ?? 0) + toQuantity(allocation.quantity))
-      );
-    } else if (allocation.sourceType === "manufacturing_order") {
-      manufacturingOutputAllocatedByItem.set(
-        allocation.itemId,
-        roundQuantity(
-          (manufacturingOutputAllocatedByItem.get(allocation.itemId) ?? 0) +
-            toQuantity(allocation.quantity)
-        )
-      );
-    }
-  }
-
   const lotRows = params.includeLots
     ? await tx
         .select({
@@ -1080,8 +862,6 @@ async function loadRelevantInventoryContextInTx(
   const lotsByItemId = new Map<string, AgentInventoryContext["lots"]>();
   for (const row of lotRows) {
     if (!lotTrackedItemIds.has(row.itemId)) continue;
-    const allocatedQty =
-      row.disposition === "available" ? allocatedByLot.get(row.lotId) ?? 0 : 0;
     const quantity = toQuantity(row.quantity);
     const bucket = lotsByItemId.get(row.itemId) ?? [];
     bucket.push({
@@ -1094,9 +874,8 @@ async function loadRelevantInventoryContextInTx(
       onHandQty: row.quantity,
       availableQty:
         row.disposition === "available"
-          ? quantityString(Math.max(0, quantity - allocatedQty))
+          ? quantityString(quantity)
           : "0",
-      allocatedQty: quantityString(allocatedQty),
     });
     lotsByItemId.set(row.itemId, bucket);
   }
@@ -1107,9 +886,6 @@ async function loadRelevantInventoryContextInTx(
     const onHandQty = inventoryFact?.onHandQuantity ?? row.onHandQty;
     const reservedQty = inventoryFact?.reservedQuantity ?? row.reservedQty;
     const expectedQty = inventoryFact?.expectedQuantity ?? row.expectedQty;
-    const inventoryLotAllocatedQty = inventoryLotAllocatedByItem.get(row.itemId) ?? 0;
-    const manufacturingOutputAllocatedQty =
-      manufacturingOutputAllocatedByItem.get(row.itemId) ?? 0;
     return {
       itemId: row.itemId,
       itemName: itemDisplayName(row),
@@ -1122,11 +898,6 @@ async function loadRelevantInventoryContextInTx(
       reservedQty,
       expectedQty,
       projectedQty: planningRow?.projectedQuantity ?? quantityString(toQuantity(onHandQty)),
-      inventoryLotAllocatedQty: quantityString(inventoryLotAllocatedQty),
-      manufacturingOutputAllocatedQty: quantityString(manufacturingOutputAllocatedQty),
-      totalActiveAllocationQty: quantityString(
-        inventoryLotAllocatedQty + manufacturingOutputAllocatedQty
-      ),
       lots: lotsByItemId.get(row.itemId) ?? [],
     };
   });
@@ -1180,14 +951,14 @@ function sanitizeBomRequirement(
   return safeRequirement;
 }
 
-function allocationReadiness(args: {
-  unallocatedQty: number;
+function coverageReadiness(args: {
+  shortQty: number;
   availableQty: number;
   projectedQty: number;
   planningRow: PlanningSnapshot["rows"][number] | undefined;
 }) {
-  if (args.availableQty >= args.unallocatedQty) return "allocate_available_inventory";
-  if (args.projectedQty >= args.unallocatedQty) return "available_after_open_supply";
+  if (args.availableQty >= args.shortQty) return "covered_by_available_inventory";
+  if (args.projectedQty >= args.shortQty) return "available_after_open_supply";
   if (args.planningRow?.suggestedAction === "buy" || args.planningRow?.suggestedAction === "make") {
     return "create_supply";
   }
@@ -1200,22 +971,22 @@ function allocationReadiness(args: {
   return "review";
 }
 
-function buildAllocationNeeds(args: {
+function buildCoverageNeeds(args: {
   salesOrders: AgentOpenSalesOrderContext[];
   manufacturingOrders: AgentOpenManufacturingOrderContext[];
   inventory: AgentInventoryContext[];
   snapshot: PlanningSnapshot;
-}): AgentAllocationNeedContext[] {
+}): AgentCoverageNeedContext[] {
   const inventoryByItemId = new Map(args.inventory.map((item) => [item.itemId, item]));
   const planningRowsByItemId = new Map(
     args.snapshot.rows.map((row) => [row.item.id, row])
   );
-  const needs: AgentAllocationNeedContext[] = [];
+  const needs: AgentCoverageNeedContext[] = [];
 
   for (const order of args.salesOrders) {
     for (const line of order.lines) {
-      const unallocatedQty = toQuantity(line.shortQty);
-      if (unallocatedQty <= 0) continue;
+      const shortQty = toQuantity(line.shortQty);
+      if (shortQty <= 0) continue;
 
       const inventory = inventoryByItemId.get(line.itemId);
       const planningRow = planningRowsByItemId.get(line.itemId);
@@ -1232,17 +1003,17 @@ function buildAllocationNeeds(args: {
         priorityRank: order.priorityRank,
         requiredDate: order.requiredDate,
         requiredQty: line.openQty,
-        allocatedQty: line.allocatedQty,
-        unallocatedQty: line.shortQty,
-        allocationRankForItem: 0,
+        coveredQty: line.coveredQty,
+        shortQty: line.shortQty,
+        coverageRankForItem: 0,
         availableQty: inventory?.availableQty ?? "0",
         availableQtyBeforeThisNeed: inventory?.availableQty ?? "0",
         availableQtyAfterThisNeed: inventory?.availableQty ?? "0",
         projectedQty: inventory?.projectedQty ?? planningRow?.projectedQuantity ?? "0",
         projectedQtyAfterThisNeed:
           inventory?.projectedQty ?? planningRow?.projectedQuantity ?? "0",
-        readiness: allocationReadiness({
-          unallocatedQty,
+        readiness: coverageReadiness({
+          shortQty,
           availableQty,
           projectedQty,
           planningRow,
@@ -1270,8 +1041,8 @@ function buildAllocationNeeds(args: {
 
   for (const order of args.manufacturingOrders) {
     for (const ingredient of order.ingredients) {
-      const unallocatedQty = toQuantity(ingredient.shortQty);
-      if (unallocatedQty <= 0) continue;
+      const shortQty = toQuantity(ingredient.shortQty);
+      if (shortQty <= 0) continue;
 
       const inventory = inventoryByItemId.get(ingredient.itemId);
       const planningRow = planningRowsByItemId.get(ingredient.itemId);
@@ -1290,17 +1061,17 @@ function buildAllocationNeeds(args: {
         requiredQty: quantityString(
           toQuantity(ingredient.requiredQty) - toQuantity(ingredient.pickedQty)
         ),
-        allocatedQty: ingredient.allocatedQty,
-        unallocatedQty: ingredient.shortQty,
-        allocationRankForItem: 0,
+        coveredQty: "0",
+        shortQty: ingredient.shortQty,
+        coverageRankForItem: 0,
         availableQty: inventory?.availableQty ?? "0",
         availableQtyBeforeThisNeed: inventory?.availableQty ?? "0",
         availableQtyAfterThisNeed: inventory?.availableQty ?? "0",
         projectedQty: inventory?.projectedQty ?? planningRow?.projectedQuantity ?? "0",
         projectedQtyAfterThisNeed:
           inventory?.projectedQty ?? planningRow?.projectedQuantity ?? "0",
-        readiness: allocationReadiness({
-          unallocatedQty,
+        readiness: coverageReadiness({
+          shortQty,
           availableQty,
           projectedQty,
           planningRow,
@@ -1350,23 +1121,23 @@ function buildAllocationNeeds(args: {
     const projectedBefore = projectedRemainingByItemId.has(need.itemId)
       ? (projectedRemainingByItemId.get(need.itemId) ?? 0)
       : toQuantity(inventory?.projectedQty ?? planningRow?.projectedQuantity);
-    const unallocatedQty = toQuantity(need.unallocatedQty);
-    const availableAfter = roundQuantity(availableBefore - unallocatedQty);
-    const projectedAfter = roundQuantity(projectedBefore - unallocatedQty);
-    const allocationRankForItem = (rankByItemId.get(need.itemId) ?? 0) + 1;
+    const shortQty = toQuantity(need.shortQty);
+    const availableAfter = roundQuantity(availableBefore - shortQty);
+    const projectedAfter = roundQuantity(projectedBefore - shortQty);
+    const coverageRankForItem = (rankByItemId.get(need.itemId) ?? 0) + 1;
 
     availableRemainingByItemId.set(need.itemId, Math.max(0, availableAfter));
     projectedRemainingByItemId.set(need.itemId, projectedAfter);
-    rankByItemId.set(need.itemId, allocationRankForItem);
+    rankByItemId.set(need.itemId, coverageRankForItem);
 
     return {
       ...need,
-      allocationRankForItem,
+      coverageRankForItem,
       availableQtyBeforeThisNeed: quantityString(availableBefore),
       availableQtyAfterThisNeed: quantityString(availableAfter),
       projectedQtyAfterThisNeed: normalizeNumeric(roundQuantity(projectedAfter)),
-      readiness: allocationReadiness({
-        unallocatedQty,
+      readiness: coverageReadiness({
+        shortQty,
         availableQty: availableBefore,
         projectedQty: projectedBefore,
         planningRow,
@@ -1414,10 +1185,10 @@ function buildDecisionSupport(args: {
   inventory: AgentInventoryContext[];
   snapshot: PlanningSnapshot;
 }): AgentDecisionSupportContext {
-  const allocationNeeds = buildAllocationNeeds(args);
+  const coverageNeeds = buildCoverageNeeds(args);
   const supplyRecommendations = buildSupplyRecommendations(args.snapshot);
   const decisionQueue = buildDecisionQueue({
-    allocationNeeds,
+    coverageNeeds,
     supplyRecommendations,
     productionBlockers: args.snapshot.productionBlockerFacts.map(
       sanitizeProductionBlocker
@@ -1426,15 +1197,15 @@ function buildDecisionSupport(args: {
 
   return {
     decisionQueue,
-    allocationNeeds,
+    coverageNeeds,
     supplyRecommendations,
   };
 }
 
 function decisionQueueRank(item: AgentDecisionQueueItem) {
   switch (item.decisionType) {
-    case "allocate_inventory":
-      return item.readiness === "allocate_available_inventory" ? 0 : 5;
+    case "cover_demand":
+      return item.readiness === "covered_by_available_inventory" ? 0 : 5;
     case "review_item_setup":
       return 1;
     case "resolve_blocker":
@@ -1447,23 +1218,23 @@ function decisionQueueRank(item: AgentDecisionQueueItem) {
 }
 
 function buildDecisionQueue(args: {
-  allocationNeeds: AgentAllocationNeedContext[];
+  coverageNeeds: AgentCoverageNeedContext[];
   supplyRecommendations: AgentSupplyRecommendationContext[];
   productionBlockers: AgentProductionBlockerFact[];
 }): AgentDecisionQueueItem[] {
-  const allocationItems: AgentDecisionQueueItem[] = args.allocationNeeds.map(
+  const coverageItems: AgentDecisionQueueItem[] = args.coverageNeeds.map(
     (need) => ({
-      decisionType: "allocate_inventory",
+      decisionType: "cover_demand",
       severity:
-        need.readiness === "allocate_available_inventory" ? "warning" : "urgent",
+        need.readiness === "covered_by_available_inventory" ? "warning" : "urgent",
       label:
-        need.readiness === "allocate_available_inventory"
-          ? `Allocate ${need.unallocatedQty} ${need.unitName ?? ""} ${need.itemName} to ${need.demandLabel}`.trim()
-          : `${need.demandLabel} needs supply before allocation`,
+        need.readiness === "covered_by_available_inventory"
+          ? `${need.demandLabel} can be covered by available inventory`
+          : `${need.demandLabel} needs supply before it can be covered`,
       itemId: need.itemId,
       itemName: need.itemName,
       unitName: need.unitName,
-      quantity: need.unallocatedQty,
+      quantity: need.shortQty,
       requiredDate: need.requiredDate,
       demandType: need.demandType,
       demandId: need.demandId,
@@ -1517,7 +1288,7 @@ function buildDecisionQueue(args: {
     })
   );
 
-  return [...allocationItems, ...recommendationItems, ...blockerItems].sort(
+  return [...coverageItems, ...recommendationItems, ...blockerItems].sort(
     (left, right) => {
       const rankDelta = decisionQueueRank(left) - decisionQueueRank(right);
       if (rankDelta !== 0) return rankDelta;
@@ -1534,12 +1305,12 @@ function buildAttentionQueue(
   snapshot: PlanningSnapshot,
   decisionSupport: AgentDecisionSupportContext
 ): AgentAttentionQueueItem[] {
-  const allocationItems: AgentAttentionQueueItem[] =
-    decisionSupport.allocationNeeds.map((need) => ({
-      type: "allocation_needed",
+  const coverageItems: AgentAttentionQueueItem[] =
+    decisionSupport.coverageNeeds.map((need) => ({
+      type: "coverage_shortage",
       severity:
-        need.readiness === "allocate_available_inventory" ? "warning" : "urgent",
-      label: `${need.demandLabel} needs ${need.unallocatedQty} ${need.unitName ?? ""} allocated`.trim(),
+        need.readiness === "covered_by_available_inventory" ? "warning" : "urgent",
+      label: `${need.demandLabel} needs ${need.shortQty} ${need.unitName ?? ""} covered`.trim(),
       sourceRefs: need.sourceRefs,
     }));
 
@@ -1594,7 +1365,7 @@ function buildAttentionQueue(
     };
   });
 
-  return [...allocationItems, ...blockerItems, ...recommendationItems, ...warningItems];
+  return [...coverageItems, ...blockerItems, ...recommendationItems, ...warningItems];
 }
 
 function markdownTable(headers: string[], rows: string[][]) {
@@ -1657,7 +1428,7 @@ function buildMarkdownTargets(context: AgentProductionPlanningContext) {
   for (const order of context.salesOrders) {
     for (const salesLine of order.lines) {
       const buildDemandQty = roundQuantity(
-        Math.max(0, toQuantity(salesLine.openQty) - toQuantity(salesLine.allocatedQty))
+        Math.max(0, toQuantity(salesLine.openQty) - toQuantity(salesLine.coveredQty))
       );
       if (buildDemandQty <= 0) continue;
 
@@ -1758,7 +1529,7 @@ function buildRawProductionContext(
 ): AgentProductionRawContext {
   const salesDemandByItemId = new Map<
     string,
-    { demandQty: number; allocatedQty: number; unallocatedQty: number }
+    { demandQty: number; coveredQty: number; shortQty: number }
   >();
   const openManufacturingSupplyByItemId = openMoSupplyByItemId(context);
   const inventoryItemIds = new Set<string>();
@@ -1768,15 +1539,15 @@ function buildRawProductionContext(
       inventoryItemIds.add(line.itemId);
       const current = salesDemandByItemId.get(line.itemId) ?? {
         demandQty: 0,
-        allocatedQty: 0,
-        unallocatedQty: 0,
+        coveredQty: 0,
+        shortQty: 0,
       };
       current.demandQty = roundQuantity(current.demandQty + toQuantity(line.openQty));
-      current.allocatedQty = roundQuantity(
-        current.allocatedQty + toQuantity(line.allocatedQty)
+      current.coveredQty = roundQuantity(
+        current.coveredQty + toQuantity(line.coveredQty)
       );
-      current.unallocatedQty = roundQuantity(
-        current.unallocatedQty + toQuantity(line.shortQty)
+      current.shortQty = roundQuantity(
+        current.shortQty + toQuantity(line.shortQty)
       );
       salesDemandByItemId.set(line.itemId, current);
     }
@@ -1813,9 +1584,9 @@ function buildRawProductionContext(
             )
           );
           if (remainingToPlanQty <= 0) return null;
-          const allocatedQty = Math.min(
+          const coveredQty = Math.min(
             remainingToPlanQty,
-            toQuantity(line.directAllocatedQty)
+            toQuantity(line.coveredQty)
           );
           return {
             salesOrderLineId: line.salesOrderLineId,
@@ -1827,10 +1598,8 @@ function buildRawProductionContext(
             plannedShipmentQty: line.plannedShipmentQty,
             cancelledQty: line.cancelledQty,
             remainingToPlanQty: quantityString(remainingToPlanQty),
-            allocatedQty: quantityString(allocatedQty),
-            unallocatedQty: quantityString(
-              Math.max(0, remainingToPlanQty - allocatedQty)
-            ),
+            coveredQty: quantityString(coveredQty),
+            shortQty: quantityString(Math.max(0, remainingToPlanQty - coveredQty)),
             productionStatus: line.productionStatus,
           };
         })
@@ -1852,7 +1621,6 @@ function buildRawProductionContext(
       expectedOutputDate: order.expectedOutputDate,
       linkedSalesOrderId: order.salesOrderId,
       linkedSalesOrderLineId: order.salesOrderLineId,
-      outputAllocations: order.outputAllocations,
     })),
     productCounts: context.inventory
       .filter((item) => inventoryItemIds.has(item.itemId))
@@ -1866,12 +1634,9 @@ function buildRawProductionContext(
           availableQty: item.availableQty,
           reservedQty: item.reservedQty,
           expectedQty: item.expectedQty,
-          inventoryLotAllocatedQty: item.inventoryLotAllocatedQty,
-          manufacturingOutputAllocatedQty: item.manufacturingOutputAllocatedQty,
-          totalActiveAllocationQty: item.totalActiveAllocationQty,
           openSalesDemandQty: quantityString(salesDemand?.demandQty ?? 0),
-          openSalesAllocatedQty: quantityString(salesDemand?.allocatedQty ?? 0),
-          openSalesUnallocatedQty: quantityString(salesDemand?.unallocatedQty ?? 0),
+          openSalesCoveredQty: quantityString(salesDemand?.coveredQty ?? 0),
+          openSalesShortQty: quantityString(salesDemand?.shortQty ?? 0),
           openManufacturingSupplyQty: quantityString(
             openManufacturingSupplyByItemId.get(item.itemId) ?? 0
           ),
@@ -1892,7 +1657,6 @@ function buildRawProductionContext(
             disposition: lot.disposition,
             onHandQty: lot.onHandQty,
             availableQty: lot.availableQty,
-            allocatedQty: lot.allocatedQty,
           })),
         };
       }),
@@ -1960,7 +1724,7 @@ export function buildAgentProductionPlanningMarkdown(
         compactDate(order.requiredDate),
         salesLine.itemName,
         compactQty(salesLine.openQty, salesLine.unitName),
-        compactQty(salesLine.allocatedQty, salesLine.unitName),
+        compactQty(salesLine.coveredQty, salesLine.unitName),
         compactQty(salesLine.shortQty, salesLine.unitName),
         salesLine.productionStatus,
       ])
@@ -1999,10 +1763,7 @@ export function buildAgentProductionPlanningMarkdown(
       order.itemName,
       compactQty(order.remainingQty, order.unitName),
       compactDate(order.plannedDate),
-      order.outputAllocations
-        .map((allocation) => `${allocation.demandLabel}: ${allocation.quantity}`)
-        .slice(0, 3)
-        .join("; ") || "-",
+      order.salesOrderLineId ? "MTO" : "-",
     ]);
 
   const productionDecisionBomComponents = context.topLevelBoms.flatMap((bom) =>
@@ -2070,7 +1831,7 @@ export function buildAgentProductionPlanningMarkdown(
           "Ship date",
           "Item",
           "Open",
-          "Allocated",
+          "Covered",
           "Short",
           "Status",
         ],
@@ -2086,7 +1847,7 @@ export function buildAgentProductionPlanningMarkdown(
     line("## Open Manufacturing Supply"),
     line(
       markdownTable(
-        ["MO", "Output", "Remaining", "Planned date", "Allocated to"],
+        ["MO", "Output", "Remaining", "Planned date", "Link"],
         openMoRows
       ) +
         omittedLine(
@@ -2107,7 +1868,7 @@ export function buildAgentProductionPlanningMarkdown(
     ),
     line(),
     line("## Rules"),
-    line("- This is read-only. Do not claim allocations, MOs, or POs were created."),
+    line("- This is read-only. Do not claim MOs or POs were created."),
     line("- A constrained component must be built or received by the build-by date so it can age before the sales order ships."),
     line("- Use open manufacturing supply before recommending new manufacturing orders."),
   ].join("\n");
@@ -2120,9 +1881,8 @@ async function buildAgentProductionPlanningContextInTx(
 ): Promise<AgentProductionPlanningContext> {
   const snapshot = await buildPlanningSnapshotInTx(tx, orgId);
   const today = await loadOrganizationTodayInTx(tx, orgId);
-  const allocations = await loadActiveAllocationContextInTx(tx, orgId);
-  const salesOrders = await loadOpenSalesOrdersInTx(tx, allocations, snapshot);
-  const manufacturingOrders = await loadOpenManufacturingOrdersInTx(tx, allocations);
+  const salesOrders = await loadOpenSalesOrdersInTx(tx, snapshot);
+  const manufacturingOrders = await loadOpenManufacturingOrdersInTx(tx);
   const purchaseOrders = await loadOpenPurchaseOrdersInTx(tx);
   const topLevelBoms = await loadTopLevelBomContextInTx(
     tx,
@@ -2131,11 +1891,10 @@ async function buildAgentProductionPlanningContextInTx(
   );
   const relevantItemIds = new Set(
     collectRelevantItemIds({
-    snapshot,
-    salesOrders,
-    manufacturingOrders,
-    purchaseOrders,
-    allocations,
+      snapshot,
+      salesOrders,
+      manufacturingOrders,
+      purchaseOrders,
     })
   );
   for (const bom of topLevelBoms) {
@@ -2149,7 +1908,6 @@ async function buildAgentProductionPlanningContextInTx(
   const inventory = await loadRelevantInventoryContextInTx(tx, {
     itemIds: [...relevantItemIds].sort(),
     snapshot,
-    allocations,
     includeLots: options.includeLots,
   });
   const decisionSupport = buildDecisionSupport({
@@ -2190,10 +1948,9 @@ async function buildAgentProductionPlanningContextInTx(
       openManufacturingOrderCount: manufacturingOrders.length,
       openPurchaseOrderCount: purchaseOrders.length,
       relevantItemCount: inventory.length,
-      activeAllocationCount: allocations.length,
-      allocationNeedCount: decisionSupport.allocationNeeds.length,
-      allocatableNowCount: decisionSupport.allocationNeeds.filter(
-        (need) => need.readiness === "allocate_available_inventory"
+      coverageNeedCount: decisionSupport.coverageNeeds.length,
+      coverableNowCount: decisionSupport.coverageNeeds.filter(
+        (need) => need.readiness === "covered_by_available_inventory"
       ).length,
       supplyRecommendationCount: decisionSupport.supplyRecommendations.length,
       ...supplyRecommendationCounts,
@@ -2207,7 +1964,6 @@ async function buildAgentProductionPlanningContextInTx(
     manufacturingOrders,
     purchaseOrders,
     inventory,
-    allocations,
     decisionSupport,
     topLevelBoms,
     planning: {
@@ -2234,7 +1990,7 @@ async function buildAgentProductionPlanningContextInTx(
         action: "read_production_planning_context",
         status: "allowed",
         description:
-          "This endpoint is read-only. Use the ERP UI for manufacturing orders, purchase orders, and allocations.",
+          "This endpoint is read-only. Use the ERP UI for manufacturing orders and purchase orders.",
       },
     ],
   };

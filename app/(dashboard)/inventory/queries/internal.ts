@@ -28,7 +28,6 @@ import {
   purchaseOrders,
   salesOrderLines,
   salesOrders,
-  stockAllocations,
   stocktakeItems,
   stocktakes,
   supplierItems,
@@ -1452,70 +1451,6 @@ export async function getLots(
       return [];
     }
 
-    const allocationRows = await tx
-      .select({
-        lotId: stockAllocations.sourceId,
-        salesOrderId: salesOrders.id,
-        orderNumber: salesOrders.orderNumber,
-        customerName: salesOrders.customerName,
-        quantity: trimScale(sql`COALESCE(SUM(${stockAllocations.quantity}), 0)`).as(
-          "quantity"
-        ),
-      })
-      .from(stockAllocations)
-      .innerJoin(salesOrderLines, eq(stockAllocations.demandId, salesOrderLines.id))
-      .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
-      .where(
-        and(
-          eq(stockAllocations.demandType, "sales_order_line"),
-          eq(stockAllocations.sourceType, "inventory_lot"),
-          eq(stockAllocations.status, "active"),
-          eq(stockAllocations.itemId, itemId),
-          isNull(salesOrders.deletedAt)
-        )
-      )
-      .groupBy(
-        stockAllocations.sourceId,
-        salesOrders.id,
-        salesOrders.orderNumber,
-        salesOrders.customerName
-      )
-      .orderBy(asc(salesOrders.orderNumber));
-    const manufacturingAllocationRows = await tx
-      .select({
-        lotId: stockAllocations.sourceId,
-        manufacturingOrderId: manufacturingOrders.id,
-        orderNumber: manufacturingOrders.orderNumber,
-        productName: manufacturingOrders.productName,
-        quantity: trimScale(sql`COALESCE(SUM(${stockAllocations.quantity}), 0)`).as(
-          "quantity"
-        ),
-      })
-      .from(stockAllocations)
-      .innerJoin(
-        manufacturingOrderIngredients,
-        eq(stockAllocations.demandId, manufacturingOrderIngredients.id)
-      )
-      .innerJoin(
-        manufacturingOrders,
-        eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrders.id)
-      )
-      .where(
-        and(
-          eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
-          eq(stockAllocations.sourceType, "inventory_lot"),
-          eq(stockAllocations.status, "active"),
-          eq(stockAllocations.itemId, itemId),
-          isNull(manufacturingOrders.deletedAt)
-        )
-      )
-      .groupBy(
-        stockAllocations.sourceId,
-        manufacturingOrders.id,
-        manufacturingOrders.orderNumber,
-        manufacturingOrders.productName
-      )
-      .orderBy(asc(manufacturingOrders.orderNumber));
     const allocationsByLotId = new Map<
       string,
       Array<{
@@ -1526,31 +1461,6 @@ export async function getLots(
         quantity: string;
       }>
     >();
-    for (const row of allocationRows) {
-      if (!row.lotId) continue;
-      const current = allocationsByLotId.get(row.lotId) ?? [];
-      current.push({
-        type: "sales_order",
-        label: row.orderNumber,
-        contextLabel: row.customerName,
-        href: `/sales/order/${row.salesOrderId}`,
-        quantity: row.quantity,
-      });
-      allocationsByLotId.set(row.lotId, current);
-    }
-    for (const row of manufacturingAllocationRows) {
-      if (!row.lotId) continue;
-      const current = allocationsByLotId.get(row.lotId) ?? [];
-      current.push({
-        type: "manufacturing_order",
-        label: row.orderNumber,
-        contextLabel: row.productName,
-        href: `/manufacturing/order/${row.manufacturingOrderId}`,
-        quantity: row.quantity,
-      });
-      allocationsByLotId.set(row.lotId, current);
-    }
-
     const realizedRows = await tx
       .select({
         lotId: inventoryEvents.lotId,

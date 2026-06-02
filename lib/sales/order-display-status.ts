@@ -53,21 +53,13 @@ export function deriveOrderDisplayStatus(order: OrderForDisplayStatus): OrderDis
   return { label: "NOT SHIPPED", tone: "neutral", dotShape: "square" };
 }
 
-export type SalesAllocationMode = "manual" | "demand_queue";
-
 export type SalesItemsFilterValue =
   | "all"
-  | "allocated"
-  | "partial"
-  | "not_allocated"
   | "available"
   | "expected"
   | "not_available";
 
-export function getSalesItemsState(
-  order: SalesOrderListRow,
-  mode: SalesAllocationMode = "manual"
-): FulfillmentDisplayState {
+export function getSalesItemsState(order: SalesOrderListRow): FulfillmentDisplayState {
   if (order.status === "done") {
     return { label: "Complete", tone: "success" };
   }
@@ -76,19 +68,6 @@ export function getSalesItemsState(
 
   if (remainingQty <= 0) {
     return { label: "Complete", tone: "success" };
-  }
-
-  if (mode === "manual") {
-    const allocatedQty = parseQuantity(order.fulfillmentSummary.allocatedQty);
-    const shortQty = parseQuantity(order.fulfillmentSummary.shortQty);
-
-    if (shortQty <= 0) {
-      return { label: "Allocated", tone: "success" };
-    }
-    if (allocatedQty > 0) {
-      return { label: "Partial", tone: "warning" };
-    }
-    return { label: "Not allocated", tone: "destructive" };
   }
 
   return getSalesItemsDisplayState(
@@ -110,19 +89,9 @@ export function getSalesItemsAvailabilityState(
   );
 }
 
-export function getSalesItemsFilterValue(
-  order: SalesOrderListRow,
-  mode: SalesAllocationMode = "manual"
-): SalesItemsFilterValue {
+export function getSalesItemsFilterValue(order: SalesOrderListRow): SalesItemsFilterValue {
   if (order.status === "done") {
-    return mode === "manual" ? "allocated" : "available";
-  }
-
-  if (mode === "manual") {
-    const label = getSalesItemsState(order, mode).label;
-    if (label === "Complete" || label === "Allocated") return "allocated";
-    if (label === "Partial") return "partial";
-    return "not_allocated";
+    return "available";
   }
 
   switch (order.fulfillmentSummary.salesItemsState) {

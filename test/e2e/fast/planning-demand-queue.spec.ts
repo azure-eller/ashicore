@@ -1,17 +1,13 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
   inventoryDemandSummary,
   inventoryItemBalances,
-  lots,
-  manufacturingOrders,
   salesShipmentLines,
   salesShipments,
   salesOrderLines,
   salesOrders,
-  stockAllocations,
 } from "../../../lib/db/schema";
-import { INTERNAL_UNTRACKED_LOT_NUMBER } from "../../../lib/inventory/kernel";
 import {
   createCustomer,
   createItem,
@@ -23,7 +19,6 @@ import {
 } from "../../helpers/api";
 
 test("demand queue allocates scarce stock by rank without overclaiming", async ({
-  page,
   db,
 }) => {
   const ts = Date.now();
@@ -105,9 +100,6 @@ test("demand queue allocates scarce stock by rank without overclaiming", async (
   });
   expect(reorder.status).toBe(200);
 
-  await page.goto("/sales/orders");
-  await expect(page.locator("main")).toContainText(firstOrderNumber);
-
   const rankedOrders = await db
     .select({
       id: salesOrders.id,
@@ -165,7 +157,7 @@ test("demand queue allocates scarce stock by rank without overclaiming", async (
   });
 });
 
-test("sales availability treats pinned manufacturing output as expected supply", async ({
+test("sales availability treats linked manufacturing output as expected supply", async ({
   db,
 }) => {
   const ts = Date.now();
@@ -246,35 +238,6 @@ test("sales availability treats pinned manufacturing output as expected supply",
   });
   expect(laterMo.status).toBe(201);
 
-  const [source] = await db
-    .select({ organizationId: manufacturingOrders.organizationId })
-    .from(manufacturingOrders)
-    .where(eq(manufacturingOrders.id, linkedMo.body.id));
-  expect(source).toBeTruthy();
-
-  await db.insert(stockAllocations).values([
-    {
-      organizationId: source.organizationId,
-      demandType: "sales_order_line",
-      demandId: line.id,
-      itemId: productId,
-      sourceType: "manufacturing_order",
-      sourceId: linkedMo.body.id,
-      quantity: "150",
-      status: "active",
-    },
-    {
-      organizationId: source.organizationId,
-      demandType: "sales_order_line",
-      demandId: line.id,
-      itemId: productId,
-      sourceType: "manufacturing_order",
-      sourceId: laterMo.body.id,
-      quantity: "300",
-      status: "active",
-    },
-  ]);
-
   const salesOrdersResponse = await testFetch("/api/sales-orders");
   expect(salesOrdersResponse.status).toBe(200);
   const salesOrderRows = (await salesOrdersResponse.json()) as Array<{
@@ -290,10 +253,9 @@ test("sales availability treats pinned manufacturing output as expected supply",
   expect(readModel?.fulfillmentSummary?.salesItemsExpectedDate).toBe("2026-06-04");
 });
 
-test("untracked on-hand coverage matches canonical lot pins", async ({ db }) => {
+test("untracked on-hand coverage uses physical canonical lot quantity", async () => {
   const ts = Date.now();
   const unitId = getUnitId();
-  const orgId = getOrgId();
 
   const component = await createItem({
     itemType: "material",
@@ -351,41 +313,12 @@ test("untracked on-hand coverage matches canonical lot pins", async ({ db }) => 
   });
   expect(order.status).toBe(201);
 
-  const [line] = await db
-    .select({ id: salesOrderLines.id })
-    .from(salesOrderLines)
-    .where(eq(salesOrderLines.salesOrderId, order.body.id));
-  expect(line).toBeTruthy();
-
-  const [canonicalLot] = await db
-    .select({ id: lots.id })
-    .from(lots)
-    .where(
-      and(
-        eq(lots.itemId, productId),
-        eq(lots.lotNumber, INTERNAL_UNTRACKED_LOT_NUMBER)
-      )
-    );
-  expect(canonicalLot).toBeTruthy();
-
-  await db.insert(stockAllocations).values({
-    organizationId: orgId,
-    demandType: "sales_order_line",
-    demandId: line.id,
-    itemId: productId,
-    sourceType: "inventory_lot",
-    sourceId: canonicalLot.id,
-    quantity: "5",
-    status: "active",
-  });
-
   const salesOrdersResponse = await testFetch("/api/sales-orders");
   expect(salesOrdersResponse.status).toBe(200);
   const salesOrderRows = (await salesOrdersResponse.json()) as Array<{
     id: string;
     lines: Array<{
       demandQueueInStockQty?: string;
-      demandQueuePinnedQty?: string;
       demandQueueShortQty?: string;
     }>;
   }>;
@@ -393,7 +326,6 @@ test("untracked on-hand coverage matches canonical lot pins", async ({ db }) => 
 
   expect(readModel?.lines[0]).toMatchObject({
     demandQueueInStockQty: "5",
-    demandQueuePinnedQty: "5",
     demandQueueShortQty: "0",
   });
 });
@@ -507,7 +439,7 @@ test("linked manufacturing output does not cover unrelated sales demand", async 
   expect(unrelatedReadModel?.fulfillmentSummary?.productionState).toBe("make");
 });
 
-test("linked make-to-order output pins sales demand ahead of queue stock", async ({
+test("linked make-to-order output is constrained without jumping queue stock", async ({
   db,
 }) => {
   const ts = Date.now();
@@ -592,7 +524,6 @@ test("linked make-to-order output pins sales demand ahead of queue stock", async
       salesItemsExpectedDate?: string | null;
     };
     lines?: Array<{
-      demandQueuePinnedQty?: string;
       demandQueueQueueCoveredQty?: string;
       demandQueueInStockQty?: string;
       demandQueueExpectedQty?: string;
@@ -606,23 +537,26 @@ test("linked make-to-order output pins sales demand ahead of queue stock", async
   const linkedQueueLine = linkedReadModel?.lines?.[0];
   const queueLine = queueReadModel?.lines?.[0];
 
-  expect(linkedReadModel?.fulfillmentSummary?.salesItemsState).toBe("expected");
-  expect(linkedReadModel?.fulfillmentSummary?.salesItemsExpectedDate).toBe(
-    "2026-05-19"
-  );
-  expect(Number(linkedQueueLine?.demandQueuePinnedQty ?? 0)).toBe(8);
-  expect(Number(linkedQueueLine?.demandQueueQueueCoveredQty ?? 0)).toBe(0);
-  expect(Number(linkedQueueLine?.demandQueueInStockQty ?? 0)).toBe(0);
-  expect(Number(linkedQueueLine?.demandQueueExpectedQty ?? 0)).toBe(8);
+  expect(linkedReadModel?.fulfillmentSummary?.salesItemsState).toBe("available");
+  expect(linkedReadModel?.fulfillmentSummary?.salesItemsExpectedDate).toBeNull();
+  expect(Number(linkedQueueLine?.demandQueueQueueCoveredQty ?? 0)).toBe(8);
+  expect(Number(linkedQueueLine?.demandQueueInStockQty ?? 0)).toBe(8);
+  expect(Number(linkedQueueLine?.demandQueueExpectedQty ?? 0)).toBe(0);
   expect(
     linkedQueueLine?.demandQueueSegments?.some(
-      (segment) => segment.kind === "pinned_expected"
+      (segment) => segment.kind.startsWith("pinned")
     )
-  ).toBe(true);
+  ).toBe(false);
 
-  expect(queueReadModel?.fulfillmentSummary?.salesItemsState).toBe("available");
-  expect(Number(queueLine?.demandQueueQueueCoveredQty ?? 0)).toBe(8);
-  expect(Number(queueLine?.demandQueueInStockQty ?? 0)).toBe(8);
+  expect(queueReadModel?.fulfillmentSummary?.salesItemsState).toBe("not_available");
+  expect(Number(queueLine?.demandQueueQueueCoveredQty ?? 0)).toBe(0);
+  expect(Number(queueLine?.demandQueueInStockQty ?? 0)).toBe(0);
+  expect(Number(queueLine?.demandQueueExpectedQty ?? 0)).toBe(0);
+  expect(
+    queueLine?.demandQueueSegments?.some((segment) =>
+      segment.kind.startsWith("pinned")
+    )
+  ).toBe(false);
 });
 
 test("make-to-order preview ignores queue stock and subtracts linked output only", async ({

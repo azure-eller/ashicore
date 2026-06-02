@@ -6,7 +6,6 @@ import {
   inventoryItemBalances,
   inventoryLocations,
   inventoryLotBalances,
-  inventoryReservationsSummary,
   bomRevisionComponents,
   bomRevisionOperationCosts,
   bomRevisions,
@@ -14,11 +13,8 @@ import {
   itemVariantValues,
   items,
   lots,
-  manufacturingOrderIngredients,
-  manufacturingOrders,
   manufacturingResources,
   organization,
-  stockAllocations,
   stocktakeItems,
   stocktakeLotItems,
   stocktakes,
@@ -706,20 +702,6 @@ test.describe("inventory mutation kernel heartbeat", () => {
     const lotId = lotLine?.lotId;
     expect(lotId).toBeTruthy();
 
-    const [allocation] = await db
-      .insert(stockAllocations)
-      .values({
-        organizationId: orgId,
-        demandType: "manufacturing_order_ingredient",
-        demandId: randomUUID(),
-        itemId,
-        sourceType: "inventory_lot",
-        sourceId: lotId!,
-        quantity: "6.0000",
-        status: "active",
-      })
-      .returning({ id: stockAllocations.id });
-
     const saveResponse = await testFetch(`/api/stocktakes/${stocktake.id}`, {
       method: "PUT",
       body: JSON.stringify({
@@ -750,260 +732,11 @@ test.describe("inventory mutation kernel heartbeat", () => {
       .where(eq(lots.itemId, itemId));
     expect(Number(lotTotal.quantity)).toBe(3);
 
-    const [reducedAllocation] = await db
-      .select({ quantity: stockAllocations.quantity, status: stockAllocations.status })
-      .from(stockAllocations)
-      .where(eq(stockAllocations.id, allocation.id));
-    expect(reducedAllocation).toMatchObject({
-      quantity: "3.0000",
-      status: "active",
-    });
-
     const events = await db
       .select({ eventType: inventoryEvents.eventType })
       .from(inventoryEvents)
       .where(sql`${inventoryEvents.metadata}->>'stocktakeId' = ${stocktake.id}`);
     expect(events.some((event) => event.eventType === "stocktake_loss")).toBe(true);
-  });
-
-  test("available disposition reductions release excess lot holds", async ({ db }) => {
-    const item = await createItem({
-      itemType: "material",
-      name: `Fast Disposition Allocation ${ts}`,
-      unitDefinitionId: unitId,
-      sku: `FAST-DISP-ALLOC-${ts}`,
-      category: `Fast Disposition ${ts}`,
-      description: null,
-      defaultPurchasePrice: "4.00",
-      defaultSellingPrice: null,
-      stock: "10",
-      safetyStock: "0",
-      bom: [],
-    });
-    expect(item.status).toBe(201);
-    const itemId = item.body.id as string;
-
-    const [lot] = await db
-      .select({ id: lots.id })
-      .from(lots)
-      .where(eq(lots.itemId, itemId));
-    expect(lot?.id).toBeTruthy();
-
-    const [allocation] = await db
-      .insert(stockAllocations)
-      .values({
-        organizationId: orgId,
-        demandType: "manufacturing_order_ingredient",
-        demandId: randomUUID(),
-        itemId,
-        sourceType: "inventory_lot",
-        sourceId: lot.id,
-        quantity: "8.0000",
-        status: "active",
-      })
-      .returning({ id: stockAllocations.id });
-
-    const response = await testFetch(`/api/items/${itemId}/lots/${lot.id}/disposition`, {
-      method: "POST",
-      body: JSON.stringify({
-        action: "block",
-        fromDisposition: "available",
-        quantity: "7",
-        notes: null,
-      }),
-    });
-    expect(response.status).toBe(200);
-
-    const [availableBalance] = await db
-      .select({ quantity: inventoryLotBalances.quantity })
-      .from(inventoryLotBalances)
-      .where(
-        and(
-          eq(inventoryLotBalances.itemId, itemId),
-          eq(inventoryLotBalances.lotId, lot.id),
-          eq(inventoryLotBalances.disposition, "available")
-        )
-      );
-    expect(availableBalance.quantity).toBe("3.0000");
-
-    const [reducedAllocation] = await db
-      .select({ quantity: stockAllocations.quantity, status: stockAllocations.status })
-      .from(stockAllocations)
-      .where(eq(stockAllocations.id, allocation.id));
-    expect(reducedAllocation).toMatchObject({
-      quantity: "3.0000",
-      status: "active",
-    });
-  });
-
-  test("stocktake completion cancels stale lot holds and releases manufacturing reservations", async ({
-    db,
-  }) => {
-    const category = `Fast Stocktake Hold ${ts}`;
-    const item = await createItem({
-      itemType: "material",
-      name: `Fast Stocktake Held Material ${ts}`,
-      unitDefinitionId: unitId,
-      sku: `FAST-STOCKTAKE-HOLD-${ts}`,
-      category,
-      description: null,
-      defaultPurchasePrice: "4.00",
-      defaultSellingPrice: null,
-      stock: "10",
-      safetyStock: "0",
-      bom: [],
-    });
-    expect(item.status).toBe(201);
-    const itemId = item.body.id as string;
-
-    const [defaultLocation] = await db
-      .select({ id: inventoryLocations.id })
-      .from(inventoryLocations)
-      .where(
-        and(
-          eq(inventoryLocations.organizationId, orgId),
-          eq(inventoryLocations.isDefault, true)
-        )
-      );
-    const [lot] = await db
-      .select({ id: lots.id })
-      .from(lots)
-      .where(eq(lots.itemId, itemId));
-    expect(defaultLocation?.id).toBeTruthy();
-    expect(lot?.id).toBeTruthy();
-
-    const [order] = await db
-      .insert(manufacturingOrders)
-      .values({
-        organizationId: orgId,
-        orderNumber: `FAST-MO-HOLD-${ts}`,
-        productId: itemId,
-        productName: `Fast MO Held Product ${ts}`,
-        productSku: `FAST-MO-HOLD-${ts}`,
-        unitName: "Each",
-        requestedQuantity: "1",
-        plannedQuantity: "1",
-        status: "open",
-      })
-      .returning({ id: manufacturingOrders.id });
-    const [ingredient] = await db
-      .insert(manufacturingOrderIngredients)
-      .values({
-        manufacturingOrderId: order.id,
-        itemId,
-        itemName: `Fast Stocktake Held Material ${ts}`,
-        itemType: "material",
-        unitName: "Each",
-        quantityPerUnit: "10",
-        plannedQuantity: "10",
-      })
-      .returning({ id: manufacturingOrderIngredients.id });
-
-    const [hold] = await db
-      .insert(stockAllocations)
-      .values({
-        organizationId: orgId,
-        demandType: "manufacturing_order_ingredient",
-        demandId: ingredient.id,
-        itemId,
-        sourceType: "inventory_lot",
-        sourceId: lot.id,
-        quantity: "10",
-        status: "active",
-      })
-      .returning({ id: stockAllocations.id });
-    await db.insert(inventoryReservationsSummary).values({
-      organizationId: orgId,
-      locationId: defaultLocation.id,
-      itemId,
-      referenceType: "manufacturing_order_ingredient",
-      referenceId: ingredient.id,
-      quantity: "10",
-    });
-    await db.insert(inventoryEvents).values({
-      organizationId: orgId,
-      locationId: defaultLocation.id,
-      eventType: "reservation_increase",
-      eventSubtype: "test_hold",
-      itemId,
-      quantity: "10",
-      referenceType: "manufacturing_order_ingredient",
-      referenceId: ingredient.id,
-      actorUserId: "test",
-    });
-    await db
-      .update(inventoryItemBalances)
-      .set({
-        committedQty: sql`${inventoryItemBalances.committedQty} + 10`,
-      })
-      .where(eq(inventoryItemBalances.itemId, itemId));
-
-    const stocktakeResponse = await testFetch("/api/stocktakes", {
-      method: "POST",
-      body: JSON.stringify({
-        name: `Fast Stocktake Hold ${ts}`,
-        scope: buildStocktakeCategoryScope("material", category),
-        notes: null,
-      }),
-    });
-    expect(stocktakeResponse.status).toBe(201);
-    const stocktake = await stocktakeResponse.json();
-
-    const [line] = await db
-      .select({ id: stocktakeItems.id })
-      .from(stocktakeItems)
-      .where(
-        and(
-          eq(stocktakeItems.stocktakeId, stocktake.id),
-          eq(stocktakeItems.itemId, itemId)
-        )
-      );
-    const [lotLine] = await db
-      .select({ id: stocktakeLotItems.id })
-      .from(stocktakeLotItems)
-      .where(eq(stocktakeLotItems.stocktakeItemId, line.id));
-
-    const saveResponse = await testFetch(`/api/stocktakes/${stocktake.id}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        lines: [],
-        lotLines: [{ lotLineId: lotLine.id, countedQty: "0" }],
-      }),
-    });
-    expect(saveResponse.status).toBe(200);
-
-    const completeResponse = await testFetch(
-      `/api/stocktakes/${stocktake.id}/complete`,
-      {
-        method: "POST",
-        body: JSON.stringify({ confirmStale: false, reason: "Cycle count" }),
-      }
-    );
-    expect(completeResponse.status).toBe(200);
-
-    const [allocation] = await db
-      .select({
-        status: stockAllocations.status,
-        cancelledAt: stockAllocations.cancelledAt,
-      })
-      .from(stockAllocations)
-      .where(eq(stockAllocations.id, hold.id));
-    expect(allocation.status).toBe("cancelled");
-    expect(allocation.cancelledAt).toBeTruthy();
-
-    const [reservation] = await db
-      .select({
-        quantity: sql<string>`COALESCE(SUM(${inventoryReservationsSummary.quantity}), 0)`,
-      })
-      .from(inventoryReservationsSummary)
-      .where(eq(inventoryReservationsSummary.referenceId, ingredient.id));
-    const [balance] = await db
-      .select({ committedQty: inventoryItemBalances.committedQty })
-      .from(inventoryItemBalances)
-      .where(eq(inventoryItemBalances.itemId, itemId));
-
-    expect(Number(reservation.quantity)).toBe(0);
-    expect(Number(balance.committedQty)).toBe(0);
   });
 
   test("item card clone copies variant structure and current recipe without stock", async ({

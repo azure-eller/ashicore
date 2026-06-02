@@ -258,7 +258,9 @@ test.describe("Team access", () => {
     await page.getByLabel(/^Password$/).fill(orgOwnerPassword);
     await page.getByLabel(/^Confirm Password$/).fill(orgOwnerPassword);
     await page.getByRole("button", { name: "Create Account" }).click();
-    await page.waitForURL("**/mfa-setup");
+    await page.waitForURL((url) =>
+      ["/mfa-setup", "/org-setup"].includes(url.pathname)
+    );
     await markUserMfaEnrolled(db, orgOwnerEmail);
     await page.goto("/org-setup");
 

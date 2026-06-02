@@ -32,7 +32,6 @@ import {
   manufacturingOrders,
   manufacturingPickAllocations,
   organization,
-  stockAllocations,
   salesOrderLines,
   salesOrders,
   unitDefinitions,
@@ -66,27 +65,21 @@ import {
   applyExpectedReferenceDeltasInTx,
   applyReservationReferenceDeltasInTx,
   beginInventoryOperationInTx,
-  cancelActiveStockAllocationsInTx,
   cancelReleasedManufacturingOrderInTx,
   consumeStockFifoInTx,
-  consumeLotAllocationsForDemandInTx,
   decrementExistingLotStockInTx,
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
   getDefaultInventoryLocationInTx,
-  getUnavailableLotAllocationQtyByLotIdInTx,
   getManufacturingIngredientReservationRowsInTx,
   lockItemsInTx,
-  materializeManufacturingOrderSourceAllocationsFromExistingOutputInTx,
   pickManufacturingIngredientInTx,
   produceManufacturedStockInTx,
   projectedLotUnitCost,
   reconcileIngredientActualsInTx,
-  reconcileInventoryLotAllocationsForItemsInTx,
   releaseIngredientReservationForManufacturingInTx,
   restockExistingLotInTx,
 } from "@/lib/inventory/kernel";
-import { reconcileAllocationPinsToReservationsInTx } from "@/lib/inventory/allocation/reservations";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
 import {
   evaluateLotAgeMinDaysRequirement,
@@ -107,7 +100,6 @@ import {
   type DomainFieldErrors,
 } from "@/lib/errors/domain-error";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
-import { loadAllocationSourcesForItemInTx } from "@/lib/inventory/allocation/sources";
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import {
   buildFifoLotPickPlanInTx,
@@ -133,7 +125,6 @@ import type {
   RecordManufacturingOutput,
   ReorderManufacturingOrderPriorityRanks,
   ReorderManufacturingIngredients,
-  SaveManufacturingOutputAllocation,
   UpdateManufacturingOrderPriority,
   UpdateManufacturingOrder,
 } from "@/lib/schemas/manufacturing-orders";
@@ -153,28 +144,6 @@ import type {
   ManufacturingSalesOrderPreview,
   ManufacturingSalesLineOption,
 } from "./types";
-
-function shippedSalesOrderLineQuantitySql() {
-  return sql<string>`COALESCE((
-    SELECT SUM(shipment_lines."quantity")
-    FROM "sales"."sales_shipment_lines" shipment_lines
-    INNER JOIN "sales"."sales_shipments" shipments
-      ON shipments."id" = shipment_lines."sales_shipment_id"
-    WHERE shipment_lines."sales_order_line_id" = "sales"."sales_order_lines"."id"
-      AND shipments."status" = 'shipped'
-  ), 0)`;
-}
-
-function plannedSalesOrderLineQuantitySql() {
-  return sql<string>`COALESCE((
-    SELECT SUM(shipment_lines."quantity")
-    FROM "sales"."sales_shipment_lines" shipment_lines
-    INNER JOIN "sales"."sales_shipments" shipments
-      ON shipments."id" = shipment_lines."sales_shipment_id"
-    WHERE shipment_lines."sales_order_line_id" = "sales"."sales_order_lines"."id"
-      AND shipments."status" = 'planned'
-  ), 0)`;
-}
 
 function effectiveManufacturingPriorityRankSql() {
   return sql<number | null>`COALESCE(${salesOrders.priorityRank}, ${manufacturingOrders.priorityRank})`;
@@ -1522,8 +1491,6 @@ async function activateManufacturingOrderInTx(
   order: LockedManufacturingOrder,
   params: {
     actorUserId?: string | null;
-    lotAllocations?: InsertManufacturingOrder["lotAllocations"];
-    autoAllocateIngredientLots?: boolean;
   }
 ) {
   await getValidatedProductInTx(tx, order.productId);
@@ -1614,300 +1581,7 @@ async function activateManufacturingOrderInTx(
     })),
   });
 
-  if (params.autoAllocateIngredientLots === true) {
-    await saveManufacturingIngredientLotAllocationsInTx(tx, {
-      organizationId: orgId,
-      actorUserId: params.actorUserId ?? null,
-      ingredients: reservationIngredientRows.map((ingredient) => ({
-        ...ingredient,
-        lotStrategy: ingredient.lotStrategy as ManufacturingLotStrategy,
-      })),
-      lotAllocations: params.lotAllocations ?? [],
-    });
-  }
-
   return orderRow;
-}
-
-type ManufacturingIngredientLotAllocationPlan = NonNullable<
-  InsertManufacturingOrder["lotAllocations"]
->;
-
-async function insertManufacturingIngredientLotAllocationInTx(
-  tx: Tx,
-  params: {
-    organizationId: string;
-    actorUserId?: string | null;
-    ingredientId: string;
-    itemId: string;
-    lotId: string;
-    quantity: number;
-    sourceLabelSnapshot?: string | null;
-  }
-) {
-  if (params.quantity <= 0) return;
-
-  const [existing] = await tx
-    .select({
-      id: stockAllocations.id,
-      quantity: stockAllocations.quantity,
-    })
-    .from(stockAllocations)
-    .where(
-      and(
-        eq(stockAllocations.organizationId, params.organizationId),
-        eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
-        eq(stockAllocations.demandId, params.ingredientId),
-        eq(stockAllocations.itemId, params.itemId),
-        eq(stockAllocations.sourceType, "inventory_lot"),
-        eq(stockAllocations.sourceId, params.lotId),
-        eq(stockAllocations.status, "active")
-      )
-    )
-    .for("update");
-
-  const now = new Date();
-  if (existing) {
-    await tx
-      .update(stockAllocations)
-      .set({
-        quantity: normalizeNumeric(parseFloat(existing.quantity) + params.quantity),
-        sourceLabelSnapshot: params.sourceLabelSnapshot ?? null,
-        updatedBy: params.actorUserId ?? null,
-        updatedAt: now,
-      })
-      .where(eq(stockAllocations.id, existing.id));
-    return;
-  }
-
-  await tx.insert(stockAllocations).values({
-    organizationId: params.organizationId,
-    demandType: "manufacturing_order_ingredient",
-    demandId: params.ingredientId,
-    itemId: params.itemId,
-    sourceType: "inventory_lot",
-    sourceId: params.lotId,
-    quantity: normalizeNumeric(params.quantity),
-    status: "active",
-    sourceLabelSnapshot: params.sourceLabelSnapshot ?? null,
-    createdBy: params.actorUserId ?? null,
-    updatedBy: params.actorUserId ?? null,
-  });
-}
-
-async function saveManufacturingIngredientLotAllocationsInTx(
-  tx: Tx,
-  params: {
-    organizationId: string;
-    actorUserId?: string | null;
-    ingredients: Array<{
-      ingredientId: string;
-      itemId: string;
-      plannedQuantity: string;
-      lotStrategy?: ManufacturingLotStrategy;
-    }>;
-    lotAllocations: ManufacturingIngredientLotAllocationPlan;
-  }
-) {
-  const allocationItemIds = [
-    ...new Set([
-      ...params.ingredients.map((ingredient) => ingredient.itemId),
-      ...params.lotAllocations.map((allocation) => allocation.itemId),
-    ]),
-  ];
-  await lockItemsInTx(tx, allocationItemIds);
-  if (allocationItemIds.length > 0) {
-    await tx
-      .select({ id: stockAllocations.id })
-      .from(stockAllocations)
-      .where(
-        and(
-          eq(stockAllocations.organizationId, params.organizationId),
-          inArray(stockAllocations.itemId, allocationItemIds),
-          eq(stockAllocations.status, "active")
-        )
-      )
-      .orderBy(asc(stockAllocations.itemId), asc(stockAllocations.id))
-      .for("update");
-  }
-
-  const manualByItemId = new Map<
-    string,
-    Array<{ sourceId: string; quantity: number }>
-  >();
-  const sourcesByItemId = new Map<
-    string,
-    Awaited<ReturnType<typeof loadAllocationSourcesForItemInTx>>
-  >();
-  const freeQtyBySourceKey = new Map<string, number>();
-
-  const loadSourcesForItem = async (itemId: string) => {
-    const existing = sourcesByItemId.get(itemId);
-    if (existing) return existing;
-
-    const sources = await loadAllocationSourcesForItemInTx(tx, {
-      organizationId: params.organizationId,
-      itemId,
-    });
-    sourcesByItemId.set(itemId, sources);
-    sources.forEach((source) => {
-      freeQtyBySourceKey.set(
-        source.sourceKey,
-        normalizeQuantityNumber(Number(source.maxQtyForPrimaryDemand))
-      );
-    });
-    return sources;
-  };
-
-  const consumeFreeQty = (sourceKey: string, quantity: number) => {
-    freeQtyBySourceKey.set(
-      sourceKey,
-      normalizeQuantityNumber((freeQtyBySourceKey.get(sourceKey) ?? 0) - quantity)
-    );
-  };
-
-  for (const row of params.lotAllocations) {
-    const bySourceId = new Map<string, number>();
-    for (const allocation of row.allocations ?? []) {
-      const quantity = Number(allocation.quantity);
-      if (!Number.isFinite(quantity) || quantity <= 0) continue;
-      bySourceId.set(
-        allocation.sourceId,
-        normalizeQuantityNumber((bySourceId.get(allocation.sourceId) ?? 0) + quantity)
-      );
-    }
-
-    if (bySourceId.size > 0) {
-      manualByItemId.set(
-        row.itemId,
-        [...bySourceId.entries()].map(([sourceId, quantity]) => ({
-          sourceId,
-          quantity,
-        }))
-      );
-    }
-  }
-
-  for (const ingredient of params.ingredients) {
-    let remainingNeed = normalizeQuantityNumber(Number(ingredient.plannedQuantity));
-    if (remainingNeed <= 0) continue;
-
-    const manualAllocations = manualByItemId.get(ingredient.itemId) ?? [];
-    for (const allocation of manualAllocations) {
-      if (remainingNeed <= 0) break;
-      if (allocation.quantity <= 0) continue;
-
-      const quantity = normalizeQuantityNumber(Math.min(remainingNeed, allocation.quantity));
-      const sources = await loadSourcesForItem(ingredient.itemId);
-      const source = sources.find(
-        (candidate) =>
-          candidate.sourceType === "inventory_lot" &&
-          candidate.sourceId === allocation.sourceId
-      );
-
-      if (!source) {
-        throw new ManufacturingError("Selected ingredient lot is no longer available.", 409);
-      }
-
-      const freeQty = freeQtyBySourceKey.get(source.sourceKey) ?? 0;
-      if (quantity > freeQty) {
-        throw new ManufacturingError(
-          `${source.label} only has ${normalizeNumeric(freeQty)} available.`,
-          409
-        );
-      }
-
-      await insertManufacturingIngredientLotAllocationInTx(tx, {
-        organizationId: params.organizationId,
-        actorUserId: params.actorUserId ?? null,
-        ingredientId: ingredient.ingredientId,
-        itemId: ingredient.itemId,
-        lotId: allocation.sourceId,
-        quantity,
-        sourceLabelSnapshot: source.label,
-      });
-      consumeFreeQty(source.sourceKey, quantity);
-      allocation.quantity = normalizeQuantityNumber(allocation.quantity - quantity);
-      remainingNeed = normalizeQuantityNumber(remainingNeed - quantity);
-    }
-
-    if (remainingNeed <= 0) continue;
-
-    const autoSources = orderLotSourcesForStrategy(
-      await loadSourcesForItem(ingredient.itemId),
-      ingredient.lotStrategy ?? "fifo"
-    );
-
-    for (const source of autoSources) {
-      if (remainingNeed <= 0) break;
-      if (source.sourceType !== "inventory_lot") continue;
-
-      const freeQty = freeQtyBySourceKey.get(source.sourceKey) ?? 0;
-      const quantity = normalizeQuantityNumber(Math.min(remainingNeed, freeQty));
-      if (quantity <= 0) continue;
-
-      await insertManufacturingIngredientLotAllocationInTx(tx, {
-        organizationId: params.organizationId,
-        actorUserId: params.actorUserId ?? null,
-        ingredientId: ingredient.ingredientId,
-        itemId: ingredient.itemId,
-        lotId: source.sourceId,
-        quantity,
-        sourceLabelSnapshot: source.label,
-      });
-      consumeFreeQty(source.sourceKey, quantity);
-      remainingNeed = normalizeQuantityNumber(remainingNeed - quantity);
-    }
-
-    // Lot holds are opportunistic. Short ingredients should warn in planning and
-    // picking, but they must not block creating/releasing the MO.
-  }
-
-  const overAllocatedItem = [...manualByItemId.entries()].find(([, allocations]) =>
-    allocations.some((allocation) => allocation.quantity > 0.0001)
-  );
-  if (overAllocatedItem) {
-    throw new ManufacturingError(
-      "Ingredient lot allocations cannot exceed planned ingredient demand.",
-      400
-    );
-  }
-
-  const affectedDemandsByItem = new Map<
-    string,
-    Array<{ demandType: "manufacturing_order_ingredient"; demandId: string }>
-  >();
-  for (const ingredient of params.ingredients) {
-    affectedDemandsByItem.set(ingredient.itemId, [
-      ...(affectedDemandsByItem.get(ingredient.itemId) ?? []),
-      {
-        demandType: "manufacturing_order_ingredient",
-        demandId: ingredient.ingredientId,
-      },
-    ]);
-  }
-
-  for (const [itemId, affectedDemands] of affectedDemandsByItem) {
-    await reconcileAllocationPinsToReservationsInTx(tx, {
-      organizationId: params.organizationId,
-      itemId,
-      affectedDemands,
-      actorUserId: params.actorUserId ?? null,
-      closedDemandPolicy: "release",
-      releaseUnpinnedAffectedDemands: true,
-    });
-  }
-}
-
-function orderLotSourcesForStrategy(
-  sources: Awaited<ReturnType<typeof loadAllocationSourcesForItemInTx>>,
-  strategy: ManufacturingLotStrategy
-) {
-  const inventoryLots = sources.filter((source) => source.sourceType === "inventory_lot");
-  if (strategy === "lifo") {
-    return [...inventoryLots].reverse();
-  }
-  return inventoryLots;
 }
 
 async function prepareUpdatedIngredientsInTx(
@@ -3320,54 +2994,6 @@ async function getExecutionLotAllocationsByIngredientInTx(
     allocations.set(row.ingredientId, rows);
   }
 
-  const unpickedIngredientIds = unconsumedIngredientIds.filter(
-    (id) => !allocations.has(id)
-  );
-  if (unpickedIngredientIds.length === 0) {
-    return allocations;
-  }
-
-  const heldRows = await tx
-    .select({
-      ingredientId: stockAllocations.demandId,
-      lotId: stockAllocations.sourceId,
-      lotNumber: lots.lotNumber,
-      sourceLabel: stockAllocations.sourceLabelSnapshot,
-      quantity: trimScale(sql`COALESCE(SUM(${stockAllocations.quantity}), 0)`).as(
-        "quantity"
-      ),
-    })
-    .from(stockAllocations)
-    .innerJoin(lots, eq(stockAllocations.sourceId, lots.id))
-    .where(
-      and(
-        eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
-        inArray(stockAllocations.demandId, unpickedIngredientIds),
-        eq(stockAllocations.sourceType, "inventory_lot"),
-        eq(stockAllocations.status, "active")
-      )
-    )
-    .groupBy(
-      stockAllocations.demandId,
-      stockAllocations.sourceId,
-      lots.lotNumber,
-      stockAllocations.sourceLabelSnapshot
-    )
-    .orderBy(asc(lots.lotNumber));
-
-  for (const row of heldRows) {
-    const rows = allocations.get(row.ingredientId) ?? [];
-    rows.push({
-      lotId: row.lotId,
-      lotNumber: row.lotNumber,
-      quantity: row.quantity,
-      sourceType: "inventory_lot",
-      sourceId: row.lotId,
-      sourceLabel: row.sourceLabel ?? row.lotNumber,
-    });
-    allocations.set(row.ingredientId, rows);
-  }
-
   return allocations;
 }
 
@@ -4666,42 +4292,10 @@ export async function getManufacturingOrderEditData(
 
     const editableIngredients =
       await getEditableManufacturingIngredientSnapshotInTx(tx, id);
-    const allocationIngredientRows = await tx
-      .select({ id: manufacturingOrderIngredients.id })
-      .from(manufacturingOrderIngredients)
-      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, id));
-    const allocationIngredientIds = allocationIngredientRows.map((row) => row.id);
-    const lotAllocationRows =
-      allocationIngredientIds.length > 0
-        ? await tx
-            .select({
-              itemId: stockAllocations.itemId,
-              sourceId: stockAllocations.sourceId,
-              quantity: trimScale(
-                sql`COALESCE(SUM(${stockAllocations.quantity}), 0)`
-              ).as("quantity"),
-            })
-            .from(stockAllocations)
-            .where(
-              and(
-                eq(stockAllocations.organizationId, order.organizationId),
-                eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
-                inArray(stockAllocations.demandId, allocationIngredientIds),
-                eq(stockAllocations.sourceType, "inventory_lot"),
-                eq(stockAllocations.status, "active")
-              )
-            )
-            .groupBy(stockAllocations.itemId, stockAllocations.sourceId)
-        : [];
     const lotAllocationsByItemId = new Map<
       string,
       Array<{ sourceId: string; quantity: string }>
     >();
-    lotAllocationRows.forEach((row) => {
-      const allocations = lotAllocationsByItemId.get(row.itemId) ?? [];
-      allocations.push({ sourceId: row.sourceId, quantity: row.quantity });
-      lotAllocationsByItemId.set(row.itemId, allocations);
-    });
 
     const bomRows =
       order.bomRevisionId == null
@@ -4808,8 +4402,6 @@ export async function createManufacturingOrderInTx(
   }
   await activateManufacturingOrderInTx(tx, orgId, lockedOrder, {
     actorUserId,
-    lotAllocations: payload.lotAllocations,
-    autoAllocateIngredientLots: payload.autoAllocateIngredientLots,
   });
 
   return { id: order.id };
@@ -4982,8 +4574,6 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
     }
     await activateManufacturingOrderInTx(tx, orgId, lockedOrder, {
       actorUserId,
-      lotAllocations: [],
-      autoAllocateIngredientLots: false,
     });
 
     created.push({
@@ -5159,13 +4749,6 @@ export async function updateManufacturingOrder(
       .delete(manufacturingOrderOperationCosts)
       .where(eq(manufacturingOrderOperationCosts.manufacturingOrderId, id));
 
-    await cancelActiveStockAllocationsInTx(tx, {
-      organizationId: orgId,
-      actorUserId: userId,
-      demandType: "manufacturing_order_ingredient",
-      demandIds: existingIngredientRows.map((row) => row.id),
-    });
-
     if (isOpenManufacturingOrder(existing)) {
       await releaseIngredientReservationForManufacturingInTx(tx, {
         organizationId: orgId,
@@ -5251,18 +4834,6 @@ export async function updateManufacturingOrder(
         })),
       });
 
-      if (payload.autoAllocateIngredientLots) {
-        await saveManufacturingIngredientLotAllocationsInTx(tx, {
-          organizationId: orgId,
-          actorUserId: userId,
-          ingredients: demandIngredientRows.map((ingredient) => ({
-            ingredientId: ingredient.id,
-            itemId: ingredient.itemId,
-            plannedQuantity: ingredient.plannedQuantity,
-          })),
-          lotAllocations: payload.lotAllocations,
-        });
-      }
     }
 
     await rerankOpenManufacturingOrdersInTx(tx, orgId);
@@ -5275,7 +4846,7 @@ export async function updateManufacturingOrder(
  * Inline-edit PATCH for the redesigned MO sheet. This is intentionally limited
  * to metadata that does not affect inventory truth. Quantity and ingredient
  * changes must continue through updateManufacturingOrder so expected supply,
- * ingredient demand, batches, and active allocations stay in sync.
+ * ingredient demand and batches stay in sync.
  */
 export async function patchManufacturingOrder(
   id: string,
@@ -5343,7 +4914,7 @@ export async function patchManufacturingOrderIngredient(
   ingredientId: string,
   payload: PatchManufacturingOrderIngredient
 ): Promise<{ id: string } | null> {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
+  return withAuthedOrgContext(async (tx) => {
     const order = await getLockedManufacturingOrderInTx(tx, orderId);
     if (!order) return null;
 
@@ -5373,7 +4944,7 @@ export async function patchManufacturingOrderIngredient(
 
     if (order.status !== "open") {
       throw new ManufacturingError(
-        "Only open orders can change ingredient lot allocations.",
+        "Only open orders can change ingredient lot strategy.",
         400
       );
     }
@@ -5383,7 +4954,7 @@ export async function patchManufacturingOrderIngredient(
       Number(existing.pickedQuantity) > 0
     ) {
       throw new ManufacturingError(
-        "Ingredient lot allocations cannot be changed after picking starts.",
+        "Ingredient lot strategy cannot be changed after picking starts.",
         400
       );
     }
@@ -5398,41 +4969,6 @@ export async function patchManufacturingOrderIngredient(
       .update(manufacturingOrderIngredients)
       .set(updates)
       .where(eq(manufacturingOrderIngredients.id, ingredientId));
-
-    if (
-      payload.allocations !== undefined ||
-      payload.lotStrategy === "fifo" ||
-      payload.lotStrategy === "lifo"
-    ) {
-      await cancelActiveStockAllocationsInTx(tx, {
-        organizationId: orgId,
-        actorUserId: userId,
-        demandType: "manufacturing_order_ingredient",
-        demandIds: [ingredientId],
-      });
-
-      await saveManufacturingIngredientLotAllocationsInTx(tx, {
-        organizationId: orgId,
-        actorUserId: userId,
-        ingredients: [
-          {
-            ingredientId: existing.id,
-            itemId: existing.itemId,
-            plannedQuantity: existing.plannedQuantity,
-            lotStrategy:
-              payload.lotStrategy === "fifo" || payload.lotStrategy === "lifo"
-                ? payload.lotStrategy
-                : (existing.lotStrategy as ManufacturingLotStrategy),
-          },
-        ],
-        lotAllocations: [
-          {
-            itemId: existing.itemId,
-            allocations: payload.allocations ?? [],
-          },
-        ],
-      });
-    }
 
     return { id: existing.id };
   });
@@ -5944,12 +5480,6 @@ export async function recordManufacturingOutput(
       tx,
       ingredientRows.map((row) => row.itemId)
     );
-    await reconcileInventoryLotAllocationsForItemsInTx(tx, {
-      organizationId: orgId,
-      itemIds: ingredientRows.map((row) => row.itemId),
-      actorUserId: userId,
-    });
-
     const outputConsumedByIngredient = await getConsumedQuantityByIngredientInTx(
       tx,
       ingredientRows.map((row) => row.id)
@@ -6029,17 +5559,11 @@ export async function recordManufacturingOutput(
           options?.idempotencyKey,
           `consume:${ingredient.id}`
         );
-        let heldConsumed: Awaited<ReturnType<typeof consumeLotAllocationsForDemandInTx>>;
-        let fifoConsumed: Awaited<ReturnType<typeof consumeStockFifoInTx>> | {
-          allocations: [];
-          eventIds: [];
-        };
+        let consumed: Awaited<ReturnType<typeof consumeStockFifoInTx>>;
         try {
-          heldConsumed = await consumeLotAllocationsForDemandInTx(tx, {
+          consumed = await consumeStockFifoInTx(tx, {
             organizationId: orgId,
             locationId: location.id,
-            demandType: "manufacturing_order_ingredient",
-            demandId: ingredient.id,
             itemId: ingredient.itemId,
             quantity: remainingRequiredQuantity,
             eventType: "manufacturing_ingredient_consumption",
@@ -6049,37 +5573,9 @@ export async function recordManufacturingOutput(
             actorUserId: userId,
             idempotencyKey: consumeIdempotencyKey,
             metadata: { manufacturingOrderIngredientId: ingredient.id },
+            unavailableByLotId: new Map(),
             allowNegativeStock: payload.confirmNegativeStock === true,
           });
-          const unavailableByLotId = await getUnavailableLotAllocationQtyByLotIdInTx(
-            tx,
-            {
-              organizationId: orgId,
-              itemId: ingredient.itemId,
-              excludeDemand: {
-                demandType: "manufacturing_order_ingredient",
-                demandId: ingredient.id,
-              },
-            }
-          );
-          fifoConsumed =
-            heldConsumed.remainingQuantity > 0
-              ? await consumeStockFifoInTx(tx, {
-                  organizationId: orgId,
-                  locationId: location.id,
-                  itemId: ingredient.itemId,
-                  quantity: heldConsumed.remainingQuantity,
-                  eventType: "manufacturing_ingredient_consumption",
-                  eventSubtype: "manufacturing_output",
-                  referenceType: batch != null ? "manufacturing_batch" : "manufacturing_order",
-                  referenceId: batch?.id ?? orderId,
-                  actorUserId: userId,
-                  idempotencyKey: heldConsumed.idempotencyUsed ? null : consumeIdempotencyKey,
-                  metadata: { manufacturingOrderIngredientId: ingredient.id },
-                  unavailableByLotId,
-                  allowNegativeStock: payload.confirmNegativeStock === true,
-                })
-              : { allocations: [], eventIds: [] };
         } catch (error) {
           if (error instanceof InsufficientStockError) {
             throw new ManufacturingError(`Not enough ${ingredient.itemName}.`, 409, {
@@ -6100,11 +5596,6 @@ export async function recordManufacturingOutput(
           }
           throw error;
         }
-        const consumed = {
-          allocations: [...heldConsumed.allocations, ...fifoConsumed.allocations],
-          eventIds: [...heldConsumed.eventIds, ...fifoConsumed.eventIds],
-        };
-
         for (const allocation of consumed.allocations) {
           actualCostTotal += allocation.quantity * allocation.unitCost;
           outputConsumptionRows.push({
@@ -6276,687 +5767,6 @@ export async function recordManufacturingOutput(
     });
 
     return result;
-  });
-}
-
-function allocationQuantity(value: string | number) {
-  return normalizeNumeric(normalizeQuantityNumber(Number(value)));
-}
-
-type SalesOutputDemandRef = {
-  demandType: "sales_order_line";
-  demandId: string;
-  salesOrderLineId: string;
-  quantity: number;
-  demandLabelSnapshot: string | null;
-};
-
-async function getSourceOutputLotIdsInTx(tx: Tx, manufacturingOrderId: string) {
-  const rows = await tx
-    .select({ lotId: manufacturingOrderOutputs.lotId })
-    .from(manufacturingOrderOutputs)
-    .where(
-      and(
-        eq(manufacturingOrderOutputs.manufacturingOrderId, manufacturingOrderId),
-        eq(manufacturingOrderOutputs.disposition, "available"),
-        sql`${manufacturingOrderOutputs.quantity} > 0`
-      )
-    )
-    .groupBy(manufacturingOrderOutputs.lotId);
-
-  return rows.map((row) => row.lotId);
-}
-
-async function getManufacturingOutputAllocationInTx(
-  tx: Tx,
-  orgId: string,
-  orderId: string
-) {
-    const [order] = await tx
-      .select({
-        id: manufacturingOrders.id,
-        orderNumber: manufacturingOrders.orderNumber,
-        productId: manufacturingOrders.productId,
-        productName: items.name,
-        plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as("plannedQuantity"),
-        actualQuantity: trimScale(manufacturingOrders.actualQuantity).as("actualQuantity"),
-        status: manufacturingOrders.status,
-        salesOrderLineId: manufacturingOrders.salesOrderLineId,
-      })
-      .from(manufacturingOrders)
-      .innerJoin(items, eq(manufacturingOrders.productId, items.id))
-      .where(
-        and(
-          eq(manufacturingOrders.id, orderId),
-          eq(manufacturingOrders.organizationId, orgId),
-          isNull(manufacturingOrders.deletedAt)
-        )
-      );
-
-    if (!order) return null;
-
-    const sourceLotIds = await getSourceOutputLotIdsInTx(tx, orderId);
-    const activeProductionAllocations = await tx
-      .select({
-        id: stockAllocations.id,
-        ingredientId: stockAllocations.demandId,
-        sourceType: stockAllocations.sourceType,
-        sourceId: stockAllocations.sourceId,
-        quantity: trimScale(stockAllocations.quantity).as("quantity"),
-      })
-      .from(stockAllocations)
-      .where(
-        and(
-          eq(stockAllocations.organizationId, orgId),
-          eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
-          eq(stockAllocations.itemId, order.productId),
-          eq(stockAllocations.status, "active"),
-          or(
-            and(
-              eq(stockAllocations.sourceType, "manufacturing_order"),
-              eq(stockAllocations.sourceId, orderId)
-            ),
-            sourceLotIds.length > 0
-              ? and(
-                  eq(stockAllocations.sourceType, "inventory_lot"),
-                  inArray(stockAllocations.sourceId, sourceLotIds)
-                )
-              : sql`FALSE`
-          )
-        )
-      );
-
-    const candidates = await tx
-      .select({
-        ingredientId: manufacturingOrderIngredients.id,
-        manufacturingOrderId: manufacturingOrders.id,
-        orderNumber: manufacturingOrders.orderNumber,
-        productName: items.name,
-        outputProductName: items.name,
-        outputPlannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
-          "outputPlannedQuantity"
-        ),
-        outputUnitName: manufacturingOrders.unitName,
-        plannedDate: manufacturingOrders.plannedDate,
-        salesOrderNumber: manufacturingOrders.salesOrderNumber,
-        salesCustomerName: manufacturingOrders.salesCustomerName,
-        plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
-          "plannedQuantity"
-        ),
-        pickedQuantity: trimScale(manufacturingOrderIngredients.pickedQuantity).as(
-          "pickedQuantity"
-        ),
-        actualQuantity: trimScale(manufacturingOrderIngredients.actualQuantity).as(
-          "actualQuantity"
-        ),
-        status: manufacturingOrders.status,
-      })
-      .from(manufacturingOrderIngredients)
-      .innerJoin(
-        manufacturingOrders,
-        eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrders.id)
-      )
-      .innerJoin(items, eq(manufacturingOrders.productId, items.id))
-      .where(
-        and(
-          eq(manufacturingOrders.organizationId, orgId),
-          eq(manufacturingOrderIngredients.itemId, order.productId),
-          ne(manufacturingOrders.id, orderId),
-          isNull(manufacturingOrders.deletedAt),
-          eq(manufacturingOrders.status, "open")
-        )
-      )
-      .orderBy(asc(manufacturingOrders.plannedDate), asc(manufacturingOrders.orderNumber));
-
-    const allocationQtyByIngredientId = new Map<string, number>();
-    for (const allocation of activeProductionAllocations) {
-      allocationQtyByIngredientId.set(
-        allocation.ingredientId,
-        normalizeQuantityNumber(
-          (allocationQtyByIngredientId.get(allocation.ingredientId) ?? 0) +
-            Number(allocation.quantity)
-        )
-      );
-    }
-
-    const productionDestinations = order.salesOrderLineId
-      ? []
-      : candidates
-      .map((candidate) => {
-        const consumedQty = Math.max(
-          Number(candidate.pickedQuantity),
-          Number(candidate.actualQuantity)
-        );
-        const remainingNeed = Math.max(
-          0,
-          normalizeQuantityNumber(Number(candidate.plannedQuantity) - consumedQty)
-        );
-        const assignedQty = allocationQtyByIngredientId.get(candidate.ingredientId) ?? 0;
-
-        return {
-          ingredientId: candidate.ingredientId,
-          manufacturingOrderId: candidate.manufacturingOrderId,
-          orderNumber: candidate.orderNumber,
-          productName: candidate.productName,
-          outputProductName: candidate.outputProductName,
-          outputPlannedQuantity: candidate.outputPlannedQuantity,
-          outputUnitName: candidate.outputUnitName,
-          plannedDate: candidate.plannedDate,
-          salesOrderNumber: candidate.salesOrderNumber,
-          salesCustomerName: candidate.salesCustomerName,
-          status: candidate.status,
-          remainingNeed: normalizeNumeric(remainingNeed),
-          assignedQty: normalizeNumeric(assignedQty),
-          shortQty: normalizeNumeric(Math.max(0, remainingNeed - assignedQty)),
-        };
-      })
-      .filter(
-        (destination) =>
-          Number(destination.remainingNeed) > 0 || Number(destination.assignedQty) > 0
-      );
-
-    const assignedProductionQty = activeProductionAllocations.reduce(
-      (sum, allocation) => normalizeQuantityNumber(sum + Number(allocation.quantity)),
-      0
-    );
-    const activeSourceAllocations = await tx
-      .select({
-        demandType: stockAllocations.demandType,
-        demandId: stockAllocations.demandId,
-        quantity: trimScale(stockAllocations.quantity).as("quantity"),
-      })
-      .from(stockAllocations)
-      .where(
-        and(
-          eq(stockAllocations.organizationId, orgId),
-          eq(stockAllocations.itemId, order.productId),
-          eq(stockAllocations.status, "active"),
-          or(
-            and(
-              eq(stockAllocations.sourceType, "manufacturing_order"),
-              eq(stockAllocations.sourceId, orderId)
-            ),
-            sourceLotIds.length > 0
-              ? and(
-                  eq(stockAllocations.sourceType, "inventory_lot"),
-                  inArray(stockAllocations.sourceId, sourceLotIds)
-                )
-              : sql`FALSE`
-          )
-        )
-      );
-    const assignedTotalQty = activeSourceAllocations.reduce(
-      (sum, allocation) => normalizeQuantityNumber(sum + Number(allocation.quantity)),
-      0
-    );
-    const salesSourceAllocations = activeSourceAllocations.flatMap((allocation) =>
-      allocation.demandType === "sales_order_line"
-        ? [{ ...allocation, salesOrderLineId: allocation.demandId }]
-        : []
-    );
-    const assignedSalesQty = salesSourceAllocations.reduce(
-      (sum, allocation) => normalizeQuantityNumber(sum + Number(allocation.quantity)),
-      0
-    );
-    const salesAllocationQtyByLineId = new Map<string, number>();
-    salesSourceAllocations.forEach((allocation) => {
-      salesAllocationQtyByLineId.set(
-        allocation.salesOrderLineId,
-        normalizeQuantityNumber(
-          (salesAllocationQtyByLineId.get(allocation.salesOrderLineId) ?? 0) +
-            Number(allocation.quantity)
-        )
-      );
-    });
-    const salesFilters = [
-      eq(salesOrders.organizationId, orgId),
-      eq(salesOrderLines.itemId, order.productId),
-      isNull(salesOrders.deletedAt),
-      eq(salesOrders.status, "open"),
-    ];
-    if (order.salesOrderLineId) {
-      salesFilters.push(eq(salesOrderLines.id, order.salesOrderLineId));
-    }
-
-    const salesCandidates = await tx
-      .select({
-        salesOrderLineId: salesOrderLines.id,
-        salesOrderId: salesOrders.id,
-        orderNumber: salesOrders.orderNumber,
-        customerName: salesOrders.customerName,
-        shipDate: salesOrders.shipDate,
-        orderedQty: trimScale(salesOrderLines.quantity).as("orderedQty"),
-        cancelledQty: trimScale(salesOrderLines.cancelledQuantity).as("cancelledQty"),
-        shippedQty: shippedSalesOrderLineQuantitySql(),
-        plannedQty: plannedSalesOrderLineQuantitySql(),
-      })
-      .from(salesOrderLines)
-      .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
-      .where(
-        and(...salesFilters)
-      )
-      .orderBy(asc(salesOrders.shipDate), asc(salesOrders.orderNumber));
-    const salesDestinations = salesCandidates
-      .map((candidate) => {
-        const remainingQty = Math.max(
-          0,
-          normalizeQuantityNumber(
-            Number(candidate.orderedQty) -
-              Number(candidate.cancelledQty) -
-              Number(candidate.shippedQty)
-          )
-        );
-        const unplannedQty = Math.max(
-          0,
-          normalizeQuantityNumber(remainingQty - Number(candidate.plannedQty))
-        );
-        const assignedQty =
-          salesAllocationQtyByLineId.get(candidate.salesOrderLineId) ?? 0;
-
-        return {
-          salesOrderLineId: candidate.salesOrderLineId,
-          salesOrderId: candidate.salesOrderId,
-          orderNumber: candidate.orderNumber,
-          customerName: candidate.customerName,
-          shipDate: candidate.shipDate,
-          remainingQty: normalizeNumeric(remainingQty),
-          assignedQty: normalizeNumeric(assignedQty),
-          shortQty: normalizeNumeric(Math.max(0, remainingQty - assignedQty)),
-          unplannedQty: normalizeNumeric(unplannedQty),
-        };
-      })
-      .filter(
-        (destination) =>
-          Number(destination.remainingQty) > 0 || Number(destination.assignedQty) > 0
-      );
-    const unassignedQty = Math.max(
-      0,
-      normalizeQuantityNumber(Number(order.plannedQuantity) - assignedTotalQty)
-    );
-
-    return {
-      sourceMo: order,
-      productionDestinations,
-      salesDestinations,
-      assignedSalesQty: normalizeNumeric(assignedSalesQty),
-      assignedProductionQty: normalizeNumeric(assignedProductionQty),
-      unassignedQty: normalizeNumeric(unassignedQty),
-    };
-}
-
-export async function getManufacturingOutputAllocation(orderId: string) {
-  return withAuthedOrgContext(async (tx, orgId) =>
-    getManufacturingOutputAllocationInTx(tx, orgId, orderId)
-  );
-}
-
-export async function saveManufacturingOutputAllocation(
-  orderId: string,
-  payload: SaveManufacturingOutputAllocation
-) {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const order = await getLockedManufacturingOrderInTx(tx, orderId);
-
-    if (!order) {
-      throw new ManufacturingError("Order not found", 404);
-    }
-
-    const sourceLotIds = await getSourceOutputLotIdsInTx(tx, orderId);
-    const normalizedSales = payload.salesAllocations
-      .map((allocation) => ({
-        salesOrderLineId: allocation.salesOrderLineId,
-        quantity: normalizeQuantityNumber(Number(allocation.quantity)),
-      }))
-      .filter((allocation) => allocation.quantity > 0);
-    const normalizedProduction = payload.productionAllocations
-      .map((allocation) => ({
-        ingredientId: allocation.ingredientId,
-        quantity: normalizeQuantityNumber(Number(allocation.quantity)),
-      }))
-      .filter((allocation) => allocation.quantity > 0);
-    const seenSalesLineIds = new Set<string>();
-    for (const allocation of normalizedSales) {
-      if (seenSalesLineIds.has(allocation.salesOrderLineId)) {
-        throw new ManufacturingError("Each sales destination can only appear once.", 400);
-      }
-      seenSalesLineIds.add(allocation.salesOrderLineId);
-    }
-    const seenIngredientIds = new Set<string>();
-    for (const allocation of normalizedProduction) {
-      if (seenIngredientIds.has(allocation.ingredientId)) {
-        throw new ManufacturingError("Each production destination can only appear once.", 400);
-      }
-      seenIngredientIds.add(allocation.ingredientId);
-    }
-
-    if (order.salesOrderLineId) {
-      if (
-        normalizedProduction.length > 0 ||
-        normalizedSales.some(
-          (allocation) => allocation.salesOrderLineId !== order.salesOrderLineId
-        )
-      ) {
-        throw new ManufacturingError(
-          "Linked make-to-order output can only be assigned to its linked sales line.",
-          409
-        );
-      }
-    }
-
-    await tx
-      .update(stockAllocations)
-      .set({
-        status: "cancelled",
-        cancelledAt: new Date(),
-        cancelledBy: userId,
-        updatedBy: userId,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(stockAllocations.organizationId, orgId),
-          inArray(stockAllocations.demandType, [
-            "manufacturing_order_ingredient",
-            "sales_order_line",
-          ]),
-          eq(stockAllocations.itemId, order.productId),
-          eq(stockAllocations.status, "active"),
-          or(
-            and(
-              eq(stockAllocations.sourceType, "manufacturing_order"),
-              eq(stockAllocations.sourceId, orderId)
-            ),
-            sourceLotIds.length > 0
-              ? and(
-                  eq(stockAllocations.sourceType, "inventory_lot"),
-                  inArray(stockAllocations.sourceId, sourceLotIds)
-                )
-              : sql`FALSE`
-          )
-        )
-      );
-
-    const salesDestinationRows =
-      normalizedSales.length > 0
-        ? await tx
-            .select({
-              salesOrderLineId: salesOrderLines.id,
-              itemId: salesOrderLines.itemId,
-              orderedQty: trimScale(salesOrderLines.quantity).as("orderedQty"),
-              cancelledQty: trimScale(salesOrderLines.cancelledQuantity).as("cancelledQty"),
-              shippedQty: shippedSalesOrderLineQuantitySql(),
-              plannedQty: plannedSalesOrderLineQuantitySql(),
-              status: salesOrders.status,
-              deletedAt: salesOrders.deletedAt,
-            })
-            .from(salesOrderLines)
-            .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
-            .where(
-              and(
-                eq(salesOrders.organizationId, orgId),
-                inArray(
-                  salesOrderLines.id,
-                  normalizedSales.map((allocation) => allocation.salesOrderLineId)
-                )
-              )
-            )
-            .for("update")
-        : [];
-    const salesDestinationById = new Map(
-      salesDestinationRows.map((destination) => [
-        destination.salesOrderLineId,
-        destination,
-      ])
-    );
-    const demandRefsForCapacity = [
-      ...normalizedSales.map((allocation) => ({
-        demandType: "sales_order_line" as const,
-        demandId: allocation.salesOrderLineId,
-      })),
-    ];
-    const activeDemandAllocationRows =
-      demandRefsForCapacity.length > 0
-        ? await tx
-            .select({
-              demandType: stockAllocations.demandType,
-              demandId: stockAllocations.demandId,
-              quantity: trimScale(stockAllocations.quantity).as("quantity"),
-            })
-            .from(stockAllocations)
-            .where(
-              and(
-                eq(stockAllocations.organizationId, orgId),
-                eq(stockAllocations.itemId, order.productId),
-                eq(stockAllocations.status, "active"),
-                or(
-                  ...demandRefsForCapacity.map((ref) =>
-                    and(
-                      eq(stockAllocations.demandType, ref.demandType),
-                      eq(stockAllocations.demandId, ref.demandId)
-                    )
-                  )
-                )
-              )
-            )
-        : [];
-    const activeQtyByDemandKey = new Map<string, number>();
-    for (const allocation of activeDemandAllocationRows) {
-      const key = `${allocation.demandType}:${allocation.demandId}`;
-      activeQtyByDemandKey.set(
-        key,
-        normalizeQuantityNumber(
-          (activeQtyByDemandKey.get(key) ?? 0) + Number(allocation.quantity)
-        )
-      );
-    }
-    const salesDemandRefs: SalesOutputDemandRef[] = [];
-
-    for (const allocation of normalizedSales) {
-      const destination = salesDestinationById.get(allocation.salesOrderLineId);
-      if (
-        !destination ||
-        destination.deletedAt != null ||
-        destination.status !== "open"
-      ) {
-        throw new ManufacturingError("Sales destination is no longer open.", 409);
-      }
-      if (destination.itemId !== order.productId) {
-        throw new ManufacturingError("Sales destination does not need this output item.", 409);
-      }
-      const remainingNeed = Math.max(
-        0,
-        normalizeQuantityNumber(
-          Number(destination.orderedQty) -
-            Number(destination.cancelledQty) -
-            Number(destination.shippedQty)
-        )
-      );
-      const availableCapacity = Math.max(
-        0,
-        normalizeQuantityNumber(
-          remainingNeed -
-            (activeQtyByDemandKey.get(
-              `sales_order_line:${allocation.salesOrderLineId}`
-            ) ?? 0)
-        )
-      );
-      if (allocation.quantity > availableCapacity) {
-        throw new ManufacturingError(
-          "Assigned output cannot exceed destination remaining need.",
-          409
-        );
-      }
-
-      salesDemandRefs.push({
-        demandType: "sales_order_line",
-        demandId: allocation.salesOrderLineId,
-        salesOrderLineId: allocation.salesOrderLineId,
-        quantity: allocation.quantity,
-        demandLabelSnapshot: null,
-      });
-    }
-
-    const destinationRows =
-      normalizedProduction.length > 0
-        ? await tx
-            .select({
-              ingredientId: manufacturingOrderIngredients.id,
-              itemId: manufacturingOrderIngredients.itemId,
-              plannedQuantity: trimScale(manufacturingOrderIngredients.plannedQuantity).as(
-                "plannedQuantity"
-              ),
-              pickedQuantity: trimScale(manufacturingOrderIngredients.pickedQuantity).as(
-                "pickedQuantity"
-              ),
-              actualQuantity: trimScale(manufacturingOrderIngredients.actualQuantity).as(
-                "actualQuantity"
-              ),
-              manufacturingOrderId: manufacturingOrders.id,
-              status: manufacturingOrders.status,
-              deletedAt: manufacturingOrders.deletedAt,
-            })
-            .from(manufacturingOrderIngredients)
-            .innerJoin(
-              manufacturingOrders,
-              eq(
-                manufacturingOrderIngredients.manufacturingOrderId,
-                manufacturingOrders.id
-              )
-            )
-            .where(
-              inArray(
-                manufacturingOrderIngredients.id,
-                normalizedProduction.map((allocation) => allocation.ingredientId)
-              )
-            )
-            .for("update")
-        : [];
-    const destinationById = new Map(
-      destinationRows.map((destination) => [destination.ingredientId, destination])
-    );
-
-    for (const allocation of normalizedProduction) {
-      const destination = destinationById.get(allocation.ingredientId);
-      if (
-        !destination ||
-        destination.deletedAt != null ||
-        destination.status !== "open"
-      ) {
-        throw new ManufacturingError("Production destination is no longer open.", 409);
-      }
-      if (destination.manufacturingOrderId === orderId) {
-        throw new ManufacturingError("A manufacturing order cannot allocate output to itself.", 400);
-      }
-      if (destination.itemId !== order.productId) {
-        throw new ManufacturingError("Production destination does not need this output item.", 409);
-      }
-      const remainingNeed = Math.max(
-        0,
-        normalizeQuantityNumber(
-          Number(destination.plannedQuantity) -
-            Math.max(Number(destination.pickedQuantity), Number(destination.actualQuantity))
-        )
-      );
-      if (allocation.quantity > remainingNeed) {
-        throw new ManufacturingError(
-          "Assigned output cannot exceed destination remaining need.",
-          409
-        );
-      }
-    }
-
-    const otherActiveAssignedRows = await tx
-      .select({
-        quantity: trimScale(stockAllocations.quantity).as("quantity"),
-      })
-      .from(stockAllocations)
-      .where(
-        and(
-          eq(stockAllocations.organizationId, orgId),
-          eq(stockAllocations.itemId, order.productId),
-          eq(stockAllocations.status, "active"),
-          or(
-            and(
-              eq(stockAllocations.sourceType, "manufacturing_order"),
-              eq(stockAllocations.sourceId, orderId)
-            ),
-            sourceLotIds.length > 0
-              ? and(
-                  eq(stockAllocations.sourceType, "inventory_lot"),
-                  inArray(stockAllocations.sourceId, sourceLotIds)
-                )
-              : sql`FALSE`
-          )
-        )
-      );
-    const otherAssignedQty = otherActiveAssignedRows.reduce(
-      (sum, row) => normalizeQuantityNumber(sum + Number(row.quantity)),
-      0
-    );
-    const requestedProductionQty = normalizedProduction.reduce(
-      (sum, allocation) => normalizeQuantityNumber(sum + allocation.quantity),
-      0
-    );
-    const requestedSalesQty = normalizedSales.reduce(
-      (sum, allocation) => normalizeQuantityNumber(sum + allocation.quantity),
-      0
-    );
-
-    if (
-      normalizeQuantityNumber(otherAssignedQty + requestedSalesQty + requestedProductionQty) >
-      Number(order.plannedQuantity)
-    ) {
-      throw new ManufacturingError(
-        "Assigned output cannot exceed source planned output.",
-        409
-      );
-    }
-
-    if (normalizedSales.length > 0) {
-      await tx.insert(stockAllocations).values(
-        salesDemandRefs.map((allocation) => ({
-          organizationId: orgId,
-          demandType: allocation.demandType,
-          demandId: allocation.demandId,
-          itemId: order.productId,
-          sourceType: "manufacturing_order" as const,
-          sourceId: orderId,
-          quantity: allocationQuantity(allocation.quantity),
-          status: "active" as const,
-          demandLabelSnapshot: allocation.demandLabelSnapshot,
-          createdBy: userId,
-          updatedBy: userId,
-        }))
-      );
-    }
-
-    if (normalizedProduction.length > 0) {
-      await tx.insert(stockAllocations).values(
-        normalizedProduction.map((allocation) => ({
-          organizationId: orgId,
-          demandType: "manufacturing_order_ingredient" as const,
-          demandId: allocation.ingredientId,
-          itemId: order.productId,
-          sourceType: "manufacturing_order" as const,
-          sourceId: orderId,
-          quantity: allocationQuantity(allocation.quantity),
-          status: "active" as const,
-          createdBy: userId,
-          updatedBy: userId,
-        }))
-      );
-    }
-
-    if (normalizedSales.length > 0 || normalizedProduction.length > 0) {
-      await materializeManufacturingOrderSourceAllocationsFromExistingOutputInTx(tx, {
-        organizationId: orgId,
-        sourceManufacturingOrderId: orderId,
-        itemId: order.productId,
-        actorUserId: userId,
-      });
-    }
-
-    return getManufacturingOutputAllocationInTx(tx, orgId, orderId);
   });
 }
 
@@ -8449,12 +7259,6 @@ export async function deleteManufacturingOrdersInTx(
     };
   }
 
-  const ingredientRows = await tx
-    .select({ id: manufacturingOrderIngredients.id })
-    .from(manufacturingOrderIngredients)
-    .where(inArray(manufacturingOrderIngredients.manufacturingOrderId, orderIds))
-    .for("update");
-
   for (const order of orders) {
     if (!isOpenManufacturingOrder(order)) continue;
 
@@ -8501,22 +7305,6 @@ export async function deleteManufacturingOrdersInTx(
       and(inArray(manufacturingOrders.id, orderIds), isNull(manufacturingOrders.deletedAt))
     )
     .returning({ id: manufacturingOrders.id });
-
-  for (const order of deleted) {
-    await cancelActiveStockAllocationsInTx(tx, {
-      organizationId: params.organizationId,
-      actorUserId: params.actorUserId,
-      sourceType: "manufacturing_order",
-      sourceId: order.id,
-    });
-  }
-
-  await cancelActiveStockAllocationsInTx(tx, {
-    organizationId: params.organizationId,
-    actorUserId: params.actorUserId,
-    demandType: "manufacturing_order_ingredient",
-    demandIds: ingredientRows.map((row) => row.id),
-  });
 
   if (orders.some(isOpenManufacturingOrder)) {
     await rerankOpenManufacturingOrdersInTx(tx, params.organizationId);

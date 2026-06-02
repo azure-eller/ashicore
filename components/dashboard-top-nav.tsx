@@ -47,8 +47,6 @@ import {
 import { getInitials } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type SalesAllocationMode = "manual" | "demand_queue";
-
 type DashboardTopNavProps = {
   user: {
     name: string;
@@ -57,7 +55,6 @@ type DashboardTopNavProps = {
   };
   activeOrganizationId: string;
   organizationName: string;
-  allocationMode: SalesAllocationMode;
   organizations: Array<{
     id: string;
     name: string;
@@ -74,7 +71,6 @@ export function DashboardTopNav({
   user,
   activeOrganizationId,
   organizationName,
-  allocationMode,
   organizations,
   assignedRoles,
 }: DashboardTopNavProps) {
@@ -88,13 +84,9 @@ export function DashboardTopNav({
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [pageSearchOpen, setPageSearchOpen] = useState(false);
   const [pageSearch, setPageSearch] = useState("");
-  const modules = getDashboardNavModules(assignedRoles, {
-    salesAllocationMode: allocationMode,
-  });
+  const modules = getDashboardNavModules(assignedRoles);
   const createActions = getDashboardCreateActions(assignedRoles);
-  const searchActions = getDashboardSearchActions(assignedRoles, {
-    salesAllocationMode: allocationMode,
-  });
+  const searchActions = getDashboardSearchActions(assignedRoles);
   const activeModule = getActiveDashboardModule(visiblePathname, modules);
   const visibleModule = activeModule;
   const normalizedPageSearch = pageSearch.trim().toLowerCase();

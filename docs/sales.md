@@ -94,7 +94,7 @@ Invalid transitions:
 
 - deleting an open order soft-deletes the order row, deletes linked open
   manufacturing orders created specifically for that sales order, and releases
-  active allocations/reservations
+  active reservations
 - editing a draft order hard-deletes all existing lines, then inserts a fresh set
 - shipped fulfillment, finalized invoices, accounting pushes, completed
   manufacturing output, and finalized inventory consumption block deletion
@@ -131,19 +131,19 @@ Invalid transitions:
 
 ## Sales Allocation
 
-The Sales Allocation tab is the authoritative manual allocation surface.
+The Sales Allocation tab is a read-only demand coverage view. Demand priority
+controls which open orders claim stock first; exact lots are chosen when shipping.
 
 - allocation demand includes only non-deleted sales order lines on `open` orders
 - `done` orders are excluded from allocation demand
-- draft sales orders must not hold allocation rows or trigger allocation takeover behavior during confirmation
-- sales order line demand is the allocation bucket: `remaining_to_ship`
+- draft sales orders must not create demand or hold stock
+- sales order line demand is `remaining_to_ship`
 - legacy planned shipment rows do not own allocation demand
 - available inventory-lot sources come from current available lot balances for
   lot-tracked products; lot-untracked products expose item-level FIFO supply
-- manufacturing-order sources are allocatable only after the MO is `released`
-- draft MOs are planning work only; they are not allocatable supply
-- allocation writes go through `/api/allocation/save` with `demandType = "sales_order_line"` for sales demand
-- allocation reads go through `/api/allocation/workspace` or the Sales Allocation tab read model
+- manufacturing-order sources count as expected supply only after release
+- draft MOs are planning work only; they are not expected supply
+- demand coverage reads go through the Sales Allocation tab read model
 - do not reintroduce the old allocation sheet, per-line allocation route, item allocation route, or sales-order allocation bulk route
 
 ## Shipping

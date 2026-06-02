@@ -210,7 +210,7 @@ When lot tracking is turned off, the app toggle consolidates existing tracked
 lots into the canonical hidden lot, rewrites historical lot references to that
 lot, and removes the superseded lot rows. That canonicalization may rewrite
 `lot_id` or source-lot references in inventory events, quality disposition
-events, manufacturing rows, stock allocations, and stocktake lot rows; it must
+events, manufacturing rows, pick allocations, and stocktake lot rows; it must
 not change event quantities, costs, dispositions, statuses, or occurrence times.
 Turning lot tracking back on converts that hidden lot back to a visible date lot
 when no draft stocktakes, open manufacturing picks, open manufacturing outputs,
@@ -604,7 +604,7 @@ blocked by RLS and can incorrectly look like empty production data.
 
 As of May 25, 2026, the current Neon production branch above contains
 `paonia-soil-company` operational data: `158` items, `43` sales orders, `150`
-manufacturing orders, `16` open MOs, `431` lots, and `442` active allocations.
+manufacturing orders, `16` open MOs, `431` lots, and active pick allocations.
 Some older worktree env files point at other Neon targets with Paonia-like data;
 treat those as candidates only after `pnpm paonia:current-source` confirms the
 expected org slug and counts.

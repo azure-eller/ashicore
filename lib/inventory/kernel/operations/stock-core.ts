@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import {
   normalizeNumeric,
   normalizeNumericScale,
@@ -12,7 +12,6 @@ import {
   inventoryLotBalances,
   items,
   lots,
-  stockAllocations,
 } from "@/lib/db/schema";
 import { getCurrentActiveBomIngredientsInTx } from "@/lib/bom/active-ingredients";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -22,7 +21,6 @@ import {
 } from "@/lib/inventory/kernel/projections";
 import { insertInventoryEventsInTx } from "@/lib/inventory/kernel/events";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
-import { applyReservationReferenceDeltasInTx } from "@/lib/inventory/kernel/operations/common";
 import {
   InsufficientStockError,
   MissingCostBasisError,
@@ -140,107 +138,6 @@ export async function getOrCreateInternalUntrackedLotInTx(
     });
 
   return lot;
-}
-
-export async function releaseExcessLotAllocationsInTx(
-  tx: Tx,
-  params: {
-    organizationId: string;
-    locationId: string;
-    itemId: string;
-    lotId: string;
-    remainingLotQuantity: number;
-    actorUserId?: string | null;
-  }
-) {
-  const rows = await tx
-    .select({
-      id: stockAllocations.id,
-      demandType: stockAllocations.demandType,
-      demandId: stockAllocations.demandId,
-      quantity: stockAllocations.quantity,
-    })
-    .from(stockAllocations)
-    .where(
-      and(
-        eq(stockAllocations.organizationId, params.organizationId),
-        eq(stockAllocations.itemId, params.itemId),
-        eq(stockAllocations.sourceType, "inventory_lot"),
-        eq(stockAllocations.sourceId, params.lotId),
-        eq(stockAllocations.status, "active")
-      )
-    )
-    .orderBy(desc(stockAllocations.createdAt), desc(stockAllocations.id))
-    .for("update");
-
-  let excess = roundQuantity(
-    rows.reduce((sum, row) => sum + Number(row.quantity), 0) -
-      Math.max(0, params.remainingLotQuantity)
-  );
-  if (excess <= 0) return;
-
-  const now = new Date();
-  const reservationDeltas: Array<{
-    itemId: string;
-    referenceType: string;
-    referenceId: string;
-    quantity: number;
-  }> = [];
-
-  for (const row of rows) {
-    if (excess <= 0) break;
-
-    const currentQuantity = Number(row.quantity);
-    const releaseQuantity = roundQuantity(Math.min(currentQuantity, excess));
-    if (releaseQuantity <= 0) continue;
-
-    const remainingAllocation = roundQuantity(currentQuantity - releaseQuantity);
-    if (remainingAllocation > 0) {
-      await tx
-        .update(stockAllocations)
-        .set({
-          quantity: normalizeNumeric(remainingAllocation),
-          updatedAt: now,
-          updatedBy: params.actorUserId ?? null,
-        })
-        .where(eq(stockAllocations.id, row.id));
-    } else {
-      await tx
-        .update(stockAllocations)
-        .set({
-          status: "cancelled",
-          cancelledAt: now,
-          cancelledBy: params.actorUserId ?? null,
-          updatedAt: now,
-          updatedBy: params.actorUserId ?? null,
-        })
-        .where(eq(stockAllocations.id, row.id));
-    }
-
-    if (
-      row.demandType === "sales_order_line" ||
-      row.demandType === "manufacturing_order_ingredient"
-    ) {
-      reservationDeltas.push({
-        itemId: params.itemId,
-        referenceType: row.demandType,
-        referenceId: row.demandId,
-        quantity: -releaseQuantity,
-      });
-    }
-
-    excess = roundQuantity(excess - releaseQuantity);
-  }
-
-  if (reservationDeltas.length > 0) {
-    await applyReservationReferenceDeltasInTx(tx, {
-      organizationId: params.organizationId,
-      locationId: params.locationId,
-      actorUserId: params.actorUserId ?? null,
-      eventSubtype: "lot_allocation_reconcile",
-      deltas: reservationDeltas,
-    });
-  }
 }
 
 function formatScaledDecimal(value: bigint, scale: number) {
@@ -1180,15 +1077,6 @@ export async function decrementExistingLotStockInTx(
       updatedAt: new Date(),
     })
     .where(and(eq(lots.id, params.lotId), sql`${lots.quantity} >= ${quantity}`));
-
-  await releaseExcessLotAllocationsInTx(tx, {
-    organizationId: params.organizationId,
-    locationId: params.locationId,
-    itemId: params.itemId,
-    lotId: params.lotId,
-    remainingLotQuantity: Number(updatedBalance.quantity),
-    actorUserId: params.actorUserId ?? null,
-  });
 
   const [event] = await insertInventoryEventsInTx(tx, [
     {

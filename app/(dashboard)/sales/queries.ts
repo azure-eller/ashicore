@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import {
   formatQuantity,
   normalizeNumericScale,
@@ -21,6 +21,7 @@ import {
   accountingDocumentSyncs,
   customers,
   inventoryEvents,
+  inventoryReservationsSummary,
   integrationExternalRecords,
   itemFamilies,
   itemVariantValues,
@@ -38,7 +39,6 @@ import {
   salesShipmentCosts,
   salesShipmentLines,
   salesShipments,
-  stockAllocations,
   unitDefinitions,
   variantOptions,
   variantOptionValues,
@@ -54,7 +54,6 @@ import type { Tx } from "@/lib/db/with-org-context";
 import { lockSalesPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
 import {
   beginInventoryOperationInTx,
-  cancelActiveStockAllocationsInTx,
   consumeForShipmentInTx,
   deriveInventoryIdempotencyKey,
   editExpectedFromManufacturingInTx,
@@ -99,8 +98,6 @@ import {
   deleteManufacturingOrdersInTx,
   ManufacturingError,
 } from "@/app/(dashboard)/manufacturing/queries";
-import { getSalesAllocationReadModelForItemInTx } from "./allocation-service";
-import { reconcileAllocationPinsToReservationsInTx } from "@/lib/inventory/allocation/reservations";
 import type {
   InsertCustomer,
   PatchCustomer,
@@ -1337,111 +1334,12 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
       )
     );
 
-  const allocationRows = await tx
-    .select({
-      salesOrderId: salesOrderLines.salesOrderId,
-      salesOrderLineId: salesOrderLines.id,
-      id: manufacturingOrders.id,
-      orderNumber: manufacturingOrders.orderNumber,
-      productId: manufacturingOrders.productId,
-      productName: manufacturingOrders.productName,
-      productSku: manufacturingOrders.productSku,
-      plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
-        "plannedQuantity"
-      ),
-      actualQuantity: trimScaleNullable(manufacturingOrders.actualQuantity).as(
-        "actualQuantity"
-      ),
-      unitName: manufacturingOrders.unitName,
-      plannedDate: manufacturingOrders.plannedDate,
-      priorityRank: manufacturingOrders.priorityRank,
-      status: manufacturingOrders.status,
-      productionStatus: productionStatusExpression,
-      manufacturingMode: manufacturingOrders.manufacturingMode,
-      numberOfBatches: manufacturingOrders.numberOfBatches,
-      completedBatchCount: completedBatchCountExpression,
-      createdAt: manufacturingOrders.createdAt,
-    })
-    .from(stockAllocations)
-    .innerJoin(
-      salesOrderLines,
-      eq(stockAllocations.demandId, salesOrderLines.id)
-    )
-    .innerJoin(
-      manufacturingOrders,
-      eq(stockAllocations.sourceId, manufacturingOrders.id)
-    )
-    .where(
-      and(
-        eq(stockAllocations.demandType, "sales_order_line"),
-        eq(stockAllocations.sourceType, "manufacturing_order"),
-        eq(stockAllocations.status, "active"),
-        inArray(salesOrderLines.salesOrderId, uniqueSalesOrderIds),
-        isNull(manufacturingOrders.deletedAt),
-        isNull(manufacturingOrders.cancelledAt)
-      )
-    );
-
-  const shipmentAllocationRows = await tx
-    .select({
-      salesOrderId: salesOrderLines.salesOrderId,
-      salesOrderLineId: salesOrderLines.id,
-      id: manufacturingOrders.id,
-      orderNumber: manufacturingOrders.orderNumber,
-      productId: manufacturingOrders.productId,
-      productName: manufacturingOrders.productName,
-      productSku: manufacturingOrders.productSku,
-      plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
-        "plannedQuantity"
-      ),
-      actualQuantity: trimScaleNullable(manufacturingOrders.actualQuantity).as(
-        "actualQuantity"
-      ),
-      unitName: manufacturingOrders.unitName,
-      plannedDate: manufacturingOrders.plannedDate,
-      priorityRank: manufacturingOrders.priorityRank,
-      status: manufacturingOrders.status,
-      productionStatus: productionStatusExpression,
-      manufacturingMode: manufacturingOrders.manufacturingMode,
-      numberOfBatches: manufacturingOrders.numberOfBatches,
-      completedBatchCount: completedBatchCountExpression,
-      createdAt: manufacturingOrders.createdAt,
-    })
-    .from(stockAllocations)
-    .innerJoin(
-      salesShipmentLines,
-      eq(stockAllocations.demandId, salesShipmentLines.id)
-    )
-    .innerJoin(
-      salesOrderLines,
-      eq(salesShipmentLines.salesOrderLineId, salesOrderLines.id)
-    )
-    .innerJoin(
-      manufacturingOrders,
-      eq(stockAllocations.sourceId, manufacturingOrders.id)
-    )
-    .where(
-      and(
-        eq(stockAllocations.demandType, "sales_shipment_line"),
-        eq(stockAllocations.sourceType, "manufacturing_order"),
-        eq(stockAllocations.status, "active"),
-        inArray(salesOrderLines.salesOrderId, uniqueSalesOrderIds),
-        isNull(manufacturingOrders.deletedAt),
-        isNull(manufacturingOrders.cancelledAt)
-      )
-    );
-
   const merged = new Map<string, LinkedManufacturingOrderRead>();
   const productDisplayNamesById = await getItemDisplayNamesByIdInTx(tx, [
     ...headerRows.map((row) => row.productId),
-    ...allocationRows.map((row) => row.productId),
-    ...shipmentAllocationRows.map((row) => row.productId),
   ]);
   const addRow = (
-    row:
-      | (typeof headerRows)[number]
-      | (typeof allocationRows)[number]
-      | (typeof shipmentAllocationRows)[number],
+    row: (typeof headerRows)[number],
     linkSource: SalesLinkedManufacturingOrder["linkSource"]
   ) => {
     if (!row.salesOrderId) return;
@@ -1470,8 +1368,6 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
   };
 
   headerRows.forEach((row) => addRow(row, "sales_order"));
-  allocationRows.forEach((row) => addRow(row, "output_allocation"));
-  shipmentAllocationRows.forEach((row) => addRow(row, "output_allocation"));
 
   [...merged.values()]
     .toSorted((left, right) => {
@@ -2105,26 +2001,6 @@ async function getSalesLotPickPlansByLineInTx(
   return plans;
 }
 
-function summarizeManualReservations(
-  summaries: Array<SalesAllocationLineSummary | undefined>
-) {
-  const sources = summaries.flatMap((summary) => summary?.sources ?? []);
-  const quantity = sources.reduce(
-    (sum, source) => roundQuantity(sum + Number(source.quantity)),
-    0
-  );
-
-  return {
-    quantity,
-    summary:
-      sources.length === 0
-        ? null
-        : sources
-            .map((source) => `${formatQuantity(source.quantity)} ${source.label}`)
-            .join(", "),
-  };
-}
-
 function deriveDemandQueueSalesItemsState(params: {
   remainingQty: number;
   shortQty: number;
@@ -2150,11 +2026,7 @@ function latestDemandQueueExpectedDate(
 ) {
   return (
     coverage?.segments.reduce<string | null>((latest, segment) => {
-      if (
-        segment.kind !== "expected" &&
-        segment.kind !== "pinned_expected" &&
-        segment.kind !== "pinned_expected_late"
-      ) {
+      if (segment.kind !== "expected") {
         return latest;
       }
       return latestExpectedDate(latest, segment.availableDate);
@@ -2289,251 +2161,6 @@ function buildShipmentEntries(
       quantity,
     };
   });
-}
-
-type LegacySalesAllocationSourceDemandType =
-  | "sales_order_line"
-  | "sales_shipment_line";
-
-async function moveActiveSalesAllocationsInTx(
-  tx: Tx,
-  params: {
-    organizationId: string;
-    sourceDemandType: LegacySalesAllocationSourceDemandType;
-    sourceDemandId: string;
-    targetDemandType: "sales_order_line";
-    targetDemandId: string;
-    itemId: string;
-    quantity?: number | null;
-    demandLabelSnapshot?: string | null;
-    actorUserId?: string | null;
-  }
-) {
-  let remaining =
-    params.quantity == null ? Number.POSITIVE_INFINITY : roundQuantity(params.quantity);
-  if (remaining <= 0) return 0;
-
-  const rows = await tx
-    .select({
-      id: stockAllocations.id,
-      sourceType: stockAllocations.sourceType,
-      sourceId: stockAllocations.sourceId,
-      quantity: stockAllocations.quantity,
-      sourceLabelSnapshot: stockAllocations.sourceLabelSnapshot,
-      notes: stockAllocations.notes,
-      createdBy: stockAllocations.createdBy,
-    })
-    .from(stockAllocations)
-    .where(
-      and(
-        eq(stockAllocations.organizationId, params.organizationId),
-        eq(stockAllocations.demandType, params.sourceDemandType),
-        eq(stockAllocations.demandId, params.sourceDemandId),
-        eq(stockAllocations.itemId, params.itemId),
-        eq(stockAllocations.status, "active")
-      )
-    )
-    .orderBy(asc(stockAllocations.createdAt), asc(stockAllocations.id))
-    .for("update");
-
-  let moved = 0;
-  const now = new Date();
-  for (const row of rows) {
-    if (remaining <= 0) break;
-    const rowQty = roundQuantity(parseFloat(row.quantity));
-    const moveQty = Number.isFinite(remaining)
-      ? roundQuantity(Math.min(rowQty, remaining))
-      : rowQty;
-    if (moveQty <= 0) continue;
-
-    if (moveQty >= rowQty) {
-      await tx
-        .update(stockAllocations)
-        .set({
-          demandType: params.targetDemandType,
-          demandId: params.targetDemandId,
-          demandLabelSnapshot: params.demandLabelSnapshot ?? null,
-          updatedAt: now,
-          updatedBy: params.actorUserId ?? null,
-        })
-        .where(eq(stockAllocations.id, row.id));
-    } else {
-      await tx
-        .update(stockAllocations)
-        .set({
-          quantity: normalizeNumeric(roundQuantity(rowQty - moveQty)),
-          updatedAt: now,
-          updatedBy: params.actorUserId ?? null,
-        })
-        .where(eq(stockAllocations.id, row.id));
-      await tx.insert(stockAllocations).values({
-        organizationId: params.organizationId,
-        demandType: params.targetDemandType,
-        demandId: params.targetDemandId,
-        itemId: params.itemId,
-        sourceType: row.sourceType,
-        sourceId: row.sourceId,
-        quantity: normalizeNumeric(moveQty),
-        status: "active",
-        demandLabelSnapshot: params.demandLabelSnapshot ?? null,
-        sourceLabelSnapshot: row.sourceLabelSnapshot,
-        notes: row.notes,
-        createdBy: row.createdBy,
-        updatedBy: params.actorUserId ?? null,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
-
-    moved = roundQuantity(moved + moveQty);
-    if (Number.isFinite(remaining)) {
-      remaining = roundQuantity(remaining - moveQty);
-    }
-  }
-
-  return moved;
-}
-
-async function cancelShipmentLineAllocationsInTx(
-  tx: Tx,
-  params: {
-    organizationId: string;
-    shipmentLineIds: string[];
-    actorUserId?: string | null;
-  }
-) {
-  const uniqueShipmentLineIds = [...new Set(params.shipmentLineIds)];
-  if (uniqueShipmentLineIds.length === 0) return;
-
-  const lines = await tx
-    .select({
-      id: salesShipmentLines.id,
-      salesOrderLineId: salesShipmentLines.salesOrderLineId,
-      itemId: salesShipmentLines.itemId,
-    })
-    .from(salesShipmentLines)
-    .where(inArray(salesShipmentLines.id, uniqueShipmentLineIds));
-
-  for (const line of lines) {
-    await moveActiveSalesAllocationsInTx(tx, {
-      organizationId: params.organizationId,
-      sourceDemandType: "sales_shipment_line",
-      sourceDemandId: line.id,
-      targetDemandType: "sales_order_line",
-      targetDemandId: line.salesOrderLineId,
-      itemId: line.itemId,
-      demandLabelSnapshot: null,
-      actorUserId: params.actorUserId ?? null,
-    });
-    await reconcileAllocationPinsToReservationsInTx(tx, {
-      organizationId: params.organizationId,
-      itemId: line.itemId,
-      affectedDemands: [
-        {
-          demandType: "sales_order_line",
-          demandId: line.salesOrderLineId,
-        },
-      ],
-      actorUserId: params.actorUserId ?? null,
-      closedDemandPolicy: "release",
-      releaseUnpinnedAffectedDemands: true,
-    });
-  }
-}
-
-async function moveReplacedSalesLineAllocationsInTx(
-  tx: Tx,
-  params: {
-    organizationId: string;
-    existingLines: Array<{ id: string; itemId: string; sortOrder: number | null }>;
-    insertedLines: Array<{
-      salesOrderLineId: string;
-      itemId: string;
-      quantity: string;
-      sortOrder: number | null;
-    }>;
-    actorUserId?: string | null;
-  }
-) {
-  const insertedByItemId = new Map<string, typeof params.insertedLines>();
-  for (const line of params.insertedLines) {
-    const lines = insertedByItemId.get(line.itemId) ?? [];
-    lines.push(line);
-    insertedByItemId.set(line.itemId, lines);
-  }
-
-  for (const lines of insertedByItemId.values()) {
-    lines.sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0));
-  }
-
-  const existingLines = [...params.existingLines].sort(
-    (left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0)
-  );
-  // `sales_order_lines_order_item_uidx` enforces a single line per (order,
-  // item), so each existing line maps to at most one new line for the same
-  // item — no need for greedy fan-out here.
-  for (const existingLine of existingLines) {
-    const replacements = insertedByItemId.get(existingLine.itemId);
-    const replacement = replacements?.shift();
-    if (!replacement) continue;
-
-    const movedQty = await moveActiveSalesAllocationsInTx(tx, {
-      organizationId: params.organizationId,
-      sourceDemandType: "sales_order_line",
-      sourceDemandId: existingLine.id,
-      targetDemandType: "sales_order_line",
-      targetDemandId: replacement.salesOrderLineId,
-      itemId: existingLine.itemId,
-      quantity: parseFloat(replacement.quantity),
-      demandLabelSnapshot: null,
-      actorUserId: params.actorUserId ?? null,
-    });
-
-    if (movedQty > 0) {
-      await reconcileAllocationPinsToReservationsInTx(tx, {
-        organizationId: params.organizationId,
-        itemId: replacement.itemId,
-        affectedDemands: [
-          {
-            demandType: "sales_order_line",
-            demandId: replacement.salesOrderLineId,
-          },
-        ],
-        actorUserId: params.actorUserId ?? null,
-        closedDemandPolicy: "release",
-      });
-    }
-  }
-
-  const existingLineIds = params.existingLines.map((line) => line.id);
-  if (existingLineIds.length === 0) return;
-
-  const now = new Date();
-  await tx
-    .update(stockAllocations)
-    .set({
-      status: "cancelled",
-      cancelledAt: now,
-      cancelledBy: params.actorUserId ?? null,
-      updatedAt: now,
-      updatedBy: params.actorUserId ?? null,
-    })
-    .where(
-      and(
-        inArray(stockAllocations.demandId, existingLineIds),
-        eq(stockAllocations.demandType, "sales_order_line"),
-        eq(stockAllocations.status, "active")
-      )
-    );
-
-  await tx
-    .delete(stockAllocations)
-    .where(
-      and(
-        eq(stockAllocations.demandType, "sales_order_line"),
-        inArray(stockAllocations.demandId, existingLineIds)
-      )
-    );
 }
 
 async function getOpenLinkedManufacturingOrdersForSalesEditInTx(
@@ -2778,12 +2405,6 @@ async function moveLinkedManufacturingOrdersToReplacementSalesLinesInTx(
           reason: "edited",
           ingredientIds: ingredientRows.map((row) => row.id),
         });
-        await cancelActiveStockAllocationsInTx(tx, {
-          organizationId: params.organizationId,
-          actorUserId: params.actorUserId ?? null,
-          demandType: "manufacturing_order_ingredient",
-          demandIds: ingredientRows.map((row) => row.id),
-        });
       }
 
       await tx
@@ -2840,7 +2461,7 @@ async function moveLinkedManufacturingOrdersToReplacementSalesLinesInTx(
   }
 }
 
-async function replaceShipmentLinesPreservingAllocationsInTx(
+async function replaceShipmentLinesInTx(
   tx: Tx,
   params: {
     organizationId: string;
@@ -2886,11 +2507,6 @@ async function replaceShipmentLinesPreservingAllocationsInTx(
 
     if (existing) {
       keptLineIds.add(existing.id);
-      await cancelShipmentLineAllocationsInTx(tx, {
-        organizationId: params.organizationId,
-        shipmentLineIds: [existing.id],
-        actorUserId: params.actorUserId ?? null,
-      });
       await tx
         .delete(salesShipmentLines)
         .where(eq(salesShipmentLines.id, existing.id));
@@ -2911,11 +2527,6 @@ async function replaceShipmentLinesPreservingAllocationsInTx(
   const removedLineIds = existingLines
     .filter((line) => !keptLineIds.has(line.id))
     .map((line) => line.id);
-  await cancelShipmentLineAllocationsInTx(tx, {
-    organizationId: params.organizationId,
-    shipmentLineIds: removedLineIds,
-    actorUserId: params.actorUserId ?? null,
-  });
   if (removedLineIds.length > 0) {
     await tx
       .delete(salesShipmentLines)
@@ -3194,7 +2805,7 @@ async function upsertPlannedShipmentForFulfillmentPlanInTx(
     });
     const entries = buildShipmentEntries(states, shipmentData);
 
-    await replaceShipmentLinesPreservingAllocationsInTx(tx, {
+    await replaceShipmentLinesInTx(tx, {
       organizationId: orgId,
       shipmentId: existingShipment.id,
       entries,
@@ -3291,17 +2902,6 @@ async function deletePlannedShipmentsInTx(
   const shipmentIds = [...new Set(params.shipmentIds)];
   if (shipmentIds.length === 0) return;
 
-  const lineRows = await tx
-    .select({ id: salesShipmentLines.id })
-    .from(salesShipmentLines)
-    .where(inArray(salesShipmentLines.salesShipmentId, shipmentIds))
-    .for("update");
-
-  await cancelShipmentLineAllocationsInTx(tx, {
-    organizationId: params.organizationId,
-    shipmentLineIds: lineRows.map((line) => line.id),
-    actorUserId: params.actorUserId ?? null,
-  });
   await tx
     .delete(salesShipmentLines)
     .where(inArray(salesShipmentLines.salesShipmentId, shipmentIds));
@@ -3557,27 +3157,6 @@ async function deleteSalesLinkedManufacturingOrdersInTx(
       .filter((row) => Number(row.outputQuantity) > 0)
       .map((row) => row.manufacturingOrderId),
   ]);
-
-  const [sharedAllocation] = await tx
-    .select({
-      orderNumber: manufacturingOrders.orderNumber,
-    })
-    .from(stockAllocations)
-    .innerJoin(manufacturingOrders, eq(stockAllocations.sourceId, manufacturingOrders.id))
-    .where(
-      and(
-        eq(stockAllocations.status, "active"),
-        eq(stockAllocations.sourceType, "manufacturing_order"),
-        inArray(stockAllocations.sourceId, linkedOrderIds),
-        eq(stockAllocations.demandType, "sales_order_line"),
-        notInArray(stockAllocations.demandId, params.salesOrderLineIds)
-      )
-    )
-    .limit(1);
-
-  if (sharedAllocation) {
-    return `Cannot delete this sales order because manufacturing order ${sharedAllocation.orderNumber} is allocated to another sales order. Remove that allocation first.`;
-  }
 
   const startedLinkedOrderIds = linkedOrderIds.filter((id) => startedOrderIds.has(id));
   const notStartedLinkedOrderIds = linkedOrderIds.filter((id) => !startedOrderIds.has(id));
@@ -6103,69 +5682,8 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           }
         });
 
-        const itemIds = [
-          ...new Set(
-            [...manufacturingSummaries.values()]
-              .flatMap((summary) => summary.lines)
-              .map((line) => line.itemId)
-          ),
-        ];
-        const allocationModels = new Map<
-          string,
-          Awaited<ReturnType<typeof getSalesAllocationReadModelForItemInTx>>
-        >();
-        for (const itemId of itemIds) {
-          allocationModels.set(
-            itemId,
-            await getSalesAllocationReadModelForItemInTx(tx, orgId, itemId)
-          );
-        }
-        const allocationSummaryByDemandId = new Map(
-          [...allocationModels.values()].flatMap((model) => [
-            ...model.lineSummaries.entries(),
-          ])
-        );
-        const allocationSummaryByLineId = new Map<
-          string,
-          SalesAllocationLineSummary
-        >();
-        for (const summary of allocationSummaryByDemandId.values()) {
-          if (!summary.salesOrderLineId) continue;
-          const current = allocationSummaryByLineId.get(summary.salesOrderLineId);
-          const allocatedQty = roundQuantity(
-            Number(current?.allocatedQty ?? 0) + Number(summary.allocatedQty)
-          );
-          const shortQty = roundQuantity(
-            Number(current?.shortQty ?? 0) + Number(summary.shortQty)
-          );
-          const sources = [...(current?.sources ?? []), ...summary.sources];
-          allocationSummaryByLineId.set(summary.salesOrderLineId, {
-            ...summary,
-            demandType: "sales_order_line",
-            demandId: summary.salesOrderLineId,
-            salesShipmentLineId: null,
-            allocatedQty: normalizeNumeric(allocatedQty),
-            shortQty: normalizeNumeric(shortQty),
-            sourceSummary:
-              sources.length === 0
-                ? "\u2014"
-                : sources
-                    .map(
-                      (source) =>
-                        `${formatQuantity(source.quantity)} ${source.label}`
-                    )
-                    .join(", "),
-            status:
-              allocatedQty <= 0
-                ? "short"
-                : shortQty > 0
-                  ? "partial"
-                  : sources.some((source) => source.sourceType === "manufacturing_order")
-                    ? "waiting_production"
-                    : "ready",
-            sources,
-          });
-        }
+        const allocationSummaryByDemandId = new Map<string, SalesAllocationLineSummary>();
+        const allocationSummaryByLineId = new Map<string, SalesAllocationLineSummary>();
         for (const shipment of shipmentsById.values()) {
           shipment.lines = shipment.lines.map((line) => {
             const allocation = allocationSummaryByDemandId.get(line.id);
@@ -6351,11 +5869,6 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           const openManufacturingOrders = openLinkedManufacturingOrders(
             linkedManufacturingOrders
           ).map(serializeLinkedManufacturingOrder);
-          const manualReservation = summarizeManualReservations(
-            salesLines.map((line) =>
-              allocationSummaryByLineId.get(line.salesOrderLineId)
-            )
-          );
           const stockBlockers = salesLines.flatMap((line) => {
             const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
             const remainingQty = normalizeShipmentQuantity(
@@ -6432,11 +5945,6 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                       : sources.some((source) => source.sourceType === "manufacturing_order")
                         ? "waiting_production"
                         : "ready",
-                demandQueuePinnedQty: demandQueueCoverage?.pinnedQty ?? "0",
-                demandQueuePinnedDateValidQty:
-                  demandQueueCoverage?.pinnedDateValidQty ?? "0",
-                demandQueuePinnedDateInvalidQty:
-                  demandQueueCoverage?.pinnedDateInvalidQty ?? "0",
                 demandQueueQueueCoveredQty:
                   demandQueueCoverage?.queueCoveredQty ?? "0",
                 demandQueueSegments: demandQueueCoverage?.segments ?? [],
@@ -6478,10 +5986,6 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 productionAllocatedQty: normalizeNumeric(
                   roundQuantity(fulfillmentTotals.productionAllocatedQty)
                 ),
-                manualReservationQty: normalizeNumeric(
-                  roundQuantity(manualReservation.quantity)
-                ),
-                manualReservationSummary: manualReservation.summary,
                 availabilityState: salesItemsState,
                 expectedDate: salesItemsExpectedDate,
                 label: getAvailabilityLabel(
@@ -6782,15 +6286,14 @@ export async function getSalesOrder(
           projectedOnHandQtyExpr(items.organizationId, items.id)
         ).as("onHandQty"),
         availableQty: availableQtySubquery,
-        allocatedQty: trimScale(sql`COALESCE((
-          SELECT SUM(${stockAllocations.quantity})
-          FROM ${stockAllocations}
-          WHERE ${stockAllocations.organizationId} = ${items.organizationId}
-            AND ${stockAllocations.itemId} = ${items.id}
-            AND ${stockAllocations.status} = 'active'
-            AND ${stockAllocations.demandType} = 'sales_order_line'
-            AND ${stockAllocations.demandId} = ${salesOrderLines.id}
-        ), 0)`).as("allocatedQty"),
+        allocatedQty: sql<string>`'0'`.as("allocatedQty"),
+        reservedQty: trimScale(sql`COALESCE((
+          SELECT SUM(${inventoryReservationsSummary.quantity})
+          FROM ${inventoryReservationsSummary}
+          WHERE ${inventoryReservationsSummary.organizationId} = ${orgId}
+            AND ${inventoryReservationsSummary.referenceType} = 'sales_order_line'
+            AND ${inventoryReservationsSummary.referenceId} = ${salesOrderLines.id}
+        ), 0)`).as("reservedQty"),
         potential: projectedPotentialQty(
           items.organizationId,
           items.id,
@@ -7152,6 +6655,7 @@ export async function getSalesOrder(
       return {
         ...line,
         reservationAllocatedQty: line.allocatedQty,
+        reservedQty: line.reservedQty,
         shippedQuantity: normalizeNumeric(shippedQuantity),
         plannedQuantity: normalizeNumeric(plannedQuantity),
         cancelledQuantity: normalizeNumeric(cancelledQuantity),
@@ -7159,56 +6663,7 @@ export async function getSalesOrder(
         unplannedRemainingQuantity: normalizeNumeric(unplannedRemainingQuantity),
       };
     });
-    const allocationModels = new Map<
-      string,
-      Awaited<ReturnType<typeof getSalesAllocationReadModelForItemInTx>>
-    >();
-    for (const itemId of [...new Set(linesWithFulfillment.map((line) => line.itemId))]) {
-      allocationModels.set(
-        itemId,
-        await getSalesAllocationReadModelForItemInTx(tx, orgId, itemId)
-      );
-    }
-    const allocationSummaryByDemandId = new Map(
-      [...allocationModels.values()].flatMap((model) => [
-        ...model.lineSummaries.entries(),
-      ])
-    );
     const allocationSummaryByLineId = new Map<string, SalesAllocationLineSummary>();
-    for (const summary of allocationSummaryByDemandId.values()) {
-      if (!summary.salesOrderLineId) continue;
-      const current = allocationSummaryByLineId.get(summary.salesOrderLineId);
-      const allocatedQty = roundQuantity(
-        Number(current?.allocatedQty ?? 0) + Number(summary.allocatedQty)
-      );
-      const shortQty = roundQuantity(
-        Number(current?.shortQty ?? 0) + Number(summary.shortQty)
-      );
-      const sources = [...(current?.sources ?? []), ...summary.sources];
-      allocationSummaryByLineId.set(summary.salesOrderLineId, {
-        ...summary,
-        demandType: "sales_order_line",
-        demandId: summary.salesOrderLineId,
-        salesShipmentLineId: null,
-        allocatedQty: normalizeNumeric(allocatedQty),
-        shortQty: normalizeNumeric(shortQty),
-        sourceSummary:
-          sources.length === 0
-            ? "\u2014"
-            : sources
-                .map((source) => `${formatQuantity(source.quantity)} ${source.label}`)
-                .join(", "),
-        status:
-          allocatedQty <= 0
-            ? "short"
-            : shortQty > 0
-              ? "partial"
-              : sources.some((source) => source.sourceType === "manufacturing_order")
-                ? "waiting_production"
-                : "ready",
-        sources,
-      });
-    }
     const demandQueueCoverageByDemandKey =
       await getDemandQueueCoverageByDemandKeyForItemsInTx(tx, {
         organizationId: orgId,
@@ -7243,11 +6698,6 @@ export async function getSalesOrder(
                 ? "waiting_production"
                 : "ready",
         allocationSources: sources,
-        demandQueuePinnedQty: demandQueueCoverage?.pinnedQty ?? "0",
-        demandQueuePinnedDateValidQty:
-          demandQueueCoverage?.pinnedDateValidQty ?? "0",
-        demandQueuePinnedDateInvalidQty:
-          demandQueueCoverage?.pinnedDateInvalidQty ?? "0",
         demandQueueQueueCoveredQty:
           demandQueueCoverage?.queueCoveredQty ?? "0",
         demandQueueSegments: demandQueueCoverage?.segments ?? [],
@@ -7258,9 +6708,6 @@ export async function getSalesOrder(
         demandQueueExpectedDate: latestDemandQueueExpectedDate(demandQueueCoverage),
       };
     });
-    const manualReservation = summarizeManualReservations(
-      linesWithFulfillment.map((line) => allocationSummaryByLineId.get(line.id))
-    );
     let fulfillmentSummary: SalesOrderFulfillmentSummary = (() => {
       const remainingQty = linesWithAllocation.reduce(
         (sum, line) => roundQuantity(sum + Number(line.remainingQuantity)),
@@ -7314,8 +6761,6 @@ export async function getSalesOrder(
         allocatedQty: normalizeNumeric(allocatedQty),
         shortQty: normalizeNumeric(shortQty),
         productionAllocatedQty: normalizeNumeric(productionAllocatedQty),
-        manualReservationQty: normalizeNumeric(roundQuantity(manualReservation.quantity)),
-        manualReservationSummary: manualReservation.summary,
         availabilityState,
         expectedDate: availabilityState === "expected" ? expectedDate : null,
         label,
@@ -7474,9 +6919,6 @@ export async function getSalesOrder(
           .filter((source) => source.sourceType === "manufacturing_order")
           .reduce((sum, source) => sum + Number(source.quantity), 0)
       );
-      const manualReservation = summarizeManualReservations([
-        allocationSummaryByLineId.get(line.id),
-      ]);
       const lineSalesItemsState: SalesOrderFulfillmentSummary["salesItemsState"] =
         deriveDemandQueueSalesItemsState({
           remainingQty,
@@ -7493,10 +6935,6 @@ export async function getSalesOrder(
         allocatedQty: normalizeNumeric(allocatedQty),
         shortQty: normalizeNumeric(roundQuantity(shortQty)),
         productionAllocatedQty: normalizeNumeric(productionAllocatedQty),
-        manualReservationQty: normalizeNumeric(
-          roundQuantity(manualReservation.quantity)
-        ),
-        manualReservationSummary: manualReservation.summary,
         availabilityState: lineSalesItemsState,
         expectedDate: lineSalesItemsExpectedDate,
         label: getAvailabilityLabel(lineSalesItemsState, lineSalesItemsExpectedDate),
@@ -7927,20 +7365,6 @@ export async function updateSalesOrder(
       );
 
     if (existingShipmentRows.length > 0) {
-      const existingShipmentLineRows = await tx
-        .select({ id: salesShipmentLines.id })
-        .from(salesShipmentLines)
-        .where(
-          inArray(
-            salesShipmentLines.salesShipmentId,
-            existingShipmentRows.map((shipment) => shipment.id)
-          )
-        );
-      await cancelShipmentLineAllocationsInTx(tx, {
-        organizationId: orgId,
-        shipmentLineIds: existingShipmentLineRows.map((line) => line.id),
-        actorUserId: userId,
-      });
       await tx.delete(salesShipmentLines).where(
         inArray(
           salesShipmentLines.salesShipmentId,
@@ -7963,10 +7387,8 @@ export async function updateSalesOrder(
         );
     }
 
-    // cancelShipmentLineAllocationsInTx moves shipment-bucket allocations back
-    // to the SO-line bucket and re-syncs reservations against the existing line
-    // ids — but those lines are about to be hard-deleted. Zero the reservation
-    // summary now so the deleted lines don't leave orphaned committedQty.
+    // Existing lines are about to be hard-deleted. Zero the reservation summary
+    // now so the deleted lines don't leave orphaned committedQty.
     if (existingShipmentRows.length > 0 && existingLines.length > 0) {
       await releaseReservationForSalesLineInTx(tx, {
         organizationId: orgId,
@@ -8001,16 +7423,6 @@ export async function updateSalesOrder(
           })
         : [];
 
-    await moveReplacedSalesLineAllocationsInTx(tx, {
-      organizationId: orgId,
-      existingLines: existingLines.map((line) => ({
-        id: line.id,
-        itemId: line.itemId,
-        sortOrder: line.sortOrder,
-      })),
-      insertedLines,
-      actorUserId: userId,
-    });
     await moveLinkedManufacturingOrdersToReplacementSalesLinesInTx(tx, {
       organizationId: orgId,
       actorUserId: userId,
@@ -8568,7 +7980,7 @@ export async function updateSalesShipment(
     });
     const entries = buildShipmentEntries(states, data);
     const shipAddress = await resolveShipmentAddressInTx(tx, shipment);
-    await replaceShipmentLinesPreservingAllocationsInTx(tx, {
+    await replaceShipmentLinesInTx(tx, {
       organizationId: orgId,
       shipmentId,
       entries,
@@ -8667,7 +8079,7 @@ export async function deleteSalesShipment(
   shipmentId: string,
   options?: { idempotencyKey?: string }
 ) {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
     const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
       organizationId: orgId,
       operationName: "deleteSalesShipment",
@@ -8717,17 +8129,6 @@ export async function deleteSalesShipment(
     if (shipment.status === "shipped") {
       throw new SalesError("Shipped shipments cannot be deleted.", 400);
     }
-
-    const existingLines = await tx
-      .select({ id: salesShipmentLines.id })
-      .from(salesShipmentLines)
-      .where(eq(salesShipmentLines.salesShipmentId, shipmentId))
-      .for("update");
-    await cancelShipmentLineAllocationsInTx(tx, {
-      organizationId: orgId,
-      shipmentLineIds: existingLines.map((line) => line.id),
-      actorUserId: userId,
-    });
 
     await tx
       .delete(salesShipmentLines)
@@ -8992,7 +8393,7 @@ export async function shipSalesShipment(
 }
 
 async function buildStockWarningPayloadInTx(
-  tx: Tx,
+  _tx: Tx,
   params: {
     organizationId: string;
     itemId: string;
@@ -9002,117 +8403,7 @@ async function buildStockWarningPayloadInTx(
     excludeSalesOrderLineIds: string[];
   }
 ): Promise<NegativeStockWarningPayload> {
-  const salesReservationRows = await tx
-    .select({
-      referenceId: stockAllocations.demandId,
-      quantity: trimScale(sql`SUM(${stockAllocations.quantity})`).as("quantity"),
-      orderId: salesOrders.id,
-      orderNumber: salesOrders.orderNumber,
-      customerName: salesOrders.customerName,
-    })
-    .from(stockAllocations)
-    .innerJoin(
-      salesOrderLines,
-      eq(salesOrderLines.id, stockAllocations.demandId)
-    )
-    .innerJoin(salesOrders, eq(salesOrders.id, salesOrderLines.salesOrderId))
-    .where(
-      and(
-        eq(stockAllocations.organizationId, params.organizationId),
-        eq(stockAllocations.itemId, params.itemId),
-        eq(stockAllocations.demandType, "sales_order_line"),
-        eq(stockAllocations.sourceType, "inventory_lot"),
-        eq(stockAllocations.status, "active"),
-        eq(salesOrders.status, "open"),
-        isNull(salesOrders.deletedAt),
-        params.excludeSalesOrderLineIds.length > 0
-          ? notInArray(
-              stockAllocations.demandId,
-              params.excludeSalesOrderLineIds
-            )
-          : undefined,
-        sql`${stockAllocations.quantity} > 0`
-      )
-    )
-    .groupBy(
-      stockAllocations.demandId,
-      salesOrders.id,
-      salesOrders.orderNumber,
-      salesOrders.customerName
-    );
-
-  const manufacturingReservationRows = await tx
-    .select({
-      referenceId: stockAllocations.demandId,
-      quantity: trimScale(sql`SUM(${stockAllocations.quantity})`).as("quantity"),
-      orderId: manufacturingOrders.id,
-      orderNumber: manufacturingOrders.orderNumber,
-      productId: manufacturingOrders.productId,
-      productName: manufacturingOrders.productName,
-    })
-    .from(stockAllocations)
-    .innerJoin(
-      manufacturingOrderIngredients,
-      eq(manufacturingOrderIngredients.id, stockAllocations.demandId)
-    )
-    .innerJoin(
-      manufacturingOrders,
-      eq(manufacturingOrders.id, manufacturingOrderIngredients.manufacturingOrderId)
-    )
-    .where(
-      and(
-        eq(stockAllocations.organizationId, params.organizationId),
-        eq(stockAllocations.itemId, params.itemId),
-        eq(stockAllocations.demandType, "manufacturing_order_ingredient"),
-        eq(stockAllocations.sourceType, "inventory_lot"),
-        eq(stockAllocations.status, "active"),
-        eq(manufacturingOrders.status, "open"),
-        isNull(manufacturingOrders.deletedAt),
-        sql`${stockAllocations.quantity} > 0`
-      )
-    )
-    .groupBy(
-      stockAllocations.demandId,
-      manufacturingOrders.id,
-      manufacturingOrders.orderNumber,
-      manufacturingOrders.productId,
-      manufacturingOrders.productName
-    );
-
-  const manufacturingProductNamesById = await getItemDisplayNamesByIdInTx(
-    tx,
-    manufacturingReservationRows.map((row) => row.productId)
-  );
-
-  const commitments = [
-    ...manufacturingReservationRows.map((row) => ({
-      referenceType: "manufacturing_order" as const,
-      referenceId: row.orderId,
-      label: `${row.orderNumber} ${
-        manufacturingProductNamesById.get(row.productId) ?? row.productName
-      }`,
-      quantity: parseFloat(row.quantity),
-      href: `/manufacturing/orders/${row.orderId}`,
-    })),
-    ...salesReservationRows.map((row) => ({
-      referenceType: "sales_order" as const,
-      referenceId: row.orderId,
-      label: `${row.orderNumber} ${row.customerName}`,
-      quantity: parseFloat(row.quantity),
-      href: `/sales/orders/${row.orderId}`,
-    })),
-  ].filter((commitment) => commitment.quantity > 0);
-
-  const committedToOthers = roundQuantity(
-    commitments.reduce((sum, commitment) => sum + commitment.quantity, 0)
-  );
   const shortage = Math.max(0, params.requested - params.available);
-  const reason =
-    committedToOthers <= 0
-      ? "negative_stock"
-      : params.available + committedToOthers >= params.requested
-        ? "commitment_conflict"
-        : "commitment_and_negative_stock";
 
   return {
     itemId: params.itemId,
@@ -9120,9 +8411,9 @@ async function buildStockWarningPayloadInTx(
     available: params.available,
     requested: params.requested,
     shortage,
-    reason,
-    committedToOthers,
-    commitments: commitments.slice(0, 5),
+    reason: "negative_stock",
+    committedToOthers: 0,
+    commitments: [],
   };
 }
 
@@ -10387,13 +9678,6 @@ export async function deleteSalesOrder(
 	      salesOrderLineIds: existingLineIds,
 	    });
 
-    await cancelActiveStockAllocationsInTx(tx, {
-      organizationId: orgId,
-      actorUserId: userId,
-      demandType: "sales_order_line",
-      demandIds: existingLineIds,
-    });
-
     if (isOpenSalesOrderStatus(order.status)) {
       await rerankOpenSalesOrdersInTx(tx, orgId);
     }
@@ -10507,13 +9791,6 @@ export async function deleteSalesOrders(
       reason: "deleted",
 	      salesOrderLineIds: lineIds,
 	    });
-
-    await cancelActiveStockAllocationsInTx(tx, {
-      organizationId: orgId,
-      actorUserId: userId,
-      demandType: "sales_order_line",
-      demandIds: lineIds,
-    });
 
     if (orders.some((order) => isOpenSalesOrderStatus(order.status))) {
       await rerankOpenSalesOrdersInTx(tx, orgId);

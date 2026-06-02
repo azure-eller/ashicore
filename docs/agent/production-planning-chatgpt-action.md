@@ -53,17 +53,17 @@ OpenAPI-schema setup:
 ## Assistant Instructions
 
 Use the `getProductionPlanningContext` action whenever the user asks what to
-make, what is short, what can be allocated, what open supply exists, or what is
+make, what is short, what open supply exists, or what is
 blocking production.
 
 Treat the ERP response as raw production data, not as a precomputed
 recommendation. Use:
 
 - `openSalesOrders` for sales order dates, ship dates, line items, quantities,
-  and allocation state.
+  and coverage state.
 - `openManufacturingOrders` for existing production supply.
 - `productCounts` for current sellable product inventory, lot counts, received
-  dates, allocation totals, open sales demand, and open manufacturing supply.
+  dates, coverage totals, open sales demand, and open manufacturing supply.
 - `productBoms` for product-to-product BOM requirements such as a 2cf bag
   requiring aged 1 yd tote inventory.
 
@@ -71,5 +71,5 @@ The agent-facing response intentionally omits sales prices, unit costs, draft
 action payloads, and material-purchasing recommendations. This is production
 data only.
 
-Do not tell the user that manufacturing orders, purchase orders, or allocations
+Do not tell the user that manufacturing orders or purchase orders
 were created. This integration is read-only.

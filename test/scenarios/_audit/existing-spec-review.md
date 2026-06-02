@@ -50,8 +50,6 @@ Size: 2399 LOC, 15 `test()` blocks.
   - Sales-link binding: edits an MO to attach a sales line and verifies `salesOrderId/salesOrderLineId/salesOrderNumber/salesCustomerName` snapshots (600–612).
   - The "skips non-manufacturable lines" test (625–734) — DB count of created MOs (697) plus exact `salesOrderLineId` mapping (702).
   - Completed-MO blocks repeat Create MOs (736–848) — both UI absence and 400 with the canonical error string.
-  - Batch-mode end-to-end with allocation promise → lot-hold transition (1246–1516) — checks `stockAllocations` rows by `sourceType` and `status`.
-  - Output-allocation promise → lot-hold materialization on completion (1944–2129) — exactly the supply-side allocation bug class.
   - Six-decimal cost carry-through (2296–2397) for purchase-to-stock conversion.
   - Decimal quantity completion without false shortage (2131–2214).
   - FIFO lot consumption ordering & per-event count (`movements.toHaveLength(5)`) at 1670–1687.
@@ -299,8 +297,6 @@ Size: 780 LOC, 12 `test()` blocks.
 - **The MO ↔ SO snapshot rewrite path is tested only by manual DB mutation.** `sales-order.spec.ts:1297` nulls `salesOrderLineId` directly. `manufacturing-order.spec.ts:854` rewrites the SO line and re-reads — but no test rewrites the SO *line* while the linked MO is `released` or has picks attached. This is precisely the recent "sales-linked MO ingredient loading" bug class (commit 948c155e).
 
 - **Concurrency coverage is mostly limited to one kernel spec.** Outside `kernel-invariants.spec.ts`, only `reservation-correctness.spec.ts:458` runs `Promise.all` on two API calls. Slow specs run strictly serially. Any new SO ↔ MO contention spec should be a new fast or kernel-level test rather than expanding the slow lane.
-
-- **Lot-management drift is heavily tested at the receipt + ship layer, sparsely at allocation transitions.** Output allocation → lot hold (manufacturing-order.spec.ts:1944) is the only test that exercises a `stockAllocations` row transitioning from `sourceType: manufacturing_order` to `sourceType: inventory_lot`. Sales shipment allocation transitions (`sales_order_line` → `sales_shipment_line` on shipment plan) are asserted via balance rollups but never via direct `stockAllocations` row queries.
 
 - **Status-text-only assertions are pervasive.** `getByText("Open", { exact: true })`, `getByText("Completed", { exact: true })`, `toContainText("Not started")` are scattered across all UI specs. A status-vocabulary refactor would silently break dozens of tests without a single backend-level assertion failure. Slow specs do back these with DB reads, but fast specs often do not.
 

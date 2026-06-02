@@ -7,7 +7,6 @@ import {
   salesOrders,
   salesShipmentLines,
   salesShipments,
-  stockAllocations,
   variantOptions,
   variantOptionValues,
 } from "@/lib/db/schema";
@@ -182,17 +181,6 @@ async function loadSalesRowsInTx(
 
 export const salesOrderLineAllocationAdapter: AllocationDemandAdapter = {
   demandType: "sales_order_line",
-  async loadPrimaryDemandInTx(tx, params) {
-    const rows = await loadSalesRowsInTx(
-      tx,
-      and(
-        eq(salesOrderLines.id, params.demandId),
-        isNull(salesOrders.deletedAt),
-        inArray(salesOrders.status, [...ACTIVE_ORDER_STATUSES])
-      )
-    );
-    return rows[0] ?? null;
-  },
   async loadOpenDemandsForItemInTx(tx, params) {
     return loadSalesRowsInTx(
       tx,
@@ -203,37 +191,4 @@ export const salesOrderLineAllocationAdapter: AllocationDemandAdapter = {
       )
     );
   },
-  async validateDemandItemInTx(tx, params) {
-    const demand = await this.loadPrimaryDemandInTx(tx, params);
-    return demand?.itemId === params.itemId ? demand : null;
-  },
-  async afterSaveAllocationsInTx(tx, params) {
-    await tx
-      .update(salesOrderLines)
-      .set({
-        allocationManagedAt: new Date(),
-        allocationManagedBy: params.actorUserId ?? null,
-        updatedAt: new Date(),
-      })
-      .where(eq(salesOrderLines.id, params.demandId));
-  },
 };
-
-export async function getSalesInventoryLotAllocationQtyInTx(
-  tx: Tx,
-  params: { demandId: string; itemId: string }
-) {
-  const [row] = await tx
-    .select({ quantity: sql<string>`COALESCE(SUM(${stockAllocations.quantity}), 0)` })
-    .from(stockAllocations)
-    .where(
-      and(
-        eq(stockAllocations.demandType, "sales_order_line"),
-        eq(stockAllocations.demandId, params.demandId),
-        eq(stockAllocations.itemId, params.itemId),
-        eq(stockAllocations.sourceType, "inventory_lot"),
-        eq(stockAllocations.status, "active")
-      )
-    );
-  return roundQuantity(toQuantity(row?.quantity));
-}

@@ -48,7 +48,7 @@ Supply sources:
 - ordered or partially received purchase-order remaining quantities
 - released manufacturing-order remaining output
 
-Manual sales allocation follows the same active-demand boundary: confirmed and partially shipped sales orders can be allocated, while draft sales orders and draft MOs are ignored.
+Demand coverage follows the same active-demand boundary: confirmed and partially shipped sales orders are included, while draft sales orders and draft MOs are ignored.
 
 Netting uses:
 

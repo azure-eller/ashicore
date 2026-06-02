@@ -22,7 +22,6 @@ import {
   purchaseOrders,
   salesOrderLines,
   salesOrders,
-  stockAllocations,
   stocktakeItems,
   stocktakeLotItems,
   stocktakes,
@@ -638,24 +637,6 @@ async function assertCanDisableLotTrackingInTx(tx: Tx, familyId: string) {
   const itemIds = variantRows.map((row) => row.id);
 
   if (itemIds.length === 0) return;
-
-  const [activeAllocation] = await tx
-    .select({ id: stockAllocations.id })
-    .from(stockAllocations)
-    .where(
-      and(
-        inArray(stockAllocations.itemId, itemIds),
-        eq(stockAllocations.sourceType, "inventory_lot"),
-        eq(stockAllocations.status, "active")
-      )
-    )
-    .limit(1);
-  if (activeAllocation) {
-    throw new ItemCardError(
-      "Lot tracking cannot be turned off while active lot allocations exist.",
-      409
-    );
-  }
 
   const [draftStocktakeLot] = await tx
     .select({ id: stocktakeLotItems.id })
@@ -2148,7 +2129,6 @@ async function hasHistoricalReferenceInTx(tx: Tx, variantIds: string[]) {
     tx.select({ id: bomRevisionComponents.id }).from(bomRevisionComponents).where(inArray(bomRevisionComponents.componentId, variantIds)).limit(1),
     tx.select({ id: stocktakeItems.id }).from(stocktakeItems).where(inArray(stocktakeItems.itemId, variantIds)).limit(1),
     tx.select({ id: supplierItems.id }).from(supplierItems).where(inArray(supplierItems.itemId, variantIds)).limit(1),
-    tx.select({ id: stockAllocations.id }).from(stockAllocations).where(inArray(stockAllocations.itemId, variantIds)).limit(1),
   ]);
 
   return checks.some((rows) => rows.length > 0);

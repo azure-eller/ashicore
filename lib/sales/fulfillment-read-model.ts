@@ -10,7 +10,6 @@ import {
   manufacturingOrders,
   purchaseOrderLines,
   purchaseOrders,
-  stockAllocations,
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
@@ -264,24 +263,6 @@ async function getSalesItemAvailabilityByOrderIdInTx(
       manufacturingOrders.salesOrderLineId
     );
 
-  const demandLineIds = positiveDemandLines.map((line) => line.salesOrderLineId);
-  const activeAllocationRows = await tx
-    .select({
-      demandType: stockAllocations.demandType,
-      demandId: stockAllocations.demandId,
-      itemId: stockAllocations.itemId,
-      sourceType: stockAllocations.sourceType,
-      sourceId: stockAllocations.sourceId,
-      quantity: trimScale(stockAllocations.quantity).as("quantity"),
-    })
-    .from(stockAllocations)
-    .where(
-      and(
-        eq(stockAllocations.organizationId, orgId),
-        eq(stockAllocations.status, "active"),
-        inArray(stockAllocations.itemId, itemIds)
-      )
-    );
   const manufacturingIngredientDemandRows = await tx
     .select({
       itemId: manufacturingOrderIngredients.itemId,
@@ -306,105 +287,11 @@ async function getSalesItemAvailabilityByOrderIdInTx(
       )
     )
     .groupBy(manufacturingOrderIngredients.itemId);
-  const allocatedInventoryQtyByItemId = new Map<string, number>();
-  const allocatedManufacturingQtyByOrderId = new Map<string, number>();
-  const allocatedManufacturingIngredientQtyByItemId = new Map<string, number>();
-  const manualSalesLineAllocations = activeAllocationRows.filter(
-    (row) =>
-      row.demandType === "sales_order_line" &&
-      demandLineIds.includes(row.demandId)
-  );
-
-  for (const row of activeAllocationRows) {
-    const quantity = parseQuantity(row.quantity);
-    if (quantity <= 0) continue;
-    if (row.sourceType === "inventory_lot") {
-      allocatedInventoryQtyByItemId.set(
-        row.itemId,
-        roundQuantity((allocatedInventoryQtyByItemId.get(row.itemId) ?? 0) + quantity)
-      );
-      if (row.demandType === "manufacturing_order_ingredient") {
-        allocatedManufacturingIngredientQtyByItemId.set(
-          row.itemId,
-          roundQuantity(
-            (allocatedManufacturingIngredientQtyByItemId.get(row.itemId) ?? 0) +
-              quantity
-          )
-        );
-      }
-    } else if (row.sourceType === "manufacturing_order") {
-      allocatedManufacturingQtyByOrderId.set(
-        row.sourceId,
-        roundQuantity(
-          (allocatedManufacturingQtyByOrderId.get(row.sourceId) ?? 0) + quantity
-        )
-      );
-    }
-  }
-
-  const manualManufacturingSourceIds = [
-    ...new Set(
-      manualSalesLineAllocations
-        .filter((row) => row.sourceType === "manufacturing_order")
-        .map((row) => row.sourceId)
-    ),
-  ];
-  const manualManufacturingSources =
-    manualManufacturingSourceIds.length > 0
-      ? await tx
-          .select({
-            id: manufacturingOrders.id,
-            plannedDate: manufacturingOrders.plannedDate,
-            salesOrderLineId: manufacturingOrders.salesOrderLineId,
-          })
-          .from(manufacturingOrders)
-          .where(inArray(manufacturingOrders.id, manualManufacturingSourceIds))
-      : [];
-  const manualManufacturingSourceById = new Map(
-    manualManufacturingSources.map((source) => [source.id, source])
-  );
-  const manualSupplyByLineId = new Map<string, AvailabilitySupplySlice[]>();
-
-  for (const row of manualSalesLineAllocations) {
-    const quantity = parseQuantity(row.quantity);
-    if (quantity <= 0) continue;
-    if (row.sourceType === "manufacturing_order") {
-      const source = manualManufacturingSourceById.get(row.sourceId);
-      if (!source) continue;
-      if (source.salesOrderLineId != null && source.salesOrderLineId !== row.demandId) {
-        continue;
-      }
-      manualSupplyByLineId.set(row.demandId, [
-        ...(manualSupplyByLineId.get(row.demandId) ?? []),
-        {
-          itemId: row.itemId,
-          quantity,
-          expectedDate: source.plannedDate,
-          linkedSalesOrderLineId: row.demandId,
-        },
-      ]);
-      continue;
-    }
-
-    manualSupplyByLineId.set(row.demandId, [
-      ...(manualSupplyByLineId.get(row.demandId) ?? []),
-      {
-        itemId: row.itemId,
-        quantity,
-        expectedDate: null,
-        linkedSalesOrderLineId: row.demandId,
-      },
-    ]);
-  }
-
   const supplyByItem = new Map<string, AvailabilitySupplySlice[]>();
   const linkedManufacturingSupplyByLineId = new Map<string, AvailabilitySupplySlice[]>();
   const implicitManufacturingIngredientDemandByItemId = new Map<string, number>();
   for (const row of manufacturingIngredientDemandRows) {
-    const quantity = roundQuantity(
-      parseQuantity(row.quantity) -
-        (allocatedManufacturingIngredientQtyByItemId.get(row.itemId) ?? 0)
-    );
+    const quantity = roundQuantity(parseQuantity(row.quantity));
     if (quantity <= 0) continue;
     implicitManufacturingIngredientDemandByItemId.set(row.itemId, quantity);
   }
@@ -412,7 +299,6 @@ async function getSalesItemAvailabilityByOrderIdInTx(
   for (const row of currentSupplyRows) {
     const quantity = roundQuantity(
       Number(row.quantity) -
-        (allocatedInventoryQtyByItemId.get(row.itemId) ?? 0) -
         (implicitManufacturingIngredientDemandByItemId.get(row.itemId) ?? 0)
     );
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
@@ -434,9 +320,7 @@ async function getSalesItemAvailabilityByOrderIdInTx(
   }
 
   for (const row of manufacturingSupplyRows) {
-    const quantity = roundQuantity(
-      Number(row.quantity) - (allocatedManufacturingQtyByOrderId.get(row.id) ?? 0)
-    );
+    const quantity = roundQuantity(Number(row.quantity));
     if (!Number.isFinite(quantity) || quantity <= 0) continue;
     const linkedSalesOrderLineId =
       typeof row.linkedSalesOrderLineId === "string" ? row.linkedSalesOrderLineId : null;
@@ -473,10 +357,7 @@ async function getSalesItemAvailabilityByOrderIdInTx(
   for (const demand of [...positiveDemandLines].sort(compareAvailabilityLines)) {
     const linkedResult = applyAvailabilitySupply(
       demand,
-      [
-        ...(manualSupplyByLineId.get(demand.salesOrderLineId) ?? []),
-        ...(linkedManufacturingSupplyByLineId.get(demand.salesOrderLineId) ?? []),
-      ],
+      linkedManufacturingSupplyByLineId.get(demand.salesOrderLineId) ?? [],
       { ignoreRequiredDate: true }
     );
     if (linkedResult.covered) {

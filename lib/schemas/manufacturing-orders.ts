@@ -163,7 +163,6 @@ const baseManufacturingOrderSchema = createInsertSchema(manufacturingOrders, {
       .array(manufacturingIngredientLotAllocationSchema)
       .optional()
       .default([]),
-    autoAllocateIngredientLots: z.boolean().optional().default(false),
     confirmShortage: z.boolean().optional(),
   })
   .strict();
@@ -187,7 +186,6 @@ export const manufacturingOrderCreateFormSchema = z
     notes: nullableString,
     ingredients: cleanedIngredientRowsSchema,
     lotAllocations: z.array(manufacturingIngredientLotAllocationSchema).default([]),
-    autoAllocateIngredientLots: z.boolean().optional().default(true),
     confirmShortage: z.boolean().optional(),
   })
   .superRefine((values, ctx) => {
@@ -413,28 +411,6 @@ export type RecordManufacturingOutput = z.infer<
   typeof recordManufacturingOutputSchema
 >;
 
-export const saveManufacturingOutputAllocationSchema = z.object({
-  salesAllocations: z
-    .array(
-      z.object({
-        salesOrderLineId: z.string().uuid("Sales order line is required"),
-        quantity: positiveDecimalString("Quantity"),
-      })
-    )
-    .default([]),
-  productionAllocations: z
-    .array(
-      z.object({
-        ingredientId: z.string().uuid("Manufacturing ingredient is required"),
-        quantity: positiveDecimalString("Quantity"),
-      })
-    )
-    .default([]),
-});
-export type SaveManufacturingOutputAllocation = z.infer<
-  typeof saveManufacturingOutputAllocationSchema
->;
-
 export const createManufacturingOrdersFromSalesOrderSchema = z.object({
   manufacturingStrategy: z
     .enum(["make_to_order", "make_to_stock"])
@@ -469,7 +445,6 @@ export const manufacturingOrderDefaultValues: ManufacturingOrderCreateFormValues
   plannedDate: null,
   notes: null,
   lotAllocations: [],
-  autoAllocateIngredientLots: true,
   ingredients: [],
   confirmShortage: true,
 };

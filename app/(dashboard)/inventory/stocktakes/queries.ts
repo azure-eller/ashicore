@@ -23,7 +23,6 @@ import {
   projectedOnHandQty,
   projectedOnHandQtyExpr,
   projectedReservableOnHandQtyExpr,
-  reconcileInventoryLotAllocationsForItemsInTx,
   reconcileStocktakeCountInTx,
 } from "@/lib/inventory/kernel";
 import {
@@ -1294,28 +1293,6 @@ export async function completeStocktake(
           .set({ lotId, updatedAt: new Date() })
           .where(eq(stocktakeLotItems.id, line.stocktakeLineId));
       }
-    }
-
-    const lotCountedLines = countedLines.filter(
-      (line): line is CountedStocktakeCompletionLine & { lotId: string } =>
-        line.lotId != null
-    );
-    if (lotCountedLines.length > 0) {
-      await reconcileInventoryLotAllocationsForItemsInTx(tx, {
-        organizationId: orgId,
-        itemIds: lotCountedLines.map((line) => line.itemId),
-        lotIds: lotCountedLines.map((line) => line.lotId),
-        actorUserId: userId,
-      });
-    }
-
-    const itemCountedLines = countedLines.filter((line) => line.lotId == null);
-    if (itemCountedLines.length > 0) {
-      await reconcileInventoryLotAllocationsForItemsInTx(tx, {
-        organizationId: orgId,
-        itemIds: itemCountedLines.map((line) => line.itemId),
-        actorUserId: userId,
-      });
     }
 
     for (const line of countedLines) {

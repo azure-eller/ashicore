@@ -132,8 +132,8 @@ export type CreateManufacturingOrderInput = {
 
 /**
  * Creates an MO from the draft sheet — mirrors the item-card draft commit.
- * Auto-allocates lots (FIFO) on save and confirms shortages so the create
- * is a single inline action, just like typing a product name + quantity.
+ * Confirms shortages so create remains a single inline action, just like
+ * typing a product name + quantity.
  */
 export async function createManufacturingOrder(
   input: CreateManufacturingOrderInput,
@@ -148,7 +148,6 @@ export async function createManufacturingOrder(
       plannedDate: input.plannedDate,
       notes: input.notes ?? null,
       ingredients: input.ingredients,
-      autoAllocateIngredientLots: true,
       confirmShortage: true,
     },
   });
@@ -192,7 +191,6 @@ export async function saveManufacturingOrderIngredients(
       salesOrderId: header.salesOrderId,
       salesOrderLineId: header.salesOrderLineId,
       ingredients,
-      autoAllocateIngredientLots: true,
     },
   });
 }

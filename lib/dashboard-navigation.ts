@@ -60,15 +60,7 @@ export type DashboardRouteShell = {
   kind: "list" | "create" | "detail" | "settings" | "generic";
 };
 
-type DashboardNavigationOptions = {
-  salesAllocationMode?: "manual" | "demand_queue";
-};
-
-function filterNavItemsForOptions(
-  items: DashboardNavItem[],
-  _options?: DashboardNavigationOptions
-) {
-  void _options;
+function filterNavItemsForOptions(items: DashboardNavItem[]) {
   return items;
 }
 
@@ -158,15 +150,12 @@ const dashboardCreateActions: DashboardCreateAction[] = [
   },
 ];
 
-export function getDashboardNavModules(
-  assignedRoles: string[],
-  options?: DashboardNavigationOptions
-) {
+export function getDashboardNavModules(assignedRoles: string[]) {
   return dashboardNavModules
     .filter((module) => canReadModule(assignedRoles, module.module))
     .map((module) => ({
       ...module,
-      items: filterNavItemsForOptions(module.items, options),
+      items: filterNavItemsForOptions(module.items),
     }));
 }
 
@@ -177,10 +166,8 @@ export function getDashboardCreateActions(assignedRoles: string[]) {
 }
 
 export function getDashboardSearchActions(
-  assignedRoles: string[],
-  _options?: DashboardNavigationOptions
+  assignedRoles: string[]
 ): DashboardSearchAction[] {
-  void _options;
   const actions: DashboardSearchAction[] = [];
 
   if (canReadModule(assignedRoles, "sales")) {
@@ -208,7 +195,7 @@ export function getDashboardSearchActions(
       },
       {
         title: "Allocation",
-        description: "View open sales order manual reservations",
+        description: "View demand coverage",
         href: "/sales/allocation",
         icon: GridTableIcon,
         group: "Sales",

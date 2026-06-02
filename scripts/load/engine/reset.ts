@@ -173,20 +173,6 @@ const STEPS: CountStep[] = [
       `);
     },
   },
-  {
-    table: "inventory.stock_allocations",
-    count: (tx, orgId) =>
-      readCount(
-        tx,
-        sql`SELECT COUNT(*)::int AS n FROM inventory.stock_allocations WHERE organization_id = ${orgId}`
-      ),
-    delete: async (tx, orgId) => {
-      await tx.execute(
-        sql`DELETE FROM inventory.stock_allocations WHERE organization_id = ${orgId}`
-      );
-    },
-  },
-
   // ───────────── Manufacturing (children → parents) ─────────────
   {
     table: "manufacturing.manufacturing_pick_allocations",

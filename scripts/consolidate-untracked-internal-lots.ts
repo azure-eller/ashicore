@@ -102,14 +102,6 @@ async function assertNoBlockingState(
         AND disposition <> 'available'
         AND quantity <> 0
       UNION ALL
-      SELECT 'active_lot_allocation', COUNT(*)::text
-      FROM inventory.stock_allocations
-      WHERE organization_id = $1
-        AND item_id = $2
-        AND source_type = 'inventory_lot'
-        AND source_id = ANY($3::uuid[])
-        AND status = 'active'
-      UNION ALL
       SELECT 'draft_stocktake_lot', COUNT(*)::text
       FROM inventory.stocktake_lot_items sli
       INNER JOIN inventory.stocktake_items si
@@ -193,19 +185,6 @@ async function consolidateItem(
           AND lot_id = ANY($4::uuid[])
       `,
       [organizationId, itemId, canonicalLotId, oldLotIds]
-    );
-    await client.query(
-      `
-        UPDATE inventory.stock_allocations
-        SET source_id = $3,
-            source_label_snapshot = $5,
-            updated_at = now()
-        WHERE organization_id = $1
-          AND item_id = $2
-          AND source_type = 'inventory_lot'
-          AND source_id = ANY($4::uuid[])
-      `,
-      [organizationId, itemId, canonicalLotId, oldLotIds, INTERNAL_UNTRACKED_LOT_NUMBER]
     );
     await client.query(
       `
