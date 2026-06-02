@@ -448,11 +448,14 @@ test.describe("Team access", () => {
     );
     await accepted.context.close();
 
+    // An invited admin joins an already-set-up org, so signing in lands them in
+    // the app (the existing-user redirect), not the onboarding flow — same as the
+    // operator above. The team-management authz checks below are the real subject.
     const { context, page: adminPage } = await signInAsExistingUser(
       browser,
       adminEmail,
       adminPassword,
-      "/onboarding?plan=free"
+      "/sales/orders"
     );
     await adminPage.goto("/settings/team");
     await expect(adminPage.getByRole("heading", { name: "Team" })).toBeVisible();
