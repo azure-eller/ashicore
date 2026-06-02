@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import {
@@ -6,6 +6,8 @@ import {
   inventoryEvents,
   inventoryItemBalances,
   inventoryReservationsSummary,
+  accountingDocumentSyncs,
+  integrationConnections,
   salesOrderLines,
   salesOrders,
   salesShipmentLines,
@@ -19,6 +21,72 @@ import {
   getUnitId,
   testFetch,
 } from "../../helpers/api";
+
+const ACCOUNTING_PROVIDER_XERO = "xero";
+const ACCOUNTING_PROVIDER_QUICKBOOKS = "quickbooks";
+const ACCOUNTING_DOCUMENT_SALES_ORDER = "sales_order";
+
+async function withOnlyQuickBooksConnection<T>(
+  db: Parameters<Parameters<typeof test>[2]>[0]["db"],
+  fn: () => Promise<T>,
+) {
+  const existing = await db
+    .select()
+    .from(integrationConnections)
+    .where(
+      and(
+        eq(integrationConnections.organizationId, (await import("../../helpers/api")).getOrgId()),
+        inArray(integrationConnections.provider, [
+          ACCOUNTING_PROVIDER_XERO,
+          ACCOUNTING_PROVIDER_QUICKBOOKS,
+        ]),
+      ),
+    );
+
+  const { getOrgId } = await import("../../helpers/api");
+  await db
+    .delete(integrationConnections)
+    .where(
+      and(
+        eq(integrationConnections.organizationId, getOrgId()),
+        inArray(integrationConnections.provider, [
+          ACCOUNTING_PROVIDER_XERO,
+          ACCOUNTING_PROVIDER_QUICKBOOKS,
+        ]),
+      ),
+    );
+  await db.insert(integrationConnections).values({
+    organizationId: getOrgId(),
+    provider: ACCOUNTING_PROVIDER_QUICKBOOKS,
+    tenantId: "test-qb-tenant",
+    tenantName: "Test QuickBooks",
+    accessTokenCiphertext: "test-access",
+    refreshTokenCiphertext: "test-refresh",
+    tokenEncryptionKeyId: "test-key",
+    tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    defaultAccountCode: "QB-SALES",
+    purchaseOrderDefaultAccountCode: "QB-EXPENSE",
+  });
+
+  try {
+    return await fn();
+  } finally {
+    await db
+      .delete(integrationConnections)
+      .where(
+        and(
+          eq(integrationConnections.organizationId, getOrgId()),
+          inArray(integrationConnections.provider, [
+            ACCOUNTING_PROVIDER_XERO,
+            ACCOUNTING_PROVIDER_QUICKBOOKS,
+          ]),
+        ),
+      );
+    if (existing.length > 0) {
+      await db.insert(integrationConnections).values(existing);
+    }
+  }
+}
 
 test.describe("sales demand and shipment heartbeat", () => {
   const ts = Date.now();
@@ -426,6 +494,56 @@ test.describe("sales demand and shipment heartbeat", () => {
       referenceType: "sales_order",
       referenceId: higherPriorityOrder.body.id,
       quantity: 50,
+    });
+  });
+
+  test("QuickBooks invoice sync rejects taxable sales orders before external API", async ({
+    db,
+  }) => {
+    await withOnlyQuickBooksConnection(db, async () => {
+      const unique = Date.now().toString(36);
+      const productId = await createStockedProduct(`QBTax${unique}`, "10");
+      const customer = await createCustomer({
+        name: `Fast QuickBooks Tax Customer ${unique}`,
+      });
+      expect(customer.status).toBe(201);
+      const order = await createSalesOrder({
+        customerId: customer.body.id,
+        orderDate: "2026-05-09",
+        shipDate: "2026-05-10",
+        lines: [{ itemId: productId, quantity: "2", unitPrice: "15.00" }],
+      });
+      expect(order.status, JSON.stringify(order.body)).toBe(201);
+      await db
+        .update(salesOrderLines)
+        .set({ taxRatePercent: "5" })
+        .where(eq(salesOrderLines.salesOrderId, order.body.id));
+
+      const response = await testFetch(
+        `/api/sales-orders/${order.body.id}/accounting-push`,
+        { method: "POST" },
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.error).toBe(
+        "QuickBooks tax mapping is not available yet. Remove tax from this order before sending it to QuickBooks.",
+      );
+
+      const rows = await db
+        .select()
+        .from(accountingDocumentSyncs)
+        .where(
+          and(
+            eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_QUICKBOOKS),
+            eq(
+              accountingDocumentSyncs.documentType,
+              ACCOUNTING_DOCUMENT_SALES_ORDER,
+            ),
+            eq(accountingDocumentSyncs.documentId, order.body.id),
+          ),
+        );
+      expect(rows).toHaveLength(0);
     });
   });
 

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import { retryXeroPushForSalesOrder } from "@/app/(dashboard)/sales/queries";
+import { retryAccountingPushForSalesOrder } from "@/app/(dashboard)/sales/queries";
 import { XeroError } from "@/lib/xero/errors";
+import { QuickBooksError } from "@/lib/accounting/providers/quickbooks/client";
 import {
   accountingAuditErrorMetadata,
   tryRecordAccountingAuditEvent,
@@ -13,7 +14,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const context = await assertModuleWriteAccess("sales", request.headers);
 
   try {
-    const result = await retryXeroPushForSalesOrder(id);
+    const result = await retryAccountingPushForSalesOrder(id);
     await tryRecordAccountingAuditEvent({
       organizationId: context.orgId,
       actor: { type: "user", userId: context.userId },
@@ -26,7 +27,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     });
     return NextResponse.json(result.result);
   } catch (error) {
-    if (error instanceof XeroError) {
+    if (error instanceof XeroError || error instanceof QuickBooksError) {
       await tryRecordAccountingAuditEvent({
         organizationId: context.orgId,
         actor: { type: "user", userId: context.userId },

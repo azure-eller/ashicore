@@ -847,6 +847,7 @@ function QuickBooksRow({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const [defaultsOpen, setDefaultsOpen] = useState(false);
   const [summary, setSummary] = useState<{
     created: number;
     updated: number;
@@ -911,6 +912,15 @@ function QuickBooksRow({
             />
           ) : null}
           {isConnected && canManageConnection ? (
+            <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setDefaultsOpen(true)}
+            >
+              <HugeiconsIcon icon={Settings02Icon} strokeWidth={2} />
+              Defaults
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -919,6 +929,7 @@ function QuickBooksRow({
             >
               Disconnect
             </Button>
+            </>
           ) : !isConnected && canManageConnection ? (
             <Button size="sm" asChild>
               <a href="/api/quickbooks/connect">Connect</a>
@@ -954,7 +965,152 @@ function QuickBooksRow({
           <FieldError>{error}</FieldError>
         </ListFrameItem>
       ) : null}
+      {isConnected ? (
+        <QuickBooksDefaultsDialog
+          open={defaultsOpen}
+          connection={connection}
+          onOpenChange={setDefaultsOpen}
+        />
+      ) : null}
     </AccountingProviderCard>
+  );
+}
+
+function QuickBooksDefaultsDialog({
+  open,
+  connection,
+  onOpenChange,
+}: {
+  open: boolean;
+  connection: AccountingConnectionSummary;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const router = useRouter();
+  const [salesAccountCode, setSalesAccountCode] = useState(
+    connection.defaultAccountCode ?? ""
+  );
+  const [purchaseAccountCode, setPurchaseAccountCode] = useState(
+    connection.purchaseOrderDefaultAccountCode ?? ""
+  );
+  const [formError, setFormError] = useState<string | null>(null);
+  const accountsQuery = useQuery({
+    queryKey: ["quickbooks-accounts", connection.tenantId],
+    enabled: open,
+    queryFn: () =>
+      apiJson<{ accounts: XeroAccountOption[] }>(
+        `/api/accounting/connections/${ACCOUNTING_PROVIDER_QUICKBOOKS}/accounts`,
+        { fallbackError: "Failed to load QuickBooks accounts." }
+      ),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      apiJson<void>(
+        `/api/accounting/connections/${ACCOUNTING_PROVIDER_QUICKBOOKS}/settings`,
+        {
+          method: "PUT",
+          body: {
+            defaultAccountCode: salesAccountCode.trim() || null,
+            purchaseOrderDefaultAccountCode:
+              purchaseAccountCode.trim() || null,
+          },
+          fallbackError: "Failed to save QuickBooks defaults.",
+        }
+      ),
+    onSuccess: () => {
+      onOpenChange(false);
+      router.refresh();
+    },
+    onError: (err) => setFormError((err as Error).message),
+  });
+
+  const accounts = accountsQuery.data?.accounts ?? [];
+  const accountLabel = (code: string) => {
+    const account = accounts.find((entry) => entry.code === code);
+    if (!account) return code;
+    const metadata = [account.type, account.class].filter(Boolean).join(" · ");
+    return `${account.name}${metadata ? ` (${metadata})` : ""}`;
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="lg">
+        <DialogHeader>
+          <DialogTitle>QuickBooks defaults</DialogTitle>
+          <DialogDescription>
+            Accounts used when sales invoices and purchase bills are sent to QuickBooks.
+          </DialogDescription>
+        </DialogHeader>
+        {formError ? <FieldError>{formError}</FieldError> : null}
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="quickbooks-sales-account">
+              Sales invoice account
+            </FieldLabel>
+            <Select value={salesAccountCode} onValueChange={setSalesAccountCode}>
+              <SelectTrigger id="quickbooks-sales-account" className="w-full">
+                <SelectValue placeholder="Choose account" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map((account) => (
+                  <SelectItem key={account.code} value={account.code}>
+                    {accountLabel(account.code)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="quickbooks-purchase-account">
+              Purchase bill account
+            </FieldLabel>
+            <Select
+              value={purchaseAccountCode}
+              onValueChange={setPurchaseAccountCode}
+            >
+              <SelectTrigger id="quickbooks-purchase-account" className="w-full">
+                <SelectValue placeholder="Choose account" />
+              </SelectTrigger>
+              <SelectContent>
+                {accounts.map((account) => (
+                  <SelectItem key={account.code} value={account.code}>
+                    {accountLabel(account.code)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        </FieldGroup>
+        {accountsQuery.error ? (
+          <FieldError>
+            {accountsQuery.error instanceof Error
+              ? accountsQuery.error.message
+              : "Failed to load QuickBooks accounts."}
+          </FieldError>
+        ) : null}
+        <DialogFooter justify="between">
+          <p className="flex items-center gap-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
+            <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} />
+            Changes apply to new exports.
+          </p>
+          <div className="flex gap-(--space-4)">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => saveMutation.mutate()}
+              disabled={
+                saveMutation.isPending ||
+                salesAccountCode.trim() === "" ||
+                purchaseAccountCode.trim() === ""
+              }
+            >
+              {saveMutation.isPending ? "Saving..." : "Save defaults"}
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

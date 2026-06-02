@@ -59,6 +59,7 @@ import { useSalesOrderDraftController } from "./use-sales-order-draft-controller
 export type XeroInvoiceSetupStatus =
   | "not_connected"
   | "missing_sales_account"
+  | "provider_conflict"
   | "ready";
 
 export type OrderCardProps = {
@@ -71,6 +72,7 @@ export type OrderCardProps = {
   addressOptions?: SalesAddressOption[];
   canViewLedger?: boolean;
   xeroInvoiceSetupStatus?: XeroInvoiceSetupStatus;
+  accountingProviderLabel?: string | null;
   taxRates?: SalesOrderTaxRateOption[];
   defaultTaxRateId?: string | null;
 };
@@ -84,6 +86,7 @@ export function OrderCard({
   addressOptions = [],
   canViewLedger,
   xeroInvoiceSetupStatus,
+  accountingProviderLabel,
   taxRates = initialOrder?.taxRates ?? [],
   defaultTaxRateId = initialOrder?.defaultTaxRateId ?? null,
 }: OrderCardProps) {
@@ -198,7 +201,7 @@ export function OrderCard({
       await apiJson<void>(`/api/sales-orders/${currentOrderId}/accounting-push`, {
         method: "POST",
         idempotencyKey: "retryXeroPushForSalesOrder",
-        fallbackError: "Failed to send invoice to Xero.",
+        fallbackError: `Failed to send invoice to ${accountingProviderLabel ?? "accounting"}.`,
       });
     },
     onMutate: () => setActionError(null),
@@ -253,7 +256,7 @@ export function OrderCard({
                 {
                   label: orderXeroPushMutation.isPending
                     ? "Sending invoice..."
-                    : "Send invoice to Xero",
+                    : `Send invoice to ${accountingProviderLabel ?? "accounting"}`,
                   onClick: () => orderXeroPushMutation.mutate(),
                   disabled: orderXeroPushMutation.isPending,
                 },

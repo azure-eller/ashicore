@@ -14,12 +14,16 @@ import {
   SalesError,
   updateSalesOrder,
 } from "@/app/(dashboard)/sales/queries";
+import { getActiveAccountingProvider } from "@/lib/dal/accounting";
 
 
 export const GET = apiHandler(async (_request: Request, ctx: unknown) => {
   await assertModuleReadAccess("sales", _request.headers);
   const { id } = await (ctx as RouteContext).params;
-  const order = await getSalesOrder(id);
+  const active = await getActiveAccountingProvider();
+  const order = await getSalesOrder(id, {
+    accountingProvider: active.status === "ready" ? active.provider : undefined,
+  });
 
   if (!order) {
     return jsonNotFound("Order not found");

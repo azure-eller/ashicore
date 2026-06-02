@@ -10,12 +10,16 @@ import {
   PurchasingError,
   updatePurchaseOrder,
 } from "@/app/(dashboard)/purchasing/queries";
+import { getActiveAccountingProvider } from "@/lib/dal/accounting";
 
 
 export const GET = apiHandler(async (_request: Request, ctx: unknown) => {
   await assertModuleReadAccess("purchasing", _request.headers);
   const { id } = await (ctx as RouteContext).params;
-  const order = await getPurchaseOrder(id);
+  const active = await getActiveAccountingProvider();
+  const order = await getPurchaseOrder(id, {
+    accountingProvider: active.status === "ready" ? active.provider : undefined,
+  });
 
   if (!order) {
     return jsonNotFound("Purchase order not found");

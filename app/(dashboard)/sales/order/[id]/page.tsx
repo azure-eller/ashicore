@@ -8,7 +8,7 @@ import {
 import { hasModuleAccess } from "@/lib/authz";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { getAddressEntries } from "@/lib/dal/addresses";
-import { getXeroConnection } from "@/lib/dal/xero";
+import { getActiveAccountingProvider } from "@/lib/dal/accounting";
 
 export default async function OrderDetailPage({
   params,
@@ -18,23 +18,30 @@ export default async function OrderDetailPage({
   const context = await requireModuleReadAccess("sales");
   const { id } = await params;
 
-  const [order, xeroConnection, customerOptions, itemOptions, addressEntries] = await Promise.all([
-    getSalesOrder(id, { includeDeleted: true }),
-    getXeroConnection(),
+  const [activeAccounting, customerOptions, itemOptions, addressEntries] = await Promise.all([
+    getActiveAccountingProvider(),
     getSalesOrderCustomerOptions(),
     getSalesOrderItemOptions(),
     getAddressEntries(),
   ]);
+  const order = await getSalesOrder(id, {
+    includeDeleted: true,
+    accountingProvider:
+      activeAccounting.status === "ready" ? activeAccounting.provider : undefined,
+  });
 
   if (!order) {
     redirect("/sales/orders");
   }
 
-  const xeroInvoiceSetupStatus = !xeroConnection
-    ? "not_connected"
-    : xeroConnection.defaultAccountCode
-      ? "ready"
-      : "missing_sales_account";
+  const accountingInvoiceSetupStatus =
+    activeAccounting.status === "conflict"
+      ? "provider_conflict"
+      : activeAccounting.status === "none"
+        ? "not_connected"
+        : activeAccounting.connection.defaultAccountCode
+          ? "ready"
+          : "missing_sales_account";
 
   return (
     <OrderCard
@@ -56,7 +63,8 @@ export default async function OrderDetailPage({
       }))}
       itemOptions={itemOptions}
       canViewLedger={hasModuleAccess(context.assignedRoles, "inventory", "read")}
-      xeroInvoiceSetupStatus={xeroInvoiceSetupStatus}
+      xeroInvoiceSetupStatus={accountingInvoiceSetupStatus}
+      accountingProviderLabel={activeAccounting.label}
     />
   );
 }

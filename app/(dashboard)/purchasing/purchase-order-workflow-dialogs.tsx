@@ -88,6 +88,7 @@ type PurchaseBillDialogProps = {
   hasAdditionalCosts: boolean;
   additionalCostTotal: string;
   xeroAccounts?: XeroAccountOption[];
+  providerLabel?: string;
   error?: string | null;
   pending?: boolean;
   onValuesChange: (values: PurchaseBillDialogValues) => void;
@@ -286,6 +287,7 @@ export function PurchaseBillDialog({
   hasAdditionalCosts,
   additionalCostTotal,
   xeroAccounts = [],
+  providerLabel = "Xero",
   error,
   pending = false,
   onValuesChange,
@@ -296,9 +298,9 @@ export function PurchaseBillDialog({
     <Dialog open={open} onOpenChange={pending ? undefined : onOpenChange}>
       <DialogContent size="md">
         <DialogHeader>
-          <DialogTitle>Create Xero bill</DialogTitle>
+          <DialogTitle>Create {providerLabel} bill</DialogTitle>
           <DialogDescription>
-            Creates a draft supplier bill in Xero for all purchase order lines.
+            Creates a supplier bill in {providerLabel} for all purchase order lines.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">

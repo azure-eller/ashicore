@@ -43,7 +43,11 @@ import {
   variantOptions,
   variantOptionValues,
 } from "@/lib/db/schema";
-import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
+import {
+  ACCOUNTING_DOCUMENT_SALES_ORDER,
+  ACCOUNTING_PROVIDER_XERO,
+} from "@/lib/accounting/sync-state";
+import type { AccountingProvider } from "@/lib/accounting/constants";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import {
@@ -6200,7 +6204,7 @@ export async function getSalesShippingQueue(): Promise<SalesShippingQueueRow[]> 
 
 export async function getSalesOrder(
   id: string,
-  options?: { includeDeleted?: boolean }
+  options?: { includeDeleted?: boolean; accountingProvider?: AccountingProvider }
 ): Promise<SalesOrderDetail | null> {
   return withAuthedOrgContext(async (tx, orgId) => {
     const orderConditions = [eq(salesOrders.id, id)];
@@ -6269,8 +6273,11 @@ export async function getSalesOrder(
       .leftJoin(
         accountingDocumentSyncs,
         and(
-          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
-          eq(accountingDocumentSyncs.documentType, "sales_order"),
+          eq(
+            accountingDocumentSyncs.provider,
+            options?.accountingProvider ?? ACCOUNTING_PROVIDER_XERO
+          ),
+          eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_SALES_ORDER),
           eq(accountingDocumentSyncs.documentId, salesOrders.id)
         )
       )
@@ -9114,6 +9121,55 @@ export async function retryXeroPushForSalesOrder(id: string) {
       await markXeroPushFailed(orgId, id, error);
       throw error;
     }
+  });
+}
+
+export async function retryAccountingPushForSalesOrder(id: string) {
+  return withAuthedOrgContext(async (_tx, orgId) => {
+    const { getActiveAccountingProviderForOrg } = await import(
+      "@/lib/dal/accounting"
+    );
+    const active = await getActiveAccountingProviderForOrg(orgId);
+    if (active.status === "none") {
+      const { DomainError } = await import("@/lib/errors/domain-error");
+      throw new DomainError("Connect an accounting provider before sending invoices.", 409);
+    }
+    if (active.status === "conflict") {
+      const { DomainError } = await import("@/lib/errors/domain-error");
+      throw new DomainError(
+        "Disconnect either Xero or QuickBooks before sending invoices.",
+        409
+      );
+    }
+
+    if (active.provider === "quickbooks") {
+      const {
+        pushSalesOrderToQuickBooks,
+        markQuickBooksInvoicePushFailed,
+      } = await import(
+        "@/lib/accounting/providers/quickbooks/push-invoice"
+      );
+      const { QuickBooksError } = await import(
+        "@/lib/accounting/providers/quickbooks/client"
+      );
+
+      try {
+        const result = await pushSalesOrderToQuickBooks(orgId, id);
+        return { ok: true as const, provider: active.provider, result };
+      } catch (error) {
+        if (
+          error instanceof QuickBooksError &&
+          (error.status === 400 || error.status === 404 || error.status === 409)
+        ) {
+          throw error;
+        }
+        await markQuickBooksInvoicePushFailed(orgId, id, error);
+        throw error;
+      }
+    }
+
+    const result = await retryXeroPushForSalesOrder(id);
+    return { ...result, provider: active.provider };
   });
 }
 

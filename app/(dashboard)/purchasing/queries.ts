@@ -27,6 +27,7 @@ import {
   ATTACHMENT_OWNER_PURCHASE_ORDER,
   persistAccountingDocumentPushSuccess,
 } from "@/lib/accounting/sync-state";
+import type { AccountingProvider } from "@/lib/accounting/constants";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import {
@@ -1192,7 +1193,7 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
 
 export async function getPurchaseOrder(
   id: string,
-  options?: { includeDeleted?: boolean },
+  options?: { includeDeleted?: boolean; accountingProvider?: AccountingProvider },
 ): Promise<PurchaseOrderDetail | null> {
   return withAuthedOrgContext(async (tx, orgId) => {
     const conditions = [eq(purchaseOrders.id, id)];
@@ -1260,7 +1261,10 @@ export async function getPurchaseOrder(
       .leftJoin(
         purchaseBillSyncs,
         and(
-          eq(purchaseBillSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(
+            purchaseBillSyncs.provider,
+            options?.accountingProvider ?? ACCOUNTING_PROVIDER_XERO
+          ),
           eq(purchaseBillSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_BILL),
           eq(purchaseBillSyncs.documentId, purchaseOrders.id),
         ),
@@ -1334,6 +1338,7 @@ export async function getPurchaseOrder(
 
 export async function getEditablePurchaseOrder(
   id: string,
+  options?: { accountingProvider?: AccountingProvider },
 ): Promise<PurchaseOrderEditData | null> {
   return withAuthedOrgContext(async (tx, orgId) => {
     const [order] = await tx
@@ -1375,7 +1380,10 @@ export async function getEditablePurchaseOrder(
       .leftJoin(
         purchaseBillSyncs,
         and(
-          eq(purchaseBillSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(
+            purchaseBillSyncs.provider,
+            options?.accountingProvider ?? ACCOUNTING_PROVIDER_XERO
+          ),
           eq(purchaseBillSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_BILL),
           eq(purchaseBillSyncs.documentId, purchaseOrders.id),
         ),
@@ -1909,7 +1917,6 @@ export async function updatePurchaseOrder(
       .from(accountingDocumentSyncs)
       .where(
         and(
-          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
           eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_BILL),
           eq(accountingDocumentSyncs.documentId, id),
         ),
@@ -1920,7 +1927,7 @@ export async function updatePurchaseOrder(
       purchaseBillSync.externalDocumentId
     ) {
       throw new PurchasingError(
-        "This purchase order already has a Xero bill. Void it in Xero before editing the purchase order.",
+        "This purchase order already has an accounting bill. Void it in the accounting provider before editing the purchase order.",
         409,
       );
     }
@@ -2354,6 +2361,60 @@ export async function createPurchaseBillAccountingSync(
   data: CreatePurchaseBill,
 ) {
   return withAuthedOrgContext(async (tx, orgId) => {
+    const { getActiveAccountingProviderForOrg } = await import(
+      "@/lib/dal/accounting"
+    );
+    const active = await getActiveAccountingProviderForOrg(orgId);
+    if (active.status === "none") {
+      throw new PurchasingError(
+        "Connect an accounting provider before creating supplier bills.",
+        409,
+      );
+    }
+    if (active.status === "conflict") {
+      throw new PurchasingError(
+        "Disconnect either Xero or QuickBooks before creating supplier bills.",
+        409,
+      );
+    }
+
+    if (active.provider === "quickbooks") {
+      const { createPurchaseBillInQuickBooks, markQuickBooksBillPushFailed } =
+        await import("@/lib/accounting/providers/quickbooks/push-bill");
+      const { QuickBooksError } = await import(
+        "@/lib/accounting/providers/quickbooks/client"
+      );
+      try {
+        const result = await createPurchaseBillInQuickBooks(orgId, id, data);
+        return { ok: true as const, result };
+      } catch (error) {
+        const [sync] = await tx
+          .select({ pushStatus: accountingDocumentSyncs.pushStatus })
+          .from(accountingDocumentSyncs)
+          .where(
+            and(
+              eq(accountingDocumentSyncs.provider, active.provider),
+              eq(
+                accountingDocumentSyncs.documentType,
+                ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+              ),
+              eq(accountingDocumentSyncs.documentId, id),
+            ),
+          );
+
+        const isExpectedPreflight =
+          error instanceof QuickBooksError &&
+          (error.status === 404 ||
+            error.message.includes("not connected") ||
+            error.message.includes("already running"));
+
+        if (sync?.pushStatus === "pending" && !isExpectedPreflight) {
+          await markQuickBooksBillPushFailed(orgId, id, error);
+        }
+        throw error;
+      }
+    }
+
     const { createPurchaseBillAccountingSync, markXeroPurchaseBillPushFailed } =
       await import("@/lib/xero/push-purchase-bill");
     const { XeroError } = await import("@/lib/xero/errors");

@@ -7,7 +7,7 @@ import {
 } from "@/app/(dashboard)/purchasing/queries";
 import { getAddressEntries } from "@/lib/dal/addresses";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
-import { getXeroConnection } from "@/lib/dal/xero";
+import { getActiveAccountingProvider } from "@/lib/dal/accounting";
 import { hasModuleAccess } from "@/lib/authz";
 import { captureAppError } from "@/lib/observability/sentry";
 
@@ -32,16 +32,19 @@ export default async function PurchaseOrderDetailPage({
   let suppliers;
   let materials;
   let addresses;
-  let xeroConnection;
+  let activeAccounting;
 
   try {
-    [order, suppliers, materials, addresses, xeroConnection] = await Promise.all([
-      getEditablePurchaseOrder(id),
+    [activeAccounting, suppliers, materials, addresses] = await Promise.all([
+      getActiveAccountingProvider(),
       getSuppliers(),
       getPurchaseOrderMaterialOptions(),
       getAddressEntries(),
-      getXeroConnection(),
     ]);
+    order = await getEditablePurchaseOrder(id, {
+      accountingProvider:
+        activeAccounting.status === "ready" ? activeAccounting.provider : undefined,
+    });
   } catch (error) {
     captureAppError(error, {
       route: "/purchasing/order/[id]",
@@ -79,14 +82,20 @@ export default async function PurchaseOrderDetailPage({
       userName={context.name}
       organizationName={context.organizationName}
       xeroBillSetupStatus={
-        !xeroConnection
-          ? "not_connected"
-          : "ready"
+        activeAccounting.status === "conflict"
+          ? "provider_conflict"
+          : activeAccounting.status === "none"
+            ? "not_connected"
+            : "ready"
       }
       xeroPurchaseBillDefaultAccountCode={
-        xeroConnection?.purchaseOrderDefaultAccountCode ??
-        xeroConnection?.defaultAccountCode ??
-        null
+        activeAccounting.status === "ready"
+          ? activeAccounting.connection.purchaseOrderDefaultAccountCode ??
+            activeAccounting.connection.defaultAccountCode
+          : null
+      }
+      accountingProviderLabel={
+        activeAccounting.status === "ready" ? activeAccounting.label : null
       }
     />
   );

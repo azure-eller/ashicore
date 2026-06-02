@@ -145,6 +145,7 @@ type PurchaseOrderFormAttachment = {
 
 export type XeroBillSetupStatus =
   | "not_connected"
+  | "provider_conflict"
   | "ready";
 
 const ACCOUNTING_NOT_CONNECTED_MESSAGE =
@@ -758,6 +759,7 @@ export function PurchaseOrderCard({
   organizationName = "Ashicore",
   xeroBillSetupStatus = "not_connected",
   xeroPurchaseBillDefaultAccountCode = null,
+  accountingProviderLabel = null,
   taxRates = initialData?.taxRates ?? [],
   defaultTaxRateId = initialData?.defaultTaxRateId ?? null,
 }: {
@@ -774,6 +776,7 @@ export function PurchaseOrderCard({
   organizationName?: string;
   xeroBillSetupStatus?: XeroBillSetupStatus;
   xeroPurchaseBillDefaultAccountCode?: string | null;
+  accountingProviderLabel?: string | null;
   taxRates?: PurchaseOrderTaxRateOption[];
   defaultTaxRateId?: string | null;
 }) {
@@ -841,10 +844,14 @@ export function PurchaseOrderCard({
       };
     });
   const xeroAccountsQuery = useQuery({
-    queryKey: ["xero-accounts"],
+    queryKey: ["accounting-accounts", accountingProviderLabel],
     enabled: xeroBillSetupStatus === "ready",
     queryFn: async () => {
-      const response = await fetch("/api/xero/accounts");
+      const provider =
+        accountingProviderLabel === "QuickBooks" ? "quickbooks" : "xero";
+      const response = await fetch(
+        `/api/accounting/connections/${provider}/accounts`
+      );
       if (!response.ok) {
         const body = await response.json().catch(() => null);
         throw new Error(body?.error ?? "Failed to load accounting accounts.");
@@ -2062,6 +2069,10 @@ export function PurchaseOrderCard({
       setFormError(ACCOUNTING_NOT_CONNECTED_MESSAGE);
       return;
     }
+    if (xeroBillSetupStatus === "provider_conflict") {
+      setFormError("Disconnect either Xero or QuickBooks before creating supplier bills.");
+      return;
+    }
 
     setFormError(null);
     setPurchaseBillDialogOpen(true);
@@ -2436,6 +2447,7 @@ export function PurchaseOrderCard({
         hasAdditionalCosts={hasAdditionalCostsForBill}
         additionalCostTotal={additionalCostsForBillTotal.toFixed(4)}
         xeroAccounts={xeroAccounts}
+        providerLabel={accountingProviderLabel ?? "Xero"}
         error={
           purchaseBillMutation.error instanceof Error
             ? purchaseBillMutation.error.message

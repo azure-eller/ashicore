@@ -19,6 +19,7 @@ const QUICKBOOKS_SCOPE = "com.intuit.quickbooks.accounting";
 const QUICKBOOKS_AUTH_URL = "https://appcenter.intuit.com/connect/oauth2";
 const QUICKBOOKS_TOKEN_URL =
   "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
+const QUICKBOOKS_REQUEST_TIMEOUT_MS = 90_000;
 
 type ConnectionRow = typeof integrationConnections.$inferSelect;
 
@@ -62,6 +63,26 @@ function buildBasicAuthHeader() {
   ).toString("base64")}`;
 }
 
+async function quickBooksFetch(url: string, init: RequestInit) {
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: init.signal ?? AbortSignal.timeout(QUICKBOOKS_REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (
+      error instanceof DOMException &&
+      (error.name === "AbortError" || error.name === "TimeoutError")
+    ) {
+      throw new QuickBooksError(
+        "QuickBooks did not respond within 90 seconds. Try again in a moment.",
+        504
+      );
+    }
+    throw error;
+  }
+}
+
 export function buildQuickBooksAuthorizationUrl(state: string) {
   const url = new URL(QUICKBOOKS_AUTH_URL);
   url.searchParams.set("client_id", requireEnv("QUICKBOOKS_CLIENT_ID"));
@@ -73,7 +94,7 @@ export function buildQuickBooksAuthorizationUrl(state: string) {
 }
 
 async function exchangeToken(params: URLSearchParams) {
-  const response = await fetch(QUICKBOOKS_TOKEN_URL, {
+  const response = await quickBooksFetch(QUICKBOOKS_TOKEN_URL, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -273,7 +294,7 @@ export async function quickBooksRequest<T>(
   init?: RequestInit
 ) {
   const authed = await getAuthedQuickBooksConnection(orgId);
-  const response = await fetch(
+  const response = await quickBooksFetch(
     `${getQuickBooksApiBaseUrl()}/v3/company/${authed.realmId}${endpoint}`,
     {
       ...init,
@@ -296,4 +317,12 @@ export async function quickBooksRequest<T>(
     );
   }
   return body as T;
+}
+
+export function quickBooksQueryEndpoint(query: string) {
+  return `/query?query=${encodeURIComponent(query)}`;
+}
+
+export function quickBooksSqlString(value: string) {
+  return `'${value.replaceAll("\\", "\\\\").replaceAll("'", "\\'")}'`;
 }

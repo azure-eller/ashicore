@@ -14,6 +14,7 @@
     "db:local:setup": "tsx scripts/setup-local-db.ts",
     "dev:seed-user": "tsx scripts/seed-dev-user.ts",
     "xero:smoke": "tsx scripts/xero-smoke.ts",
+    "quickbooks:smoke": "tsx scripts/quickbooks-smoke.ts",
     "verify:xero-token-crypto": "tsx scripts/verify-xero-token-crypto.ts",
     "verify:editable-lines": "tsx scripts/verify-editable-lines.ts",
     "rotate:xero-token-key": "tsx scripts/rotate-xero-token-key.ts",

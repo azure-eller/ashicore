@@ -5,9 +5,12 @@ import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { createXeroClient } from "@/lib/xero/client";
 import { tryRecordAccountingAuditEvent } from "@/lib/accounting/audit-events";
 import { getAccountingOAuthStateCookieOptions } from "@/lib/accounting/oauth-cookies";
+import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/constants";
+import { assertNoOtherAccountingConnection } from "@/lib/dal/accounting";
 
 export const GET = apiHandler(async () => {
   const context = await requireModuleWriteAccess("sales");
+  await assertNoOtherAccountingConnection(context.orgId, ACCOUNTING_PROVIDER_XERO);
 
   const state = randomBytes(24).toString("hex");
   const client = createXeroClient();

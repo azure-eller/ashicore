@@ -18,6 +18,8 @@ export {
 
 export const ACCOUNTING_DOCUMENT_PURCHASE_ORDER = "purchase_order";
 export const ACCOUNTING_DOCUMENT_PURCHASE_BILL = "purchase_bill";
+export const ACCOUNTING_DOCUMENT_SALES_ORDER = "sales_order";
+export const ACCOUNTING_DOCUMENT_SALES_SHIPMENT = "sales_shipment";
 export const ATTACHMENT_OWNER_PURCHASE_ORDER = "purchase_order";
 
 type AttachmentFile = typeof attachmentFiles.$inferSelect;
