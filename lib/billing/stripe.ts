@@ -105,11 +105,18 @@ export async function createCheckoutSession({
   orgName,
   userEmail,
   idempotencyKey,
+  successPath,
+  cancelPath,
 }: {
   orgId: string;
   orgName: string;
   userEmail: string;
   idempotencyKey: string;
+  // Where Stripe sends the user back. Defaults to the billing settings page; the
+  // onboarding flow overrides these so the user returns into the guided flow to
+  // finalize (commit) their import after payment.
+  successPath?: string;
+  cancelPath?: string;
 }) {
   const config = getBillingConfig({ requireCorePriceId: true });
   const stripe = getStripeClient(config);
@@ -175,8 +182,8 @@ export async function createCheckoutSession({
       mode: "subscription",
       customer: stripeCustomerId,
       line_items: [{ price: corePriceId, quantity: 1 }],
-      success_url: appUrl("/settings/billing?success=1"),
-      cancel_url: appUrl("/settings/billing"),
+      success_url: appUrl(successPath ?? "/settings/billing?success=1"),
+      cancel_url: appUrl(cancelPath ?? "/settings/billing"),
       metadata: { organizationId: orgId },
       subscription_data: {
         metadata: { organizationId: orgId },

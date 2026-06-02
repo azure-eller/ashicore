@@ -33,7 +33,7 @@ import { supplierDefaultValues } from "@/lib/schemas/suppliers";
 import { customerDefaultValues } from "@/lib/schemas/customers";
 import type { PrivateFileUpload } from "@/lib/blob-storage";
 import { businessDateToUtcDate, hashImportPackage } from "./hash";
-import { getSkuImportLimitForOrg } from "./entitlements";
+import { getSkuImportLimitInTx } from "./entitlements";
 import {
   importPackageSchema,
   type ImportPackage,
@@ -412,7 +412,7 @@ async function validateImportPackageInTx(
     }
   }
 
-  const limit = await getSkuImportLimitForOrg(orgId);
+  const limit = await getSkuImportLimitInTx(tx, orgId);
   if (limit != null) {
     const [{ count }] = await tx
       .select({ count: sql<number>`count(*)::int` })
@@ -605,7 +605,10 @@ async function writeFailure(sessionId: string, message: string) {
 
 export async function approveImportSession(
   sessionId: string,
-  input: z.infer<typeof approveImportSessionSchema>,
+  // `previewHash` is the optimistic-concurrency guard for the interactive review
+  // approve (free path). The post-payment finalize commit (paid path) omits it —
+  // the stored package is the source of truth and is re-validated server-side.
+  input: { previewHash?: string },
 ) {
   try {
     return await withAuthedOrgContext(async (tx, orgId, userId) => {
@@ -632,7 +635,7 @@ export async function approveImportSession(
           extra: { preview },
         });
       }
-      if (input.previewHash !== preview.hash) {
+      if (input.previewHash && input.previewHash !== preview.hash) {
         throw new DomainError("Import data changed. Review it again before approving.", 409);
       }
 

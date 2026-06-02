@@ -1,8 +1,9 @@
 import type { BillingPlanIntent } from "@/lib/billing/plan-intent";
+import { FREE_SKU_LIMIT } from "@/lib/billing/types";
 import { cn } from "@/lib/utils";
 
 function planLabel(plan: BillingPlanIntent) {
-  return plan === "paid" ? "Paid · $199/mo" : "Free · 30 SKUs";
+  return plan === "paid" ? "Paid · $199/mo" : `Free · ${FREE_SKU_LIMIT} SKUs`;
 }
 
 // One continuous progress model for the whole onboarding journey — shared by the

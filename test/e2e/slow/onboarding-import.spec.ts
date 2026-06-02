@@ -9,9 +9,11 @@ import {
   inventoryEvents,
   items,
   onboardingSessions,
+  organization,
   suppliers,
   user,
 } from "../../../lib/db/schema";
+import { FREE_SKU_LIMIT } from "../../../lib/billing/types";
 import { getBaseUrl, getSessionCookie, testFetch } from "../../helpers/api";
 import { expectResponse, uniqueName } from "./story-helpers";
 
@@ -78,6 +80,32 @@ async function reviewAndApprove(params: {
   );
   expectResponse(approve, 200);
   return approve.json();
+}
+
+function productsPackage(count: number, skuPrefix: string): ImportPackage {
+  return {
+    version: "1",
+    openingStockAsOf: "2026-06-01",
+    units: [{ tempId: "unit-each", name: "Each", size: "1", uom: "ea" }],
+    suppliers: [],
+    customers: [],
+    items: Array.from({ length: count }, (_, index) => ({
+      tempId: `item-${index}`,
+      itemType: "product",
+      name: `${skuPrefix} Item ${index}`,
+      sku: `${skuPrefix}-${index}`,
+      unitRef: "unit-each",
+      sellable: true,
+      defaultSellingPrice: "10.00",
+      lotTrackingMode: "tracked",
+      match: { suggestion: "create" },
+      provenance: [{ fileId: "fixture", location: `row ${index}` }],
+      confidence: 1,
+    })),
+    openingStock: [],
+    boms: [],
+    unresolvedQuestions: [],
+  };
 }
 
 test.describe("onboarding import operating story", () => {
@@ -541,5 +569,114 @@ test.describe("onboarding import operating story", () => {
       .from(customers)
       .where(eq(customers.name, skippedCustomerName));
     expect(skippedCustomers).toHaveLength(0);
+  });
+
+  test("paid intent holds commit until payment; free intent enforces the SKU cap", async ({
+    page,
+    db,
+  }) => {
+    const baseUrl = getBaseUrl();
+    const req = page.context().request;
+    const suffix = Date.now();
+    const headers = { Origin: baseUrl };
+    const password = "TestPassword123!";
+
+    async function freshOrg(label: string) {
+      await page.context().clearCookies();
+      const email = `onb-${label}-${suffix}@example.com`;
+      const signUp = await req.post(`${baseUrl}/api/auth/sign-up/email`, {
+        data: { name: label, email, password },
+        headers,
+      });
+      expect(signUp.status()).toBe(200);
+      const createOrg = await req.post(`${baseUrl}/api/auth/organization/create`, {
+        data: { name: `${label} ${suffix}`, slug: `${label}-${suffix}` },
+        headers,
+      });
+      expect(createOrg.status()).toBe(200);
+      const created = await createOrg.json();
+      const organizationId =
+        typeof created?.id === "string" ? created.id : created?.organization?.id;
+      const setActive = await req.post(`${baseUrl}/api/auth/organization/set-active`, {
+        data: { organizationId },
+        headers,
+      });
+      expect(setActive.status()).toBe(200);
+      return organizationId as string;
+    }
+
+    async function uploadImport(selectedPlan: "free" | "paid") {
+      const session = await req.post(`${baseUrl}/api/onboarding/session`, {
+        data: { selectedPlan, currentStep: "import" },
+        headers,
+      });
+      expect(session.status()).toBe(200);
+      const upload = await req.post(`${baseUrl}/api/onboarding/imports`, {
+        multipart: {
+          file: {
+            name: "import.csv",
+            mimeType: "text/csv",
+            buffer: Buffer.from("source,rows\nfixture,reviewed\n"),
+          },
+        },
+      });
+      expect(upload.status()).toBe(201);
+      return (await upload.json()).session.id as string;
+    }
+
+    function patchPackage(sessionId: string, pkg: ImportPackage) {
+      return req.fetch(`${baseUrl}/api/onboarding/imports/${sessionId}`, {
+        method: "PATCH",
+        headers,
+        data: { openingStockAsOf: pkg.openingStockAsOf, includeBoms: false, package: pkg },
+      });
+    }
+
+    // Free intent over the cap is surfaced as a blocking SKU-limit issue at review.
+    await freshOrg("freecap");
+    const freeSession = await uploadImport("free");
+    const overCap = await patchPackage(
+      freeSession,
+      productsPackage(FREE_SKU_LIMIT + 1, `FCAP-${suffix}`),
+    );
+    expect(overCap.status()).toBe(200);
+    const overBody = await overCap.json();
+    expect(
+      overBody.preview.issues.some((issue: { message: string }) =>
+        /SKU limit/i.test(issue.message),
+      ),
+    ).toBe(true);
+    expect(overBody.preview.blockingIssueCount).toBeGreaterThan(0);
+
+    // Paid intent: nothing commits until the org is actually paid.
+    const paidOrg = await freshOrg("paidcommit");
+    const paidSession = await uploadImport("paid");
+    const cleanPkg = productsPackage(1, `PCAP-${suffix}`);
+    const patched = await patchPackage(paidSession, cleanPkg);
+    expect(patched.status()).toBe(200);
+    const patchedBody = await patched.json();
+    expect(patchedBody.preview.blockingIssueCount).toBe(0);
+
+    // Approve is refused before payment (nothing is written to the DB).
+    const earlyApprove = await req.post(
+      `${baseUrl}/api/onboarding/imports/${paidSession}/approve`,
+      { headers, data: { previewHash: patchedBody.preview.hash } },
+    );
+    expect(earlyApprove.status()).toBe(402);
+
+    // Once payment lands (simulated by flipping the org to core), finalize commits.
+    await db
+      .update(organization)
+      .set({ plan: "core", status: "active" })
+      .where(eq(organization.id, paidOrg));
+
+    const finalize = await req.post(
+      `${baseUrl}/api/onboarding/imports/${paidSession}/finalize`,
+      { headers, data: {} },
+    );
+    expect(finalize.status()).toBe(200);
+    const finalizeBody = await finalize.json();
+    expect(finalizeBody.committed).toBe(true);
+    expect(finalizeBody.commitSummary.items).toBe(1);
   });
 });

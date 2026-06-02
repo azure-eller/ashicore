@@ -1,43 +1,56 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { jsonError } from "@/lib/api/responses";
-import { parseJsonBody } from "@/lib/api/request-body";
 import { deletePrivateBlobsIfConfigured } from "@/lib/blob-storage";
 import { deleteLocalAttachment } from "@/lib/attachments/local-file-storage";
 import { assertOnboardingImportAccess } from "@/lib/onboarding/import/access";
 import {
   approveImportSession,
-  approveImportSessionSchema,
+  getImportSession,
   serializeImportSession,
 } from "@/lib/onboarding/import/sessions";
-import {
-  getCurrentOnboardingSession,
-  updateCurrentOnboardingProgress,
-} from "@/lib/onboarding/session";
+import { updateCurrentOnboardingProgress } from "@/lib/onboarding/session";
 import { getBillingStateByOrgId } from "@/lib/billing/dal";
+import { syncOrgBillingFromStripe } from "@/lib/billing/stripe";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Paid path: commit the staged import once the org has actually paid. Reached when
+// the user returns from Stripe checkout at the end of onboarding.
 export const POST = apiHandler(async (request: Request, context: unknown) => {
   const member = await assertOnboardingImportAccess(request.headers);
   const { id } = await (context as RouteContext).params;
-  const data = await parseJsonBody(request, approveImportSessionSchema);
+  const orgId = member.orgId;
 
-  // Paid intent commits only after payment, via the finalize route. Refuse the
-  // direct commit here unless the org is genuinely paid (so nothing is written
-  // to the DB before the user has paid).
-  const onboarding = await getCurrentOnboardingSession();
-  if (onboarding?.selectedPlan === "paid") {
-    const billing = await getBillingStateByOrgId(member.orgId);
-    if (billing?.plan !== "core") {
-      return jsonError("Complete payment to import your data.", 402);
-    }
+  // Idempotent: a refresh / double-submit after a successful commit just succeeds.
+  const existing = await getImportSession(id);
+  if (existing.session.committedAt) {
+    return NextResponse.json({
+      session: serializeImportSession(existing.session),
+      commitSummary: existing.session.commitSummary,
+      committed: true,
+    });
   }
 
-  // Free intent (or already-paid org): commit now. The inventory kernel enforces
-  // the free SKU ceiling, so a free org can never commit past the limit.
-  const result = await approveImportSession(id, data);
+  // Require a genuinely paid org before the (unlimited) commit. The Stripe webhook
+  // normally flips the plan; pull directly in case the redirect beat the webhook.
+  let plan = (await getBillingStateByOrgId(orgId))?.plan ?? null;
+  if (plan !== "core") {
+    try {
+      plan = (await syncOrgBillingFromStripe(orgId))?.plan ?? plan;
+    } catch {
+      // Stripe unreachable/unconfigured — fall through to the 402 below.
+    }
+  }
+  if (plan !== "core") {
+    return jsonError(
+      "Payment isn't confirmed yet. If you just paid, give it a moment and try again.",
+      402,
+    );
+  }
+
+  const result = await approveImportSession(id, {});
   if (process.env.BLOB_READ_WRITE_TOKEN) {
     await deletePrivateBlobsIfConfigured(result.storageKeysToDelete);
   } else {
@@ -50,7 +63,6 @@ export const POST = apiHandler(async (request: Request, context: unknown) => {
   await updateCurrentOnboardingProgress({ status: "connecting", currentStep: "connect" });
   return NextResponse.json({
     session: serializeImportSession(result.session),
-    preview: result.preview,
     commitSummary: result.commitSummary,
     committed: true,
   });

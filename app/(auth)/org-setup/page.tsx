@@ -43,7 +43,10 @@ export default async function Page({
     <OrgSetupForm
       organizations={organizations}
       plan={plan ?? undefined}
-      continueToOnboarding={plan != null}
+      // A brand-new owner (no orgs yet) always continues into onboarding; existing
+      // signed-in users only onboard when they explicitly carried a plan intent
+      // (preserves the existing-user redirect fix).
+      continueToOnboarding={plan != null || organizations.length === 0}
     />
   );
 }
