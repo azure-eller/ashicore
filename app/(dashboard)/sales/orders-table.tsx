@@ -452,7 +452,9 @@ function OrdersTableContent({
       autoSizeSalesOrderStatusColumns(gridApiRef.current);
     }
   }, [displayedOrders.length]);
-  const reorderEnabled = statusFilter === "open";
+  const hasSearchFilter = searchValue.trim().length > 0;
+  const reorderEnabled =
+    statusFilter === "open" && !hasSearchFilter && !hasActiveSort;
   const filterSummary = statusFilter === "done" ? "Done" : "Open";
   const gridColumns = useMemo<ColDef<SalesOrderListRow>[]>(
     () => [

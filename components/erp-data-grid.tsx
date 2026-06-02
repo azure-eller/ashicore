@@ -230,6 +230,10 @@ function serializeGridState(state: ERPGridPersistentState | undefined) {
   return JSON.stringify(state ?? {});
 }
 
+function gridHasActiveSort<TData>(api: GridApi<TData>) {
+  return api.getColumnState().some((column) => column.sort != null);
+}
+
 function getGridVerticalScrollViewport(root: HTMLDivElement | null) {
   return (
     root?.querySelector<HTMLElement>(".ag-body-vertical-scroll-viewport") ??
@@ -393,9 +397,12 @@ export function ERPDataGrid<TData extends { id: string }>({
       lastPersistedGridStateRef.current = serialized;
       window.setTimeout(() => {
         applyingPersistedGridStateRef.current = false;
+        if (!api.isDestroyed()) {
+          onSortChange?.(gridHasActiveSort(api));
+        }
       }, 0);
     },
-    []
+    [onSortChange]
   );
 
   const bindVerticalScrollViewport = useCallback(() => {
@@ -670,6 +677,7 @@ export function ERPDataGrid<TData extends { id: string }>({
             gridApiRef.current = event.api;
             applyPersistedGridState(persistedGridState);
             window.setTimeout(bindVerticalScrollViewport, 0);
+            onSortChange?.(gridHasActiveSort(event.api));
             onGridReady?.(event);
           }}
           onFirstDataRendered={(event: FirstDataRenderedEvent<TData>) => {
@@ -679,9 +687,7 @@ export function ERPDataGrid<TData extends { id: string }>({
           onRowDragEnd={handleRowDragEnd}
           onStateUpdated={handleStateUpdated}
           onSortChanged={(event: SortChangedEvent<TData>) => {
-            onSortChange?.(
-              event.api.getColumnState().some((column) => column.sort != null)
-            );
+            onSortChange?.(gridHasActiveSort(event.api));
           }}
         />
       </div>

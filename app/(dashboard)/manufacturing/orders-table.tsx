@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ICellRendererParams } from "ag-grid-community";
-import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+import type { GridApi, ICellRendererParams } from "ag-grid-community";
+import { Add01Icon, Delete02Icon, Sorting05Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { apiJson } from "@/lib/client/api";
 import { usePersistentViewState } from "@/lib/client/use-persistent-view-state";
@@ -80,20 +80,21 @@ type ManufacturingWorkflowFilterValue = WorkflowStatusFilterValue;
 const ALL_RESOURCES_FILTER = "__all";
 const NO_RESOURCE_FILTER = "__none";
 
-function keepManufacturingRankDraggable(
+function keepManufacturingRankVisible(
   grid: ERPGridPersistentState | undefined
 ): ERPGridPersistentState | undefined {
   if (!grid) return undefined;
 
+  const hiddenColIds = grid.columnVisibility?.hiddenColIds;
+  if (!hiddenColIds?.includes("priorityRank")) {
+    return grid;
+  }
+
   return {
     ...grid,
-    sort: undefined,
     columnVisibility: {
       ...grid.columnVisibility,
-      hiddenColIds:
-        grid.columnVisibility?.hiddenColIds?.filter(
-          (colId) => colId !== "priorityRank"
-        ) ?? [],
+      hiddenColIds: hiddenColIds.filter((colId) => colId !== "priorityRank"),
     },
   };
 }
@@ -371,12 +372,14 @@ export function OrdersTable({
   initialData: ManufacturingOrderListRow[];
 }) {
   const queryClient = useQueryClient();
+  const gridApiRef = useRef<GridApi<ManufacturingOrderListRow> | null>(null);
   const [statusFilter, setStatusFilter] =
     useState<ManufacturingWorkflowFilterValue>("open");
   const [resourceFilter, setResourceFilter] = useState(ALL_RESOURCES_FILTER);
   const [searchValue, setSearchValue] = useState("");
   const [selectedOrders, setSelectedOrders] = useState<ManufacturingOrderListRow[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [hasActiveSort, setHasActiveSort] = useState(false);
   const [ordersPreference, setOrdersPreference] = usePersistentViewState({
     viewKey: MANUFACTURING_ORDERS_VIEW_KEY,
     defaultValue: DEFAULT_MANUFACTURING_ORDERS_PREFERENCE,
@@ -459,9 +462,14 @@ export function OrdersTable({
 
     return [...filteredOrders].sort(compareManufacturingRank);
   }, [effectiveResourceFilter, statusFilter, statusFilteredOrders]);
-  const reorderEnabled = statusFilter === "open";
+  const hasSearchFilter = searchValue.trim().length > 0;
+  const reorderEnabled =
+    statusFilter === "open" &&
+    !hasSearchFilter &&
+    effectiveResourceFilter === ALL_RESOURCES_FILTER &&
+    !hasActiveSort;
   const persistedGridState = useMemo(
-    () => keepManufacturingRankDraggable(ordersPreference.grid),
+    () => keepManufacturingRankVisible(ordersPreference.grid),
     [ordersPreference.grid]
   );
   const gridColumns = useMemo<ColDef<ManufacturingOrderListRow>[]>(
@@ -654,6 +662,12 @@ export function OrdersTable({
     },
   });
   const selectedCount = selectedOrders.length;
+  const clearSort = () => {
+    gridApiRef.current?.applyColumnState({
+      defaultState: { sort: null },
+    });
+    setHasActiveSort(false);
+  };
 
   return (
     <>
@@ -670,11 +684,15 @@ export function OrdersTable({
         suppressMoveWhenRowDragging
         resetRowDataOnUpdate
         relaxResizableMaxWidth
+        onGridReady={(event) => {
+          gridApiRef.current = event.api;
+        }}
+        onSortChange={setHasActiveSort}
         persistedGridState={persistedGridState}
         onPersistedGridStateChange={(grid) => {
           setOrdersPreference((current) => ({
             ...current,
-            grid: keepManufacturingRankDraggable(grid),
+            grid: keepManufacturingRankVisible(grid),
           }));
         }}
         onManagedRowDragReorder={(orderedRows) => {
@@ -699,6 +717,15 @@ export function OrdersTable({
               orderCount={statusFilteredOrders.length}
               onValueChange={setResourceFilter}
             />
+            {hasActiveSort ? (
+              <>
+                <div className="h-(--space-10) w-px bg-border" />
+                <Button type="button" variant="secondary" size="sm" onClick={clearSort}>
+                  <HugeiconsIcon icon={Sorting05Icon} data-icon="inline-start" />
+                  Reset sort
+                </Button>
+              </>
+            ) : null}
             <Button
               type="button"
               variant="destructive"
