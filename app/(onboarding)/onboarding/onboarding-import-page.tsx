@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import type { BillingPlanIntent } from "@/lib/billing/plan-intent";
+import { FREE_SKU_LIMIT } from "@/lib/billing/types";
 import type { CellValueChangedEvent, ColDef, ICellRendererParams } from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -19,6 +21,14 @@ import { ProgressMeter } from "@/components/progress-meter";
 import { SurfacePanel } from "@/components/surface-panel";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { StatusLabel } from "@/components/ui/status-label";
@@ -185,8 +195,6 @@ const entityTabs: Array<{ id: EntityTab; label: string }> = [
 ];
 
 const supportedTypes = [".csv", ".xlsx", ".pdf", "images", "screenshots"];
-const onboardingPlanStorageKey = "ashicore:onboarding-plan";
-const allowedPlanIntents = new Set(["free", "paid"]);
 const inviteRoleOptions: Array<{ value: AccessPresetKey; label: string }> = [
   { value: "admin", label: "Admin" },
   { value: "ops_manager", label: "Ops Manager" },
@@ -218,13 +226,6 @@ function confidenceTone(value: number) {
   if (value >= 0.85) return "success";
   if (value >= 0.6) return "warning";
   return "danger";
-}
-
-function getPlanIntent() {
-  if (typeof window === "undefined") return null;
-  const plan = window.sessionStorage.getItem(onboardingPlanStorageKey);
-  if (plan === "launch") return "free";
-  return plan && allowedPlanIntents.has(plan) ? plan : null;
 }
 
 function fileStatusLabel(status?: string) {
@@ -547,11 +548,14 @@ function CountTab({
   );
 }
 
-export function OnboardingImportPage() {
+export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const startedRef = useRef(false);
+  const finalizeStartedRef = useRef(false);
   const [flowStep, setFlowStep] = useState<FlowStep>("invite");
+  const [planIntent, setPlanIntent] = useState<BillingPlanIntent>(plan ?? "free");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [inviteRows, setInviteRows] = useState<InviteRow[]>(() => [createInviteRow()]);
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
@@ -564,20 +568,28 @@ export function OnboardingImportPage() {
   const [dirty, setDirty] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [commitSummary, setCommitSummary] = useState<Record<string, number> | null>(null);
+  const [committed, setCommitted] = useState(false);
   const [onboardingReady, setOnboardingReady] = useState(false);
+  // The approve gate: a paid org pays here; a free org over the SKU cap is offered
+  // the upgrade-or-trim choice. Null = no dialog (free + within cap commits directly).
+  const [approveDialog, setApproveDialog] = useState<null | "pay" | "upsell">(null);
+  const [finalizing, setFinalizing] = useState(false);
 
   const startMutation = useMutation({
-    mutationFn: () => {
-      const selectedPlan = getPlanIntent();
-      return apiJson<OnboardingSessionResponse>("/api/onboarding/session", {
+    mutationFn: () =>
+      apiJson<OnboardingSessionResponse>("/api/onboarding/session", {
         method: "POST",
-        body: JSON.stringify(selectedPlan ? { selectedPlan } : {}),
-      });
-    },
+        // Only assert the plan when the URL carried it (first entry). On the Stripe
+        // return there's no plan param, so we preserve the persisted intent.
+        body: JSON.stringify(plan ? { selectedPlan: plan } : {}),
+      }),
     onSuccess: (data) => {
       if (!data.session) return;
       setFlowStep(data.session.currentStep ?? "import");
       setSessionId(data.session.importSessionId);
+      if (data.session.selectedPlan === "free" || data.session.selectedPlan === "paid") {
+        setPlanIntent(data.session.selectedPlan);
+      }
       if (data.session.invitesDraft?.length) {
         setInviteRows(
           data.session.invitesDraft.map((invite) => ({
@@ -661,10 +673,59 @@ export function OnboardingImportPage() {
     },
     onSuccess: (data) => {
       setCommitSummary(data.commitSummary ?? data.session.commitSummary ?? null);
+      setCommitted(true);
+      setApproveDialog(null);
       setFlowStep("connect");
       setMessage(null);
     },
     onError: (error) => setMessage(error instanceof Error ? error.message : String(error)),
+  });
+
+  // Paid path: open Stripe checkout from the approve gate. On return the finalize
+  // effect commits the (now-paid) import.
+  const checkoutMutation = useMutation({
+    mutationFn: () =>
+      apiJson<{ url?: string }>("/api/billing/checkout", {
+        method: "POST",
+        headers: { "Idempotency-Key": `onboarding-${sessionId ?? "checkout"}` },
+        body: JSON.stringify({ flow: "onboarding" }),
+      }),
+    onSuccess: (data) => {
+      if (data.url) {
+        window.location.assign(data.url);
+      } else {
+        setMessage("Could not start checkout. Please try again.");
+      }
+    },
+    onError: (error) => setMessage(error instanceof Error ? error.message : String(error)),
+  });
+
+  // Paid path: commit the import once the org has actually paid. Retries a few
+  // times to absorb webhook lag between the Stripe redirect and the plan flip.
+  const finalizeMutation = useMutation({
+    retry: 6,
+    retryDelay: 2500,
+    mutationFn: (id: string) =>
+      apiJson<ImportSessionResponse>(`/api/onboarding/imports/${id}/finalize`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onMutate: () => setFinalizing(true),
+    onSuccess: (data) => {
+      setCommitSummary(data.commitSummary ?? data.session.commitSummary ?? null);
+      setCommitted(true);
+      setFinalizing(false);
+      setFlowStep("connect");
+      setMessage(null);
+    },
+    onError: (error) => {
+      setFinalizing(false);
+      setMessage(
+        error instanceof Error
+          ? `${error.message} You can retry once your payment is confirmed.`
+          : String(error),
+      );
+    },
   });
 
   const progressMutation = useMutation({
@@ -726,6 +787,18 @@ export function OnboardingImportPage() {
     return () => window.clearInterval(timer);
   }, [flowStep, sessionId, fetchImportMutation]);
 
+  // Returning from a successful Stripe checkout (paid path): commit the now-paid
+  // import. (`onMutate` flips the finalizing flag; the cancel case is derived in
+  // render, so this effect performs no synchronous state updates.)
+  useEffect(() => {
+    if (searchParams.get("checkout") !== "success" || !onboardingReady) return;
+    if (!sessionId || committed || finalizeStartedRef.current) return;
+    finalizeStartedRef.current = true;
+    finalizeMutation.mutate(sessionId);
+  }, [searchParams, onboardingReady, sessionId, committed, finalizeMutation]);
+
+  const paymentCanceled = searchParams.get("checkout") === "cancel" && !committed;
+
   const counts = useMemo(
     () =>
       reviewPackage
@@ -763,6 +836,30 @@ export function OnboardingImportPage() {
       0,
     );
   }, [reviewPackage]);
+
+  // New SKUs this import would create (selected items marked "create").
+  const selectedNewSkuCount = useMemo(() => {
+    if (!reviewPackage) return 0;
+    return reviewPackage.items.filter(
+      (item) => item.review?.selected !== false && item.match.suggestion === "create",
+    ).length;
+  }, [reviewPackage]);
+
+  const blockingIssues = useMemo(
+    () => (preview?.issues ?? []).filter((issue) => issue.severity === "blocking"),
+    [preview],
+  );
+  // The SKU-cap "blocker" is handled by the approve dialog (upgrade/trim), not by
+  // disabling the button — so it must not count as a hard blocker here.
+  const skuLimitBlocking = blockingIssues.some((issue) => /SKU limit/i.test(issue.message));
+  const hasOtherBlocking = blockingIssues.some((issue) => !/SKU limit/i.test(issue.message));
+  const overFreeLimit = planIntent === "free" && (skuLimitBlocking || selectedNewSkuCount > FREE_SKU_LIMIT);
+  const approveDisabled =
+    dirty ||
+    approveMutation.isPending ||
+    validateMutation.isPending ||
+    !preview?.hash ||
+    hasOtherBlocking;
 
   const columns = useMemo<Array<ColDef<ReviewRow>>>(
     () => [
@@ -854,14 +951,70 @@ export function OnboardingImportPage() {
     uploadMutation.mutate(stagedFiles);
   }
 
-  function finishOnboarding() {
+  // The approve gate: where payment / the SKU-cap choice happens, before anything
+  // is written to the DB.
+  function handleApproveClick() {
+    if (approveDisabled) return;
+    if (planIntent === "paid") {
+      setApproveDialog("pay");
+      return;
+    }
+    if (overFreeLimit) {
+      setApproveDialog("upsell");
+      return;
+    }
+    approveMutation.mutate();
+  }
+
+  // From the upsell dialog: keep all the data by moving to Pro, then pay.
+  async function upgradeToPaid() {
+    setPlanIntent("paid");
+    setApproveDialog("pay");
+    try {
+      await progressMutation.mutateAsync({ selectedPlan: "paid" });
+    } catch {
+      // non-fatal; the chip/intent are already updated locally
+    }
+    // Re-validate so the free SKU-cap blocker clears (paid has no cap).
+    validateMutation.mutate();
+  }
+
+  // From the pay dialog: drop back to Free instead of paying.
+  async function downgradeToFree() {
+    setPlanIntent("free");
+    setApproveDialog(null);
+    try {
+      await progressMutation.mutateAsync({ selectedPlan: "free" });
+    } catch {
+      // non-fatal
+    }
+    validateMutation.mutate();
+  }
+
+  function enterWorkspace() {
     progressMutation.mutate({ status: "completed", currentStep: "done" });
+    router.push("/");
+  }
+
+  // Connect step → done (payment already happened at the approve gate, so this is
+  // just the final review screen; completion is marked when entering the app).
+  function proceedToDone() {
+    progressMutation.mutate({ currentStep: "done" });
     setFlowStep("done");
   }
 
   return (
     <div className="flex min-h-svh flex-col bg-background">
-      <OnboardingProgress activeIndex={onboardingActiveIndex(flowStep)} />
+      <OnboardingProgress activeIndex={onboardingActiveIndex(flowStep)} plan={planIntent} />
+
+      {finalizing ? (
+        <div className="fixed inset-0 z-50 grid place-content-center justify-items-center gap-(--space-4) bg-background text-center">
+          <Spinner className="size-6" />
+          <p className="text-[length:var(--text-sm)] text-muted-foreground">
+            Confirming your payment and importing your data…
+          </p>
+        </div>
+      ) : null}
 
       {flowStep === "invite" ? (
         <main className="onboarding-flow-screen mx-auto grid w-full max-w-5xl flex-1 content-center gap-(--space-10) p-(--space-8) lg:grid-cols-[minmax(0,360px)_minmax(0,420px)] lg:justify-center lg:gap-(--space-16)">
@@ -1140,16 +1293,10 @@ export function OnboardingImportPage() {
             <Button
               type="button"
               variant="ghost"
-              onClick={() => approveMutation.mutate()}
-              disabled={
-                dirty ||
-                approveMutation.isPending ||
-                validateMutation.isPending ||
-                !preview?.hash ||
-                preview.blockingIssueCount > 0
-              }
+              onClick={handleApproveClick}
+              disabled={approveDisabled}
             >
-              Approve all & continue
+              {planIntent === "paid" ? "Approve & pay" : "Approve all & continue"}
             </Button>
           </div>
 
@@ -1207,6 +1354,11 @@ export function OnboardingImportPage() {
                 <Checkbox checked={includeBoms} onCheckedChange={(value) => setIncludeBoms(value === true)} />
                 Create BOM revisions
               </label>
+              {paymentCanceled ? (
+                <span className="text-[length:var(--text-sm)] text-[var(--color-warning)]">
+                  Payment canceled — your data isn&apos;t imported yet. You can pay when you&apos;re ready.
+                </span>
+              ) : null}
               {message ? <span className="text-[length:var(--text-sm)] text-muted-foreground">{message}</span> : null}
             </div>
             <div className="flex gap-(--space-3)">
@@ -1226,18 +1378,12 @@ export function OnboardingImportPage() {
               >
                 {dirty ? "Update preview" : "Revalidate"}
               </Button>
-              <Button
-                type="button"
-                onClick={() => approveMutation.mutate()}
-                disabled={
-                  dirty ||
-                  approveMutation.isPending ||
-                  validateMutation.isPending ||
-                  !preview?.hash ||
-                  preview.blockingIssueCount > 0
-                }
-              >
-                Approve {approvedCount} & continue
+              <Button type="button" onClick={handleApproveClick} disabled={approveDisabled}>
+                {planIntent === "paid"
+                  ? "Approve & pay"
+                  : overFreeLimit
+                    ? "Approve & continue"
+                    : `Approve ${approvedCount} & continue`}
               </Button>
             </div>
           </div>
@@ -1286,10 +1432,10 @@ export function OnboardingImportPage() {
             ))}
           </div>
           <div className="flex justify-center gap-(--space-3)">
-            <Button type="button" variant="outline" onClick={finishOnboarding}>
+            <Button type="button" variant="outline" onClick={proceedToDone}>
               Skip for now
             </Button>
-            <Button type="button" onClick={finishOnboarding}>
+            <Button type="button" onClick={proceedToDone}>
               Continue
             </Button>
           </div>
@@ -1322,7 +1468,7 @@ export function OnboardingImportPage() {
               </SurfacePanel>
             ))}
           </div>
-          <Button type="button" onClick={() => router.push("/")}>
+          <Button type="button" onClick={enterWorkspace}>
             Enter your workspace
           </Button>
           <div className="grid justify-items-center gap-(--space-3)">
@@ -1335,6 +1481,76 @@ export function OnboardingImportPage() {
           </div>
         </main>
       ) : null}
+
+      <Dialog
+        open={approveDialog !== null}
+        onOpenChange={(open) => {
+          if (!open) setApproveDialog(null);
+        }}
+      >
+        <DialogContent>
+          {approveDialog === "pay" ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Start your Pro plan</DialogTitle>
+                <DialogDescription>
+                  Pro is $199/mo — unlimited SKUs, locations and integrations. You&apos;ll
+                  go to secure checkout, then your data imports automatically. Nothing is
+                  saved until your payment goes through.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={downgradeToFree}
+                  disabled={checkoutMutation.isPending}
+                >
+                  Switch to Free
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => checkoutMutation.mutate()}
+                  disabled={
+                    checkoutMutation.isPending ||
+                    validateMutation.isPending ||
+                    hasOtherBlocking ||
+                    !preview?.hash
+                  }
+                >
+                  {checkoutMutation.isPending ? "Starting checkout…" : "Pay & import"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : approveDialog === "upsell" ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>That&apos;s more than the Free plan holds</DialogTitle>
+                <DialogDescription>
+                  Your import adds {selectedNewSkuCount} items, and Free includes{" "}
+                  {FREE_SKU_LIMIT}. Keep everything by upgrading to Pro, or unselect some
+                  items in the table to stay on Free.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    setApproveDialog(null);
+                    setActiveTab("items");
+                  }}
+                >
+                  Unselect some items
+                </Button>
+                <Button type="button" onClick={upgradeToPaid}>
+                  Upgrade to Pro
+                </Button>
+              </DialogFooter>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

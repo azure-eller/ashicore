@@ -27,6 +27,7 @@ import {
   BillingEntitlementError,
   getSkuEntitlementInTx,
 } from "../../../lib/billing/entitlements";
+import { FREE_SKU_LIMIT } from "../../../lib/billing/types";
 import { withOrgContext } from "../../../lib/db/with-org-context";
 import {
   consumeStockFifoInTx,
@@ -1048,7 +1049,7 @@ test.describe("inventory mutation kernel heartbeat", () => {
         .returning({ id: unitDefinitions.id });
 
       await tx.insert(items).values(
-        Array.from({ length: 30 }, (_, index) => ({
+        Array.from({ length: FREE_SKU_LIMIT }, (_, index) => ({
           organizationId: billingOrgId,
           name: `Billing Fast Item ${index}`,
           sku: `BILL-FAST-${id}-${index}`,
@@ -1065,7 +1066,7 @@ test.describe("inventory mutation kernel heartbeat", () => {
       );
 
       const freeEntitlement = await getSkuEntitlementInTx(tx, billingOrgId);
-      expect(freeEntitlement.skuCount).toBe(30);
+      expect(freeEntitlement.skuCount).toBe(FREE_SKU_LIMIT);
       expect(freeEntitlement.canCreateSku).toBe(false);
       await expect(assertCanCreateSkuInTx(tx, billingOrgId)).rejects.toBeInstanceOf(
         BillingEntitlementError,

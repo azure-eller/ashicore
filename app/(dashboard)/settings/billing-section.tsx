@@ -5,6 +5,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert02Icon, CreditCardIcon, RefreshIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { apiJson } from "@/lib/client/api";
+import { FREE_SKU_LIMIT } from "@/lib/billing/types";
 import type { BillingPageData } from "./types";
 import {
   SettingsKeyValueRow,
@@ -173,7 +174,7 @@ export function BillingSection({
                 <div className="font-medium">Core ends {periodEnd ?? "at period end"}</div>
                 <div className="mt-(--space-1) text-muted-foreground">
                   You will keep all current data, but will not be able to add new
-                  SKUs beyond the Free limit of 30. You currently have{" "}
+                  SKUs beyond the Free limit of {FREE_SKU_LIMIT}. You currently have{" "}
                   {initialData.skuCount}.
                 </div>
               </div>

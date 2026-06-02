@@ -3,7 +3,11 @@ import { hasModuleAccess } from "@/lib/authz";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { OnboardingImportPage } from "./onboarding-import-page";
 
-export default async function OnboardingPage() {
+export default async function OnboardingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ plan?: string }>;
+}) {
   const context = await getAuthedMemberContext();
   const canImport =
     context.role === "owner" ||
@@ -15,5 +19,10 @@ export default async function OnboardingPage() {
     redirect("/");
   }
 
-  return <OnboardingImportPage />;
+  // Pass the plan intent only when the URL actually carries it. On the Stripe
+  // return (`?checkout=success`) there is no plan param, so we leave it undefined
+  // and let the persisted onboarding session remain the source of truth.
+  const { plan } = await searchParams;
+  const planIntent = plan === "paid" ? "paid" : plan === "free" ? "free" : undefined;
+  return <OnboardingImportPage plan={planIntent} />;
 }

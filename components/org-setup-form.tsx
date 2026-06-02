@@ -13,14 +13,9 @@ import { Input } from "@/components/ui/input"
 import { OnboardingAuthShell } from "@/components/onboarding-auth-shell"
 import { authClient } from "@/lib/auth-client"
 import { type BillingPlanIntent } from "@/lib/billing/plan-intent"
-import { apiJson } from "@/lib/client/api"
 
 const DEFAULT_APP_ENTRY_PATH = "/sales/orders"
 const NEW_ORG_ENTRY_PATH = "/onboarding"
-
-type BillingActionResponse = {
-  url?: string
-}
 
 type OrganizationOption = {
   id: string
@@ -52,23 +47,9 @@ export function OrgSetupForm({
       return
     }
 
-    if (selectedPlan !== "paid") {
-      router.replace(`${NEW_ORG_ENTRY_PATH}?plan=free`)
-      return
-    }
-
-    const response = await apiJson<BillingActionResponse>("/api/billing/checkout", {
-      method: "POST",
-      idempotencyKey: "billing-checkout",
-      fallbackError: "Could not start billing checkout.",
-    })
-
-    if (response.url) {
-      window.location.assign(response.url)
-      return
-    }
-
-    router.replace(DEFAULT_APP_ENTRY_PATH)
+    // Both free and paid enter the same guided onboarding flow. For paid, payment
+    // is collected within the flow (at the approve gate), not here.
+    router.replace(`${NEW_ORG_ENTRY_PATH}?plan=${selectedPlan}`)
   }, [continueToOnboarding, router, selectedPlan])
 
   useEffect(() => {
@@ -284,13 +265,7 @@ export function OrgSetupForm({
               )}
               <Field>
                 <Button type="submit" disabled={loading} className="w-full">
-                  {loading
-                    ? selectedPlan === "paid"
-                      ? "Preparing checkout..."
-                      : "Creating..."
-                    : selectedPlan === "paid"
-                      ? "Continue to checkout"
-                      : "Continue"}
+                  {loading ? "Creating..." : "Continue"}
                 </Button>
               </Field>
             </FieldGroup>

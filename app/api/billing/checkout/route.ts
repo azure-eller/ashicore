@@ -12,12 +12,20 @@ export const POST = apiHandler(async (request) => {
   const context = await assertTeamManagementAccess(request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "billingCheckout");
 
+  const body = (await request
+    .clone()
+    .json()
+    .catch(() => null)) as { flow?: unknown } | null;
+  const onboarding = body?.flow === "onboarding";
+
   try {
     const session = await createCheckoutSession({
       orgId: context.orgId,
       orgName: context.organizationName,
       userEmail: context.email,
       idempotencyKey,
+      successPath: onboarding ? "/onboarding?checkout=success" : undefined,
+      cancelPath: onboarding ? "/onboarding?checkout=cancel" : undefined,
     });
 
     return NextResponse.json({ url: session.url });
