@@ -1,191 +1,369 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
+import { SIGN_UP_URL } from "../lib/site";
 ---
 
 <BaseLayout
   title="Ashicore"
-  description="Enterprise-grade operations software for small manufacturers. Ashicore connects inventory, batches, production, purchasing, sales orders, and fulfillment in one operating core."
+  description="Ashicore is the batch-manufacturing ERP that onboards itself. Upload spreadsheets, photos, PDFs, and QuickBooks exports to structure inventory, recipes, lots, and orders in hours."
   path="/"
 >
-  <main>
-    <section class="hero">
-      <div class="hero-grid">
+  <main id="top">
+
+<!-- ===================== HERO ===================== -->
+<section class="section hero">
+  <div class="topo" id="topo"></div>
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <span class="eyebrow reveal">ERP for soil, mulch &amp; compost producers</span>
+      <h1 class="h-display reveal d1">Onboard in <span class="hl">hours</span>, not months.</h1>
+      <p class="lede reveal d2">ashicore is the batch-manufacturing ERP that onboards itself. Hand us your spreadsheets, photos, and PDFs — our AI reads them and builds your inventory, recipes, and lots as clean structured data.</p>
+      <div class="hero-cta reveal d3">
+        <a href="#pricing" class="btn btn-primary btn-lg">Start free <span class="arr">→</span></a>
+        <a href="#how" class="btn btn-ghost btn-lg">See how it works</a>
+      </div>
+      <div class="hero-trust reveal d3">
+        <span class="dot"></span> No card required · Your first windrow imported today
+      </div>
+    </div>
+
+    <!-- animated onboarding → app sequence -->
+    <div class="appframe reveal d2" id="appframe" aria-label="Animation: AI importing messy files, then the running ashicore app">
+      <div class="appbar">
+        <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="appbar-title">ashicore</span>
+        <span class="appbar-status" id="appStatus"><span class="pulse"></span> <span id="appStatusText">importing</span></span>
+      </div>
+
+      <div class="appstage" id="appstage">
+
+        <!-- SCENE 1 — IMPORT -->
+        <div class="scene is-on" data-scene="import" id="sceneImport">
+          <div class="scene-head">
+            <span class="scene-eyebrow">AI onboarding</span>
+            <span class="scene-h">Reading your files</span>
+          </div>
+          <div class="imp-list">
+            <div class="imp" data-i="0">
+              <span class="imp-ico x" aria-hidden="true"></span>
+              <span class="imp-meta"><span class="imp-name">inventory_2023.xlsx</span><span class="imp-sub">spreadsheet · 412 rows</span></span>
+              <span class="imp-state"><span class="spin" aria-hidden="true"></span><span class="ok" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span></span>
+            </div>
+            <div class="imp" data-i="1">
+              <span class="imp-ico j" aria-hidden="true"></span>
+              <span class="imp-meta"><span class="imp-name">yard_counts.csv</span><span class="imp-sub">QuickBooks export</span></span>
+              <span class="imp-state"><span class="spin" aria-hidden="true"></span><span class="ok" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span></span>
+            </div>
+            <div class="imp" data-i="2">
+              <span class="imp-ico img" aria-hidden="true"></span>
+              <span class="imp-meta"><span class="imp-name">batch_ticket.jpg</span><span class="imp-sub">photo · handwritten</span></span>
+              <span class="imp-state"><span class="spin" aria-hidden="true"></span><span class="ok" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span></span>
+            </div>
+            <div class="imp" data-i="3">
+              <span class="imp-ico p" aria-hidden="true"></span>
+              <span class="imp-meta"><span class="imp-name">supplier_invoice.pdf</span><span class="imp-sub">pdf · 3 pages</span></span>
+              <span class="imp-state"><span class="spin" aria-hidden="true"></span><span class="ok" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span></span>
+            </div>
+          </div>
+          <div class="imp-bar"><div class="imp-prog" id="impProg"></div></div>
+          <div class="imp-foot">
+            <span id="impCount">Structuring records…</span>
+            <span class="imp-core"><span class="imp-core-dot"></span> ashicore AI</span>
+          </div>
+        </div>
+
+        <!-- SCENE 2 — IMPORTED -->
+        <div class="scene" data-scene="done" id="sceneDone">
+          <div class="done-check" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M5 12l5 5L20 6"/></svg>
+          </div>
+          <div class="done-h">Import complete</div>
+          <div class="done-sub">428 records structured · 0 errors</div>
+          <div class="done-chips">
+            <span class="dchip"><b>142</b> SKUs</span>
+            <span class="dchip"><b>18</b> recipes</span>
+            <span class="dchip"><b>64</b> lots</span>
+            <span class="dchip"><b>9</b> vendors</span>
+          </div>
+          <div class="done-cta"><span class="cta-spin" aria-hidden="true"></span> Entering ashicore…</div>
+        </div>
+
+        <!-- SCENE 3 — APP DASHBOARD -->
+        <div class="scene" data-scene="app" id="sceneApp">
+          <div class="app-shell">
+            <aside class="app-side">
+              <span class="side-brand" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="2.6" rx="1.3" fill="currentColor"/><rect x="4" y="10.7" width="16" height="2.6" rx="1.3" fill="currentColor" opacity="0.5"/><rect x="4" y="16.4" width="16" height="2.6" rx="1.3" fill="currentColor" opacity="0.5"/></svg>
+              </span>
+              <nav class="side-nav" aria-hidden="true">
+                <span class="snav on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg> Dashboard</span>
+                <span class="snav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7v10l8 4 8-4V7l-8-4-8 4z"/><path d="M4 7l8 4 8-4M12 11v10"/></svg> Inventory</span>
+                <span class="snav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3"/></svg> Recipes</span>
+                <span class="snav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> Batches</span>
+                <span class="snav"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg> Orders</span>
+              </nav>
+            </aside>
+            <div class="app-main">
+              <div class="app-topbar">
+                <span class="app-title">Dashboard</span>
+                <span class="app-yard"><span class="yard-dot"></span> Riverside Yard</span>
+              </div>
+              <div class="kpis">
+                <div class="kpi">
+                  <span class="kpi-l">On hand</span>
+                  <span class="kpi-v">4,120 <small>yd³</small></span>
+                  <span class="kpi-trend up">▲ 6%</span>
+                </div>
+                <div class="kpi">
+                  <span class="kpi-l">Batches today</span>
+                  <span class="kpi-v">6</span>
+                  <span class="kpi-trend">2 curing</span>
+                </div>
+                <div class="kpi">
+                  <span class="kpi-l">Low stock</span>
+                  <span class="kpi-v warn">3</span>
+                  <span class="kpi-trend warn">reorder</span>
+                </div>
+              </div>
+              <div class="app-grid">
+                <div class="panel inv-panel">
+                  <div class="panel-h"><span>Inventory</span><span class="panel-link">View all</span></div>
+                  <div class="inv-row"><span class="st in"></span><span class="inv-n">Screened Topsoil</span><span class="inv-q">1,240 yd³</span></div>
+                  <div class="inv-row"><span class="st in"></span><span class="inv-n">Compost · Windrow 12</span><span class="inv-q">880 yd³</span></div>
+                  <div class="inv-row"><span class="st cure"></span><span class="inv-n">Raised-Bed Blend</span><span class="inv-q">420 yd³</span></div>
+                  <div class="inv-row"><span class="st low"></span><span class="inv-n">Bark Fines</span><span class="inv-q">90 yd³</span></div>
+                </div>
+                <div class="panel batch-panel">
+                  <div class="panel-h"><span>Active batch</span><span class="badge run">running</span></div>
+                  <div class="batch-name">Raised-Bed Blend · 3-part</div>
+                  <div class="batch-sub">BATCH-0926 · 300 yd³ target</div>
+                  <div class="batch-mix">
+                    <span class="mix" style="--w:50%"><i></i>Compost 50%</span>
+                    <span class="mix" style="--w:30%"><i></i>Topsoil 30%</span>
+                    <span class="mix" style="--w:20%"><i></i>Bark 20%</span>
+                  </div>
+                  <div class="batch-bar"><div class="batch-fill" id="batchFill"></div></div>
+                  <div class="batch-foot"><span>Mixing</span><span id="batchPct">68%</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="scene-dots" id="sceneDots" aria-hidden="true">
+        <span class="sd on"></span><span class="sd"></span><span class="sd"></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== INPUT STRIP ===================== -->
+<section class="strip">
+  <div class="wrap strip-inner">
+    <span class="strip-label">Reads anything you've got</span>
+    <span class="strip-item"><span class="d"></span> Excel &amp; Google Sheets</span>
+    <span class="strip-item"><span class="d"></span> Scanned PDFs</span>
+    <span class="strip-item"><span class="d"></span> Photos of batch tickets</span>
+    <span class="strip-item"><span class="d"></span> QuickBooks exports</span>
+    <span class="strip-item"><span class="d"></span> Handwritten yard counts</span>
+  </div>
+</section>
+
+<!-- ===================== STORY (dark) ===================== -->
+<section class="section dark" id="how">
+  <div class="wrap">
+    <div class="story-head reveal">
+      <span class="eyebrow on-dark">The onboarding problem</span>
+      <h2 class="h-section">Classic ERPs cost tens of thousands and took months. Get the same backbone in hours.</h2>
+      <p class="lede">A traditional ERP rollout meant six-figure licenses, implementation consultants, and months of manual data entry before you could run a single batch. ashicore gives you that same power without the price tag or the wait — the AI does the setup, so you go live the same day.</p>
+    </div>
+
+    <div class="timeline">
+      <div class="tl-card old reveal">
+        <div class="who">The old way</div>
+        <div class="big">$50k+ · months</div>
+        <div class="desc">Six-figure licenses, implementation consultants, and weeks of someone on your team retyping inventory by hand.</div>
+        <div class="bar"><i></i></div>
+      </div>
+      <div class="tl-card new reveal d1">
+        <div class="who">With ashicore</div>
+        <div class="big">A few hours</div>
+        <div class="desc">Drop in your files. The AI structures them, you confirm, and you're running batches the same afternoon — at a fraction of the cost.</div>
+        <div class="bar"><i></i></div>
+      </div>
+    </div>
+
+    <div class="steps">
+      <div class="step reveal">
+        <div class="n">01</div>
+        <h3>Drop in your mess</h3>
+        <p>Spreadsheets, scanned invoices, phone photos of batch tickets — whatever you have, however it's organized.</p>
+      </div>
+      <div class="step reveal d1">
+        <div class="n">02</div>
+        <h3>AI structures it</h3>
+        <p>ashicore reads every file, recognizes SKUs, recipes, lots and vendors, and maps them into your ERP.</p>
+      </div>
+      <div class="step reveal d2">
+        <div class="n">03</div>
+        <h3>You confirm &amp; start</h3>
+        <p>Review the proposed records, make any tweaks, and start tracking production immediately.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== FEATURES ===================== -->
+<section class="section" id="built">
+  <div class="wrap">
+    <div class="feat-head">
+      <div>
+        <span class="eyebrow reveal">Built for batch</span>
+        <h2 class="h-section reveal d1">Made for how soil yards actually run.</h2>
+      </div>
+      <p class="lede reveal d2">Recipes, blends, windrows, lots and cubic yards — modeled the way producers think, not bolted onto generic accounting software.</p>
+    </div>
+
+    <div class="feat-grid">
+      <div class="card feature-hero reveal">
         <div>
-          <p class="kicker">Serious software. Small-team ready.</p>
-          <h1>
-            Operations software<br />
-            for small<br />
-            manufacturers.
-          </h1>
-          <p class="hero-copy">
-            Ashicore gives small manufacturers enterprise-grade operational
-            control across inventory, batches, production, purchasing, sales
-            orders, and fulfillment — without the complexity, bloat, or
-            months-long rollout of traditional ERP.
-          </p>
-          <div class="hero-actions">
-            <a class="button" href="/pricing">See pricing</a>
-            <a class="button secondary" href="#operations">See how Ashicore works</a>
+          <div class="glyph" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 17l9 4 9-4"/></svg>
           </div>
+          <h3>Batch &amp; recipe management</h3>
+          <p>Define blends as recipes, run production batches against them, and watch component inventory draw down automatically — in the units you actually sell.</p>
         </div>
-        <div class="ops-plane core-plane" aria-label="Operating core workflow map">
-          <div class="core-line line-demand"></div>
-          <div class="core-line line-supply"></div>
-          <div class="core-line line-inventory"></div>
-          <div class="core-line line-production"></div>
-          <div class="core-line line-fulfillment"></div>
-          <div class="ops-core">
-            <span>Ashicore</span>
-            <strong>Operating Core</strong>
-          </div>
-          <div class="ops-node node-a">
-            <strong>Demand</strong>
-            <span>Sales orders &amp; customers</span>
-          </div>
-          <div class="ops-node node-b">
-            <strong>Supply</strong>
-            <span>Purchasing &amp; receiving</span>
-          </div>
-          <div class="ops-node node-c">
-            <strong>Inventory</strong>
-            <span>Lots, stock, commitments</span>
-          </div>
-          <div class="ops-node node-d">
-            <strong>Production</strong>
-            <span>Recipes, batches, yields</span>
-          </div>
-          <div class="ops-node node-e">
-            <strong>Fulfillment</strong>
-            <span>Commitments &amp; shipments</span>
-          </div>
-        </div>
+        <div class="ph">[ batch production screen ]<br/>drop product UI here</div>
       </div>
-    </section>
 
-    <section class="section setup-section">
-      <div class="section-inner setup-grid">
-        <div>
-          <p class="kicker">Getting started</p>
-          <h2 class="section-title">
-            Up and running in <span class="title-accent">days</span>, not
-            <span class="title-strike">months</span>.
-          </h2>
+      <div class="card reveal d1">
+        <div class="glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7v10l8 4 8-4V7"/><path d="M4 7l8 4 8-4"/><path d="M12 11v10"/></svg>
         </div>
-        <div>
-          <p class="section-intro">
-            Most ERP systems were built for companies with implementation teams,
-            consultants, and months to spare. Ashicore is built for small
-            businesses that need serious operational control without a giant
-            rollout.
-          </p>
-          <p class="setup-note">
-            Bring over the practical pieces you already run on — items,
-            suppliers, recipes, inventory, orders, and batch records — and start
-            with the workflow that matters first.
-          </p>
-          <div class="setup-points" aria-label="Implementation approach">
-            <span>Start with your real workflow</span>
-            <span>Import the data you already have</span>
-            <span>Expand only when you need to</span>
-          </div>
-        </div>
+        <h3>Lot &amp; traceability</h3>
+        <p>Every windrow and load gets a lot. Trace any finished blend back to its feedstock and supplier.</p>
       </div>
-    </section>
 
-    <section class="section" id="operations">
-      <div class="section-inner">
-        <p class="kicker">Operating models</p>
-        <h2 class="section-title">What kind of operation are you running?</h2>
-        <p class="section-intro">
-          Ashicore is built around how your business actually moves materials,
-          stock, orders, and work — not generic industry templates.
-        </p>
-
-        <div class="operations-grid">
-          <article class="op-card live">
-            <header class="op-card-head">
-              <span class="op-badge">Available now</span>
-              <h3>Batch manufacturing</h3>
-            </header>
-            <p>
-              For businesses that turn ingredients into finished products. Track
-              recipes, lots, batches, yields, shortages, purchasing, production,
-              and fulfillment in one operating core.
-            </p>
-            <p class="op-examples">
-              Soil production, food and beverage, cosmetics, candles,
-              supplements, fertilizer, compost, chemicals, animal feed, concrete
-              and material blending.
-            </p>
-          </article>
-          <article class="op-card soon">
-            <header class="op-card-head">
-              <span class="op-badge soon">Expanding next</span>
-              <h3>Assembly manufacturing</h3>
-            </header>
-            <p>
-              For teams that build products from parts. BOMs, components, work
-              orders, purchasing, and production planning without spreadsheet
-              chaos.
-            </p>
-            <p class="op-examples">
-              Furniture, kits, equipment, fabricated goods, packaged products.
-            </p>
-          </article>
-          <article class="op-card soon">
-            <header class="op-card-head">
-              <span class="op-badge soon">Expanding next</span>
-              <h3>Inventory &amp; wholesale</h3>
-            </header>
-            <p>
-              For businesses that buy, stock, allocate, and fulfill physical
-              goods. Know what's available, promised, inbound, and ready to
-              ship.
-            </p>
-            <p class="op-examples">
-              Suppliers, distributors, wholesalers, parts businesses.
-            </p>
-          </article>
-          <article class="op-card soon">
-            <header class="op-card-head">
-              <span class="op-badge soon">Expanding next</span>
-              <h3>Hybrid product brands</h3>
-            </header>
-            <p>
-              For brands that make some things, buy some things, and sell
-              through multiple channels.
-            </p>
-            <p class="op-examples">
-              Wholesale + DTC brands, Shopify sellers, local producers.
-            </p>
-          </article>
+      <div class="card reveal d2">
+        <div class="glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 20h18"/><rect x="5" y="11" width="3.5" height="9"/><rect x="10.2" y="6" width="3.5" height="14"/><rect x="15.5" y="14" width="3.5" height="6"/></svg>
         </div>
+        <h3>Inventory by volume</h3>
+        <p>Track cubic yards, tons, and bags across multiple yards and locations, with real-time on-hand counts.</p>
       </div>
-    </section>
 
-    <section class="section">
-      <div class="section-inner">
-        <p class="kicker">Built for operators</p>
-        <h2 class="section-title">Built for the messy middle of real operations.</h2>
-        <div class="chips" aria-label="Core workflows">
-          <span>Recipes &amp; BOMs</span>
-          <span>Batch production</span>
-          <span>Lot tracking</span>
-          <span>Inventory allocation</span>
-          <span>Purchasing</span>
-          <span>Sales orders</span>
-          <span>Partial fulfillment</span>
-          <span>Accounting-ready workflows</span>
+      <div class="card reveal d1">
+        <div class="glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
         </div>
-        <p class="middle-copy">
-          Small businesses usually choose between spreadsheets that are too
-          fragile and ERP systems that are too heavy. Ashicore is built for the
-          middle: serious operational control without unnecessary complexity.
-        </p>
-        <div class="hero-actions">
-          <a class="button" href="/pricing">See pricing</a>
-        </div>
+        <h3>True production COGS</h3>
+        <p>Roll feedstock, screening and labor into accurate per-yard cost on every blend you produce.</p>
       </div>
-    </section>
-  </main>
+
+      <div class="card reveal d2">
+        <div class="glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 6h18M3 12h18M3 18h12"/></svg>
+        </div>
+        <h3>Orders &amp; tickets</h3>
+        <p>Sales orders, loadout tickets and purchase orders that speak the same language as your yard.</p>
+      </div>
+
+      <div class="card reveal d3">
+        <div class="glyph" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18"/><circle cx="12" cy="12" r="3"/></svg>
+        </div>
+        <h3>Grows with you</h3>
+        <p>Start with soil. The same engine handles general batch and food manufacturing as you expand.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== INTEGRATIONS ===================== -->
+<section class="section" id="integrations" style="padding-top:0;">
+  <div class="wrap">
+    <div class="feat-head">
+      <div>
+        <span class="eyebrow reveal">Integrations</span>
+        <h2 class="h-section reveal d1">Plugs into the tools you already run.</h2>
+      </div>
+      <p class="lede reveal d2">Keep your storefront and books in sync — no double entry, no copy-paste between systems.</p>
+    </div>
+    <div class="integ-grid">
+      <div class="integ reveal"><span class="logo">Qb</span><span><span class="nm">QuickBooks</span><br/><span class="sub">accounting sync</span></span></div>
+      <div class="integ reveal d1"><span class="logo">Sh</span><span><span class="nm">Shopify</span><br/><span class="sub">online orders</span></span></div>
+      <div class="integ reveal d2"><span class="logo">Xo</span><span><span class="nm">Xero</span><br/><span class="sub">accounting sync</span></span></div>
+      <div class="integ reveal d3"><span class="logo">St</span><span><span class="nm">Stripe</span><br/><span class="sub">payments</span></span></div>
+      <div class="integ reveal"><span class="logo">Sq</span><span><span class="nm">Square</span><br/><span class="sub">point of sale</span></span></div>
+      <div class="integ reveal d1"><span class="logo">Zp</span><span><span class="nm">Zapier</span><br/><span class="sub">2,000+ apps</span></span></div>
+      <div class="integ reveal d2"><span class="logo">Sc</span><span><span class="nm">ShipStation</span><br/><span class="sub">fulfillment</span></span></div>
+      <div class="integ reveal d3"><span class="logo">{ }</span><span><span class="nm">Open API</span><br/><span class="sub">build your own</span></span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== PRICING ===================== -->
+<section class="section bg-2" id="pricing" style="background:var(--bg-2); border-top:1px solid var(--line);">
+  <div class="wrap">
+    <div class="price-head reveal">
+      <span class="eyebrow">Pricing</span>
+      <h2 class="h-section">Choose how you'd like to start.</h2>
+      <p class="lede">Switch plans anytime — nothing here is permanent. No card required to begin.</p>
+    </div>
+
+    <div class="price-grid">
+      <div class="plan free reveal">
+        <div class="plan-top">
+          <span class="plan-name">Free</span>
+          <span class="plan-price">$0<span class="per">/mo</span></span>
+        </div>
+        <p class="plan-desc">Get up and running fast with AI-assisted data entry, on us.</p>
+        <ul class="plan-list">
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Unlimited users</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> AI-assisted data entry</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Up to 50 SKUs</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> 1 location</li>
+        </ul>
+        <a href={SIGN_UP_URL} class="btn btn-ghost">Start free</a>
+      </div>
+
+      <div class="plan rec reveal d1">
+        <span class="plan-tag-rec">Recommended</span>
+        <div class="plan-top">
+          <span class="plan-name">Pro</span>
+          <span class="plan-price">$199<span class="per">/mo</span></span>
+        </div>
+        <p class="plan-desc">Scale up — unlimited SKUs, locations and integrations.</p>
+        <ul class="plan-list">
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Everything in Free</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Unlimited SKUs &amp; recipes</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Multi-location inventory</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Integrations (Shopify, QBO…)</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Priority onboarding &amp; support</li>
+        </ul>
+        <a href={SIGN_UP_URL} class="btn btn-primary">Choose Pro <span class="arr">→</span></a>
+      </div>
+    </div>
+    <p class="price-foot">No card required to start · switch plans anytime · cancel whenever</p>
+  </div>
+</section>
+
+<!-- ===================== FINAL CTA ===================== -->
+<section class="section cta-band">
+  <div class="wrap">
+    <div class="inner reveal">
+      <span class="eyebrow on-dark">Get started</span>
+      <h2 class="h-section">Bring the shoebox. We'll bring the system.</h2>
+      <p class="lede">Upload your files today and watch your operation become structured data in hours. Free to start, no card required.</p>
+      <div class="hero-cta">
+        <a href="#pricing" class="btn btn-primary btn-lg">Start free <span class="arr">→</span></a>
+        <a href="/support" class="btn btn-ghost btn-lg" style="color:var(--on-ground); border-color:var(--ground-line);">Book a walkthrough</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
 </BaseLayout>
