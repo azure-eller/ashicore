@@ -2,6 +2,7 @@
 
 Multi-module ERP: inventory, manufacturing, sales, purchasing.
 Android companion app at `~/Projects/erp-android`.
+Public marketing/docs live in Astro at `apps/www` and deploy to Vercel project `www`; the authenticated Next.js app deploys to Vercel project `erp`.
 
 ## Stack
 

@@ -11,7 +11,7 @@ export default async function Page({
   searchParams: Promise<{ plan?: string }>;
 }) {
   const params = await searchParams;
-  const plan = parseBillingPlanIntent(params.plan);
+  const plan = params.plan ? parseBillingPlanIntent(params.plan) : null;
   const requestHeaders = await headers();
   const session = await auth.api.getSession({ headers: requestHeaders });
 
@@ -20,7 +20,11 @@ export default async function Page({
   }
 
   if (await isMfaRequiredForSession(session)) {
-    redirect(`/mfa-setup?next=${encodeURIComponent(`/org-setup?plan=${plan}`)}`);
+    redirect(
+      `/mfa-setup?next=${encodeURIComponent(
+        plan ? `/org-setup?plan=${plan}` : "/org-setup"
+      )}`
+    );
   }
 
   const organizations = await auth.api.listOrganizations({
@@ -35,5 +39,11 @@ export default async function Page({
     }
   }
 
-  return <OrgSetupForm organizations={organizations} plan={plan} />;
+  return (
+    <OrgSetupForm
+      organizations={organizations}
+      plan={plan ?? undefined}
+      continueToOnboarding={plan != null}
+    />
+  );
 }

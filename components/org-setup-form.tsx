@@ -32,10 +32,12 @@ export function OrgSetupForm({
   className,
   organizations,
   plan,
+  continueToOnboarding = false,
   ...props
 }: React.ComponentProps<"div"> & {
   organizations: OrganizationOption[]
   plan?: BillingPlanIntent
+  continueToOnboarding?: boolean
 }) {
   const router = useRouter()
   const selectedPlan = plan ?? "free"
@@ -45,6 +47,11 @@ export function OrgSetupForm({
   const [activatingOrgId, setActivatingOrgId] = useState<string | null>(null)
 
   const finishOnboarding = useCallback(async () => {
+    if (!continueToOnboarding) {
+      router.replace(DEFAULT_APP_ENTRY_PATH)
+      return
+    }
+
     if (selectedPlan !== "paid") {
       router.replace(`${NEW_ORG_ENTRY_PATH}?plan=free`)
       return
@@ -62,7 +69,7 @@ export function OrgSetupForm({
     }
 
     router.replace(DEFAULT_APP_ENTRY_PATH)
-  }, [router, selectedPlan])
+  }, [continueToOnboarding, router, selectedPlan])
 
   useEffect(() => {
     if (organizations.length !== 1) {

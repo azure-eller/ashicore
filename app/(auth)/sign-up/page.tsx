@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import { SignupForm } from "@/components/signup-form";
 import {
   appEntryPathForPlanIntent,
-  orgSetupPathForPlanIntent,
   parseBillingPlanIntent,
 } from "@/lib/billing/plan-intent";
 import { auth } from "@/lib/auth";
@@ -22,7 +21,7 @@ export default async function SignUpPage({
   if (session) {
     const nextPath = session.session.activeOrganizationId
       ? appEntryPathForPlanIntent(plan)
-      : orgSetupPathForPlanIntent(plan);
+      : "/org-setup";
 
     if (await isMfaRequiredForSession(session)) {
       redirect(`/mfa-setup?next=${encodeURIComponent(nextPath)}`);

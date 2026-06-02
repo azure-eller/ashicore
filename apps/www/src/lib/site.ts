@@ -8,6 +8,7 @@ export const SIGN_IN_URL = import.meta.env.DEV
 export const SIGN_UP_URL = import.meta.env.DEV
   ? "http://localhost:3000/sign-up"
   : "/sign-up";
+export const PRO_SIGN_UP_URL = `${SIGN_UP_URL}?plan=paid`;
 
 export const navItems = [
   { label: "Pricing", href: "/pricing" },
