@@ -169,6 +169,7 @@ import {
 } from "@/lib/sales/fulfillment-read-model";
 import {
   demandQueueCoverageKey,
+  getDemandQueueInventoryLotClaimConflicts,
   getDemandQueueCoverageForItemsInTx,
   getDemandQueueCoverageByDemandKeyForItemsInTx,
   type DemandQueueCoverageDemand,
@@ -1882,17 +1883,64 @@ function latestExpectedDate(
   return next > current ? next : current;
 }
 
-function latestDemandQueueExpectedDate(
-  coverage: DemandQueueCoverageDemand | undefined
-) {
-  return (
-    coverage?.segments.reduce<string | null>((latest, segment) => {
-      if (segment.kind !== "expected") {
-        return latest;
-      }
-      return latestExpectedDate(latest, segment.availableDate);
-    }, null) ?? null
+function demandQueueCoverageToSalesAllocationSummary(params: {
+  lineId: string;
+  itemId: string;
+  remainingQty: number;
+  coverage: DemandQueueCoverageDemand | undefined;
+}): SalesAllocationLineSummary {
+  const queueCoveredQty = roundQuantity(
+    Number(params.coverage?.queueCoveredQty ?? 0)
   );
+  const shortQty = roundQuantity(
+    Number(params.coverage?.shortQty ?? params.remainingQty)
+  );
+  const expectedQty = roundQuantity(Number(params.coverage?.expectedQty ?? 0));
+  const sources: SalesAllocationLineSummary["sources"] =
+    params.coverage?.segments.flatMap((segment) => {
+      if (
+        segment.kind === "short" ||
+        !segment.sourceId ||
+        (segment.sourceType !== "inventory_lot" &&
+          segment.sourceType !== "manufacturing_order")
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          sourceType: segment.sourceType,
+          sourceId: segment.sourceId,
+          label: segment.sourceLabel ?? "\u2014",
+          quantity: segment.qty,
+          coverageKind: "explicit" as const,
+        },
+      ];
+    }) ?? [];
+  const sourceSummary =
+    sources.length > 0
+      ? sources.map((source) => `${source.label} ${source.quantity}`).join(", ")
+      : "\u2014";
+
+  return {
+    demandType: "sales_order_line",
+    demandId: params.lineId,
+    salesOrderLineId: params.lineId,
+    itemId: params.itemId,
+    allocatedQty: normalizeNumeric(queueCoveredQty),
+    shortQty: normalizeNumeric(shortQty),
+    sourceSummary,
+    status:
+      queueCoveredQty <= 0
+        ? "short"
+        : shortQty > 0
+          ? "partial"
+          : expectedQty > 0 ||
+              sources.some((source) => source.sourceType === "manufacturing_order")
+            ? "waiting_production"
+            : "ready",
+    sources,
+  };
 }
 
 async function getSalesOrderLineShipStatesInTx(
@@ -4843,7 +4891,6 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
         const orderedQuantityByLineId = new Map(
           availabilityLineRows.map((line) => [line.salesOrderLineId, line.quantity])
         );
-        const allocationSummaryByLineId = new Map<string, SalesAllocationLineSummary>();
         availabilityLineRows.forEach((line) => {
           shippedByLine.set(line.salesOrderLineId, normalizeShipQuantity(Number(line.shippedQuantity)));
         });
@@ -4906,7 +4953,6 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
               productionAllocatedQty: number;
             }>(
               (acc, line) => {
-                const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
                 const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
                 const remainingQty = normalizeShipQuantity(
                   Number(line.quantity) - shippedQty
@@ -4932,11 +4978,17 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 if (demandQueueExpectedQty > 0) {
                   acc.expectedDate = latestExpectedDate(
                     acc.expectedDate,
-                    latestDemandQueueExpectedDate(demandQueueCoverage)
+                    demandQueueCoverage?.latestExpectedDate
                   );
                 }
+                const allocation = demandQueueCoverageToSalesAllocationSummary({
+                  lineId: line.salesOrderLineId,
+                  itemId: line.itemId,
+                  remainingQty,
+                  coverage: demandQueueCoverage,
+                });
                 acc.productionAllocatedQty +=
-                  allocation?.sources
+                  allocation.sources
                     .filter((source) => source.sourceType === "manufacturing_order")
                     .reduce((sum, source) => sum + Number(source.quantity), 0) ?? 0;
                 return acc;
@@ -5026,8 +5078,6 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             status: order.status as SalesOrderListRow["status"],
             itemSummary: summarizeItems(salesLines),
             lines: salesLines.map((line) => {
-              const allocation = allocationSummaryByLineId.get(line.salesOrderLineId);
-              const unplannedAllocation = allocation;
               const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
               const remainingQty = normalizeShipQuantity(
                 Number(line.quantity) - shippedQty
@@ -5035,14 +5085,15 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
               const unplannedQty = normalizeShipQuantity(
                 remainingQty - (plannedByLine.get(line.salesOrderLineId) ?? 0)
               );
-              const allocatedQty = Number(allocation?.allocatedQty ?? 0);
-              const shortQty = roundQuantity(
-                Number(allocation?.shortQty ?? remainingQty)
-              );
               const demandQueueCoverage = demandQueueCoverageBySalesLineId.get(
                 line.salesOrderLineId
               );
-              const sources = allocation?.sources ?? [];
+              const allocation = demandQueueCoverageToSalesAllocationSummary({
+                lineId: line.salesOrderLineId,
+                itemId: line.itemId,
+                remainingQty,
+                coverage: demandQueueCoverage,
+              });
 
               return {
                 id: line.salesOrderLineId,
@@ -5054,18 +5105,11 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 quantity: line.quantity,
                 shippedQuantity: normalizeNumeric(shippedQty),
                 remainingQty: normalizeNumeric(remainingQty),
-                allocatedQty: normalizeNumeric(allocatedQty),
-                shortQty: normalizeNumeric(shortQty),
-                sourceSummary: allocation?.sourceSummary ?? "\u2014",
-                allocationSources: sources,
-                allocationStatus:
-                  allocatedQty <= 0
-                    ? "short"
-                    : shortQty > 0
-                      ? "partial"
-                      : sources.some((source) => source.sourceType === "manufacturing_order")
-                        ? "waiting_production"
-                        : "ready",
+                allocatedQty: allocation.allocatedQty,
+                shortQty: allocation.shortQty,
+                sourceSummary: allocation.sourceSummary,
+                allocationSources: allocation.sources,
+                allocationStatus: allocation.status,
                 demandQueueQueueCoveredQty:
                   demandQueueCoverage?.queueCoveredQty ?? "0",
                 demandQueueSegments: demandQueueCoverage?.segments ?? [],
@@ -5074,14 +5118,11 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 demandQueueShortQty:
                   demandQueueCoverage?.shortQty ?? normalizeNumeric(remainingQty),
                 demandQueueExpectedDate:
-                  latestDemandQueueExpectedDate(demandQueueCoverage),
-                unplannedAllocatedQty: unplannedAllocation?.allocatedQty ?? "0",
-                unplannedShortQty:
-                  unplannedAllocation?.shortQty ?? normalizeNumeric(unplannedQty),
-                unplannedSourceSummary:
-                  unplannedAllocation?.sourceSummary ?? "\u2014",
-                unplannedAllocationStatus:
-                  unplannedAllocation?.status ?? "short",
+                  demandQueueCoverage?.latestExpectedDate ?? null,
+                unplannedAllocatedQty: allocation.allocatedQty,
+                unplannedShortQty: normalizeNumeric(unplannedQty),
+                unplannedSourceSummary: allocation.sourceSummary,
+                unplannedAllocationStatus: allocation.status,
                 unitName: line.unitName,
               };
             }),
@@ -5557,7 +5598,6 @@ export async function getSalesOrder(
         unplannedRemainingQuantity: normalizeNumeric(unplannedRemainingQuantity),
       };
     });
-    const allocationSummaryByLineId = new Map<string, SalesAllocationLineSummary>();
     const demandQueueCoverageByDemandKey =
       await getDemandQueueCoverageByDemandKeyForItemsInTx(tx, {
         organizationId: orgId,
@@ -5570,28 +5610,21 @@ export async function getSalesOrder(
         .map((coverage) => [coverage.demandId, coverage])
     );
     const linesWithAllocation = linesWithFulfillment.map((line) => {
-      const allocation = allocationSummaryByLineId.get(line.id);
-      const allocatedQty = Number(allocation?.allocatedQty ?? 0);
-      const shortQty = roundQuantity(
-        Number(allocation?.shortQty ?? Number(line.remainingQuantity))
-      );
       const demandQueueCoverage = demandQueueCoverageBySalesLineId.get(line.id);
-      const sources = allocation?.sources ?? [];
+      const allocation = demandQueueCoverageToSalesAllocationSummary({
+        lineId: line.id,
+        itemId: line.itemId,
+        remainingQty: Number(line.remainingQuantity),
+        coverage: demandQueueCoverage,
+      });
 
       return {
         ...line,
-        allocatedQty: normalizeNumeric(allocatedQty),
-        shortQty: normalizeNumeric(shortQty),
-        sourceSummary: allocation?.sourceSummary ?? "\u2014",
-        allocationStatus:
-          allocatedQty <= 0
-            ? "short"
-            : shortQty > 0
-              ? "partial"
-              : sources.some((source) => source.sourceType === "manufacturing_order")
-                ? "waiting_production"
-                : "ready",
-        allocationSources: sources,
+        allocatedQty: allocation.allocatedQty,
+        shortQty: allocation.shortQty,
+        sourceSummary: allocation.sourceSummary,
+        allocationStatus: allocation.status,
+        allocationSources: allocation.sources,
         demandQueueQueueCoveredQty:
           demandQueueCoverage?.queueCoveredQty ?? "0",
         demandQueueSegments: demandQueueCoverage?.segments ?? [],
@@ -5599,7 +5632,7 @@ export async function getSalesOrder(
         demandQueueExpectedQty: demandQueueCoverage?.expectedQty ?? "0",
         demandQueueShortQty:
           demandQueueCoverage?.shortQty ?? line.remainingQuantity,
-        demandQueueExpectedDate: latestDemandQueueExpectedDate(demandQueueCoverage),
+        demandQueueExpectedDate: demandQueueCoverage?.latestExpectedDate ?? null,
       };
     });
     let fulfillmentSummary: SalesOrderFulfillmentSummary = (() => {
@@ -6507,33 +6540,14 @@ async function buildDemandQueueShippingWarningInTx(
     const available = roundQuantity(Number(lineCoverage?.inStockQty ?? 0));
     if (available >= line.quantity) continue;
 
-    let remainingConflictQty = roundQuantity(line.quantity - available);
-    const commitmentCandidates =
-      itemCoverage?.demands.flatMap((demand) => {
-        if (
-          demand.demandType === "sales_order_line" &&
-          demand.demandId === line.salesOrderLineId
-        ) {
-          return [];
-        }
-
-        const quantity = roundQuantity(
-          Math.min(remainingConflictQty, Number(demand.inStockQty))
-        );
-        if (quantity <= 0) return [];
-
-        remainingConflictQty = roundQuantity(remainingConflictQty - quantity);
-        return [
-          {
-            demandType: demand.demandType,
-            demandId: demand.demandId,
-            label: demand.label,
-            contextLabel: demand.contextLabel,
-            quantity,
-            href: demand.href,
-          },
-        ];
-      }) ?? [];
+    const commitmentCandidates = getDemandQueueInventoryLotClaimConflicts({
+      coverage: itemCoverage,
+      excludeDemand: {
+        demandType: "sales_order_line",
+        demandId: line.salesOrderLineId,
+      },
+      quantity: roundQuantity(line.quantity - available),
+    });
     const commitments = await resolveDemandQueueCommitmentsInTx(
       tx,
       commitmentCandidates

@@ -154,17 +154,21 @@ export type ManufacturingOrderListRow = {
   pickProgressStatus: ManufacturingPickProgressStatus;
   pickProgressPercent: number;
   ingredientReadiness: ManufacturingIngredientReadiness;
+  ingredientExpectedDate: string | null;
   ingredientShortages: Array<{
     itemId: string;
     itemName: string;
     needed: string;
     available: string;
+    expected: string;
   }>;
   ingredientCoverage: Array<{
     itemId: string;
     itemName: string;
     needed: string;
     available: string;
+    expected: string;
+    expectedDate: string | null;
   }>;
   operationResources: Array<{
     id: string | null;

@@ -55,7 +55,6 @@ import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
   lockManufacturingPriorityQueueInTx,
-  lockSalesPriorityQueueInTx,
 } from "@/lib/manufacturing-priority-lock";
 import {
   addExpectedFromManufacturingInTx,
@@ -146,7 +145,7 @@ import type {
 } from "./types";
 
 function effectiveManufacturingPriorityRankSql() {
-  return sql<number | null>`COALESCE(${salesOrders.priorityRank}, ${manufacturingOrders.priorityRank})`;
+  return sql<number | null>`${manufacturingOrders.priorityRank}`;
 }
 
 type ProductSnapshot = {
@@ -574,6 +573,10 @@ function assertSameStringSet(
     throw new ManufacturingError(message, 400);
   }
 
+  if (new Set(actual).size !== actual.length || new Set(expected).size !== expected.length) {
+    throw new ManufacturingError(message, 400);
+  }
+
   const expectedSet = new Set(expected);
   if (actual.some((value) => !expectedSet.has(value))) {
     throw new ManufacturingError(message, 400);
@@ -635,41 +638,6 @@ async function assertPriorityRankAvailableInTx(
   if (conflict) {
     throw new ManufacturingError(
       `Priority rank ${priorityRank} is already assigned to another active order.`,
-      409
-    );
-  }
-}
-
-async function assertSalesPriorityRankAvailableInTx(
-  tx: Tx,
-  orgId: string,
-  priorityRank: number | null,
-  excludeId?: string
-) {
-  if (priorityRank == null) {
-    return;
-  }
-
-  const filters = [
-    eq(salesOrders.organizationId, orgId),
-    eq(salesOrders.priorityRank, priorityRank),
-    eq(salesOrders.status, "open"),
-    isNull(salesOrders.deletedAt),
-  ];
-
-  if (excludeId) {
-    filters.push(ne(salesOrders.id, excludeId));
-  }
-
-  const [conflict] = await tx
-    .select({ id: salesOrders.id })
-    .from(salesOrders)
-    .where(and(...filters))
-    .for("update");
-
-  if (conflict) {
-    throw new ManufacturingError(
-      `Priority rank ${priorityRank} is already assigned to another active sales order.`,
       409
     );
   }
@@ -3241,6 +3209,15 @@ function getIngredientReadiness(params: {
   return params.pickProgressStatus === "in_progress" ? "picking" : "in_stock";
 }
 
+function latestExpectedDate(
+  current: string | null,
+  next: string | null | undefined
+) {
+  if (!next) return current;
+  if (!current) return next;
+  return next > current ? next : current;
+}
+
 export async function getManufacturingOrders(): Promise<ManufacturingOrderListRow[]> {
   return measureObservedOperation(
     "manufacturing.get_orders",
@@ -3298,6 +3275,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             | "pickProgressStatus"
             | "pickProgressPercent"
             | "ingredientReadiness"
+            | "ingredientExpectedDate"
             | "ingredientShortages"
             | "ingredientCoverage"
             | "operationResources"
@@ -3462,7 +3440,11 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
         ];
         const ingredientCoverageByOrderItem = new Map<
           string,
-          { inStockQuantity: number; expectedQuantity: number }
+          {
+            inStockQuantity: number;
+            expectedQuantity: number;
+            expectedDate: string | null;
+          }
         >();
 
         if (ingredientItemIds.length > 0) {
@@ -3493,6 +3475,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
               ingredientCoverageByOrderItem.get(key) ?? {
                 inStockQuantity: 0,
                 expectedQuantity: 0,
+                expectedDate: null,
               };
             ingredientCoverageByOrderItem.set(key, {
               inStockQuantity: normalizeQuantityNumber(
@@ -3502,6 +3485,10 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
               expectedQuantity: normalizeQuantityNumber(
                 existing.expectedQuantity +
                   (Number.parseFloat(coverage.expectedQty) || 0)
+              ),
+              expectedDate: latestExpectedDate(
+                existing.expectedDate,
+                coverage.latestExpectedDate ?? coverage.earliestExpectedDate
               ),
             });
           }
@@ -3532,11 +3519,16 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
           ).flatMap((ingredient) => {
             const coverage = ingredientCoverageByOrderItem.get(
               `${order.id}:${ingredient.itemId}`
-            ) ?? { inStockQuantity: 0, expectedQuantity: 0 };
+            ) ?? {
+              inStockQuantity: 0,
+              expectedQuantity: 0,
+              expectedDate: null,
+            };
             const needed = Number.parseFloat(ingredient.plannedQuantity);
             const available = coverage.inStockQuantity;
+            const expected = coverage.expectedQuantity;
 
-            if (!Number.isFinite(needed) || available >= needed) {
+            if (!Number.isFinite(needed) || available + expected >= needed) {
               return [];
             }
 
@@ -3546,21 +3538,37 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
                 itemName: ingredient.itemName,
                 needed: normalizeNumeric(needed),
                 available: normalizeNumeric(available),
+                expected: normalizeNumeric(expected),
               },
             ];
           });
+          const ingredientExpectedDate = (
+            readinessIngredientsByOrder.get(order.id) ?? []
+          ).reduce<string | null>((latest, ingredient) => {
+            const coverage = ingredientCoverageByOrderItem.get(
+              `${order.id}:${ingredient.itemId}`
+            );
+            if (!coverage || coverage.expectedQuantity <= 0) return latest;
+            return latestExpectedDate(latest, coverage.expectedDate);
+          }, null);
           const ingredientCoverage = (
             readinessIngredientsByOrder.get(order.id) ?? []
           ).map((ingredient) => {
             const coverage = ingredientCoverageByOrderItem.get(
               `${order.id}:${ingredient.itemId}`
-            ) ?? { inStockQuantity: 0, expectedQuantity: 0 };
+            ) ?? {
+              inStockQuantity: 0,
+              expectedQuantity: 0,
+              expectedDate: null,
+            };
 
             return {
               itemId: ingredient.itemId,
               itemName: ingredient.itemName,
               needed: ingredient.plannedQuantity,
               available: normalizeNumeric(coverage.inStockQuantity),
+              expected: normalizeNumeric(coverage.expectedQuantity),
+              expectedDate: coverage.expectedDate,
             };
           });
 
@@ -3584,10 +3592,15 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
                   ...ingredient,
                   ...(ingredientCoverageByOrderItem.get(
                     `${order.id}:${ingredient.itemId}`
-                  ) ?? { inStockQuantity: 0, expectedQuantity: 0 }),
+                  ) ?? {
+                    inStockQuantity: 0,
+                    expectedQuantity: 0,
+                    expectedDate: null,
+                  }),
                 })
               ),
             }),
+            ingredientExpectedDate,
             ingredientShortages,
             ingredientCoverage,
             operationResources: operationResourcesByOrder.get(order.id) ?? [],
@@ -4991,38 +5004,6 @@ export async function updateManufacturingOrderPriority(
       return { id: order.id };
     }
 
-    if (order.salesOrderId) {
-      await lockSalesPriorityQueueInTx(tx, orgId);
-      await assertSalesPriorityRankAvailableInTx(
-        tx,
-        orgId,
-        payload.priorityRank,
-        order.salesOrderId
-      );
-
-      const [updatedSalesOrder] = await tx
-        .update(salesOrders)
-        .set({
-          priorityRank: payload.priorityRank,
-          updatedAt: new Date(),
-        })
-        .where(eq(salesOrders.id, order.salesOrderId))
-        .returning({ id: salesOrders.id });
-
-      await tx
-        .update(manufacturingOrders)
-        .set({ priorityRank: null, updatedAt: new Date() })
-        .where(
-          and(
-            eq(manufacturingOrders.organizationId, orgId),
-            eq(manufacturingOrders.salesOrderId, order.salesOrderId),
-            isNull(manufacturingOrders.deletedAt)
-          )
-        );
-
-      return updatedSalesOrder ? { id: order.id } : null;
-    }
-
     await assertPriorityRankAvailableInTx(tx, orgId, payload.priorityRank, id);
 
     const [updated] = await tx
@@ -5048,7 +5029,6 @@ export async function reorderManufacturingOrderPriorityRanks(
       .select({
         id: manufacturingOrders.id,
         status: manufacturingOrders.status,
-        salesOrderId: manufacturingOrders.salesOrderId,
       })
       .from(manufacturingOrders)
       .where(
@@ -5071,7 +5051,6 @@ export async function reorderManufacturingOrderPriorityRanks(
         and(
           eq(manufacturingOrders.organizationId, orgId),
           eq(manufacturingOrders.status, "open"),
-          isNull(manufacturingOrders.salesOrderId),
           isNull(manufacturingOrders.deletedAt)
         )
       )
@@ -5087,83 +5066,17 @@ export async function reorderManufacturingOrderPriorityRanks(
       "Manufacturing order ranking does not match active orders."
     );
 
-    const submittedOpenRows = payload.orderIds.flatMap((id) => {
+    const submittedOpenIds = payload.orderIds.flatMap((id) => {
       const order = orders.find((candidate) => candidate.id === id);
-      return order?.status === "open" ? [order] : [];
+      return order?.status === "open" ? [order.id] : [];
     });
-    const submittedOpenUnlinkedIds = submittedOpenRows
-      .filter((order) => order.salesOrderId == null)
-      .map((order) => order.id);
-    const submittedLinkedSalesOrderIds = [
-      ...new Set(
-        submittedOpenRows
-          .map((order) => order.salesOrderId)
-          .filter((id): id is string => id != null)
-      ),
-    ];
 
     const orderedIds = mergeSubmittedOrderIds(
       rankedOpenOrders.map((order) => order.id),
-      submittedOpenUnlinkedIds
+      submittedOpenIds
     );
 
     const now = new Date();
-    if (submittedLinkedSalesOrderIds.length > 0) {
-      await lockSalesPriorityQueueInTx(tx, orgId);
-      const rankedOpenSalesOrders = await tx
-        .select({
-          id: salesOrders.id,
-          orderNumber: salesOrders.orderNumber,
-        })
-        .from(salesOrders)
-        .where(
-          and(
-            eq(salesOrders.organizationId, orgId),
-            eq(salesOrders.status, "open"),
-            isNull(salesOrders.deletedAt)
-          )
-        )
-        .orderBy(
-          asc(sql`COALESCE(${salesOrders.priorityRank}, 2147483647)`),
-          asc(salesOrders.orderNumber),
-          asc(salesOrders.id)
-        )
-        .for("update");
-      const orderedSalesIds = mergeSubmittedOrderIds(
-        rankedOpenSalesOrders.map((order) => order.id),
-        submittedLinkedSalesOrderIds
-      );
-
-      await tx
-        .update(salesOrders)
-        .set({ priorityRank: null, updatedAt: now })
-        .where(
-          and(
-            eq(salesOrders.organizationId, orgId),
-            eq(salesOrders.status, "open"),
-            isNull(salesOrders.deletedAt)
-          )
-        );
-
-      for (const [index, id] of orderedSalesIds.entries()) {
-        await tx
-          .update(salesOrders)
-          .set({ priorityRank: index + 1, updatedAt: now })
-          .where(eq(salesOrders.id, id));
-      }
-
-      await tx
-        .update(manufacturingOrders)
-        .set({ priorityRank: null, updatedAt: now })
-        .where(
-          and(
-            eq(manufacturingOrders.organizationId, orgId),
-            inArray(manufacturingOrders.salesOrderId, submittedLinkedSalesOrderIds),
-            isNull(manufacturingOrders.deletedAt)
-          )
-        );
-    }
-
     await tx
       .update(manufacturingOrders)
       .set({
@@ -5174,7 +5087,6 @@ export async function reorderManufacturingOrderPriorityRanks(
         and(
           eq(manufacturingOrders.organizationId, orgId),
           eq(manufacturingOrders.status, "open"),
-          isNull(manufacturingOrders.salesOrderId),
           isNull(manufacturingOrders.deletedAt)
         )
       );
@@ -5189,7 +5101,7 @@ export async function reorderManufacturingOrderPriorityRanks(
         .where(eq(manufacturingOrders.id, id));
     }
 
-    return { updated: orderedIds.length + submittedLinkedSalesOrderIds.length };
+    return { updated: orderedIds.length };
   });
 }
 

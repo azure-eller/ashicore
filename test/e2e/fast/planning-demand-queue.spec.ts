@@ -3,6 +3,7 @@ import { test, expect } from "../fixtures";
 import {
   inventoryDemandSummary,
   inventoryItemBalances,
+  inventoryLocations,
   salesOrderLines,
   salesOrders,
 } from "../../../lib/db/schema";
@@ -11,9 +12,15 @@ import {
   createItem,
   createManufacturingOrder,
   createSalesOrder,
+  getOrgId,
   getUnitId,
   testFetch,
 } from "../../helpers/api";
+import { computeDemandQueueCoverage } from "../../../lib/inventory/allocation/coverage-engine";
+import {
+  consumeStockFifoInTx,
+  createPositiveStockEventInTx,
+} from "../../../lib/inventory/kernel";
 
 test("demand queue allocates scarce stock by rank without overclaiming", async ({
   db,
@@ -152,6 +159,62 @@ test("demand queue allocates scarce stock by rank without overclaiming", async (
     shortageQty: "6.0000",
     availableToPromise: "-6.0000",
   });
+});
+
+test("demand queue treats constraint-delayed on-hand supply as expected", () => {
+  const [coverage] = computeDemandQueueCoverage({
+    today: "2026-06-02",
+    supply: [
+      {
+        kind: "on_hand",
+        sourceType: "inventory_lot",
+        sourceId: "mature-lot",
+        quantity: 6,
+        availableDate: "2026-05-29",
+        label: "Mature lot",
+      },
+      {
+        kind: "on_hand",
+        sourceType: "inventory_lot",
+        sourceId: "future-mature-lot",
+        quantity: 4,
+        availableDate: "2026-06-02",
+        label: "Future mature lot",
+      },
+    ],
+    demands: [
+      {
+        demandType: "manufacturing_order_ingredient",
+        demandId: "ingredient-1",
+        itemId: "item-1",
+        itemName: "Aged component",
+        unitName: "Each",
+        label: "MO-1",
+        contextLabel: "Finished good",
+        requiredDate: "2026-06-06T00:00:00.000Z",
+        href: null,
+        openQty: 10,
+        priorityRank: 1,
+        priorityDate: "2026-06-06",
+        priorityLabel: "MO-1",
+        minimumLotAgeDays: 3,
+      },
+    ],
+  });
+
+  expect(coverage.inStockQty).toBe(6);
+  expect(coverage.expectedQty).toBe(4);
+  expect(coverage.shortQty).toBe(0);
+  expect(coverage.latestExpectedDate).toBe("2026-06-05");
+  expect(coverage.segments).toMatchObject([
+    { kind: "in_stock", qty: 6, sourceId: "mature-lot" },
+    {
+      kind: "expected",
+      qty: 4,
+      availableDate: "2026-06-05",
+      sourceId: "future-mature-lot",
+    },
+  ]);
 });
 
 test("sales availability treats linked manufacturing output as expected supply", async ({
@@ -324,6 +387,128 @@ test("untracked on-hand coverage uses physical canonical lot quantity", async ()
   expect(readModel?.lines[0]).toMatchObject({
     demandQueueInStockQty: "5",
     demandQueueShortQty: "0",
+  });
+});
+
+test("demand queue nets negative lot debt before exposing positive lots", async ({
+  db,
+}) => {
+  const ts = Date.now();
+  const orgId = getOrgId();
+  const unitId = getUnitId();
+
+  const component = await createItem({
+    itemType: "material",
+    name: `Fast Negative Lot Debt Component ${ts}`,
+    unitDefinitionId: unitId,
+    sku: `FAST-NEG-LOT-DEBT-COMP-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: null,
+    stock: "100",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(component.status).toBe(201);
+
+  const product = await createItem({
+    itemType: "product",
+    name: `Fast Negative Lot Debt Product ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-NEG-LOT-DEBT-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: "10.00",
+    stock: "0",
+    safetyStock: "0",
+    bom: [{ componentId: component.body.id, quantity: "1" }],
+  });
+  expect(product.status).toBe(201);
+  const productId = product.body.id as string;
+
+  const modeResponse = await testFetch(`/api/item-cards/${productId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: `Fast Negative Lot Debt Product ${ts}`,
+      category: `Fast Planning ${ts}`,
+      description: null,
+      unitDefinitionId: unitId,
+      lotTrackingMode: "tracked",
+    }),
+  });
+  expect(modeResponse.status).toBe(200);
+
+  const [location] = await db
+    .select({ id: inventoryLocations.id })
+    .from(inventoryLocations)
+    .where(sql`${inventoryLocations.organizationId} = ${orgId} AND ${inventoryLocations.isDefault} = true`);
+  if (!location?.id) throw new Error("Default inventory location not found.");
+
+  await db.transaction(async (tx) => {
+    await consumeStockFifoInTx(tx, {
+      organizationId: orgId,
+      locationId: location.id,
+      itemId: productId,
+      quantity: 10,
+      eventType: "manual_adjustment_decrease",
+      eventSubtype: "fast_demand_queue_negative_debt",
+      referenceType: "item",
+      referenceId: productId,
+      allowNegativeStock: true,
+    });
+    await createPositiveStockEventInTx(tx, {
+      organizationId: orgId,
+      locationId: location.id,
+      itemId: productId,
+      quantity: 7,
+      unitCost: "2.00",
+      eventType: "manual_adjustment_increase",
+      eventSubtype: "fast_demand_queue_negative_debt",
+      referenceType: "item",
+      referenceId: productId,
+      lotNumber: `LOT-POS-${ts}`,
+    });
+  });
+
+  const [balance] = await db
+    .select({ onHandQty: inventoryItemBalances.onHandQty })
+    .from(inventoryItemBalances)
+    .where(eq(inventoryItemBalances.itemId, productId));
+  expect(Number(balance.onHandQty)).toBeLessThan(0);
+
+  const customer = await createCustomer({
+    name: `Fast Negative Lot Debt Customer ${ts}`,
+  });
+  expect(customer.status).toBe(201);
+
+  const order = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `NEG-LOT-DEBT-${ts}`,
+    orderDate: "2026-05-25",
+    shipDate: "2026-06-05",
+    lines: [{ itemId: productId, quantity: "1", unitPrice: "10.00" }],
+  });
+  expect(order.status).toBe(201);
+
+  const salesOrdersResponse = await testFetch("/api/sales-orders");
+  expect(salesOrdersResponse.status).toBe(200);
+  const salesOrderRows = (await salesOrdersResponse.json()) as Array<{
+    id: string;
+    lines: Array<{
+      demandQueueInStockQty?: string;
+      demandQueueShortQty?: string;
+    }>;
+    fulfillmentSummary?: { salesItemsState?: string };
+  }>;
+  const readModel = salesOrderRows.find((row) => row.id === order.body.id);
+
+  expect(readModel?.fulfillmentSummary?.salesItemsState).toBe("not_available");
+  expect(readModel?.lines[0]).toMatchObject({
+    demandQueueInStockQty: "0",
+    demandQueueShortQty: "1",
   });
 });
 

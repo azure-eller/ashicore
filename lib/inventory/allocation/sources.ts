@@ -9,6 +9,7 @@ import { serializeDbTimestamp } from "@/lib/db/timestamps";
 import type { Tx } from "@/lib/db/with-org-context";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel";
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
+import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import {
   allocationQuantityString,
   toAllocationQuantity,
@@ -18,6 +19,7 @@ import type { AllocationSourceRow } from "./types";
 const toQuantity = toAllocationQuantity;
 const quantityString = allocationQuantityString;
 const UNBATCHED_LOT_NUMBER = "UNBATCHED";
+const signedQuantityString = (value: number) => normalizeNumeric(roundQuantity(value));
 
 export async function loadAllocationSourcesForItemInTx(
   tx: Tx,
@@ -48,7 +50,7 @@ export async function loadAllocationSourcesForItemInTx(
             eq(inventoryLotBalances.disposition, "available"),
             sql`(${lots.expiresOn} IS NULL OR ${lots.expiresOn} >= CURRENT_DATE)`,
             or(
-              sql`${inventoryLotBalances.quantity} > 0`,
+              sql`${inventoryLotBalances.quantity} <> 0`,
               eq(lots.lotNumber, UNBATCHED_LOT_NUMBER)
             )
           )
@@ -95,7 +97,7 @@ export async function loadAllocationSourcesForItemInTx(
       itemId: params.itemId,
       label: lot.lotNumber,
       date: serializeDbTimestamp(lot.receivedAt),
-      totalQty: quantityString(totalQty),
+      totalQty: signedQuantityString(totalQty),
     };
   });
 

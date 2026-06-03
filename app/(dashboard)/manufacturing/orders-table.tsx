@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { GridApi, ICellRendererParams } from "ag-grid-community";
-import { Add01Icon, Delete02Icon, Sorting05Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { apiJson } from "@/lib/client/api";
 import { usePersistentViewState } from "@/lib/client/use-persistent-view-state";
@@ -214,7 +214,7 @@ function getIngredientState(order: ManufacturingOrderListRow): FulfillmentDispla
     order.ingredientReadiness === "picking"
       ? "in_stock"
       : order.ingredientReadiness;
-  return getIngredientsDisplayState(ingredientState);
+  return getIngredientsDisplayState(ingredientState, order.ingredientExpectedDate);
 }
 
 function getProductionState(order: ManufacturingOrderListRow): FulfillmentDisplayState {
@@ -242,7 +242,8 @@ function IngredientsStatusCell({ order }: { order: ManufacturingOrderListRow }) 
     item: row.itemName,
     needed: formatQuantity(row.needed),
     available: formatQuantity(row.available),
-    short: Number(row.available) < Number(row.needed),
+    expected: formatQuantity(row.expected),
+    short: Number(row.available) + Number(row.expected) < Number(row.needed),
   }));
 
   return (
@@ -463,7 +464,7 @@ export function OrdersTable({
     return [...filteredOrders].sort(compareManufacturingRank);
   }, [effectiveResourceFilter, statusFilter, statusFilteredOrders]);
   const hasSearchFilter = searchValue.trim().length > 0;
-  const reorderEnabled =
+  const reorderAvailable =
     statusFilter === "open" &&
     !hasSearchFilter &&
     effectiveResourceFilter === ALL_RESOURCES_FILTER &&
@@ -472,6 +473,12 @@ export function OrdersTable({
     () => keepManufacturingRankVisible(ordersPreference.grid),
     [ordersPreference.grid]
   );
+  const clearSort = useCallback(() => {
+    gridApiRef.current?.applyColumnState({
+      defaultState: { sort: null },
+    });
+    setHasActiveSort(false);
+  }, []);
   const gridColumns = useMemo<ColDef<ManufacturingOrderListRow>[]>(
     () => [
       {
@@ -483,7 +490,7 @@ export function OrdersTable({
         maxWidth: 110,
         resizable: false,
         sortable: false,
-        rowDrag: reorderEnabled,
+        rowDrag: reorderAvailable,
         hide: statusFilter !== "open",
         cellRenderer: ({
           data,
@@ -600,7 +607,7 @@ export function OrdersTable({
           data ? <DateTimeText value={data.completedAt} /> : null,
       },
     ],
-    [reorderEnabled, statusFilter]
+    [reorderAvailable, statusFilter]
   );
   const reorderMutation = useMutation({
     mutationFn: async (orderedRows: ManufacturingOrderListRow[]) => {
@@ -662,12 +669,6 @@ export function OrdersTable({
     },
   });
   const selectedCount = selectedOrders.length;
-  const clearSort = () => {
-    gridApiRef.current?.applyColumnState({
-      defaultState: { sort: null },
-    });
-    setHasActiveSort(false);
-  };
 
   return (
     <>
@@ -680,7 +681,7 @@ export function OrdersTable({
         emptyMessage="No manufacturing orders yet."
         enableRowSelection
         onSelectionChange={setSelectedOrders}
-        enableManagedRowDrag={reorderEnabled}
+        enableManagedRowDrag={reorderAvailable}
         suppressMoveWhenRowDragging
         resetRowDataOnUpdate
         relaxResizableMaxWidth
@@ -696,7 +697,7 @@ export function OrdersTable({
           }));
         }}
         onManagedRowDragReorder={(orderedRows) => {
-          if (!reorderEnabled || reorderMutation.isPending) {
+          if (!reorderAvailable || reorderMutation.isPending) {
             return;
           }
 
@@ -717,15 +718,6 @@ export function OrdersTable({
               orderCount={statusFilteredOrders.length}
               onValueChange={setResourceFilter}
             />
-            {hasActiveSort ? (
-              <>
-                <div className="h-(--space-10) w-px bg-border" />
-                <Button type="button" variant="secondary" size="sm" onClick={clearSort}>
-                  <HugeiconsIcon icon={Sorting05Icon} data-icon="inline-start" />
-                  Reset sort
-                </Button>
-              </>
-            ) : null}
             <Button
               type="button"
               variant="destructive"
@@ -748,6 +740,26 @@ export function OrdersTable({
                 New Order
               </Link>
             </Button>
+          </>
+        }
+        statusBarContent={
+          <>
+            <span>
+              {displayedOrders.length} of {orders.length} rows
+            </span>
+            <div className="flex-1" />
+            <button
+              type="button"
+              className="hover:text-foreground"
+              aria-label={
+                hasActiveSort
+                  ? "Reset sort to reorder manufacturing orders"
+                  : "Manufacturing orders sorted by rank"
+              }
+              onClick={clearSort}
+            >
+              Sort: {hasActiveSort ? "Custom" : "Rank ↑"}
+            </button>
           </>
         }
       />

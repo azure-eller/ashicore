@@ -16,6 +16,7 @@ import {
 import {
   createCustomer,
   createItem,
+  createManufacturingOrder,
   createSalesOrder,
   fulfillSalesOrder,
   getOrgId,
@@ -26,6 +27,12 @@ import {
 const ACCOUNTING_PROVIDER_XERO = "xero";
 const ACCOUNTING_PROVIDER_QUICKBOOKS = "quickbooks";
 const ACCOUNTING_DOCUMENT_SALES_ORDER = "sales_order";
+
+function isoDaysFromNow(days: number) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
 
 async function withOnlyQuickBooksConnection<T>(
   db: Parameters<Parameters<typeof test>[2]>[0]["db"],
@@ -608,6 +615,95 @@ test.describe("sales demand and shipping heartbeat", () => {
       referenceType: "sales_order",
       referenceId: higherPriorityOrder.body.id,
       quantity: 50,
+    });
+  });
+
+  test("shipping warns before taking future-eligible stock claimed by manufacturing", async () => {
+    const conflictTs = Date.now().toString(36);
+    const agedComponent = await createItem({
+      itemType: "material",
+      name: `Fast Aged Claim Component ${conflictTs}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-AGED-CLAIM-COMP-${conflictTs}`,
+      category: `Fast Sales ${conflictTs}`,
+      description: null,
+      defaultPurchasePrice: "7.00",
+      defaultSellingPrice: "15.00",
+      stock: "10",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(agedComponent.status, JSON.stringify(agedComponent.body)).toBe(201);
+
+    const finishedProduct = await createItem({
+      itemType: "product",
+      name: `Fast Aged Claim Finished ${conflictTs}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-AGED-CLAIM-FIN-${conflictTs}`,
+      category: `Fast Sales ${conflictTs}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "25.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [
+        {
+          componentId: agedComponent.body.id,
+          quantity: "1",
+          minimumLotAgeDays: 3,
+        },
+      ],
+    });
+    expect(finishedProduct.status, JSON.stringify(finishedProduct.body)).toBe(201);
+
+    const manufacturingOrder = await createManufacturingOrder({
+      productId: finishedProduct.body.id,
+      plannedQuantity: "10",
+      plannedDate: isoDaysFromNow(4),
+      ingredients: [{ itemId: agedComponent.body.id, quantityPerUnit: "1" }],
+      confirmShortage: false,
+    });
+    expect(
+      manufacturingOrder.status,
+      JSON.stringify(manufacturingOrder.body)
+    ).toBe(201);
+
+    const customer = await createCustomer({
+      name: `Fast Aged Claim Customer ${conflictTs}`,
+    });
+    expect(customer.status).toBe(201);
+
+    const salesOrder = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: isoDaysFromNow(0),
+      shipDate: isoDaysFromNow(1),
+      lines: [{ itemId: agedComponent.body.id, quantity: "10", unitPrice: "15.00" }],
+    });
+    expect(salesOrder.status, JSON.stringify(salesOrder.body)).toBe(201);
+
+    const salesOrdersResponse = await testFetch("/api/sales-orders");
+    expect(salesOrdersResponse.status).toBe(200);
+    const salesOrderRows = (await salesOrdersResponse.json()) as Array<{
+      id: string;
+      fulfillmentSummary?: { salesItemsState?: string };
+    }>;
+    expect(
+      salesOrderRows.find((row) => row.id === salesOrder.body.id)
+        ?.fulfillmentSummary?.salesItemsState
+    ).toBe("not_available");
+
+    const ship = await fulfillSalesOrder(salesOrder.body.id);
+    expect(ship.status).toBe(409);
+    expect(ship.body.negativeStock).toMatchObject({
+      itemId: agedComponent.body.id,
+      reason: "commitment_conflict",
+      committedToOthers: 10,
+    });
+    expect(ship.body.negativeStock.commitments[0]).toMatchObject({
+      referenceType: "manufacturing_order",
+      referenceId: manufacturingOrder.body.id,
+      quantity: 10,
     });
   });
 

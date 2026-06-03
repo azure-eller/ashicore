@@ -26,81 +26,26 @@ import {
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import { allocationDemandAdapters } from "./adapters";
 import { loadAllocationSourcesForItemInTx } from "./sources";
-import type { AllocationDemandType } from "./types";
-import { compareDemandOrder, compareNullableDate } from "./priority";
+import type { AllocationDemandType, AllocationSourceRow } from "./types";
+import {
+  computeDemandQueueCoverage,
+  demandQueueCoverageKey,
+  type CoverageSegment,
+  type DemandQueueDemandInput,
+  type DemandQueueSupplyChunk,
+} from "./coverage-engine";
 
 // Demand-queue mode computes item-level quantity coverage from supply chunks.
 // It is a pure read projection: nothing is persisted, no lot identity is chosen.
 // Manufacturing-component demand claims supply before sales demand.
 
-export type DemandQueueSupplyChunk = {
-  kind: "on_hand" | "expected_mo" | "expected_po";
-  sourceType?: "inventory_lot" | "manufacturing_order" | "purchase_order_line";
-  sourceId?: string;
-  linkedDemand?: {
-    demandType: AllocationDemandType;
-    demandId: string;
-  };
-  quantity: number;
-  availableDate: string | null;
-  label: string | null;
-};
-
-export type DemandQueueDemandInput = {
-  demandType: AllocationDemandType;
-  demandId: string;
-  itemId: string;
-  itemName: string;
-  unitName: string;
-  label: string;
-  contextLabel: string | null;
-  requiredDate: string | null;
-  href: string | null;
-  openQty: number;
-  priorityRank: number | null;
-  priorityDate: string | null;
-  priorityLabel: string;
-  minimumLotAgeDays?: number | null;
-};
-
-export type DemandQueueCoverageRow = {
-  demandType: AllocationDemandType;
-  demandId: string;
-  label: string;
-  contextLabel: string | null;
-  requiredDate: string | null;
-  href: string | null;
-  openQty: number;
-  inStockQty: number;
-  expectedQty: number;
-  queueCoveredQty: number;
-  earliestExpectedDate: string | null;
-  claimedQty: number;
-  shortQty: number;
-  segments: CoverageSegment[];
-};
-
-type DemandQueueCoverageState = DemandQueueCoverageRow & {
-  remainingNeed: number;
-};
-
-export type CoverageSegment =
-  | {
-      kind: "in_stock";
-      qty: number;
-      sourceType?: DemandQueueSupplyChunk["sourceType"];
-      sourceId?: string;
-      sourceLabel?: string | null;
-    }
-  | {
-      kind: "expected";
-      qty: number;
-      availableDate: string | null;
-      sourceType?: DemandQueueSupplyChunk["sourceType"];
-      sourceId?: string;
-      sourceLabel?: string | null;
-    }
-  | { kind: "short"; qty: number };
+export { computeDemandQueueCoverage, demandQueueCoverageKey } from "./coverage-engine";
+export type {
+  CoverageSegment,
+  DemandQueueCoverageRow,
+  DemandQueueDemandInput,
+  DemandQueueSupplyChunk,
+} from "./coverage-engine";
 
 export type DemandQueueCoverageSegment =
   | {
@@ -124,184 +69,6 @@ function serializeCoverageSegment(
   segment: CoverageSegment
 ): DemandQueueCoverageSegment {
   return { ...segment, qty: quantityString(segment.qty) };
-}
-
-function compareSupplyOrder(
-  left: DemandQueueSupplyChunk,
-  right: DemandQueueSupplyChunk
-) {
-  // On-hand is consumed before expected supply; expected supply earliest-first.
-  if (left.kind === "on_hand" && right.kind !== "on_hand") return -1;
-  if (left.kind !== "on_hand" && right.kind === "on_hand") return 1;
-  const dateCompare = compareNullableDate(left.availableDate, right.availableDate);
-  if (dateCompare !== 0) return dateCompare;
-  return left.kind.localeCompare(right.kind);
-}
-
-function expectedSupplyCanCoverDemand(
-  supply: DemandQueueSupplyChunk,
-  demand: DemandQueueDemandInput,
-  today: string
-) {
-  const minimumLotAgeDays = demand.minimumLotAgeDays ?? null;
-  if (minimumLotAgeDays != null) {
-    if (supply.availableDate == null) return false;
-    return addDays(sourceDate(supply.availableDate), minimumLotAgeDays) <= today;
-  }
-
-  if (supply.kind === "on_hand") return true;
-  if (supply.availableDate == null) return demand.requiredDate == null;
-  if (demand.requiredDate == null) return true;
-  return supply.availableDate <= demand.requiredDate;
-}
-
-function supplyLinkedToDemand(
-  supply: DemandQueueSupplyChunk,
-  demand: DemandQueueDemandInput
-) {
-  return (
-    supply.linkedDemand == null ||
-    (supply.linkedDemand.demandType === demand.demandType &&
-      supply.linkedDemand.demandId === demand.demandId)
-  );
-}
-
-function segmentQty(row: DemandQueueCoverageRow, kinds: CoverageSegment["kind"][]) {
-  const allowed = new Set(kinds);
-  return roundQuantity(
-    row.segments.reduce(
-      (sum, segment) => sum + (allowed.has(segment.kind) ? segment.qty : 0),
-      0
-    )
-  );
-}
-
-function assertCoverageSegmentsMatchTotals(row: DemandQueueCoverageRow) {
-  const checks = [
-    [segmentQty(row, ["in_stock"]), row.inStockQty],
-    [segmentQty(row, ["expected"]), row.expectedQty],
-    [segmentQty(row, ["in_stock", "expected"]), row.queueCoveredQty],
-    [segmentQty(row, ["short"]), row.shortQty],
-  ];
-  if (checks.some(([left, right]) => roundQuantity(left - right) !== 0)) {
-    throw new Error(
-      `Demand queue coverage segment totals diverged for ${row.demandType}:${row.demandId}.`
-    );
-  }
-}
-
-function sourceDate(value: string) {
-  return value.slice(0, 10);
-}
-
-function addDays(value: string, days: number) {
-  const date = new Date(`${value}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-export function computeDemandQueueCoverage(params: {
-  supply: DemandQueueSupplyChunk[];
-  demands: DemandQueueDemandInput[];
-  today: string;
-}): DemandQueueCoverageRow[] {
-  const supply = params.supply
-    .map((chunk) => ({ ...chunk, remaining: roundQuantity(Math.max(0, chunk.quantity)) }))
-    .filter((chunk) => chunk.remaining > 0)
-    .sort(compareSupplyOrder);
-  const demands = [...params.demands].sort(compareDemandOrder);
-  const coverageByKey = new Map<string, DemandQueueCoverageState>();
-  for (const demand of demands) {
-    coverageByKey.set(demandQueueCoverageKey(demand), {
-      demandType: demand.demandType,
-      demandId: demand.demandId,
-      label: demand.label,
-      contextLabel: demand.contextLabel,
-      requiredDate: demand.requiredDate,
-      href: demand.href,
-      openQty: roundQuantity(Math.max(0, demand.openQty)),
-      inStockQty: 0,
-      expectedQty: 0,
-      queueCoveredQty: 0,
-      earliestExpectedDate: null,
-      claimedQty: 0,
-      shortQty: 0,
-      segments: [],
-      remainingNeed: roundQuantity(Math.max(0, demand.openQty)),
-    });
-  }
-
-  for (const demand of demands) {
-    const coverage = coverageByKey.get(demandQueueCoverageKey(demand));
-    if (!coverage) continue;
-    for (const chunk of supply) {
-      if (coverage.remainingNeed <= 0) break;
-      if (chunk.remaining <= 0) continue;
-      if (!supplyLinkedToDemand(chunk, demand)) continue;
-      if (!expectedSupplyCanCoverDemand(chunk, demand, params.today)) continue;
-      const claim = roundQuantity(Math.min(coverage.remainingNeed, chunk.remaining));
-      if (claim <= 0) continue;
-
-      chunk.remaining = roundQuantity(chunk.remaining - claim);
-      coverage.remainingNeed = roundQuantity(coverage.remainingNeed - claim);
-
-      if (chunk.kind === "on_hand") {
-        coverage.inStockQty = roundQuantity(coverage.inStockQty + claim);
-        coverage.segments.push({
-          kind: "in_stock",
-          qty: claim,
-          sourceType: chunk.sourceType,
-          sourceId: chunk.sourceId,
-          sourceLabel: chunk.label,
-        });
-      } else {
-        coverage.expectedQty = roundQuantity(coverage.expectedQty + claim);
-        coverage.segments.push({
-          kind: "expected",
-          qty: claim,
-          availableDate: chunk.availableDate,
-          sourceType: chunk.sourceType,
-          sourceId: chunk.sourceId,
-          sourceLabel: chunk.label,
-        });
-        if (
-          chunk.availableDate &&
-          (coverage.earliestExpectedDate == null ||
-            chunk.availableDate < coverage.earliestExpectedDate)
-        ) {
-          coverage.earliestExpectedDate = chunk.availableDate;
-        }
-      }
-      coverage.queueCoveredQty = roundQuantity(coverage.queueCoveredQty + claim);
-    }
-  }
-
-  return demands.map((demand) => {
-    const coverage = coverageByKey.get(demandQueueCoverageKey(demand))!;
-    const claimedQty = roundQuantity(coverage.inStockQty + coverage.expectedQty);
-    const shortQty = roundQuantity(Math.max(0, demand.openQty - claimedQty));
-    const row: DemandQueueCoverageRow = {
-      demandType: coverage.demandType,
-      demandId: coverage.demandId,
-      label: coverage.label,
-      contextLabel: coverage.contextLabel,
-      requiredDate: coverage.requiredDate,
-      href: coverage.href,
-      openQty: coverage.openQty,
-      inStockQty: coverage.inStockQty,
-      expectedQty: coverage.expectedQty,
-      queueCoveredQty: coverage.queueCoveredQty,
-      earliestExpectedDate: coverage.earliestExpectedDate,
-      claimedQty,
-      shortQty,
-      segments:
-        shortQty > 0
-          ? [...coverage.segments, { kind: "short", qty: shortQty }]
-          : coverage.segments,
-    };
-    assertCoverageSegmentsMatchTotals(row);
-    return row;
-  });
 }
 
 async function getOrganizationTodayInTx(tx: Tx, organizationId: string) {
@@ -335,6 +102,7 @@ export type DemandQueueCoverageDemand = {
   expectedQty: string;
   queueCoveredQty: string;
   earliestExpectedDate: string | null;
+  latestExpectedDate: string | null;
   shortQty: string;
   segments: DemandQueueCoverageSegment[];
 };
@@ -372,11 +140,101 @@ export type DemandQueueItemCoverage = {
   demands: DemandQueueCoverageDemand[];
 };
 
-export function demandQueueCoverageKey(ref: {
+export type DemandQueueInventoryLotClaimConflict = {
   demandType: AllocationDemandType;
   demandId: string;
-}) {
-  return `${ref.demandType}:${ref.demandId}` as const;
+  label: string;
+  contextLabel: string | null;
+  quantity: number;
+  href: string | null;
+};
+
+export function getDemandQueueInventoryLotClaimConflicts(params: {
+  coverage: DemandQueueItemCoverage | undefined;
+  excludeDemand: {
+    demandType: AllocationDemandType;
+    demandId: string;
+  };
+  quantity: number;
+}): DemandQueueInventoryLotClaimConflict[] {
+  let remainingConflictQty = roundQuantity(Math.max(0, params.quantity));
+  if (!params.coverage || remainingConflictQty <= 0) return [];
+
+  const conflicts: DemandQueueInventoryLotClaimConflict[] = [];
+  for (const demand of params.coverage.demands) {
+    if (
+      demand.demandType === params.excludeDemand.demandType &&
+      demand.demandId === params.excludeDemand.demandId
+    ) {
+      continue;
+    }
+
+    const inventoryLotQty = roundQuantity(
+      demand.segments.reduce(
+        (sum, segment) =>
+          segment.kind !== "short" && segment.sourceType === "inventory_lot"
+            ? roundQuantity(sum + toQuantity(segment.qty))
+            : sum,
+        0
+      )
+    );
+    const quantity = roundQuantity(
+      Math.min(remainingConflictQty, inventoryLotQty)
+    );
+    if (quantity <= 0) continue;
+
+    remainingConflictQty = roundQuantity(remainingConflictQty - quantity);
+    conflicts.push({
+      demandType: demand.demandType,
+      demandId: demand.demandId,
+      label: demand.label,
+      contextLabel: demand.contextLabel,
+      quantity,
+      href: demand.href,
+    });
+
+    if (remainingConflictQty <= 0) break;
+  }
+
+  return conflicts;
+}
+
+function buildInventoryLotSupplyChunks(sources: AllocationSourceRow[]) {
+  let negativeDebtQty = roundQuantity(
+    sources
+      .filter((source) => source.sourceType === "inventory_lot")
+      .reduce(
+        (sum, source) => sum + Math.min(0, toQuantity(source.totalQty)),
+        0
+      )
+  );
+  negativeDebtQty = Math.abs(negativeDebtQty);
+
+  return sources
+    .filter((source) => source.sourceType === "inventory_lot")
+    .flatMap((source): DemandQueueSupplyChunk[] => {
+      let quantity = toQuantity(source.totalQty);
+      if (quantity <= 0) return [];
+
+      if (negativeDebtQty > 0) {
+        const debtApplied = Math.min(quantity, negativeDebtQty);
+        quantity = roundQuantity(quantity - debtApplied);
+        negativeDebtQty = roundQuantity(negativeDebtQty - debtApplied);
+      }
+
+      if (quantity <= 0) return [];
+
+      return [
+        {
+          kind: "on_hand",
+          sourceType: "inventory_lot",
+          sourceId: source.sourceId,
+          quantity,
+          availableDate: source.date,
+          label: source.label,
+        },
+      ];
+    });
 }
 
 async function getUntrackedOnHandSupplyInTx(
@@ -477,14 +335,14 @@ export async function getDemandQueueCoverageForItemInTx(
   }
 ): Promise<DemandQueueItemCoverage | null> {
   const demandRows = (
-    await Promise.all([
-      ...allocationDemandAdapters.map((adapter) =>
+    await Promise.all(
+      allocationDemandAdapters.map((adapter) =>
         adapter.loadOpenDemandsForItemInTx(tx, {
           organizationId: params.organizationId,
           itemId: params.itemId,
         })
-      ),
-    ])
+      )
+    )
   ).flat();
 
   if (demandRows.length === 0) return null;
@@ -510,14 +368,13 @@ export async function getDemandQueueCoverageForItemInTx(
   const supply: DemandQueueSupplyChunk[] = [
     ...(untrackedOnHandSupply ? [untrackedOnHandSupply] : []),
     ...purchaseSupply,
+    ...buildInventoryLotSupplyChunks(sources),
     ...sources
       .filter(
-        (source) => toQuantity(source.totalQty) > 0
+        (source) => source.sourceType === "manufacturing_order" && toQuantity(source.totalQty) > 0
       )
       .map((source) => ({
-        kind: (source.sourceType === "inventory_lot"
-          ? "on_hand"
-          : "expected_mo") as DemandQueueSupplyChunk["kind"],
+        kind: "expected_mo" as DemandQueueSupplyChunk["kind"],
         sourceType: source.sourceType,
         sourceId: source.sourceId,
         quantity: toQuantity(source.totalQty),
@@ -647,6 +504,7 @@ export async function getDemandQueueCoverageForItemInTx(
       expectedQty: quantityString(row.expectedQty),
       queueCoveredQty: quantityString(row.queueCoveredQty),
       earliestExpectedDate: row.earliestExpectedDate,
+      latestExpectedDate: row.latestExpectedDate,
       shortQty: quantityString(row.shortQty),
       segments: row.segments.map(serializeCoverageSegment),
     })),
@@ -664,6 +522,8 @@ export async function getDemandQueueCoverageForItemsInTx(
   const coverage: DemandQueueItemCoverage[] = [];
   const itemIds = [...new Set(params.itemIds)];
 
+  // TODO: batch-load supply and demand for all itemIds; the pure engine already
+  // gives us the seam to compute each item in memory after set-based queries.
   for (const itemId of itemIds) {
     const itemCoverage = await getDemandQueueCoverageForItemInTx(tx, {
       organizationId: params.organizationId,
