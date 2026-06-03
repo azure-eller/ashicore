@@ -63,6 +63,7 @@ function mapManufacturingIngredientDemandRow(row: {
     priorityRank: row.priorityRank,
     priorityDate: row.plannedDate,
     priorityLabel: row.orderNumber,
+    lateSupplyBehavior: "expected",
     minimumLotAgeDays: row.minimumLotAgeDays,
   };
 }

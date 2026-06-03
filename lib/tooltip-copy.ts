@@ -302,7 +302,7 @@ export const REQUESTED_DATE_TOOLTIP =
   "Customer-facing delivery date.";
 
 export const SALES_ORDER_SHIP_DATE_TOOLTIP =
-  "Operational load date for shipment and production planning.";
+  "Delivery deadline used for fulfillment and production planning.";
 
 export const SALES_ORDER_DATE_TOOLTIP =
   "Date the customer placed the order.";

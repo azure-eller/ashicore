@@ -229,6 +229,88 @@ test("demand queue treats constraint-delayed on-hand supply as expected", () => 
   ]);
 });
 
+test("manufacturing ingredient coverage counts late-maturing lots until the full demand is expected", () => {
+  const coverage = computeDemandQueueCoverage({
+    today: "2026-06-03",
+    supply: [
+      {
+        kind: "on_hand",
+        sourceType: "inventory_lot",
+        sourceId: "lot-2026-05-28",
+        quantity: 5,
+        availableDate: "2026-05-28",
+        label: "LOT-2026-05-28",
+      },
+      {
+        kind: "on_hand",
+        sourceType: "inventory_lot",
+        sourceId: "lot-2026-05-31",
+        quantity: 12.8,
+        availableDate: "2026-05-31",
+        label: "LOT-2026-05-31",
+      },
+      {
+        kind: "on_hand",
+        sourceType: "inventory_lot",
+        sourceId: "lot-2026-06-01",
+        quantity: 8.75,
+        availableDate: "2026-06-01",
+        label: "LOT-2026-06-01",
+      },
+    ],
+    demands: [
+      {
+        demandType: "manufacturing_order_ingredient",
+        demandId: "ingredient-1",
+        itemId: "item-1",
+        itemName: "Bomb 50/50 / 1 yd tote",
+        unitName: "Each",
+        label: "MO-2026-0001",
+        contextLabel: "Bomb 50/50 / 1 cf bag",
+        requiredDate: "2026-06-04",
+        href: null,
+        openQty: 5,
+        priorityRank: 1,
+        priorityDate: "2026-06-04",
+        priorityLabel: "MO-2026-0001",
+        lateSupplyBehavior: "expected",
+        minimumLotAgeDays: 7,
+      },
+      {
+        demandType: "manufacturing_order_ingredient",
+        demandId: "ingredient-2",
+        itemId: "item-1",
+        itemName: "Bomb 50/50 / 1 yd tote",
+        unitName: "Each",
+        label: "MO-2026-0002",
+        contextLabel: "Bomb 50/50 / 1 cf bag",
+        requiredDate: "2026-06-04",
+        href: null,
+        openQty: 8.75,
+        priorityRank: 2,
+        priorityDate: "2026-06-04",
+        priorityLabel: "MO-2026-0002",
+        lateSupplyBehavior: "expected",
+        minimumLotAgeDays: 7,
+      },
+    ],
+  });
+
+  const secondOrder = coverage.find((row) => row.demandId === "ingredient-2");
+  expect(secondOrder?.inStockQty).toBe(0);
+  expect(secondOrder?.expectedQty).toBe(8.75);
+  expect(secondOrder?.shortQty).toBe(0);
+  expect(secondOrder?.latestExpectedDate).toBe("2026-06-07");
+  expect(secondOrder?.segments).toEqual([
+    expect.objectContaining({
+      kind: "expected",
+      qty: 8.75,
+      availableDate: "2026-06-07",
+      sourceId: "lot-2026-05-31",
+    }),
+  ]);
+});
+
 test("sales availability treats linked manufacturing output as expected supply", async ({
   db,
 }) => {
@@ -1294,5 +1376,375 @@ test("make-to-order preview ignores queue stock and avoids double-counting linke
   expect(cancelledPreview.lines[0]).toMatchObject({
     status: "skipped",
     skipReason: "no_remaining_demand",
+  });
+});
+
+test("make-to-order creation uses the sales line quantity", async ({
+  db,
+}) => {
+  const ts = Date.now();
+  const unitId = getUnitId();
+
+  const component = await createItem({
+    itemType: "material",
+    name: `Fast Explicit MTO Component ${ts}`,
+    unitDefinitionId: unitId,
+    sku: `FAST-EXPLICIT-MTO-COMP-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: null,
+    stock: "100",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(component.status).toBe(201);
+
+  const product = await createItem({
+    itemType: "product",
+    name: `Fast Explicit MTO Product ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-EXPLICIT-MTO-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: null,
+    defaultSellingPrice: "10.00",
+    stock: "50",
+    safetyStock: "0",
+    bom: [{ componentId: component.body.id, quantity: "1" }],
+  });
+  expect(product.status).toBe(201);
+
+  const customer = await createCustomer({
+    name: `Fast Explicit MTO Customer ${ts}`,
+  });
+  expect(customer.status).toBe(201);
+
+  const order = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `EXPLICIT-MTO-${ts}`,
+    orderDate: "2026-05-10",
+    shipDate: "2026-05-20",
+    lines: [{ itemId: product.body.id, quantity: "100", unitPrice: "10.00" }],
+  });
+  expect(order.status).toBe(201);
+
+  const [line] = await db
+    .select({ id: salesOrderLines.id })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.salesOrderId, order.body.id));
+  expect(line).toBeTruthy();
+
+  const response = await testFetch(
+    `/api/sales-orders/${order.body.id}/manufacturing-orders`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        manufacturingStrategy: "make_to_order",
+        plannedDate: "2026-05-19",
+        salesOrderLineIds: [line.id],
+        priorityRank: null,
+        lineQuantities: [
+          {
+            salesOrderLineId: line.id,
+            quantity: "25",
+          },
+        ],
+        notes: null,
+      }),
+    }
+  );
+  expect(response.status).toBe(201);
+
+  const [manufacturingOrder] = await db
+    .select({
+      salesOrderId: manufacturingOrders.salesOrderId,
+      salesOrderLineId: manufacturingOrders.salesOrderLineId,
+      plannedQuantity: manufacturingOrders.plannedQuantity,
+      requestedQuantity: manufacturingOrders.requestedQuantity,
+    })
+    .from(manufacturingOrders)
+    .where(eq(manufacturingOrders.salesOrderLineId, line.id));
+
+  expect(manufacturingOrder).toMatchObject({
+    salesOrderId: order.body.id,
+    salesOrderLineId: line.id,
+    plannedQuantity: "100.0000",
+    requestedQuantity: "100.0000",
+  });
+});
+
+test("linked make-to-order sales line quantity is locked", async ({
+  db,
+}) => {
+  const ts = Date.now();
+  const unitId = getUnitId();
+
+  const component = await createItem({
+    itemType: "material",
+    name: `Fast Locked MTO Line Component ${ts}`,
+    unitDefinitionId: unitId,
+    sku: `FAST-LOCKED-MTO-LINE-COMP-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: null,
+    stock: "100",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(component.status).toBe(201);
+
+  const product = await createItem({
+    itemType: "product",
+    name: `Fast Locked MTO Line Product ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-LOCKED-MTO-LINE-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: null,
+    defaultSellingPrice: "10.00",
+    stock: "0",
+    safetyStock: "0",
+    bom: [{ componentId: component.body.id, quantity: "1" }],
+  });
+  expect(product.status).toBe(201);
+
+  const customer = await createCustomer({
+    name: `Fast Locked MTO Line Customer ${ts}`,
+  });
+  expect(customer.status).toBe(201);
+
+  const order = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `LOCKED-MTO-LINE-${ts}`,
+    orderDate: "2026-05-10",
+    shipDate: "2026-05-20",
+    lines: [{ itemId: product.body.id, quantity: "8", unitPrice: "10.00" }],
+  });
+  expect(order.status).toBe(201);
+
+  const [line] = await db
+    .select({ id: salesOrderLines.id })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.salesOrderId, order.body.id));
+  expect(line).toBeTruthy();
+
+  const response = await testFetch(
+    `/api/sales-orders/${order.body.id}/manufacturing-orders`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        manufacturingStrategy: "make_to_order",
+        plannedDate: "2026-05-19",
+        salesOrderLineIds: [line.id],
+        priorityRank: null,
+        notes: null,
+      }),
+    }
+  );
+  expect(response.status).toBe(201);
+
+  const patchResponse = await testFetch(
+    `/api/sales-orders/${order.body.id}/lines/${line.id}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ quantity: "9" }),
+    }
+  );
+  expect(patchResponse.status).toBe(400);
+
+  const [unchangedLine] = await db
+    .select({ quantity: salesOrderLines.quantity })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.id, line.id));
+  expect(unchangedLine?.quantity).toBe("8.0000");
+});
+
+test("make-to-stock manufacturing orders cannot be linked after creation", async ({
+  db,
+}) => {
+  const ts = Date.now();
+  const unitId = getUnitId();
+
+  const component = await createItem({
+    itemType: "material",
+    name: `Fast MTS Link Guard Component ${ts}`,
+    unitDefinitionId: unitId,
+    sku: `FAST-MTS-LINK-GUARD-COMP-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: null,
+    stock: "100",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(component.status).toBe(201);
+
+  const product = await createItem({
+    itemType: "product",
+    name: `Fast MTS Link Guard Product ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-MTS-LINK-GUARD-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: null,
+    defaultSellingPrice: "10.00",
+    stock: "0",
+    safetyStock: "0",
+    bom: [{ componentId: component.body.id, quantity: "1" }],
+  });
+  expect(product.status).toBe(201);
+
+  const customer = await createCustomer({
+    name: `Fast MTS Link Guard Customer ${ts}`,
+  });
+  expect(customer.status).toBe(201);
+
+  const order = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `MTS-LINK-GUARD-${ts}`,
+    orderDate: "2026-05-10",
+    shipDate: "2026-05-20",
+    lines: [{ itemId: product.body.id, quantity: "8", unitPrice: "10.00" }],
+  });
+  expect(order.status).toBe(201);
+
+  const [line] = await db
+    .select({ id: salesOrderLines.id })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.salesOrderId, order.body.id));
+  expect(line).toBeTruthy();
+
+  const makeToStock = await createManufacturingOrder({
+    productId: product.body.id,
+    plannedQuantity: "4",
+    plannedDate: "2026-05-19",
+    ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+    confirmShortage: false,
+  });
+  expect(makeToStock.status).toBe(201);
+
+  const linkResponse = await testFetch(
+    `/api/manufacturing-orders/${makeToStock.body.id}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        salesOrderId: order.body.id,
+        salesOrderLineId: line.id,
+      }),
+    }
+  );
+  expect(linkResponse.status).toBe(400);
+
+  const [unchangedOrder] = await db
+    .select({
+      salesOrderId: manufacturingOrders.salesOrderId,
+      salesOrderLineId: manufacturingOrders.salesOrderLineId,
+    })
+    .from(manufacturingOrders)
+    .where(eq(manufacturingOrders.id, makeToStock.body.id));
+  expect(unchangedOrder).toMatchObject({
+    salesOrderId: null,
+    salesOrderLineId: null,
+  });
+});
+
+test("make-to-order creation rounds batch products up to whole batches", async ({
+  db,
+}) => {
+  const ts = Date.now();
+  const unitId = getUnitId();
+
+  const component = await createItem({
+    itemType: "material",
+    name: `Fast Batch MTO Component ${ts}`,
+    unitDefinitionId: unitId,
+    sku: `FAST-BATCH-MTO-COMP-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: null,
+    stock: "100",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(component.status).toBe(201);
+
+  const product = await createItem({
+    itemType: "product",
+    name: `Fast Batch MTO Product ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-BATCH-MTO-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: null,
+    defaultSellingPrice: "10.00",
+    manufacturingMode: "batch",
+    expectedBatchYield: "8.75",
+    outputQuantity: "8.75",
+    stock: "0",
+    safetyStock: "0",
+    bom: [{ componentId: component.body.id, quantity: "1" }],
+  });
+  expect(product.status).toBe(201);
+
+  const customer = await createCustomer({
+    name: `Fast Batch MTO Customer ${ts}`,
+  });
+  expect(customer.status).toBe(201);
+
+  const order = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `BATCH-MTO-${ts}`,
+    orderDate: "2026-05-10",
+    shipDate: "2026-05-20",
+    lines: [{ itemId: product.body.id, quantity: "15", unitPrice: "10.00" }],
+  });
+  expect(order.status).toBe(201);
+
+  const [line] = await db
+    .select({ id: salesOrderLines.id })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.salesOrderId, order.body.id));
+  expect(line).toBeTruthy();
+
+  const response = await testFetch(
+    `/api/sales-orders/${order.body.id}/manufacturing-orders`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        manufacturingStrategy: "make_to_order",
+        plannedDate: "2026-05-19",
+        salesOrderLineIds: [line.id],
+        priorityRank: null,
+        notes: null,
+      }),
+    }
+  );
+  expect(response.status).toBe(201);
+
+  const [manufacturingOrder] = await db
+    .select({
+      salesOrderId: manufacturingOrders.salesOrderId,
+      salesOrderLineId: manufacturingOrders.salesOrderLineId,
+      plannedQuantity: manufacturingOrders.plannedQuantity,
+      requestedQuantity: manufacturingOrders.requestedQuantity,
+      numberOfBatches: manufacturingOrders.numberOfBatches,
+    })
+    .from(manufacturingOrders)
+    .where(eq(manufacturingOrders.salesOrderLineId, line.id));
+
+  expect(manufacturingOrder).toMatchObject({
+    salesOrderId: order.body.id,
+    salesOrderLineId: line.id,
+    plannedQuantity: "17.5000",
+    requestedQuantity: "17.5000",
+    numberOfBatches: 2,
   });
 });

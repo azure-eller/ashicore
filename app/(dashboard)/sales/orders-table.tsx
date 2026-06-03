@@ -618,7 +618,7 @@ function OrdersTableContent({
       },
       {
         colId: "shipDate",
-        headerName: "Ship by",
+        headerName: "Delivery deadline",
         headerTooltip: SALES_ORDER_SHIP_DATE_TOOLTIP,
         width: 116,
         minWidth: 110,
@@ -826,7 +826,7 @@ function OrdersTableContent({
             <LastSyncStatus dataUpdatedAt={dataUpdatedAt} />
             <div className="flex-1" />
             <button type="button" className="hover:text-foreground" onClick={clearSort}>
-              Sort: {hasActiveSort ? "Custom" : "Ship by ↑"}
+              Sort: {hasActiveSort ? "Custom" : "Delivery deadline ↑"}
             </button>
             <button
               type="button"

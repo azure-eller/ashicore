@@ -677,7 +677,7 @@ function isoWeekMondayOf(value: string) {
 }
 
 function weekLabelOf(weekKey: string) {
-  if (weekKey === "no-date") return "No ship date";
+  if (weekKey === "no-date") return "No delivery deadline";
   const [year, month, day] = weekKey.split("-").map(Number);
   if (!year || !month || !day) return weekKey;
   const start = new Date(Date.UTC(year, month - 1, day));
@@ -1777,7 +1777,7 @@ export function SalesAllocationTable({
         },
         {
           colId: "shipDate",
-          headerName: "Ship",
+          headerName: "Delivery",
           pinned: "left",
           lockPinned: true,
           suppressMovable: true,

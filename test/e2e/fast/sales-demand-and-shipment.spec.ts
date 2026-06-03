@@ -207,6 +207,44 @@ test.describe("sales demand and shipping heartbeat", () => {
     });
   });
 
+  test("sales order duplicate preserves the full source number with a copy suffix", async ({
+    db,
+  }) => {
+    const productId = await createStockedProduct("DuplicateNumber", "10");
+    const customer = await createCustomer({
+      name: `Fast Duplicate Number Customer ${ts}`,
+    });
+    expect(customer.status).toBe(201);
+
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderNumber: `SO-2026-1182_${ts}`,
+      orderDate: "2026-05-01",
+      shipDate: "2026-05-02",
+      lines: [{ itemId: productId, quantity: "2", unitPrice: "12.00" }],
+    });
+    expect(order.status).toBe(201);
+
+    const duplicate = await testFetch(
+      `/api/sales-orders/${order.body.id}/duplicate`,
+      {
+        method: "POST",
+        headers: createIdempotencyHeaders(`duplicate-number-${ts}`),
+      }
+    );
+    expect(duplicate.status).toBe(201);
+
+    const duplicatedOrder = (await duplicate.json()) as { id: string };
+    const [row] = await db
+      .select({ orderNumber: salesOrders.orderNumber })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, duplicatedOrder.id));
+
+    expect(row.orderNumber).toBe(
+      `SO-2026-1182_${ts}`.slice(0, 32 - "_COPY".length) + "_COPY"
+    );
+  });
+
   test("Shopify paid-order import creates sales demand and records external order", async ({
     db,
   }) => {

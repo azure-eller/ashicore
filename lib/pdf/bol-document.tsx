@@ -174,7 +174,9 @@ export function BillOfLadingDocument({
             )}
             <Text style={styles.metaLine}>Shipped: {shippedDisplay}</Text>
             {order.scheduledDate && (
-              <Text style={styles.metaLine}>Ship date: {formatDate(order.scheduledDate)}</Text>
+              <Text style={styles.metaLine}>
+                Delivery deadline: {formatDate(order.scheduledDate)}
+              </Text>
             )}
           </View>
         </View>

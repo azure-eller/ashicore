@@ -108,6 +108,21 @@ function resolveLinePlannedOutput(
   return normalizeDecimal(batchCount * Number(line.expectedBatchYield));
 }
 
+function displayMakeQuantity(
+  line: ManufacturingSalesOrderPreview["lines"][number],
+  inputQuantity: string,
+  canEditQuantity: boolean
+) {
+  if (canEditQuantity && isBatchLine(line)) {
+    return defaultLineInputQuantity(line, inputQuantity);
+  }
+  if (!isBatchLine(line)) return line.quantity;
+  return resolveLinePlannedOutput(
+    line,
+    defaultLineInputQuantity(line, inputQuantity)
+  ) ?? line.quantity;
+}
+
 function formatOpenManufacturingOrders(
   orders: SalesOrderDetail["linkedManufacturingOrders"]
 ): NonNullable<Props["openManufacturingOrders"]> {
@@ -470,12 +485,12 @@ export function CreateManufacturingOrdersDialog({
                                 />
                               ) : (
                                 <span className="block text-right">
-                                  {canEditQuantity && lineIsBatch
-                                    ? defaultLineInputQuantity(
-                                        line,
-                                        initialLineQuantityMap.get(line.salesOrderLineId)
-                                      )
-                                    : line.quantity}
+                                  {displayMakeQuantity(
+                                    line,
+                                    initialLineQuantityMap.get(line.salesOrderLineId) ??
+                                      line.quantity,
+                                    canEditQuantity
+                                  )}
                                 </span>
                               )}
                             </FramedTableCell>

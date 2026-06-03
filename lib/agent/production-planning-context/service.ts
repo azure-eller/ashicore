@@ -1680,7 +1680,7 @@ export function buildAgentProductionPlanningMarkdown(
           "Item",
           "Qty",
           "Build by",
-          "Ship date",
+          "Delivery deadline",
           "Why",
           "Avail now",
           "Open MO supply",
@@ -1693,7 +1693,7 @@ export function buildAgentProductionPlanningMarkdown(
     line("## Upcoming Build Queue"),
     line(
       markdownTable(
-        ["Item", "Qty", "Build by", "Ship date", "Why", "Sales orders"],
+        ["Item", "Qty", "Build by", "Delivery deadline", "Why", "Sales orders"],
         upcomingRows
       ) + omittedLine(futureTargets.length, upcomingRows.length, "upcoming build targets")
     ),
@@ -1705,7 +1705,7 @@ export function buildAgentProductionPlanningMarkdown(
           "SO",
           "Customer",
           "Order date",
-          "Ship date",
+          "Delivery deadline",
           "Item",
           "Open",
           "Covered",

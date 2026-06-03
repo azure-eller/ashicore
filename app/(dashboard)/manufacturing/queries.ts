@@ -517,14 +517,22 @@ function calculatePlannedIngredientQuantity(params: {
   });
 }
 
-async function generateMONumber(tx: Tx) {
-  const result = await tx.execute(
-    sql`SELECT nextval('manufacturing.order_number_seq') AS val`
-  );
-  const raw = (result.rows[0] as { val: string | number }).val;
-  const sequenceValue = Number(raw);
+async function generateMONumber(tx: Tx, orgId: string) {
   const year = new Date().getFullYear();
-  return `MO-${year}-${String(sequenceValue).padStart(4, "0")}`;
+  const prefix = `MO-${year}-`;
+  const pattern = `^${prefix}(\\d+)$`;
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${`manufacturing-order-number:${orgId}:${year}`}))`
+  );
+  const result = await tx.execute(sql`
+    SELECT COALESCE(MAX((substring(${manufacturingOrders.orderNumber} from ${pattern}))::integer), 0) AS max
+    FROM ${manufacturingOrders}
+    WHERE ${manufacturingOrders.organizationId} = ${orgId}
+      AND ${manufacturingOrders.orderNumber} LIKE ${`${prefix}%`}
+  `);
+  const raw = (result.rows[0] as { max: string | number | null }).max;
+  const next = Number(raw ?? 0) + 1;
+  return `${prefix}${String(next).padStart(4, "0")}`;
 }
 
 async function getLockedManufacturingOrderInTx(
@@ -916,7 +924,22 @@ function assertLinkedMtoIdentityUnchanged(
     plannedQuantity?: string | null;
   }
 ) {
-  if (!existing.salesOrderId || !existing.salesOrderLineId) return;
+  if (!existing.salesOrderId || !existing.salesOrderLineId) {
+    if (values.salesOrderId != null || values.salesOrderLineId != null) {
+      throw new ManufacturingError(
+        "Make-to-stock manufacturing orders cannot be linked to sales orders after creation.",
+        400,
+        {
+          errors: {
+            salesOrderLineId: [
+              "Create make-to-order manufacturing from the sales order instead.",
+            ],
+          },
+        }
+      );
+    }
+    return;
+  }
 
   const nextProductId = values.productId ?? existing.productId;
   const nextSalesOrderId = values.salesOrderId ?? existing.salesOrderId;
@@ -1124,8 +1147,9 @@ async function getActiveIngredientItemMapInTx(tx: Tx, ingredientIds: string[]) {
 async function prepareCreateIngredientsFromBomInTx(
   tx: Tx,
   productId: string,
-  outputQuantity: number
-): Promise<{ bomRevisionId: string; ingredients: ValidatedIngredient[] }> {
+  outputQuantity: number,
+  options?: { roundUpBatchOutput?: boolean }
+): Promise<{ bomRevisionId: string; outputQuantity: number; ingredients: ValidatedIngredient[] }> {
   const bomRows = await getCurrentBomIngredientsInTx(tx, productId);
 
   if (bomRows.length === 0) {
@@ -1134,9 +1158,23 @@ async function prepareCreateIngredientsFromBomInTx(
       400
     );
   }
+  const batchRow = bomRows.find(
+    (row) => normalizeRecipeBasis(row.recipeBasis) === "batch"
+  );
+  const batchYield = Number(batchRow?.bomOutputQuantity ?? NaN);
+  const effectiveOutputQuantity =
+    options?.roundUpBatchOutput &&
+    batchRow &&
+    Number.isFinite(batchYield) &&
+    batchYield > 0 &&
+    Number.isFinite(outputQuantity) &&
+    outputQuantity > 0
+      ? roundQuantity(Math.ceil(outputQuantity / batchYield) * batchYield)
+      : outputQuantity;
 
   return {
     bomRevisionId: bomRows[0].bomRevisionId,
+    outputQuantity: effectiveOutputQuantity,
     ingredients: bomRows.map((row, index) => {
       const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
 
@@ -1152,7 +1190,7 @@ async function prepareCreateIngredientsFromBomInTx(
         plannedQuantity: calculatePlannedIngredientQuantity({
           recipeBasis,
           quantityPerUnit: row.quantityPerUnit,
-          outputQuantity,
+          outputQuantity: effectiveOutputQuantity,
           recipeOutputQuantity: row.bomOutputQuantity,
         }),
         sortOrder: index,
@@ -1413,7 +1451,7 @@ async function insertManufacturingOrderInTx(
     ingredients: ValidatedIngredient[];
   }
 ) {
-  const orderNumber = await generateMONumber(tx);
+  const orderNumber = await generateMONumber(tx, orgId);
   const [order] = await tx
     .insert(manufacturingOrders)
     .values({
@@ -4548,16 +4586,19 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
     }
 
     const product = await getValidatedProductInTx(tx, line.itemId);
-    const requestedQuantity =
+    let requestedQuantity =
       payload.manufacturingStrategy === "make_to_stock"
         ? quantityByLineId.get(line.salesOrderLineId) ?? line.quantity
         : line.quantity;
-    const plannedQuantity = Number(requestedQuantity);
-    const { bomRevisionId, ingredients } = await prepareCreateIngredientsFromBomInTx(
+    let plannedQuantity = Number(requestedQuantity);
+    const { bomRevisionId, outputQuantity, ingredients } = await prepareCreateIngredientsFromBomInTx(
       tx,
       line.itemId,
-      plannedQuantity
+      plannedQuantity,
+      { roundUpBatchOutput: payload.manufacturingStrategy === "make_to_order" }
     );
+    plannedQuantity = outputQuantity;
+    requestedQuantity = normalizeNumeric(outputQuantity);
     const scalingPlan = deriveScalingPlan(plannedQuantity, ingredients);
     const createdOrder = await insertManufacturingOrderInTx(tx, orgId, {
       product,

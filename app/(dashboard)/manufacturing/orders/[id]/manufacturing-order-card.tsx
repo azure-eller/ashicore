@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ICellRendererParams } from "ag-grid-community";
@@ -39,9 +39,6 @@ import {
   formatQuantity,
   normalizeNumeric,
 } from "@/lib/format";
-import {
-  fetchManufacturingSalesLineOptions,
-} from "@/lib/api/clients/manufacturing-orders";
 import { OrderStatusControl } from "@/components/card-page/order-status-control";
 import {
   isManufacturingStatusDisabled,
@@ -75,7 +72,6 @@ import {
   makeDraftIngredient,
   makeDraftManufacturingOrder,
   multiplyQuantityString,
-  resolvePlannedOutputQuantity,
   type ManufacturingOrderDraftController,
 } from "./use-manufacturing-order-draft-controller";
 
@@ -111,8 +107,6 @@ type ManufacturingIngredientOption = InventoryItemComboboxOption & {
   quantityPerUnit?: string;
   isAlternate?: boolean;
 };
-
-const MAKE_TO_STOCK_VALUE = "__make_to_stock__";
 
 export function ManufacturingOrderCard({
   initialOrder,
@@ -330,14 +324,6 @@ function OrderDetailsSection({
 }) {
   const unitName = order.unitName;
   const hasLinkedSalesOrder = Boolean(order.salesOrderId && order.salesOrderLineId);
-  const salesLineOptionsQuery = useQuery({
-    queryKey: ["manufacturing-sales-line-options", order.productId || "__draft__"],
-    queryFn: () => fetchManufacturingSalesLineOptions(order.productId),
-    enabled:
-      controller.hasPersistedOrder && order.productId !== "" && !hasLinkedSalesOrder,
-    staleTime: 60_000,
-  });
-  const salesLineOptions = salesLineOptionsQuery.data ?? [];
 
   const selectedProductId = order.productId;
   const selectedProduct = productOptions.find((option) => option.id === selectedProductId);
@@ -360,11 +346,6 @@ function OrderDetailsSection({
   const productDisabledReason = productSelectDisabled
     ? "Create a product with a recipe before creating a manufacturing order."
     : null;
-  const salesOrderDisabledReason = !controller.hasPersistedOrder
-    ? "Select a product first to create the manufacturing order before linking sales demand."
-    : salesLineOptionsQuery.isLoading
-      ? "Loading matching sales order lines."
-      : null;
   const salesOrderReadOnlyReason = hasLinkedSalesOrder
     ? "Linked make-to-order manufacturing orders keep their sales order link."
     : planningLockedReason;
@@ -374,44 +355,6 @@ function OrderDetailsSection({
     if (!product) return;
     if (productId === order.productId || !canEditPlanning) return;
     controller.selectProduct(product);
-  };
-
-  const handleSalesLineChange = (value: string) => {
-    if (!controller.hasPersistedOrder || !canEditPlanning) return;
-    if (value === MAKE_TO_STOCK_VALUE) {
-      if (!order.salesOrderId && !order.salesOrderLineId) return;
-      controller.patchHeader({
-        salesOrderId: null,
-        salesOrderLineId: null,
-        salesOrderNumber: null,
-        salesCustomerName: null,
-      });
-      return;
-    }
-
-    const line = salesLineOptions.find((option) => option.salesOrderLineId === value);
-    if (!line || line.salesOrderLineId === order.salesOrderLineId) return;
-    const plannedQuantity = resolvePlannedOutputQuantity({
-      inputQuantity:
-        order.manufacturingMode === "batch"
-          ? String(Math.ceil(Number(line.quantity) / Number(order.expectedBatchYield)))
-          : line.quantity,
-      manufacturingMode: order.manufacturingMode,
-      expectedBatchYield: order.expectedBatchYield,
-    });
-    if (!plannedQuantity) return;
-    controller.patchHeader({
-      plannedDate: line.shipDate ?? order.plannedDate,
-      salesOrderId: line.salesOrderId,
-      salesOrderLineId: line.salesOrderLineId,
-      salesOrderNumber: line.salesOrderNumber,
-      salesCustomerName: line.customerName,
-    });
-    controller.updatePlannedInput(
-      order.manufacturingMode === "batch"
-        ? String(Math.ceil(Number(line.quantity) / Number(order.expectedBatchYield)))
-        : plannedQuantity,
-    );
   };
 
   return (
@@ -534,47 +477,13 @@ function OrderDetailsSection({
             </>
           )}
         </CardField>
-        <CardField
-          label="Sales order"
-          htmlFor={
-            canEditPlanning && !hasLinkedSalesOrder
-              ? "manufacturing-order-sales-order"
-              : undefined
-          }
-        >
-          {canEditPlanning && !hasLinkedSalesOrder ? (
-            <DisabledFieldTooltip reason={salesOrderDisabledReason}>
-              <Select
-                value={order.salesOrderLineId ?? MAKE_TO_STOCK_VALUE}
-                onValueChange={handleSalesLineChange}
-                disabled={salesOrderDisabledReason != null}
-              >
-                <SelectTrigger
-                  id="manufacturing-order-sales-order"
-                  aria-label="Sales order"
-                  className={underlineControlClass(false, "w-full justify-between")}
-                >
-                  <SelectValue placeholder="Make to stock" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={MAKE_TO_STOCK_VALUE}>Make to stock</SelectItem>
-                  {salesLineOptions.map((line) => (
-                    <SelectItem key={line.salesOrderLineId} value={line.salesOrderLineId}>
-                      {line.salesOrderNumber} · {line.customerName} ·{" "}
-                      {formatQuantity(line.quantity)} {line.unitName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </DisabledFieldTooltip>
-          ) : (
+        {hasLinkedSalesOrder ? (
+          <CardField label="Sales order">
             <ReadOnlyFieldValue title={salesOrderReadOnlyReason ?? undefined}>
-              {order?.salesOrderNumber
-                ? `${order.salesOrderNumber}${order.salesCustomerName ? ` · ${order.salesCustomerName}` : ""}`
-                : "Make to stock"}
+              {`${order.salesOrderNumber}${order.salesCustomerName ? ` · ${order.salesCustomerName}` : ""}`}
             </ReadOnlyFieldValue>
-          )}
-        </CardField>
+          </CardField>
+        ) : null}
       </CardFormRow>
     </CardSection>
   );

@@ -30,6 +30,7 @@ export type DemandQueueDemandInput = {
   priorityDate: string | null;
   priorityLabel: string;
   supplyPolicy?: "any" | "linked_only";
+  lateSupplyBehavior?: "exclude" | "expected";
   minimumLotAgeDays?: number | null;
 };
 
@@ -105,7 +106,9 @@ function getSupplyCoverageTiming(
     if (supply.availableDate == null) return null;
     const requiredBy = sourceDate(demand.requiredDate ?? today);
     const matureDate = addDays(sourceDate(supply.availableDate), minimumLotAgeDays);
-    if (matureDate > requiredBy) return null;
+    if (matureDate > requiredBy && demand.lateSupplyBehavior !== "expected") {
+      return null;
+    }
     if (supply.kind === "on_hand" && matureDate <= today) {
       return { kind: "in_stock", availableDate: null };
     }
@@ -120,7 +123,11 @@ function getSupplyCoverageTiming(
       ? { kind: "expected", availableDate: null }
       : null;
   }
-  if (demand.requiredDate != null && supply.availableDate > demand.requiredDate) {
+  if (
+    demand.requiredDate != null &&
+    supply.availableDate > demand.requiredDate &&
+    demand.lateSupplyBehavior !== "expected"
+  ) {
     return null;
   }
   return { kind: "expected", availableDate: supply.availableDate };

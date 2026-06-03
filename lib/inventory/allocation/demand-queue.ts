@@ -489,6 +489,7 @@ function buildDemandQueueItemCoverage(params: {
     priorityDate: row.priorityDate,
     priorityLabel: row.priorityLabel,
     supplyPolicy: row.supplyPolicy ?? "any",
+    lateSupplyBehavior: row.lateSupplyBehavior ?? "exclude",
     minimumLotAgeDays: row.minimumLotAgeDays ?? null,
   }));
 

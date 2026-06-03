@@ -57,13 +57,11 @@ import {
   beginInventoryOperationInTx,
   consumeForSalesOrderShippingInTx,
   deriveInventoryIdempotencyKey,
-  editExpectedFromManufacturingInTx,
   finishInventoryOperationInTx,
   InsufficientStockError,
   LinkedManufacturingOutputUnavailableError,
   lockItemsInTx,
   releaseReservationForSalesLineInTx,
-  addIngredientDemandForManufacturingInTx,
   projectedAvailableQty,
   projectedCommittedQty,
   projectedDemandQty,
@@ -74,7 +72,6 @@ import {
   projectedShortageQty,
   recordSalesDemandAndReservationsInTx,
   reserveForSalesInTx,
-  releaseIngredientReservationForManufacturingInTx,
   releaseReservationForSalesQuantitiesInTx,
 } from "@/lib/inventory/kernel";
 import {
@@ -1494,6 +1491,35 @@ async function resolveSalesOrderNumberInTx(
   return orderNumber;
 }
 
+async function generateDuplicateSalesOrderNumberInTx(
+  tx: Tx,
+  organizationId: string,
+  sourceOrderNumber: string
+) {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${`sales-order-duplicate-number:${organizationId}:${sourceOrderNumber}`}))`
+  );
+
+  for (let copyNumber = 1; copyNumber <= 100; copyNumber += 1) {
+    const suffix = copyNumber === 1 ? "_COPY" : `_COPY${copyNumber}`;
+    const candidate = `${sourceOrderNumber.slice(0, 32 - suffix.length)}${suffix}`;
+    const [existingOrder] = await tx
+      .select({ id: salesOrders.id })
+      .from(salesOrders)
+      .where(
+        and(
+          eq(salesOrders.organizationId, organizationId),
+          eq(salesOrders.orderNumber, candidate)
+        )
+      )
+      .limit(1);
+
+    if (!existingOrder) return candidate;
+  }
+
+  throw new SalesError("Could not generate a duplicate sales order number.", 400);
+}
+
 async function resolveBolContactInTx(tx: Tx, customerId: string) {
   const [customer] = await tx
     .select({
@@ -2016,11 +2042,13 @@ async function getOpenLinkedManufacturingOrdersForSalesEditInTx(
       id: manufacturingOrders.id,
       productId: manufacturingOrders.productId,
       salesOrderLineId: manufacturingOrders.salesOrderLineId,
+      salesLineQuantity: trimScale(salesOrderLines.quantity).as("salesLineQuantity"),
       plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
         "plannedQuantity"
       ),
     })
     .from(manufacturingOrders)
+    .innerJoin(salesOrderLines, eq(salesOrderLines.id, manufacturingOrders.salesOrderLineId))
     .where(
       and(
         eq(manufacturingOrders.salesOrderId, salesOrderId),
@@ -2116,22 +2144,23 @@ async function assertLinkedMtoSalesLinesUnchangedInTx(
 
   for (const linkedRow of linkedRows) {
     const replacement = replacementByItemId.get(linkedRow.productId);
-    if (!replacement) continue;
-
-    const nextQuantity = Number(replacement.quantity);
-    const outputQuantity = Number(linkedRow.outputQuantity);
-    if (
-      Number.isFinite(outputQuantity) &&
-      outputQuantity > 0 &&
-      Number.isFinite(nextQuantity) &&
-      nextQuantity < outputQuantity
-    ) {
+    if (!replacement) {
       throw new SalesError(
-        "Sales quantity cannot be reduced below completed linked manufacturing quantity.",
+        "Sales lines linked to make-to-order manufacturing cannot be changed.",
         400
       );
     }
 
+    const nextQuantity = Number(replacement.quantity);
+    if (
+      Number.isFinite(nextQuantity) &&
+      nextQuantity !== Number(linkedRow.salesLineQuantity)
+    ) {
+      throw new SalesError(
+        "Sales lines linked to make-to-order manufacturing cannot be changed.",
+        400
+      );
+    }
   }
 }
 
@@ -2169,42 +2198,10 @@ async function moveLinkedManufacturingOrdersToReplacementSalesLinesInTx(
   for (const linkedRow of linkedRows) {
     const replacement = insertedByItemId.get(linkedRow.productId)?.shift();
     if (!replacement) {
-      if (linkedRow.hasStarted) {
-        await tx
-          .update(manufacturingOrders)
-          .set({
-            salesOrderId: null,
-            salesOrderLineId: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(manufacturingOrders.id, linkedRow.id));
-      } else {
-        const deleted = await deleteManufacturingOrdersInTx(tx, {
-          organizationId: params.organizationId,
-          actorUserId: params.actorUserId,
-          ids: [linkedRow.id],
-        });
-        if (deleted.error) {
-          throw new SalesError(deleted.error, 400);
-        }
-      }
-      continue;
-    }
-
-    const nextQuantity = normalizeQuantityNumber(Number(replacement.quantity));
-    const quantityChanged =
-      Number.isFinite(nextQuantity) && nextQuantity !== Number(linkedRow.plannedQuantity);
-
-    if (linkedRow.hasStarted && quantityChanged) {
-      await tx
-        .update(manufacturingOrders)
-        .set({
-          salesOrderId: null,
-          salesOrderLineId: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(manufacturingOrders.id, linkedRow.id));
-      continue;
+      throw new SalesError(
+        "Sales lines linked to make-to-order manufacturing cannot be changed.",
+        400
+      );
     }
 
     if (replacement.salesOrderLineId === linkedRow.salesOrderLineId) {
@@ -2218,91 +2215,44 @@ async function moveLinkedManufacturingOrdersToReplacementSalesLinesInTx(
         updatedAt: new Date(),
       })
       .where(eq(manufacturingOrders.id, linkedRow.id));
-
-    if (
-      !linkedRow.hasStarted &&
-      Number.isFinite(nextQuantity) &&
-      nextQuantity > 0 &&
-      nextQuantity !== Number(linkedRow.plannedQuantity)
-    ) {
-      const ingredientRows = await tx
-        .select({
-          id: manufacturingOrderIngredients.id,
-          itemId: manufacturingOrderIngredients.itemId,
-          quantityPerUnit: trimScale(
-            manufacturingOrderIngredients.quantityPerUnit
-          ).as("quantityPerUnit"),
-        })
-        .from(manufacturingOrderIngredients)
-        .where(eq(manufacturingOrderIngredients.manufacturingOrderId, linkedRow.id))
-        .for("update");
-
-      if (ingredientRows.length > 0) {
-        await releaseIngredientReservationForManufacturingInTx(tx, {
-          organizationId: params.organizationId,
-          manufacturingOrderId: linkedRow.id,
-          actorUserId: params.actorUserId ?? null,
-          idempotencyKey: deriveInventoryIdempotencyKey(
-            params.idempotencyKey,
-            `sync-linked-mto-release-${linkedRow.id}`
-          ),
-          reason: "edited",
-          ingredientIds: ingredientRows.map((row) => row.id),
-        });
-      }
-
-      await tx
-        .update(manufacturingOrders)
-        .set({
-          requestedQuantity: normalizeNumeric(nextQuantity),
-          plannedQuantity: normalizeNumeric(nextQuantity),
-          updatedAt: new Date(),
-        })
-        .where(eq(manufacturingOrders.id, linkedRow.id));
-
-      const updatedIngredients = ingredientRows.map((ingredient) => ({
-        ingredientId: ingredient.id,
-        itemId: ingredient.itemId,
-        quantity: normalizeQuantityNumber(
-          Number(ingredient.quantityPerUnit) * nextQuantity
-        ),
-      }));
-
-      for (const ingredient of updatedIngredients) {
-        await tx
-          .update(manufacturingOrderIngredients)
-          .set({
-            plannedQuantity: normalizeNumeric(ingredient.quantity),
-            updatedAt: new Date(),
-          })
-          .where(eq(manufacturingOrderIngredients.id, ingredient.ingredientId));
-      }
-
-      if (updatedIngredients.length > 0) {
-        await addIngredientDemandForManufacturingInTx(tx, {
-          organizationId: params.organizationId,
-          manufacturingOrderId: linkedRow.id,
-          actorUserId: params.actorUserId ?? null,
-          idempotencyKey: deriveInventoryIdempotencyKey(
-            params.idempotencyKey,
-            `sync-linked-mto-demand-${linkedRow.id}`
-          ),
-          ingredients: updatedIngredients,
-        });
-      }
-      await editExpectedFromManufacturingInTx(tx, {
-        organizationId: params.organizationId,
-        manufacturingOrderId: linkedRow.id,
-        productId: linkedRow.productId,
-        nextQuantity,
-        actorUserId: params.actorUserId ?? null,
-        idempotencyKey: deriveInventoryIdempotencyKey(
-          params.idempotencyKey,
-          `sync-linked-mto-expected-${linkedRow.id}`
-        ),
-      });
-    }
   }
+}
+
+async function assertSalesOrderLineQuantityEditableInTx(
+  tx: Tx,
+  salesOrderLineId: string,
+  nextQuantity: number,
+  currentQuantity: number
+) {
+  if (nextQuantity === currentQuantity) return;
+
+  const [linkedOrder] = await tx
+    .select({ id: manufacturingOrders.id })
+    .from(manufacturingOrders)
+    .where(
+      and(
+        eq(manufacturingOrders.salesOrderLineId, salesOrderLineId),
+        eq(manufacturingOrders.status, "open"),
+        isNull(manufacturingOrders.deletedAt),
+        isNull(manufacturingOrders.cancelledAt)
+      )
+    )
+    .limit(1)
+    .for("update");
+
+  if (!linkedOrder) return;
+
+  throw new SalesError(
+    "Sales lines linked to make-to-order manufacturing cannot be changed.",
+    400,
+    {
+      errors: {
+        quantity: [
+          "Cancel the linked manufacturing order before changing this quantity.",
+        ],
+      },
+    }
+  );
 }
 
 async function getSalesOrderDeleteBlockerInTx(tx: Tx, orderIds: string[]) {
@@ -6116,9 +6066,13 @@ export async function duplicateSalesOrder(
     return null;
   }
 
+  const orderNumber = await withAuthedOrgContext((tx, orgId) =>
+    generateDuplicateSalesOrderNumberInTx(tx, orgId, order.orderNumber)
+  );
+
   return createSalesOrder(
     {
-      orderNumber: null,
+      orderNumber,
       customerId: order.customerId,
       customerProjectId: order.customerProjectId,
       status: "open",
@@ -7446,6 +7400,13 @@ export async function patchSalesOrderLine(
     }
 
     if (patch.quantity != null) {
+      await assertSalesOrderLineQuantityEditableInTx(
+        tx,
+        lineId,
+        nextQuantityNumber,
+        currentQuantityNumber
+      );
+
       const lineState = (await getSalesOrderLineShipStatesInTx(tx, orderId)).get(lineId);
       if (!lineState) {
         await finishInventoryOperationInTx(tx, {

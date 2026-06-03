@@ -125,7 +125,7 @@ export function OrderDetailsGrid({
           />
           <ProjectCell order={order} editable={editable} projects={customerProjects} />
           <DateCell
-            label="Ship date"
+            label="Delivery deadline"
             field="shipDate"
             value={order.shipDate}
             editable={editable}
