@@ -354,7 +354,7 @@ export async function addInitialStock(
   variantId: string,
   input: AddInitialStockInput
 ): Promise<{ lotId: string; eventId: string }> {
-  const path = `/api/items/${variantId}/stock-adjustments`;
+  const path = `/api/items/${variantId}/initial-stock`;
   return request<{ lotId: string; eventId: string }>(path, {
     method: "POST",
     idempotencyKey: "addInitialStock",

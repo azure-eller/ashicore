@@ -321,15 +321,20 @@ export function LotGridTab({
     setError(null);
 
     try {
-      await apiJson<void>(
-        `/api/items/${focusItemId}/lots/${pendingAdjustment.lotId}/quantity`,
-        {
-          method: "PUT",
-          body: { quantity: pendingAdjustment.quantity, note: null },
-          idempotencyKey: "lot-quantity-adjust",
-          fallbackError: "Failed to adjust lot quantity.",
+      await apiJson<void>(`/api/items/${focusItemId}/stock-adjustments`, {
+        method: "POST",
+        body: {
+          reason: "Lot quantity adjustment",
+          lots: [
+            {
+              lotId: pendingAdjustment.lotId,
+              newQuantity: pendingAdjustment.quantity,
+            },
+          ],
         },
-      );
+        idempotencyKey: "item-stock-adjust",
+        fallbackError: "Failed to adjust lot quantity.",
+      });
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Failed to adjust lot quantity.",

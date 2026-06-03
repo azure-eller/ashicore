@@ -163,7 +163,7 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(item.status).toBe(201);
     const itemId = item.body.id as string;
 
-    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+    const response = await testFetch(`/api/items/${itemId}/initial-stock`, {
       method: "POST",
       body: JSON.stringify({
         quantity: "12",

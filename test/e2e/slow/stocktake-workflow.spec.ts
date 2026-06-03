@@ -357,8 +357,171 @@ test.describe("stocktake found-lot operating story", () => {
           eq(stocktakeLotItems.stocktakeItemId, line.id),
           eq(stocktakeLotItems.isFound, true)
         )
-      );
+    );
     expect(foundRows).toHaveLength(0);
+  });
+
+  test("snapshots existing zero-balance lots so operators do not add them as found lots", async ({
+    db,
+  }) => {
+    const material = await createMaterialFixture({
+      name: "Zero Lot Snapshot Material",
+      stock: "0",
+      cost: "3.00",
+    });
+    const existingLotNumber = `ZERO-${Date.now()}`;
+    const [existingLot] = await db
+      .insert(lots)
+      .values({
+        organizationId: getOrgId(),
+        itemId: material.id,
+        lotNumber: existingLotNumber,
+        quantity: "0",
+        receivedAt: new Date(),
+      })
+      .returning({ id: lots.id });
+
+    const create = await testFetch("/api/stocktakes", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Zero Lot Snapshot ${Date.now()}`,
+        scope: "all",
+        notes: null,
+        itemIds: [material.id],
+      }),
+    });
+    expect(create.status).toBe(201);
+    const stocktakeId = (await create.json()).id as string;
+
+    const [line] = await db
+      .select()
+      .from(stocktakeItems)
+      .where(
+        and(
+          eq(stocktakeItems.stocktakeId, stocktakeId),
+          eq(stocktakeItems.itemId, material.id)
+        )
+      );
+    const snapshotLots = await db
+      .select({
+        lotId: stocktakeLotItems.lotId,
+        lotNumber: stocktakeLotItems.lotNumber,
+        expectedQty: stocktakeLotItems.expectedQty,
+      })
+      .from(stocktakeLotItems)
+      .where(eq(stocktakeLotItems.stocktakeItemId, line.id));
+
+    expect(snapshotLots).toEqual([
+      expect.objectContaining({
+        lotId: existingLot.id,
+        lotNumber: existingLotNumber,
+        expectedQty: "0.0000",
+      }),
+    ]);
+  });
+
+  test("completing one lot preserves untouched lots in the parent completed total", async ({
+    db,
+  }) => {
+    const material = await createMaterialFixture({
+      name: "Partial Lot Rollup Material",
+      stock: "0",
+      cost: "3.00",
+    });
+    const receivedAt = new Date();
+    const [lotA] = await db
+      .insert(lots)
+      .values({
+        organizationId: getOrgId(),
+        itemId: material.id,
+        lotNumber: `ROLL-A-${Date.now()}`,
+        quantity: "0",
+        receivedAt,
+      })
+      .returning({ id: lots.id });
+    const [lotB] = await db
+      .insert(lots)
+      .values({
+        organizationId: getOrgId(),
+        itemId: material.id,
+        lotNumber: `ROLL-B-${Date.now()}`,
+        quantity: "0",
+        receivedAt,
+      })
+      .returning({ id: lots.id });
+
+    for (const [lotId, quantity] of [
+      [lotA.id, "5"],
+      [lotB.id, "45"],
+    ] as const) {
+      const adjust = await testFetch(`/api/items/${material.id}/stock-adjustments`, {
+        method: "POST",
+        body: JSON.stringify({
+          reason: "seed rollup stock",
+          lots: [{ lotId, newQuantity: quantity }],
+        }),
+      });
+      expect(adjust.status, await adjust.text()).toBe(200);
+    }
+
+    const create = await testFetch("/api/stocktakes", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Partial Lot Rollup ${Date.now()}`,
+        scope: "all",
+        notes: null,
+        itemIds: [material.id],
+      }),
+    });
+    expect(create.status).toBe(201);
+    const stocktakeId = (await create.json()).id as string;
+
+    const [line] = await db
+      .select()
+      .from(stocktakeItems)
+      .where(
+        and(
+          eq(stocktakeItems.stocktakeId, stocktakeId),
+          eq(stocktakeItems.itemId, material.id)
+        )
+      );
+    const lotLines = await db
+      .select({
+        id: stocktakeLotItems.id,
+        lotId: stocktakeLotItems.lotId,
+      })
+      .from(stocktakeLotItems)
+      .where(eq(stocktakeLotItems.stocktakeItemId, line.id));
+    const lotALine = lotLines.find((row) => row.lotId === lotA.id);
+    expect(lotALine).toBeTruthy();
+
+    const save = await testFetch(`/api/stocktakes/${stocktakeId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        lines: [],
+        lotLines: [{ lotLineId: lotALine!.id, countedQty: "7" }],
+      }),
+    });
+    expect(save.status, await save.text()).toBe(200);
+
+    const complete = await testFetch(`/api/stocktakes/${stocktakeId}/complete`, {
+      method: "POST",
+      body: JSON.stringify({ confirmStale: false, reason: "Cycle count" }),
+    });
+    expect(complete.status, await complete.text()).toBe(200);
+
+    const [completedLine] = await db
+      .select({
+        expectedQty: stocktakeItems.expectedQty,
+        countedQty: stocktakeItems.countedQty,
+        varianceQty: stocktakeItems.varianceQty,
+      })
+      .from(stocktakeItems)
+      .where(eq(stocktakeItems.id, line.id));
+
+    expect(completedLine.expectedQty).toBe("50.0000");
+    expect(completedLine.countedQty).toBe("52.0000");
+    expect(completedLine.varianceQty).toBe("2.0000");
   });
 
   test("re-submitting the same found lot does not create duplicate rows", async ({

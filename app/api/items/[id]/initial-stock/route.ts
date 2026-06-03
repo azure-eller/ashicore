@@ -1,0 +1,93 @@
+import { NextResponse } from "next/server";
+import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
+import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
+import { jsonNotFound } from "@/lib/api/responses";
+import { assertModuleWriteAccess, withAuthedOrgContext } from "@/lib/dal/auth";
+import { inventoryLotBalances, items } from "@/lib/db/schema";
+import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
+import {
+  manualIncreaseStockInTx,
+  seedOpeningBalanceInTx,
+} from "@/lib/inventory/kernel/operations/inventory";
+import { resolvePositiveStockUnitCostInTx } from "@/lib/inventory/kernel/operations/stock-core";
+import {
+  isNonNegativeNumberString,
+  nullableString,
+  positiveDecimalString,
+} from "@/lib/schemas/shared";
+
+const addInitialStockSchema = z.object({
+  quantity: positiveDecimalString("Quantity"),
+  costPerUnit: nullableString.refine(
+    (value) => value == null || isNonNegativeNumberString(value),
+    "Cost per unit must be zero or greater",
+  ),
+  occurredAt: z.string().datetime(),
+  note: nullableString,
+});
+
+export const POST = apiHandler(async (request: Request, ctx: unknown) => {
+  await assertModuleWriteAccess("inventory", request.headers);
+  const idempotencyKey = requireIdempotencyKey(request, "addInitialStock");
+  const { id } = await (ctx as RouteContext).params;
+  const input = await parseJsonBody(request, addInitialStockSchema);
+
+  const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
+    await lockItemsInTx(tx, [id]);
+
+    const [item] = await tx
+      .select({ id: items.id, deletedAt: items.deletedAt })
+      .from(items)
+      .where(eq(items.id, id));
+
+    if (!item || item.deletedAt != null) {
+      return jsonNotFound("Item not found");
+    }
+
+    const [positiveLot] = await tx
+      .select({ count: sql<number>`COUNT(*)::int` })
+      .from(inventoryLotBalances)
+      .where(
+        and(
+          eq(inventoryLotBalances.organizationId, orgId),
+          eq(inventoryLotBalances.itemId, id),
+          sql`${inventoryLotBalances.quantity} > 0`,
+        ),
+      );
+
+    const occurredAt = new Date(input.occurredAt);
+
+    if ((positiveLot?.count ?? 0) === 0) {
+      const unitCost = await resolvePositiveStockUnitCostInTx(tx, {
+        itemId: id,
+        explicitUnitCost: input.costPerUnit,
+        reason: "opening_cost_required",
+      });
+      return seedOpeningBalanceInTx(tx, {
+        organizationId: orgId,
+        itemId: id,
+        quantity: Number(input.quantity),
+        unitCost,
+        actorUserId: userId,
+        idempotencyKey,
+        receivedAt: occurredAt,
+      });
+    }
+
+    return manualIncreaseStockInTx(tx, {
+      organizationId: orgId,
+      itemId: id,
+      quantity: Number(input.quantity),
+      unitCost: input.costPerUnit,
+      note: input.note,
+      actorUserId: userId,
+      idempotencyKey,
+      occurredAt,
+    });
+  });
+
+  if (result instanceof NextResponse) return result;
+  return NextResponse.json(result);
+});

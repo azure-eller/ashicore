@@ -51,10 +51,13 @@ export function LotQuantityAdjuster({
     setError(null);
 
     try {
-      await apiJson<void>(`/api/items/${itemId}/lots/${lotId}/quantity`, {
-        method: "PUT",
-        body: { quantity: pendingValue, note: null },
-        idempotencyKey: "lot-quantity-adjust",
+      await apiJson<void>(`/api/items/${itemId}/stock-adjustments`, {
+        method: "POST",
+        body: {
+          reason: "Lot quantity adjustment",
+          lots: [{ lotId, newQuantity: pendingValue }],
+        },
+        idempotencyKey: "item-stock-adjust",
         fallbackError: "Failed to adjust lot quantity.",
       });
     } catch (caught) {

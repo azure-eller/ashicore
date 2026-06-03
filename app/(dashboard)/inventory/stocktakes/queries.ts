@@ -230,7 +230,7 @@ async function getStocktakeLinesInTx(
       and(
         eq(inventoryLotBalances.lotId, stocktakeLotItems.lotId),
         eq(inventoryLotBalances.disposition, "available"),
-        sql`${inventoryLotBalances.quantity} > 0`
+        sql`${inventoryLotBalances.quantity} <> 0`
       )
     )
     .where(inArray(stocktakeLotItems.stocktakeItemId, lineRows.map((line) => line.id)))
@@ -264,42 +264,39 @@ async function getAvailableLotRowsForItemIdsInTx(tx: Tx, itemIds: string[]) {
   if (itemIds.length === 0) return [];
   return tx
     .select({
-      itemId: inventoryLotBalances.itemId,
-      lotId: inventoryLotBalances.lotId,
+      itemId: lots.itemId,
+      lotId: lots.id,
       lotNumber: lots.lotNumber,
       expectedQty: trimScale(sql`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`).as(
         "expectedQty"
       ),
-      receivedAt: inventoryLotBalances.receivedAt,
+      receivedAt: lots.receivedAt,
     })
-    .from(inventoryLotBalances)
-    .innerJoin(lots, eq(lots.id, inventoryLotBalances.lotId))
-    .innerJoin(items, eq(items.id, inventoryLotBalances.itemId))
+    .from(lots)
+    .innerJoin(items, eq(items.id, lots.itemId))
     .innerJoin(itemFamilies, eq(itemFamilies.id, items.familyId))
+    .leftJoin(
+      inventoryLotBalances,
+      and(
+        eq(inventoryLotBalances.organizationId, lots.organizationId),
+        eq(inventoryLotBalances.itemId, lots.itemId),
+        eq(inventoryLotBalances.lotId, lots.id),
+        eq(inventoryLotBalances.disposition, "available")
+      )
+    )
     .where(
       and(
-        inArray(inventoryLotBalances.itemId, itemIds),
-        eq(itemFamilies.lotTrackingMode, "tracked"),
-        eq(inventoryLotBalances.disposition, "available"),
-        sql`${inventoryLotBalances.quantity} > 0`,
-        sql`NOT EXISTS (
-          SELECT 1
-          FROM ${inventoryLotBalances} debt_balances
-          WHERE debt_balances.organization_id = ${inventoryLotBalances.organizationId}
-            AND debt_balances.location_id = ${inventoryLotBalances.locationId}
-            AND debt_balances.item_id = ${inventoryLotBalances.itemId}
-            AND debt_balances.disposition = 'available'
-            AND debt_balances.quantity < 0
-        )`
+        inArray(lots.itemId, itemIds),
+        eq(itemFamilies.lotTrackingMode, "tracked")
       )
     )
     .groupBy(
-      inventoryLotBalances.itemId,
-      inventoryLotBalances.lotId,
+      lots.itemId,
+      lots.id,
       lots.lotNumber,
-      inventoryLotBalances.receivedAt
+      lots.receivedAt
     )
-    .orderBy(asc(inventoryLotBalances.receivedAt), asc(inventoryLotBalances.lotId));
+    .orderBy(asc(lots.receivedAt), asc(lots.id));
 }
 
 async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
@@ -731,27 +728,39 @@ export async function getStocktakeCompletionPreview(
           const liveLotsById = new Map(
             (liveLine?.lots ?? []).map((lot) => [lot.id, lot])
           );
-          const lots = line.lots
-            .filter((lot) => lot.countedQty != null)
-            .map((lot) => {
-              const currentQty = lot.isFound
-                ? "0"
-                : liveLotsById.get(lot.id)?.expectedQty ?? "0";
-              const countedQty = lot.countedQty ?? "0";
-              return {
-                lotLineId: lot.id,
-                lotId: lot.lotId,
-                isFound: lot.isFound,
-                lotNumber: lot.lotNumber,
-                expectedQty: lot.isFound ? "0" : lot.expectedQty,
-                currentQty,
-                countedQty,
-                varianceQty: normalizeNumeric(Number(countedQty) - Number(currentQty)),
-                notes: lot.notes,
-              };
-            });
-          const currentQty = sumQuantities(lots.map((lot) => lot.currentQty));
-          const countedQty = sumQuantities(lots.map((lot) => lot.countedQty));
+          const allLots = line.lots.map((lot) => {
+            const currentQty = lot.isFound
+              ? "0"
+              : liveLotsById.get(lot.id)?.expectedQty ?? "0";
+            const countedQty = lot.countedQty ?? currentQty;
+            return {
+              lotLineId: lot.id,
+              lotId: lot.lotId,
+              isFound: lot.isFound,
+              lotNumber: lot.lotNumber,
+              expectedQty: lot.isFound ? "0" : lot.expectedQty,
+              currentQty,
+              countedQty,
+              varianceQty: normalizeNumeric(Number(countedQty) - Number(currentQty)),
+              notes: lot.notes,
+              wasCounted: lot.countedQty != null,
+            };
+          });
+          const lots = allLots
+            .filter((lot) => lot.wasCounted)
+            .map((lot) => ({
+              lotLineId: lot.lotLineId,
+              lotId: lot.lotId,
+              isFound: lot.isFound,
+              lotNumber: lot.lotNumber,
+              expectedQty: lot.expectedQty,
+              currentQty: lot.currentQty,
+              countedQty: lot.countedQty,
+              varianceQty: lot.varianceQty,
+              notes: lot.notes,
+            }));
+          const currentQty = sumQuantities(allLots.map((lot) => lot.currentQty));
+          const countedQty = sumQuantities(allLots.map((lot) => lot.countedQty));
           return {
             lineId: line.id,
             itemId: line.itemId,
@@ -1144,6 +1153,10 @@ export async function completeStocktake(
     const liveLineById = new Map(liveLines.map((line) => [line.id, line]));
     const countedLines: CountedStocktakeCompletionLine[] = [];
     const staleItems: StocktakeStaleWarningPayload["items"] = [];
+    const lotRollupsByStocktakeItemId = new Map<
+      string,
+      Array<{ expectedQty: string; countedQty: string }>
+    >();
 
     for (const line of snapshotLines) {
       const liveLine = liveLineById.get(line.id);
@@ -1151,8 +1164,21 @@ export async function completeStocktake(
         const liveLotsById = new Map(
           (liveLine?.lots ?? []).map((lot) => [lot.id, lot])
         );
+        if (!line.lots.some((lot) => lot.countedQty != null)) {
+          continue;
+        }
+
+        const lotRollupLines: Array<{ expectedQty: string; countedQty: string }> = [];
         for (const lot of line.lots) {
+          const currentQty = lot.isFound
+            ? "0"
+            : liveLotsById.get(lot.id)?.expectedQty ?? "0";
+
           if (lot.countedQty == null) {
+            lotRollupLines.push({
+              expectedQty: currentQty,
+              countedQty: currentQty,
+            });
             continue;
           }
 
@@ -1170,10 +1196,13 @@ export async function completeStocktake(
               expectedQty: "0",
               countedQty: lot.countedQty,
             });
+            lotRollupLines.push({
+              expectedQty: "0",
+              countedQty: lot.countedQty,
+            });
             continue;
           }
 
-          const currentQty = liveLotsById.get(lot.id)?.expectedQty ?? "0";
           if (Number(currentQty) !== Number(lot.expectedQty)) {
             staleItems.push({
               lineId: line.id,
@@ -1196,7 +1225,12 @@ export async function completeStocktake(
             expectedQty: currentQty,
             countedQty: lot.countedQty,
           });
+          lotRollupLines.push({
+            expectedQty: currentQty,
+            countedQty: lot.countedQty,
+          });
         }
+        lotRollupsByStocktakeItemId.set(line.id, lotRollupLines);
         continue;
       }
 
@@ -1323,18 +1357,7 @@ export async function completeStocktake(
       }
     }
 
-    const countedByStocktakeItemId = new Map<string, typeof countedLines>();
-    for (const line of countedLines) {
-      const bucket = countedByStocktakeItemId.get(line.stocktakeItemId) ?? [];
-      bucket.push(line);
-      countedByStocktakeItemId.set(line.stocktakeItemId, bucket);
-    }
-
-    for (const [stocktakeItemId, lines] of countedByStocktakeItemId) {
-      if (lines.some((line) => line.lotId == null)) {
-        continue;
-      }
-
+    for (const [stocktakeItemId, lines] of lotRollupsByStocktakeItemId) {
       const expectedQty = sumQuantities(lines.map((line) => line.expectedQty));
       const countedQty = sumQuantities(lines.map((line) => line.countedQty));
       const varianceQty = getVariance(expectedQty, countedQty);

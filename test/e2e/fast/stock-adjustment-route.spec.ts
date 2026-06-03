@@ -422,25 +422,21 @@ test.describe("non-lot stock adjustment route", () => {
     expect(response.status).toBe(400);
   });
 
-  test("legacy add-initial-stock POST still works", async ({ db }) => {
-    // Guards the production web caller `addInitialStock`
-    // (lib/api/clients/item-cards.ts) that posts a `reason`-less body. A body
-    // without a `reason` key must fall through to the legacy add-initial-stock
-    // contract and return 200.
+  test("initial-stock route seeds opening stock", async ({ db }) => {
     const itemId = await createUntrackedMaterialWithStock(db, {
-      name: `Stock Adjust Legacy ${ts}`,
-      sku: `STOCK-ADJ-LEGACY-${ts}`,
-      category: `Stock Adjust Legacy ${ts}`,
+      name: `Initial Stock ${ts}`,
+      sku: `INITIAL-STOCK-${ts}`,
+      category: `Initial Stock ${ts}`,
       stock: 0,
     });
 
-    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+    const response = await testFetch(`/api/items/${itemId}/initial-stock`, {
       method: "POST",
       body: JSON.stringify({
         quantity: "3",
         costPerUnit: "2.00",
         occurredAt: new Date().toISOString(),
-        note: "legacy add-initial-stock",
+        note: "opening stock",
       }),
     });
     expect(response.status, await response.text()).toBe(200);
@@ -795,6 +791,45 @@ test.describe("lot-tracked stock adjustment route", () => {
       }),
     });
     expect(response.status).toBe(400);
+  });
+
+  test("new lot number that already exists for the item is rejected", async ({ db }) => {
+    const existingLotNumber = `LOT-EXISTS-${ts}`;
+    const { itemId } = await createTrackedMaterialWithLot(db, {
+      name: `Lot Adjust Existing ${ts}`,
+      sku: `LOT-ADJ-EXISTS-${ts}`,
+      category: `Lot Adjust Existing ${ts}`,
+      lotNumber: existingLotNumber,
+      stock: 5,
+    });
+
+    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Found",
+        lots: [{ lotNumber: existingLotNumber, newQuantity: "3" }],
+      }),
+    });
+    expect(response.status, await response.text()).toBe(400);
+  });
+
+  test("lot adjustment rejects payloads with both lot id and lot number", async ({ db }) => {
+    const { itemId, lotId } = await createTrackedMaterialWithLot(db, {
+      name: `Lot Adjust Ambiguous ${ts}`,
+      sku: `LOT-ADJ-AMBIGUOUS-${ts}`,
+      category: `Lot Adjust Ambiguous ${ts}`,
+      lotNumber: `LOT-AMBIGUOUS-${ts}`,
+      stock: 5,
+    });
+
+    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Correction",
+        lots: [{ lotId, lotNumber: `NEW-LOT-${ts}`, newQuantity: "3" }],
+      }),
+    });
+    expect(response.status, await response.text()).toBe(400);
   });
 
   test("unknown lotId for this item is rejected with 404", async ({ db }) => {

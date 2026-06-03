@@ -335,6 +335,7 @@ async function getItemRows() {
   return rows as Array<{
     id: string;
     itemType: string;
+    lotTrackingMode?: "tracked" | "untracked";
     stock: string;
     currentStockUnitCost?: string | null;
     estimatedUnitCost?: string | null;
@@ -356,13 +357,21 @@ async function setStockTarget(
   const current = Number(item?.stock ?? "0");
   const delta = Math.round((target - current) * 10000) / 10000;
   if (delta === 0) return { status: 200, body: { id } };
+  const isLotTracked = item?.lotTrackingMode !== "untracked";
 
   if (delta > 0) {
-    return jsonMutation(`/api/items/${id}/stock-adjustments`, "POST", {
+    return jsonMutation(`/api/items/${id}/initial-stock`, "POST", {
       quantity: String(delta),
       costPerUnit: resolveStockAdjustmentUnitCost(data, itemRows),
       occurredAt: new Date().toISOString(),
       note: null,
+    });
+  }
+
+  if (!isLotTracked) {
+    return jsonMutation(`/api/items/${id}/stock-adjustments`, "POST", {
+      reason: "Test stock target",
+      newQuantity: targetQuantity,
     });
   }
 
@@ -371,25 +380,24 @@ async function setStockTarget(
   if (!lotsRes.ok) return { status: lotsRes.status, body: lots };
 
   let remaining = Math.abs(delta);
-  let latest: { status: number; body: unknown } = { status: 200, body: { id } };
+  const lotAdjustments: Array<{ lotId: string; newQuantity: string }> = [];
   for (const lot of lots) {
     if (remaining <= 0) break;
     const currentLotQty = Number(lot.quantity);
     if (!Number.isFinite(currentLotQty) || currentLotQty <= 0) continue;
     const deduction = Math.min(currentLotQty, remaining);
     const nextQuantity = Math.round((currentLotQty - deduction) * 10000) / 10000;
-    latest = await jsonMutation(`/api/items/${id}/lots/${lot.id}/quantity`, "PUT", {
-      quantity: String(nextQuantity),
-      note: null,
-    });
-    if (latest.status >= 400) return latest;
+    lotAdjustments.push({ lotId: lot.id, newQuantity: String(nextQuantity) });
     remaining = Math.round((remaining - deduction) * 10000) / 10000;
   }
 
   if (remaining > 0) {
     return { status: 400, body: { errors: { stock: ["Not enough lot stock to reduce."] } } };
   }
-  return latest;
+  return jsonMutation(`/api/items/${id}/stock-adjustments`, "POST", {
+    reason: "Test stock target",
+    lots: lotAdjustments,
+  });
 }
 
 function resolveStockAdjustmentUnitCost(

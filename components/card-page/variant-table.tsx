@@ -250,33 +250,32 @@ function StockQuantityAdjustmentBody({
   const decreaseMutation = useMutation({
     mutationKey: ["item-card-action", adjustment.variant.id, "stock-decrease"],
     mutationFn: async () => {
+      const reason = note.trim() || "Stock adjustment";
       if (!lotTracked) {
         await apiJson<void>(`/api/items/${adjustment.variant.id}/stock-adjustments`, {
-          method: "PUT",
+          method: "POST",
           body: {
-            quantity: adjustment.nextQuantity,
-            note: note.trim() === "" ? null : note.trim(),
+            reason,
+            newQuantity: adjustment.nextQuantity,
           },
           idempotencyKey: "variant-stock-adjust",
           fallbackError: "Failed to adjust stock.",
         });
         return;
       }
-      for (const row of draftLots) {
-        if (row.nextQuantity === row.lot.quantity) continue;
-        await apiJson<void>(
-          `/api/items/${adjustment.variant.id}/lots/${row.lot.id}/quantity`,
-          {
-            method: "PUT",
-            body: {
-              quantity: row.nextQuantity,
-              note: note.trim() === "" ? null : note.trim(),
-            },
-            idempotencyKey: "variant-stock-adjust",
-            fallbackError: "Failed to adjust stock.",
-          },
-        );
-      }
+      const changedLots = draftLots
+        .filter((row) => row.nextQuantity !== row.lot.quantity)
+        .map((row) => ({ lotId: row.lot.id, newQuantity: row.nextQuantity }));
+      if (changedLots.length === 0) return;
+      await apiJson<void>(`/api/items/${adjustment.variant.id}/stock-adjustments`, {
+        method: "POST",
+        body: {
+          reason,
+          lots: changedLots,
+        },
+        idempotencyKey: "variant-stock-adjust",
+        fallbackError: "Failed to adjust stock.",
+      });
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["item-card"] });

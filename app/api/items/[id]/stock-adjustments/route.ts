@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonError, jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess, withAuthedOrgContext } from "@/lib/dal/auth";
 import { inventoryLotBalances, items, lots } from "@/lib/db/schema";
@@ -10,11 +11,6 @@ import {
   beginInventoryOperationInTx,
   finishInventoryOperationInTx,
 } from "@/lib/inventory/kernel/operations/common";
-import {
-  manualDecreaseStockInTx,
-  manualIncreaseStockInTx,
-  seedOpeningBalanceInTx,
-} from "@/lib/inventory/kernel/operations/inventory";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import {
   appendPositiveStockToExistingLotInTx,
@@ -26,17 +22,13 @@ import {
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import type { Tx } from "@/lib/db/with-org-context";
 import { roundQuantity } from "@/lib/format";
-import {
-  isNonNegativeNumberString,
-  nonNegativeDecimalString,
-  nullableString,
-  positiveDecimalString,
-} from "@/lib/schemas/shared";
 
 const adjustLotSchema = z.object({
   lotId: z.string().uuid().optional(),
   lotNumber: z.string().trim().min(1).max(20).optional(),
   newQuantity: z.string().regex(/^\d+(\.\d+)?$/),
+}).refine((lot) => !(lot.lotId && lot.lotNumber), {
+  message: "Use either lotId or lotNumber, not both.",
 });
 
 const stockAdjustmentSchema = z.object({
@@ -46,40 +38,18 @@ const stockAdjustmentSchema = z.object({
   lots: z.array(adjustLotSchema).optional(),
 });
 
-const addInitialStockSchema = z.object({
-  quantity: positiveDecimalString("Quantity"),
-  costPerUnit: nullableString.refine(
-    (value) => value == null || isNonNegativeNumberString(value),
-    "Cost per unit must be zero or greater",
-  ),
-  occurredAt: z.string().datetime(),
-  note: nullableString,
-});
-
-const setItemStockSchema = z.object({
-  quantity: nonNegativeDecimalString("Quantity"),
-  note: nullableString,
-});
-
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("inventory", request.headers);
   const { id } = await (ctx as RouteContext).params;
-  const raw = await request.json();
-
-  // Discriminate on the presence of the `reason` KEY (not its non-emptiness):
-  // - reason present -> NEW adjustment-with-reason flow; the schema enforces a
-  //   non-empty reason so a blank/whitespace reason still 400s here.
-  // - reason absent  -> LEGACY add-initial-stock flow (production web caller
-  //   `addInitialStock` in lib/api/clients/item-cards.ts), behavior unchanged.
-  if (raw && typeof raw === "object" && "reason" in raw) {
-    return adjustStockWithReason(request, id, raw);
-  }
-  return addInitialStock(request, id, raw);
+  return adjustStockWithReason(request, id, await parseJsonBody(request, stockAdjustmentSchema));
 });
 
-async function adjustStockWithReason(request: Request, id: string, raw: unknown) {
+async function adjustStockWithReason(
+  request: Request,
+  id: string,
+  input: z.infer<typeof stockAdjustmentSchema>
+) {
   const idempotencyKey = requireIdempotencyKey(request, "adjustStock");
-  const input = stockAdjustmentSchema.parse(raw);
 
   const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
     await lockItemsInTx(tx, [id]);
@@ -122,10 +92,9 @@ async function adjustStockWithReason(request: Request, id: string, raw: unknown)
       return jsonError("A new quantity is required.", 400);
     }
 
-    // Mirror the PUT (set-item-stock) handler's current-quantity read: sum the
-    // raw available lot balances, which is SIGNED and can be negative when the
-    // item is in stock debt. The "set new on-hand" contract requires diffing
-    // against the signed current, not the clamped available-on-hand projection.
+    // Sum raw available lot balances so stock debt is included in the diff.
+    // The "set new on-hand" contract needs signed current quantity, not the
+    // clamped available-on-hand projection.
     const [current] = await tx
       .select({
         quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
@@ -148,8 +117,8 @@ async function adjustStockWithReason(request: Request, id: string, raw: unknown)
       return { ok: true };
     }
 
-    // Wrap the mutation in the same idempotency envelope the other branches in
-    // this file use (addInitialStock / PUT). Without it, a retried or reused
+    // Wrap the mutation in the same idempotency envelope the lot-tracked branch
+    // uses. Without it, a retried or reused
     // Idempotency-Key trips inventory_events_idempotency_key_uidx and 500s
     // instead of replaying the original result.
     const replay = await beginInventoryOperationInTx<{ ok: true }>(tx, {
@@ -277,8 +246,39 @@ async function adjustLotTrackedStock(
     }
   }
 
+  const newLotNumbers = adjustLots
+    .filter((lot) => !lot.lotId && lot.lotNumber)
+    .map((lot) => lot.lotNumber as string);
+  const duplicateRequestLotNumber = newLotNumbers.find(
+    (lotNumber, index) => newLotNumbers.indexOf(lotNumber) !== index
+  );
+  if (duplicateRequestLotNumber) {
+    return jsonError(
+      `Lot ${duplicateRequestLotNumber} was submitted more than once.`,
+      400
+    );
+  }
+  if (newLotNumbers.length > 0) {
+    const existingNumberRows = await tx
+      .select({ lotNumber: lots.lotNumber })
+      .from(lots)
+      .where(
+        and(
+          eq(lots.organizationId, orgId),
+          eq(lots.itemId, itemId),
+          inArray(lots.lotNumber, newLotNumbers)
+        )
+      );
+    if (existingNumberRows.length > 0) {
+      return jsonError(
+        `Lot ${existingNumberRows[0].lotNumber} already exists for this item — count it as the listed lot.`,
+        400
+      );
+    }
+  }
+
   // Read every existing per-lot available balance once for this org+item at the
-  // default location, grouped by lotId (mirrors the PUT SUM read, grouped).
+  // default location, grouped by lotId.
   const balanceRows = await tx
     .select({
       lotId: inventoryLotBalances.lotId,
@@ -443,139 +443,3 @@ async function adjustLotTrackedStock(
 
   return result;
 }
-
-async function addInitialStock(request: Request, id: string, raw: unknown) {
-  const idempotencyKey = requireIdempotencyKey(request, "addInitialStock");
-  const input = addInitialStockSchema.parse(raw);
-
-  const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
-    await lockItemsInTx(tx, [id]);
-
-    const [item] = await tx
-      .select({ id: items.id, deletedAt: items.deletedAt })
-      .from(items)
-      .where(eq(items.id, id));
-
-    if (!item || item.deletedAt != null) {
-      return jsonNotFound("Item not found");
-    }
-
-    const [positiveLot] = await tx
-      .select({ count: sql<number>`COUNT(*)::int` })
-      .from(inventoryLotBalances)
-      .where(
-        and(
-          eq(inventoryLotBalances.organizationId, orgId),
-          eq(inventoryLotBalances.itemId, id),
-          sql`${inventoryLotBalances.quantity} > 0`,
-        ),
-      );
-
-    const occurredAt = new Date(input.occurredAt);
-
-    if ((positiveLot?.count ?? 0) === 0) {
-      const unitCost = await resolvePositiveStockUnitCostInTx(tx, {
-        itemId: id,
-        explicitUnitCost: input.costPerUnit,
-        reason: "opening_cost_required",
-      });
-      return seedOpeningBalanceInTx(tx, {
-        organizationId: orgId,
-        itemId: id,
-        quantity: Number(input.quantity),
-        unitCost,
-        actorUserId: userId,
-        idempotencyKey,
-        receivedAt: occurredAt,
-      });
-    }
-
-    return manualIncreaseStockInTx(tx, {
-      organizationId: orgId,
-      itemId: id,
-      quantity: Number(input.quantity),
-      unitCost: input.costPerUnit,
-      note: input.note,
-      actorUserId: userId,
-      idempotencyKey,
-      occurredAt,
-    });
-  });
-
-  if (result instanceof NextResponse) return result;
-  return NextResponse.json(result);
-}
-
-export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
-  await assertModuleWriteAccess("inventory", request.headers);
-  const idempotencyKey = requireIdempotencyKey(request, "setItemStockQuantity");
-  const { id } = await (ctx as RouteContext).params;
-  const input = setItemStockSchema.parse(await request.json());
-
-  const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
-    await lockItemsInTx(tx, [id]);
-
-    const [item] = await tx
-      .select({ id: items.id, deletedAt: items.deletedAt })
-      .from(items)
-      .where(eq(items.id, id));
-
-    if (!item || item.deletedAt != null) {
-      return jsonNotFound("Item not found");
-    }
-
-    const lotTrackingMode = await getItemLotTrackingModeInTx(tx, id);
-    if (lotTrackingMode !== "untracked") {
-      return NextResponse.json(
-        { error: "Set item quantity is only available for untracked items." },
-        { status: 409 }
-      );
-    }
-
-    const location = await getDefaultInventoryLocationInTx(tx, orgId);
-    const [current] = await tx
-      .select({
-        quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
-      })
-      .from(inventoryLotBalances)
-      .where(
-        and(
-          eq(inventoryLotBalances.organizationId, orgId),
-          eq(inventoryLotBalances.locationId, location.id),
-          eq(inventoryLotBalances.itemId, id),
-          eq(inventoryLotBalances.disposition, "available"),
-        ),
-      );
-
-    const currentQuantity = Number(current?.quantity ?? "0");
-    const nextQuantity = Number(input.quantity);
-    const delta = nextQuantity - currentQuantity;
-
-    if (delta === 0) {
-      return { quantity: input.quantity };
-    }
-
-    if (delta > 0) {
-      return manualIncreaseStockInTx(tx, {
-        organizationId: orgId,
-        itemId: id,
-        quantity: delta,
-        note: input.note,
-        actorUserId: userId,
-        idempotencyKey: `${idempotencyKey}:increase`,
-      });
-    }
-
-    return manualDecreaseStockInTx(tx, {
-      organizationId: orgId,
-      itemId: id,
-      quantity: Math.abs(delta),
-      note: input.note,
-      actorUserId: userId,
-      idempotencyKey: `${idempotencyKey}:decrease`,
-    });
-  });
-
-  if (result instanceof NextResponse) return result;
-  return NextResponse.json(result);
-});
