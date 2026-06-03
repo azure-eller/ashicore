@@ -101,7 +101,11 @@ export const integrationConnections = integrationsSchema
   )
   .enableRLS();
 
-export type IntegrationExternalEntityType = "item" | "customer" | "supplier";
+export type IntegrationExternalEntityType =
+  | "item"
+  | "customer"
+  | "supplier"
+  | "sales_order";
 
 export const integrationExternalRecords = integrationsSchema
   .table(
@@ -158,7 +162,8 @@ export type IntegrationImportEntityType =
   | "customers"
   | "suppliers"
   | "purchasing"
-  | "purchase_orders";
+  | "purchase_orders"
+  | "sales_orders";
 export type IntegrationImportRunStatus = "completed" | "undone";
 export type IntegrationImportRowAction = "created" | "updated";
 

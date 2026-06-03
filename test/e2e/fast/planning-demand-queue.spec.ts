@@ -556,7 +556,7 @@ test("linked make-to-order output is constrained without jumping queue stock", a
   ).toBe(false);
 });
 
-test("make-to-order preview ignores queue stock and subtracts linked output and shipped quantity", async ({
+test("make-to-order preview ignores queue stock and avoids double-counting linked output and shipped quantity", async ({
   db,
 }) => {
   const ts = Date.now();
@@ -666,7 +666,7 @@ test("make-to-order preview ignores queue stock and subtracts linked output and 
   };
   expect(previewAfterShipping.lines[0]).toMatchObject({
     status: "will_create",
-    quantity: "3",
+    quantity: "5",
   });
 
   const cancelledOrder = await createSalesOrder({

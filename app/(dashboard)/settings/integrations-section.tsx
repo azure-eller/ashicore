@@ -68,6 +68,7 @@ import { formatDateTimeLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ACCOUNTING_PROVIDER_QUICKBOOKS } from "@/lib/accounting/constants";
 import type { AccountingConnectionSummary } from "@/lib/dal/accounting";
+import type { ShopifyConnectionSummary } from "@/lib/dal/shopify";
 import type {
   XeroConnectionSummary,
   XeroExportHistoryRow,
@@ -145,6 +146,7 @@ type DialogKey =
   | "disconnect"
   | "switch-org"
   | "connect"
+  | "shopify-connect"
   | "history"
   | null;
 
@@ -1114,6 +1116,168 @@ function QuickBooksDefaultsDialog({
   );
 }
 
+function ShopifyRow({
+  connection,
+  canManageConnection,
+}: {
+  connection: ShopifyConnectionSummary | null;
+  canManageConnection: boolean;
+}) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<{
+    created: number;
+    skipped: number;
+    errors: string[];
+  } | null>(null);
+
+  const importMutation = useMutation({
+    mutationFn: () =>
+      apiJson<{ created: number; skipped: number; errors: string[] }>(
+        "/api/shopify/import/orders",
+        {
+          method: "POST",
+          body: {},
+          fallbackError: "Failed to import Shopify orders.",
+        }
+      ),
+    onSuccess: (result) => {
+      setSummary(result);
+      setError(null);
+      router.refresh();
+      queryClient.invalidateQueries();
+    },
+    onError: (err) => setError((err as Error).message),
+  });
+
+  const isConnected = connection != null;
+
+  return (
+    <AccountingProviderCard
+      icon={<ProviderIconFrame>SH</ProviderIconFrame>}
+      title="Shopify"
+      connected={isConnected}
+      summary={
+        isConnected
+          ? `${connection.shopDomain} · Ecommerce orders`
+          : "Connect Shopify for sales order import."
+      }
+      actions={
+        <>
+          {isConnected ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => importMutation.mutate()}
+              disabled={importMutation.isPending}
+            >
+              Import paid orders
+            </Button>
+          ) : null}
+          {canManageConnection ? (
+            <Button size="sm" onClick={() => setOpen(true)}>
+              {isConnected ? "Update" : "Connect"}
+            </Button>
+          ) : null}
+        </>
+      }
+    >
+      {summary ? (
+        <ListFrameItem className="px-(--space-10) py-(--space-6) text-[length:var(--text-sm)] text-muted-foreground">
+          {summary.created} created, {summary.skipped} skipped
+          {summary.errors.length > 0 ? `, ${summary.errors.length} errors` : null}
+        </ListFrameItem>
+      ) : null}
+      {error ? (
+        <ListFrameItem className="px-(--space-10) py-(--space-6)">
+          <FieldError>{error}</FieldError>
+        </ListFrameItem>
+      ) : null}
+      <ShopifyConnectDialog
+        open={open}
+        connection={connection}
+        onOpenChange={setOpen}
+      />
+    </AccountingProviderCard>
+  );
+}
+
+function ShopifyConnectDialog({
+  open,
+  connection,
+  onOpenChange,
+}: {
+  open: boolean;
+  connection: ShopifyConnectionSummary | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const [shopDomain, setShopDomain] = useState(connection?.shopDomain ?? "");
+  const [accessToken, setAccessToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      apiJson("/api/shopify/connection", {
+        method: "PUT",
+        body: { shopDomain, accessToken },
+        fallbackError: "Failed to save Shopify connection.",
+      }),
+    onSuccess: () => {
+      setAccessToken("");
+      setError(null);
+      onOpenChange(false);
+      router.refresh();
+      queryClient.invalidateQueries();
+    },
+    onError: (err) => setError((err as Error).message),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Shopify</DialogTitle>
+          <DialogDescription>Private Admin API connection.</DialogDescription>
+        </DialogHeader>
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="shopify-domain">Shop domain</FieldLabel>
+            <Input
+              id="shopify-domain"
+              value={shopDomain}
+              onChange={(event) => setShopDomain(event.target.value)}
+              placeholder="store.myshopify.com"
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="shopify-token">Admin API token</FieldLabel>
+            <Input
+              id="shopify-token"
+              type="password"
+              value={accessToken}
+              onChange={(event) => setAccessToken(event.target.value)}
+            />
+          </Field>
+          {error ? <FieldError>{error}</FieldError> : null}
+        </FieldGroup>
+        <DialogFooter>
+          <Button
+            type="button"
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+          >
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function PostingDefaultsDialog({
   open,
   connection,
@@ -1774,6 +1938,7 @@ function ExportHistoryDialog({
 export function IntegrationsSection({
   connection,
   quickBooksConnection,
+  shopifyConnection,
   error,
   canManageConnection,
   canManageSalesXero,
@@ -1788,6 +1953,7 @@ export function IntegrationsSection({
 }: {
   connection: XeroConnectionSummary | null;
   quickBooksConnection: AccountingConnectionSummary | null;
+  shopifyConnection: ShopifyConnectionSummary | null;
   error?: string;
   canManageConnection: boolean;
   canManageSalesXero: boolean;
@@ -1822,6 +1988,10 @@ export function IntegrationsSection({
           connection={quickBooksConnection}
           canManageConnection={canManageConnection}
           canImportSuppliers={canImportSuppliers}
+        />
+        <ShopifyRow
+          connection={shopifyConnection}
+          canManageConnection={canManageSalesXero}
         />
       </div>
     </SettingsPanel>

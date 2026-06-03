@@ -80,6 +80,31 @@ export async function getExternalRecordInTx(
   return row ?? null;
 }
 
+export async function getExternalRecordByExternalIdInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    provider: string;
+    entityType: IntegrationExternalEntityType;
+    externalId: string;
+  }
+) {
+  const [row] = await tx
+    .select()
+    .from(integrationExternalRecords)
+    .where(
+      and(
+        eq(integrationExternalRecords.organizationId, params.organizationId),
+        eq(integrationExternalRecords.provider, params.provider),
+        eq(integrationExternalRecords.entityType, params.entityType),
+        eq(integrationExternalRecords.externalId, params.externalId)
+      )
+    )
+    .limit(1);
+
+  return row ?? null;
+}
+
 export async function getExternalRecordIdInTx(
   tx: Tx,
   params: {

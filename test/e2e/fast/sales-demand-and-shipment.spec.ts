@@ -1,13 +1,15 @@
+import http from "node:http";
 import { and, eq, inArray } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import {
+  integrationConnections,
+  integrationExternalRecords,
   inventoryDemandSummary,
   inventoryEvents,
   inventoryItemBalances,
   inventoryReservationsSummary,
   accountingDocumentSyncs,
-  integrationConnections,
   salesOrderLines,
   salesOrders,
 } from "../../../lib/db/schema";
@@ -16,6 +18,7 @@ import {
   createItem,
   createSalesOrder,
   fulfillSalesOrder,
+  getOrgId,
   getUnitId,
   testFetch,
 } from "../../helpers/api";
@@ -84,6 +87,29 @@ async function withOnlyQuickBooksConnection<T>(
       await db.insert(integrationConnections).values(existing);
     }
   }
+}
+
+function startShopifyServer(payload: unknown) {
+  const server = http.createServer((req, res) => {
+    expect(req.headers["x-shopify-access-token"]).toBe("shopify-fast-token");
+    expect(req.url).toContain("/admin/api/2025-10/orders.json");
+    expect(req.url).toContain("financial_status=paid");
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify(payload));
+  });
+
+  return new Promise<{ baseUrl: string; close: () => Promise<void> }>((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") {
+        throw new Error("Shopify test server did not bind to a port.");
+      }
+      resolve({
+        baseUrl: `http://127.0.0.1:${address.port}`,
+        close: () => new Promise((done) => server.close(() => done())),
+      });
+    });
+  });
 }
 
 test.describe("sales demand and shipping heartbeat", () => {
@@ -172,6 +198,120 @@ test.describe("sales demand and shipping heartbeat", () => {
       demandQty: "6.0000",
       availableToPromise: "4.0000",
     });
+  });
+
+  test("Shopify paid-order import creates sales demand and records external order", async ({
+    db,
+  }) => {
+    const productId = await createStockedProduct("ShopifyImport", "10");
+    const customer = await createCustomer({
+      name: `Fast Shopify Customer ${ts}`,
+      email: `fast-shopify-${ts}@example.com`,
+    });
+    expect(customer.status).toBe(201);
+
+    await db
+      .insert(integrationConnections)
+      .values({
+        organizationId: getOrgId(),
+        provider: "shopify",
+        tenantId: `fast-shop-${ts}.myshopify.com`,
+        tenantName: `Fast Shop ${ts}`,
+        accessTokenCiphertext: "shopify-fast-token",
+        refreshTokenCiphertext: "",
+        tokenEncryptionKeyId: "plain",
+        tokenExpiresAt: new Date("2099-01-01T00:00:00Z"),
+        settings: { shopDomain: `fast-shop-${ts}.myshopify.com` },
+      })
+      .onConflictDoUpdate({
+        target: [
+          integrationConnections.organizationId,
+          integrationConnections.provider,
+        ],
+        set: {
+          tenantId: `fast-shop-${ts}.myshopify.com`,
+          tenantName: `Fast Shop ${ts}`,
+          accessTokenCiphertext: "shopify-fast-token",
+          refreshTokenCiphertext: "",
+          tokenEncryptionKeyId: "plain",
+          tokenExpiresAt: new Date("2099-01-01T00:00:00Z"),
+          settings: { shopDomain: `fast-shop-${ts}.myshopify.com` },
+          updatedAt: new Date(),
+        },
+      });
+
+    const shopifyOrderId = `fast-${ts}`;
+    const server = await startShopifyServer({
+      orders: [
+        {
+          id: shopifyOrderId,
+          name: `#${ts}`,
+          created_at: "2026-05-20T18:30:00Z",
+          financial_status: "paid",
+          fulfillment_status: null,
+          email: `fast-shopify-${ts}@example.com`,
+          customer: { id: `customer-${ts}` },
+          shipping_address: { address1: "10 Market St" },
+          line_items: [
+            {
+              id: `line-${ts}`,
+              sku: `FAST-SALES-ShopifyImport-${ts}`,
+              quantity: 2,
+              fulfillable_quantity: 2,
+              price: "12.00",
+            },
+          ],
+        },
+      ],
+    });
+
+    try {
+      const response = await testFetch("/api/shopify/import/orders", {
+        method: "POST",
+        body: JSON.stringify({ shopBaseUrl: server.baseUrl }),
+      });
+      const body = await response.json();
+      expect(response.status, JSON.stringify(body)).toBe(200);
+      expect(body).toMatchObject({ created: 1, skipped: 0, errors: [] });
+
+      const [order] = await db
+        .select({ id: salesOrders.id })
+        .from(salesOrders)
+        .where(eq(salesOrders.orderNumber, `SHOP-${ts}`));
+      expect(order).toBeTruthy();
+
+      const [line] = await db
+        .select({ id: salesOrderLines.id, quantity: salesOrderLines.quantity })
+        .from(salesOrderLines)
+        .where(eq(salesOrderLines.salesOrderId, order.id));
+      expect(line.quantity).toBe("2.0000");
+
+      const [demand] = await db
+        .select({ quantity: inventoryDemandSummary.quantity })
+        .from(inventoryDemandSummary)
+        .where(
+          and(
+            eq(inventoryDemandSummary.itemId, productId),
+            eq(inventoryDemandSummary.referenceType, "sales_order_line"),
+            eq(inventoryDemandSummary.referenceId, line.id)
+          )
+        );
+      expect(demand.quantity).toBe("2.0000");
+
+      const [external] = await db
+        .select({ localRecordId: integrationExternalRecords.localRecordId })
+        .from(integrationExternalRecords)
+        .where(
+          and(
+            eq(integrationExternalRecords.provider, "shopify"),
+            eq(integrationExternalRecords.entityType, "sales_order"),
+            eq(integrationExternalRecords.externalId, shopifyOrderId)
+          )
+        );
+      expect(external.localRecordId).toBe(order.id);
+    } finally {
+      await server.close();
+    }
   });
 
   test("shipping consumes stock once and closes the order", async ({ db }) => {

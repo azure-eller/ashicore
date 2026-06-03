@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { hasModuleAccess } from "@/lib/authz";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { getQuickBooksConnection } from "@/lib/dal/accounting";
+import { getShopifyConnection } from "@/lib/dal/shopify";
 import {
   getRecentXeroExports,
   getRecentXeroImportRuns,
@@ -40,6 +41,7 @@ export default async function SettingsIntegrationsPage({
   const [
     xeroConnection,
     quickBooksConnection,
+    shopifyConnection,
     xeroImportRuns,
     xeroSyncEvents,
     xeroExports,
@@ -47,6 +49,7 @@ export default async function SettingsIntegrationsPage({
   ] = await Promise.all([
     getXeroConnection(),
     getQuickBooksConnection(),
+    getShopifyConnection(),
     getRecentXeroImportRuns(),
     getRecentXeroSyncEvents(),
     getRecentXeroExports({
@@ -60,6 +63,7 @@ export default async function SettingsIntegrationsPage({
     <IntegrationsSection
       connection={xeroConnection}
       quickBooksConnection={quickBooksConnection}
+      shopifyConnection={shopifyConnection}
       importRuns={xeroImportRuns}
       syncEvents={xeroSyncEvents}
       exportRows={xeroExports}
