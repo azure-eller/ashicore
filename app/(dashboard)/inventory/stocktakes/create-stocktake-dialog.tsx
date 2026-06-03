@@ -14,6 +14,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { FieldError } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { apiJson } from "@/lib/client/api";
 import { buildStocktakeModeName } from "./types";
@@ -48,6 +50,7 @@ export function CreateStocktakeDialog() {
   const createRequested = searchParams.get("create") === "1";
   const [open, setOpen] = useState(createRequested);
   const [mode, setMode] = useState<StocktakeCreationMode>("in_stock");
+  const [reason, setReason] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,6 +71,7 @@ export function CreateStocktakeDialog() {
           scope: mode,
           creationMode: mode,
           notes: null,
+          reason: reason.trim(),
         },
         fallbackError: "Failed to create stocktake.",
       });
@@ -86,6 +90,7 @@ export function CreateStocktakeDialog() {
         if (!next) {
           setError(null);
           setPending(false);
+          setReason("");
         }
       }}
     >
@@ -129,8 +134,20 @@ export function CreateStocktakeDialog() {
           ))}
         </RadioGroup>
 
+        <div className="space-y-2">
+          <Label htmlFor="stocktake-create-reason">
+            Reason <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="stocktake-create-reason"
+            value={reason}
+            onChange={(event) => setReason(event.currentTarget.value)}
+            placeholder="Why is this count being made?"
+          />
+        </div>
+
         <DialogFooter>
-          <Button onClick={createMode} disabled={pending}>
+          <Button onClick={createMode} disabled={pending || reason.trim() === ""}>
             {pending ? "Creating..." : "Create stocktake"}
           </Button>
         </DialogFooter>

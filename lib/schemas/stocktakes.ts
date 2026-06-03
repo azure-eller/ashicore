@@ -119,10 +119,17 @@ export const insertStocktakeSchema = createInsertSchema(stocktakes, {
 export type InsertStocktake = z.infer<typeof insertStocktakeSchema>;
 
 export const createStocktakeSchema = insertStocktakeSchema.extend({
+  reason: z.string().trim().min(1, "Reason is required."),
   itemIds: z.array(z.string().uuid()).optional(),
 });
 
 export type CreateStocktake = z.infer<typeof createStocktakeSchema>;
+
+export const cloneStocktakeSchema = z.object({
+  reason: z.string().trim().min(1, "Reason is required."),
+});
+
+export type CloneStocktake = z.infer<typeof cloneStocktakeSchema>;
 
 const rawCountLineSchema = z.object({
   lineId: z.string().min(1),
@@ -302,7 +309,7 @@ export type UpdateStocktakeCounts = z.infer<typeof updateStocktakeSchema>;
 
 export const completeStocktakeSchema = z.object({
   confirmStale: z.boolean().optional().default(false),
-  reason: z.string().trim().min(1, "Reason is required."),
+  reason: z.string().trim().min(1, "Reason is required.").optional(),
 });
 
 export type CompleteStocktake = z.infer<typeof completeStocktakeSchema>;

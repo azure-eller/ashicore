@@ -73,6 +73,8 @@ The new-stocktake page creates a draft from a creation mode:
 
 - `POST /api/stocktakes` accepts `creationMode`
 - `creationMode: "all"` is the friendly alias for existing `scope: "all"`
+- new drafts require a non-blank `reason`, which describes why the stocktake is
+  being performed
 - draft users may add or remove rows after creation
 - mid-draft adds snapshot expected stock at add time
 - copy creates fresh snapshot rows at copy time and returns skipped deleted or
@@ -112,7 +114,8 @@ variance matches what completion will attempt to post. If completion returns a
 stale `409`, clients must fetch preview again, show the updated variance, and
 require the user to confirm again.
 
-Completion applies counted truth from **current live stock**, not from the old snapshot:
+Completion applies counted truth from **current live stock**, not from the old
+snapshot. It uses the stocktake's stored reason for inventory event metadata.
 
 1. lock the stocktake row
 2. lock all counted items in stable order

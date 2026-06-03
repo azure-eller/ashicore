@@ -746,6 +746,7 @@ test.describe("inventory kernel invariants", () => {
       body: JSON.stringify({
         name: `Recon Stocktake ${ts}`,
         scope: `material:category:${category}`,
+        reason: "Cycle count",
         notes: null,
       }),
     });

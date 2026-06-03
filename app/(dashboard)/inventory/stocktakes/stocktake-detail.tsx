@@ -27,7 +27,6 @@ import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation"
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatQuantity, normalizeNumeric } from "@/lib/format";
 import { ApiJsonError, apiJson } from "@/lib/client/api";
@@ -54,6 +53,7 @@ import { InventoryItemLineCellEditor } from "@/components/editable-lines";
 import type { InventoryItemComboboxOption } from "@/components/inventory-item-combobox";
 import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
 import { StocktakeStatusBadge } from "./status-badge";
+import { CloneStocktakeReasonDialog } from "./clone-stocktake-reason-dialog";
 import {
   formatScope,
   formatCloneSkippedItemsWarning,
@@ -212,13 +212,13 @@ export function StocktakeDetail({
   const completeMutation = useMutation<
     void,
     ApiError,
-    { confirmStale: boolean; reason: string }
+    { confirmStale: boolean }
   >({
-    mutationFn: async ({ confirmStale, reason }) => {
+    mutationFn: async ({ confirmStale }) => {
       try {
         await apiJson<void>(`/api/stocktakes/${stocktake.id}/complete`, {
           method: "POST",
-          body: { confirmStale, reason },
+          body: { confirmStale },
           idempotencyKey: "stocktake-complete",
           fallbackError: "Failed to complete stocktake.",
         });
@@ -266,7 +266,6 @@ export function StocktakeDetail({
     try {
       await completeMutation.mutateAsync({
         confirmStale: reviewConfirmStale,
-        reason: stocktakeReason,
       });
       setReviewOpen(false);
     } catch {
@@ -305,13 +304,16 @@ export function StocktakeDetail({
     mutation: deleteMutation,
   });
 
-  const cloneMutation = useMutation<CloneStocktakeResult, ApiError>({
-    mutationFn: async () => {
+  const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
+  const cloneMutation = useMutation<CloneStocktakeResult, ApiError, string>({
+    mutationFn: async (reason: string) => {
       try {
         return await apiJson<CloneStocktakeResult>(
           `/api/stocktakes/${stocktake.id}/clone`,
           {
             method: "POST",
+            body: { reason },
+            idempotencyKey: "stocktake-clone",
             fallbackError: "Failed to copy stocktake.",
           }
         );
@@ -320,6 +322,7 @@ export function StocktakeDetail({
       }
     },
     onSuccess: async (created) => {
+      setCloneDialogOpen(false);
       await refreshStocktakeQueries();
       const warning = formatCloneSkippedItemsWarning(created);
       if (warning) window.alert(warning);
@@ -462,6 +465,7 @@ export function StocktakeDetail({
   const canComplete =
     canEditCounts &&
     liveCountedCount > 0 &&
+    stocktakeReason.trim() !== "" &&
     !completeMutation.isPending;
   const cardSaveState = cardSaveStateFromEngine(saveEngine.status);
   const countActions = (
@@ -837,7 +841,7 @@ export function StocktakeDetail({
                   : []),
                 {
                   label: cloneMutation.isPending ? "Copying..." : "Copy stocktake",
-                  onClick: () => cloneMutation.mutate(),
+                  onClick: () => setCloneDialogOpen(true),
                   disabled: cloneMutation.isPending,
                 },
                 {
@@ -987,30 +991,25 @@ export function StocktakeDetail({
               </tbody>
             </FramedTable>
           </TableFrame>
-          <div className="space-y-2">
-            <Label htmlFor="stocktake-reason">
-              Reason <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="stocktake-reason"
-              value={stocktakeReason}
-              onChange={(event) => setStocktakeReason(event.target.value)}
-              placeholder="Reason for adjustment"
-            />
-          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setReviewOpen(false)}>
               Back
             </Button>
             <Button
               onClick={confirmCompletion}
-              disabled={completeMutation.isPending || stocktakeReason.trim() === ""}
+              disabled={completeMutation.isPending}
             >
               {completeMutation.isPending ? "Completing..." : "Complete stocktake"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <CloneStocktakeReasonDialog
+        open={cloneDialogOpen}
+        pending={cloneMutation.isPending}
+        onOpenChange={setCloneDialogOpen}
+        onSubmit={(reason) => cloneMutation.mutate(reason)}
+      />
 
       {deleteConfirm.dialog}
     </>

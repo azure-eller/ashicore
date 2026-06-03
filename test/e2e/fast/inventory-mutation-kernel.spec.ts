@@ -362,6 +362,7 @@ test.describe("inventory mutation kernel heartbeat", () => {
       body: JSON.stringify({
         name: `Fast Negative Debt Stocktake ${ts}`,
         scope: buildStocktakeCategoryScope("material", category),
+        reason: "Cycle count",
         notes: null,
       }),
     });
@@ -780,6 +781,7 @@ test.describe("inventory mutation kernel heartbeat", () => {
       body: JSON.stringify({
         name: `Fast Stocktake ${ts}`,
         scope: buildStocktakeCategoryScope("material", category),
+        reason: "Cycle count",
         notes: null,
       }),
     });

@@ -32,6 +32,7 @@ import {
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type {
   CompleteStocktake,
+  CloneStocktake,
   InsertStocktake,
   StocktakeCreationMode,
   StocktakeScope,
@@ -821,6 +822,7 @@ export async function createStocktake(data: InsertStocktake) {
         scope,
         status: "draft",
         notes: data.notes,
+        reason: data.reason?.trim() || null,
       })
       .returning({ id: stocktakes.id });
 
@@ -1280,7 +1282,10 @@ export async function completeStocktake(
       countedLines.map((line) => line.itemId)
     );
 
-    const reason = options?.reason?.trim() || stocktake.reason || null;
+    const reason = options?.reason?.trim() || stocktake.reason?.trim() || null;
+    if (!reason) {
+      throw new StocktakeError("Reason is required before completing this stocktake.", 400);
+    }
     if (options?.reason) {
       await tx
         .update(stocktakes)
@@ -1400,7 +1405,10 @@ export async function deleteStocktake(id: string) {
   return { deleted: result.deletedCount > 0, error: result.error };
 }
 
-export async function cloneStocktake(id: string): Promise<CloneStocktakeResult | null> {
+export async function cloneStocktake(
+  id: string,
+  data: CloneStocktake
+): Promise<CloneStocktakeResult | null> {
   return withAuthedOrgContext(async (tx) => {
     const [source] = await tx
       .select({
@@ -1449,6 +1457,7 @@ export async function cloneStocktake(id: string): Promise<CloneStocktakeResult |
       name: `Copy of ${source.name} - ${dateToken}`,
       scope: (itemIds.length === 0 ? "empty" : "all") as StocktakeScope,
       notes: null,
+      reason: data.reason.trim(),
       itemIds,
     });
 

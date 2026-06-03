@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ICellRendererParams } from "ag-grid-community";
@@ -26,6 +27,7 @@ import {
 } from "@/lib/tooltip-copy";
 import { StocktakeStatusBadge } from "./status-badge";
 import { CreateStocktakeDialog } from "./create-stocktake-dialog";
+import { CloneStocktakeReasonDialog } from "./clone-stocktake-reason-dialog";
 import {
   formatCloneSkippedItemsWarning,
   formatScope,
@@ -141,14 +143,17 @@ export function StocktakesTable({ initialData }: { initialData: StocktakeListRow
 function StocktakeRowActions({ stocktake }: { stocktake: StocktakeListRow }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
   const cloneMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (reason: string) =>
       apiJson<CloneStocktakeResult>(`/api/stocktakes/${stocktake.id}/clone`, {
         method: "POST",
+        body: { reason },
         idempotencyKey: "stocktake-clone",
         fallbackError: "Failed to clone stocktake.",
       }),
     onSuccess: async (created) => {
+      setCloneDialogOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["stocktakes"] });
       const warning = formatCloneSkippedItemsWarning(created);
       if (warning) window.alert(warning);
@@ -157,32 +162,40 @@ function StocktakeRowActions({ stocktake }: { stocktake: StocktakeListRow }) {
   });
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          aria-label={`More actions for ${stocktake.name}`}
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`More actions for ${stocktake.name}`}
+          >
+            <HugeiconsIcon icon={MoreVerticalIcon} className="h-4 w-4" aria-hidden />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          className="bg-popover text-popover-foreground"
         >
-          <HugeiconsIcon icon={MoreVerticalIcon} className="h-4 w-4" aria-hidden />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="bg-popover text-popover-foreground"
-      >
-        <DropdownMenuItem
-          disabled={cloneMutation.isPending}
-          onSelect={(event) => {
-            event.preventDefault();
-            cloneMutation.mutate();
-          }}
-        >
-          <HugeiconsIcon icon={Copy01Icon} className="h-4 w-4" aria-hidden />
-          {cloneMutation.isPending ? "Cloning..." : "Clone"}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+          <DropdownMenuItem
+            disabled={cloneMutation.isPending}
+            onSelect={(event) => {
+              event.preventDefault();
+              setCloneDialogOpen(true);
+            }}
+          >
+            <HugeiconsIcon icon={Copy01Icon} className="h-4 w-4" aria-hidden />
+            {cloneMutation.isPending ? "Cloning..." : "Clone"}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <CloneStocktakeReasonDialog
+        open={cloneDialogOpen}
+        pending={cloneMutation.isPending}
+        onOpenChange={setCloneDialogOpen}
+        onSubmit={(reason) => cloneMutation.mutate(reason)}
+      />
+    </>
   );
 }

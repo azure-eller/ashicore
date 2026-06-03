@@ -32,6 +32,7 @@ test.describe("stocktake workflow operating story", () => {
       body: JSON.stringify({
         name: `Stocktake Story ${Date.now()}`,
         scope: "all",
+        reason: "Cycle count",
         notes: null,
         itemIds: [materialId],
       }),
@@ -176,6 +177,7 @@ test.describe("stocktake found-lot operating story", () => {
       body: JSON.stringify({
         name: `Found Lot Story ${Date.now()}`,
         scope: "all",
+        reason: "Cycle count",
         notes: null,
         itemIds: [foundMaterialId],
       }),
@@ -303,6 +305,7 @@ test.describe("stocktake found-lot operating story", () => {
       body: JSON.stringify({
         name: `Found Lot Reject ${Date.now()}`,
         scope: "all",
+        reason: "Cycle count",
         notes: null,
         itemIds: [material.id],
       }),
@@ -386,6 +389,7 @@ test.describe("stocktake found-lot operating story", () => {
       body: JSON.stringify({
         name: `Zero Lot Snapshot ${Date.now()}`,
         scope: "all",
+        reason: "Cycle count",
         notes: null,
         itemIds: [material.id],
       }),
@@ -469,6 +473,7 @@ test.describe("stocktake found-lot operating story", () => {
       body: JSON.stringify({
         name: `Partial Lot Rollup ${Date.now()}`,
         scope: "all",
+        reason: "Cycle count",
         notes: null,
         itemIds: [material.id],
       }),
@@ -538,6 +543,7 @@ test.describe("stocktake found-lot operating story", () => {
       body: JSON.stringify({
         name: `Found Lot Idempotent ${Date.now()}`,
         scope: "all",
+        reason: "Cycle count",
         notes: null,
         itemIds: [material.id],
       }),
