@@ -29,6 +29,7 @@ export type DemandQueueDemandInput = {
   priorityRank: number | null;
   priorityDate: string | null;
   priorityLabel: string;
+  supplyPolicy?: "any" | "linked_only";
   minimumLotAgeDays?: number | null;
 };
 
@@ -125,10 +126,18 @@ function getSupplyCoverageTiming(
   return { kind: "expected", availableDate: supply.availableDate };
 }
 
-function supplyLinkedToDemand(
+function supplyAvailableToDemand(
   supply: DemandQueueSupplyChunk,
   demand: DemandQueueDemandInput
 ) {
+  if (demand.supplyPolicy === "linked_only") {
+    return (
+      supply.linkedDemand != null &&
+      supply.linkedDemand.demandType === demand.demandType &&
+      supply.linkedDemand.demandId === demand.demandId
+    );
+  }
+
   return (
     supply.linkedDemand == null ||
     (supply.linkedDemand.demandType === demand.demandType &&
@@ -205,7 +214,7 @@ export function computeDemandQueueCoverage(params: {
     for (const chunk of supply) {
       if (coverage.remainingNeed <= 0) break;
       if (chunk.remaining <= 0) continue;
-      if (!supplyLinkedToDemand(chunk, demand)) continue;
+      if (!supplyAvailableToDemand(chunk, demand)) continue;
       const timing = getSupplyCoverageTiming(chunk, demand, params.today);
       if (!timing) continue;
       const claim = roundQuantity(Math.min(coverage.remainingNeed, chunk.remaining));

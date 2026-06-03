@@ -905,6 +905,26 @@ export async function completeManufacturingOrder(
   return { status: res.status, body };
 }
 
+/**
+ * POST /api/manufacturing-orders/:id/outputs
+ */
+export async function recordManufacturingOutput(
+  id: string,
+  quantity: string,
+  options?: { outputDisposition?: "available" | "blocked"; confirmNegativeStock?: boolean }
+) {
+  const res = await testFetch(`/api/manufacturing-orders/${id}/outputs`, {
+    method: "POST",
+    body: JSON.stringify({
+      quantity,
+      outputDisposition: options?.outputDisposition ?? "available",
+      confirmNegativeStock: options?.confirmNegativeStock ?? false,
+    }),
+  });
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body };
+}
+
 // ---------------------------------------------------------------------------
 // Planning helpers
 // ---------------------------------------------------------------------------

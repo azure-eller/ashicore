@@ -25,7 +25,10 @@ import {
 } from "@/lib/inventory/kernel";
 import { getItemLotTrackingModesByItemIdInTx } from "@/lib/inventory/lot-tracking";
 import { allocationDemandAdapters } from "./adapters";
-import { loadAllocationSourcesForItemsInTx } from "./sources";
+import {
+  loadAllocationSourcesForItemsInTx,
+  loadLinkedSalesOrderLineIdsByLotIdInTx,
+} from "./sources";
 import type {
   AllocationDemandAdapterRow,
   AllocationDemandType,
@@ -237,6 +240,12 @@ function buildInventoryLotSupplyChunks(sources: AllocationSourceRow[]) {
           quantity,
           availableDate: source.date,
           label: source.label,
+          linkedDemand: source.linkedSalesOrderLineId
+            ? {
+                demandType: "sales_order_line" as const,
+                demandId: source.linkedSalesOrderLineId,
+              }
+            : undefined,
         },
       ];
     });
@@ -245,12 +254,12 @@ function buildInventoryLotSupplyChunks(sources: AllocationSourceRow[]) {
 async function getUntrackedOnHandSupplyForItemsInTx(
   tx: Tx,
   params: { organizationId: string; locationId: string; itemIds: string[] }
-): Promise<Map<string, DemandQueueSupplyChunk>> {
+): Promise<Map<string, DemandQueueSupplyChunk[]>> {
   const itemIds = [...new Set(params.itemIds)].filter(Boolean);
-  const supplyByItemId = new Map<string, DemandQueueSupplyChunk>();
+  const supplyByItemId = new Map<string, DemandQueueSupplyChunk[]>();
   if (itemIds.length === 0) return supplyByItemId;
 
-  const rows = await tx
+  const totals = await tx
     .select({
       itemId: inventoryLotBalances.itemId,
       quantity: trimScale(sql`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`).as(
@@ -277,18 +286,80 @@ async function getUntrackedOnHandSupplyForItemsInTx(
     .groupBy(inventoryLotBalances.itemId)
     .orderBy(asc(inventoryLotBalances.itemId));
 
-  for (const row of rows) {
-    const quantity = toQuantity(row.quantity);
-    if (quantity <= 0) continue;
+  const lotRows = await tx
+    .select({
+      itemId: inventoryLotBalances.itemId,
+      lotId: inventoryLotBalances.lotId,
+      quantity: trimScale(inventoryLotBalances.quantity).as("quantity"),
+      receivedAt: inventoryLotBalances.receivedAt,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        inArray(inventoryLotBalances.itemId, itemIds),
+        eq(inventoryLotBalances.disposition, "available"),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    )
+    .orderBy(
+      asc(inventoryLotBalances.itemId),
+      asc(inventoryLotBalances.receivedAt),
+      asc(inventoryLotBalances.lotId)
+    );
+  const linkedSalesOrderLineIdByLotId = await loadLinkedSalesOrderLineIdsByLotIdInTx(
+    tx,
+    {
+      organizationId: params.organizationId,
+      lotIds: lotRows.map((row) => row.lotId),
+    }
+  );
+  const linkedLotRowsByItemId = groupByItemId(
+    lotRows.filter((row) => linkedSalesOrderLineIdByLotId.has(row.lotId))
+  );
 
-    supplyByItemId.set(row.itemId, {
-      kind: "on_hand",
-      sourceType: "inventory_lot",
-      sourceId: row.sourceId ?? `untracked:${row.itemId}`,
-      quantity,
-      availableDate: serializeDbTimestamp(row.receivedAt),
-      label: null,
-    });
+  for (const row of totals) {
+    let remainingQuantity = toQuantity(row.quantity);
+    if (remainingQuantity <= 0) continue;
+
+    const chunks: DemandQueueSupplyChunk[] = [];
+    for (const lot of linkedLotRowsByItemId.get(row.itemId) ?? []) {
+      if (remainingQuantity <= 0) break;
+      const linkedQuantity = roundQuantity(
+        Math.min(remainingQuantity, toQuantity(lot.quantity))
+      );
+      if (linkedQuantity <= 0) continue;
+      const salesOrderLineId = linkedSalesOrderLineIdByLotId.get(lot.lotId);
+      if (!salesOrderLineId) continue;
+
+      chunks.push({
+        kind: "on_hand",
+        sourceType: "inventory_lot",
+        sourceId: lot.lotId,
+        quantity: linkedQuantity,
+        availableDate: serializeDbTimestamp(lot.receivedAt),
+        label: null,
+        linkedDemand: {
+          demandType: "sales_order_line",
+          demandId: salesOrderLineId,
+        },
+      });
+      remainingQuantity = roundQuantity(remainingQuantity - linkedQuantity);
+    }
+
+    if (remainingQuantity > 0) {
+      chunks.push({
+        kind: "on_hand",
+        sourceType: "inventory_lot",
+        sourceId: row.sourceId ?? `untracked:${row.itemId}`,
+        quantity: remainingQuantity,
+        availableDate: serializeDbTimestamp(row.receivedAt),
+        label: null,
+      });
+    }
+
+    supplyByItemId.set(row.itemId, chunks);
   }
 
   return supplyByItemId;
@@ -369,7 +440,7 @@ function buildDemandQueueItemCoverage(params: {
   itemId: string;
   demandRows: AllocationDemandAdapterRow[];
   sources: AllocationSourceRow[];
-  untrackedOnHandSupply: DemandQueueSupplyChunk | null;
+  untrackedOnHandSupply: DemandQueueSupplyChunk[];
   purchaseSupply: DemandQueueSupplyChunk[];
   today: string;
   includeManufacturingDetail: boolean;
@@ -379,7 +450,7 @@ function buildDemandQueueItemCoverage(params: {
   // Demand-queue planning uses physical/projected quantity. Expected supply =
   // open PO remaining quantity and open MO remaining output.
   const supply: DemandQueueSupplyChunk[] = [
-    ...(params.untrackedOnHandSupply ? [params.untrackedOnHandSupply] : []),
+    ...params.untrackedOnHandSupply,
     ...params.purchaseSupply,
     ...buildInventoryLotSupplyChunks(params.sources),
     ...params.sources
@@ -417,6 +488,7 @@ function buildDemandQueueItemCoverage(params: {
     priorityRank: row.priorityRank,
     priorityDate: row.priorityDate,
     priorityLabel: row.priorityLabel,
+    supplyPolicy: row.supplyPolicy ?? "any",
     minimumLotAgeDays: row.minimumLotAgeDays ?? null,
   }));
 
@@ -618,7 +690,7 @@ export async function getDemandQueueCoverageForItemsInTx(
       itemId,
       demandRows: demandRowsByItemId.get(itemId) ?? [],
       sources: sourcesByItemId.get(itemId) ?? [],
-      untrackedOnHandSupply: untrackedOnHandSupplyByItemId.get(itemId) ?? null,
+      untrackedOnHandSupply: untrackedOnHandSupplyByItemId.get(itemId) ?? [],
       purchaseSupply: purchaseSupplyByItemId.get(itemId) ?? [],
       today,
       includeManufacturingDetail: params.includeManufacturingDetail,

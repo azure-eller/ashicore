@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   inventoryLotBalances,
   lots,
+  manufacturingOrderOutputs,
   manufacturingOrders,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
@@ -19,6 +20,54 @@ const toQuantity = toAllocationQuantity;
 const quantityString = allocationQuantityString;
 const UNBATCHED_LOT_NUMBER = "UNBATCHED";
 const signedQuantityString = (value: number) => normalizeNumeric(roundQuantity(value));
+
+export async function loadLinkedSalesOrderLineIdsByLotIdInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    lotIds: string[];
+  }
+) {
+  const lotIds = [...new Set(params.lotIds)].filter(Boolean);
+  const linkedSalesOrderLineIdByLotId = new Map<string, string>();
+  if (lotIds.length === 0) return linkedSalesOrderLineIdByLotId;
+
+  const rows = await tx
+    .select({
+      lotId: manufacturingOrderOutputs.lotId,
+      salesOrderLineId: manufacturingOrders.salesOrderLineId,
+    })
+    .from(manufacturingOrderOutputs)
+    .innerJoin(
+      manufacturingOrders,
+      eq(manufacturingOrders.id, manufacturingOrderOutputs.manufacturingOrderId)
+    )
+    .where(
+      and(
+        eq(manufacturingOrders.organizationId, params.organizationId),
+        inArray(manufacturingOrderOutputs.lotId, lotIds),
+        isNull(manufacturingOrders.deletedAt),
+        isNull(manufacturingOrders.cancelledAt),
+        sql`${manufacturingOrderOutputs.disposition} = 'available'`,
+        sql`${manufacturingOrderOutputs.quantity} > 0`,
+        sql`${manufacturingOrders.salesOrderLineId} IS NOT NULL`
+      )
+    )
+    .orderBy(
+      asc(manufacturingOrderOutputs.lotId),
+      asc(manufacturingOrderOutputs.outputNumber),
+      asc(manufacturingOrderOutputs.createdAt),
+      asc(manufacturingOrderOutputs.id)
+    );
+
+  for (const row of rows) {
+    if (row.salesOrderLineId && !linkedSalesOrderLineIdByLotId.has(row.lotId)) {
+      linkedSalesOrderLineIdByLotId.set(row.lotId, row.salesOrderLineId);
+    }
+  }
+
+  return linkedSalesOrderLineIdByLotId;
+}
 
 export async function loadAllocationSourcesForItemsInTx(
   tx: Tx,
@@ -75,6 +124,14 @@ export async function loadAllocationSourcesForItemsInTx(
           asc(lots.id)
         )
     : [];
+  const lotIds = lotRows.map((lot) => lot.id);
+  const linkedSalesOrderLineIdByLotId = await loadLinkedSalesOrderLineIdsByLotIdInTx(
+    tx,
+    {
+      organizationId: params.organizationId,
+      lotIds,
+    }
+  );
 
   const manufacturingConditions = [
     inArray(manufacturingOrders.productId, itemIds),
@@ -109,6 +166,7 @@ export async function loadAllocationSourcesForItemsInTx(
       itemId: lot.itemId,
       label: lot.lotNumber,
       date: serializeDbTimestamp(lot.receivedAt),
+      linkedSalesOrderLineId: linkedSalesOrderLineIdByLotId.get(lot.id) ?? null,
       totalQty: signedQuantityString(totalQty),
     };
   });

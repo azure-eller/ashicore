@@ -3,7 +3,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   type CSSProperties,
@@ -123,7 +122,6 @@ export type ERPDataGridProps<TData extends { id: string }> = {
   onManagedRowDragReorder?: (rows: TData[]) => void;
   onRowDragEnd?: (event: RowDragEndEvent<TData>) => void;
   onSortChange?: (hasActiveSort: boolean) => void;
-  resetRowDataOnUpdate?: boolean;
   relaxResizableMaxWidth?: boolean;
   columnHoverHighlight?: boolean;
   rowClassRules?: RowClassRules<TData>;
@@ -234,14 +232,6 @@ function gridHasActiveSort<TData>(api: GridApi<TData>) {
   return api.getColumnState().some((column) => column.sort != null);
 }
 
-function getGridVerticalScrollViewport(root: HTMLDivElement | null) {
-  return (
-    root?.querySelector<HTMLElement>(".ag-body-vertical-scroll-viewport") ??
-    root?.querySelector<HTMLElement>(".ag-body-viewport") ??
-    null
-  );
-}
-
 function removeResizableMaxWidth<TData>(
   column: ColDef<TData> | ColGroupDef<TData>
 ): ColDef<TData> | ColGroupDef<TData> {
@@ -294,7 +284,6 @@ export function ERPDataGrid<TData extends { id: string }>({
   onManagedRowDragReorder,
   onRowDragEnd,
   onSortChange,
-  resetRowDataOnUpdate = false,
   relaxResizableMaxWidth = false,
   columnHoverHighlight = false,
   rowClassRules,
@@ -311,8 +300,6 @@ export function ERPDataGrid<TData extends { id: string }>({
   const gridRootRef = useRef<HTMLDivElement | null>(null);
   const applyingPersistedGridStateRef = useRef(false);
   const lastPersistedGridStateRef = useRef(serializeGridState(persistedGridState));
-  const lastVerticalScrollTopRef = useRef(0);
-  const cleanupScrollListenerRef = useRef<(() => void) | null>(null);
   const managedRowDragStateRef = useRef({
     enableManagedRowDrag,
     getRowId,
@@ -405,25 +392,6 @@ export function ERPDataGrid<TData extends { id: string }>({
     [onSortChange]
   );
 
-  const bindVerticalScrollViewport = useCallback(() => {
-    cleanupScrollListenerRef.current?.();
-    cleanupScrollListenerRef.current = null;
-
-    const viewport = getGridVerticalScrollViewport(gridRootRef.current);
-    if (!viewport) return;
-
-    lastVerticalScrollTopRef.current = viewport.scrollTop;
-
-    const handleScroll = () => {
-      lastVerticalScrollTopRef.current = viewport.scrollTop;
-    };
-
-    viewport.addEventListener("scroll", handleScroll, { passive: true });
-    cleanupScrollListenerRef.current = () => {
-      viewport.removeEventListener("scroll", handleScroll);
-    };
-  }, []);
-
   useEffect(() => {
     managedRowDragStateRef.current = {
       enableManagedRowDrag,
@@ -442,38 +410,9 @@ export function ERPDataGrid<TData extends { id: string }>({
       if (managedRowDragTimeoutRef.current != null) {
         clearTimeout(managedRowDragTimeoutRef.current);
       }
-      cleanupScrollListenerRef.current?.();
     },
     []
   );
-
-  useLayoutEffect(() => {
-    if (!resetRowDataOnUpdate) return;
-
-    const api = gridApiRef.current;
-    const scrollTop = lastVerticalScrollTopRef.current;
-    if (!api || api.isDestroyed() || scrollTop <= 0) return;
-
-    const restoreScroll = () => {
-      if (api.isDestroyed()) return;
-
-      const viewport = getGridVerticalScrollViewport(gridRootRef.current);
-      if (!viewport) return;
-
-      const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-      const nextScrollTop = Math.min(scrollTop, maxScrollTop);
-      if (Math.abs(viewport.scrollTop - nextScrollTop) > 1) {
-        viewport.scrollTop = nextScrollTop;
-        lastVerticalScrollTopRef.current = nextScrollTop;
-      }
-    };
-
-    const frame = window.requestAnimationFrame(restoreScroll);
-
-    return () => {
-      window.cancelAnimationFrame(frame);
-    };
-  }, [resetRowDataOnUpdate, rows, pinnedTopRows, pinnedBottomRows]);
 
   const getId = (row: TData) => getResolvedRowId(row, getRowId);
 
@@ -618,7 +557,6 @@ export function ERPDataGrid<TData extends { id: string }>({
           getRowId={({ data }: GetRowIdParams<TData>) =>
             getRowId ? getRowId(data) : data.id
           }
-          resetRowDataOnUpdate={resetRowDataOnUpdate}
           theme={erpGridTheme}
           rowHeight={rowHeight}
           headerHeight={headerHeight}
@@ -676,12 +614,10 @@ export function ERPDataGrid<TData extends { id: string }>({
           onGridReady={(event: GridReadyEvent<TData>) => {
             gridApiRef.current = event.api;
             applyPersistedGridState(persistedGridState);
-            window.setTimeout(bindVerticalScrollViewport, 0);
             onSortChange?.(gridHasActiveSort(event.api));
             onGridReady?.(event);
           }}
           onFirstDataRendered={(event: FirstDataRenderedEvent<TData>) => {
-            bindVerticalScrollViewport();
             onFirstDataRendered?.(event);
           }}
           onRowDragEnd={handleRowDragEnd}

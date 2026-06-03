@@ -40,6 +40,7 @@ export type AllocationDemandAdapterRow = {
   priorityRank: number | null;
   priorityDate: string | null;
   priorityLabel: string;
+  supplyPolicy?: "any" | "linked_only";
   minimumLotAgeDays?: number | null;
 };
 

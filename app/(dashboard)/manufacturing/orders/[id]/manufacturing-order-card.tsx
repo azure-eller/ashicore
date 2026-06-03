@@ -329,10 +329,12 @@ function OrderDetailsSection({
   planningLockedReason: string | null;
 }) {
   const unitName = order.unitName;
+  const hasLinkedSalesOrder = Boolean(order.salesOrderId && order.salesOrderLineId);
   const salesLineOptionsQuery = useQuery({
     queryKey: ["manufacturing-sales-line-options", order.productId || "__draft__"],
     queryFn: () => fetchManufacturingSalesLineOptions(order.productId),
-    enabled: controller.hasPersistedOrder && order.productId !== "",
+    enabled:
+      controller.hasPersistedOrder && order.productId !== "" && !hasLinkedSalesOrder,
     staleTime: 60_000,
   });
   const salesLineOptions = salesLineOptionsQuery.data ?? [];
@@ -363,6 +365,9 @@ function OrderDetailsSection({
     : salesLineOptionsQuery.isLoading
       ? "Loading matching sales order lines."
       : null;
+  const salesOrderReadOnlyReason = hasLinkedSalesOrder
+    ? "Linked make-to-order manufacturing orders keep their sales order link."
+    : planningLockedReason;
 
   const handleProductChange = (productId: string) => {
     const product = productOptions.find((option) => option.id === productId);
@@ -531,9 +536,13 @@ function OrderDetailsSection({
         </CardField>
         <CardField
           label="Sales order"
-          htmlFor={canEditPlanning ? "manufacturing-order-sales-order" : undefined}
+          htmlFor={
+            canEditPlanning && !hasLinkedSalesOrder
+              ? "manufacturing-order-sales-order"
+              : undefined
+          }
         >
-          {canEditPlanning ? (
+          {canEditPlanning && !hasLinkedSalesOrder ? (
             <DisabledFieldTooltip reason={salesOrderDisabledReason}>
               <Select
                 value={order.salesOrderLineId ?? MAKE_TO_STOCK_VALUE}
@@ -559,7 +568,7 @@ function OrderDetailsSection({
               </Select>
             </DisabledFieldTooltip>
           ) : (
-            <ReadOnlyFieldValue title={planningLockedReason ?? undefined}>
+            <ReadOnlyFieldValue title={salesOrderReadOnlyReason ?? undefined}>
               {order?.salesOrderNumber
                 ? `${order.salesOrderNumber}${order.salesCustomerName ? ` · ${order.salesCustomerName}` : ""}`
                 : "Make to stock"}

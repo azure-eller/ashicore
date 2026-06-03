@@ -98,6 +98,7 @@ import {
   completeManufacturingOrder,
   deleteManufacturingOrdersInTx,
   ManufacturingError,
+  recordManufacturingOutput,
 } from "@/app/(dashboard)/manufacturing/queries";
 import type {
   InsertCustomer,
@@ -6972,28 +6973,84 @@ async function completeLinkedManufacturingForFullOrderShip(
   });
 
   for (const row of linkedRows) {
-    if (Number(row.outputQuantity) > 0) {
-      continue;
-    }
+    const plannedQuantity = Number(row.plannedQuantity);
+    const outputQuantity = Number(row.outputQuantity);
+    const remainingOutputQuantity = normalizeQuantityNumber(
+      plannedQuantity - outputQuantity
+    );
 
     try {
-      await completeManufacturingOrder(
-        row.id,
-        {
-          actualQuantity: row.plannedQuantity,
-          outputDisposition: "available",
-          ingredientActuals: [],
-          confirmNegativeStock: options.confirmNegativeStock,
-        },
-        {
-          idempotencyKey:
-            deriveInventoryIdempotencyKey(
-              options.idempotencyKey,
-              `complete-linked-manufacturing:${row.id}`
-            ) ?? undefined,
-          ingredientTrackedLotDefault: "unbatched",
+      if (remainingOutputQuantity > 0) {
+        if (outputQuantity > 0) {
+          await recordManufacturingOutput(
+            row.id,
+            {
+              quantity: normalizeNumeric(remainingOutputQuantity),
+              outputDisposition: "available",
+              notes: null,
+              confirmNegativeStock: options.confirmNegativeStock,
+            },
+            {
+              idempotencyKey:
+                deriveInventoryIdempotencyKey(
+                  options.idempotencyKey,
+                  `complete-linked-manufacturing-output:${row.id}`
+                ) ?? undefined,
+            }
+          );
+          await completeManufacturingOrder(
+            row.id,
+            {
+              outputDisposition: "available",
+              ingredientActuals: [],
+              confirmNegativeStock: options.confirmNegativeStock,
+            },
+            {
+              idempotencyKey:
+                deriveInventoryIdempotencyKey(
+                  options.idempotencyKey,
+                  `complete-linked-manufacturing:${row.id}`
+                ) ?? undefined,
+              ingredientTrackedLotDefault: "unbatched",
+            }
+          );
+        } else {
+          await completeManufacturingOrder(
+            row.id,
+            {
+              actualQuantity: row.plannedQuantity,
+              outputDisposition: "available",
+              ingredientActuals: [],
+              confirmNegativeStock: options.confirmNegativeStock,
+            },
+            {
+              idempotencyKey:
+                deriveInventoryIdempotencyKey(
+                  options.idempotencyKey,
+                  `complete-linked-manufacturing:${row.id}`
+                ) ?? undefined,
+              ingredientTrackedLotDefault: "unbatched",
+            }
+          );
         }
-      );
+      } else {
+        await completeManufacturingOrder(
+          row.id,
+          {
+            outputDisposition: "available",
+            ingredientActuals: [],
+            confirmNegativeStock: options.confirmNegativeStock,
+          },
+          {
+            idempotencyKey:
+              deriveInventoryIdempotencyKey(
+                options.idempotencyKey,
+                `complete-linked-manufacturing:${row.id}`
+              ) ?? undefined,
+            ingredientTrackedLotDefault: "unbatched",
+          }
+        );
+      }
     } catch (error) {
       if (error instanceof ManufacturingError) {
         throw new SalesError(error.message, error.status);

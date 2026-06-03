@@ -737,7 +737,6 @@ function OrdersTableContent({
         onSelectionChange={setSelectedOrders}
         enableManagedRowDrag={reorderEnabled}
         suppressMoveWhenRowDragging
-        resetRowDataOnUpdate
         relaxResizableMaxWidth
         toolbarClassName="h-(--height-toolbar) shrink-0 gap-(--space-5) border-b border-border bg-card px-(--space-8)"
         toolbarContent={

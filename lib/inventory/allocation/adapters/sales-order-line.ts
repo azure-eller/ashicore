@@ -3,6 +3,7 @@ import {
   itemFamilies,
   itemVariantValues,
   items,
+  manufacturingOrders,
   salesOrderLines,
   salesOrders,
   variantOptions,
@@ -56,6 +57,7 @@ function mapSalesDemandRow(
     sortOrder: number;
     createdAt: Date;
     priorityRank: number | null;
+    hasLinkedManufacturingOrder: boolean;
   },
   shippedQty: number,
   plannedQty: number
@@ -85,7 +87,35 @@ function mapSalesDemandRow(
     priorityRank: row.priorityRank,
     priorityDate: row.shipDate,
     priorityLabel: row.orderNumber,
+    supplyPolicy: row.hasLinkedManufacturingOrder ? "linked_only" : "any",
   };
+}
+
+async function getLinkedManufacturingLineIdsInTx(
+  tx: Tx,
+  organizationId: string,
+  salesOrderLineIds: string[]
+) {
+  const uniqueIds = [...new Set(salesOrderLineIds)].filter(Boolean);
+  if (uniqueIds.length === 0) return new Set<string>();
+
+  const rows = await tx
+    .select({ salesOrderLineId: manufacturingOrders.salesOrderLineId })
+    .from(manufacturingOrders)
+    .where(
+      and(
+        eq(manufacturingOrders.organizationId, organizationId),
+        inArray(manufacturingOrders.salesOrderLineId, uniqueIds),
+        isNull(manufacturingOrders.deletedAt),
+        isNull(manufacturingOrders.cancelledAt)
+      )
+    );
+
+  return new Set(
+    rows
+      .map((row) => row.salesOrderLineId)
+      .filter((id): id is string => Boolean(id))
+  );
 }
 
 async function getSalesAllocationOptionLabelsByItemIdInTx(tx: Tx, itemIds: string[]) {
@@ -119,6 +149,7 @@ async function getSalesAllocationOptionLabelsByItemIdInTx(tx: Tx, itemIds: strin
 
 async function loadSalesRowsInTx(
   tx: Tx,
+  organizationId: string,
   whereClause: ReturnType<typeof and>
 ) {
   const rows = await tx
@@ -158,6 +189,12 @@ async function loadSalesRowsInTx(
     tx,
     rows.map((row) => row.itemId)
   );
+  const linkedManufacturingLineIds =
+    await getLinkedManufacturingLineIdsInTx(
+      tx,
+      organizationId,
+      rows.map((row) => row.salesOrderLineId)
+    );
 
   return rows
     .map((row) =>
@@ -165,6 +202,9 @@ async function loadSalesRowsInTx(
         {
           ...row,
           optionLabels: optionLabelsByItemId.get(row.itemId) ?? [],
+          hasLinkedManufacturingOrder: linkedManufacturingLineIds.has(
+            row.salesOrderLineId
+          ),
         },
         shippedByLine.get(row.salesOrderLineId) ?? 0,
         0
@@ -181,6 +221,7 @@ export const salesOrderLineAllocationAdapter: AllocationDemandAdapter = {
 
     return loadSalesRowsInTx(
       tx,
+      params.organizationId,
       and(
         inArray(salesOrderLines.itemId, itemIds),
         isNull(salesOrders.deletedAt),

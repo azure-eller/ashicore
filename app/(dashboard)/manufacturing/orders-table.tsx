@@ -683,7 +683,6 @@ export function OrdersTable({
         onSelectionChange={setSelectedOrders}
         enableManagedRowDrag={reorderAvailable}
         suppressMoveWhenRowDragging
-        resetRowDataOnUpdate
         relaxResizableMaxWidth
         onGridReady={(event) => {
           gridApiRef.current = event.api;
