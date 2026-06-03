@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { itemFamilies, items } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { DomainError } from "@/lib/errors/domain-error";
@@ -29,6 +29,42 @@ export async function getItemLotTrackingModeInTx(
   }
 
   return (row?.lotTrackingMode as LotTrackingMode | undefined) ?? "tracked";
+}
+
+export async function getItemLotTrackingModesByItemIdInTx(
+  tx: Tx,
+  itemIds: string[]
+): Promise<Map<string, LotTrackingMode>> {
+  const uniqueItemIds = [...new Set(itemIds)].filter(Boolean);
+  const modes = new Map<string, LotTrackingMode>();
+  if (uniqueItemIds.length === 0) return modes;
+
+  const rows = await tx
+    .select({
+      itemId: items.id,
+      lotTrackingMode: itemFamilies.lotTrackingMode,
+    })
+    .from(items)
+    .innerJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
+    .where(and(inArray(items.id, uniqueItemIds), isNull(itemFamilies.deletedAt)));
+
+  for (const row of rows) {
+    modes.set(
+      row.itemId,
+      (row.lotTrackingMode as LotTrackingMode | undefined) ?? "tracked"
+    );
+  }
+
+  for (const itemId of uniqueItemIds) {
+    if (!modes.has(itemId)) {
+      console.warn("Lot tracking mode resolution failed; defaulting to tracked.", {
+        itemId,
+      });
+      modes.set(itemId, "tracked");
+    }
+  }
+
+  return modes;
 }
 
 export async function assertTrackedItemInTx(

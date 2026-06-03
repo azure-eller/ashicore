@@ -98,6 +98,7 @@ async function loadManufacturingIngredientRowsInTx(
     )
     .where(whereClause)
     .orderBy(
+      asc(manufacturingOrderIngredients.itemId),
       asc(manufacturingOrders.plannedDate),
       asc(manufacturingOrders.orderNumber),
       asc(manufacturingOrderIngredients.sortOrder)
@@ -169,11 +170,14 @@ async function getIngredientConstraintsByIngredientIdInTx(
 
 export const manufacturingOrderIngredientAllocationAdapter: AllocationDemandAdapter = {
   demandType: "manufacturing_order_ingredient",
-  async loadOpenDemandsForItemInTx(tx, params) {
+  async loadOpenDemandsForItemsInTx(tx, params) {
+    const itemIds = [...new Set(params.itemIds)].filter(Boolean);
+    if (itemIds.length === 0) return [];
+
     return loadManufacturingIngredientRowsInTx(
       tx,
       and(
-        eq(manufacturingOrderIngredients.itemId, params.itemId),
+        inArray(manufacturingOrderIngredients.itemId, itemIds),
         eq(manufacturingOrders.organizationId, params.organizationId),
         eq(manufacturingOrders.status, "open"),
         isNull(manufacturingOrders.deletedAt),

@@ -143,7 +143,12 @@ async function loadSalesRowsInTx(
     .leftJoin(items, eq(salesOrderLines.itemId, items.id))
     .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
     .where(whereClause)
-    .orderBy(asc(salesOrders.shipDate), asc(salesOrders.orderNumber), asc(salesOrderLines.sortOrder));
+    .orderBy(
+      asc(salesOrderLines.itemId),
+      asc(salesOrders.shipDate),
+      asc(salesOrders.orderNumber),
+      asc(salesOrderLines.sortOrder)
+    );
 
   const shippedByLine = await getShippedByLineInTx(
     tx,
@@ -170,11 +175,14 @@ async function loadSalesRowsInTx(
 
 export const salesOrderLineAllocationAdapter: AllocationDemandAdapter = {
   demandType: "sales_order_line",
-  async loadOpenDemandsForItemInTx(tx, params) {
+  async loadOpenDemandsForItemsInTx(tx, params) {
+    const itemIds = [...new Set(params.itemIds)].filter(Boolean);
+    if (itemIds.length === 0) return [];
+
     return loadSalesRowsInTx(
       tx,
       and(
-        eq(salesOrderLines.itemId, params.itemId),
+        inArray(salesOrderLines.itemId, itemIds),
         isNull(salesOrders.deletedAt),
         inArray(salesOrders.status, [...ACTIVE_ORDER_STATUSES])
       )

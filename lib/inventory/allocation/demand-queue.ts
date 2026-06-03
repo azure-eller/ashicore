@@ -23,10 +23,14 @@ import {
   getDefaultInventoryLocationInTx,
   INTERNAL_UNTRACKED_LOT_NUMBER,
 } from "@/lib/inventory/kernel";
-import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
+import { getItemLotTrackingModesByItemIdInTx } from "@/lib/inventory/lot-tracking";
 import { allocationDemandAdapters } from "./adapters";
-import { loadAllocationSourcesForItemInTx } from "./sources";
-import type { AllocationDemandType, AllocationSourceRow } from "./types";
+import { loadAllocationSourcesForItemsInTx } from "./sources";
+import type {
+  AllocationDemandAdapterRow,
+  AllocationDemandType,
+  AllocationSourceRow,
+} from "./types";
 import {
   computeDemandQueueCoverage,
   demandQueueCoverageKey,
@@ -88,6 +92,7 @@ const DEMAND_TYPE_LABELS: Record<AllocationDemandType, string> = {
   manufacturing_order_ingredient: "Manufacturing",
   sales_order_line: "Sales order",
 };
+const DEMAND_QUEUE_ITEM_ID_WARNING_THRESHOLD = 1000;
 
 export type DemandQueueCoverageDemand = {
   demandType: AllocationDemandType;
@@ -237,13 +242,17 @@ function buildInventoryLotSupplyChunks(sources: AllocationSourceRow[]) {
     });
 }
 
-async function getUntrackedOnHandSupplyInTx(
+async function getUntrackedOnHandSupplyForItemsInTx(
   tx: Tx,
-  params: { organizationId: string; itemId: string }
-): Promise<DemandQueueSupplyChunk | null> {
-  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
-  const [row] = await tx
+  params: { organizationId: string; locationId: string; itemIds: string[] }
+): Promise<Map<string, DemandQueueSupplyChunk>> {
+  const itemIds = [...new Set(params.itemIds)].filter(Boolean);
+  const supplyByItemId = new Map<string, DemandQueueSupplyChunk>();
+  if (itemIds.length === 0) return supplyByItemId;
+
+  const rows = await tx
     .select({
+      itemId: inventoryLotBalances.itemId,
       quantity: trimScale(sql`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`).as(
         "quantity"
       ),
@@ -260,32 +269,43 @@ async function getUntrackedOnHandSupplyInTx(
     .where(
       and(
         eq(inventoryLotBalances.organizationId, params.organizationId),
-        eq(inventoryLotBalances.locationId, location.id),
-        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        inArray(inventoryLotBalances.itemId, itemIds),
         eq(inventoryLotBalances.disposition, "available")
       )
-    );
+    )
+    .groupBy(inventoryLotBalances.itemId)
+    .orderBy(asc(inventoryLotBalances.itemId));
 
-  const quantity = toQuantity(row?.quantity);
-  if (quantity <= 0) return null;
+  for (const row of rows) {
+    const quantity = toQuantity(row.quantity);
+    if (quantity <= 0) continue;
 
-  return {
-    kind: "on_hand",
-    sourceType: "inventory_lot",
-    sourceId: row?.sourceId ?? `untracked:${params.itemId}`,
-    quantity,
-    availableDate: serializeDbTimestamp(row?.receivedAt),
-    label: null,
-  };
+    supplyByItemId.set(row.itemId, {
+      kind: "on_hand",
+      sourceType: "inventory_lot",
+      sourceId: row.sourceId ?? `untracked:${row.itemId}`,
+      quantity,
+      availableDate: serializeDbTimestamp(row.receivedAt),
+      label: null,
+    });
+  }
+
+  return supplyByItemId;
 }
 
-async function getOpenPurchaseSupplyInTx(
+async function getOpenPurchaseSupplyForItemsInTx(
   tx: Tx,
-  params: { organizationId: string; itemId: string }
-): Promise<DemandQueueSupplyChunk[]> {
+  params: { organizationId: string; itemIds: string[] }
+): Promise<Map<string, DemandQueueSupplyChunk[]>> {
+  const itemIds = [...new Set(params.itemIds)].filter(Boolean);
+  const supplyByItemId = new Map<string, DemandQueueSupplyChunk[]>();
+  if (itemIds.length === 0) return supplyByItemId;
+
   const rows = await tx
     .select({
       id: purchaseOrderLines.id,
+      itemId: purchaseOrderLines.itemId,
       orderNumber: purchaseOrders.orderNumber,
       expectedDate: purchaseOrders.expectedDate,
       quantity: trimScale(
@@ -297,79 +317,72 @@ async function getOpenPurchaseSupplyInTx(
     .where(
       and(
         eq(purchaseOrders.organizationId, params.organizationId),
-        eq(purchaseOrderLines.itemId, params.itemId),
+        inArray(purchaseOrderLines.itemId, itemIds),
         inArray(purchaseOrders.status, ["ordered", "partial"]),
         isNull(purchaseOrders.deletedAt),
         sql`${purchaseOrderLines.stockQuantityOrdered} > ${purchaseOrderLines.stockQuantityReceived}`
       )
     )
     .orderBy(
+      asc(purchaseOrderLines.itemId),
       asc(purchaseOrders.expectedDate),
       asc(purchaseOrders.orderNumber),
       asc(purchaseOrderLines.sortOrder),
       asc(purchaseOrderLines.id)
     );
 
-  return rows
-    .map((row) => ({
+  for (const row of rows) {
+    const chunk = {
       kind: "expected_po" as const,
       sourceType: "purchase_order_line" as const,
       sourceId: row.id,
       quantity: toQuantity(row.quantity),
       availableDate: row.expectedDate,
       label: row.orderNumber,
-    }))
-    .filter((row) => row.quantity > 0);
+    };
+    if (chunk.quantity <= 0) continue;
+    const bucket = supplyByItemId.get(row.itemId);
+    if (bucket) {
+      bucket.push(chunk);
+    } else {
+      supplyByItemId.set(row.itemId, [chunk]);
+    }
+  }
+
+  return supplyByItemId;
 }
 
-export async function getDemandQueueCoverageForItemInTx(
-  tx: Tx,
-  params: {
-    organizationId: string;
-    itemId: string;
-    // Manufacturing demand always participates in the queue computation (it
-    // claims supply and reduces sellable). This flag only controls whether
-    // identifying MO detail rows (order numbers, products, dates, links) are
-    // returned — gated by the viewer's manufacturing read access.
-    includeManufacturingDetail: boolean;
+function groupByItemId<T extends { itemId: string }>(rows: T[]) {
+  const byItemId = new Map<string, T[]>();
+  for (const row of rows) {
+    const bucket = byItemId.get(row.itemId);
+    if (bucket) {
+      bucket.push(row);
+    } else {
+      byItemId.set(row.itemId, [row]);
+    }
   }
-): Promise<DemandQueueItemCoverage | null> {
-  const demandRows = (
-    await Promise.all(
-      allocationDemandAdapters.map((adapter) =>
-        adapter.loadOpenDemandsForItemInTx(tx, {
-          organizationId: params.organizationId,
-          itemId: params.itemId,
-        })
-      )
-    )
-  ).flat();
+  return byItemId;
+}
 
-  if (demandRows.length === 0) return null;
+function buildDemandQueueItemCoverage(params: {
+  itemId: string;
+  demandRows: AllocationDemandAdapterRow[];
+  sources: AllocationSourceRow[];
+  untrackedOnHandSupply: DemandQueueSupplyChunk | null;
+  purchaseSupply: DemandQueueSupplyChunk[];
+  today: string;
+  includeManufacturingDetail: boolean;
+}): DemandQueueItemCoverage | null {
+  if (params.demandRows.length === 0) return null;
 
-  const sources = await loadAllocationSourcesForItemInTx(tx, {
-    organizationId: params.organizationId,
-    itemId: params.itemId,
-  });
-  const lotTrackingMode = await getItemLotTrackingModeInTx(tx, params.itemId);
-  const untrackedOnHandSupply =
-    lotTrackingMode === "untracked"
-      ? await getUntrackedOnHandSupplyInTx(tx, {
-          organizationId: params.organizationId,
-          itemId: params.itemId,
-        })
-      : null;
-  const purchaseSupply = await getOpenPurchaseSupplyInTx(tx, {
-    organizationId: params.organizationId,
-    itemId: params.itemId,
-  });
   // Demand-queue planning uses physical/projected quantity. Expected supply =
   // open PO remaining quantity and open MO remaining output.
   const supply: DemandQueueSupplyChunk[] = [
-    ...(untrackedOnHandSupply ? [untrackedOnHandSupply] : []),
-    ...purchaseSupply,
-    ...buildInventoryLotSupplyChunks(sources),
-    ...sources
+    ...(params.untrackedOnHandSupply ? [params.untrackedOnHandSupply] : []),
+    ...params.purchaseSupply,
+    ...buildInventoryLotSupplyChunks(params.sources),
+    ...params.sources
       .filter(
         (source) => source.sourceType === "manufacturing_order" && toQuantity(source.totalQty) > 0
       )
@@ -390,7 +403,7 @@ export async function getDemandQueueCoverageForItemInTx(
       })),
   ];
 
-  const demands: DemandQueueDemandInput[] = demandRows.map((row) => ({
+  const demands: DemandQueueDemandInput[] = params.demandRows.map((row) => ({
     demandType: row.demandType,
     demandId: row.demandId,
     itemId: row.itemId,
@@ -407,11 +420,10 @@ export async function getDemandQueueCoverageForItemInTx(
     minimumLotAgeDays: row.minimumLotAgeDays ?? null,
   }));
 
-  const today = await getOrganizationTodayInTx(tx, params.organizationId);
   const coverage = computeDemandQueueCoverage({
     supply,
     demands,
-    today,
+    today: params.today,
   });
 
   const onHandQty = supply
@@ -435,17 +447,20 @@ export async function getDemandQueueCoverageForItemInTx(
       if (segment.kind === "short") continue;
       if (!segment.sourceType || !segment.sourceId) continue;
       const key = `${segment.sourceType}:${segment.sourceId}`;
-      claimsBySourceKey.set(key, [
-        ...(claimsBySourceKey.get(key) ?? []),
-        {
-          demandType: demand.demandType,
-          demandId: demand.demandId,
-          label: demand.label,
-          contextLabel: demand.contextLabel,
-          requiredDate: demand.requiredDate,
-          qty: quantityString(segment.qty),
-        },
-      ]);
+      const claim = {
+        demandType: demand.demandType,
+        demandId: demand.demandId,
+        label: demand.label,
+        contextLabel: demand.contextLabel,
+        requiredDate: demand.requiredDate,
+        qty: quantityString(segment.qty),
+      };
+      const claims = claimsBySourceKey.get(key);
+      if (claims) {
+        claims.push(claim);
+      } else {
+        claimsBySourceKey.set(key, [claim]);
+      }
     }
   }
   const visibleSources = supply
@@ -480,7 +495,7 @@ export async function getDemandQueueCoverageForItemInTx(
     });
   const visibleShortTotal = visibleCoverage.reduce((sum, row) => sum + row.shortQty, 0);
 
-  const first = demandRows[0];
+  const first = params.demandRows[0];
   return {
     itemId: params.itemId,
     itemName: first.itemName,
@@ -511,6 +526,29 @@ export async function getDemandQueueCoverageForItemInTx(
   };
 }
 
+export async function getDemandQueueCoverageForItemInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    itemId: string;
+    // Manufacturing demand always participates in the queue computation (it
+    // claims supply and reduces sellable). This flag only controls whether
+    // identifying MO detail rows (order numbers, products, dates, links) are
+    // returned — gated by the viewer's manufacturing read access.
+    includeManufacturingDetail: boolean;
+  }
+): Promise<DemandQueueItemCoverage | null> {
+  return (
+    (
+      await getDemandQueueCoverageForItemsInTx(tx, {
+        organizationId: params.organizationId,
+        itemIds: [params.itemId],
+        includeManufacturingDetail: params.includeManufacturingDetail,
+      })
+    )[0] ?? null
+  );
+}
+
 export async function getDemandQueueCoverageForItemsInTx(
   tx: Tx,
   params: {
@@ -519,15 +557,70 @@ export async function getDemandQueueCoverageForItemsInTx(
     includeManufacturingDetail: boolean;
   }
 ): Promise<DemandQueueItemCoverage[]> {
-  const coverage: DemandQueueItemCoverage[] = [];
-  const itemIds = [...new Set(params.itemIds)];
-
-  // TODO: batch-load supply and demand for all itemIds; the pure engine already
-  // gives us the seam to compute each item in memory after set-based queries.
-  for (const itemId of itemIds) {
-    const itemCoverage = await getDemandQueueCoverageForItemInTx(tx, {
+  const itemIds = [...new Set(params.itemIds)].filter(Boolean);
+  if (itemIds.length === 0) return [];
+  if (itemIds.length > DEMAND_QUEUE_ITEM_ID_WARNING_THRESHOLD) {
+    console.warn("Demand queue coverage received a large item set.", {
       organizationId: params.organizationId,
+      itemCount: itemIds.length,
+      threshold: DEMAND_QUEUE_ITEM_ID_WARNING_THRESHOLD,
+    });
+  }
+
+  const today = await getOrganizationTodayInTx(tx, params.organizationId);
+  const location = await getDefaultInventoryLocationInTx(
+    tx,
+    params.organizationId
+  );
+  const lotTrackingModesByItemId = await getItemLotTrackingModesByItemIdInTx(
+    tx,
+    itemIds
+  );
+
+  const demandRows: AllocationDemandAdapterRow[] = [];
+  for (const adapter of allocationDemandAdapters) {
+    demandRows.push(
+      ...(await adapter.loadOpenDemandsForItemsInTx(tx, {
+        organizationId: params.organizationId,
+        itemIds,
+      }))
+    );
+  }
+
+  const demandRowsByItemId = groupByItemId(demandRows);
+  const itemIdsWithDemand = itemIds.filter(
+    (itemId) => (demandRowsByItemId.get(itemId)?.length ?? 0) > 0
+  );
+  if (itemIdsWithDemand.length === 0) return [];
+
+  const sources = await loadAllocationSourcesForItemsInTx(tx, {
+    organizationId: params.organizationId,
+    itemIds: itemIdsWithDemand,
+    locationId: location.id,
+    lotTrackingModesByItemId,
+  });
+  const sourcesByItemId = groupByItemId(sources);
+  const untrackedOnHandSupplyByItemId = await getUntrackedOnHandSupplyForItemsInTx(tx, {
+    organizationId: params.organizationId,
+    locationId: location.id,
+    itemIds: itemIdsWithDemand.filter(
+      (itemId) => (lotTrackingModesByItemId.get(itemId) ?? "tracked") === "untracked"
+    ),
+  });
+  const purchaseSupplyByItemId = await getOpenPurchaseSupplyForItemsInTx(tx, {
+    organizationId: params.organizationId,
+    itemIds: itemIdsWithDemand,
+  });
+
+  const coverage: DemandQueueItemCoverage[] = [];
+  for (const itemId of itemIdsWithDemand) {
+    const itemCoverage = buildDemandQueueItemCoverage({
       itemId,
+      demandRows: demandRowsByItemId.get(itemId) ?? [],
+      sources: sourcesByItemId.get(itemId) ?? [],
+      untrackedOnHandSupply: untrackedOnHandSupplyByItemId.get(itemId) ?? null,
+      purchaseSupply: purchaseSupplyByItemId.get(itemId) ?? [],
+      today,
       includeManufacturingDetail: params.includeManufacturingDetail,
     });
     if (itemCoverage) {

@@ -45,8 +45,8 @@ export type AllocationDemandAdapterRow = {
 
 export type AllocationDemandAdapter = {
   demandType: AllocationDemandType;
-  loadOpenDemandsForItemInTx: (
+  loadOpenDemandsForItemsInTx: (
     tx: import("@/lib/db/with-org-context").Tx,
-    params: { organizationId: string; itemId: string }
+    params: { organizationId: string; itemIds: string[] }
   ) => Promise<AllocationDemandAdapterRow[]>;
 };

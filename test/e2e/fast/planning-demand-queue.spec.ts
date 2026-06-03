@@ -4,16 +4,25 @@ import {
   inventoryDemandSummary,
   inventoryItemBalances,
   inventoryLocations,
+  purchaseOrderLines,
   salesOrderLines,
   salesOrders,
 } from "../../../lib/db/schema";
+import { withOrgContext } from "../../../lib/db/with-org-context";
+import {
+  getDemandQueueCoverageForItemInTx,
+  getDemandQueueCoverageForItemsInTx,
+} from "../../../lib/inventory/allocation/demand-queue";
 import {
   createCustomer,
   createItem,
   createManufacturingOrder,
+  createPurchaseOrder,
   createSalesOrder,
+  createSupplier,
   getOrgId,
   getUnitId,
+  submitPurchaseOrder,
   testFetch,
 } from "../../helpers/api";
 import { computeDemandQueueCoverage } from "../../../lib/inventory/allocation/coverage-engine";
@@ -510,6 +519,246 @@ test("demand queue nets negative lot debt before exposing positive lots", async 
     demandQueueInStockQty: "0",
     demandQueueShortQty: "1",
   });
+});
+
+test("batched demand queue coverage matches batch-of-one coverage", async ({
+  db,
+}) => {
+  const ts = Date.now();
+  const orgId = getOrgId();
+  const unitId = getUnitId();
+
+  const component = await createItem({
+    itemType: "material",
+    name: `Fast Batch Component ${ts}`,
+    unitDefinitionId: unitId,
+    sku: `FAST-BATCH-COMP-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "1.00",
+    defaultSellingPrice: null,
+    stock: "100",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(component.status).toBe(201);
+
+  const trackedProduct = await createItem({
+    itemType: "product",
+    name: `Fast Batch Tracked ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-BATCH-TRACKED-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: "10.00",
+    stock: "0",
+    safetyStock: "0",
+    bom: [{ componentId: component.body.id, quantity: "1" }],
+  });
+  expect(trackedProduct.status).toBe(201);
+  const trackedProductId = trackedProduct.body.id as string;
+
+  const untrackedProduct = await createItem({
+    itemType: "product",
+    name: `Fast Batch Untracked ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-BATCH-UNTRACKED-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: "10.00",
+    stock: "12",
+    safetyStock: "0",
+    bom: [{ componentId: component.body.id, quantity: "1" }],
+  });
+  expect(untrackedProduct.status).toBe(201);
+  const untrackedProductId = untrackedProduct.body.id as string;
+
+  const noDemandProduct = await createItem({
+    itemType: "product",
+    name: `Fast Batch No Demand ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-BATCH-NO-DEMAND-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: "10.00",
+    stock: "3",
+    safetyStock: "0",
+    bom: [{ componentId: trackedProductId, quantity: "1" }],
+  });
+  expect(noDemandProduct.status).toBe(201);
+  const noDemandProductId = noDemandProduct.body.id as string;
+
+  const untrackedMode = await testFetch(`/api/item-cards/${untrackedProductId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name: `Fast Batch Untracked ${ts}`,
+      category: `Fast Planning ${ts}`,
+      description: null,
+      unitDefinitionId: unitId,
+      lotTrackingMode: "untracked",
+    }),
+  });
+  expect(untrackedMode.status).toBe(200);
+
+  const [location] = await db
+    .select({ id: inventoryLocations.id })
+    .from(inventoryLocations)
+    .where(
+      sql`${inventoryLocations.organizationId} = ${orgId} AND ${inventoryLocations.isDefault} = true`
+    );
+  if (!location?.id) throw new Error("Default inventory location not found.");
+
+  await withOrgContext(orgId, async (tx) => {
+    await consumeStockFifoInTx(tx, {
+      organizationId: orgId,
+      locationId: location.id,
+      itemId: trackedProductId,
+      quantity: 10,
+      eventType: "manual_adjustment_decrease",
+      eventSubtype: "fast_batch_negative_debt",
+      referenceType: "item",
+      referenceId: trackedProductId,
+      allowNegativeStock: true,
+    });
+    await createPositiveStockEventInTx(tx, {
+      organizationId: orgId,
+      locationId: location.id,
+      itemId: trackedProductId,
+      quantity: 7,
+      unitCost: "2.00",
+      eventType: "manual_adjustment_increase",
+      eventSubtype: "fast_batch_negative_debt",
+      referenceType: "item",
+      referenceId: trackedProductId,
+    });
+  });
+
+  const customer = await createCustomer({ name: `Fast Batch Customer ${ts}` });
+  expect(customer.status).toBe(201);
+
+  const trackedSalesOrder = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `FB-T-${ts}`,
+    orderDate: "2026-06-01",
+    shipDate: "2026-06-05",
+    lines: [{ itemId: trackedProductId, quantity: "4", unitPrice: "10.00" }],
+  });
+  expect(trackedSalesOrder.status).toBe(201);
+
+  const untrackedSalesOrder = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `FB-U-${ts}`,
+    orderDate: "2026-06-01",
+    shipDate: "2026-06-05",
+    lines: [{ itemId: untrackedProductId, quantity: "8", unitPrice: "10.00" }],
+  });
+  expect(untrackedSalesOrder.status).toBe(201);
+
+  const [trackedLine] = await db
+    .select({ id: salesOrderLines.id })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.salesOrderId, trackedSalesOrder.body.id));
+  expect(trackedLine).toBeTruthy();
+
+  const linkedMo = await createManufacturingOrder({
+    productId: trackedProductId,
+    salesOrderId: trackedSalesOrder.body.id,
+    salesOrderLineId: trackedLine.id,
+    plannedQuantity: "5",
+    plannedDate: "2026-06-04",
+    ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+    confirmShortage: false,
+  });
+  expect(linkedMo.status).toBe(201);
+
+  const ingredientDemandMo = await createManufacturingOrder({
+    productId: noDemandProductId,
+    plannedQuantity: "2",
+    plannedDate: "2026-06-04",
+    ingredients: [{ itemId: trackedProductId, quantityPerUnit: "1" }],
+    confirmShortage: true,
+  });
+  expect(ingredientDemandMo.status).toBe(201);
+
+  const supplier = await createSupplier({ name: `Fast Batch Supplier ${ts}` });
+  expect(supplier.status).toBe(201);
+  const trackedPo = await createPurchaseOrder({
+    supplierId: supplier.body.id,
+    expectedDate: "2026-06-03",
+    lines: [
+      { itemId: trackedProductId, quantityOrdered: "6", unitCost: "2.00" },
+    ],
+  });
+  expect(trackedPo.status).toBe(201);
+  expect((await submitPurchaseOrder(trackedPo.body.id)).status).toBe(200);
+
+  const untrackedPo = await createPurchaseOrder({
+    supplierId: supplier.body.id,
+    expectedDate: "2026-06-04",
+    lines: [
+      { itemId: untrackedProductId, quantityOrdered: "9", unitCost: "2.00" },
+    ],
+  });
+  expect(untrackedPo.status).toBe(201);
+  expect((await submitPurchaseOrder(untrackedPo.body.id)).status).toBe(200);
+
+  const lines = await db
+    .select({ id: purchaseOrderLines.id })
+    .from(purchaseOrderLines)
+    .where(
+      inArray(purchaseOrderLines.purchaseOrderId, [
+        trackedPo.body.id,
+        untrackedPo.body.id,
+      ])
+    );
+  expect(lines).toHaveLength(2);
+
+  for (const includeManufacturingDetail of [true, false]) {
+    const itemIds = [trackedProductId, untrackedProductId, noDemandProductId];
+    const batch = await withOrgContext(orgId, (tx) =>
+      getDemandQueueCoverageForItemsInTx(tx, {
+        organizationId: orgId,
+        itemIds,
+        includeManufacturingDetail,
+      })
+    );
+    const batchOfOne = [];
+    for (const itemId of itemIds) {
+      const itemCoverage = await withOrgContext(orgId, (tx) =>
+        getDemandQueueCoverageForItemInTx(tx, {
+          organizationId: orgId,
+          itemId,
+          includeManufacturingDetail,
+        })
+      );
+      if (itemCoverage) batchOfOne.push(itemCoverage);
+    }
+
+    expect(batch.map((coverage) => coverage.itemId)).toEqual([
+      trackedProductId,
+      untrackedProductId,
+    ]);
+    expect(batch.some((coverage) => coverage.itemId === noDemandProductId)).toBe(
+      false
+    );
+    expect(
+      batch
+        .find((coverage) => coverage.itemId === trackedProductId)
+        ?.sources.find((source) => source.sourceType === "purchase_order_line")
+    ).toMatchObject({ totalQty: "6", date: "2026-06-03" });
+    expect(
+      batch
+        .find((coverage) => coverage.itemId === untrackedProductId)
+        ?.sources.find((source) => source.sourceType === "purchase_order_line")
+    ).toMatchObject({ totalQty: "9", date: "2026-06-04" });
+    expect(batch).toEqual(batchOfOne);
+  }
 });
 
 test("linked manufacturing output does not cover unrelated sales demand", async ({

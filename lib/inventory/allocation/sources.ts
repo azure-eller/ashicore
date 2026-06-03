@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   inventoryLotBalances,
   lots,
@@ -7,8 +7,7 @@ import {
 import { trimScale } from "@/lib/db/numeric";
 import { serializeDbTimestamp } from "@/lib/db/timestamps";
 import type { Tx } from "@/lib/db/with-org-context";
-import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel";
-import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
+import type { LotTrackingMode } from "@/lib/inventory/lot-tracking";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import {
   allocationQuantityString,
@@ -21,19 +20,26 @@ const quantityString = allocationQuantityString;
 const UNBATCHED_LOT_NUMBER = "UNBATCHED";
 const signedQuantityString = (value: number) => normalizeNumeric(roundQuantity(value));
 
-export async function loadAllocationSourcesForItemInTx(
+export async function loadAllocationSourcesForItemsInTx(
   tx: Tx,
   params: {
     organizationId: string;
-    itemId: string;
+    itemIds: string[];
+    locationId: string;
+    lotTrackingModesByItemId: Map<string, LotTrackingMode>;
   }
 ): Promise<AllocationSourceRow[]> {
-  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
-  const lotTracked = (await getItemLotTrackingModeInTx(tx, params.itemId)) === "tracked";
-  const lotRows = lotTracked
+  const itemIds = [...new Set(params.itemIds)].filter(Boolean);
+  if (itemIds.length === 0) return [];
+
+  const trackedItemIds = itemIds.filter(
+    (itemId) => (params.lotTrackingModesByItemId.get(itemId) ?? "tracked") === "tracked"
+  );
+  const lotRows = trackedItemIds.length > 0
     ? await tx
         .select({
           id: lots.id,
+          itemId: inventoryLotBalances.itemId,
           lotNumber: lots.lotNumber,
           quantity: trimScale(inventoryLotBalances.quantity).as("quantity"),
           receivedAt: inventoryLotBalances.receivedAt,
@@ -45,8 +51,8 @@ export async function loadAllocationSourcesForItemInTx(
         .where(
           and(
             eq(inventoryLotBalances.organizationId, params.organizationId),
-            eq(inventoryLotBalances.locationId, location.id),
-            eq(inventoryLotBalances.itemId, params.itemId),
+            eq(inventoryLotBalances.locationId, params.locationId),
+            inArray(inventoryLotBalances.itemId, trackedItemIds),
             eq(inventoryLotBalances.disposition, "available"),
             sql`(${lots.expiresOn} IS NULL OR ${lots.expiresOn} >= CURRENT_DATE)`,
             or(
@@ -56,6 +62,7 @@ export async function loadAllocationSourcesForItemInTx(
           )
         )
         .orderBy(
+          asc(inventoryLotBalances.itemId),
           sql`CASE
             WHEN ${lots.lotNumber} = ${UNBATCHED_LOT_NUMBER} THEN 0
             WHEN ${lots.expiresOn} IS NULL THEN 2
@@ -70,13 +77,14 @@ export async function loadAllocationSourcesForItemInTx(
     : [];
 
   const manufacturingConditions = [
-    eq(manufacturingOrders.productId, params.itemId),
+    inArray(manufacturingOrders.productId, itemIds),
     isNull(manufacturingOrders.deletedAt),
     eq(manufacturingOrders.status, "open"),
   ];
   const moRows = await tx
     .select({
       id: manufacturingOrders.id,
+      itemId: manufacturingOrders.productId,
       orderNumber: manufacturingOrders.orderNumber,
       plannedDate: manufacturingOrders.plannedDate,
       salesOrderLineId: manufacturingOrders.salesOrderLineId,
@@ -87,14 +95,18 @@ export async function loadAllocationSourcesForItemInTx(
     })
     .from(manufacturingOrders)
     .where(and(...manufacturingConditions))
-    .orderBy(asc(manufacturingOrders.plannedDate), asc(manufacturingOrders.orderNumber));
+    .orderBy(
+      asc(manufacturingOrders.productId),
+      asc(manufacturingOrders.plannedDate),
+      asc(manufacturingOrders.orderNumber)
+    );
 
   const sources: AllocationSourceRow[] = lotRows.map((lot) => {
     const totalQty = toQuantity(lot.quantity);
     return {
       sourceType: "inventory_lot",
       sourceId: lot.id,
-      itemId: params.itemId,
+      itemId: lot.itemId,
       label: lot.lotNumber,
       date: serializeDbTimestamp(lot.receivedAt),
       totalQty: signedQuantityString(totalQty),
@@ -107,7 +119,7 @@ export async function loadAllocationSourcesForItemInTx(
     sources.push({
       sourceType: "manufacturing_order",
       sourceId: mo.id,
-      itemId: params.itemId,
+      itemId: mo.itemId,
       label: mo.orderNumber,
       date: mo.plannedDate,
       linkedSalesOrderLineId: mo.salesOrderLineId,
