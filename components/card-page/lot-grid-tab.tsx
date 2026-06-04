@@ -69,6 +69,14 @@ type PendingAdjustment = {
   quantity: string;
 };
 
+function cloneLotRows(rows: CardLotRow[]) {
+  return rows.map((row) => ({
+    ...row,
+    allocations: row.allocations.map((allocation) => ({ ...allocation })),
+    dispositionBalances: row.dispositionBalances.map((balance) => ({ ...balance })),
+  }));
+}
+
 function lotNumberLabel(lotNumber: string) {
   return lotNumber === "UNBATCHED-NEGATIVE-STOCK"
     ? "Unbatched negative stock"
@@ -154,8 +162,8 @@ export function LotGridTab({
   );
   const activeVariant =
     visibleVariants.find((variant) => variant.id === focusItemId) ?? visibleVariants[0];
-  const visibleLots = useMemo(() => lots, [lots]);
-  const [rows, setRows] = useState<CardLotRow[]>(visibleLots);
+  const visibleLots = lots;
+  const [rows, setRows] = useState<CardLotRow[]>(() => cloneLotRows(visibleLots));
   const [lastSynced, setLastSynced] = useState(visibleLots);
   const [pendingAdjustment, setPendingAdjustment] = useState<PendingAdjustment | null>(
     null,
@@ -165,11 +173,11 @@ export function LotGridTab({
 
   if (lastSynced !== visibleLots) {
     setLastSynced(visibleLots);
-    setRows(visibleLots);
+    setRows(cloneLotRows(visibleLots));
   }
 
   const resetRows = useCallback(() => {
-    setRows(visibleLots);
+    setRows(cloneLotRows(visibleLots));
     setPendingAdjustment(null);
   }, [visibleLots]);
 

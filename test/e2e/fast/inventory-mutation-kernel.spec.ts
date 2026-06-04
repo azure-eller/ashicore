@@ -758,6 +758,50 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(lotRows[0]?.quantity).toBe("19.0000");
   });
 
+  test("lot quantity edit cancel restores the UI draft without writing stock", async ({
+    page,
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const item = await createItem({
+      itemType: "material",
+      name: `Fast Lot Cancel ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-LOT-CANCEL-${unique}`,
+      category: `Fast Lot Cancel ${unique}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "5",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(item.status).toBe(201);
+    const itemId = item.body.id as string;
+
+    await page.goto(`/inventory/materials/${itemId}`);
+    await page.getByRole("button", { name: /Lots/ }).click();
+    await expect(page.getByRole("heading", { name: /Lots · 1 lot/ })).toBeVisible();
+    const quantityCell = page.locator('.ag-cell[col-id="quantity"]').first();
+    await expect(quantityCell).toContainText("5");
+
+    await quantityCell.dblclick();
+    const input = quantityCell.locator("input");
+    await expect(input).toBeVisible();
+    await input.fill("3");
+    await input.press("Enter");
+    await expect(page.getByRole("alertdialog", { name: "Adjust this lot?" })).toBeVisible();
+    await page.getByRole("button", { name: "Back" }).click();
+    await expect(page.getByRole("alertdialog", { name: "Adjust this lot?" })).toBeHidden();
+    await expect(quantityCell).toContainText("5");
+
+    const [lot] = await db
+      .select({ quantity: lots.quantity })
+      .from(lots)
+      .where(eq(lots.itemId, itemId));
+    expect(lot?.quantity).toBe("5.0000");
+  });
+
   test("stocktake count becomes authoritative stock truth", async ({ db }) => {
     const category = `Fast Stocktake ${ts}`;
     const item = await createItem({

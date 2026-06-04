@@ -41,7 +41,11 @@ type CardTabAction =
 function cardTabReducer(state: CardTabState, action: CardTabAction): CardTabState {
   switch (action.type) {
     case "commit": {
-      if (state.committedTab === action.tab) {
+      if (
+        state.committedTab === action.tab &&
+        state.optimisticTab === action.tab &&
+        state.requestedRouteTab == null
+      ) {
         return state;
       }
 
