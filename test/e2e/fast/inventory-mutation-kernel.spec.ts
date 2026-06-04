@@ -1080,6 +1080,76 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(clonedAssignments).toHaveLength(3);
   });
 
+  test("product recipe deep links drop deleted variant focus", async ({ page }) => {
+    const unique = randomUUID().slice(0, 8);
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Deleted Variant Link ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-DELETED-VARIANT-${unique}`,
+      category: `Fast Variant ${unique}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "15.00",
+      registeredBarcode: null,
+      internalBarcode: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(product.status).toBe(201);
+    const itemId = product.body.id as string;
+
+    const configResponse = await testFetch(`/api/item-cards/${itemId}/variant-config`, {
+      method: "PUT",
+      body: JSON.stringify({
+        options: [
+          {
+            name: "Focus",
+            values: [{ label: "Keep" }, { label: "Delete" }],
+          },
+        ],
+      }),
+    });
+    expect(configResponse.status).toBe(200);
+
+    const generateResponse = await testFetch(`/api/item-cards/${itemId}/variants/generate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(generateResponse.status).toBe(201);
+
+    const cardResponse = await testFetch(`/api/item-cards/${itemId}`);
+    expect(cardResponse.status).toBe(200);
+    const card = await cardResponse.json();
+    const deletedVariant = card.variants.find(
+      (variant: { id: string; optionValues: Array<{ valueLabel: string }> }) =>
+        variant.optionValues.some((value) => value.valueLabel === "Delete"),
+    );
+    const remainingVariant = card.variants.find(
+      (variant: {
+        id: string;
+        displayName: string;
+        optionValues: Array<{ valueLabel: string }>;
+      }) => variant.optionValues.some((value) => value.valueLabel === "Keep"),
+    );
+    expect(deletedVariant?.id).toBeTruthy();
+    expect(remainingVariant?.id).toBeTruthy();
+
+    const deleteResponse = await testFetch(`/api/items/${deletedVariant.id}`, {
+      method: "DELETE",
+      body: JSON.stringify({}),
+    });
+    expect(deleteResponse.status).toBe(200);
+
+    await page.goto(`/inventory/products/${itemId}/recipe?variant=${deletedVariant.id}`);
+    await expect(
+      page.getByText(`Any changes made here only affect ${remainingVariant.displayName}.`),
+    ).toBeVisible();
+    await expect(page).not.toHaveURL(new RegExp(`variant=${deletedVariant.id}`));
+  });
+
   test("billing entitlements count every item row and Core state controls the cap", async ({
     db,
   }) => {

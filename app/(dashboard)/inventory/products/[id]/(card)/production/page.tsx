@@ -26,7 +26,10 @@ export default async function ProductProductionPage({
   if (!item || item.itemType !== "product") redirect("/inventory/products");
   const variantId = Array.isArray(variant) ? variant[0] : variant;
   const focusItemId =
-    variantId && card.variants.some((cardVariant) => cardVariant.id === variantId)
+    variantId &&
+    card.variants.some(
+      (cardVariant) => cardVariant.id === variantId && cardVariant.deletedAt == null,
+    )
       ? variantId
       : id;
   const focusItem = focusItemId === id ? item : await getItem(focusItemId);

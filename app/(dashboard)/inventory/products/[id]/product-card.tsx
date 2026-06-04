@@ -96,6 +96,47 @@ export function ProductCard({
     mergeServerCard(cardQuery.data);
   }, [cardQuery.data, isDraft, mergeServerCard]);
   const card = controller.card;
+  const visibleVariantIds = useMemo(
+    () =>
+      new Set(
+        card.variants
+          .filter((variant) => variant.deletedAt == null)
+          .map((variant) => variant.id),
+      ),
+    [card.variants],
+  );
+  const fallbackFocusItemId =
+    currentItemId && visibleVariantIds.has(currentItemId)
+      ? currentItemId
+      : card.variants.find((variant) => variant.deletedAt == null)?.id ?? currentItemId;
+  const focusedVariantParamIsVisible =
+    focusedVariantParam != null && visibleVariantIds.has(focusedVariantParam);
+  const resolvedFocusedItemId = focusedVariantParamIsVisible
+    ? focusedVariantParam
+    : focusedItemId && visibleVariantIds.has(focusedItemId)
+      ? focusedItemId
+      : fallbackFocusItemId;
+
+  if (focusedItemId !== resolvedFocusedItemId) {
+    setFocusedItemId(resolvedFocusedItemId);
+  }
+
+  useEffect(() => {
+    if (!currentItemId) return;
+    const variant = searchParams.get("variant");
+    if (!variant || visibleVariantIds.has(variant)) return;
+
+    const nextSearch = new URLSearchParams(searchParams.toString());
+    nextSearch.delete("variant");
+    const query = nextSearch.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [
+    currentItemId,
+    pathname,
+    router,
+    searchParams,
+    visibleVariantIds,
+  ]);
 
   useEffect(() => {
     if (!currentItemId) return;
@@ -158,8 +199,8 @@ export function ProductCard({
     () => {
       const tabItemId = currentItemId;
       const variantQuery =
-        focusedItemId && focusedItemId !== currentItemId
-          ? `?variant=${encodeURIComponent(focusedItemId)}`
+        resolvedFocusedItemId && resolvedFocusedItemId !== currentItemId
+          ? `?variant=${encodeURIComponent(resolvedFocusedItemId)}`
           : "";
       const nextTabs: CardTab[] = [
         {
@@ -196,7 +237,7 @@ export function ProductCard({
         ? nextTabs
         : nextTabs.filter((tab) => tab.value !== "lots");
     },
-    [card.family.lotTrackingMode, currentItemId, focusedItemId, lotsCount],
+    [card.family.lotTrackingMode, currentItemId, resolvedFocusedItemId, lotsCount],
   );
 
   const avgIngredientsCost = getAverageIngredientsCost(card);
@@ -264,7 +305,7 @@ export function ProductCard({
 
       <ItemCardFocusProvider
         value={{
-          focusedItemId: focusedItemId ?? currentItemId,
+          focusedItemId: resolvedFocusedItemId ?? currentItemId,
           setFocusedItemId,
         }}
       >
@@ -281,7 +322,7 @@ export function ProductCard({
           {resolvedActiveTab === "general" || isDraft ? (
             <ProductGeneralInfoTab
               card={card}
-              focusItemId={focusedItemId ?? currentItemId}
+              focusItemId={resolvedFocusedItemId ?? currentItemId}
               unitOptions={unitOptions}
               onOpenConfig={() => setConfigOpen(true)}
               onFamilyChange={controller.patchFamily}
