@@ -59,6 +59,7 @@
     { "source": "/api/:path*", "destination": "https://erp-orcin-pi.vercel.app/api/:path*" },
     { "source": "/.well-known", "destination": "https://erp-orcin-pi.vercel.app/.well-known" },
     { "source": "/.well-known/:path*", "destination": "https://erp-orcin-pi.vercel.app/.well-known/:path*" },
+    { "source": "/monitoring", "destination": "https://erp-orcin-pi.vercel.app/monitoring" },
     { "source": "/monitoring/:path*", "destination": "https://erp-orcin-pi.vercel.app/monitoring/:path*" }
   ]
 }
