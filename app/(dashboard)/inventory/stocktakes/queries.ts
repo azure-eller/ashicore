@@ -428,10 +428,18 @@ async function insertStocktakeSnapshotLinesInTx(
     tx,
     stocktakeLines.map((line) => line.itemId)
   );
+  const snapshotQtyByItemId = new Map(
+    snapshotItems.map((item) => [item.id, Number(item.currentQty)])
+  );
+  const countableLotRows = lotRows.filter(
+    (lot) =>
+      Number(lot.expectedQty) > 0 &&
+      (snapshotQtyByItemId.get(lot.itemId) ?? 0) > 0
+  );
   const lineIdByItemId = new Map(stocktakeLines.map((line) => [line.itemId, line.id]));
-  if (lotRows.length > 0) {
+  if (countableLotRows.length > 0) {
     await tx.insert(stocktakeLotItems).values(
-      lotRows.flatMap((lot, index) => {
+      countableLotRows.flatMap((lot, index) => {
         const stocktakeItemId = lineIdByItemId.get(lot.itemId);
         if (!stocktakeItemId) return [];
         return {

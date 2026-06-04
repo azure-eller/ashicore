@@ -359,7 +359,7 @@ test("sales availability treats linked manufacturing output as expected supply",
     shipDate: "2026-06-05",
     lines: [{ itemId: productId, quantity: "450", unitPrice: "10.00" }],
   });
-  expect(order.status).toBe(201);
+  expect(order.status, JSON.stringify(order.body)).toBe(201);
 
   const [line] = await db
     .select({

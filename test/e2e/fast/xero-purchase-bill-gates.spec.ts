@@ -1,26 +1,29 @@
 import dotenv from "dotenv";
+import { randomUUID } from "node:crypto";
 import { Pool as NeonPool } from "@neondatabase/serverless";
 import { drizzle as drizzleNeon } from "drizzle-orm/neon-serverless";
 import { Pool as PgPool } from "pg";
 import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
 import { and, eq, inArray } from "drizzle-orm";
+import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import { test, expect, type TestDb } from "../fixtures";
 import {
   createItem,
   createPurchaseOrder,
   createSupplier,
+  getBaseUrl,
   getOrgId,
   getUnitId,
   receivePurchaseOrder,
   submitPurchaseOrder,
   testFetch,
 } from "../../helpers/api";
-import { TEST_ACCOUNT_EMAIL } from "../../helpers/test-account";
 import {
   accountingDocumentSyncs,
   integrationConnections,
   member,
   purchaseOrderLines,
+  session as authSession,
   user,
 } from "../../../lib/db/schema";
 
@@ -39,6 +42,96 @@ function createAuthDb() {
 }
 
 const authDb = createAuthDb();
+
+function extractSessionCookie(response: Response) {
+  const setCookieHeaders = response.headers.getSetCookie?.() ?? [];
+  for (const header of setCookieHeaders) {
+    if (header.startsWith("better-auth.session_token=")) {
+      return header.split(";")[0];
+    }
+  }
+
+  const fallback = response.headers.get("set-cookie");
+  if (fallback?.startsWith("better-auth.session_token=")) {
+    return fallback.split(";")[0];
+  }
+
+  return null;
+}
+
+function sessionTokenFromCookie(cookie: string) {
+  const rawValue = cookie.split("=").slice(1).join("=");
+  return decodeURIComponent(rawValue).split(".")[0] || null;
+}
+
+async function createPurchasingReadOnlyCookie() {
+  const baseUrl = getBaseUrl();
+  const email = `fast-purchasing-read-${randomUUID()}@example.com`;
+  const signUp = await fetch(`${baseUrl}/api/auth/sign-up/email`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: baseUrl,
+    },
+    body: JSON.stringify({
+      name: "Purchasing Read Only",
+      email,
+      password: `TestPassword-${randomUUID()}!`,
+    }),
+    redirect: "manual",
+  });
+  expect(signUp.status, await signUp.text()).toBeLessThan(400);
+
+  const cookie = extractSessionCookie(signUp);
+  expect(cookie).toBeTruthy();
+
+  const token = sessionTokenFromCookie(cookie!);
+  expect(token).toBeTruthy();
+
+  const [createdUser] = await authDb
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.email, email))
+    .limit(1);
+  expect(createdUser).toBeTruthy();
+
+  await authDb.insert(member).values({
+    id: randomUUID(),
+    organizationId: getOrgId(),
+    userId: createdUser.id,
+    role: "access:matrix,member,purchasing:read",
+    createdAt: new Date(),
+  });
+  await authDb
+    .update(authSession)
+    .set({ activeOrganizationId: getOrgId(), updatedAt: new Date() })
+    .where(eq(authSession.token, token!));
+
+  return cookie!;
+}
+
+async function testFetchWithCookie(
+  cookie: string,
+  path: string,
+  options: RequestInit = {},
+) {
+  const baseUrl = getBaseUrl();
+  const method = (options.method ?? "GET").toUpperCase();
+  const headers =
+    method === "GET" || method === "HEAD"
+      ? new Headers(options.headers)
+      : createIdempotencyHeaders(`test:${method}:${path}:${randomUUID()}`, options.headers);
+
+  return fetch(`${baseUrl}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      Origin: baseUrl,
+      Cookie: cookie,
+      ...Object.fromEntries(headers.entries()),
+    },
+  });
+}
 const ACCOUNTING_DOCUMENT_PURCHASE_BILL = "purchase_bill";
 const ACCOUNTING_PROVIDER_XERO = "xero";
 const ACCOUNTING_PROVIDER_QUICKBOOKS = "quickbooks";
@@ -186,7 +279,7 @@ async function withOnlyQuickBooksConnection<T>(
   await db.insert(integrationConnections).values({
     organizationId: getOrgId(),
     provider: ACCOUNTING_PROVIDER_QUICKBOOKS,
-    tenantId: "test-qb-tenant",
+    tenantId: `test-qb-tenant-${randomUUID()}`,
     tenantName: "Test QuickBooks",
     accessTokenCiphertext: "test-access",
     refreshTokenCiphertext: "test-refresh",
@@ -244,7 +337,7 @@ async function withOnlyXeroConnection<T>(db: TestDb, fn: () => Promise<T>) {
   await db.insert(integrationConnections).values({
     organizationId: getOrgId(),
     provider: ACCOUNTING_PROVIDER_XERO,
-    tenantId: "test-xero-tenant",
+    tenantId: `test-xero-tenant-${randomUUID()}`,
     tenantName: "Test Xero",
     accessTokenCiphertext: "test-access",
     refreshTokenCiphertext: "test-refresh",
@@ -369,7 +462,7 @@ test.describe("Xero purchase bill gates", () => {
       );
       const body = await response.json();
 
-      expect(response.status).toBe(400);
+      expect(response.status, JSON.stringify(body)).toBe(400);
       expect(body.error).toBe(
         "Confirm that additional costs will be added manually in Xero.",
       );
@@ -461,42 +554,17 @@ test.describe("Xero purchase bill gates", () => {
   });
 
   test("requires purchasing write access", async () => {
-    const [testUser] = await authDb
-      .select({ id: user.id })
-      .from(user)
-      .where(eq(user.email, TEST_ACCOUNT_EMAIL))
-      .limit(1);
-    expect(testUser).toBeTruthy();
+    const cookie = await createPurchasingReadOnlyCookie();
 
-    const [membership] = await authDb
-      .select({ id: member.id, role: member.role })
-      .from(member)
-      .where(
-        and(eq(member.userId, testUser.id), eq(member.organizationId, getOrgId())),
-      )
-      .limit(1);
-    expect(membership).toBeTruthy();
+    const response = await testFetchWithCookie(
+      cookie,
+      "/api/purchase-orders/not-a-real-id/accounting-bill",
+      { method: "POST", body: JSON.stringify(billPayload()) },
+    );
+    const body = await response.json();
 
-    try {
-      await authDb
-        .update(member)
-        .set({ role: "access:matrix,member,purchasing:read" })
-        .where(eq(member.id, membership.id));
-
-      const response = await testFetch(
-        "/api/purchase-orders/not-a-real-id/accounting-bill",
-        { method: "POST", body: JSON.stringify(billPayload()) },
-      );
-      const body = await response.json();
-
-      expect(response.status).toBe(403);
-      expect(body.error).toBe("You do not have permission to update purchasing.");
-    } finally {
-      await authDb
-        .update(member)
-        .set({ role: membership.role })
-        .where(eq(member.id, membership.id));
-    }
+    expect(response.status).toBe(403);
+    expect(body.error).toBe("You do not have permission to update purchasing.");
   });
 
   test("QuickBooks bill sync rejects taxable purchase orders before external API", async ({
@@ -523,7 +591,7 @@ test.describe("Xero purchase bill gates", () => {
       );
       const body = await response.json();
 
-      expect(response.status).toBe(400);
+      expect(response.status, JSON.stringify(body)).toBe(400);
       expect(body.error).toBe(
         "QuickBooks tax mapping is not available yet. Remove tax from this purchase order before creating a QuickBooks bill.",
       );

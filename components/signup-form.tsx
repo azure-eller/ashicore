@@ -2,15 +2,6 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import {
-  Field,
-  FieldDescription,
-  FieldError,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
 import { OnboardingAuthShell } from "@/components/onboarding-auth-shell"
 import { authClient } from "@/lib/auth-client"
 import {
@@ -55,83 +46,90 @@ export function SignupForm({
     <OnboardingAuthShell
       activeStep="account"
       plan={plan}
-      guideTitle="Let's set up your workspace"
+      guideTitle={
+        <>
+          Let&apos;s set up
+          <br />
+          your workspace
+        </>
+      }
       guideLines={[
-        "First, your account.",
-        "It takes about a minute.",
-        "We'll guide every step.",
+        "First, your account — about a minute.",
+        "Then we read your files and build it for you.",
+        "You confirm everything before it's saved.",
       ]}
       {...props}
     >
-      <div>
-        <h2 className="text-[length:var(--text-lg)] font-semibold leading-[var(--leading-lg)]">
-          Create your account
-        </h2>
-        <p className="mt-(--space-2) text-[length:var(--text-sm)] text-muted-foreground">
-          Start with your work email — we&apos;ll set up the rest together.
-        </p>
-      </div>
+      <h1 className="ob-form-title ob-stagger">Create your account</h1>
+      <p className="ob-form-sub ob-stagger">
+        Start with your work email — we&apos;ll set up the rest together.
+      </p>
       <form onSubmit={handleSubmit}>
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="name">Full Name</FieldLabel>
-            <Input
-              id="name"
+        <div className="ob-form-stack">
+          <label className="ob-field">
+            <span className="ob-field-label">Full name</span>
+            <input
+              className="ob-input"
               type="text"
-              placeholder="John Doe"
+              placeholder="Sam Rivera"
               required
+              autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="email">Work email</FieldLabel>
-            <Input
-              id="email"
+          </label>
+          <label className="ob-field">
+            <span className="ob-field-label">Work email</span>
+            <input
+              className="ob-input"
               type="email"
-              placeholder="m@example.com"
+              placeholder="you@company.com"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="password">Password</FieldLabel>
-            <Input
-              id="password"
+          </label>
+          <label className="ob-field">
+            <span className="ob-field-label">Password</span>
+            <input
+              className="ob-input"
               type="password"
+              aria-label="Password"
+              aria-describedby="signup-password-hint"
+              placeholder="••••••••"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-            <FieldDescription>At least 8 characters</FieldDescription>
-          </Field>
-          <Field>
-            <FieldLabel htmlFor="confirm-password">Confirm Password</FieldLabel>
-            <Input
-              id="confirm-password"
+            <span id="signup-password-hint" className="ob-field-hint">
+              At least 8 characters
+            </span>
+          </label>
+          <label className="ob-field">
+            <span className="ob-field-label">Confirm password</span>
+            <input
+              className="ob-input"
               type="password"
+              aria-label="Confirm Password"
+              placeholder="••••••••"
               required
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
-          </Field>
-          {error && (
-            <FieldError>{error}</FieldError>
-          )}
-          <Field>
-            <Button type="submit" disabled={loading} className="w-full">
-              {loading ? "Creating account…" : "Continue"}
-            </Button>
-            <FieldDescription className="text-center">
-              By continuing you agree to the Terms &amp; Privacy Policy.
-            </FieldDescription>
-            <FieldDescription className="text-center">
-              Already have an account?{" "}
-              <a href={signInHref}>Sign in</a>
-            </FieldDescription>
-          </Field>
-        </FieldGroup>
+          </label>
+          {error ? <p className="ob-form-error">{error}</p> : null}
+        </div>
+        <div className="ob-form-actions">
+          <button type="submit" className="ob-btn ob-btn--primary ob-btn--block" disabled={loading}>
+            {loading ? "Creating account…" : "Continue"}
+          </button>
+        </div>
+        <p className="ob-form-fine">
+          By continuing you agree to the <a href="#terms">Terms</a> &amp;{" "}
+          <a href="#privacy">Privacy Policy</a>.
+          <br />
+          Already have an account? <a href={signInHref}>Sign in</a>
+        </p>
       </form>
     </OnboardingAuthShell>
   )

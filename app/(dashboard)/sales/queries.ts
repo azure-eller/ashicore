@@ -1096,6 +1096,43 @@ export class SalesError extends DomainError<{
   }
 }
 
+function getPgErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+
+  const record = error as { code?: unknown; cause?: unknown };
+  if (typeof record.code === "string") {
+    return record.code;
+  }
+
+  return getPgErrorCode(record.cause);
+}
+
+function isRetryableTransactionError(error: unknown) {
+  const code = getPgErrorCode(error);
+  return code === "40P01" || code === "40001";
+}
+
+async function withSalesTransactionRetry<T>(operation: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableTransactionError(error) || attempt === 2) {
+        throw error;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+    }
+  }
+
+  throw lastError;
+}
+
 type LinkedManufacturingStatus = Pick<
   SalesOrderDetail["linkedManufacturingOrders"][number],
   "orderNumber" | "status" | "productionStatus"
@@ -1384,6 +1421,19 @@ function mergeSubmittedOrderIds(currentIds: string[], submittedIds: string[]) {
 async function rerankOpenSalesOrdersInTx(tx: Tx, orgId: string) {
   await lockSalesPriorityQueueInTx(tx, orgId);
 
+  await tx
+    .select({ id: salesOrders.id })
+    .from(salesOrders)
+    .where(
+      and(
+        eq(salesOrders.organizationId, orgId),
+        inArray(salesOrders.status, [...OPEN_SALES_ORDER_STATUSES]),
+        isNull(salesOrders.deletedAt)
+      )
+    )
+    .orderBy(asc(salesOrders.id))
+    .for("update");
+
   const rows = await tx
     .select({ id: salesOrders.id })
     .from(salesOrders)
@@ -1402,8 +1452,7 @@ async function rerankOpenSalesOrdersInTx(tx: Tx, orgId: string) {
       asc(salesOrders.orderDate),
       asc(salesOrders.orderNumber),
       asc(salesOrders.id)
-    )
-    .for("update");
+    );
 
   if (rows.length === 0) {
     return;
@@ -5956,7 +6005,7 @@ export async function createSalesOrder(
   data: InsertSalesOrder,
   options?: { idempotencyKey?: string }
 ) {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
+  return withSalesTransactionRetry(() => withAuthedOrgContext(async (tx, orgId, userId) => {
     const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
       organizationId: orgId,
       operationName: "createSalesOrder",
@@ -6053,7 +6102,7 @@ export async function createSalesOrder(
     });
 
     return order;
-  });
+  }));
 }
 
 export async function duplicateSalesOrder(
@@ -6543,7 +6592,7 @@ export async function shipSalesOrder(
     await completeLinkedManufacturingForFullOrderShip(id, options);
   }
 
-  const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
+  const result = await withSalesTransactionRetry(() => withAuthedOrgContext(async (tx, orgId, userId) => {
     const replay = await beginInventoryOperationInTx<{
       id: string;
       status: string;
@@ -6839,7 +6888,7 @@ export async function shipSalesOrder(
       shipped,
       orgId,
     };
-  });
+  }));
 
   if (!result || !result.shipped) {
     return null;

@@ -1,4 +1,5 @@
 import http from "node:http";
+import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
@@ -66,7 +67,7 @@ async function withOnlyQuickBooksConnection<T>(
   await db.insert(integrationConnections).values({
     organizationId: getOrgId(),
     provider: ACCOUNTING_PROVIDER_QUICKBOOKS,
-    tenantId: "test-qb-tenant",
+    tenantId: `test-qb-tenant-${randomUUID()}`,
     tenantName: "Test QuickBooks",
     accessTokenCiphertext: "test-access",
     refreshTokenCiphertext: "test-refresh",
@@ -172,7 +173,7 @@ test.describe("sales demand and shipping heartbeat", () => {
       shipDate: "2026-05-02",
       lines: [{ itemId: productId, quantity: "6", unitPrice: "12.00" }],
     });
-    expect(order.status).toBe(201);
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
 
     const [line] = await db
       .select({ id: salesOrderLines.id, quantity: salesOrderLines.quantity })
@@ -531,7 +532,7 @@ test.describe("sales demand and shipping heartbeat", () => {
     });
 
     const reservedShip = await fulfillSalesOrder(reservedOrder.body.id);
-    expect(reservedShip.status).toBe(200);
+    expect(reservedShip.status, JSON.stringify(reservedShip.body)).toBe(200);
   });
 
   test("shipping a managed line can use demand-queue available stock", async ({

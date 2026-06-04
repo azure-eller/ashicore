@@ -7,18 +7,11 @@ import type { BillingPlanIntent } from "@/lib/billing/plan-intent";
 import { FREE_SKU_LIMIT } from "@/lib/billing/types";
 import type { CellValueChangedEvent, ColDef, ICellRendererParams } from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Add01Icon,
-  CheckmarkCircle02Icon,
-  DatabaseImportIcon,
-  Delete02Icon,
-} from "@hugeicons/core-free-icons";
+import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import { ERPDataGrid } from "@/components/erp-data-grid";
-import { FileDropzone } from "@/components/file-dropzone";
-import { InsetPanel } from "@/components/inset-panel";
 import { OnboardingProgress, onboardingStepIndex } from "@/components/onboarding-stepper";
+import { OnboardingSplit } from "@/components/onboarding-rail";
 import { ProgressMeter } from "@/components/progress-meter";
-import { SurfacePanel } from "@/components/surface-panel";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -29,19 +22,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { StatusLabel } from "@/components/ui/status-label";
-import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { formatBytes } from "@/lib/format";
-import type { AccessPresetKey } from "@/lib/authz";
+import { getAccessPresetKeys, formatAccessPresetLabel, type AccessPresetKey } from "@/lib/authz";
+import { onboardingFontVariables } from "@/lib/onboarding/fonts";
 import { cn } from "@/lib/utils";
 
 type Provenance = {
@@ -195,12 +179,10 @@ const entityTabs: Array<{ id: EntityTab; label: string }> = [
 ];
 
 const supportedTypes = [".csv", ".xlsx", ".pdf", "images", "screenshots"];
-const inviteRoleOptions: Array<{ value: AccessPresetKey; label: string }> = [
-  { value: "admin", label: "Admin" },
-  { value: "ops_manager", label: "Ops Manager" },
-  { value: "ops_operator", label: "Operator" },
-  { value: "view_only", label: "View Only" },
-];
+// Every assignable role, straight from the canonical preset list, with its
+// canonical label (admin, ops/sales manager + operator, view only).
+const inviteRoleOptions: Array<{ value: AccessPresetKey; label: string }> =
+  getAccessPresetKeys().map((value) => ({ value, label: formatAccessPresetLabel(value) }));
 const integrationTiles = [
   ["Shopify", "Orders & products", false],
   ["QuickBooks", "Invoices & costs", false],
@@ -228,20 +210,6 @@ function confidenceTone(value: number) {
   return "danger";
 }
 
-function fileStatusLabel(status?: string) {
-  if (status === "extracted") return "Extracted";
-  if (status === "failed") return "Failed";
-  if (status === "extracting") return "Reading";
-  return "Queued";
-}
-
-function fileStatusTone(status?: string): "success" | "warning" | "danger" | "neutral" {
-  if (status === "extracted") return "success";
-  if (status === "failed") return "danger";
-  if (status === "extracting") return "warning";
-  return "neutral";
-}
-
 function createInviteRow(): InviteRow {
   return { id: crypto.randomUUID(), email: "", presetKey: "ops_operator" };
 }
@@ -253,6 +221,33 @@ function fileTypeBadge(name: string): string {
   if (ext === "pdf") return "PDF";
   if (["png", "jpg", "jpeg", "gif", "webp", "heic"].includes(ext)) return "IMG";
   return ext ? ext.toUpperCase().slice(0, 4) : "FILE";
+}
+
+// Maps a filename to the format-chip color class (blue/green/red/violet).
+function fileTypeKind(name: string): "csv" | "xls" | "pdf" | "img" {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  if (ext === "xlsx" || ext === "xls") return "xls";
+  if (ext === "pdf") return "pdf";
+  if (["png", "jpg", "jpeg", "gif", "webp", "heic"].includes(ext)) return "img";
+  return "csv";
+}
+
+// Small inline brand glyphs (not a UI-icon library) used by the import-phase
+// screens, lifted from the design reference.
+function UploadGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 16V4M7 9l5-5 5 5" />
+      <path d="M5 16v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3" />
+    </svg>
+  );
+}
+function CheckGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M5 12l5 5L20 6" />
+    </svg>
+  );
 }
 
 function ConfidenceCell({ value }: ICellRendererParams<ReviewRow, number>) {
@@ -513,41 +508,6 @@ function onboardingActiveIndex(step: FlowStep) {
   }
 }
 
-function CountTab({
-  active,
-  label,
-  count,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  count: number;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "flex items-center gap-(--space-2) border-b-2 px-(--space-2) pb-(--space-3) text-[length:var(--text-sm)] font-medium",
-        active
-          ? "border-primary text-foreground"
-          : "border-transparent text-muted-foreground hover:text-foreground",
-      )}
-      onClick={onClick}
-    >
-      {label}
-      <span
-        className={cn(
-          "border px-(--space-2) font-mono text-[length:var(--text-xs)] tabular-nums",
-          active ? "border-primary/40 text-foreground" : "border-border text-muted-foreground",
-        )}
-      >
-        {count}
-      </span>
-    </button>
-  );
-}
-
 export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -779,13 +739,19 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
     startMutation.mutate();
   }, [startMutation]);
 
+  const fetchImport = fetchImportMutation.mutate;
+
   useEffect(() => {
-    if (!sessionId || (flowStep !== "extract" && flowStep !== "review")) return;
-    fetchImportMutation.mutate(sessionId);
-    if (flowStep === "review") return;
-    const timer = window.setInterval(() => fetchImportMutation.mutate(sessionId), 3500);
-    return () => window.clearInterval(timer);
-  }, [flowStep, sessionId, fetchImportMutation]);
+    if (!sessionId) return;
+    if (flowStep === "extract") {
+      fetchImport(sessionId);
+      const timer = window.setInterval(() => fetchImport(sessionId), 3500);
+      return () => window.clearInterval(timer);
+    }
+    if (flowStep === "review" && !reviewPackage) {
+      fetchImport(sessionId);
+    }
+  }, [flowStep, sessionId, reviewPackage, fetchImport]);
 
   // Returning from a successful Stripe checkout (paid path): commit the now-paid
   // import. (`onMutate` flips the finalizing flag; the cancel case is derived in
@@ -1003,9 +969,41 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
     setFlowStep("done");
   }
 
+  // Stepper navigation. Each top-bar node maps to a flow step; jumps are gated by
+  // what's actually reachable so you can step back/forward without skipping work
+  // or re-committing. Account/Workspace live on earlier routes and aren't jumpable
+  // from here. Once committed, navigation is limited to the post-import steps.
+  const stepIndexToFlowStep: Partial<Record<number, FlowStep>> = {
+    [onboardingStepIndex("Invite")]: "invite",
+    [onboardingStepIndex("Import")]: "import",
+    [onboardingStepIndex("Review")]: "review",
+    [onboardingStepIndex("Connect")]: "connect",
+    [onboardingStepIndex("Done")]: "done",
+  };
+  const isStepNavigable = (index: number) => {
+    const target = stepIndexToFlowStep[index];
+    if (!target) return false;
+    if (committed) return target === "connect" || target === "done";
+    if (target === "invite" || target === "import") return true;
+    if (target === "review") return reviewPackage != null;
+    return false;
+  };
+  const navigateToStep = (index: number) => {
+    const target = stepIndexToFlowStep[index];
+    if (target && isStepNavigable(index)) {
+      setMessage(null);
+      setFlowStep(target);
+    }
+  };
+
   return (
-    <div className="flex min-h-svh flex-col bg-background">
-      <OnboardingProgress activeIndex={onboardingActiveIndex(flowStep)} plan={planIntent} />
+    <div className={cn(onboardingFontVariables, "onboarding-flow-screen flex min-h-svh flex-col")}>
+      <OnboardingProgress
+        activeIndex={onboardingActiveIndex(flowStep)}
+        plan={planIntent}
+        onNavigate={navigateToStep}
+        isNavigable={isStepNavigable}
+      />
 
       {finalizing ? (
         <div className="fixed inset-0 z-50 grid place-content-center justify-items-center gap-(--space-4) bg-background text-center">
@@ -1016,137 +1014,125 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
         </div>
       ) : null}
 
+      <div className="ob-stage ob-anim-fade" key={flowStep}>
       {flowStep === "invite" ? (
-        <main className="onboarding-flow-screen mx-auto grid w-full max-w-5xl flex-1 content-center gap-(--space-10) p-(--space-8) lg:grid-cols-[minmax(0,360px)_minmax(0,420px)] lg:justify-center lg:gap-(--space-16)">
-          <aside className="grid content-center gap-(--space-6)">
-            <h2 className="max-w-[14ch] text-[length:var(--text-3xl)] font-semibold leading-[var(--leading-tight)] tracking-[var(--tracking-tight)]">
-              Bring the team along
-            </h2>
-            <div className="grid gap-(--space-2)">
-              {[
-                "Optional — you can do this later.",
-                "Invite the people who'll run the floor.",
-                "They'll get a calm welcome too.",
-              ].map((line, index) => (
-                <p
-                  key={line}
-                  className="onboarding-guide-line text-[length:var(--text-md)] leading-[var(--leading-md)] text-muted-foreground"
-                  style={{ animationDelay: `${0.15 + index * 0.12}s` }}
+        <OnboardingSplit
+          step={3}
+          guideTitle={
+            <>
+              Bring the
+              <br />
+              team along
+            </>
+          }
+          guideLines={[
+            "Optional — you can do this later.",
+            "Invite the people who'll run the floor.",
+            "They'll get a calm welcome too.",
+          ]}
+        >
+          <h1 className="ob-form-title ob-stagger">Invite your team</h1>
+          <p className="ob-form-sub ob-stagger">
+            Add the people who&apos;ll work in your ERP. Skip if it&apos;s just you for now.
+          </p>
+          <div className="ob-form-stack" style={{ gap: 12 }}>
+            {inviteRows.map((row, index) => (
+              <div key={row.id} className="ob-invite-row">
+                <input
+                  className="ob-input"
+                  type="email"
+                  value={row.email}
+                  placeholder="name@company.com"
+                  aria-label={`Invite email ${index + 1}`}
+                  onChange={(event) =>
+                    setInviteRows((current) =>
+                      current.map((candidate) =>
+                        candidate.id === row.id
+                          ? { ...candidate, email: event.target.value }
+                          : candidate,
+                      ),
+                    )
+                  }
+                />
+                <select
+                  className="ob-input"
+                  value={row.presetKey}
+                  aria-label={`Invite role ${index + 1}`}
+                  onChange={(event) =>
+                    setInviteRows((current) =>
+                      current.map((candidate) =>
+                        candidate.id === row.id
+                          ? { ...candidate, presetKey: event.target.value as AccessPresetKey }
+                          : candidate,
+                      ),
+                    )
+                  }
                 >
-                  {line}
-                </p>
-              ))}
-            </div>
-          </aside>
-
-          <SurfacePanel className="grid content-start gap-(--space-5)" padding="md">
-            <div>
-              <h3 className="text-[length:var(--text-lg)] font-semibold leading-[var(--leading-lg)]">
-                Invite your team
-              </h3>
-              <p className="mt-(--space-2) text-[length:var(--text-sm)] text-muted-foreground">
-                Add the people who&apos;ll work in your ERP. Skip if it&apos;s just you for now.
-              </p>
-            </div>
-            <div className="grid gap-(--space-3)">
-              {inviteRows.map((row, index) => (
-                <div key={row.id} className="grid gap-(--space-3) sm:grid-cols-[minmax(0,1fr)_150px_auto]">
-                  <Input
-                    type="email"
-                    value={row.email}
-                    placeholder="name@company.com"
-                    aria-label={`Invite email ${index + 1}`}
-                    onChange={(event) =>
-                      setInviteRows((current) =>
-                        current.map((candidate) =>
-                          candidate.id === row.id
-                            ? { ...candidate, email: event.target.value }
-                            : candidate,
-                        ),
-                      )
-                    }
-                  />
-                  <Select
-                    value={row.presetKey}
-                    onValueChange={(value) =>
-                      setInviteRows((current) =>
-                        current.map((candidate) =>
-                          candidate.id === row.id
-                            ? { ...candidate, presetKey: value as AccessPresetKey }
-                            : candidate,
-                        ),
-                      )
-                    }
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {inviteRoleOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    aria-label={`Remove invite ${index + 1}`}
-                    disabled={inviteRows.length === 1}
-                    onClick={() =>
-                      setInviteRows((current) => current.filter((candidate) => candidate.id !== row.id))
-                    }
-                  >
-                    <HugeiconsIcon icon={Delete02Icon} data-icon="inline-start" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-            <Button
+                  {inviteRoleOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="ob-icon-btn"
+                  aria-label={`Remove invite ${index + 1}`}
+                  disabled={inviteRows.length === 1}
+                  onClick={() =>
+                    setInviteRows((current) => current.filter((candidate) => candidate.id !== row.id))
+                  }
+                >
+                  <HugeiconsIcon icon={Delete02Icon} size={15} />
+                </button>
+              </div>
+            ))}
+            <button
               type="button"
-              variant="ghost"
-              className="justify-self-start"
+              className="ob-link-add"
               onClick={() => setInviteRows((current) => [...current, createInviteRow()])}
             >
-              <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
-              Add another
-            </Button>
-            {message ? <p className="text-[length:var(--text-sm)] text-destructive">{message}</p> : null}
-            <div className="flex flex-wrap justify-end gap-(--space-3) border-t pt-(--space-5)">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={skipInvites}
-                disabled={!onboardingReady || inviteMutation.isPending}
-              >
-                Skip for now
-              </Button>
-              <Button
-                type="button"
-                onClick={sendInvites}
-                disabled={!onboardingReady || inviteMutation.isPending}
-              >
-                {inviteMutation.isPending ? "Sending..." : "Send invites & continue"}
-              </Button>
-            </div>
-          </SurfacePanel>
-        </main>
+              <HugeiconsIcon icon={Add01Icon} size={15} /> Add another
+            </button>
+          </div>
+          {message ? <p className="ob-form-error">{message}</p> : null}
+          <div
+            className="ob-form-actions ob-form-actions--split"
+            style={{ borderTop: "1px solid var(--ob-line)", paddingTop: 18 }}
+          >
+            <button
+              type="button"
+              className="ob-btn ob-btn--quiet"
+              onClick={skipInvites}
+              disabled={!onboardingReady || inviteMutation.isPending}
+            >
+              Skip for now
+            </button>
+            <button
+              type="button"
+              className="ob-btn ob-btn--primary"
+              onClick={sendInvites}
+              disabled={!onboardingReady || inviteMutation.isPending}
+            >
+              {inviteMutation.isPending ? "Sending…" : "Send invites & continue"}
+            </button>
+          </div>
+        </OnboardingSplit>
       ) : null}
 
       {flowStep === "import" ? (
-        <main className="onboarding-flow-screen mx-auto grid w-full max-w-3xl flex-1 content-center gap-(--space-8) p-(--space-8)">
-          <div className="text-center">
-            <h2 className="text-[length:var(--text-2xl)] font-semibold leading-[var(--leading-tight)]">
-              Bring in your data
-            </h2>
-            <p className="mt-(--space-3) text-[length:var(--text-sm)] text-muted-foreground">
-              Drop whatever you have — we&apos;ll make sense of it. No templates, no formatting.
-              Source documents are processed by OpenAI for extraction.
-            </p>
-          </div>
+        <div className="ob-scr ob-scr--center ob-scr--wide">
+          <div className="ob-scr-inner">
+            <div className="ob-scr-head">
+              <span className="ob-eyebrow">AI Onboarding</span>
+              <h1 className="ob-scr-title">Bring in your data</h1>
+              <p className="ob-scr-sub">
+                Drop whatever you have — spreadsheets, price lists, even photos of batch tickets.
+                AI reads &amp; structures it. No templates, no formatting; source documents are
+                processed by OpenAI for extraction.
+              </p>
+            </div>
 
-          <SurfacePanel className="grid gap-(--space-6)">
             <input
               ref={inputRef}
               type="file"
@@ -1158,175 +1144,184 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
                 event.currentTarget.value = "";
               }}
             />
-            <FileDropzone
-              label={uploadMutation.isPending ? "Uploading..." : stagedFiles.length ? "Add more files" : "Drag files here or browse your computer"}
-              disabled={uploadMutation.isPending}
-              className="min-h-56 flex-col py-(--space-24)"
-              onBrowse={() => inputRef.current?.click()}
-              onFiles={stageFiles}
-            />
-            <div className="flex flex-wrap justify-center gap-(--space-3)">
-              {supportedTypes.map((type) => (
-                <span key={type} className="border bg-muted px-(--space-3) py-(--space-1) text-[length:var(--text-xs)] text-muted-foreground">
-                  {type}
-                </span>
-              ))}
+            <div
+              className="ob-dropzone"
+              role="button"
+              tabIndex={0}
+              onClick={() => inputRef.current?.click()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  inputRef.current?.click();
+                }
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                if (event.dataTransfer.files?.length) stageFiles(event.dataTransfer.files);
+              }}
+            >
+              <span className="ob-dropzone-glyph">
+                <UploadGlyph />
+              </span>
+              <div className="ob-dropzone-big">
+                {uploadMutation.isPending ? "Uploading…" : "Drag files here"}
+              </div>
+              <div className="ob-dropzone-or">
+                or <span className="ob-link">browse your computer</span>
+              </div>
+              <div className="ob-dropzone-types">
+                {supportedTypes.map((type) => (
+                  <span key={type} className="ob-chip">
+                    {type}
+                  </span>
+                ))}
+              </div>
             </div>
+
             {stagedFiles.length ? (
-              <div className="grid gap-(--space-2)">
+              <div className="ob-droplist">
                 {stagedFiles.map((file, index) => (
-                  <div
-                    key={`${file.name}-${file.size}-${index}`}
-                    className="flex items-center gap-(--space-4) border bg-card px-(--space-4) py-(--space-3) text-[length:var(--text-sm)]"
-                  >
-                    <span className="shrink-0 border bg-muted px-(--space-2) py-px font-mono text-[length:var(--text-xs)] font-medium text-muted-foreground">
+                  <div key={`${file.name}-${file.size}-${index}`} className="ob-dropfile">
+                    <span className={`ob-ftype ob-ftype--${fileTypeKind(file.name)}`}>
                       {fileTypeBadge(file.name)}
                     </span>
-                    <span className="min-w-0 flex-1 truncate font-medium">{file.name}</span>
-                    <span className="shrink-0 font-mono text-[length:var(--text-xs)] text-muted-foreground">
-                      {formatBytes(file.size)}
+                    <div className="ob-dropfile-meta">
+                      <div className="ob-dropfile-name">{file.name}</div>
+                      <div className="ob-dropfile-sub">{formatBytes(file.size)}</div>
+                    </div>
+                    <span className="ob-dropfile-ok ob-dropfile-ok--good">
+                      <CheckGlyph /> ready
                     </span>
-                    <StatusLabel tone="success" className="shrink-0">
-                      Ready
-                    </StatusLabel>
                   </div>
                 ))}
               </div>
             ) : null}
-            <div className="flex justify-center gap-(--space-3)">
-              <Button type="button" variant="outline" onClick={skipImport}>
+
+            <div className="ob-form-actions ob-form-actions--center">
+              <button type="button" className="ob-btn ob-btn--quiet" onClick={skipImport}>
                 I&apos;ll do this later
-              </Button>
+              </button>
               {stagedFiles.length ? (
-                <Button
+                <button
                   type="button"
+                  className="ob-btn ob-btn--primary"
                   onClick={extractStagedFiles}
                   disabled={uploadMutation.isPending}
                 >
-                  {uploadMutation.isPending ? "Uploading..." : "Extract my data"}
-                </Button>
+                  {uploadMutation.isPending ? "Uploading…" : "Extract my data"}{" "}
+                  <span className="ob-arr">→</span>
+                </button>
               ) : null}
             </div>
-            {message ? <p className="text-center text-[length:var(--text-sm)] text-destructive">{message}</p> : null}
-          </SurfacePanel>
-        </main>
+            {message ? (
+              <p className="ob-form-error" style={{ textAlign: "center" }}>
+                {message}
+              </p>
+            ) : null}
+          </div>
+        </div>
       ) : null}
 
       {flowStep === "extract" ? (
-        <main className="onboarding-flow-screen mx-auto grid w-full max-w-xl flex-1 content-center gap-(--space-8) p-(--space-8)">
-          <div className="grid justify-items-center gap-(--space-5) text-center">
-            <span className="relative flex size-20 items-center justify-center border bg-card">
-              <HugeiconsIcon icon={DatabaseImportIcon} size={28} aria-hidden />
-              <span className="absolute inset-[-6px] animate-pulse border border-primary" aria-hidden />
-            </span>
-            <div>
-              <h2 className="text-[length:var(--text-2xl)] font-semibold leading-[var(--leading-tight)]">
-                Reading your data…
-              </h2>
-              <p className="mt-(--space-3) text-[length:var(--text-sm)] text-muted-foreground">
-                You don&apos;t need to do anything — large or image-heavy uploads can take a few minutes.
-              </p>
+        <div className="ob-scr ob-scr--center">
+          <div className="ob-extract">
+            <div className="ob-aicore">
+              <span className="ob-aicore-ring" />
+              <span className="ob-aicore-ring r2" />
+              <span className="ob-aicore-ring r3" />
+              <span className="ob-aicore-hex">ai</span>
             </div>
-          </div>
-
-          <SurfacePanel className="grid gap-(--space-5)">
-            {[
-              ["Reading your files", files?.some((file) => file.extractionStatus === "extracted") ? "done" : "active"],
-              ["Recognizing products and quantities", reviewPackage ? "done" : "active"],
-              ["Matching suppliers and customers", reviewPackage ? "done" : "waiting"],
-              ["Structuring into your ERP", reviewPackage ? "done" : "waiting"],
-            ].map(([label, state]) => (
-              <div key={label} className="flex items-center gap-(--space-4) text-[length:var(--text-sm)]">
-                {state === "done" ? (
-                  <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} className="text-[var(--color-success)]" aria-hidden />
-                ) : state === "active" ? (
-                  <Spinner className="size-4" />
-                ) : (
-                  <span className="size-4 border bg-muted" />
-                )}
-                <span className={state === "waiting" ? "text-muted-foreground" : "text-foreground"}>{label}</span>
-              </div>
-            ))}
-            <p className="text-[length:var(--text-xs)] text-muted-foreground">
+            <h1 className="ob-extract-title">Reading your data…</h1>
+            <p className="ob-extract-sub">
+              You don&apos;t need to do anything — large or image-heavy uploads can take a few minutes.
+            </p>
+            <div className="ob-extract-steps">
+              {(
+                [
+                  ["Reading your files", files?.some((file) => file.extractionStatus === "extracted") ? "done" : "active"],
+                  ["Recognizing products & quantities", reviewPackage ? "done" : "active"],
+                  ["Matching suppliers and customers", reviewPackage ? "done" : "waiting"],
+                  ["Structuring into your ERP", reviewPackage ? "done" : "waiting"],
+                ] as const
+              ).map(([label, state]) => (
+                <div
+                  key={label}
+                  className={cn(
+                    "ob-estep",
+                    state === "done" && "ob-estep--done",
+                    state === "active" && "ob-estep--active",
+                  )}
+                >
+                  <span className="ob-estep-dot">{state === "done" ? <CheckGlyph /> : null}</span>
+                  <span className="ob-estep-label">{label}</span>
+                </div>
+              ))}
+            </div>
+            <p className="ob-extract-hint">
               {files?.length
-                ? `${files.length} ${files.length === 1 ? "file" : "files"} queued for extraction.`
+                ? `${files.length} ${files.length === 1 ? "file" : "files"} · structuring records`
                 : "Files queued for extraction."}
             </p>
-            {files?.length ? (
-              <div className="grid gap-(--space-2) border-t pt-(--space-4)">
-                {files.map((file, index) => (
-                  <div
-                    key={file.id ?? `${file.filename}-${index}`}
-                    className="grid items-center gap-(--space-3) border bg-background px-(--space-4) py-(--space-3) text-[length:var(--text-sm)] sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
-                  >
-                    <span className="shrink-0 border bg-muted px-(--space-2) py-px font-mono text-[length:var(--text-xs)] font-medium text-muted-foreground">
-                      {fileTypeBadge(file.filename)}
-                    </span>
-                    <span className="min-w-0 truncate font-medium">{file.filename}</span>
-                    <span className="font-mono text-[length:var(--text-xs)] text-muted-foreground">
-                      {typeof file.sizeBytes === "number" ? formatBytes(file.sizeBytes) : ""}
-                    </span>
-                    <StatusLabel tone={fileStatusTone(file.extractionStatus)}>
-                      {fileStatusLabel(file.extractionStatus)}
-                    </StatusLabel>
-                  </div>
-                ))}
-              </div>
+            {message ? (
+              <p className="ob-form-error" style={{ marginTop: 16 }}>
+                {message}
+              </p>
             ) : null}
-          </SurfacePanel>
-
-          {message ? <p className="text-center text-[length:var(--text-sm)] text-destructive">{message}</p> : null}
-        </main>
+          </div>
+        </div>
       ) : null}
 
       {flowStep === "review" && reviewPackage ? (
-        <main className="onboarding-flow-screen grid flex-1 gap-(--space-6) p-(--space-8)">
-          <div className="flex flex-wrap items-start justify-between gap-(--space-6)">
+        <div className="ob-review">
+          <div className="ob-review-top">
             <div>
-              <h2 className="text-[length:var(--text-xl)] font-semibold leading-[var(--leading-tight)]">
-                Here&apos;s what we found
-              </h2>
-              <p className="mt-(--space-2) text-[length:var(--text-sm)] text-muted-foreground">
-                Review and tidy anything, then approve. Highlighted rows want a second look.
+              <h1 className="ob-review-title">Here&apos;s what we found</h1>
+              <p className="ob-review-sub">
+                Review and tidy anything, then approve — fix a value in place and its confidence
+                updates. Highlighted rows want a second look.
               </p>
             </div>
-            <Button
+            <button
               type="button"
-              variant="ghost"
+              className="ob-btn ob-btn--quiet"
               onClick={handleApproveClick}
               disabled={approveDisabled}
             >
               {planIntent === "paid" ? "Approve & pay" : "Approve all & continue"}
-            </Button>
+            </button>
           </div>
 
-          <div className="flex flex-wrap items-end justify-between gap-(--space-4) border-b">
-            <div className="flex flex-wrap items-end gap-(--space-6)">
-              {entityTabs.map((tab) => (
-                <CountTab
-                  key={tab.id}
-                  active={activeTab === tab.id}
-                  label={tab.label}
-                  count={counts[tab.id]}
-                  onClick={() => setActiveTab(tab.id)}
-                />
-              ))}
-            </div>
-            <label className="flex items-center gap-(--space-3) pb-(--space-3) text-[length:var(--text-sm)]">
-              <Switch checked={needsReviewOnly} onCheckedChange={setNeedsReviewOnly} />
-              Needs review only
-              {needsReviewCount > 0 ? (
-                <span className="border border-[var(--color-warning)] px-(--space-2) font-mono text-[length:var(--text-xs)] tabular-nums text-[var(--color-warning)]">
-                  {needsReviewCount}
-                </span>
-              ) : null}
-            </label>
+          <div className="ob-review-tabs">
+            {entityTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={cn("ob-rtab", activeTab === tab.id && "is-active")}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+                <span className="ob-rtab-n">{counts[tab.id]}</span>
+              </button>
+            ))}
+            <span className="ob-review-filter">
+              <button
+                type="button"
+                className={cn("ob-toggle", needsReviewOnly && "is-on")}
+                onClick={() => setNeedsReviewOnly(!needsReviewOnly)}
+                aria-pressed={needsReviewOnly}
+              >
+                <span className="ob-toggle-track" />
+                Needs review only
+              </button>
+              {needsReviewCount > 0 ? <span className="ob-chip ob-chip--warn">{needsReviewCount}</span> : null}
+            </span>
           </div>
 
           <ERPDataGrid
             rows={rows}
             columns={columns}
-            height="min(62vh, 720px)"
+            height="min(58vh, 680px)"
             emptyMessage="No rows in this section."
             onCellValueChanged={handleCellValueChanged}
             rowClassRules={{
@@ -1334,153 +1329,145 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
               "bg-[var(--color-warning-soft)]": ({ data }) =>
                 data?.selected !== false && (data?.confidence ?? 1) < 0.7,
             }}
-            statusBarContent={
-              <>
-                <span>
-                  {rows.length} shown · <strong className="text-foreground">{needsReviewCount}</strong> need attention
-                </span>
-                {preview ? (
-                  <StatusLabel tone={preview.blockingIssueCount > 0 ? "danger" : preview.warningIssueCount > 0 ? "warning" : "success"}>
-                    {preview.blockingIssueCount} blocking · {preview.warningIssueCount} warnings
-                  </StatusLabel>
-                ) : null}
-              </>
-            }
           />
 
-          <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-(--space-4) border bg-card p-(--space-5)">
-            <div className="flex flex-wrap items-center gap-(--space-4)">
-              <label className="flex items-center gap-(--space-3) text-[length:var(--text-sm)]">
+          <div className="ob-review-footbar">
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 16 }}>
+              <label
+                className="ob-review-count"
+                style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+              >
                 <Checkbox checked={includeBoms} onCheckedChange={(value) => setIncludeBoms(value === true)} />
                 Create BOM revisions
               </label>
+              <span className="ob-review-count">
+                {rows.length} shown · <b>{needsReviewCount} need attention</b> ·{" "}
+                {preview?.blockingIssueCount ?? 0} blocking · {preview?.warningIssueCount ?? 0} warnings
+              </span>
               {paymentCanceled ? (
-                <span className="text-[length:var(--text-sm)] text-[var(--color-warning)]">
-                  Payment canceled — your data isn&apos;t imported yet. You can pay when you&apos;re ready.
+                <span className="ob-review-count" style={{ color: "var(--ob-amber)" }}>
+                  Payment canceled — your data isn&apos;t imported yet.
                 </span>
               ) : null}
-              {message ? <span className="text-[length:var(--text-sm)] text-muted-foreground">{message}</span> : null}
+              {message ? (
+                <span className="ob-review-count" style={{ color: "var(--ob-ink-soft)" }}>
+                  {message}
+                </span>
+              ) : null}
             </div>
-            <div className="flex gap-(--space-3)">
-              <Button
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
                 type="button"
-                variant="outline"
+                className="ob-btn ob-btn--quiet"
                 onClick={() => setRowsIncluded(rows.filter((row) => row.selected), false)}
                 disabled={!rows.some((row) => row.selected)}
               >
                 Reject selected
-              </Button>
-              <Button
+              </button>
+              <button
                 type="button"
-                variant="outline"
+                className="ob-btn ob-btn--ghost"
                 onClick={() => validateMutation.mutate()}
                 disabled={validateMutation.isPending}
               >
                 {dirty ? "Update preview" : "Revalidate"}
-              </Button>
-              <Button type="button" onClick={handleApproveClick} disabled={approveDisabled}>
+              </button>
+              <button type="button" className="ob-btn ob-btn--primary" onClick={handleApproveClick} disabled={approveDisabled}>
                 {planIntent === "paid"
                   ? "Approve & pay"
                   : overFreeLimit
                     ? "Approve & continue"
                     : `Approve ${approvedCount} & continue`}
-              </Button>
+              </button>
             </div>
           </div>
-
-          {preview?.issues.length ? (
-            <InsetPanel className="grid gap-(--space-2)">
-              {preview.issues.slice(0, 5).map((issue, index) => (
-                <p key={`${issue.message}-${index}`} className="text-[length:var(--text-sm)] text-muted-foreground">
-                  {issue.message}
-                </p>
-              ))}
-            </InsetPanel>
-          ) : null}
-        </main>
+        </div>
       ) : null}
 
       {flowStep === "connect" ? (
-        <main className="onboarding-flow-screen mx-auto grid w-full max-w-5xl flex-1 content-center gap-(--space-8) p-(--space-8)">
-          <div className="text-center">
-            <h2 className="text-[length:var(--text-2xl)] font-semibold leading-[var(--leading-tight)]">
-              Connect the tools you already use
-            </h2>
-            <p className="mt-(--space-3) text-[length:var(--text-sm)] text-muted-foreground">
-              Keep inventory and orders in sync automatically. Add these now or anytime later.
-            </p>
-          </div>
-          <div className="grid gap-(--space-5) md:grid-cols-3">
-            {integrationTiles.map(([name, purpose, live]) => (
-              <SurfacePanel key={name} className="grid gap-(--space-4)">
-                <span className="flex size-10 items-center justify-center border bg-muted">
-                  <HugeiconsIcon icon={DatabaseImportIcon} size={18} aria-hidden />
-                </span>
-                <div>
-                  <h3 className="font-semibold">{name}</h3>
-                  <p className="text-[length:var(--text-sm)] text-muted-foreground">{purpose}</p>
+        <div className="ob-scr ob-scr--center ob-scr--wide">
+          <div className="ob-scr-inner">
+            <div className="ob-scr-head">
+              <span className="ob-eyebrow">Integrations</span>
+              <h1 className="ob-scr-title">Connect the tools you already use</h1>
+              <p className="ob-scr-sub">
+                Keep inventory and orders in sync automatically. Add these now or anytime later.
+              </p>
+            </div>
+            <div className="ob-tool-grid">
+              {integrationTiles.map(([name, purpose, live]) => (
+                <div key={name} className={cn("ob-tool", !live && "is-soon")}>
+                  <span className="ob-tool-logo">{name.charAt(0)}</span>
+                  <div className="ob-tool-name">{name}</div>
+                  <div className="ob-tool-sub">{purpose}</div>
+                  {live ? (
+                    <div className="ob-tool-action">
+                      <button
+                        type="button"
+                        className="ob-btn ob-btn--ghost ob-btn--block"
+                        onClick={() => router.push("/settings/integrations")}
+                      >
+                        Connect
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="ob-tool-soon">Coming soon</div>
+                  )}
                 </div>
-                <Button
-                  type="button"
-                  variant={live ? "outline" : "ghost"}
-                  onClick={() => (live ? router.push("/settings/integrations") : undefined)}
-                  disabled={!live}
-                >
-                  {live ? "Connect" : "Coming soon"}
-                </Button>
-              </SurfacePanel>
-            ))}
+              ))}
+            </div>
+            <div className="ob-form-actions ob-form-actions--center">
+              <button type="button" className="ob-btn ob-btn--quiet" onClick={proceedToDone}>
+                Skip for now
+              </button>
+              <button type="button" className="ob-btn ob-btn--primary" onClick={proceedToDone}>
+                Continue <span className="ob-arr">→</span>
+              </button>
+            </div>
           </div>
-          <div className="flex justify-center gap-(--space-3)">
-            <Button type="button" variant="outline" onClick={proceedToDone}>
-              Skip for now
-            </Button>
-            <Button type="button" onClick={proceedToDone}>
-              Continue
-            </Button>
-          </div>
-        </main>
+        </div>
       ) : null}
 
       {flowStep === "done" ? (
-        <main className="onboarding-flow-screen mx-auto grid w-full max-w-2xl flex-1 content-center justify-items-center gap-(--space-8) p-(--space-8) text-center">
-          <span className="flex size-16 items-center justify-center border bg-card text-[var(--color-success)]">
-            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={28} aria-hidden />
-          </span>
-          <div>
-            <h2 className="text-[length:var(--text-2xl)] font-semibold leading-[var(--leading-tight)]">
-              Your workspace is ready
-            </h2>
-            <p className="mt-(--space-3) text-[length:var(--text-sm)] text-muted-foreground">
+        <div className="ob-scr ob-scr--center">
+          <div className="ob-done">
+            <span className="ob-done-mark">
+              <CheckGlyph />
+            </span>
+            <h1 className="ob-done-title">Your workspace is ready</h1>
+            <p className="ob-done-sub">
               Everything you dropped is in and organized. Here&apos;s the shape of it.
             </p>
-          </div>
-          <div className="grid w-full grid-cols-2 gap-(--space-4) md:grid-cols-4">
-            {[
-              ["items", commitSummary?.items ?? 0],
-              ["suppliers", commitSummary?.suppliers ?? 0],
-              ["customers", commitSummary?.customers ?? 0],
-              ["BOMs", commitSummary?.boms ?? 0],
-            ].map(([label, count]) => (
-              <SurfacePanel key={label} className="py-(--space-5)">
-                <div className="font-mono text-[length:var(--text-xl)] tabular-nums">{count}</div>
-                <div className="text-[length:var(--text-xs)] text-muted-foreground">{label}</div>
-              </SurfacePanel>
-            ))}
-          </div>
-          <Button type="button" onClick={enterWorkspace}>
-            Enter your workspace
-          </Button>
-          <div className="grid justify-items-center gap-(--space-3)">
-            <p className="text-[length:var(--text-sm)] text-muted-foreground">Next, you might want to:</p>
-            <div className="flex flex-wrap justify-center gap-(--space-3) text-[length:var(--text-xs)] text-muted-foreground">
-              <span className="border px-(--space-3) py-(--space-2)">Set reorder points</span>
-              <span className="border px-(--space-3) py-(--space-2)">Create a work order</span>
-              <span className="border px-(--space-3) py-(--space-2)">Invite more of the team</span>
+            <div className="ob-done-stats">
+              {(
+                [
+                  ["items", commitSummary?.items ?? 0],
+                  ["suppliers", commitSummary?.suppliers ?? 0],
+                  ["customers", commitSummary?.customers ?? 0],
+                  ["BOMs", commitSummary?.boms ?? 0],
+                ] as const
+              ).map(([label, count]) => (
+                <div key={label} className="ob-done-stat">
+                  <div className="ob-done-statn">{count}</div>
+                  <div className="ob-done-statl">{label}</div>
+                </div>
+              ))}
+            </div>
+            <button type="button" className="ob-btn ob-btn--primary ob-btn--lg" onClick={enterWorkspace}>
+              Enter your workspace <span className="ob-arr">→</span>
+            </button>
+            <div className="ob-done-next">
+              <span>Next, you might want to:</span>
+              <div className="ob-done-chips">
+                <span className="ob-done-chip">Set reorder points</span>
+                <span className="ob-done-chip">Create a work order</span>
+                <span className="ob-done-chip">Invite more of the team</span>
+              </div>
             </div>
           </div>
-        </main>
+        </div>
       ) : null}
+      </div>{/* ob-stage */}
 
       <Dialog
         open={approveDialog !== null}
@@ -1488,7 +1475,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
           if (!open) setApproveDialog(null);
         }}
       >
-        <DialogContent>
+        <DialogContent className={cn(onboardingFontVariables, "onboarding-flow-screen")}>
           {approveDialog === "pay" ? (
             <>
               <DialogHeader>

@@ -258,6 +258,23 @@ async function adjustLotTrackedStock(
       400
     );
   }
+
+  const replay = await beginInventoryOperationInTx<{ ok: true }>(tx, {
+    organizationId: orgId,
+    operationName: "adjustStock",
+    idempotencyKey,
+    payload: {
+      itemId,
+      reason,
+      note,
+      lots: adjustLots,
+    },
+  });
+
+  if (replay.replayed) {
+    return replay.result;
+  }
+
   if (newLotNumbers.length > 0) {
     const existingNumberRows = await tx
       .select({ lotNumber: lots.lotNumber })
@@ -333,22 +350,6 @@ async function adjustLotTrackedStock(
     if (missing) {
       return jsonNotFound("Lot not found for this item");
     }
-  }
-
-  const replay = await beginInventoryOperationInTx<{ ok: true }>(tx, {
-    organizationId: orgId,
-    operationName: "adjustStock",
-    idempotencyKey,
-    payload: {
-      itemId,
-      reason,
-      note,
-      lots: adjustLots,
-    },
-  });
-
-  if (replay.replayed) {
-    return replay.result;
   }
 
   // Mirror stocktake reconcile: the request idempotency key may be claimed by

@@ -2,14 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
 import { OnboardingAuthShell } from "@/components/onboarding-auth-shell"
 import { authClient } from "@/lib/auth-client"
 import { type BillingPlanIntent } from "@/lib/billing/plan-intent"
@@ -172,105 +164,89 @@ export function OrgSetupForm({
     <OnboardingAuthShell
       activeStep="workspace"
       plan={selectedPlan}
-      guideTitle="Tell us about your shop"
+      guideTitle={
+        <>
+          Tell us about
+          <br />
+          your operation
+        </>
+      }
       guideLines={[
-        "Just the basics.",
-        "This shapes your units, locations and defaults.",
-        "You can change it all later.",
+        "Just the basics about your shop.",
+        "This shapes your units, sites and defaults.",
+        "All of it is editable later.",
       ]}
       className={className}
       {...props}
     >
       {organizations.length === 1 ? (
-        <div className="grid gap-(--space-4)">
-          <div>
-            <h2 className="text-[length:var(--text-lg)] font-semibold leading-[var(--leading-lg)]">
-              Opening your organization
-            </h2>
-            <p className="mt-(--space-2) text-[length:var(--text-sm)] text-muted-foreground">
-              {organizations[0].name}
-            </p>
-          </div>
-          {error && (
-            <FieldDescription className="text-destructive">
-              {error}
-            </FieldDescription>
-          )}
-          {!error && (
-            <FieldDescription>
-              {activatingOrgId ? "Activating your workspace…" : "Preparing your workspace…"}
-            </FieldDescription>
-          )}
-        </div>
-      ) : organizations.length > 1 ? (
-        <div className="grid gap-(--space-5)">
-          <div>
-            <h2 className="text-[length:var(--text-lg)] font-semibold leading-[var(--leading-lg)]">
-              Choose your organization
-            </h2>
-            <p className="mt-(--space-2) text-[length:var(--text-sm)] text-muted-foreground">
-              We will continue onboarding in the workspace you select.
-            </p>
-          </div>
-          <FieldGroup>
-            {organizations.map((organization) => (
-              <Field key={organization.id}>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full justify-start"
-                  onClick={() => activateOrganization(organization.id)}
-                  disabled={loading || activatingOrgId != null}
-                >
-                  {activatingOrgId === organization.id
-                    ? `Opening ${organization.name}…`
-                    : organization.name}
-                </Button>
-              </Field>
-            ))}
-            {error && (
-              <FieldDescription className="text-destructive">
-                {error}
-              </FieldDescription>
+        <>
+          <h1 className="ob-form-title ob-stagger">Opening your organization</h1>
+          <p className="ob-form-sub ob-stagger">{organizations[0].name}</p>
+          <div className="ob-form-stack">
+            {error ? (
+              <p className="ob-form-error">{error}</p>
+            ) : (
+              <p className="ob-field-hint">
+                {activatingOrgId ? "Activating your workspace…" : "Preparing your workspace…"}
+              </p>
             )}
-          </FieldGroup>
-        </div>
-      ) : (
-        <div className="grid gap-(--space-5)">
-          <div>
-            <h2 className="text-[length:var(--text-lg)] font-semibold leading-[var(--leading-lg)]">
-              Create your organization
-            </h2>
-            <p className="mt-(--space-2) text-[length:var(--text-sm)] text-muted-foreground">
-              Use the company name customers and suppliers know.
-            </p>
           </div>
+        </>
+      ) : organizations.length > 1 ? (
+        <>
+          <h1 className="ob-form-title ob-stagger">Choose your organization</h1>
+          <p className="ob-form-sub ob-stagger">
+            We&apos;ll continue onboarding in the workspace you select.
+          </p>
+          <div className="ob-form-stack">
+            {organizations.map((organization) => (
+              <button
+                type="button"
+                key={organization.id}
+                className="ob-btn ob-btn--ghost ob-btn--block"
+                style={{ justifyContent: "flex-start" }}
+                onClick={() => activateOrganization(organization.id)}
+                disabled={loading || activatingOrgId != null}
+              >
+                {activatingOrgId === organization.id
+                  ? `Opening ${organization.name}…`
+                  : organization.name}
+              </button>
+            ))}
+            {error ? <p className="ob-form-error">{error}</p> : null}
+          </div>
+        </>
+      ) : (
+        <>
+          <h1 className="ob-form-title ob-stagger">Create your organization</h1>
+          <p className="ob-form-sub ob-stagger">
+            Use the company name your customers and suppliers know.
+          </p>
           <form onSubmit={handleSubmit}>
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="name">Organization name</FieldLabel>
-                <Input
-                  id="name"
+            <div className="ob-form-stack">
+              <label className="ob-field">
+                <span className="ob-field-label">Company name</span>
+                <input
+                  className="ob-input"
                   type="text"
-                  placeholder="Acme Corp"
+                  aria-label="Organization name"
+                  placeholder="High Plains Soil Co."
                   required
+                  autoFocus
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
-              </Field>
-              {error && (
-                <FieldDescription className="text-destructive">
-                  {error}
-                </FieldDescription>
-              )}
-              <Field>
-                <Button type="submit" disabled={loading} className="w-full">
-                  {loading ? "Creating..." : "Continue"}
-                </Button>
-              </Field>
-            </FieldGroup>
+              </label>
+              {error ? <p className="ob-form-error">{error}</p> : null}
+            </div>
+            <div className="ob-form-actions">
+              <button type="submit" className="ob-btn ob-btn--primary ob-btn--block" disabled={loading}>
+                {loading ? "Creating…" : "Continue"}
+              </button>
+            </div>
           </form>
-        </div>
+        </>
       )}
     </OnboardingAuthShell>
   )

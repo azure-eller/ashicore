@@ -1,3 +1,4 @@
+@import "./onboarding-flow.css";
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -468,4 +469,114 @@ html.dark [data-sidebar-bar] {
   .onboarding-guide-line {
     animation: none;
   }
+}
+
+/* ============================================================================
+   Onboarding design island — marketing-site look, scoped to the flow only.
+   `.onboarding-flow-screen` is the root class on every onboarding screen across
+   the (auth) sign-up phase and the (onboarding) import phase. Redefining the
+   shadcn semantic tokens here re-skins every reused component (Button, Input,
+   Select, Dialog, cards) without touching the rest of the app, which keeps its
+   stone palette + sharp corners. Colors mirror apps/www (oklch yellow + cool
+   grey); rounded corners and the Space Grotesk / Hanken / JetBrains type system
+   live here too. Bespoke structural pieces (dark rail, top bar, grid) read the
+   --ob-* helper tokens below.
+   ============================================================================ */
+.onboarding-flow-screen {
+  /* Neutrals (cool grey) */
+  --ob-bg: oklch(0.976 0.002 250);
+  --ob-bg-2: oklch(0.953 0.003 250);
+  --ob-surface: oklch(0.995 0.001 250);
+  --ob-ink: oklch(0.235 0.006 262);
+  --ob-ink-soft: oklch(0.455 0.006 262);
+  --ob-ink-faint: oklch(0.62 0.005 262);
+  --ob-line: oklch(0.888 0.004 258);
+  --ob-line-soft: oklch(0.928 0.003 258);
+
+  /* Dark "ground" — the sign-up rail */
+  --ob-ground: oklch(0.218 0.006 262);
+  --ob-ground-2: oklch(0.268 0.007 262);
+  --ob-on-ground: oklch(0.93 0.004 258);
+  --ob-on-ground-soft: oklch(0.735 0.005 260);
+  --ob-ground-line: oklch(0.335 0.008 262);
+
+  /* Accent — highlighter yellow + amber */
+  --ob-accent: oklch(0.865 0.165 96);
+  --ob-accent-ink: oklch(0.535 0.095 78);
+  --ob-accent-2: oklch(0.74 0.135 84);
+  --ob-accent-soft: oklch(0.955 0.05 98);
+  --ob-on-accent: oklch(0.26 0.03 96);
+
+  /* Functional status colors */
+  --ob-green: oklch(0.66 0.135 150);
+  --ob-green-bg: oklch(0.94 0.05 150);
+  --ob-amber: oklch(0.74 0.135 75);
+  --ob-amber-bg: oklch(0.96 0.06 80);
+  --ob-red: oklch(0.64 0.16 28);
+  --ob-red-bg: oklch(0.95 0.045 28);
+  --ob-blue: oklch(0.62 0.12 245);
+  --ob-violet: oklch(0.6 0.13 300);
+
+  /* Shape + elevation */
+  --ob-r-sm: 8px;
+  --ob-r-md: 14px;
+  --ob-r-lg: 22px;
+  --ob-r-xl: 32px;
+  --ob-shadow-sm: 0 1px 2px oklch(0.235 0.006 262 / 0.06);
+  --ob-shadow-md: 0 6px 20px oklch(0.235 0.006 262 / 0.08);
+  --ob-shadow-lg: 0 18px 48px oklch(0.235 0.006 262 / 0.12);
+  --ob-topbar-h: 64px;
+
+  /* Map shadcn semantic tokens onto the marketing palette (scoped). */
+  --background: var(--ob-bg);
+  --foreground: var(--ob-ink);
+  --card: var(--ob-surface);
+  --card-foreground: var(--ob-ink);
+  --popover: var(--ob-surface);
+  --popover-foreground: var(--ob-ink);
+  --primary: var(--ob-accent);
+  --primary-foreground: var(--ob-on-accent);
+  --secondary: var(--ob-bg-2);
+  --secondary-foreground: var(--ob-ink);
+  --muted: var(--ob-bg-2);
+  --muted-foreground: var(--ob-ink-soft);
+  --accent: var(--ob-accent-soft);
+  --accent-foreground: var(--ob-accent-ink);
+  --destructive: var(--ob-red);
+  --success: var(--ob-green);
+  --warning: var(--ob-amber);
+  --info: var(--ob-blue);
+  --border: var(--ob-line);
+  --input: var(--ob-line);
+  --ring: var(--ob-accent);
+
+  /* Rounded corners (the app proper stays sharp via --radius-none: 0). */
+  --radius-none: 12px;
+  --radius: 12px;
+  --radius-full: 9999px;
+
+  /* Marketing type system. */
+  --font-sans: var(--font-ob-body), "Hanken Grotesk", system-ui, sans-serif;
+  --font-display: var(--font-ob-display), "Space Grotesk", system-ui, sans-serif;
+  --font-mono: var(--font-ob-mono), "JetBrains Mono", ui-monospace, monospace;
+
+  background: var(--ob-bg);
+  color: var(--ob-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Mono eyebrow / step-label / metadata helper. */
+.onboarding-flow-screen .ob-mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ob-ink-faint);
+}
+
+/* Display headings inside the flow. */
+.onboarding-flow-screen .ob-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.03em;
 }
