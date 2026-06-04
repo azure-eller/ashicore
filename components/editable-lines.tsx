@@ -224,6 +224,8 @@ type MutableLinesProps<TData> = SharedLinesProps<TData> & {
   onAddRow?: () => TData | null | Promise<TData | null>;
   footerActions?: ReactNode;
   initializeBlankRow?: boolean;
+  enableDelete?: boolean;
+  enableReorder?: boolean;
 };
 
 export function MutableLines<TData>({
@@ -234,6 +236,8 @@ export function MutableLines<TData>({
   rowHeight,
   headerHeight,
   initializeBlankRow = true,
+  enableDelete = true,
+  enableReorder = true,
   isBlankRow: _isBlankRow,
   ...props
 }: MutableLinesProps<TData>) {
@@ -251,8 +255,8 @@ export function MutableLines<TData>({
       headerHeight={headerHeight}
       initializeBlankRow={initializeBlankRow}
       enableAddRow={!readOnly}
-      enableReorder={!readOnly}
-      enableDelete={!readOnly}
+      enableReorder={!readOnly && enableReorder}
+      enableDelete={!readOnly && enableDelete}
     />
   );
 }

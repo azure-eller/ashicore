@@ -12,6 +12,7 @@ export function getSettingsSections({
   showReports,
   showAddresses,
   showBilling,
+  showUnits,
 }: {
   showTeam: boolean;
   showAgentAccess: boolean;
@@ -20,6 +21,7 @@ export function getSettingsSections({
   showReports: boolean;
   showAddresses: boolean;
   showBilling: boolean;
+  showUnits: boolean;
 }): SettingsSection[] {
   const sections: SettingsSection[] = [
     { id: "account", title: "Account", href: "/settings/account" },
@@ -58,6 +60,14 @@ export function getSettingsSections({
       id: "addresses",
       title: "Addresses",
       href: "/settings/addresses",
+    });
+  }
+
+  if (showUnits) {
+    sections.push({
+      id: "units",
+      title: "Units",
+      href: "/settings/units",
     });
   }
 

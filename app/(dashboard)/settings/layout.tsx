@@ -30,6 +30,7 @@ export default async function SettingsLayout({
     hasModuleAccess(context.assignedRoles, "sales", "operate") ||
     hasModuleAccess(context.assignedRoles, "purchasing", "operate");
   const showAddresses = showTaxes;
+  const showUnits = hasModuleAccess(context.assignedRoles, "inventory", "admin");
   const sections = getSettingsSections({
     showTeam,
     showAgentAccess: showTeam,
@@ -38,6 +39,7 @@ export default async function SettingsLayout({
     showReports: showTeam,
     showAddresses,
     showBilling: showTeam,
+    showUnits,
   });
 
   return (

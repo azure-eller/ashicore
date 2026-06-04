@@ -16,7 +16,6 @@ import {
 import { VariantTable } from "@/components/card-page/variant-table";
 import { GenerateBarcodesButton } from "@/components/card-page/generate-barcodes-button";
 import { CategoryComboboxField } from "@/components/card-page/category-combobox-field";
-import styles from "@/components/card-page/card-page.module.css";
 import {
   type ItemCardDto,
   type CreateItemCardResult,
@@ -187,19 +186,16 @@ export function ProductGeneralInfoTab({
           </label>
         )}
 
-        {hasOptions ? (
-          <VariantTable
-            card={card}
-            focusItemId={focusItemId}
-            viewMode="product"
-            onVariantPatch={onVariantPatch}
-            onVariantReorder={onVariantReorder}
-            onCreateVariant={onCreateVariant}
-            onFocusedVariantDeleted={onFocusedVariantDeleted}
-          />
-        ) : (
-          <p className={styles.helper}>No variants yet.</p>
-        )}
+        <VariantTable
+          card={card}
+          focusItemId={focusItemId}
+          viewMode="product"
+          allowVariantRows={hasOptions}
+          onVariantPatch={onVariantPatch}
+          onVariantReorder={onVariantReorder}
+          onCreateVariant={onCreateVariant}
+          onFocusedVariantDeleted={onFocusedVariantDeleted}
+        />
       </CardSection>
     </>
   );

@@ -21,7 +21,12 @@ export {
   deleteItems,
   overrideMaterialCurrentStockUnitCost,
 } from "./queries/item-write";
-export { getUnitDefinitions, getCategories, createUnitDefinition } from "./queries/units";
+export {
+  getUnitDefinitions,
+  getCategories,
+  createUnitDefinition,
+  updateUnitDefinition,
+} from "./queries/units";
 export {
   getBomComponents,
   getBomRevisionHistory,

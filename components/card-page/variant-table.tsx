@@ -61,6 +61,7 @@ export type VariantTableProps = {
   onVariantReorder: (orderedVariantIds: string[]) => void;
   onCreateVariant: (input: CreateItemCardVariantInput) => Promise<CreateItemCardResult | null>;
   onFocusedVariantDeleted?: (nextVariantId: string) => void;
+  allowVariantRows?: boolean;
 };
 
 /**
@@ -636,6 +637,7 @@ export function VariantTable({
   onVariantReorder,
   onCreateVariant,
   onFocusedVariantDeleted,
+  allowVariantRows = true,
 }: VariantTableProps) {
   const activeOptions = useMemo(
     () => card.options.filter((option) => option.disabledAt == null),
@@ -975,10 +977,7 @@ export function VariantTable({
     viewMode,
   ]);
 
-  const addDisabledReason =
-    activeOptions.length === 0
-      ? "Open configuration before adding variant rows."
-      : null;
+  const canManageVariantRows = allowVariantRows && activeOptions.length > 0;
 
   return (
     <>
@@ -989,11 +988,11 @@ export function VariantTable({
         createRow={() => makeEmptyVariant(card)}
         onRowsChange={handleRowsChange}
         addLabel="Add row"
-        enableAddRow
-        enableReorder
-        enableDelete={activeOptions.length > 0}
+        enableAddRow={canManageVariantRows}
+        enableReorder={canManageVariantRows}
+        enableDelete={canManageVariantRows}
         initializeBlankRow={false}
-        emptyMessage="No variants yet. Open configuration to add some."
+        emptyMessage="No item rows yet."
         canDeleteRow={(_row, currentRows) => currentRows.length > 1}
         getDeleteDisabledReason={(_row, currentRows) =>
           currentRows.length <= 1 ? "At least one variant is required." : null
@@ -1005,7 +1004,6 @@ export function VariantTable({
           }
           setConfirmDeleteVariant(row);
         }}
-        addDisabledReason={addDisabledReason}
         rowHasError={(row) => row.duplicateCombinationWarnings.length > 0}
       />
 

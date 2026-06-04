@@ -2402,6 +2402,28 @@ export async function createUnitDefinition(
   });
 }
 
+export async function updateUnitDefinition(
+  unitId: string,
+  data: InsertUnitDefinition,
+): Promise<{ id: string; name: string; size: string; uom: string }> {
+  return withAuthedOrgContext(async (tx) => {
+    const [row] = await tx
+      .update(unitDefinitions)
+      .set(data)
+      .where(and(eq(unitDefinitions.id, unitId), isNull(unitDefinitions.deletedAt)))
+      .returning({
+        id: unitDefinitions.id,
+        name: unitDefinitions.name,
+        size: trimScale(unitDefinitions.size).as("size"),
+        uom: unitDefinitions.uom,
+      });
+    if (!row) {
+      throw new InventoryError("Unit not found.", 404);
+    }
+    return row;
+  });
+}
+
 export async function getBomComponents(itemId: string) {
   return withAuthedOrgContext(async (tx) => {
     const rows = await getCurrentBomComponentsInTx(tx, itemId);

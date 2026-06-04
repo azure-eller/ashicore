@@ -1,3 +1,8 @@
 import "server-only";
 
-export { getUnitDefinitions, getCategories, createUnitDefinition } from "./internal";
+export {
+  getUnitDefinitions,
+  getCategories,
+  createUnitDefinition,
+  updateUnitDefinition,
+} from "./internal";
