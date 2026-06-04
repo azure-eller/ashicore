@@ -9,6 +9,7 @@ import {
   manufacturingOrderOperationCosts,
   manufacturingOrderOutputs,
   manufacturingOrders,
+  manufacturingResources,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { getItemDisplayNamesByIdInTx } from "@/lib/inventory/item-display";
@@ -22,7 +23,7 @@ export type ProducedTodayOperationResource = {
 /**
  * One manufacturing order's total output recorded during the org's *current
  * calendar day*. The Android "Done today" hero aggregates these by product and
- * filters by crew (via the same operationResources/category derivation the order
+ * filters by crew (via the same active operationResources derivation the order
  * list uses), so quantities reflect production events — not whether the MO has
  * reached `done`. Mirrors the daily-manufacturing report's window + output sum.
  */
@@ -115,12 +116,19 @@ export async function getProducedTodayOrders(
     const resourceRows = await tx
       .select({
         manufacturingOrderId: manufacturingOrderOperationCosts.manufacturingOrderId,
-        resourceId: manufacturingOrderOperationCosts.resourceId,
-        resourceName: manufacturingOrderOperationCosts.resourceName,
-        resourceType: manufacturingOrderOperationCosts.resourceType,
+        resourceId: manufacturingResources.id,
+        resourceName: manufacturingResources.name,
+        resourceType: manufacturingResources.resourceType,
         sortOrder: manufacturingOrderOperationCosts.sortOrder,
       })
       .from(manufacturingOrderOperationCosts)
+      .innerJoin(
+        manufacturingResources,
+        and(
+          eq(manufacturingOrderOperationCosts.resourceId, manufacturingResources.id),
+          isNull(manufacturingResources.deletedAt)
+        )
+      )
       .where(
         inArray(manufacturingOrderOperationCosts.manufacturingOrderId, orderIds)
       )

@@ -31,6 +31,7 @@ import {
   manufacturingOrderIngredients,
   manufacturingOrders,
   manufacturingPickAllocations,
+  manufacturingResources,
   organization,
   salesOrderLines,
   salesOrders,
@@ -3462,12 +3463,19 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
           .select({
             manufacturingOrderId:
               manufacturingOrderOperationCosts.manufacturingOrderId,
-            resourceId: manufacturingOrderOperationCosts.resourceId,
-            resourceName: manufacturingOrderOperationCosts.resourceName,
-            resourceType: manufacturingOrderOperationCosts.resourceType,
+            resourceId: manufacturingResources.id,
+            resourceName: manufacturingResources.name,
+            resourceType: manufacturingResources.resourceType,
             sortOrder: manufacturingOrderOperationCosts.sortOrder,
           })
           .from(manufacturingOrderOperationCosts)
+          .innerJoin(
+            manufacturingResources,
+            and(
+              eq(manufacturingOrderOperationCosts.resourceId, manufacturingResources.id),
+              isNull(manufacturingResources.deletedAt)
+            )
+          )
           .where(
             inArray(manufacturingOrderOperationCosts.manufacturingOrderId, orderIds)
           )

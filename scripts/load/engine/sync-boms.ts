@@ -3,6 +3,7 @@ import {
   bomRevisionComponentAlternates,
   bomRevisionComponentConstraints,
   bomRevisionComponents,
+  bomRevisionOperationCosts,
   bomRevisions,
   items,
   unitDefinitions,
@@ -292,6 +293,34 @@ export async function createLoaderBomRevisionInTx(
 
   if (alternateValues.length > 0) {
     await tx.insert(bomRevisionComponentAlternates).values(alternateValues);
+  }
+
+  if (currentRevision) {
+    const operationRows = await tx
+      .select({
+        resourceId: bomRevisionOperationCosts.resourceId,
+        operationName: bomRevisionOperationCosts.operationName,
+        resourceName: bomRevisionOperationCosts.resourceName,
+        resourceType: bomRevisionOperationCosts.resourceType,
+        costScalingMode: bomRevisionOperationCosts.costScalingMode,
+        crewSize: bomRevisionOperationCosts.crewSize,
+        plannedMinutes: bomRevisionOperationCosts.plannedMinutes,
+        loadedCostPerHour: bomRevisionOperationCosts.loadedCostPerHour,
+        plannedCostTotal: bomRevisionOperationCosts.plannedCostTotal,
+        sortOrder: bomRevisionOperationCosts.sortOrder,
+      })
+      .from(bomRevisionOperationCosts)
+      .where(eq(bomRevisionOperationCosts.bomRevisionId, currentRevision.id))
+      .orderBy(bomRevisionOperationCosts.sortOrder);
+
+    if (operationRows.length > 0) {
+      await tx.insert(bomRevisionOperationCosts).values(
+        operationRows.map((row) => ({
+          bomRevisionId: revision.id,
+          ...row,
+        }))
+      );
+    }
   }
 }
 
