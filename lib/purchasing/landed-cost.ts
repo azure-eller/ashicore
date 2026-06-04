@@ -39,7 +39,6 @@ export type LandedCostSummary = {
 export function calculatePurchaseOrderLandedCosts(params: {
   lines: LandedCostLineInput[];
   additionalCosts?: LandedCostAdditionalCostInput[];
-  legacyShippingCost?: string | number | null | undefined;
 }): LandedCostSummary {
   const lineBases = params.lines.map((line) => {
     const quantityOrdered = parsePositiveNumber(line.quantityOrdered);
@@ -62,17 +61,13 @@ export function calculatePurchaseOrderLandedCosts(params: {
     0
   );
   const additionalCosts = params.additionalCosts ?? [];
-  const legacyShippingCost =
-    additionalCosts.length === 0
-      ? parseNonNegativeNumber(params.legacyShippingCost) ?? 0
-      : 0;
   const additionalCostTotal = additionalCosts.reduce((sum, cost) => {
     return sum + (parseNonNegativeNumber(cost.amount) ?? 0);
-  }, legacyShippingCost);
+  }, 0);
   const distributedAdditionalCostTotal = additionalCosts.reduce((sum, cost) => {
     if (cost.distributionMethod !== "by_value") return sum;
     return sum + (parseNonNegativeNumber(cost.amount) ?? 0);
-  }, legacyShippingCost);
+  }, 0);
 
   const lines = lineBases.map((line) => {
     const allocatedAdditionalCost =

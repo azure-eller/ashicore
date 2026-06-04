@@ -604,22 +604,7 @@ async function getPurchaseOrderAdditionalCostsInTx(
 function normalizeAdditionalCostInputs(
   payload: PurchaseOrderPayload | UpdatePurchaseOrder,
 ) {
-  const rows = [...(payload.additionalCosts ?? [])];
-  const legacyShippingCost = Number(payload.shippingCost ?? "0");
-  if (
-    rows.length === 0 &&
-    Number.isFinite(legacyShippingCost) &&
-    legacyShippingCost > 0
-  ) {
-    rows.push({
-      costType: "shipping",
-      reference: null,
-      distributionMethod: "by_value",
-      accountingPurchaseAccountCode: null,
-      amount: normalizeNumeric(legacyShippingCost),
-    });
-  }
-  return rows;
+  return [...(payload.additionalCosts ?? [])];
 }
 
 async function preparePurchaseOrderPayload(
@@ -1288,7 +1273,6 @@ export async function getPurchaseOrder(
         purchaseToStockFactor: line.purchaseToStockFactor,
       })),
       additionalCosts,
-      legacyShippingCost: order.shippingCost,
     });
 
     return {
@@ -2723,7 +2707,6 @@ export async function receivePurchaseOrder(
         purchaseToStockFactor: line.purchaseToStockFactor,
       })),
       additionalCosts,
-      legacyShippingCost: order.shippingCost,
     });
     const landedStockUnitCostByLineId = new Map(
       finalLines.map((line, index) => [

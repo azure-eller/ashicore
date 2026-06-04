@@ -4,6 +4,7 @@ import {
   inventoryEvents,
   inventoryExpectedSummary,
   inventoryItemBalances,
+  purchaseOrderAdditionalCosts,
   purchaseOrderLines,
   purchaseOrders,
 } from "../../../lib/db/schema";
@@ -14,6 +15,7 @@ import {
   getUnitId,
   receivePurchaseOrder,
   submitPurchaseOrder,
+  testFetch,
 } from "../../helpers/api";
 
 test.describe("purchasing supply and receipt heartbeat", () => {
@@ -143,5 +145,90 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       .from(purchaseOrders)
       .where(eq(purchaseOrders.id, order.body.id));
     expect(savedOrder.status).toBe("received");
+  });
+
+  test("purchase order edit clears additional costs explicitly", async ({ db }) => {
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Cost Clear Material ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-COST-CLEAR-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+
+    const supplier = await createSupplier({ name: `Fast Cost Clear Supplier ${ts}` });
+    expect(supplier.status).toBe(201);
+
+    const createResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-07",
+        notes: null,
+        lines: [
+          {
+            itemId: material.body.id,
+            quantityOrdered: "1",
+            unitCost: "10.00",
+          },
+        ],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Freight",
+            distributionMethod: "by_value",
+            accountingPurchaseAccountCode: null,
+            amount: "12.00",
+          },
+        ],
+      }),
+    });
+    const order = await createResponse.json();
+    expect(createResponse.status).toBe(201);
+
+    const updateResponse = await testFetch(`/api/purchase-orders/${order.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-07",
+        shippingCost: "12.00",
+        notes: null,
+        accountingPurchaseAccountCode: null,
+        lines: [
+          {
+            itemId: material.body.id,
+            quantityOrdered: "1",
+            unitCost: "10.00",
+          },
+        ],
+        additionalCosts: [],
+      }),
+    });
+    expect(updateResponse.status, await updateResponse.text()).toBe(200);
+
+    const costs = await db
+      .select({ id: purchaseOrderAdditionalCosts.id })
+      .from(purchaseOrderAdditionalCosts)
+      .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, order.id));
+    expect(costs).toHaveLength(0);
+
+    const [savedOrder] = await db
+      .select({
+        shippingCost: purchaseOrders.shippingCost,
+        totalAmount: purchaseOrders.totalAmount,
+      })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, order.id));
+    expect(savedOrder).toMatchObject({
+      shippingCost: "0.0000",
+      totalAmount: "10.0000",
+    });
   });
 });

@@ -996,9 +996,9 @@ export function PurchaseOrderCard({
       {
         op: {
           type: "patch",
-          patch: existing.reduce<Partial<PurchaseOrderFormValues>>(
+          patch: [...existing, next].reduce<Partial<PurchaseOrderFormValues>>(
             (patch, queued) => ({ ...patch, ...queued.op.patch }),
-            next.op.patch,
+            {},
           ),
         },
         revision: next.revision,
@@ -1081,7 +1081,6 @@ export function PurchaseOrderCard({
   }, [additionalCostGridRows.length, additionalCostsExpanded]);
 
   const watchedSupplierId = draftValues.supplierId;
-  const watchedShippingCost = draftValues.shippingCost;
   const watchedAdditionalCosts = draftValues.additionalCosts;
   const watchedAdditionalInfo = draftValues.notes;
   const additionalCostRows = watchedAdditionalCosts ?? [];
@@ -1097,9 +1096,8 @@ export function PurchaseOrderCard({
               : null) ?? "1",
         })),
         additionalCosts: watchedAdditionalCosts ?? [],
-        legacyShippingCost: watchedShippingCost,
       }),
-    [lineGridRows, materialMap, watchedAdditionalCosts, watchedShippingCost],
+    [lineGridRows, materialMap, watchedAdditionalCosts],
   );
   const landedCostByRowId = useMemo(() => {
     return new Map(
@@ -1661,6 +1659,7 @@ export function PurchaseOrderCard({
   const statusMutation = useMutation({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "status"],
     mutationFn: async (status: PurchaseOrderStatus) => {
+      await purchaseOrderEngine.flush();
       if (!savedOrderId) throw new Error("Save the purchase order first.");
       const response = await fetch(
         `/api/purchase-orders/${savedOrderId}/status`,
@@ -1691,6 +1690,7 @@ export function PurchaseOrderCard({
   const purchaseBillMutation = useMutation({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "purchase-bill"],
     mutationFn: async (values: PurchaseBillDialogValues) => {
+      await purchaseOrderEngine.flush();
       if (!savedOrderId) throw new Error("Save the purchase order first.");
       const response = await fetch(
         `/api/purchase-orders/${savedOrderId}/accounting-bill`,
@@ -1740,6 +1740,7 @@ export function PurchaseOrderCard({
   const purchaseOrderEmailMutation = useMutation({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "email"],
     mutationFn: async () => {
+      await purchaseOrderEngine.flush();
       if (!savedOrderId) throw new Error("Save the purchase order first.");
       if (displayStatus === "draft") {
         const statusResponse = await fetch(
