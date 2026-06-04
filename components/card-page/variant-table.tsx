@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -34,10 +34,10 @@ import { Spinner } from "@/components/ui/spinner";
 import { CardField } from "@/components/card-page/card-field";
 import {
   addInitialStock,
+  createItemCardVariant,
   deleteVariant,
-  generateVariants,
-  previewVariantGeneration,
   type AddInitialStockInput,
+  type CreateItemCardVariantInput,
   type ItemCardDto,
   type ItemCardVariantDto,
   type VariantOptionDto,
@@ -128,7 +128,9 @@ function NumericMoneyCell({
 
 function makeEmptyVariant(card: ItemCardDto): ItemCardVariantDto {
   return {
-    id: "__empty__",
+    id: `__draft_variant_${
+      globalThis.crypto?.randomUUID?.() ?? `${Date.now()}_${Math.random()}`
+    }`,
     familyId: card.family.id,
     name: "",
     displayName: "",
@@ -150,6 +152,10 @@ function makeEmptyVariant(card: ItemCardDto): ItemCardVariantDto {
     sortOrder: 0,
     sellable: card.family.itemType === "product",
   };
+}
+
+function isDraftVariant(row: ItemCardVariantDto) {
+  return row.id.startsWith("__draft_variant_");
 }
 
 function StockQuantityAdjustmentDialog({
@@ -566,6 +572,25 @@ function buildVariantOptionPatch(
   return { optionValueIdsByOptionId };
 }
 
+function buildVariantCreateInput(
+  row: ItemCardVariantDto,
+  activeOptions: VariantOptionDto[],
+): CreateItemCardVariantInput | null {
+  const optionPatch = buildVariantOptionPatch(row, activeOptions);
+  if (!optionPatch?.optionValueIdsByOptionId) return null;
+  return {
+    optionValueIdsByOptionId: optionPatch.optionValueIdsByOptionId,
+    sku: row.sku,
+    registeredBarcode: row.registeredBarcode,
+    internalBarcode: row.internalBarcode,
+    supplierItemCode: row.supplierItemCode,
+    defaultLeadTimeDays: row.defaultLeadTimeDays,
+    minimumOrderQuantity: row.minimumOrderQuantity,
+    defaultSellingPrice: row.defaultSellingPrice,
+    sellable: row.sellable,
+  };
+}
+
 function replaceVariantOptionValue(
   row: ItemCardVariantDto,
   option: VariantOptionDto,
@@ -627,7 +652,10 @@ export function VariantTable({
   const [lastSynced, setLastSynced] = useState(visibleVariants);
   if (lastSynced !== visibleVariants) {
     setLastSynced(visibleVariants);
-    setRows(visibleVariants);
+    setRows((currentRows) => [
+      ...visibleVariants,
+      ...currentRows.filter(isDraftVariant),
+    ]);
   }
 
   const queryClient = useQueryClient();
@@ -638,6 +666,7 @@ export function VariantTable({
     nextQuantity: string;
     previousQuantity: string;
   } | null>(null);
+  const creatingDraftIdsRef = useRef(new Set<string>());
 
   const deleteMutation = useMutation({
     mutationKey: ["item-card-action", mutationItemId, "variant-delete"],
@@ -654,27 +683,33 @@ export function VariantTable({
     },
   });
 
-  const previewQuery = useQuery({
-    queryKey: ["item-card", mutationItemId, "variants-preview"],
-    queryFn: () => previewVariantGeneration(mutationItemId),
-    enabled: visibleVariants.length > 0 && activeOptions.length > 0,
-  });
-
-  const addVariantMutation = useMutation({
-    mutationKey: ["item-card-action", mutationItemId, "variant-add-row"],
-    mutationFn: async () => {
-      const focusItemId = visibleVariants[0]?.id;
-      if (!focusItemId) return null;
-      const preview = await previewVariantGeneration(focusItemId);
-      const nextCombination = preview.missingCombinations.at(-1);
-      if (!nextCombination) return null;
-      await generateVariants(focusItemId, {
-        combinations: [nextCombination.optionValueIdsByOptionId],
-      });
-      return null;
+  const createVariantMutation = useMutation({
+    mutationKey: ["item-card-action", mutationItemId, "variant-create-row"],
+    mutationFn: async ({
+      input,
+    }: {
+      tempId: string;
+      input: CreateItemCardVariantInput;
+    }) => {
+      const sourceItemId = visibleVariants[0]?.id;
+      if (!sourceItemId) return null;
+      return createItemCardVariant(sourceItemId, input);
     },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+    onSuccess: (result, variables) => {
+      if (!result) return;
+      for (const variant of result.card.variants) {
+        queryClient.setQueryData(["item-card", variant.id], result.card);
+      }
+      const serverRows = result.card.variants.filter((variant) => variant.deletedAt == null);
+      setRows((currentRows) => [
+        ...serverRows,
+        ...currentRows.filter(
+          (row) => isDraftVariant(row) && row.id !== variables.tempId,
+        ),
+      ]);
+    },
+    onSettled: (_result, _error, variables) => {
+      creatingDraftIdsRef.current.delete(variables.tempId);
     },
   });
 
@@ -699,10 +734,18 @@ export function VariantTable({
         : change.field
           ? buildVariantPatch(change.field, change.newValue)
           : null;
+      if (isDraftVariant(change.row)) {
+        if (creatingDraftIdsRef.current.has(change.row.id)) return;
+        const input = buildVariantCreateInput(change.row, activeOptions);
+        if (!input) return;
+        creatingDraftIdsRef.current.add(change.row.id);
+        createVariantMutation.mutate({ tempId: change.row.id, input });
+        return;
+      }
       if (!payload) return;
       onVariantPatch(change.row.id, payload);
     },
-    [activeOptions, onVariantPatch, onVariantReorder],
+    [activeOptions, createVariantMutation, onVariantPatch, onVariantReorder],
   );
 
   const columns = useMemo<ColDef<ItemCardVariantDto>[]>(() => {
@@ -946,13 +989,7 @@ export function VariantTable({
   const addDisabledReason =
     activeOptions.length === 0
       ? "Open configuration before adding variant rows."
-      : previewQuery.isLoading
-        ? "Checking variant combinations."
-        : addVariantMutation.isPending
-          ? "Adding variant row."
-          : (previewQuery.data?.missingCount ?? 0) <= 0
-            ? "All configured variant combinations already exist."
-            : null;
+      : null;
 
   return (
     <>
@@ -960,7 +997,7 @@ export function VariantTable({
         rows={rows}
         columns={columns}
         getRowId={(row) => row.id}
-        createRow={() => ({ ...(visibleVariants[0] ?? makeEmptyVariant(card)) })}
+        createRow={() => makeEmptyVariant(card)}
         onRowsChange={handleRowsChange}
         addLabel="Add row"
         enableAddRow
@@ -972,8 +1009,13 @@ export function VariantTable({
         getDeleteDisabledReason={(_row, currentRows) =>
           currentRows.length <= 1 ? "At least one variant is required." : null
         }
-        onDeleteRow={(row) => setConfirmDeleteVariant(row)}
-        onAddRow={() => addVariantMutation.mutateAsync()}
+        onDeleteRow={(row) => {
+          if (isDraftVariant(row)) {
+            setRows((currentRows) => currentRows.filter((current) => current.id !== row.id));
+            return;
+          }
+          setConfirmDeleteVariant(row);
+        }}
         addDisabledReason={addDisabledReason}
         rowHasError={(row) => row.duplicateCombinationWarnings.length > 0}
       />

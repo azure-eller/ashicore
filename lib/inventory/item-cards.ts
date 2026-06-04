@@ -237,6 +237,10 @@ export const itemCardVariantUpdateSchema = z.object({
     .optional(),
 });
 
+export const itemCardVariantCreateSchema = itemCardVariantUpdateSchema.extend({
+  optionValueIdsByOptionId: z.record(z.string().uuid(), z.string().uuid()),
+});
+
 export const generateVariantsSchema = z.object({
   combinations: z
     .array(z.record(z.string().uuid(), z.string().uuid()))
@@ -1385,6 +1389,9 @@ export async function updateItemCardVariantInTx(
       .select({
         id: variantOptionValues.id,
         optionId: variantOptionValues.optionId,
+        optionCode: variantOptions.code,
+        optionSortOrder: variantOptions.sortOrder,
+        valueCode: variantOptionValues.code,
       })
       .from(variantOptionValues)
       .innerJoin(variantOptions, eq(variantOptionValues.optionId, variantOptions.id))
@@ -1425,6 +1432,160 @@ export async function updateItemCardVariantInTx(
     result,
   });
   return result;
+}
+
+export async function createItemCardVariant(
+  sourceItemId: string,
+  data: z.infer<typeof itemCardVariantCreateSchema>,
+  options?: { idempotencyKey?: string | null },
+) {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const replay = await beginInventoryOperationInTx<{
+      itemId: string;
+      card: ItemCardDto;
+    }>(tx, {
+      organizationId: orgId,
+      operationName: "createItemCardVariant",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { sourceItemId, data },
+    });
+    if (replay.replayed) return replay.result;
+
+    const [source] = await tx
+      .select()
+      .from(items)
+      .where(and(eq(items.id, sourceItemId), isNull(items.deletedAt)))
+      .for("update");
+    if (!source?.familyId) throw new ItemCardError("Item card not found", 404);
+
+    await tx
+      .select({ id: itemFamilies.id })
+      .from(itemFamilies)
+      .where(and(eq(itemFamilies.id, source.familyId), isNull(itemFamilies.deletedAt)))
+      .for("update");
+
+    const activeOptions = await tx
+      .select({
+        id: variantOptions.id,
+        name: variantOptions.name,
+      })
+      .from(variantOptions)
+      .where(
+        and(
+          eq(variantOptions.familyId, source.familyId),
+          isNull(variantOptions.disabledAt),
+        ),
+      )
+      .orderBy(asc(variantOptions.sortOrder), asc(variantOptions.name));
+
+    if (activeOptions.length === 0) {
+      throw new ItemCardError("This item card has no active variant options");
+    }
+
+    const activeOptionIds = new Set(activeOptions.map((option) => option.id));
+    const submittedEntries = Object.entries(data.optionValueIdsByOptionId);
+    if (
+      submittedEntries.length !== activeOptions.length ||
+      submittedEntries.some(([optionId]) => !activeOptionIds.has(optionId))
+    ) {
+      throw new ItemCardError("Select one value for every active variant option");
+    }
+
+    const selectedValueIds = submittedEntries.map(([, valueId]) => valueId);
+    const selectedValues = await tx
+      .select({
+        id: variantOptionValues.id,
+        optionId: variantOptionValues.optionId,
+        optionCode: variantOptions.code,
+        optionSortOrder: variantOptions.sortOrder,
+        valueCode: variantOptionValues.code,
+      })
+      .from(variantOptionValues)
+      .innerJoin(variantOptions, eq(variantOptionValues.optionId, variantOptions.id))
+      .where(
+        and(
+          eq(variantOptions.familyId, source.familyId),
+          isNull(variantOptionValues.disabledAt),
+          inArray(variantOptionValues.id, selectedValueIds),
+        ),
+      );
+    const selectedValueByOption = new Map(
+      selectedValues.map((value) => [value.optionId, value.id]),
+    );
+
+    for (const [optionId, valueId] of submittedEntries) {
+      if (selectedValueByOption.get(optionId) !== valueId) {
+        throw new ItemCardError("Variant option value is not valid for this card");
+      }
+    }
+    const selectedParts = selectedValues.map((value) => ({
+      optionCode: value.optionCode,
+      optionSortOrder: value.optionSortOrder,
+      valueCode: value.valueCode,
+    }));
+
+    await assertCanCreateSkuInTx(tx, orgId);
+
+    const [maxSortOrderRow] = await tx
+      .select({ value: sql<number>`COALESCE(MAX(${items.sortOrder}), -1)::int` })
+      .from(items)
+      .where(eq(items.familyId, source.familyId));
+    const now = new Date();
+    const [variant] = await tx
+      .insert(items)
+      .values({
+        organizationId: orgId,
+        familyId: source.familyId,
+        optionCombinationKey: buildCombinationKey(selectedParts),
+        name: source.name,
+        description: source.description,
+        sku: data.sku ?? null,
+        category: source.category,
+        itemType: source.itemType,
+        unitDefinitionId: source.unitDefinitionId,
+        purchaseUnitDefinitionId: source.purchaseUnitDefinitionId,
+        purchaseToStockFactor: source.purchaseToStockFactor,
+        safetyStock: data.safetyStock ?? source.safetyStock,
+        defaultPurchasePrice: data.defaultPurchasePrice ?? source.defaultPurchasePrice,
+        currentStockUnitCost: data.currentStockUnitCost ?? source.currentStockUnitCost,
+        defaultSellingPrice: data.defaultSellingPrice ?? source.defaultSellingPrice,
+        sellable: data.sellable ?? source.sellable,
+        manufacturingMode: source.manufacturingMode,
+        expectedBatchYield: source.expectedBatchYield,
+        typicalBatchSize: source.typicalBatchSize,
+        standardCostQuantity: source.standardCostQuantity,
+        supplierItemCode: data.supplierItemCode ?? null,
+        defaultLeadTimeDays: data.defaultLeadTimeDays ?? source.defaultLeadTimeDays,
+        minimumOrderQuantity: data.minimumOrderQuantity ?? source.minimumOrderQuantity,
+        sortOrder: Number(maxSortOrderRow?.value ?? -1) + 1,
+        registeredBarcode: data.registeredBarcode ?? null,
+        internalBarcode: data.internalBarcode ?? null,
+        updatedAt: now,
+      })
+      .returning({ id: items.id });
+
+    await tx.insert(itemVariantValues).values(
+      submittedEntries.map(([optionId, optionValueId]) => ({
+        organizationId: orgId,
+        itemId: variant.id,
+        optionId,
+        optionValueId,
+        updatedAt: now,
+      })),
+    );
+    await recomputeVariantKeysInTx(tx, source.familyId);
+
+    const result = {
+      itemId: variant.id,
+      card: await getItemCardInTx(tx, variant.id),
+    };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+    return result;
+  });
 }
 
 export async function updateItemCardSellable(

@@ -1194,17 +1194,15 @@ test.describe("inventory mutation kernel heartbeat", () => {
     await expect(page).not.toHaveURL(new RegExp(`variant=${deletedVariant.id}`));
   });
 
-  test("variant add row uses the latest configured missing combination", async ({
-    page,
-  }) => {
+  test("manual variant row creation accepts duplicate option combinations", async () => {
     const unique = randomUUID().slice(0, 8);
     const product = await createItem({
       itemType: "product",
-      name: `Fast Variant Add Gap ${unique}`,
+      name: `Fast Manual Variant Row ${unique}`,
       sellable: true,
       unitDefinitionId: unitId,
-      sku: `FAST-VARIANT-GAP-${unique}`,
-      category: `Fast Variant Gap ${unique}`,
+      sku: `FAST-MANUAL-VARIANT-${unique}`,
+      category: `Fast Manual Variant Row ${unique}`,
       description: null,
       defaultPurchasePrice: null,
       defaultSellingPrice: "15.00",
@@ -1244,50 +1242,38 @@ test.describe("inventory mutation kernel heartbeat", () => {
       name: string;
       values: Array<{ id: string; label: string }>;
     };
-    const deletedVariant = card.variants.find(
-      (variant: { id: string; optionValues: Array<{ valueLabel: string }> }) =>
+    const duplicateValue = option.values.find((value) => value.label === "1 ct");
+    expect(duplicateValue?.id).toBeTruthy();
+
+    const createDuplicateResponse = await testFetch(`/api/item-cards/${itemId}/variant`, {
+      method: "POST",
+      body: JSON.stringify({
+        optionValueIdsByOptionId: {
+          [option.id]: duplicateValue!.id,
+        },
+        sku: `FAST-MANUAL-VARIANT-DUP-${unique}`,
+      }),
+    });
+    expect(createDuplicateResponse.status).toBe(201);
+
+    const updatedCardResponse = await testFetch(`/api/item-cards/${itemId}`);
+    expect(updatedCardResponse.status).toBe(200);
+    const updatedCard = await updatedCardResponse.json();
+    const activeVariants = updatedCard.variants.filter(
+      (variant: { deletedAt: string | null }) => variant.deletedAt == null,
+    );
+    const duplicates = activeVariants.filter(
+      (variant: { optionValues: Array<{ valueLabel: string }> }) =>
         variant.optionValues.some((value) => value.valueLabel === "1 ct"),
     );
-    const remainingVariant = card.variants.find(
-      (variant: { id: string; optionValues: Array<{ valueLabel: string }> }) =>
-        variant.optionValues.some((value) => value.valueLabel === "2 ct"),
-    );
-    expect(deletedVariant?.id).toBeTruthy();
-    expect(remainingVariant?.id).toBeTruthy();
-
-    const deleteResponse = await testFetch(`/api/items/${deletedVariant.id}`, {
-      method: "DELETE",
-      body: JSON.stringify({}),
-    });
-    expect(deleteResponse.status).toBe(200);
-
-    const expandedConfigResponse = await testFetch(
-      `/api/item-cards/${remainingVariant.id}/variant-config`,
-      {
-        method: "PUT",
-        body: JSON.stringify({
-          options: [
-            {
-              id: option.id,
-              name: option.name,
-              values: [
-                ...option.values.map((value) => ({
-                  id: value.id,
-                  label: value.label,
-                })),
-                { label: "3 ct" },
-              ],
-            },
-          ],
-        }),
-      },
-    );
-    expect(expandedConfigResponse.status).toBe(200);
-
-    await page.goto(`/inventory/products/${remainingVariant.id}`);
-    await page.getByRole("button", { name: "Add row" }).click();
-    await expect(page.locator(".ag-row").filter({ hasText: "3 ct" })).toHaveCount(1);
-    await expect(page.locator(".ag-row").filter({ hasText: "1 ct" })).toHaveCount(0);
+    expect(activeVariants).toHaveLength(3);
+    expect(duplicates).toHaveLength(2);
+    expect(
+      duplicates.every(
+        (variant: { duplicateCombinationWarnings: unknown[] }) =>
+          variant.duplicateCombinationWarnings.length > 0,
+      ),
+    ).toBe(true);
   });
 
   test("billing entitlements count every item row and Core state controls the cap", async ({
