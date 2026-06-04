@@ -34,9 +34,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { CardField } from "@/components/card-page/card-field";
 import {
   addInitialStock,
-  createItemCardVariant,
   deleteVariant,
   type AddInitialStockInput,
+  type CreateItemCardResult,
   type CreateItemCardVariantInput,
   type ItemCardDto,
   type ItemCardVariantDto,
@@ -59,7 +59,7 @@ export type VariantTableProps = {
   viewMode: "product" | "material";
   onVariantPatch: (variantId: string, patch: UpdateItemCardVariantInput) => void;
   onVariantReorder: (orderedVariantIds: string[]) => void;
-  onVariantCreated?: (card: ItemCardDto, variantId: string) => void;
+  onCreateVariant: (input: CreateItemCardVariantInput) => Promise<CreateItemCardResult | null>;
   onFocusedVariantDeleted?: (nextVariantId: string) => void;
 };
 
@@ -634,7 +634,7 @@ export function VariantTable({
   viewMode,
   onVariantPatch,
   onVariantReorder,
-  onVariantCreated,
+  onCreateVariant,
   onFocusedVariantDeleted,
 }: VariantTableProps) {
   const activeOptions = useMemo(
@@ -685,37 +685,6 @@ export function VariantTable({
     },
   });
 
-  const createVariantMutation = useMutation({
-    mutationKey: ["item-card-action", mutationItemId, "variant-create-row"],
-    mutationFn: async ({
-      input,
-    }: {
-      tempId: string;
-      input: CreateItemCardVariantInput;
-    }) => {
-      const sourceItemId = visibleVariants[0]?.id;
-      if (!sourceItemId) return null;
-      return createItemCardVariant(sourceItemId, input);
-    },
-    onSuccess: (result, variables) => {
-      if (!result) return;
-      for (const variant of result.card.variants) {
-        queryClient.setQueryData(["item-card", variant.id], result.card);
-      }
-      const serverRows = result.card.variants.filter((variant) => variant.deletedAt == null);
-      setRows((currentRows) => [
-        ...serverRows,
-        ...currentRows.filter(
-          (row) => isDraftVariant(row) && row.id !== variables.tempId,
-        ),
-      ]);
-      onVariantCreated?.(result.card, result.itemId);
-    },
-    onSettled: (_result, _error, variables) => {
-      creatingDraftIdsRef.current.delete(variables.tempId);
-    },
-  });
-
   const handleRowsChange = useCallback(
     (next: ItemCardVariantDto[], change: EditableLineDataGridChange<ItemCardVariantDto>) => {
       setRows(next);
@@ -741,14 +710,31 @@ export function VariantTable({
         if (creatingDraftIdsRef.current.has(change.row.id)) return;
         const input = buildVariantCreateInput(change.row, activeOptions);
         if (!input) return;
-        creatingDraftIdsRef.current.add(change.row.id);
-        createVariantMutation.mutate({ tempId: change.row.id, input });
+        const tempId = change.row.id;
+        creatingDraftIdsRef.current.add(tempId);
+        void onCreateVariant(input)
+          .then((result) => {
+            if (!result) return;
+            const serverRows = result.card.variants.filter(
+              (variant) => variant.deletedAt == null,
+            );
+            setRows((currentRows) => [
+              ...serverRows,
+              ...currentRows.filter(
+                (row) => isDraftVariant(row) && row.id !== tempId,
+              ),
+            ]);
+          })
+          .catch(() => undefined)
+          .finally(() => {
+            creatingDraftIdsRef.current.delete(tempId);
+          });
         return;
       }
       if (!payload) return;
       onVariantPatch(change.row.id, payload);
     },
-    [activeOptions, createVariantMutation, onVariantPatch, onVariantReorder],
+    [activeOptions, onCreateVariant, onVariantPatch, onVariantReorder],
   );
 
   const columns = useMemo<ColDef<ItemCardVariantDto>[]>(() => {

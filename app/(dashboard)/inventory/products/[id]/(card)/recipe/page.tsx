@@ -59,7 +59,6 @@ export default async function ProductRecipePage({
   return (
     <ProductRecipeTab
       key={`${focusItemId}:${currentRevision?.id ?? "none"}`}
-      card={card}
       focusItemId={focusItemId}
       initialBomRows={bomRows.map((row) => ({
         componentId: row.componentId,

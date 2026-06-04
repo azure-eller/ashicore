@@ -13,6 +13,7 @@ import {
   cloneItemCard,
   deleteItemCard,
   getItemCard,
+  type CreateItemCardVariantInput,
   type ItemCardDto,
 } from "@/lib/api/clients/item-cards";
 import { getAverageIngredientsCost } from "@/lib/inventory/item-card-metrics";
@@ -20,7 +21,7 @@ import { type CardSaveState } from "@/components/card-page/card-save-status";
 import { VariantConfigurationDialog } from "@/components/card-page/variant-configuration-dialog";
 import { ProductGeneralInfoTab } from "./tabs/general-info";
 import { useItemCardDraftController } from "@/components/card-page/use-item-card-draft-controller";
-import { ItemCardFocusProvider } from "@/components/card-page/item-card-focus-context";
+import { ItemCardProvider } from "@/components/card-page/item-card-focus-context";
 
 export type ProductCardTab = "general" | "recipe" | "production" | "lots";
 
@@ -83,7 +84,7 @@ export function ProductCard({
     return () => window.removeEventListener("popstate", handlePopState);
   }, [setFocusedItemId]);
   const isDraft = !controller.hasPersistedEntity;
-  const { mergeServerCard } = controller;
+  const { createVariant, mergeServerCard } = controller;
   const actionSaveStatus = useCardSaveStatus(currentItemId ?? "__draft__");
 
   const cardQuery = useQuery({
@@ -193,21 +194,14 @@ export function ProductCard({
       router.push(productCardHrefForTab(result.itemId, getProductCardTabFromPath(pathname)));
     },
   });
-  const handleVariantCreated = useCallback(
-    (nextCard: ItemCardDto, variantId: string) => {
-      mergeServerCard(nextCard);
-      setFocusedItemId(variantId);
-      for (const variant of nextCard.variants) {
-        queryClient.setQueryData(["item-card", variant.id], nextCard);
-      }
-      if (currentItemId) {
-        queryClient.setQueryData(["item-card", currentItemId], nextCard);
-      }
-      router.refresh();
+  const handleCreateVariant = useCallback(
+    async (input: CreateItemCardVariantInput) => {
+      const result = await createVariant(input);
+      if (result) setFocusedItemId(result.itemId);
+      return result;
     },
-    [currentItemId, mergeServerCard, queryClient, router, setFocusedItemId],
+    [createVariant, setFocusedItemId],
   );
-
   const tabs: CardTab[] = useMemo(
     () => {
       const tabItemId = currentItemId;
@@ -282,12 +276,14 @@ export function ProductCard({
     controller.error ??
     actionSaveStatus.errorMessage ??
     (cloneCardMutation.error instanceof Error ? cloneCardMutation.error.message : null);
-  const focusContextValue = useMemo(
+  const cardContextValue = useMemo(
     () => ({
+      card,
+      controller,
       focusedItemId: resolvedFocusedItemId ?? currentItemId,
       setFocusedItemId,
     }),
-    [currentItemId, resolvedFocusedItemId, setFocusedItemId],
+    [card, controller, currentItemId, resolvedFocusedItemId, setFocusedItemId],
   );
 
   return (
@@ -323,7 +319,7 @@ export function ProductCard({
         ]}
       />
 
-      <ItemCardFocusProvider value={focusContextValue}>
+      <ItemCardProvider value={cardContextValue}>
         <CardTabs
           tabs={tabs}
           defaultTab="general"
@@ -345,7 +341,7 @@ export function ProductCard({
               onSellableChange={controller.setSellable}
               onVariantPatch={controller.patchVariant}
               onVariantReorder={controller.reorderVariants}
-              onVariantCreated={handleVariantCreated}
+              onCreateVariant={handleCreateVariant}
               onFocusedVariantDeleted={(nextVariantId) => {
                 setFocusedItemId(nextVariantId);
                 router.replace(`/inventory/products/${nextVariantId}`, { scroll: false });
@@ -359,7 +355,7 @@ export function ProductCard({
             children
           )}
         </CardTabs>
-      </ItemCardFocusProvider>
+      </ItemCardProvider>
 
       {isDraft ? null : (
         <>

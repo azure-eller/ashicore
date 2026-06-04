@@ -15,7 +15,7 @@ import { CardSection } from "@/components/card-page/card-page";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
-import { useItemCardFocus } from "@/components/card-page/item-card-focus-context";
+import { useItemCardContext } from "@/components/card-page/item-card-focus-context";
 import {
   toBomRevisionPayloadRows,
   type BomPayloadRow,
@@ -27,7 +27,6 @@ import {
 import {
   getProductProductionTabPayload,
   saveBomRevision,
-  type ItemCardDto,
   type ProductProductionTabPayload,
 } from "@/lib/api/clients/item-cards";
 import { pushCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
@@ -41,7 +40,6 @@ type ManufacturingResourceOption = {
 };
 
 export type ProductOperationsTabProps = {
-  card: ItemCardDto;
   focusItemId: string;
   currentBomRows: BomPayloadRow[];
   currentBomOutputQuantity: string;
@@ -62,7 +60,6 @@ function isBlankOperationCost(row: OperationCostPayloadRow) {
 }
 
 export function ProductOperationsTab({
-  card,
   focusItemId,
   currentBomRows,
   currentBomOutputQuantity,
@@ -74,12 +71,13 @@ export function ProductOperationsTab({
   standardCostQuantity,
 }: ProductOperationsTabProps) {
   const queryClient = useQueryClient();
+  const itemCard = useItemCardContext();
+  const card = itemCard.card;
   const visibleVariants = useMemo(
     () => card.variants.filter((variant) => variant.deletedAt == null),
     [card.variants],
   );
-  const focusContext = useItemCardFocus();
-  const activeFocusItemId = focusContext?.focusedItemId ?? focusItemId;
+  const activeFocusItemId = itemCard.focusedItemId ?? focusItemId;
   const activeVariant =
     visibleVariants.find((variant) => variant.id === activeFocusItemId) ??
     visibleVariants[0] ??
@@ -156,7 +154,7 @@ export function ProductOperationsTab({
     }
     setDirty(false);
     setLoadingVariantId(nextVariantId);
-    focusContext?.setFocusedItemId(nextVariantId);
+    itemCard.setFocusedItemId(nextVariantId);
     pushCardUrlWithoutNavigation(
       `/inventory/products/${focusItemId}/production?variant=${encodeURIComponent(nextVariantId)}`,
     );

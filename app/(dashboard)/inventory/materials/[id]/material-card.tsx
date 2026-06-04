@@ -13,6 +13,7 @@ import {
   cloneItemCard,
   deleteItemCard,
   getItemCard,
+  type CreateItemCardVariantInput,
   type ItemCardDto,
 } from "@/lib/api/clients/item-cards";
 import { getAverageIngredientsCost } from "@/lib/inventory/item-card-metrics";
@@ -63,7 +64,7 @@ export function MaterialCard({
   });
   const currentItemId = controller.currentItemId;
   const isDraft = !controller.hasPersistedEntity;
-  const { mergeServerCard } = controller;
+  const { createVariant, mergeServerCard } = controller;
   const actionSaveStatus = useCardSaveStatus(currentItemId ?? "__draft__");
 
   const cardQuery = useQuery({
@@ -105,20 +106,16 @@ export function MaterialCard({
       router.push(`/inventory/materials/${result.itemId}`);
     },
   });
-  const handleVariantCreated = useCallback(
-    (nextCard: ItemCardDto, variantId: string) => {
-      mergeServerCard(nextCard);
-      for (const variant of nextCard.variants) {
-        queryClient.setQueryData(["item-card", variant.id], nextCard);
+  const handleCreateVariant = useCallback(
+    async (input: CreateItemCardVariantInput) => {
+      const result = await createVariant(input);
+      if (result) {
+        router.replace(`/inventory/materials/${result.itemId}`, { scroll: false });
       }
-      if (currentItemId) {
-        queryClient.setQueryData(["item-card", currentItemId], nextCard);
-      }
-      router.replace(`/inventory/materials/${variantId}`, { scroll: false });
+      return result;
     },
-    [currentItemId, mergeServerCard, queryClient, router],
+    [createVariant, router],
   );
-
   const tabs: CardTab[] = useMemo(
     () => {
       const nextTabs: CardTab[] = [
@@ -232,7 +229,7 @@ export function MaterialCard({
               onFamilyCommit={controller.commitFamily}
               onVariantPatch={controller.patchVariant}
               onVariantReorder={controller.reorderVariants}
-              onVariantCreated={handleVariantCreated}
+              onCreateVariant={handleCreateVariant}
               onFocusedVariantDeleted={(nextVariantId) =>
                 router.replace(`/inventory/materials/${nextVariantId}`, { scroll: false })
               }

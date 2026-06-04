@@ -46,7 +46,6 @@ export default async function ProductProductionPage({
   return (
     <ProductOperationsTab
       key={`${focusItemId}:${currentRevision?.id ?? "none"}`}
-      card={card}
       focusItemId={focusItemId}
       currentBomOutputQuantity={currentRevision?.outputQuantity ?? "1"}
       currentRecipeBasis={currentRevision?.recipeBasis === "batch" ? "batch" : "unit"}

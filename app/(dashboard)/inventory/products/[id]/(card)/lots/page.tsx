@@ -22,7 +22,6 @@ export default async function ProductLotsPage({
 
   return (
     <LotGridTab
-      card={card}
       focusItemId={id}
       lots={lots}
       unitLabel={card.family.unitName}

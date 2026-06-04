@@ -19,6 +19,8 @@ import { CategoryComboboxField } from "@/components/card-page/category-combobox-
 import styles from "@/components/card-page/card-page.module.css";
 import {
   type ItemCardDto,
+  type CreateItemCardResult,
+  type CreateItemCardVariantInput,
   type UpdateItemCardVariantInput,
   type UpdateItemCardInput,
 } from "@/lib/api/clients/item-cards";
@@ -35,7 +37,7 @@ export type MaterialGeneralInfoTabProps = {
   onFamilyCommit: (patch?: DraftFamilyPatch) => void;
   onVariantPatch: (variantId: string, patch: UpdateItemCardVariantInput) => void;
   onVariantReorder: (orderedVariantIds: string[]) => void;
-  onVariantCreated: (card: ItemCardDto, variantId: string) => void;
+  onCreateVariant: (input: CreateItemCardVariantInput) => Promise<CreateItemCardResult | null>;
   onFocusedVariantDeleted: (nextVariantId: string) => void;
   onFlush: () => Promise<void>;
   variantsEnabled: boolean;
@@ -52,7 +54,7 @@ export function MaterialGeneralInfoTab({
   onFamilyCommit,
   onVariantPatch,
   onVariantReorder,
-  onVariantCreated,
+  onCreateVariant,
   onFocusedVariantDeleted,
   onFlush,
   variantsEnabled,
@@ -174,7 +176,7 @@ export function MaterialGeneralInfoTab({
             viewMode="material"
             onVariantPatch={onVariantPatch}
             onVariantReorder={onVariantReorder}
-            onVariantCreated={onVariantCreated}
+            onCreateVariant={onCreateVariant}
             onFocusedVariantDeleted={onFocusedVariantDeleted}
           />
         ) : (

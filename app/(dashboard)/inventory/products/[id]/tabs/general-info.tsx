@@ -19,6 +19,8 @@ import { CategoryComboboxField } from "@/components/card-page/category-combobox-
 import styles from "@/components/card-page/card-page.module.css";
 import {
   type ItemCardDto,
+  type CreateItemCardResult,
+  type CreateItemCardVariantInput,
   type UpdateItemCardVariantInput,
   type UpdateItemCardInput,
 } from "@/lib/api/clients/item-cards";
@@ -36,7 +38,7 @@ export type ProductGeneralInfoTabProps = {
   onSellableChange: (sellable: boolean) => void;
   onVariantPatch: (variantId: string, patch: UpdateItemCardVariantInput) => void;
   onVariantReorder: (orderedVariantIds: string[]) => void;
-  onVariantCreated: (card: ItemCardDto, variantId: string) => void;
+  onCreateVariant: (input: CreateItemCardVariantInput) => Promise<CreateItemCardResult | null>;
   onFocusedVariantDeleted: (nextVariantId: string) => void;
   onFlush: () => Promise<void>;
   variantsEnabled: boolean;
@@ -54,7 +56,7 @@ export function ProductGeneralInfoTab({
   onSellableChange,
   onVariantPatch,
   onVariantReorder,
-  onVariantCreated,
+  onCreateVariant,
   onFocusedVariantDeleted,
   onFlush,
   variantsEnabled,
@@ -192,7 +194,7 @@ export function ProductGeneralInfoTab({
             viewMode="product"
             onVariantPatch={onVariantPatch}
             onVariantReorder={onVariantReorder}
-            onVariantCreated={onVariantCreated}
+            onCreateVariant={onCreateVariant}
             onFocusedVariantDeleted={onFocusedVariantDeleted}
           />
         ) : (

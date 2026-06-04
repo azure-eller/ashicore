@@ -35,6 +35,7 @@ import {
 } from "@/lib/format";
 import { isNonNegativeNumberString } from "@/lib/schemas/shared";
 import type { ItemCardDto } from "@/lib/api/clients/item-cards";
+import { useOptionalItemCardContext } from "@/components/card-page/item-card-focus-context";
 import styles from "./card-page.module.css";
 
 export type CardLotRow = {
@@ -57,7 +58,7 @@ export type CardLotRow = {
 };
 
 export type LotGridTabProps = {
-  card: ItemCardDto;
+  card?: ItemCardDto;
   focusItemId: string;
   lots: CardLotRow[];
   unitLabel?: string | null;
@@ -151,11 +152,16 @@ function AllocationsCell({ data }: ICellRendererParams<CardLotRow>) {
 }
 
 export function LotGridTab({
-  card,
+  card: cardProp,
   focusItemId,
   lots,
 }: LotGridTabProps) {
   const router = useRouter();
+  const cardContext = useOptionalItemCardContext();
+  const card = cardContext?.card ?? cardProp;
+  if (!card) {
+    throw new Error("LotGridTab requires a card prop or ItemCardProvider");
+  }
   const visibleVariants = useMemo(
     () => card.variants.filter((variant) => variant.deletedAt == null),
     [card.variants],

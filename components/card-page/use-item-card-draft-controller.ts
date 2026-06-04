@@ -4,10 +4,13 @@ import { useCallback, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   createItemCard,
+  createItemCardVariant,
   updateItemCard,
   updateItemCardSellable,
   updateItemCardVariant,
   reorderItemCardVariants,
+  type CreateItemCardResult,
+  type CreateItemCardVariantInput,
   type ItemCardDto,
   type ItemCardVariantDto,
   type UpdateItemCardInput,
@@ -40,6 +43,7 @@ export type ItemCardDraftController = {
     patch: UpdateItemCardVariantInput,
     delayMs?: number,
   ) => void;
+  createVariant: (input: CreateItemCardVariantInput) => Promise<CreateItemCardResult | null>;
   reorderVariants: (orderedVariantIds: string[]) => void;
   mergeServerCard: (card: ItemCardDto) => void;
   flush: () => Promise<void>;
@@ -135,6 +139,9 @@ export function useItemCardDraftController({
   const onResult = useCallback(
     (result: ItemCardSaveResult, draft: ItemCardDto) => {
       queryClient.setQueryData(["item-card", result.itemId], draft);
+      for (const variant of draft.variants) {
+        queryClient.setQueryData(["item-card", variant.id], draft);
+      }
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: ["item-cards"] }),
         queryClient.invalidateQueries({ queryKey: ["items"] }),
@@ -197,6 +204,21 @@ export function useItemCardDraftController({
         applyLocalOp({ type: "patchVariant", variantId, patch }, delayMs);
       },
       [applyLocalOp],
+    ),
+    createVariant: useCallback(
+      async (input) => {
+        await flush();
+        const sourceItemId =
+          engine.currentId ??
+          engine.draft.variants.find((variant) => variant.deletedAt == null)?.id ??
+          engine.draft.variants[0]?.id ??
+          null;
+        if (!sourceItemId) return null;
+        const result = await createItemCardVariant(sourceItemId, input);
+        mergeServerResult(result);
+        return result;
+      },
+      [engine.currentId, engine.draft.variants, flush, mergeServerResult],
     ),
     reorderVariants: useCallback(
       (orderedVariantIds) => {

@@ -28,7 +28,7 @@ import { CardSection } from "@/components/card-page/card-page";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
-import { useItemCardFocus } from "@/components/card-page/item-card-focus-context";
+import { useItemCardContext } from "@/components/card-page/item-card-focus-context";
 import {
   BomEditor,
   toBomRevisionPayloadRows,
@@ -37,7 +37,6 @@ import {
 import {
   getProductRecipeTabPayload,
   saveBomRevision,
-  type ItemCardDto,
   type ProductRecipeTabPayload,
 } from "@/lib/api/clients/item-cards";
 import { pushCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
@@ -56,7 +55,6 @@ type AvailableComponent = {
 };
 
 export type ProductRecipeTabProps = {
-  card: ItemCardDto;
   focusItemId: string;
   initialBomRows: BomPayloadRow[];
   initialBomRevisionId: string | null;
@@ -70,7 +68,6 @@ export type ProductRecipeTabProps = {
 };
 
 export function ProductRecipeTab({
-  card,
   focusItemId,
   initialBomRows,
   initialBomRevisionId,
@@ -83,12 +80,13 @@ export function ProductRecipeTab({
   canEditProduct,
 }: ProductRecipeTabProps) {
   const queryClient = useQueryClient();
+  const itemCard = useItemCardContext();
+  const card = itemCard.card;
   const visibleVariants = useMemo(
     () => card.variants.filter((variant) => variant.deletedAt == null),
     [card.variants],
   );
-  const focusContext = useItemCardFocus();
-  const activeFocusItemId = focusContext?.focusedItemId ?? focusItemId;
+  const activeFocusItemId = itemCard.focusedItemId ?? focusItemId;
   const activeVariant =
     visibleVariants.find((variant) => variant.id === activeFocusItemId) ?? visibleVariants[0];
 
@@ -225,7 +223,7 @@ export function ProductRecipeTab({
     }
     setDirty(false);
     setLoadingVariantId(nextVariantId);
-    focusContext?.setFocusedItemId(nextVariantId);
+    itemCard.setFocusedItemId(nextVariantId);
     pushCardUrlWithoutNavigation(
       `/inventory/products/${focusItemId}/recipe?variant=${encodeURIComponent(nextVariantId)}`,
     );
