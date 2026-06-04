@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
@@ -25,6 +26,11 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
       input.note,
       { idempotencyKey },
     );
+    for (const row of result.copied) {
+      revalidatePath(`/inventory/products/${row.id}`);
+      revalidatePath(`/inventory/products/${row.id}/recipe`);
+      revalidatePath(`/inventory/products/${row.id}/production`);
+    }
     return NextResponse.json({
       revisions: result.copied.map((row) => ({
         variantId: row.id,

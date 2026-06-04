@@ -245,8 +245,17 @@ function getRequirementSummary(row: BomGridRow | undefined) {
   return summarizeComponentRequirements(lotAgeConstraint ? [lotAgeConstraint] : []);
 }
 
-function RequirementsCell(params: ICellRendererParams<BomGridRow>) {
-  const { data, node } = params;
+function RequirementsCell({
+  data,
+  rows,
+  emitRowsChange,
+}: ICellRendererParams<BomGridRow> & {
+  rows: BomGridRow[];
+  emitRowsChange: (
+    nextRows: BomGridRow[],
+    change: EditableLineDataGridChange<BomGridRow>,
+  ) => void;
+}) {
   const currentDays = normalizeMinimumLotAge(data?.minimumLotAgeDays);
   const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(Boolean(currentDays));
@@ -359,10 +368,26 @@ function RequirementsCell(params: ICellRendererParams<BomGridRow>) {
             size="sm"
             disabled={hasDayError}
             onClick={() => {
-              node.setDataValue(
-                "minimumLotAgeDays",
-                enabled ? normalizeMinimumLotAge(draftDays) : null
+              const nextValue = enabled ? normalizeMinimumLotAge(draftDays) : null;
+              if (nextValue === normalizeMinimumLotAge(data.minimumLotAgeDays)) {
+                setOpen(false);
+                return;
+              }
+              const nextRows = rows.map((row) =>
+                row.clientRowId === data.clientRowId
+                  ? { ...row, minimumLotAgeDays: nextValue }
+                  : row
               );
+              const nextRow = nextRows.find(
+                (row) => row.clientRowId === data.clientRowId
+              );
+              emitRowsChange(nextRows, {
+                type: "cell_edit_committed",
+                field: "minimumLotAgeDays",
+                colId: "minimumLotAgeDays",
+                row: nextRow,
+                rows: nextRows,
+              });
               setOpen(false);
             }}
           >
@@ -655,7 +680,13 @@ export function BomEditor({
         headerName: "Requirements",
         minWidth: 136,
         flex: 0.65,
-        cellRenderer: RequirementsCell,
+        cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
+          <RequirementsCell
+            {...params}
+            rows={rows}
+            emitRowsChange={emitRowsChange}
+          />
+        ),
         cellClassRules: {
           "erp-editable-grid-cell-error": hasError("minimumLotAgeDays"),
         },
@@ -688,8 +719,10 @@ export function BomEditor({
       componentMap,
       componentOptions,
       errorTooltip,
+      emitRowsChange,
       hasError,
       quantityHeader,
+      rows,
     ]
   );
 

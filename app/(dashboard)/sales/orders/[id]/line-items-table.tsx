@@ -185,10 +185,10 @@ export function LineItemsTable({
         headerName: "Price per unit",
         rightAligned: true,
         width: 130,
-        editable: false,
+        editable,
         mono: true,
-        valueGetter: ({ data }) => data ? lineDisplayUnitPrice(data, itemMap) : null,
         valueFormatter: ({ value }) => formatPrice(String(value ?? "0")) ?? "—",
+        valueSetter: numericSetter("unitPrice", (value) => value > 0),
       },
       {
         colId: "discountPercent",
@@ -647,22 +647,6 @@ function lineBaseUnitPrice(
   const itemBasePrice = line.listUnitPrice ?? itemMap.get(line.itemId)?.defaultSellingPrice;
   const parsed = itemBasePrice == null ? NaN : Number(itemBasePrice);
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function lineDisplayUnitPrice(
-  line: SalesOrderDetailLine,
-  itemMap: Map<string, SalesOrderItemOption>,
-) {
-  const baseUnitPrice = lineBaseUnitPrice(line, itemMap);
-  const unitPrice = Number(line.unitPrice);
-  if (
-    baseUnitPrice != null &&
-    Number.isFinite(unitPrice) &&
-    baseUnitPrice > unitPrice
-  ) {
-    return baseUnitPrice;
-  }
-  return line.unitPrice;
 }
 
 function lineDiscountPercent(

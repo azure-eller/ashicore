@@ -119,7 +119,7 @@ export function ProductCard({
     mutationFn: () => cloneItemCard(currentItemId as string),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["item-cards"] });
-      router.push(`/inventory/products/${result.itemId}`);
+      router.push(productCardHrefForTab(result.itemId, getProductCardTabFromPath(pathname)));
     },
   });
 
@@ -281,4 +281,11 @@ function getProductCardTabFromPath(pathname: string): ProductCardTab {
   if (pathname.endsWith("/production")) return "production";
   if (pathname.endsWith("/lots")) return "lots";
   return "general";
+}
+
+function productCardHrefForTab(itemId: string, tab: ProductCardTab) {
+  if (tab === "recipe") return `/inventory/products/${itemId}/recipe`;
+  if (tab === "production") return `/inventory/products/${itemId}/production`;
+  if (tab === "lots") return `/inventory/products/${itemId}/lots`;
+  return `/inventory/products/${itemId}`;
 }

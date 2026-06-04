@@ -107,7 +107,7 @@ async function createPurchasingReadOnlyCookie() {
     .set({ activeOrganizationId: getOrgId(), updatedAt: new Date() })
     .where(eq(authSession.token, token!));
 
-  return cookie!;
+  return { cookie: cookie!, userId: createdUser.id };
 }
 
 async function testFetchWithCookie(
@@ -554,17 +554,21 @@ test.describe("Xero purchase bill gates", () => {
   });
 
   test("requires purchasing write access", async () => {
-    const cookie = await createPurchasingReadOnlyCookie();
+    const limitedUser = await createPurchasingReadOnlyCookie();
 
-    const response = await testFetchWithCookie(
-      cookie,
-      "/api/purchase-orders/not-a-real-id/accounting-bill",
-      { method: "POST", body: JSON.stringify(billPayload()) },
-    );
-    const body = await response.json();
+    try {
+      const response = await testFetchWithCookie(
+        limitedUser.cookie,
+        "/api/purchase-orders/not-a-real-id/accounting-bill",
+        { method: "POST", body: JSON.stringify(billPayload()) },
+      );
+      const body = await response.json();
 
-    expect(response.status).toBe(403);
-    expect(body.error).toBe("You do not have permission to update purchasing.");
+      expect(response.status).toBe(403);
+      expect(body.error).toBe("You do not have permission to update purchasing.");
+    } finally {
+      await authDb.delete(user).where(eq(user.id, limitedUser.userId));
+    }
   });
 
   test("QuickBooks bill sync rejects taxable purchase orders before external API", async ({

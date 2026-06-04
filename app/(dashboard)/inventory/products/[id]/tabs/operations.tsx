@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -71,7 +71,10 @@ export function ProductOperationsTab({
 }: ProductOperationsTabProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const visibleVariants = card.variants.filter((variant) => variant.deletedAt == null);
+  const visibleVariants = useMemo(
+    () => card.variants.filter((variant) => variant.deletedAt == null),
+    [card.variants],
+  );
   const activeVariant =
     visibleVariants.find((variant) => variant.id === focusItemId) ?? visibleVariants[0] ?? null;
   const [rows, setRows] = useState<OperationCostPayloadRow[]>(initialOperationCosts);
@@ -116,6 +119,14 @@ export function ProductOperationsTab({
     }
     router.push(`/inventory/products/${nextVariantId}/production`);
   };
+
+  useEffect(() => {
+    for (const variant of visibleVariants) {
+      if (variant.id !== focusItemId) {
+        router.prefetch(`/inventory/products/${variant.id}/production`);
+      }
+    }
+  }, [focusItemId, router, visibleVariants]);
 
   return (
     <CardSection title="Production">

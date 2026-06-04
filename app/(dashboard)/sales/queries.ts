@@ -6024,6 +6024,7 @@ export async function createSalesOrder(
       orgId,
       data.orderNumber
     );
+    await lockSalesPriorityQueueInTx(tx, orgId);
     const [order] = await tx
       .insert(salesOrders)
       .values({
@@ -6617,6 +6618,7 @@ export async function shipSalesOrder(
       };
     }
 
+    await lockSalesPriorityQueueInTx(tx, orgId);
     const order = await getLockedSalesOrderInTx(tx, id);
 
     if (!order) {
@@ -7651,6 +7653,7 @@ export async function deleteSalesOrder(
       return replay.result;
     }
 
+    await lockSalesPriorityQueueInTx(tx, orgId);
     const order = await getLockedSalesOrderInTx(tx, id);
 
     if (!order) {
@@ -7738,6 +7741,7 @@ export async function deleteSalesOrders(
 
     const uniqueIds = [...new Set(ids)];
 
+    await lockSalesPriorityQueueInTx(tx, orgId);
 	    const orders = await tx
       .select({
         id: salesOrders.id,

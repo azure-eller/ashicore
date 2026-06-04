@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -87,6 +88,7 @@ function DialogBody({
   activeVariant: ItemCardVariantDto;
   siblings: ItemCardVariantDto[];
 }) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const otherVariants = siblings.filter(
     (variant) => variant.deletedAt == null && variant.id !== activeVariant.id,
@@ -118,13 +120,14 @@ function DialogBody({
         : copyOperationsFromVariant(activeVariant.id, input);
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: ["item-card", activeVariant.familyId],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["bom-revisions", activeVariant.id],
-      });
+      const affectedVariantIds =
+        direction === "to" ? Array.from(selectedIds) : [activeVariant.id];
+      for (const variantId of affectedVariantIds) {
+        void queryClient.invalidateQueries({ queryKey: ["item-card", variantId] });
+        void queryClient.invalidateQueries({ queryKey: ["bom-revisions", variantId] });
+      }
       onOpenChange(false);
+      router.refresh();
     },
   });
 

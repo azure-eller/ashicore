@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
@@ -293,6 +293,18 @@ export function LotGridTab({
         : `/inventory/${segment}/${nextVariantId}?tab=lots`,
     );
   };
+
+  useEffect(() => {
+    const segment = card.family.itemType === "material" ? "materials" : "products";
+    for (const variant of visibleVariants) {
+      if (variant.id === focusItemId) continue;
+      router.prefetch(
+        card.family.itemType === "product"
+          ? `/inventory/${segment}/${variant.id}/lots`
+          : `/inventory/${segment}/${variant.id}?tab=lots`,
+      );
+    }
+  }, [card.family.itemType, focusItemId, router, visibleVariants]);
 
   const handleRowsChange = (
     nextRows: CardLotRow[],
