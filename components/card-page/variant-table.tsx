@@ -59,6 +59,7 @@ export type VariantTableProps = {
   viewMode: "product" | "material";
   onVariantPatch: (variantId: string, patch: UpdateItemCardVariantInput) => void;
   onVariantReorder: (orderedVariantIds: string[]) => void;
+  onVariantCreated?: (card: ItemCardDto, variantId: string) => void;
   onFocusedVariantDeleted?: (nextVariantId: string) => void;
 };
 
@@ -633,6 +634,7 @@ export function VariantTable({
   viewMode,
   onVariantPatch,
   onVariantReorder,
+  onVariantCreated,
   onFocusedVariantDeleted,
 }: VariantTableProps) {
   const activeOptions = useMemo(
@@ -707,6 +709,7 @@ export function VariantTable({
           (row) => isDraftVariant(row) && row.id !== variables.tempId,
         ),
       ]);
+      onVariantCreated?.(result.card, result.itemId);
     },
     onSettled: (_result, _error, variables) => {
       creatingDraftIdsRef.current.delete(variables.tempId);

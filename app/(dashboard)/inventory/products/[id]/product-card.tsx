@@ -193,6 +193,20 @@ export function ProductCard({
       router.push(productCardHrefForTab(result.itemId, getProductCardTabFromPath(pathname)));
     },
   });
+  const handleVariantCreated = useCallback(
+    (nextCard: ItemCardDto, variantId: string) => {
+      mergeServerCard(nextCard);
+      setFocusedItemId(variantId);
+      for (const variant of nextCard.variants) {
+        queryClient.setQueryData(["item-card", variant.id], nextCard);
+      }
+      if (currentItemId) {
+        queryClient.setQueryData(["item-card", currentItemId], nextCard);
+      }
+      router.refresh();
+    },
+    [currentItemId, mergeServerCard, queryClient, router, setFocusedItemId],
+  );
 
   const tabs: CardTab[] = useMemo(
     () => {
@@ -331,6 +345,7 @@ export function ProductCard({
               onSellableChange={controller.setSellable}
               onVariantPatch={controller.patchVariant}
               onVariantReorder={controller.reorderVariants}
+              onVariantCreated={handleVariantCreated}
               onFocusedVariantDeleted={(nextVariantId) => {
                 setFocusedItemId(nextVariantId);
                 router.replace(`/inventory/products/${nextVariantId}`, { scroll: false });

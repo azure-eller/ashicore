@@ -105,6 +105,19 @@ export function MaterialCard({
       router.push(`/inventory/materials/${result.itemId}`);
     },
   });
+  const handleVariantCreated = useCallback(
+    (nextCard: ItemCardDto, variantId: string) => {
+      mergeServerCard(nextCard);
+      for (const variant of nextCard.variants) {
+        queryClient.setQueryData(["item-card", variant.id], nextCard);
+      }
+      if (currentItemId) {
+        queryClient.setQueryData(["item-card", currentItemId], nextCard);
+      }
+      router.replace(`/inventory/materials/${variantId}`, { scroll: false });
+    },
+    [currentItemId, mergeServerCard, queryClient, router],
+  );
 
   const tabs: CardTab[] = useMemo(
     () => {
@@ -219,6 +232,7 @@ export function MaterialCard({
               onFamilyCommit={controller.commitFamily}
               onVariantPatch={controller.patchVariant}
               onVariantReorder={controller.reorderVariants}
+              onVariantCreated={handleVariantCreated}
               onFocusedVariantDeleted={(nextVariantId) =>
                 router.replace(`/inventory/materials/${nextVariantId}`, { scroll: false })
               }

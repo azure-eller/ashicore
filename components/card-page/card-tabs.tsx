@@ -166,7 +166,7 @@ export function CardTabs({
                 aria-controls={`card-tab-panel-${tab.value}`}
                 className={cn(styles.tab, isActive && styles.tabActive)}
                 onClick={(event) => requestRouteTab(event, tab.value)}
-                prefetch
+                prefetch={false}
               >
                 {tab.label}
                 {tab.count != null ? (

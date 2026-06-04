@@ -35,6 +35,7 @@ export type MaterialGeneralInfoTabProps = {
   onFamilyCommit: (patch?: DraftFamilyPatch) => void;
   onVariantPatch: (variantId: string, patch: UpdateItemCardVariantInput) => void;
   onVariantReorder: (orderedVariantIds: string[]) => void;
+  onVariantCreated: (card: ItemCardDto, variantId: string) => void;
   onFocusedVariantDeleted: (nextVariantId: string) => void;
   onFlush: () => Promise<void>;
   variantsEnabled: boolean;
@@ -51,6 +52,7 @@ export function MaterialGeneralInfoTab({
   onFamilyCommit,
   onVariantPatch,
   onVariantReorder,
+  onVariantCreated,
   onFocusedVariantDeleted,
   onFlush,
   variantsEnabled,
@@ -172,6 +174,7 @@ export function MaterialGeneralInfoTab({
             viewMode="material"
             onVariantPatch={onVariantPatch}
             onVariantReorder={onVariantReorder}
+            onVariantCreated={onVariantCreated}
             onFocusedVariantDeleted={onFocusedVariantDeleted}
           />
         ) : (
