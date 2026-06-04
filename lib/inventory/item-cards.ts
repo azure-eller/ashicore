@@ -1955,8 +1955,10 @@ export async function generateVariants(
             .where(eq(itemVariantValues.itemId, source.id))
             .limit(1)
         : [];
+    const canPromoteSourceVariant =
+      source.optionCombinationKey === "" && bareDefaultVariant.length === 0;
     const [promotedCombo, ...remainingCombos] =
-      bareDefaultVariant.length === 0 && selected.length > 0 ? selected : [undefined, ...selected];
+      canPromoteSourceVariant && selected.length > 0 ? selected : [undefined, ...selected];
     await assertCanCreateSkusInTx(
       tx,
       orgId,

@@ -20,6 +20,7 @@ import { type CardSaveState } from "@/components/card-page/card-save-status";
 import { VariantConfigurationDialog } from "@/components/card-page/variant-configuration-dialog";
 import { ProductGeneralInfoTab } from "./tabs/general-info";
 import { useItemCardDraftController } from "@/components/card-page/use-item-card-draft-controller";
+import { ItemCardFocusProvider } from "@/components/card-page/item-card-focus-context";
 
 export type ProductCardTab = "general" | "recipe" | "production" | "lots";
 
@@ -46,8 +47,16 @@ export function ProductCard({
   const queryClient = useQueryClient();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const focusedVariantParam = searchParams.get("variant");
   const [configOpen, setConfigOpen] = useState(false);
   const [variantsEnabled, setVariantsEnabled] = useState(false);
+  const [focusedItemId, setFocusedItemId] = useState(
+    initialCard.variants.some(
+      (variant) => variant.id === focusedVariantParam && variant.deletedAt == null,
+    )
+      ? focusedVariantParam
+      : initialItemId,
+  );
   const persistedHref = useCallback((id: string) => `/inventory/products/${id}`, []);
 
   const controller = useItemCardDraftController({
@@ -58,6 +67,18 @@ export function ProductCard({
     unitOptions,
   });
   const currentItemId = controller.currentItemId;
+  useEffect(() => {
+    const handlePopState = () => {
+      const focusedVariantId = new URL(window.location.href).searchParams.get("variant");
+      const match = window.location.pathname.match(/^\/inventory\/products\/([^/]+)/);
+      if (focusedVariantId || match?.[1]) {
+        setFocusedItemId(focusedVariantId ?? match?.[1] ?? null);
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
   const isDraft = !controller.hasPersistedEntity;
   const { mergeServerCard } = controller;
   const actionSaveStatus = useCardSaveStatus(currentItemId ?? "__draft__");
@@ -80,20 +101,30 @@ export function ProductCard({
     if (!currentItemId) return;
     const legacyTab = searchParams.get("tab");
     if (!legacyTab) return;
+    const variant = searchParams.get("variant");
+    const variantQuery = variant ? `?variant=${encodeURIComponent(variant)}` : "";
     if (legacyTab === "recipe") {
-      router.replace(`/inventory/products/${currentItemId}/recipe`, { scroll: false });
+      router.replace(`/inventory/products/${currentItemId}/recipe${variantQuery}`, {
+        scroll: false,
+      });
       return;
     }
     if (legacyTab === "operations" || legacyTab === "production") {
-      router.replace(`/inventory/products/${currentItemId}/production`, { scroll: false });
+      router.replace(`/inventory/products/${currentItemId}/production${variantQuery}`, {
+        scroll: false,
+      });
       return;
     }
     if (legacyTab === "lots") {
-      router.replace(`/inventory/products/${currentItemId}/lots`, { scroll: false });
+      router.replace(`/inventory/products/${currentItemId}/lots${variantQuery}`, {
+        scroll: false,
+      });
       return;
     }
     if (legacyTab === "general") {
-      router.replace(`/inventory/products/${currentItemId}`, { scroll: false });
+      router.replace(`/inventory/products/${currentItemId}${variantQuery}`, {
+        scroll: false,
+      });
     }
   }, [currentItemId, router, searchParams]);
 
@@ -125,30 +156,37 @@ export function ProductCard({
 
   const tabs: CardTab[] = useMemo(
     () => {
+      const tabItemId = currentItemId;
+      const variantQuery =
+        focusedItemId && focusedItemId !== currentItemId
+          ? `?variant=${encodeURIComponent(focusedItemId)}`
+          : "";
       const nextTabs: CardTab[] = [
         {
           value: "general",
           label: "General info",
-          href: currentItemId ? `/inventory/products/${currentItemId}` : undefined,
+          href: tabItemId ? `/inventory/products/${tabItemId}${variantQuery}` : undefined,
         },
         {
           value: "recipe",
           label: "Recipe",
-          href: currentItemId ? `/inventory/products/${currentItemId}/recipe` : undefined,
+          href: tabItemId ? `/inventory/products/${tabItemId}/recipe${variantQuery}` : undefined,
           disabled: !currentItemId,
           disabledReason: "Enter a product name first.",
         },
         {
           value: "production",
           label: "Production",
-          href: currentItemId ? `/inventory/products/${currentItemId}/production` : undefined,
+          href: tabItemId
+            ? `/inventory/products/${tabItemId}/production${variantQuery}`
+            : undefined,
           disabled: !currentItemId,
           disabledReason: "Enter a product name first.",
         },
         {
           value: "lots",
           label: "Lots",
-          href: currentItemId ? `/inventory/products/${currentItemId}/lots` : undefined,
+          href: tabItemId ? `/inventory/products/${tabItemId}/lots${variantQuery}` : undefined,
           disabled: !currentItemId,
           disabledReason: "Enter a product name first.",
           count: lotsCount || undefined,
@@ -158,7 +196,7 @@ export function ProductCard({
         ? nextTabs
         : nextTabs.filter((tab) => tab.value !== "lots");
     },
-    [card.family.lotTrackingMode, currentItemId, lotsCount],
+    [card.family.lotTrackingMode, currentItemId, focusedItemId, lotsCount],
   );
 
   const avgIngredientsCost = getAverageIngredientsCost(card);
@@ -224,36 +262,47 @@ export function ProductCard({
         ]}
       />
 
-      <CardTabs
-        tabs={tabs}
-        defaultTab="general"
-        activeTab={resolvedActiveTab}
-        caption={
-          avgIngredientsCost == null
-            ? "Ingredients · — avg"
-            : `Ingredients · ${avgIngredientsCost.toFixed(5)} USD avg`
-        }
+      <ItemCardFocusProvider
+        value={{
+          focusedItemId: focusedItemId ?? currentItemId,
+          setFocusedItemId,
+        }}
       >
-        {resolvedActiveTab === "general" || isDraft ? (
-          <ProductGeneralInfoTab
-            card={card}
-            focusItemId={currentItemId}
-            unitOptions={unitOptions}
-            onOpenConfig={() => setConfigOpen(true)}
-            onFamilyChange={controller.patchFamily}
-            onFamilyCommit={controller.commitFamily}
-            onSellableChange={controller.setSellable}
-            onVariantPatch={controller.patchVariant}
-            onVariantReorder={controller.reorderVariants}
-            onFlush={controller.flush}
-            variantsEnabled={variantsEnabled}
-            onVariantsEnabledChange={setVariantsEnabled}
-            canAdminInventory={canAdminInventory}
-          />
-        ) : (
-          children
-        )}
-      </CardTabs>
+        <CardTabs
+          tabs={tabs}
+          defaultTab="general"
+          activeTab={resolvedActiveTab}
+          caption={
+            avgIngredientsCost == null
+              ? "Ingredients · — avg"
+              : `Ingredients · ${avgIngredientsCost.toFixed(5)} USD avg`
+          }
+        >
+          {resolvedActiveTab === "general" || isDraft ? (
+            <ProductGeneralInfoTab
+              card={card}
+              focusItemId={focusedItemId ?? currentItemId}
+              unitOptions={unitOptions}
+              onOpenConfig={() => setConfigOpen(true)}
+              onFamilyChange={controller.patchFamily}
+              onFamilyCommit={controller.commitFamily}
+              onSellableChange={controller.setSellable}
+              onVariantPatch={controller.patchVariant}
+              onVariantReorder={controller.reorderVariants}
+              onFocusedVariantDeleted={(nextVariantId) => {
+                setFocusedItemId(nextVariantId);
+                router.replace(`/inventory/products/${nextVariantId}`, { scroll: false });
+              }}
+              onFlush={controller.flush}
+              variantsEnabled={variantsEnabled}
+              onVariantsEnabledChange={setVariantsEnabled}
+              canAdminInventory={canAdminInventory}
+            />
+          ) : (
+            children
+          )}
+        </CardTabs>
+      </ItemCardFocusProvider>
 
       {isDraft ? null : (
         <>

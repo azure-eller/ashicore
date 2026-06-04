@@ -36,6 +36,7 @@ export type ProductGeneralInfoTabProps = {
   onSellableChange: (sellable: boolean) => void;
   onVariantPatch: (variantId: string, patch: UpdateItemCardVariantInput) => void;
   onVariantReorder: (orderedVariantIds: string[]) => void;
+  onFocusedVariantDeleted: (nextVariantId: string) => void;
   onFlush: () => Promise<void>;
   variantsEnabled: boolean;
   onVariantsEnabledChange: (enabled: boolean) => void;
@@ -52,6 +53,7 @@ export function ProductGeneralInfoTab({
   onSellableChange,
   onVariantPatch,
   onVariantReorder,
+  onFocusedVariantDeleted,
   onFlush,
   variantsEnabled,
   onVariantsEnabledChange,
@@ -184,9 +186,11 @@ export function ProductGeneralInfoTab({
         {hasOptions ? (
           <VariantTable
             card={card}
+            focusItemId={focusItemId}
             viewMode="product"
             onVariantPatch={onVariantPatch}
             onVariantReorder={onVariantReorder}
+            onFocusedVariantDeleted={onFocusedVariantDeleted}
           />
         ) : (
           <p className={styles.helper}>No variants yet.</p>

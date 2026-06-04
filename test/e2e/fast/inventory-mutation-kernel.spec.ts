@@ -930,6 +930,62 @@ test.describe("inventory mutation kernel heartbeat", () => {
     );
     expect(generateResponse.status).toBe(201);
 
+    const sourceCardResponse = await testFetch(`/api/item-cards/${sourceItemId}`);
+    expect(sourceCardResponse.status).toBe(200);
+    const sourceCard = await sourceCardResponse.json();
+    const sizeOption = sourceCard.options[0] as {
+      id: string;
+      name: string;
+      values: Array<{ id: string; label: string }>;
+    };
+    const focusedGeneratedVariantId = sourceCard.variants.find(
+      (variant: { id: string }) => variant.id !== sourceItemId,
+    )?.id as string;
+    expect(focusedGeneratedVariantId).toBeTruthy();
+
+    const expandedConfigResponse = await testFetch(
+      `/api/item-cards/${focusedGeneratedVariantId}/variant-config`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          options: [
+            {
+              id: sizeOption.id,
+              name: sizeOption.name,
+              values: [
+                ...sizeOption.values.map((value) => ({
+                  id: value.id,
+                  label: value.label,
+                })),
+                { label: "Medium" },
+              ],
+            },
+          ],
+        }),
+      },
+    );
+    expect(expandedConfigResponse.status).toBe(200);
+    const expandedCard = await expandedConfigResponse.json();
+    const mediumValue = expandedCard.options[0].values.find(
+      (value: { label: string }) => value.label === "Medium",
+    ) as { id: string } | undefined;
+    expect(mediumValue?.id).toBeTruthy();
+
+    const focusedGenerateResponse = await testFetch(
+      `/api/item-cards/${focusedGeneratedVariantId}/variants/generate`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          combinations: [
+            {
+              [sizeOption.id]: mediumValue?.id,
+            },
+          ],
+        }),
+      },
+    );
+    expect(focusedGenerateResponse.status).toBe(201);
+
     const cloneIdempotencyKey = `fast-clone-card:${ts}:${sourceItemId}`;
     const cloneResponse = await testFetch(`/api/item-cards/${sourceItemId}/clone`, {
       method: "POST",
@@ -955,8 +1011,8 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(clonedCard.family.name).toBe(`Copy of Fast Clone Product ${ts}`);
     expect(clonedCard.family.category).toBe(`Fast Clone ${ts}`);
     expect(clonedCard.options).toHaveLength(1);
-    expect(clonedCard.options[0].values).toHaveLength(2);
-    expect(clonedCard.variants).toHaveLength(2);
+    expect(clonedCard.options[0].values).toHaveLength(3);
+    expect(clonedCard.variants).toHaveLength(3);
     expect(
       clonedCard.variants.every(
         (variant: {
@@ -1020,8 +1076,8 @@ test.describe("inventory mutation kernel heartbeat", () => {
       .from(itemVariantValues)
       .where(inArray(itemVariantValues.itemId, clonedVariantIds));
     expect(clonedOptions).toHaveLength(1);
-    expect(clonedValues).toHaveLength(2);
-    expect(clonedAssignments).toHaveLength(2);
+    expect(clonedValues).toHaveLength(3);
+    expect(clonedAssignments).toHaveLength(3);
   });
 
   test("billing entitlements count every item row and Core state controls the cap", async ({

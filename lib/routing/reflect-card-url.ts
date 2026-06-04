@@ -8,3 +8,7 @@
 export function reflectPersistedCardUrlWithoutNavigation(href: string) {
   window.history.replaceState(null, "", href);
 }
+
+export function pushCardUrlWithoutNavigation(href: string) {
+  window.history.pushState(null, "", href);
+}

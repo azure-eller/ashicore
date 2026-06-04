@@ -7,6 +7,7 @@ import type {
   ItemType,
   VariantOptionValueDisplay,
 } from "@/app/(dashboard)/inventory/types";
+import type { BomComponentConstraint } from "@/lib/bom/constraints";
 
 export class EndpointNotReadyError extends Error {
   constructor(public path: string) {
@@ -421,6 +422,70 @@ export type SaveBomRevisionInput = {
   note?: string | null;
 };
 
+export type ProductRecipeTabPayload = {
+  focusItemId: string;
+  initialBomRows: Array<{
+    componentId: string | null;
+    quantity: string | null;
+    minimumLotAgeDays?: string | number | null;
+    alternates?: Array<{ itemId: string }>;
+  }>;
+  initialBomRevisionId: string | null;
+  initialOutputQuantity: string;
+  initialRecipeBasis: "unit" | "batch";
+  initialExpectedBatchYield: string | null;
+  bomRevisions: Array<{
+    id: string;
+    revisionNumber: number;
+    isCurrent: boolean;
+    note: string | null;
+    createdAt: Date | string;
+    createdByName: string | null;
+    components: Array<{
+      id: string;
+      componentId: string;
+      componentName: string;
+      componentItemType: string;
+      unitName: string;
+      quantity: string;
+      constraints: BomComponentConstraint[];
+    }>;
+  }>;
+  availableComponents: Array<{
+    id: string;
+    name: string;
+    displayName: string;
+    itemType: string;
+    unit: string;
+  }>;
+  canViewBom: boolean;
+  canEditProduct: boolean;
+};
+
+export type ProductProductionTabPayload = {
+  focusItemId: string;
+  currentBomRows: ProductRecipeTabPayload["initialBomRows"];
+  currentBomOutputQuantity: string;
+  currentRecipeBasis: "unit" | "batch";
+  initialOperationCosts: Array<{
+    operationName: string | null;
+    resourceId: string | null;
+    costScalingMode?: "per_output_unit" | "fixed_per_mo" | null;
+    crewSize: string | null;
+    plannedMinutes: string | null;
+    loadedCostPerHour?: string | null;
+  }>;
+  resources: Array<{
+    id: string;
+    name: string;
+    resourceType: string;
+    loadedCostPerHour: string;
+  }>;
+  expectedBatchYield: string | null;
+  typicalBatchSize: string | null;
+  standardCostQuantity: string | null;
+};
+
 export async function saveBomRevision(
   variantId: string,
   input: SaveBomRevisionInput,
@@ -431,6 +496,20 @@ export async function saveBomRevision(
     idempotencyKey: "createBomRevision",
     body: input,
   });
+}
+
+export async function getProductRecipeTabPayload(
+  variantId: string,
+): Promise<ProductRecipeTabPayload> {
+  const path = `/api/items/${variantId}/recipe-tab`;
+  return request<ProductRecipeTabPayload>(path);
+}
+
+export async function getProductProductionTabPayload(
+  variantId: string,
+): Promise<ProductProductionTabPayload> {
+  const path = `/api/items/${variantId}/production-tab`;
+  return request<ProductProductionTabPayload>(path);
 }
 
 export async function copyOperationsToVariants(

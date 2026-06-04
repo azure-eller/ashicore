@@ -17,10 +17,13 @@ import { ProductRecipeTab } from "../../tabs/recipe";
 
 export default async function ProductRecipePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
+  const { variant } = await searchParams;
   const [context, item, card] = await Promise.all([
     getAuthedMemberContext(),
     getItem(id),
@@ -28,26 +31,33 @@ export default async function ProductRecipePage({
   ]);
 
   if (!item || item.itemType !== "product") redirect("/inventory/products");
+  const variantId = Array.isArray(variant) ? variant[0] : variant;
+  const focusItemId =
+    variantId && card.variants.some((cardVariant) => cardVariant.id === variantId)
+      ? variantId
+      : id;
+  const focusItem = focusItemId === id ? item : await getItem(focusItemId);
+  if (!focusItem || focusItem.itemType !== "product") redirect("/inventory/products");
 
-  const canViewBom = item.bomLocked
+  const canViewBom = focusItem.bomLocked
     ? canViewLockedBom(context.assignedRoles)
     : canViewUnlockedBom(context.assignedRoles);
-  const canEditProduct = item.bomLocked
+  const canEditProduct = focusItem.bomLocked
     ? hasModuleAccess(context.assignedRoles, "inventory", "admin") &&
       canManageLockedBom(context.assignedRoles)
     : hasModuleAccess(context.assignedRoles, "inventory", "operate");
   const [bomRows, availableComponents, bomRevisions] = await Promise.all([
-    canViewBom ? getBomComponents(id) : Promise.resolve([]),
-    getAvailableComponents(id),
-    canViewBom ? getBomRevisionHistory(id) : Promise.resolve([]),
+    canViewBom ? getBomComponents(focusItemId) : Promise.resolve([]),
+    getAvailableComponents(focusItemId),
+    canViewBom ? getBomRevisionHistory(focusItemId) : Promise.resolve([]),
   ]);
   const currentRevision = bomRevisions.find((revision) => revision.isCurrent);
 
   return (
     <ProductRecipeTab
-      key={`${id}:${currentRevision?.id ?? "none"}`}
+      key={`${focusItemId}:${currentRevision?.id ?? "none"}`}
       card={card}
-      focusItemId={id}
+      focusItemId={focusItemId}
       initialBomRows={bomRows.map((row) => ({
         componentId: row.componentId,
         quantity: row.quantity,
@@ -59,7 +69,7 @@ export default async function ProductRecipePage({
       initialBomRevisionId={currentRevision?.id ?? null}
       initialOutputQuantity={currentRevision?.outputQuantity ?? "1"}
       initialRecipeBasis={currentRevision?.recipeBasis === "batch" ? "batch" : "unit"}
-      initialExpectedBatchYield={item.expectedBatchYield}
+      initialExpectedBatchYield={focusItem.expectedBatchYield}
       bomRevisions={bomRevisions}
       availableComponents={availableComponents.map((component) => ({
         id: component.id,

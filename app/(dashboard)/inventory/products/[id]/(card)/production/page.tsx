@@ -11,27 +11,40 @@ import { ProductOperationsTab } from "../../tabs/operations";
 
 export default async function ProductProductionPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
-  const [item, card, bomRows, bomRevisions, operationCosts, resources] = await Promise.all([
+  const { variant } = await searchParams;
+  const [item, card] = await Promise.all([
     getItem(id),
     getItemCard(id),
-    getBomComponents(id),
-    getBomRevisionHistory(id),
-    getBomOperationCosts(id),
-    getManufacturingResources(),
   ]);
 
   if (!item || item.itemType !== "product") redirect("/inventory/products");
+  const variantId = Array.isArray(variant) ? variant[0] : variant;
+  const focusItemId =
+    variantId && card.variants.some((cardVariant) => cardVariant.id === variantId)
+      ? variantId
+      : id;
+  const focusItem = focusItemId === id ? item : await getItem(focusItemId);
+  if (!focusItem || focusItem.itemType !== "product") redirect("/inventory/products");
+
+  const [bomRows, bomRevisions, operationCosts, resources] = await Promise.all([
+    getBomComponents(focusItemId),
+    getBomRevisionHistory(focusItemId),
+    getBomOperationCosts(focusItemId),
+    getManufacturingResources(),
+  ]);
   const currentRevision = bomRevisions.find((revision) => revision.isCurrent);
 
   return (
     <ProductOperationsTab
-      key={`${id}:${currentRevision?.id ?? "none"}`}
+      key={`${focusItemId}:${currentRevision?.id ?? "none"}`}
       card={card}
-      focusItemId={id}
+      focusItemId={focusItemId}
       currentBomOutputQuantity={currentRevision?.outputQuantity ?? "1"}
       currentRecipeBasis={currentRevision?.recipeBasis === "batch" ? "batch" : "unit"}
       currentBomRows={bomRows.map((row) => ({
@@ -51,9 +64,9 @@ export default async function ProductProductionPage({
           loadedCostPerHour: operation.loadedCostPerHour,
       }))}
       resources={resources}
-      expectedBatchYield={item.expectedBatchYield}
-      typicalBatchSize={item.typicalBatchSize}
-      standardCostQuantity={item.standardCostQuantity}
+      expectedBatchYield={focusItem.expectedBatchYield}
+      typicalBatchSize={focusItem.typicalBatchSize}
+      standardCostQuantity={focusItem.standardCostQuantity}
     />
   );
 }

@@ -55,9 +55,11 @@ import styles from "./card-page.module.css";
 
 export type VariantTableProps = {
   card: ItemCardDto;
+  focusItemId: string | null;
   viewMode: "product" | "material";
   onVariantPatch: (variantId: string, patch: UpdateItemCardVariantInput) => void;
   onVariantReorder: (orderedVariantIds: string[]) => void;
+  onFocusedVariantDeleted?: (nextVariantId: string) => void;
 };
 
 /**
@@ -602,9 +604,11 @@ function replaceVariantOptionValue(
 
 export function VariantTable({
   card,
+  focusItemId,
   viewMode,
   onVariantPatch,
   onVariantReorder,
+  onFocusedVariantDeleted,
 }: VariantTableProps) {
   const activeOptions = useMemo(
     () => card.options.filter((option) => option.disabledAt == null),
@@ -638,6 +642,13 @@ export function VariantTable({
   const deleteMutation = useMutation({
     mutationKey: ["item-card-action", mutationItemId, "variant-delete"],
     mutationFn: (variantId: string) => deleteVariant(variantId),
+    onSuccess: (_result, variantId) => {
+      const nextFocusedVariant = visibleVariants.find((variant) => variant.id !== variantId);
+      setRows((currentRows) => currentRows.filter((row) => row.id !== variantId));
+      if (variantId === focusItemId && nextFocusedVariant) {
+        onFocusedVariantDeleted?.(nextFocusedVariant.id);
+      }
+    },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ["item-card"] });
     },

@@ -219,6 +219,9 @@ export function MaterialCard({
               onFamilyCommit={controller.commitFamily}
               onVariantPatch={controller.patchVariant}
               onVariantReorder={controller.reorderVariants}
+              onFocusedVariantDeleted={(nextVariantId) =>
+                router.replace(`/inventory/materials/${nextVariantId}`, { scroll: false })
+              }
               onFlush={controller.flush}
               variantsEnabled={variantsEnabled}
               onVariantsEnabledChange={setVariantsEnabled}

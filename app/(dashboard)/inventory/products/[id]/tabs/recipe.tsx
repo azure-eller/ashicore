@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Clock01Icon,
@@ -13,6 +12,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Dialog,
   DialogContent,
@@ -28,12 +28,19 @@ import { CardSection } from "@/components/card-page/card-page";
 import { ActiveVariantSelect } from "@/components/card-page/active-variant-select";
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
+import { useItemCardFocus } from "@/components/card-page/item-card-focus-context";
 import {
   BomEditor,
   toBomRevisionPayloadRows,
   type BomPayloadRow,
 } from "@/app/(dashboard)/inventory/bom-editor";
-import { saveBomRevision, type ItemCardDto } from "@/lib/api/clients/item-cards";
+import {
+  getProductRecipeTabPayload,
+  saveBomRevision,
+  type ItemCardDto,
+  type ProductRecipeTabPayload,
+} from "@/lib/api/clients/item-cards";
+import { pushCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import {
   BomRevisionHistorySheet,
   type BomRevisionHistoryEntry,
@@ -75,15 +82,30 @@ export function ProductRecipeTab({
   canViewBom,
   canEditProduct,
 }: ProductRecipeTabProps) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const visibleVariants = useMemo(
     () => card.variants.filter((variant) => variant.deletedAt == null),
     [card.variants],
   );
+  const focusContext = useItemCardFocus();
+  const activeFocusItemId = focusContext?.focusedItemId ?? focusItemId;
   const activeVariant =
-    visibleVariants.find((variant) => variant.id === focusItemId) ?? visibleVariants[0];
+    visibleVariants.find((variant) => variant.id === activeFocusItemId) ?? visibleVariants[0];
 
+  const initialPayload: ProductRecipeTabPayload = {
+    focusItemId,
+    initialBomRows,
+    initialBomRevisionId,
+    initialOutputQuantity,
+    initialRecipeBasis,
+    initialExpectedBatchYield,
+    bomRevisions,
+    availableComponents,
+    canViewBom,
+    canEditProduct,
+  };
+  const [recipeData, setRecipeData] = useState<ProductRecipeTabPayload>(initialPayload);
+  const [loadingVariantId, setLoadingVariantId] = useState<string | null>(null);
   const [rows, setRows] = useState<BomPayloadRow[]>(initialBomRows);
   const [recipeBasis, setRecipeBasis] = useState<"unit" | "batch">(
     initialRecipeBasis,
@@ -97,13 +119,21 @@ export function ProductRecipeTab({
   const [revisionHistoryOpen, setRevisionHistoryOpen] = useState(false);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [revisionNote, setRevisionNote] = useState("");
-  const editorResetKey = `${focusItemId}:${initialBomRevisionId ?? "none"}`;
+  const editorResetKey = `${activeFocusItemId}:${recipeData?.initialBomRevisionId ?? "none"}`;
   const outputUnitName = card.family.unitName ?? "unit";
+  const tabLoading = loadingVariantId === activeFocusItemId;
+
+  const loadRecipePayload = (variantId: string) =>
+    queryClient.fetchQuery({
+      queryKey: ["product-recipe-tab", variantId],
+      queryFn: () => getProductRecipeTabPayload(variantId),
+      staleTime: Infinity,
+    });
 
   const saveMutation = useMutation({
-    mutationKey: cardSaveMutationKey("item-card", focusItemId, "bom-revision"),
+    mutationKey: cardSaveMutationKey("item-card", activeFocusItemId, "bom-revision"),
     mutationFn: (note: string | null) =>
-      saveBomRevision(focusItemId, {
+      saveBomRevision(activeFocusItemId, {
         recipeBasis,
         expectedBatchYield: recipeBasis === "batch" ? expectedBatchYield : null,
         outputQuantity: recipeBasis === "batch" ? expectedBatchYield : "1",
@@ -114,8 +144,17 @@ export function ProductRecipeTab({
       setDirty(false);
       setRevisionNote("");
       setSaveDialogOpen(false);
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
-      router.refresh();
+      void (async () => {
+        const nextData = await getProductRecipeTabPayload(activeFocusItemId);
+        queryClient.setQueryData(["product-recipe-tab", activeFocusItemId], nextData);
+        setRecipeData(nextData);
+        setRows(nextData.initialBomRows);
+        setRecipeBasis(nextData.initialRecipeBasis);
+        setExpectedBatchYield(
+          nextData.initialExpectedBatchYield ?? nextData.initialOutputQuantity,
+        );
+        await queryClient.invalidateQueries({ queryKey: ["item-card"] });
+      })();
     },
   });
 
@@ -165,15 +204,7 @@ export function ProductRecipeTab({
     };
   }, [dirty]);
 
-  useEffect(() => {
-    for (const variant of visibleVariants) {
-      if (variant.id !== focusItemId) {
-        router.prefetch(`/inventory/products/${variant.id}/recipe`);
-      }
-    }
-  }, [focusItemId, router, visibleVariants]);
-
-  if (!canViewBom) {
+  if (recipeData && !recipeData.canViewBom) {
     return (
       <CardSection aria-label="Locked recipe">
         <p className={styles.helper}>
@@ -184,20 +215,37 @@ export function ProductRecipeTab({
     );
   }
 
-  const handleVariantChange = (nextVariantId: string) => {
-    if (nextVariantId === focusItemId) return;
+  const handleVariantChange = async (nextVariantId: string) => {
+    if (nextVariantId === activeFocusItemId) return;
     if (dirty) {
       const confirmed = window.confirm(
         "You have unsaved recipe changes. Discard them and switch variants?",
       );
       if (!confirmed) return;
     }
-    const segment = card.family.itemType === "material" ? "materials" : "products";
-    router.push(`/inventory/${segment}/${nextVariantId}/recipe`);
+    setDirty(false);
+    setLoadingVariantId(nextVariantId);
+    focusContext?.setFocusedItemId(nextVariantId);
+    pushCardUrlWithoutNavigation(
+      `/inventory/products/${focusItemId}/recipe?variant=${encodeURIComponent(nextVariantId)}`,
+    );
+    try {
+      const nextData = await loadRecipePayload(nextVariantId);
+      setRecipeData(nextData);
+      setRows(nextData.initialBomRows);
+      setRecipeBasis(nextData.initialRecipeBasis);
+      setExpectedBatchYield(
+        nextData.initialExpectedBatchYield ?? nextData.initialOutputQuantity,
+      );
+      setRevisionNote("");
+      setSaveDialogOpen(false);
+    } finally {
+      setLoadingVariantId(null);
+    }
   };
 
   const handleRowsChange = (next: BomPayloadRow[]) => {
-    if (!canEditProduct || !activeVariant) return;
+    if (!recipeData?.canEditProduct || !activeVariant || tabLoading) return;
     setRows(next);
     setDirty(true);
   };
@@ -207,7 +255,7 @@ export function ProductRecipeTab({
       <div className="grid gap-(--space-4) lg:grid-cols-[minmax(280px,420px)_minmax(0,1fr)] lg:items-end">
         <ActiveVariantSelect
           variants={visibleVariants}
-          value={focusItemId}
+          value={activeFocusItemId}
           onChange={handleVariantChange}
           hideWhenSingle={false}
         />
@@ -215,9 +263,9 @@ export function ProductRecipeTab({
           <Checkbox
             id="recipe-basis-batch"
             checked={recipeBasis === "batch"}
-            disabled={!canEditProduct}
+            disabled={!recipeData?.canEditProduct || tabLoading}
             onCheckedChange={(checked) => {
-              if (!canEditProduct) return;
+              if (!recipeData?.canEditProduct || tabLoading) return;
               setRecipeBasis(checked === true ? "batch" : "unit");
               setDirty(true);
             }}
@@ -251,7 +299,7 @@ export function ProductRecipeTab({
                 setExpectedBatchYield(event.target.value);
                 setDirty(true);
               }}
-              disabled={!canEditProduct}
+              disabled={!recipeData?.canEditProduct || tabLoading}
               className="h-full border-0 shadow-none focus-visible:ring-0"
             />
             <span className="border-l border-border px-(--space-3) text-[length:var(--text-sm)] text-muted-foreground">
@@ -267,20 +315,20 @@ export function ProductRecipeTab({
           variant="outline"
           size="sm"
           className="px-(--space-4)"
-          disabled={bomRevisions.length === 0}
+          disabled={tabLoading || (recipeData?.bomRevisions.length ?? 0) === 0}
           onClick={() => setRevisionHistoryOpen(true)}
         >
           <HugeiconsIcon icon={Clock01Icon} data-icon="inline-start" />
           Recipe history
         </Button>
-        {canEditProduct ? (
+        {recipeData?.canEditProduct ? (
           <>
             <Button
               type="button"
               variant="outline"
               size="sm"
               className="px-(--space-4)"
-              disabled={!activeVariant || visibleVariants.length < 2}
+              disabled={tabLoading || !activeVariant || visibleVariants.length < 2}
               onClick={() => setCopyToOpen(true)}
             >
               <HugeiconsIcon icon={Upload01Icon} data-icon="inline-start" />
@@ -291,7 +339,7 @@ export function ProductRecipeTab({
               variant="outline"
               size="sm"
               className="px-(--space-4)"
-              disabled={!activeVariant || visibleVariants.length < 2}
+              disabled={tabLoading || !activeVariant || visibleVariants.length < 2}
               onClick={() => setCopyFromOpen(true)}
             >
               <HugeiconsIcon icon={Download01Icon} data-icon="inline-start" />
@@ -305,9 +353,13 @@ export function ProductRecipeTab({
                 className="px-(--space-4)"
                 disabled={saveMutation.isPending}
                 onClick={() => {
-                  setRows(initialBomRows);
-                  setRecipeBasis(initialRecipeBasis);
-                  setExpectedBatchYield(initialExpectedBatchYield ?? initialOutputQuantity);
+                  if (!recipeData) return;
+                  setRows(recipeData.initialBomRows);
+                  setRecipeBasis(recipeData.initialRecipeBasis);
+                  setExpectedBatchYield(
+                    recipeData.initialExpectedBatchYield ??
+                      recipeData.initialOutputQuantity,
+                  );
                   setDirty(false);
                 }}
               >
@@ -319,7 +371,7 @@ export function ProductRecipeTab({
               type="button"
               size="sm"
               className="px-(--space-4)"
-              disabled={!activeVariant || !dirty || saveMutation.isPending}
+              disabled={tabLoading || !activeVariant || !dirty || saveMutation.isPending}
               onClick={() => setSaveDialogOpen(true)}
             >
               <HugeiconsIcon icon={CheckmarkCircle02Icon} data-icon="inline-start" />
@@ -329,41 +381,49 @@ export function ProductRecipeTab({
         ) : null}
       </div>
 
-      <BomEditor
-        key={editorResetKey}
-        initialRows={initialBomRows}
-        availableComponents={availableComponents}
-        quantityHeader={
-          recipeBasis === "batch" ? "Quantity per batch" : "Quantity per unit"
-        }
-        onRowsChange={handleRowsChange}
-        error={saveMutation.error}
-      />
+      {tabLoading ? (
+        <div className="flex min-h-[220px] items-center justify-center border border-border bg-muted/20">
+          <Spinner className="size-5 text-muted-foreground" />
+        </div>
+      ) : (
+        <>
+          <BomEditor
+            key={editorResetKey}
+            initialRows={recipeData.initialBomRows}
+            availableComponents={recipeData.availableComponents}
+            quantityHeader={
+              recipeBasis === "batch" ? "Quantity per batch" : "Quantity per unit"
+            }
+            onRowsChange={handleRowsChange}
+            error={saveMutation.error}
+          />
 
-      <div className={styles.totals}>
-        <span className={styles.lab}>Total cost</span>
-        <span>
-          <span className={styles.val}>
-            {activeVariant?.ingredientsCost == null
-              ? "—"
-              : Number(activeVariant.ingredientsCost).toFixed(5)}
-          </span>
-          <span className={styles.ccy}>USD</span>
-        </span>
-      </div>
+          <div className={styles.totals}>
+            <span className={styles.lab}>Total cost</span>
+            <span>
+              <span className={styles.val}>
+                {activeVariant?.ingredientsCost == null
+                  ? "—"
+                  : Number(activeVariant.ingredientsCost).toFixed(5)}
+              </span>
+              <span className={styles.ccy}>USD</span>
+            </span>
+          </div>
+        </>
+      )}
 
-      {activeVariant ? (
+      {activeVariant && recipeData ? (
         <>
           <BomRevisionHistorySheet
             open={revisionHistoryOpen}
             onOpenChange={setRevisionHistoryOpen}
             productName={activeVariant.displayName}
-            revisions={bomRevisions}
+            revisions={recipeData.bomRevisions}
           />
           <CopyDialog
             open={copyToOpen}
             onOpenChange={setCopyToOpen}
-            cardItemId={focusItemId}
+            cardItemId={activeFocusItemId}
             scope="bom"
             direction="to"
             activeVariant={activeVariant}
@@ -372,7 +432,7 @@ export function ProductRecipeTab({
           <CopyDialog
             open={copyFromOpen}
             onOpenChange={setCopyFromOpen}
-            cardItemId={focusItemId}
+            cardItemId={activeFocusItemId}
             scope="bom"
             direction="from"
             activeVariant={activeVariant}
