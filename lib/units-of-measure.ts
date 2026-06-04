@@ -23,6 +23,12 @@ const ALLOWED_UNITS: Record<number, Set<string>> = {
   ]),
 };
 
+const COUNT_UNITS = new Set(["ea", "pcs"]);
+
+function isCountUnit(uom: string) {
+  return COUNT_UNITS.has(uom);
+}
+
 export interface UomOption {
   value: string;
   label: string;
@@ -66,7 +72,10 @@ export function getUomOptions(): UomGroup[] {
 
   groups.push({
     category: "Count",
-    options: [{ value: "ea", label: "each (ea)" }],
+    options: [
+      { value: "pcs", label: "pieces (pcs)" },
+      { value: "ea", label: "each (ea)" },
+    ],
   });
 
   return groups;
@@ -77,8 +86,8 @@ export function areUnitsCompatible(sourceUom: string, targetUom: string) {
     return true;
   }
 
-  if (sourceUom === "ea" || targetUom === "ea") {
-    return sourceUom === targetUom;
+  if (isCountUnit(sourceUom) || isCountUnit(targetUom)) {
+    return isCountUnit(sourceUom) && isCountUnit(targetUom);
   }
 
   try {
@@ -96,7 +105,7 @@ export function derivePurchaseToStockFactor(
     return null;
   }
 
-  if (purchaseUnit.uom === stockingUnit.uom) {
+  if (purchaseUnit.uom === stockingUnit.uom || (isCountUnit(purchaseUnit.uom) && isCountUnit(stockingUnit.uom))) {
     const purchaseSize = Number(purchaseUnit.size);
     const stockingSize = Number(stockingUnit.size);
 
@@ -107,12 +116,17 @@ export function derivePurchaseToStockFactor(
     return purchaseSize / stockingSize;
   }
 
-  const convertedPurchaseSize = Number(
-    convert(
-    Number(purchaseUnit.size),
-    purchaseUnit.uom as Parameters<typeof convert>[1]
-  ).to(stockingUnit.uom as Parameters<ReturnType<typeof convert>["to"]>[0])
-  );
+  let convertedPurchaseSize: number;
+  try {
+    convertedPurchaseSize = Number(
+      convert(
+        Number(purchaseUnit.size),
+        purchaseUnit.uom as Parameters<typeof convert>[1]
+      ).to(stockingUnit.uom as Parameters<ReturnType<typeof convert>["to"]>[0])
+    );
+  } catch {
+    return null;
+  }
   const stockingSize = Number(stockingUnit.size);
 
   if (!Number.isFinite(convertedPurchaseSize) || !Number.isFinite(stockingSize) || stockingSize <= 0) {

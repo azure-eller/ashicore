@@ -289,6 +289,7 @@ export type ItemCardVariantDto = {
   defaultLeadTimeDays: number | null;
   minimumOrderQuantity: string | null;
   defaultSellingPrice: string | null;
+  defaultPurchasePrice: string | null;
   inStockQty: string;
   ingredientsCost: string | null;
   operationsCost: string | null;
@@ -563,6 +564,9 @@ async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
           ),
           defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as(
             "defaultSellingPrice",
+          ),
+          defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
+            "defaultPurchasePrice",
           ),
           inStockQty: projectedOnHandQty(items.organizationId, items.id).as("inStockQty"),
           sortOrder: items.sortOrder,

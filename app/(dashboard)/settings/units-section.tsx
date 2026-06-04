@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import {
   MutableLines,
@@ -18,6 +19,7 @@ type UnitRow = {
   name: string;
   size: string;
   uom: string;
+  isInUse?: boolean;
 };
 
 type UnitPayload = {
@@ -27,6 +29,7 @@ type UnitPayload = {
 };
 
 export function UnitsSection({ initialUnits }: { initialUnits: UnitRow[] }) {
+  const router = useRouter();
   const [rows, setRows] = useState<UnitRow[]>(initialUnits);
   const savingDraftIdsRef = useRef(new Set<string>());
   const mutation = useMutation({
@@ -49,11 +52,28 @@ export function UnitsSection({ initialUnits }: { initialUnits: UnitRow[] }) {
     onSuccess: (saved, variables) => {
       if (!saved) return;
       setRows((currentRows) =>
-        currentRows.map((row) => (row.id === variables.row.id ? saved : row)),
+        currentRows.map((row) =>
+          row.id === variables.row.id
+            ? { ...saved, isInUse: variables.row.isInUse ?? false }
+            : row,
+        ),
       );
     },
     onSettled: (_saved, _error, variables) => {
       savingDraftIdsRef.current.delete(variables.row.id);
+    },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (row: UnitRow) =>
+      isDraftRow(row)
+        ? Promise.resolve({ success: true })
+        : apiJson<{ success: boolean }>(`/api/units/${row.id}`, {
+            method: "DELETE",
+            fallbackError: "Failed to delete unit.",
+          }),
+    onSuccess: (_result, row) => {
+      setRows((currentRows) => currentRows.filter((current) => current.id !== row.id));
+      router.refresh();
     },
   });
 
@@ -108,11 +128,17 @@ export function UnitsSection({ initialUnits }: { initialUnits: UnitRow[] }) {
     ],
     [uomLabelByValue, uomValues],
   );
-  const saveStatus = mutation.isPending
+  const saveStatus = mutation.isPending || deleteMutation.isPending
     ? "Saving..."
-    : mutation.isError
+    : mutation.isError || deleteMutation.isError
       ? "Changes not saved"
       : "All changes saved";
+  const actionError =
+    mutation.error instanceof Error
+      ? mutation.error.message
+      : deleteMutation.error instanceof Error
+        ? deleteMutation.error.message
+        : null;
 
   return (
     <SettingsPanel id="units">
@@ -134,7 +160,7 @@ export function UnitsSection({ initialUnits }: { initialUnits: UnitRow[] }) {
             id: `draft-${crypto.randomUUID()}`,
             name: "",
             size: "1",
-            uom: "ea",
+            uom: "pcs",
           })}
           onRowsChange={(
             nextRows: UnitRow[],
@@ -150,13 +176,22 @@ export function UnitsSection({ initialUnits }: { initialUnits: UnitRow[] }) {
           }}
           addLabel="Add row"
           initializeBlankRow={false}
-          enableDelete={false}
           enableReorder={false}
+          getDeleteDisabledReason={(row) =>
+            row.isInUse ? "Unit is in use and cannot be deleted." : null
+          }
+          onDeleteRow={async (row) => {
+            if (!isDraftRow(row)) {
+              const confirmed = window.confirm(`Delete ${row.name || "this unit"}?`);
+              if (!confirmed) return;
+            }
+            await deleteMutation.mutateAsync(row);
+          }}
           emptyMessage="No units yet."
         />
-        {mutation.error ? (
+        {actionError ? (
           <FieldError>
-            {mutation.error instanceof Error ? mutation.error.message : "Failed to save unit."}
+            {actionError}
           </FieldError>
         ) : null}
       </div>

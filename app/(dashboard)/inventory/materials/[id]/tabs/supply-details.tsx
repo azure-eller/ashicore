@@ -17,17 +17,19 @@ import {
   type EditableLineDataGridChange,
   type LineField,
 } from "@/components/editable-lines";
+import { NumericMoneyCell } from "@/components/card-page/variant-table";
 import {
   type ItemCardDto,
   type ItemCardVariantDto,
   type UpdateItemCardInput,
   type UpdateItemCardVariantInput,
 } from "@/lib/api/clients/item-cards";
-import { formatQuantity } from "@/lib/format";
+import { formatQuantity, normalizeNumeric } from "@/lib/format";
 import {
   isNonNegativeNumberString,
   isPositiveNumberString,
 } from "@/lib/schemas/shared";
+import { derivePurchaseToStockFactor } from "@/lib/units-of-measure";
 import type { SupplierOption } from "@/app/(dashboard)/purchasing/types";
 import styles from "@/components/card-page/card-page.module.css";
 
@@ -52,6 +54,26 @@ export function MaterialSupplyDetailsTab({
   const visibleVariants = useMemo(
     () => card.variants.filter((variant) => variant.deletedAt == null),
     [card.variants],
+  );
+  const unitById = useMemo(
+    () => new Map(unitOptions.map((unit) => [unit.id, unit])),
+    [unitOptions],
+  );
+  const handlePurchaseUnitChange = useCallback(
+    (value: string) => {
+      const purchaseUnit = unitById.get(value);
+      const stockUnit = unitById.get(card.family.unitDefinitionId);
+      const factor =
+        purchaseUnit && stockUnit
+          ? derivePurchaseToStockFactor(purchaseUnit, stockUnit)
+          : null;
+
+      onFamilyChange({
+        purchaseUnitDefinitionId: value,
+        purchaseToStockFactor: factor != null ? normalizeNumeric(factor) : null,
+      });
+    },
+    [card.family.unitDefinitionId, onFamilyChange, unitById],
   );
 
   return (
@@ -110,9 +132,7 @@ export function MaterialSupplyDetailsTab({
               <CardSelectField
                 label="Default purchase unit of measure"
                 value={card.family.purchaseUnitDefinitionId ?? ""}
-                onValueChange={(value) =>
-                  onFamilyChange({ purchaseUnitDefinitionId: value })
-                }
+                onValueChange={handlePurchaseUnitChange}
                 placeholder="Select a purchase unit"
                 options={unitOptions.map((unit) => ({
                   value: unit.id,
@@ -175,6 +195,12 @@ function SupplyVariantsGrid({
             if (blank) return { minimumOrderQuantity: null };
             if (!isPositiveNumberString(String(raw).trim())) return null;
             return { minimumOrderQuantity: String(raw).trim() };
+          }
+          case "defaultPurchasePrice": {
+            if (blank) return { defaultPurchasePrice: null };
+            const trimmed = String(raw).trim();
+            if (!isNonNegativeNumberString(trimmed)) return null;
+            return { defaultPurchasePrice: trimmed };
           }
           default:
             return null;
@@ -264,13 +290,29 @@ function SupplyVariantsGrid({
         },
       },
       {
-        colId: "defaultPurchasePrice",
-        kind: "display",
+        field: "defaultPurchasePrice",
+        kind: "number",
         headerName: "Default purchase price (USD)",
         rightAligned: true,
+        editable: true,
         flex: 0.9,
         minWidth: 160,
-        cellRenderer: () => <span className={styles.placeholder}>—</span>,
+        valueSetter: (params: ValueSetterParams<ItemCardVariantDto>) => {
+          const raw = params.newValue;
+          if (raw === "" || raw == null) {
+            if (params.data.defaultPurchasePrice == null) return false;
+            params.data.defaultPurchasePrice = null;
+            return true;
+          }
+          const trimmed = String(raw).trim();
+          if (!isNonNegativeNumberString(trimmed)) return false;
+          if (params.data.defaultPurchasePrice === trimmed) return false;
+          params.data.defaultPurchasePrice = trimmed;
+          return true;
+        },
+        cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => (
+          <NumericMoneyCell value={params.data?.defaultPurchasePrice} scale={2} />
+        ),
       },
     ],
     [],

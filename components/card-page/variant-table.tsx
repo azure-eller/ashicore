@@ -102,7 +102,7 @@ function buildVariantPatch(
   }
 }
 
-function NumericMoneyCell({
+export function NumericMoneyCell({
   value,
   scale = 2,
 }: {
@@ -148,6 +148,7 @@ function makeEmptyVariant(card: ItemCardDto): ItemCardVariantDto {
     defaultLeadTimeDays: null,
     minimumOrderQuantity: null,
     defaultSellingPrice: null,
+    defaultPurchasePrice: null,
     inStockQty: "0",
     ingredientsCost: null,
     operationsCost: null,

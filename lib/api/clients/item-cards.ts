@@ -67,6 +67,7 @@ export type ItemCardVariantDto = {
   defaultLeadTimeDays: number | null;
   minimumOrderQuantity: string | null;
   defaultSellingPrice: string | null;
+  defaultPurchasePrice: string | null;
   inStockQty: string;
   ingredientsCost: string | null;
   operationsCost: string | null;

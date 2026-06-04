@@ -26,6 +26,7 @@ export {
   getCategories,
   createUnitDefinition,
   updateUnitDefinition,
+  deleteUnitDefinition,
 } from "./queries/units";
 export {
   getBomComponents,

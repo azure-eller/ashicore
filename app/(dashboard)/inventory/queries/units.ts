@@ -5,4 +5,5 @@ export {
   getCategories,
   createUnitDefinition,
   updateUnitDefinition,
+  deleteUnitDefinition,
 } from "./internal";

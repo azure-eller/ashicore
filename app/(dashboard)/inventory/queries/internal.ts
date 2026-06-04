@@ -1419,6 +1419,23 @@ export async function getUnitDefinitions() {
         name: unitDefinitions.name,
         size: trimScale(unitDefinitions.size).as("size"),
         uom: unitDefinitions.uom,
+        isInUse: sql<boolean>`exists (
+          select 1
+          from ${itemFamilies}
+          where ${itemFamilies.deletedAt} is null
+            and (
+              ${itemFamilies.unitDefinitionId} = ${unitDefinitions.id}
+              or ${itemFamilies.purchaseUnitDefinitionId} = ${unitDefinitions.id}
+            )
+        ) or exists (
+          select 1
+          from ${items}
+          where ${items.deletedAt} is null
+            and (
+              ${items.unitDefinitionId} = ${unitDefinitions.id}
+              or ${items.purchaseUnitDefinitionId} = ${unitDefinitions.id}
+            )
+        )`.as("isInUse"),
       })
       .from(unitDefinitions)
       .where(isNull(unitDefinitions.deletedAt));
@@ -2421,6 +2438,49 @@ export async function updateUnitDefinition(
       throw new InventoryError("Unit not found.", 404);
     }
     return row;
+  });
+}
+
+export async function deleteUnitDefinition(unitId: string): Promise<boolean> {
+  return withAuthedOrgContext(async (tx) => {
+    const [referencedFamily] = await tx
+      .select({ id: itemFamilies.id })
+      .from(itemFamilies)
+      .where(
+        and(
+          isNull(itemFamilies.deletedAt),
+          or(
+            eq(itemFamilies.unitDefinitionId, unitId),
+            eq(itemFamilies.purchaseUnitDefinitionId, unitId),
+          ),
+        ),
+      )
+      .limit(1);
+    const [referencedItem] = await tx
+      .select({ id: items.id })
+      .from(items)
+      .where(
+        and(
+          isNull(items.deletedAt),
+          or(
+            eq(items.unitDefinitionId, unitId),
+            eq(items.purchaseUnitDefinitionId, unitId),
+          ),
+        ),
+      )
+      .limit(1);
+
+    if (referencedFamily || referencedItem) {
+      throw new InventoryError("Unit is in use and cannot be deleted.", 409);
+    }
+
+    const [row] = await tx
+      .update(unitDefinitions)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(unitDefinitions.id, unitId), isNull(unitDefinitions.deletedAt)))
+      .returning({ id: unitDefinitions.id });
+
+    return Boolean(row);
   });
 }
 
