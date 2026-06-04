@@ -50,13 +50,16 @@ export function ProductCard({
   const focusedVariantParam = searchParams.get("variant");
   const [configOpen, setConfigOpen] = useState(false);
   const [variantsEnabled, setVariantsEnabled] = useState(false);
-  const [focusedItemId, setFocusedItemId] = useState(
+  const [focusedItemId, setFocusedItemIdState] = useState<string | null>(
     initialCard.variants.some(
       (variant) => variant.id === focusedVariantParam && variant.deletedAt == null,
     )
       ? focusedVariantParam
       : initialItemId,
   );
+  const setFocusedItemId = useCallback((itemId: string | null) => {
+    setFocusedItemIdState(itemId);
+  }, []);
   const persistedHref = useCallback((id: string) => `/inventory/products/${id}`, []);
 
   const controller = useItemCardDraftController({
@@ -78,7 +81,7 @@ export function ProductCard({
 
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
+  }, [setFocusedItemId]);
   const isDraft = !controller.hasPersistedEntity;
   const { mergeServerCard } = controller;
   const actionSaveStatus = useCardSaveStatus(currentItemId ?? "__draft__");
@@ -116,10 +119,6 @@ export function ProductCard({
     : focusedItemId && visibleVariantIds.has(focusedItemId)
       ? focusedItemId
       : fallbackFocusItemId;
-
-  if (focusedItemId !== resolvedFocusedItemId) {
-    setFocusedItemId(resolvedFocusedItemId);
-  }
 
   useEffect(() => {
     if (!currentItemId) return;
@@ -269,6 +268,13 @@ export function ProductCard({
     controller.error ??
     actionSaveStatus.errorMessage ??
     (cloneCardMutation.error instanceof Error ? cloneCardMutation.error.message : null);
+  const focusContextValue = useMemo(
+    () => ({
+      focusedItemId: resolvedFocusedItemId ?? currentItemId,
+      setFocusedItemId,
+    }),
+    [currentItemId, resolvedFocusedItemId, setFocusedItemId],
+  );
 
   return (
     <CardPage>
@@ -303,12 +309,7 @@ export function ProductCard({
         ]}
       />
 
-      <ItemCardFocusProvider
-        value={{
-          focusedItemId: resolvedFocusedItemId ?? currentItemId,
-          setFocusedItemId,
-        }}
-      >
+      <ItemCardFocusProvider value={focusContextValue}>
         <CardTabs
           tabs={tabs}
           defaultTab="general"

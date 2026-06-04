@@ -24,6 +24,7 @@ import {
   getUnitId,
   testFetch,
 } from "../../helpers/api";
+import { withAccountingConnectionFixtureLock } from "../../helpers/accounting-connection-fixture-lock";
 
 const ACCOUNTING_PROVIDER_XERO = "xero";
 const ACCOUNTING_PROVIDER_QUICKBOOKS = "quickbooks";
@@ -36,6 +37,15 @@ function isoDaysFromNow(days: number) {
 }
 
 async function withOnlyQuickBooksConnection<T>(
+  db: Parameters<Parameters<typeof test>[2]>[0]["db"],
+  fn: () => Promise<T>,
+) {
+  return withAccountingConnectionFixtureLock(() =>
+    withOnlyQuickBooksConnectionUnlocked(db, fn),
+  );
+}
+
+async function withOnlyQuickBooksConnectionUnlocked<T>(
   db: Parameters<Parameters<typeof test>[2]>[0]["db"],
   fn: () => Promise<T>,
 ) {

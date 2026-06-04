@@ -4,7 +4,7 @@ import { createContext, useContext } from "react";
 
 type ItemCardFocusContextValue = {
   focusedItemId: string | null;
-  setFocusedItemId: (itemId: string) => void;
+  setFocusedItemId: (itemId: string | null) => void;
 };
 
 const ItemCardFocusContext = createContext<ItemCardFocusContextValue | null>(null);

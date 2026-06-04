@@ -18,6 +18,7 @@ import {
   submitPurchaseOrder,
   testFetch,
 } from "../../helpers/api";
+import { withAccountingConnectionFixtureLock } from "../../helpers/accounting-connection-fixture-lock";
 import {
   accountingDocumentSyncs,
   integrationConnections,
@@ -201,6 +202,15 @@ async function createReceivedPurchaseOrder(ts: number) {
 }
 
 async function withNoAccountingConnection<T>(db: TestDb, fn: () => Promise<T>) {
+  return withAccountingConnectionFixtureLock(() =>
+    withNoAccountingConnectionUnlocked(db, fn),
+  );
+}
+
+async function withNoAccountingConnectionUnlocked<T>(
+  db: TestDb,
+  fn: () => Promise<T>,
+) {
   const existing = await db
     .select()
     .from(integrationConnections)
@@ -249,6 +259,15 @@ async function receiveOrderLine(db: TestDb, orderId: string) {
 }
 
 async function withOnlyQuickBooksConnection<T>(
+  db: TestDb,
+  fn: () => Promise<T>,
+) {
+  return withAccountingConnectionFixtureLock(() =>
+    withOnlyQuickBooksConnectionUnlocked(db, fn),
+  );
+}
+
+async function withOnlyQuickBooksConnectionUnlocked<T>(
   db: TestDb,
   fn: () => Promise<T>,
 ) {
@@ -310,6 +329,15 @@ async function withOnlyQuickBooksConnection<T>(
 }
 
 async function withOnlyXeroConnection<T>(db: TestDb, fn: () => Promise<T>) {
+  return withAccountingConnectionFixtureLock(() =>
+    withOnlyXeroConnectionUnlocked(db, fn),
+  );
+}
+
+async function withOnlyXeroConnectionUnlocked<T>(
+  db: TestDb,
+  fn: () => Promise<T>,
+) {
   const existing = await db
     .select()
     .from(integrationConnections)
