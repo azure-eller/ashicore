@@ -3,6 +3,7 @@ import logo from "../assets/logo.svg";
 import "../styles/global.css";
 import {
   absoluteUrl,
+  APP_ORIGIN,
   PUBLIC_SITE_URL,
   SIGN_IN_URL,
   SIGN_UP_URL,
@@ -28,6 +29,8 @@ const isHome = path === "/";
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{pageTitle}</title>
     <meta name="description" content={description} />
+    <link rel="preconnect" href={APP_ORIGIN} crossorigin />
+    <link rel="dns-prefetch" href={APP_ORIGIN} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

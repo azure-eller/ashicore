@@ -1,12 +1,15 @@
 export const SITE_NAME = "Ashicore";
 export const PUBLIC_SITE_URL = "https://ashicore.app";
 export const SUPPORT_EMAIL = "support@ashicore.app";
+export const APP_ORIGIN = import.meta.env.DEV
+  ? "http://localhost:3000"
+  : "https://erp-orcin-pi.vercel.app";
 export const APP_ENTRY_PATH = "/sales/orders";
 export const SIGN_IN_URL = import.meta.env.DEV
-  ? `http://localhost:3000/sign-in?next=${encodeURIComponent(APP_ENTRY_PATH)}`
+  ? `${APP_ORIGIN}/sign-in?next=${encodeURIComponent(APP_ENTRY_PATH)}`
   : `/sign-in?next=${encodeURIComponent(APP_ENTRY_PATH)}`;
 export const SIGN_UP_URL = import.meta.env.DEV
-  ? "http://localhost:3000/sign-up"
+  ? `${APP_ORIGIN}/sign-up`
   : "/sign-up";
 export const PRO_SIGN_UP_URL = `${SIGN_UP_URL}?plan=paid`;
 
