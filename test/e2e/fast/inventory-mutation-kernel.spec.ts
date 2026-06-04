@@ -1194,6 +1194,102 @@ test.describe("inventory mutation kernel heartbeat", () => {
     await expect(page).not.toHaveURL(new RegExp(`variant=${deletedVariant.id}`));
   });
 
+  test("variant add row uses the latest configured missing combination", async ({
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Variant Add Gap ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-VARIANT-GAP-${unique}`,
+      category: `Fast Variant Gap ${unique}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "15.00",
+      registeredBarcode: null,
+      internalBarcode: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(product.status).toBe(201);
+    const itemId = product.body.id as string;
+
+    const configResponse = await testFetch(`/api/item-cards/${itemId}/variant-config`, {
+      method: "PUT",
+      body: JSON.stringify({
+        options: [
+          {
+            name: "Pack",
+            values: [{ label: "1 ct" }, { label: "2 ct" }],
+          },
+        ],
+      }),
+    });
+    expect(configResponse.status).toBe(200);
+
+    const generateResponse = await testFetch(`/api/item-cards/${itemId}/variants/generate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(generateResponse.status).toBe(201);
+
+    const cardResponse = await testFetch(`/api/item-cards/${itemId}`);
+    expect(cardResponse.status).toBe(200);
+    const card = await cardResponse.json();
+    const option = card.options[0] as {
+      id: string;
+      name: string;
+      values: Array<{ id: string; label: string }>;
+    };
+    const deletedVariant = card.variants.find(
+      (variant: { id: string; optionValues: Array<{ valueLabel: string }> }) =>
+        variant.optionValues.some((value) => value.valueLabel === "1 ct"),
+    );
+    const remainingVariant = card.variants.find(
+      (variant: { id: string; optionValues: Array<{ valueLabel: string }> }) =>
+        variant.optionValues.some((value) => value.valueLabel === "2 ct"),
+    );
+    expect(deletedVariant?.id).toBeTruthy();
+    expect(remainingVariant?.id).toBeTruthy();
+
+    const deleteResponse = await testFetch(`/api/items/${deletedVariant.id}`, {
+      method: "DELETE",
+      body: JSON.stringify({}),
+    });
+    expect(deleteResponse.status).toBe(200);
+
+    const expandedConfigResponse = await testFetch(
+      `/api/item-cards/${remainingVariant.id}/variant-config`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          options: [
+            {
+              id: option.id,
+              name: option.name,
+              values: [
+                ...option.values.map((value) => ({
+                  id: value.id,
+                  label: value.label,
+                })),
+                { label: "3 ct" },
+              ],
+            },
+          ],
+        }),
+      },
+    );
+    expect(expandedConfigResponse.status).toBe(200);
+
+    await page.goto(`/inventory/products/${remainingVariant.id}`);
+    await page.getByRole("button", { name: "Add row" }).click();
+    await expect(page.locator(".ag-row").filter({ hasText: "3 ct" })).toHaveCount(1);
+    await expect(page.locator(".ag-row").filter({ hasText: "1 ct" })).toHaveCount(0);
+  });
+
   test("billing entitlements count every item row and Core state controls the cap", async ({
     db,
   }) => {

@@ -291,14 +291,19 @@ test.describe("stocktake found-lot operating story", () => {
     expect(reconciledFound.lotId).toBe(createdLot.id);
   });
 
-  test("rejects a found lot number that already exists for the item", async ({
+  test("rejects a found lot number that exists as active inventory for the item", async ({
     db,
   }) => {
     const material = await createMaterialFixture({
       name: "Found Lot Reject Material",
-      stock: "0",
+      stock: "2",
       cost: "3.00",
     });
+    const [existingLot] = await db
+      .select({ lotNumber: lots.lotNumber })
+      .from(lots)
+      .where(eq(lots.itemId, material.id));
+    expect(existingLot?.lotNumber).toBeTruthy();
 
     const create = await testFetch("/api/stocktakes", {
       method: "POST",
@@ -323,18 +328,6 @@ test.describe("stocktake found-lot operating story", () => {
         )
       );
 
-    // Seed an existing lot number for the item: a found lot reusing this number
-    // must be rejected, but the test should not bypass the inventory kernel by
-    // inventing stock quantity.
-    const existingLotNumber = `EXISTING-${Date.now()}`;
-    await db.insert(lots).values({
-      organizationId: getOrgId(),
-      itemId: material.id,
-      lotNumber: existingLotNumber,
-      quantity: "0",
-      receivedAt: new Date(),
-    });
-
     const save = await testFetch(`/api/stocktakes/${stocktakeId}`, {
       method: "PUT",
       body: JSON.stringify({
@@ -343,7 +336,7 @@ test.describe("stocktake found-lot operating story", () => {
           {
             isFound: true,
             stocktakeItemId: line.id,
-            lotNumber: existingLotNumber,
+            lotNumber: existingLot.lotNumber,
             countedQty: "2",
           },
         ],
@@ -364,7 +357,7 @@ test.describe("stocktake found-lot operating story", () => {
     expect(foundRows).toHaveLength(0);
   });
 
-  test("snapshots existing zero-balance lots so operators do not add them as found lots", async ({
+  test("does not snapshot zero-balance lots as active countable lots", async ({
     db,
   }) => {
     const material = await createMaterialFixture({
@@ -373,7 +366,7 @@ test.describe("stocktake found-lot operating story", () => {
       cost: "3.00",
     });
     const existingLotNumber = `ZERO-${Date.now()}`;
-    const [existingLot] = await db
+    await db
       .insert(lots)
       .values({
         organizationId: getOrgId(),
@@ -381,8 +374,7 @@ test.describe("stocktake found-lot operating story", () => {
         lotNumber: existingLotNumber,
         quantity: "0",
         receivedAt: new Date(),
-      })
-      .returning({ id: lots.id });
+      });
 
     const create = await testFetch("/api/stocktakes", {
       method: "POST",
@@ -415,13 +407,34 @@ test.describe("stocktake found-lot operating story", () => {
       .from(stocktakeLotItems)
       .where(eq(stocktakeLotItems.stocktakeItemId, line.id));
 
-    expect(snapshotLots).toEqual([
-      expect.objectContaining({
-        lotId: existingLot.id,
-        lotNumber: existingLotNumber,
-        expectedQty: "0.0000",
+    expect(snapshotLots).toEqual([]);
+
+    const save = await testFetch(`/api/stocktakes/${stocktakeId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        lines: [],
+        lotLines: [
+          {
+            isFound: true,
+            stocktakeItemId: line.id,
+            lotNumber: existingLotNumber,
+            countedQty: "2",
+          },
+        ],
       }),
-    ]);
+    });
+    expect(save.status).toBe(200);
+
+    const foundRows = await db
+      .select({ id: stocktakeLotItems.id })
+      .from(stocktakeLotItems)
+      .where(
+        and(
+          eq(stocktakeLotItems.stocktakeItemId, line.id),
+          eq(stocktakeLotItems.isFound, true)
+        )
+      );
+    expect(foundRows).toHaveLength(1);
   });
 
   test("completing one lot preserves untouched lots in the parent completed total", async ({

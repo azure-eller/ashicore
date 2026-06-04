@@ -147,7 +147,7 @@ async function getLockedStocktakeInTx(tx: Tx, id: string): Promise<LockedStockta
   return stocktake ?? null;
 }
 
-async function findLiveLotByNumberInTx(
+async function findActiveLotByNumberInTx(
   tx: Tx,
   params: {
     organizationId: string;
@@ -158,6 +158,16 @@ async function findLiveLotByNumberInTx(
   const [existing] = await tx
     .select({ id: lots.id })
     .from(lots)
+    .innerJoin(
+      inventoryLotBalances,
+      and(
+        eq(inventoryLotBalances.organizationId, lots.organizationId),
+        eq(inventoryLotBalances.itemId, lots.itemId),
+        eq(inventoryLotBalances.lotId, lots.id),
+        eq(inventoryLotBalances.disposition, "available"),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    )
     .where(
       and(
         eq(lots.organizationId, params.organizationId),
@@ -1009,10 +1019,10 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
         );
       }
 
-      // A "found" lot must be a genuinely new lot number for the item. If it
+      // A "found" lot must not collide with active inventory. If it
       // already exists as a tracked snapshot line on this item, or as a live
-      // lot in the ledger, it must be counted as that lot (reconciled against
-      // its live quantity) instead of posted as a raw +gain.
+      // positive-quantity lot, it must be counted as that lot instead of
+      // posted as a raw +gain. Zero-quantity historical lot rows are inactive.
       const collidesWithSnapshotLot = ownerLine.lots.some(
         (lot) =>
           !lot.isFound && lot.lotNumber.trim() === foundLot.lotNumber
@@ -1025,7 +1035,7 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
         );
       }
 
-      const liveLotId = await findLiveLotByNumberInTx(tx, {
+      const liveLotId = await findActiveLotByNumberInTx(tx, {
         organizationId: orgId,
         itemId: ownerLine.itemId,
         lotNumber: foundLot.lotNumber,
@@ -1327,7 +1337,7 @@ export async function completeStocktake(
         continue;
       }
 
-      const lotId = await findLiveLotByNumberInTx(tx, {
+      const lotId = await findActiveLotByNumberInTx(tx, {
         organizationId: orgId,
         itemId: line.itemId,
         lotNumber: line.foundLotNumber,

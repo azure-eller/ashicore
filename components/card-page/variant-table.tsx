@@ -666,7 +666,7 @@ export function VariantTable({
       const focusItemId = visibleVariants[0]?.id;
       if (!focusItemId) return null;
       const preview = await previewVariantGeneration(focusItemId);
-      const nextCombination = preview.missingCombinations[0];
+      const nextCombination = preview.missingCombinations.at(-1);
       if (!nextCombination) return null;
       await generateVariants(focusItemId, {
         combinations: [nextCombination.optionValueIdsByOptionId],
