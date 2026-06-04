@@ -154,6 +154,10 @@ export type UpdateItemCardVariantInput = {
   optionValueIdsByOptionId?: Record<string, string>;
 };
 
+export type CreateItemCardVariantInput = UpdateItemCardVariantInput & {
+  optionValueIdsByOptionId: Record<string, string>;
+};
+
 export type VariantConfigInput = {
   options: Array<{
     id?: string;
@@ -246,6 +250,18 @@ export async function updateItemCardVariant(
   return request<ItemCardDto>(path, {
     method: "PATCH",
     idempotencyKey: "updateItemCardVariant",
+    body: input,
+  });
+}
+
+export async function createItemCardVariant(
+  sourceItemId: string,
+  input: CreateItemCardVariantInput,
+): Promise<CreateItemCardResult> {
+  const path = `/api/item-cards/${sourceItemId}/variant`;
+  return request<CreateItemCardResult>(path, {
+    method: "POST",
+    idempotencyKey: "createItemCardVariant",
     body: input,
   });
 }
