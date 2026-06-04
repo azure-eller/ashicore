@@ -39,6 +39,13 @@ Top-level statuses stay small:
 - `open`: editable operational work; execution may have reversible picked or reserved ingredients
 - `done`: terminal; production output or finalized consumption has been recorded
 
+Open-order editing is split by risk:
+
+- planned dates, notes, blocked state, and other non-inventory metadata may be edited while the order is open
+- production quantity, product, ingredient snapshot, batch shape, and operation-cost planning may only be edited before execution starts
+- execution has started once the order is started, any batch leaves `pending`, any ingredient is picked or has actuals, or output is recorded
+- make-to-order manufacturing linked to a sales order line must keep the linked product, quantity, and sales line identity
+
 Allowed transitions:
 
 - create -> `open`

@@ -229,4 +229,55 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     expect(componentBalance.onHandQty).toBe("-2.0000");
     expect(savedOrder.status).toBe("done");
   });
+
+  test("started open order blocks planning edits but allows rescheduling", async ({
+    db,
+  }) => {
+    const fixture = await createBomFixture("StartedEditGuard");
+    const order = await createManufacturingOrder({
+      productId: fixture.productId,
+      plannedQuantity: "2",
+      plannedDate: "2026-06-10",
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+    });
+    expect(order.status).toBe(201);
+
+    const start = await testFetch(`/api/manufacturing-orders/${order.body.id}/start`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(start.status).toBe(200);
+
+    const datePatch = await testFetch(`/api/manufacturing-orders/${order.body.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ plannedDate: "2026-06-15" }),
+    });
+    expect(datePatch.status).toBe(200);
+
+    const quantityEdit = await testFetch(`/api/manufacturing-orders/${order.body.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        productId: fixture.productId,
+        plannedQuantity: "3",
+        plannedDate: "2026-06-20",
+        notes: null,
+        ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+        lotAllocations: [],
+      }),
+    });
+    const quantityEditBody = await quantityEdit.json().catch(() => null);
+    expect(quantityEdit.status).toBe(400);
+    expect(quantityEditBody?.error).toContain("Manufacturing work has started");
+
+    const [saved] = await db
+      .select({
+        plannedQuantity: manufacturingOrders.plannedQuantity,
+        plannedDate: manufacturingOrders.plannedDate,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, order.body.id));
+
+    expect(saved.plannedQuantity).toBe("2.0000");
+    expect(saved.plannedDate).toBe("2026-06-15");
+  });
 });

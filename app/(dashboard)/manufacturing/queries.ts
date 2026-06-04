@@ -197,6 +197,7 @@ type LockedManufacturingOrder = {
   salesCustomerName: string | null;
   requestedQuantity: string;
   plannedQuantity: string;
+  actualQuantity: string | null;
   plannedDate: string | null;
   priorityRank: number | null;
   bomRevisionId: string | null;
@@ -207,6 +208,97 @@ function isOpenManufacturingOrder(
   order: Pick<LockedManufacturingOrder, "status">
 ) {
   return order.status === "open";
+}
+
+function hasManufacturingQuantityChanged(current: string, next: string) {
+  return (
+    normalizeQuantityNumber(Number(current)) !==
+    normalizeQuantityNumber(Number(next))
+  );
+}
+
+async function assertManufacturingPlanningUpdateAllowedInTx(
+  tx: Tx,
+  order: LockedManufacturingOrder,
+  ingredientIds: string[]
+) {
+  if (order.startedAt != null) {
+    throw new ManufacturingError(
+      "Manufacturing work has started, so planning fields are locked to preserve execution history.",
+      400
+    );
+  }
+
+  if (Number(order.actualQuantity ?? 0) > 0) {
+    throw new ManufacturingError(
+      "Output has already been recorded, so planning fields are locked to preserve inventory history.",
+      400
+    );
+  }
+
+  const outputRows = await tx
+    .select({ id: manufacturingOrderOutputs.id })
+    .from(manufacturingOrderOutputs)
+    .where(eq(manufacturingOrderOutputs.manufacturingOrderId, order.id))
+    .limit(1);
+
+  if (outputRows.length > 0) {
+    throw new ManufacturingError(
+      "Output has already been recorded, so planning fields are locked to preserve inventory history.",
+      400
+    );
+  }
+
+  const pickedIngredientRows =
+    ingredientIds.length > 0
+      ? await tx
+          .select({ id: manufacturingOrderIngredients.id })
+          .from(manufacturingOrderIngredients)
+          .where(
+            and(
+              inArray(manufacturingOrderIngredients.id, ingredientIds),
+              or(
+                ne(manufacturingOrderIngredients.pickStatus, "not_picked"),
+                sql`${manufacturingOrderIngredients.pickedQuantity} > 0`,
+                isNotNull(manufacturingOrderIngredients.actualQuantity)
+              )
+            )
+          )
+          .limit(1)
+      : [];
+
+  if (pickedIngredientRows.length > 0) {
+    throw new ManufacturingError(
+      "Ingredients have already been picked, so planning fields are locked to preserve inventory history.",
+      400
+    );
+  }
+
+  const activeBatchRows =
+    order.manufacturingMode === "batch"
+      ? await tx
+          .select({ id: manufacturingOrderBatches.id })
+          .from(manufacturingOrderBatches)
+          .where(
+            and(
+              eq(manufacturingOrderBatches.manufacturingOrderId, order.id),
+              or(
+                ne(manufacturingOrderBatches.status, "pending"),
+                isNotNull(manufacturingOrderBatches.startedAt),
+                isNotNull(manufacturingOrderBatches.pickedAt),
+                isNotNull(manufacturingOrderBatches.completedAt)
+              )
+            )
+          )
+          .limit(1)
+      : [];
+
+  if (activeBatchRows.length > 0) {
+    throw new ManufacturingError(
+      "Batch work has started, so planning fields are locked to preserve execution history.",
+      400
+    );
+  }
 }
 
 type ValidatedIngredient = {
@@ -561,6 +653,9 @@ async function getLockedManufacturingOrderInTx(
         "requestedQuantity"
       ),
       plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as("plannedQuantity"),
+      actualQuantity: trimScaleNullable(manufacturingOrders.actualQuantity).as(
+        "actualQuantity"
+      ),
       plannedDate: manufacturingOrders.plannedDate,
       priorityRank: manufacturingOrders.priorityRank,
       startedAt: manufacturingOrders.startedAt,
@@ -954,8 +1049,14 @@ function assertLinkedMtoIdentityUnchanged(
     nextProductId !== existing.productId ||
     nextSalesOrderId !== existing.salesOrderId ||
     nextSalesOrderLineId !== existing.salesOrderLineId ||
-    nextPlannedQuantity !== Number(existing.plannedQuantity) ||
-    nextPlannedQuantity !== Number(existing.requestedQuantity)
+    hasManufacturingQuantityChanged(
+      existing.plannedQuantity,
+      String(nextPlannedQuantity)
+    ) ||
+    hasManufacturingQuantityChanged(
+      existing.requestedQuantity,
+      String(nextPlannedQuantity)
+    )
   ) {
     throw new ManufacturingError(
       "Linked make-to-order manufacturing orders must keep the sales line product, quantity, and link.",
@@ -2687,7 +2788,7 @@ async function reverseManufacturingOutputInTx(
         pickedQuantity: normalizeNumeric(nextPickedQuantity),
         pickStatus:
           nextPickedQuantity <= 0
-            ? "not_started"
+            ? "not_picked"
             : nextPickedQuantity >= plannedQuantity
               ? "picked"
               : "in_progress",
@@ -4678,39 +4779,11 @@ export async function updateManufacturingOrder(
         .from(manufacturingOrderIngredients)
         .where(eq(manufacturingOrderIngredients.manufacturingOrderId, id));
       const ingredientIds = existingIngredientIds.map((ingredient) => ingredient.id);
-      const pickedRows =
-        ingredientIds.length > 0
-          ? await tx
-              .select({ id: manufacturingPickAllocations.id })
-              .from(manufacturingPickAllocations)
-              .where(
-                inArray(
-                  manufacturingPickAllocations.manufacturingOrderIngredientId,
-                  ingredientIds
-                )
-              )
-              .limit(1)
-          : [];
-      const activeBatchRows =
-        existing.manufacturingMode === "batch"
-          ? await tx
-              .select({ id: manufacturingOrderBatches.id })
-              .from(manufacturingOrderBatches)
-              .where(
-                and(
-                  eq(manufacturingOrderBatches.manufacturingOrderId, id),
-                  ne(manufacturingOrderBatches.status, "pending")
-                )
-              )
-              .limit(1)
-          : [];
-
-      if (pickedRows.length > 0 || activeBatchRows.length > 0) {
-        throw new ManufacturingError(
-          "Orders cannot be edited after picking or batch work starts.",
-          400
-        );
-      }
+      await assertManufacturingPlanningUpdateAllowedInTx(
+        tx,
+        existing,
+        ingredientIds
+      );
     }
 
     assertLinkedMtoIdentityUnchanged(existing, payload);
