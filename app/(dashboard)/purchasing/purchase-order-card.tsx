@@ -880,7 +880,9 @@ export function PurchaseOrderCard({
         orderId ? `/api/purchase-orders/${orderId}` : "/api/purchase-orders",
         {
           method: orderId ? "PUT" : "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: createIdempotencyHeaders("savePurchaseOrder", {
+            "Content-Type": "application/json",
+          }),
           body: JSON.stringify(values),
         },
       );

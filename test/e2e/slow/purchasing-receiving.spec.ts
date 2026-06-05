@@ -1,20 +1,24 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { test, expect, filterList } from "../fixtures";
 import {
   inventoryEvents,
   inventoryExpectedSummary,
   inventoryItemBalances,
   inventoryLotBalances,
+  items,
   purchaseOrderLines,
   purchaseOrders,
 } from "../../../lib/db/schema";
 import {
+  createItem,
   createPurchaseOrder,
   createSupplier,
   receivePurchaseOrder,
   submitPurchaseOrder,
+  testFetch,
+  updateItem,
 } from "../../helpers/api";
-import { createMaterialFixture, expectResponse } from "./story-helpers";
+import { createMaterialFixture, expectResponse, unitId } from "./story-helpers";
 
 test.describe("purchasing receiving operating story", () => {
   test.describe.configure({ mode: "serial" });
@@ -154,5 +158,303 @@ test.describe("purchasing receiving operating story", () => {
       .from(purchaseOrders)
       .where(eq(purchaseOrders.id, orderId));
     expect(order.status).toBe("received");
+  });
+});
+
+async function freightedPurchaseOrderBody(opts: {
+  supplierId: string;
+  itemId: string;
+  unitCost: string;
+  freight: string;
+  expectedDate: string;
+}) {
+  return JSON.stringify({
+    supplierId: opts.supplierId,
+    expectedDate: opts.expectedDate,
+    shippingCost: opts.freight,
+    notes: null,
+    accountingPurchaseAccountCode: null,
+    lines: [{ itemId: opts.itemId, quantityOrdered: "10", unitCost: opts.unitCost }],
+    additionalCosts: [
+      {
+        costType: "shipping",
+        reference: "Freight",
+        distributionMethod: "by_value",
+        accountingPurchaseAccountCode: null,
+        amount: opts.freight,
+      },
+    ],
+  });
+}
+
+test.describe("editable freight revaluation after receipt", () => {
+  test.describe.configure({ mode: "serial" });
+
+  let materialId: string;
+  let supplierId: string;
+  let orderId: string;
+  let lineId: string;
+  let lotId: string;
+
+  test("receives a freighted PO so the lot carries landed cost", async ({ db }) => {
+    const material = await createMaterialFixture({
+      name: "Freight Reval Material",
+      stock: "0",
+      cost: "10.00",
+    });
+    materialId = material.id;
+
+    const supplier = await createSupplier({ name: `Freight Reval Supplier ${Date.now()}` });
+    expectResponse(supplier);
+    supplierId = supplier.body.id as string;
+
+    // Freight 20 across 10 units => landed unit cost 12.
+    const create = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: await freightedPurchaseOrderBody({
+        supplierId,
+        itemId: materialId,
+        unitCost: "10.00",
+        freight: "20.00",
+        expectedDate: "2026-06-20",
+      }),
+    });
+    const order = await create.json();
+    expect(create.status).toBe(201);
+    orderId = order.id as string;
+    expect((await submitPurchaseOrder(orderId)).status).toBe(200);
+
+    const [line] = await db
+      .select({ id: purchaseOrderLines.id })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, orderId));
+    lineId = line.id;
+    expect(
+      (await receivePurchaseOrder(orderId, {
+        lines: [{ lineId, quantityReceived: "10" }],
+      })).status
+    ).toBe(200);
+
+    const [lot] = await db
+      .select({ lotId: inventoryLotBalances.lotId, unitCost: inventoryLotBalances.unitCost })
+      .from(inventoryLotBalances)
+      .where(eq(inventoryLotBalances.itemId, materialId));
+    lotId = lot.lotId;
+    expect(lot.unitCost).toBe("12.000000");
+  });
+
+  test("editing freight rebases on-hand cost via append-only revaluation, receipt untouched", async ({
+    db,
+  }) => {
+    const [receiptBefore] = await db
+      .select({
+        id: inventoryEvents.id,
+        unitCost: inventoryEvents.unitCost,
+        extendedCost: inventoryEvents.extendedCost,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, materialId),
+          eq(inventoryEvents.eventType, "purchase_receipt")
+        )
+      );
+
+    // Freight 20 -> 50 => landed unit cost 15.
+    const edit = await testFetch(`/api/purchase-orders/${orderId}`, {
+      method: "PUT",
+      body: await freightedPurchaseOrderBody({
+        supplierId,
+        itemId: materialId,
+        unitCost: "10.00",
+        freight: "50.00",
+        expectedDate: "2026-06-20",
+      }),
+    });
+    expect(edit.status, await edit.text()).toBe(200);
+
+    const [reval] = await db
+      .select({
+        quantity: inventoryEvents.quantity,
+        unitCost: inventoryEvents.unitCost,
+        extendedCost: inventoryEvents.extendedCost,
+        lotId: inventoryEvents.lotId,
+        referenceType: inventoryEvents.referenceType,
+        referenceId: inventoryEvents.referenceId,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, materialId),
+          eq(inventoryEvents.eventType, "landed_cost_revaluation")
+        )
+      )
+      .orderBy(asc(inventoryEvents.occurredAt));
+    expect(reval).toMatchObject({
+      quantity: "0.0000",
+      unitCost: "15.000000",
+      extendedCost: "30.000000",
+      lotId,
+      referenceType: "purchase_order",
+      referenceId: orderId,
+    });
+
+    const [lot] = await db
+      .select({ unitCost: inventoryLotBalances.unitCost })
+      .from(inventoryLotBalances)
+      .where(eq(inventoryLotBalances.lotId, lotId));
+    expect(lot.unitCost).toBe("15.000000");
+
+    const [item] = await db
+      .select({ currentStockUnitCost: items.currentStockUnitCost })
+      .from(items)
+      .where(eq(items.id, materialId));
+    expect(item.currentStockUnitCost).toBe("15.000000");
+
+    const [receiptAfter] = await db
+      .select({
+        unitCost: inventoryEvents.unitCost,
+        extendedCost: inventoryEvents.extendedCost,
+      })
+      .from(inventoryEvents)
+      .where(eq(inventoryEvents.id, receiptBefore.id));
+    expect(receiptAfter).toMatchObject({
+      unitCost: receiptBefore.unitCost,
+      extendedCost: receiptBefore.extendedCost,
+    });
+  });
+
+  test("freight edit after consumption saves and revalues remaining available stock", async ({ db }) => {
+    // Draw down 4 of the 10 received units.
+    const decrease = await updateItem(materialId, {
+      stock: "6",
+      defaultPurchasePrice: "10.00",
+    });
+    expect(decrease.status, JSON.stringify(decrease.body)).toBeLessThan(400);
+
+    const edit = await testFetch(`/api/purchase-orders/${orderId}`, {
+      method: "PUT",
+      body: await freightedPurchaseOrderBody({
+        supplierId,
+        itemId: materialId,
+        unitCost: "10.00",
+        freight: "80.00",
+        expectedDate: "2026-06-20",
+      }),
+    });
+    expect(edit.status, await edit.text()).toBe(200);
+
+    const revals = await db
+      .select({
+        unitCost: inventoryEvents.unitCost,
+        extendedCost: inventoryEvents.extendedCost,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, materialId),
+          eq(inventoryEvents.eventType, "landed_cost_revaluation")
+        )
+      )
+      .orderBy(asc(inventoryEvents.occurredAt));
+    expect(revals).toHaveLength(2);
+    expect(revals.at(-1)).toMatchObject({
+      unitCost: "18.000000",
+      extendedCost: "18.000000",
+    });
+
+    const [lot] = await db
+      .select({ quantity: inventoryLotBalances.quantity, unitCost: inventoryLotBalances.unitCost })
+      .from(inventoryLotBalances)
+      .where(eq(inventoryLotBalances.lotId, lotId));
+    expect(lot).toMatchObject({
+      quantity: "6.0000",
+      unitCost: "18.000000",
+    });
+  });
+
+  test("freight edits save for untracked received material but skip v1 revaluation", async ({ db }) => {
+    const created = await createItem({
+      itemType: "material",
+      name: `Freight Untracked Material ${Date.now()}`,
+      unitDefinitionId: unitId,
+      sku: `SLOW-FREIGHT-UNTRACKED-${Date.now()}`,
+      category: "Slow Story",
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expectResponse(created);
+    const untrackedId = created.body.id as string;
+
+    const mode = await testFetch(`/api/item-cards/${untrackedId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: created.body.name,
+        category: "Slow Story",
+        description: null,
+        unitDefinitionId: unitId,
+        lotTrackingMode: "untracked",
+      }),
+    });
+    expect(mode.status, await mode.text()).toBe(200);
+
+    const supplier = await createSupplier({ name: `Freight Untracked Supplier ${Date.now()}` });
+    expectResponse(supplier);
+    const create = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: await freightedPurchaseOrderBody({
+        supplierId: supplier.body.id as string,
+        itemId: untrackedId,
+        unitCost: "10.00",
+        freight: "20.00",
+        expectedDate: "2026-06-21",
+      }),
+    });
+    const order = await create.json();
+    expect(create.status).toBe(201);
+    expect((await submitPurchaseOrder(order.id)).status).toBe(200);
+
+    const [line] = await db
+      .select({ id: purchaseOrderLines.id })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, order.id));
+    expect(
+      (await receivePurchaseOrder(order.id, {
+        lines: [{ lineId: line.id, quantityReceived: "10" }],
+      })).status
+    ).toBe(200);
+
+    const edit = await testFetch(`/api/purchase-orders/${order.id}`, {
+      method: "PUT",
+      body: await freightedPurchaseOrderBody({
+        supplierId: supplier.body.id as string,
+        itemId: untrackedId,
+        unitCost: "10.00",
+        freight: "50.00",
+        expectedDate: "2026-06-21",
+      }),
+    });
+    expect(edit.status, await edit.text()).toBe(200);
+
+    const revals = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, untrackedId),
+          eq(inventoryEvents.eventType, "landed_cost_revaluation")
+        )
+      );
+    expect(revals).toHaveLength(0);
+
+    const [savedOrder] = await db
+      .select({ shippingCost: purchaseOrders.shippingCost })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, order.id));
+    expect(savedOrder.shippingCost).toBe("50.0000");
   });
 });

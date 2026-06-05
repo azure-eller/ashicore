@@ -1016,6 +1016,20 @@
       "when": 1780618255366,
       "tag": "0144_adjustment_event_reasons",
       "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1780670764952,
+      "tag": "0145_landed_cost_revaluation",
+      "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "7",
+      "when": 1780680630403,
+      "tag": "0146_landed_cost_revaluation_journal_sync",
+      "breakpoints": true
     }
   ]
 }

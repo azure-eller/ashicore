@@ -52,7 +52,7 @@ type NegativeStockEventType =
 
 type RestockEventType = "unpick_restock" | "manufacturing_variance_gain";
 
-const DEFAULT_DISPOSITION: InventoryDisposition = "available";
+export const DEFAULT_DISPOSITION: InventoryDisposition = "available";
 // Lot master identity is per org+item; per-location debt lives in lot balances.
 const NEGATIVE_STOCK_LOT_NUMBER = "UNBATCHED-NEGATIVE-STOCK";
 const UNBATCHED_LOT_NUMBER = "UNBATCHED";
@@ -179,8 +179,39 @@ function multiplyNumericStrings(left: string, right: string, scale: number) {
   return formatScaledDecimal(scaled * sign, scale);
 }
 
-function calculateExtendedCost(quantity: string, unitCost: string) {
+export function calculateExtendedCost(quantity: string, unitCost: string) {
   return multiplyNumericStrings(quantity, unitCost, 6);
+}
+
+function subtractNumericStrings(left: string, right: string, scale: number) {
+  const toScaledBigInt = (value: string) => {
+    const parsed = decimalDigits(value);
+    if (parsed.scale > scale) {
+      const divisor = pow10(parsed.scale - scale);
+      let scaled = parsed.digits / divisor;
+      const remainder = parsed.digits % divisor;
+      if (remainder * BigInt(2) >= divisor) {
+        scaled += BigInt(1);
+      }
+      return scaled * parsed.sign;
+    }
+
+    return parsed.digits * pow10(scale - parsed.scale) * parsed.sign;
+  };
+
+  return formatScaledDecimal(toScaledBigInt(left) - toScaledBigInt(right), scale);
+}
+
+export function calculateExtendedCostDelta(
+  quantity: string,
+  previousUnitCost: string,
+  newUnitCost: string
+) {
+  return subtractNumericStrings(
+    calculateExtendedCost(quantity, newUnitCost),
+    calculateExtendedCost(quantity, previousUnitCost),
+    6
+  );
 }
 
 export async function getCurrentOnHandQtyInTx(tx: Tx, itemId: string) {
@@ -519,6 +550,51 @@ export async function updateMaterialCurrentStockUnitCostInTx(
   }
 
   return item.currentStockUnitCost;
+}
+
+// Canonical derivation of a material's current_stock_unit_cost from the live
+// value-weighted average of its on-hand lot balances. Use this whenever a lot's
+// cost basis changes without a quantity movement (e.g. landed-cost revaluation).
+// Scope matches the canonical reader in estimated-cost.ts: available disposition
+// only, so blocked/rejected stock is not folded into item cost. The receive path
+// keeps its own incremental moving average on purpose — moving it onto this
+// re-average changes costing semantics and is out of scope here.
+export async function recomputeMaterialCurrentStockUnitCostFromLotsInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    itemId: string;
+  }
+) {
+  const [aggregate] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
+      extendedCost: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity} * ${inventoryLotBalances.unitCost}), 0)`,
+      nullCostCount: sql<string>`COUNT(*) FILTER (WHERE ${inventoryLotBalances.unitCost} IS NULL)`,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    );
+
+  const quantity = parseFloat(aggregate?.quantity ?? "0");
+  // Mirror estimated-cost.ts: refuse to average across a NULL-cost lot (yield
+  // NULL) rather than understating cost by treating the costless lot as $0.
+  const hasNullCostLot = Number.parseInt(aggregate?.nullCostCount ?? "0", 10) > 0;
+  const currentStockUnitCost =
+    quantity > 0 && !hasNullCostLot
+      ? normalizeStockUnitCost(parseFloat(aggregate?.extendedCost ?? "0") / quantity)
+      : null;
+
+  return updateMaterialCurrentStockUnitCostInTx(tx, {
+    itemId: params.itemId,
+    currentStockUnitCost,
+  });
 }
 
 export async function createPositiveStockEventInTx(

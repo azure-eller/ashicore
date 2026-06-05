@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import {
+  apiHandler,
+  requireIdempotencyKey,
+  type RouteContext,
+} from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonError, jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
@@ -32,9 +36,10 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("purchasing", request.headers);
   const { id } = await (ctx as RouteContext).params;
   const data = await parseJsonBody(request, updatePurchaseOrderSchema);
+  const idempotencyKey = requireIdempotencyKey(request, "updatePurchaseOrder");
 
   try {
-    const order = await updatePurchaseOrder(id, data);
+    const order = await updatePurchaseOrder(id, data, { idempotencyKey });
 
     if (!order) {
       return jsonNotFound("Purchase order not found");

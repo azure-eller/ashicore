@@ -55,6 +55,7 @@ import {
   finishInventoryOperationInTx,
   receivePurchaseStockInTx,
   releaseExpectedFromPurchaseInTx,
+  revaluePurchaseLandedCostInTx,
 } from "@/lib/inventory/kernel";
 import { DomainError, type DomainFieldErrors } from "@/lib/errors/domain-error";
 import { measureObservedOperation } from "@/lib/observability/request-log";
@@ -1892,6 +1893,7 @@ export async function duplicatePurchaseOrder(id: string) {
 export async function updatePurchaseOrder(
   id: string,
   data: UpdatePurchaseOrder,
+  options?: { idempotencyKey?: string },
 ) {
   const updatedId = await withAuthedOrgContext(async (tx, orgId, userId) => {
     const order = await getLockedPurchaseOrderInTx(tx, id);
@@ -1957,6 +1959,11 @@ export async function updatePurchaseOrder(
         itemId: string;
         quantity: number;
       }> = [];
+      const landedCostRevaluationLines: Array<{
+        purchaseOrderLineId: string;
+        itemId: string;
+        unitCost: string;
+      }> = [];
 
       for (const line of prepared.preparedLines) {
         const existingLine = existingLineByItemId.get(line.itemId);
@@ -1973,6 +1980,20 @@ export async function updatePurchaseOrder(
               "Ordered quantity cannot be less than quantity already received.",
               400,
             );
+          }
+          const previousStockUnitCost = parseFloat(existingLine.stockUnitCost);
+          const nextStockUnitCost = parseFloat(line.stockUnitCost);
+          if (
+            stockQuantityReceived > 0 &&
+            Number.isFinite(previousStockUnitCost) &&
+            Number.isFinite(nextStockUnitCost) &&
+            Math.abs(previousStockUnitCost - nextStockUnitCost) >= 0.000001
+          ) {
+            landedCostRevaluationLines.push({
+              purchaseOrderLineId: existingLine.id,
+              itemId: line.itemId,
+              unitCost: line.stockUnitCost,
+            });
           }
 
           await tx
@@ -2058,6 +2079,23 @@ export async function updatePurchaseOrder(
           actorUserId: userId,
           idempotencyKey: null,
           nextLines: nextExpectedLines,
+        });
+      }
+
+      if (landedCostRevaluationLines.length > 0) {
+        // The previousStockUnitCost snapshot above and this revaluation are
+        // serialized per purchase order by the FOR UPDATE lock taken in
+        // getLockedPurchaseOrderInTx at the top of this transaction, so
+        // concurrent edits to the same PO cannot double-adjust a lot's cost.
+        await revaluePurchaseLandedCostInTx(tx, {
+          organizationId: orgId,
+          purchaseOrderId: id,
+          actorUserId: userId,
+          idempotencyKey: deriveInventoryIdempotencyKey(
+            options?.idempotencyKey,
+            "landed-cost-revaluation",
+          ),
+          lines: landedCostRevaluationLines,
         });
       }
 

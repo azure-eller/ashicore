@@ -85,6 +85,7 @@ const EXPECTED_EVENT_TYPES: ReadonlySet<InventoryEventType> = new Set([
 const NON_DELTA_EVENT_TYPES: ReadonlySet<InventoryEventType> = new Set([
   "stocktake_verification",
   "cost_basis_change",
+  "landed_cost_revaluation",
   "quality_disposition_change",
 ]);
 
@@ -110,6 +111,7 @@ const EVENT_LABELS: Record<InventoryEventType, string> = {
   expected_increase: "Expected supply increase",
   expected_release: "Expected supply release",
   cost_basis_change: "Cost basis change",
+  landed_cost_revaluation: "Landed cost revaluation",
   stocktake_verification: "Stocktake verification",
 };
 
@@ -135,6 +137,7 @@ const SUMMARY_ACTIONS: Record<InventoryEventType, string> = {
   expected_increase: "expected",
   expected_release: "released expected supply for",
   cost_basis_change: "updated cost basis for",
+  landed_cost_revaluation: "revalued landed cost for",
   stocktake_verification: "verified stocktake count for",
 };
 
@@ -337,6 +340,34 @@ export function summarizeInventoryLedgerMetadata(
 
   if ("purchaseOrderLineId" in metadata) {
     add("Purchase line", "Resolved from source document", "purchaseOrderLineId");
+  }
+
+  if (metadata.costingMode === "fifo_lot") {
+    add("Costing mode", "FIFO lot", "costingMode");
+  } else if (metadata.costingMode === "mac_bucket") {
+    add("Costing mode", "Moving average", "costingMode");
+  }
+
+  if (metadata.allocationBasis === "by_value") {
+    add("Allocation basis", "Line value", "allocationBasis");
+  } else if (metadata.allocationBasis === "by_weight") {
+    add("Allocation basis", "Weight", "allocationBasis");
+  }
+
+  if (typeof metadata.revaluedQuantity === "string") {
+    add("Revalued quantity", metadata.revaluedQuantity, "revaluedQuantity");
+  }
+
+  if (
+    typeof metadata.previousUnitCost === "string" &&
+    typeof metadata.newUnitCost === "string"
+  ) {
+    add(
+      "Unit cost change",
+      `${metadata.previousUnitCost} -> ${metadata.newUnitCost}`,
+      "previousUnitCost",
+      "newUnitCost"
+    );
   }
 
   if ("salesOrderLineId" in metadata) {
