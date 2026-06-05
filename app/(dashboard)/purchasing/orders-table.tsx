@@ -35,6 +35,7 @@ function todayIsoDate() {
 
 function PurchaseStatusCell({ order }: { order: PurchaseOrderListRow }) {
   const queryClient = useQueryClient();
+
   return (
     <OrderStatusControl
       config={purchaseOrderStatusConfig}
@@ -122,6 +123,10 @@ function makePurchaseBillDialogValues(
 
 function PurchaseBillCell({ order }: { order: PurchaseOrderListRow }) {
   const queryClient = useQueryClient();
+  const disabledReason =
+    order.status === "cancelled"
+      ? "Cancelled purchase orders cannot be billed."
+      : null;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [status, setStatus] = useState(order.purchaseBillStatus);
   const [manualStatus, setManualStatus] = useState(order.purchaseBillManualStatus);
@@ -225,13 +230,6 @@ function PurchaseBillCell({ order }: { order: PurchaseOrderListRow }) {
       await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
     },
   });
-
-  const disabledReason =
-    order.status === "draft"
-      ? "Set this PO to Ordered before creating a supplier bill."
-      : order.status === "cancelled"
-        ? "Cancelled purchase orders cannot be billed."
-        : null;
 
   return (
     <>

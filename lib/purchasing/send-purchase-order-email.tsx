@@ -24,6 +24,7 @@ import {
   tryRecordAccountingAuditEvent,
 } from "@/lib/accounting/audit-events";
 import { sendTransactionalEmail } from "@/lib/email/send";
+import { formatEmailFromDisplayName } from "@/lib/email/config";
 import { getPrivateBlobForDownload } from "@/lib/blob-storage";
 import {
   isLocalAttachmentUrl,
@@ -69,6 +70,7 @@ type PurchaseOrderEmailData = {
     vendorOverrideSupplierBillingCountry: string | null;
   })[];
   attachments: {
+    id: string;
     filename: string;
     contentType: string;
     blobUrl: string;
@@ -159,6 +161,7 @@ async function loadPurchaseOrderEmailDataInTx(
   );
   const attachments = await tx
     .select({
+      id: attachmentFiles.id,
       filename: attachmentFiles.filename,
       contentType: attachmentFiles.contentType,
       blobUrl: attachmentFiles.blobUrl,
@@ -380,23 +383,37 @@ async function persistPurchaseOrderEmailOutcome(
 export async function renderPurchaseOrderPdfBuffer(
   orgId: string,
   orderId: string,
+  groupKey?: string | null,
 ) {
   const data = await withOrgContext(orgId, async (tx) =>
     loadPurchaseOrderEmailDataInTx(tx, orderId),
   );
   if (!data) return null;
+  const groups = buildEmailGroups(data);
+  const resolvedGroupKey =
+    !groupKey || groupKey === "default" ? groups[0]?.key : groupKey;
+  const group = resolvedGroupKey
+    ? groups.find((candidate) => candidate.key === resolvedGroupKey)
+    : null;
+  if (!group) return null;
 
   const buffer = await renderToBuffer(
     <PurchaseOrderDocument
-      order={data.order}
-      lines={data.lines}
-      additionalCosts={data.additionalCosts}
+      order={group.order}
+      lines={group.lines}
+      additionalCosts={group.additionalCosts}
       organizationName={data.organizationName}
+      variant={group.isFreight ? "freight" : "standard"}
     />,
   );
+  const safeOrderNumber =
+    sanitizePdfFileSegment(data.order.orderNumber) || "purchase-order";
+  const fileSuffix = group.isFreight
+    ? `-${sanitizePdfFileSegment(group.supplier.name) || "freight"}`
+    : "";
 
   return {
-    orderNumber: data.order.orderNumber,
+    orderNumber: `${safeOrderNumber}${fileSuffix}`,
     buffer,
   };
 }
@@ -414,13 +431,9 @@ export async function sendPurchaseOrderEmail(params: {
   if (!data) {
     throw new DomainError("Purchase order not found.", 404);
   }
-  if (data.order.status === "draft") {
-    throw new DomainError("Set this PO to Ordered before sending it.", 400);
-  }
   if (data.order.status === "cancelled") {
     throw new DomainError("Cancelled purchase orders cannot be emailed.", 409);
   }
-
   let currentGroupKey: string | null = null;
   let firstSelectedGroupKey: string | null = null;
   try {
@@ -435,23 +448,32 @@ export async function sendPurchaseOrderEmail(params: {
       (group) => group.include !== false,
     );
     firstSelectedGroupKey = selectedInputs[0]?.groupKey ?? null;
+    const selectedAttachmentFileIds = new Set(
+      selectedInputs.flatMap((input) => input.attachmentFileIds ?? []),
+    );
 
     const uploadedAttachments = (
       await Promise.all(
-        data.attachments.map(async (file) => {
+        data.attachments
+          .filter((file) => selectedAttachmentFileIds.has(file.id))
+          .map(async (file) => {
           const content = await attachmentContentBase64(file.blobUrl);
           if (!content) {
             throw new DomainError(`Attachment "${file.filename}" could not be read.`, 503);
           }
           return {
+            id: file.id,
             filename: file.filename,
             contentType: file.contentType,
             content,
           };
-        }),
+          }),
       )
-    ).filter((file): file is { filename: string; contentType: string; content: string } =>
+    ).filter((file): file is { id: string; filename: string; contentType: string; content: string } =>
       Boolean(file),
+    );
+    const uploadedAttachmentsById = new Map(
+      uploadedAttachments.map((file) => [file.id, file]),
     );
 
     const sent: Array<{ groupKey: string; recipientEmail: string }> = [];
@@ -460,9 +482,11 @@ export async function sendPurchaseOrderEmail(params: {
         !input.groupKey || input.groupKey === "default"
           ? groups[0]?.key
           : input.groupKey;
-      const group = (resolvedKey ? groupsByKey.get(resolvedKey) : undefined) ?? groups[0];
-      if (!group) continue;
-      currentGroupKey = group.key;
+      currentGroupKey = resolvedKey ?? null;
+      const group = resolvedKey ? groupsByKey.get(resolvedKey) : undefined;
+      if (!group) {
+        throw new DomainError("Purchase order email group was not found.", 400);
+      }
       const alreadySent =
         sentGroupKeys.has(group.key) ||
         (!group.isFreight && sentGroupKeys.has("default"));
@@ -494,11 +518,35 @@ export async function sendPurchaseOrderEmail(params: {
         : "";
       const message =
         input.message?.trim() ||
-        `Please review purchase order ${data.order.orderNumber}. The PDF is attached.`;
+        `Please review purchase order ${data.order.orderNumber}.${
+          input.includePdf !== false ? " The PDF is attached." : ""
+        }`;
       const html = `<div>${escapeHtml(message).replace(/\n/g, "<br />")}</div>`;
+      const generatedPdfAttachment =
+        input.includePdf === false
+          ? []
+          : [
+              {
+                filename: `${safeOrderNumber}${fileSuffix}.pdf`,
+                content: pdf.toString("base64"),
+                contentType: "application/pdf",
+              },
+            ];
+      const selectedUploadedAttachments = (input.attachmentFileIds ?? [])
+        .map((fileId) => uploadedAttachmentsById.get(fileId))
+        .filter(
+          (file): file is { id: string; filename: string; contentType: string; content: string } =>
+            Boolean(file),
+        )
+        .map(({ filename, contentType, content }) => ({
+          filename,
+          contentType,
+          content,
+        }));
 
       await sendTransactionalEmail({
         tag: "purchase-order",
+        from: formatEmailFromDisplayName(data.organizationName),
         to: recipientEmail,
         replyTo: input.replyTo?.trim() || undefined,
         bcc: input.bcc?.trim() || undefined,
@@ -506,12 +554,8 @@ export async function sendPurchaseOrderEmail(params: {
         html,
         text: message,
         attachments: [
-          {
-            filename: `${safeOrderNumber}${fileSuffix}.pdf`,
-            content: pdf.toString("base64"),
-            contentType: "application/pdf",
-          },
-          ...uploadedAttachments,
+          ...generatedPdfAttachment,
+          ...selectedUploadedAttachments,
         ],
         idempotencyKey: `${params.idempotencyKey}:${group.key}`,
       });

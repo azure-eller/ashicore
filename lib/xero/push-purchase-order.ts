@@ -36,6 +36,7 @@ import {
 } from "@/lib/accounting/audit-events";
 import { getPrivateBlobForDownload } from "@/lib/blob-storage";
 import { buildAccountingDocumentEmail } from "@/lib/email/accounting-documents";
+import { formatEmailFromDisplayName } from "@/lib/email/config";
 import { sendTransactionalEmail } from "@/lib/email/send";
 import { getAuthedXeroClient } from "./client";
 import {
@@ -537,6 +538,7 @@ async function sendPurchaseOrderPdfEmail(params: {
 
     await sendTransactionalEmail({
       tag: "purchase-order",
+      from: formatEmailFromDisplayName(params.organizationName),
       to: params.supplierEmail.trim(),
       subject: email.subject,
       html: email.html,

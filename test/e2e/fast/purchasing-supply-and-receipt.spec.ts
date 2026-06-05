@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
   accountingDocumentSyncs,
+  attachmentFiles,
   inventoryEvents,
   inventoryExpectedSummary,
   inventoryItemBalances,
@@ -13,6 +16,8 @@ import {
   purchaseOrders,
 } from "../../../lib/db/schema";
 import { groupPurchaseOrderByResolvedVendor } from "../../../lib/purchasing/resolved-vendor-groups";
+import { waitForOutboxEmail } from "../../helpers/email-outbox";
+import { TEST_ACCOUNT_ORG_NAME } from "../../helpers/test-account";
 import {
   createItem,
   createPurchaseOrder,
@@ -26,6 +31,20 @@ import {
 
 const ACCOUNTING_DOCUMENT_PURCHASE_ORDER = "purchase_order";
 const ACCOUNTING_PROVIDER_XERO = "xero";
+const ATTACHMENT_OWNER_PURCHASE_ORDER = "purchase_order";
+
+async function writeFastLocalAttachment(storageKey: string, content: string) {
+  const root = process.env.LOCAL_ATTACHMENT_DIR
+    ? path.resolve(process.env.LOCAL_ATTACHMENT_DIR)
+    : path.join(process.cwd(), ".local-attachments");
+  const target = path.resolve(root, storageKey);
+  if (!target.startsWith(`${root}${path.sep}`)) {
+    throw new Error("Invalid local attachment path.");
+  }
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, content);
+  return `local://${storageKey}`;
+}
 
 test.describe("purchasing supply and receipt heartbeat", () => {
   const ts = Date.now();
@@ -1189,6 +1208,244 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(body.sent).toEqual([
       { groupKey: `supplier:${supplier.body.id}`, recipientEmail: supplierEmail },
     ]);
+  });
+
+  test("purchase order email rejects cancelled purchase orders", async () => {
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Email Cancelled Material ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-EMAIL-CANCEL-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const supplierEmail = `cancelled-po-email-${ts}@example.com`;
+    const supplier = await createSupplier({
+      name: `Fast PO Email Cancelled Supplier ${ts}`,
+      email: supplierEmail,
+    });
+    expect(material.status).toBe(201);
+    expect(supplier.status).toBe(201);
+
+    const order = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      expectedDate: "2026-05-17",
+      lines: [
+        {
+          itemId: material.body.id,
+          quantityOrdered: "1",
+          unitCost: "10.00",
+        },
+      ],
+    });
+    expect(order.status).toBe(201);
+
+    const cancel = await testFetch(`/api/purchase-orders/${order.body.id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "cancelled" }),
+    });
+    expect(cancel.status).toBe(200);
+
+    const response = await testFetch(`/api/purchase-orders/${order.body.id}/email`, {
+      method: "POST",
+      body: JSON.stringify({
+        groups: [
+          {
+            groupKey: `supplier:${supplier.body.id}`,
+            include: true,
+            to: supplierEmail,
+            subject: "Cancelled PO",
+            message: "Should not send",
+          },
+        ],
+      }),
+    });
+    const body = await response.json();
+    expect(response.status).toBe(409);
+    expect(body.error).toBe("Cancelled purchase orders cannot be emailed.");
+  });
+
+  test("purchase order email sends selected attachments per vendor group", async ({ db }) => {
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Email Attachments Material ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-EMAIL-ATTACH-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const supplierEmail = `supplier-attachments-${ts}@example.com`;
+    const carrierEmail = `carrier-attachments-${ts}@example.com`;
+    const supplier = await createSupplier({
+      name: `Fast PO Email Attachments Supplier ${ts}`,
+      email: supplierEmail,
+    });
+    const carrier = await createSupplier({
+      name: `Fast PO Email Attachments Carrier ${ts}`,
+      email: carrierEmail,
+    });
+    expect(material.status).toBe(201);
+    expect(supplier.status).toBe(201);
+    expect(carrier.status).toBe(201);
+
+    const createResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-16",
+        lines: [
+          {
+            itemId: material.body.id,
+            quantityOrdered: "1",
+            unitCost: "10.00",
+          },
+        ],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Freight",
+            vendorOverrideSupplierId: carrier.body.id,
+            distributionMethod: "by_value",
+            accountingPurchaseAccountCode: null,
+            amount: "12.00",
+          },
+        ],
+      }),
+    });
+    const order = await createResponse.json();
+    expect(createResponse.status).toBe(201);
+
+    const supplierStorageKey = `fast-po-email/${randomUUID()}-supplier-note.txt`;
+    const carrierStorageKey = `fast-po-email/${randomUUID()}-carrier-note.txt`;
+    const supplierBlobUrl = await writeFastLocalAttachment(
+      supplierStorageKey,
+      "Supplier note",
+    );
+    const carrierBlobUrl = await writeFastLocalAttachment(
+      carrierStorageKey,
+      "Carrier note",
+    );
+    const [supplierAttachment, carrierAttachment] = await db
+      .insert(attachmentFiles)
+      .values([
+        {
+          organizationId: getOrgId(),
+          ownerType: ATTACHMENT_OWNER_PURCHASE_ORDER,
+          ownerId: order.id,
+          storageKey: supplierStorageKey,
+          blobUrl: supplierBlobUrl,
+          filename: "supplier-note.txt",
+          contentType: "text/plain",
+          sizeBytes: "Supplier note".length,
+          uploadedByUserId: "test-user",
+          uploadedByName: "Test User",
+        },
+        {
+          organizationId: getOrgId(),
+          ownerType: ATTACHMENT_OWNER_PURCHASE_ORDER,
+          ownerId: order.id,
+          storageKey: carrierStorageKey,
+          blobUrl: carrierBlobUrl,
+          filename: "carrier-note.txt",
+          contentType: "text/plain",
+          sizeBytes: "Carrier note".length,
+          uploadedByUserId: "test-user",
+          uploadedByName: "Test User",
+        },
+      ])
+      .returning({ id: attachmentFiles.id });
+
+    const since = Date.now();
+    const response = await testFetch(`/api/purchase-orders/${order.id}/email`, {
+      method: "POST",
+      body: JSON.stringify({
+        groups: [
+          {
+            groupKey: `supplier:${supplier.body.id}`,
+            include: true,
+            to: supplierEmail,
+            replyTo: "buyer@example.com",
+            bcc: null,
+            subject: "Supplier copy",
+            message: "Supplier copy",
+            attachmentFileIds: [supplierAttachment.id],
+          },
+          {
+            groupKey: `freight:${carrier.body.id}`,
+            include: true,
+            to: carrierEmail,
+            replyTo: "buyer@example.com",
+            bcc: null,
+            subject: "Carrier copy",
+            message: "Carrier copy",
+            attachmentFileIds: [carrierAttachment.id],
+          },
+        ],
+      }),
+    });
+    const body = await response.json();
+    expect(response.status, JSON.stringify(body)).toBe(200);
+
+    const [submittedOrder] = await db
+      .select({ status: purchaseOrders.status })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, order.id));
+    const [line] = await db
+      .select({ id: purchaseOrderLines.id })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, order.id));
+    const [expected] = await db
+      .select({ quantity: inventoryExpectedSummary.quantity })
+      .from(inventoryExpectedSummary)
+      .where(
+        and(
+          eq(inventoryExpectedSummary.itemId, material.body.id),
+          eq(inventoryExpectedSummary.referenceType, "purchase_order_line"),
+          eq(inventoryExpectedSummary.referenceId, line.id),
+        ),
+      );
+    expect(submittedOrder.status).toBe("ordered");
+    expect(expected.quantity).toBe("1.0000");
+
+    const supplierEmailEntry = await waitForOutboxEmail({
+      since,
+      tag: "purchase-order",
+      to: supplierEmail,
+    });
+    const carrierEmailEntry = await waitForOutboxEmail({
+      since,
+      tag: "purchase-order",
+      to: carrierEmail,
+    });
+    const supplierAttachmentNames =
+      supplierEmailEntry.attachments?.map((file) => file.filename) ?? [];
+    const carrierAttachmentNames =
+      carrierEmailEntry.attachments?.map((file) => file.filename) ?? [];
+
+    const escapedOrgName = TEST_ACCOUNT_ORG_NAME.replace(
+      /[.*+?^${}()|[\]\\]/g,
+      "\\$&",
+    );
+    expect(supplierEmailEntry.from).toEqual(
+      expect.stringMatching(new RegExp(`^"${escapedOrgName}" <[^>]+>$`)),
+    );
+    expect(carrierEmailEntry.from).toBe(supplierEmailEntry.from);
+    expect(supplierAttachmentNames).toContain("supplier-note.txt");
+    expect(supplierAttachmentNames).not.toContain("carrier-note.txt");
+    expect(carrierAttachmentNames).toContain("carrier-note.txt");
+    expect(carrierAttachmentNames).not.toContain("supplier-note.txt");
+    expect(supplierAttachmentNames.filter((name) => name.endsWith(".pdf"))).toHaveLength(1);
+    expect(carrierAttachmentNames.filter((name) => name.endsWith(".pdf"))).toHaveLength(1);
   });
 
   test("freight links and vendor overrides cannot cross organization boundaries", async ({ db }) => {

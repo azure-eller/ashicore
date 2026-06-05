@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -65,6 +66,8 @@ export type PurchaseOrderEmailDialogGroupValues = {
   bcc: string;
   subject: string;
   message: string;
+  includePdf: boolean;
+  attachmentFileIds: string[];
   sentAt?: Date | string | null;
   status?: "sent" | "failed" | "skipped" | "pending" | null;
 };
@@ -103,12 +106,11 @@ type PurchaseOrderEmailDialogProps = {
   error?: string | null;
   pending?: boolean;
   uploadPending?: boolean;
-  deletePending?: boolean;
   fileError?: string | null;
   onValuesChange: (values: PurchaseOrderEmailDialogValues) => void;
   onOpenChange: (open: boolean) => void;
-  onAddDocuments?: () => void;
-  onDeleteDocument?: (fileId: string) => void;
+  onAddDocuments?: (groupKey: string) => void;
+  onRemoveDocument?: (groupKey: string, fileId: string) => void;
   onSaveRecipientEmail?: (groupKey: string, supplierId: string, email: string) => void;
   onSend: () => void;
 };
@@ -146,12 +148,11 @@ export function PurchaseOrderEmailDialog({
   error,
   pending = false,
   uploadPending = false,
-  deletePending = false,
   fileError,
   onValuesChange,
   onOpenChange,
   onAddDocuments = () => {},
-  onDeleteDocument = () => {},
+  onRemoveDocument = () => {},
   onSaveRecipientEmail,
   onSend,
 }: PurchaseOrderEmailDialogProps) {
@@ -167,8 +168,19 @@ export function PurchaseOrderEmailDialog({
       bcc: values.bcc,
       subject: values.subject,
       message: values.message,
+      includePdf: true,
+      attachmentFileIds: attachments.map((file) => file.id),
     },
   ];
+  const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setExpandedGroupKeys(new Set());
+    }
+    onOpenChange(nextOpen);
+  };
   const updateGroup = (
     index: number,
     patch: Partial<PurchaseOrderEmailDialogGroupValues>,
@@ -187,10 +199,21 @@ export function PurchaseOrderEmailDialog({
       message: first?.message ?? "",
     });
   };
+  const toggleExpanded = (groupKey: string) => {
+    setExpandedGroupKeys((current) => {
+      const next = new Set(current);
+      if (next.has(groupKey)) {
+        next.delete(groupKey);
+      } else {
+        next.add(groupKey);
+      }
+      return next;
+    });
+  };
   const selectedCount = groups.filter((group) => group.include).length;
 
   return (
-    <Sheet open={open} onOpenChange={pending ? undefined : onOpenChange}>
+    <Sheet open={open} onOpenChange={pending ? undefined : handleOpenChange}>
       <SheetContent
         side="right"
         className="gap-0 p-0 data-[side=right]:w-[min(100vw,48rem)] data-[side=right]:sm:max-w-none"
@@ -203,7 +226,18 @@ export function PurchaseOrderEmailDialog({
         </SheetHeader>
         {orderId ? (
           <div className="grid flex-1 content-start gap-7 overflow-y-auto px-8 pb-8">
-            {groups.map((group, index) => (
+            {groups.map((group, index) => {
+              const expanded = expandedGroupKeys.has(group.groupKey);
+              const pdfFileName = group.isFreight
+                ? `${orderNumber ?? "Purchase order"}-${group.label}.pdf`
+                : `${orderNumber ?? "Purchase order"}.pdf`;
+              const selectedAttachments = (group.attachmentFileIds ?? [])
+                .map((fileId) => attachments.find((file) => file.id === fileId))
+                .filter((file): file is { id: string; filename: string } =>
+                  Boolean(file),
+                );
+
+              return (
               <div key={group.groupKey} className="grid gap-4 border p-4">
                 <div className="flex items-center justify-between gap-3">
                   <label className="flex items-center gap-3 text-sm font-medium">
@@ -215,11 +249,20 @@ export function PurchaseOrderEmailDialog({
                     />
                     {group.label}
                   </label>
-                  {group.status === "sent" ? (
-                    <span className="text-xs text-muted-foreground">
-                      Sent{group.sentAt ? ` ${new Date(group.sentAt).toLocaleString()}` : ""}
-                    </span>
-                  ) : null}
+                  <div className="flex items-center gap-3">
+                    {group.status === "sent" ? (
+                      <span className="text-xs text-muted-foreground">
+                        Sent{group.sentAt ? ` ${new Date(group.sentAt).toLocaleString()}` : ""}
+                      </span>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() => toggleExpanded(group.groupKey)}
+                    >
+                      {expanded ? "Done" : "Edit message"}
+                    </button>
+                  </div>
                 </div>
                 <Field>
                   <div className="flex items-center justify-between gap-3">
@@ -254,19 +297,6 @@ export function PurchaseOrderEmailDialog({
                   />
                 </Field>
                 <Field>
-                  <FieldLabel htmlFor={`po-email-reply-to-${group.groupKey}`}>
-                    Reply to
-                  </FieldLabel>
-                  <Input
-                    id={`po-email-reply-to-${group.groupKey}`}
-                    className="border-x-0 border-t-0 px-0 shadow-none focus-visible:shadow-none"
-                    value={group.replyTo}
-                    onChange={(event) =>
-                      updateGroup(index, { replyTo: event.target.value })
-                    }
-                  />
-                </Field>
-                <Field>
                   <FieldLabel htmlFor={`po-email-subject-${group.groupKey}`}>
                     Subject
                   </FieldLabel>
@@ -279,87 +309,145 @@ export function PurchaseOrderEmailDialog({
                     }
                   />
                 </Field>
-                <Field>
-                  <div className="border">
-                    <FieldLabel
-                      htmlFor={`po-email-message-${group.groupKey}`}
-                      className="border-b bg-muted/40 px-3 py-2"
-                    >
-                      Email body
-                    </FieldLabel>
-                    <Textarea
-                      id={`po-email-message-${group.groupKey}`}
-                      rows={8}
-                      className="min-h-52 resize-none border-0 shadow-none focus-visible:shadow-none"
-                      value={group.message}
-                      onChange={(event) =>
-                        updateGroup(index, { message: event.target.value })
-                      }
-                    />
+                {expanded ? (
+                  <>
+                    <Field>
+                      <FieldLabel htmlFor={`po-email-reply-to-${group.groupKey}`}>
+                        Reply to
+                      </FieldLabel>
+                      <Input
+                        id={`po-email-reply-to-${group.groupKey}`}
+                        className="border-x-0 border-t-0 px-0 shadow-none focus-visible:shadow-none"
+                        value={group.replyTo}
+                        onChange={(event) =>
+                          updateGroup(index, { replyTo: event.target.value })
+                        }
+                      />
+                    </Field>
+                    <Field>
+                      <div className="border">
+                        <FieldLabel
+                          htmlFor={`po-email-message-${group.groupKey}`}
+                          className="border-b bg-muted/40 px-3 py-2"
+                        >
+                          Email body
+                        </FieldLabel>
+                        <Textarea
+                          id={`po-email-message-${group.groupKey}`}
+                          rows={8}
+                          className="min-h-52 resize-none border-0 shadow-none focus-visible:shadow-none"
+                          value={group.message}
+                          onChange={(event) =>
+                            updateGroup(index, { message: event.target.value })
+                          }
+                        />
+                      </div>
+                    </Field>
+                  </>
+                ) : null}
+                <div className="grid gap-2">
+                  <p className="text-sm font-medium">Documents</p>
+                  <div className="divide-y border">
+                    {group.includePdf !== false ? (
+                      <div className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                        <a
+                          className="min-w-0 truncate hover:text-[var(--color-accent)]"
+                          href={`/api/purchase-orders/${orderId}/pdf?groupKey=${encodeURIComponent(group.groupKey)}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {pdfFileName}
+                        </a>
+                        <button
+                          type="button"
+                          className="shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-50"
+                          aria-label={`Remove ${pdfFileName} from ${group.label}`}
+                          onClick={() => updateGroup(index, { includePdf: false })}
+                          disabled={pending}
+                        >
+                          <HugeiconsIcon icon={Delete02Icon} size={14} />
+                        </button>
+                      </div>
+                    ) : null}
+                    {selectedAttachments.map((file) => (
+                        <div
+                          key={file.id}
+                          className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                        >
+                          <a
+                            className="min-w-0 truncate hover:text-[var(--color-accent)]"
+                            href={`/api/purchase-orders/${orderId}/files/${file.id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {file.filename}
+                          </a>
+                          <button
+                            type="button"
+                            className="shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-50"
+                            aria-label={`Remove ${file.filename} from ${group.label}`}
+                            onClick={() => onRemoveDocument(group.groupKey, file.id)}
+                            disabled={pending}
+                          >
+                            <HugeiconsIcon icon={Delete02Icon} size={14} />
+                          </button>
+                        </div>
+                    ))}
                   </div>
-                </Field>
-              </div>
-            ))}
-            <div className="grid gap-2">
-              <p className="text-sm font-medium">Documents</p>
-              <div className="divide-y border">
-                <div className="flex items-center justify-between px-3 py-2 text-sm">
-                  <span>{orderNumber ?? "Purchase order"}.pdf</span>
-                  <span className="text-xs text-muted-foreground">Generated PDF</span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        className="w-fit"
+                        disabled={uploadPending || pending}
+                      >
+                        <HugeiconsIcon icon={Add01Icon} size={16} />
+                        Add documents
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="min-w-72">
+                      {group.includePdf === false ? (
+                        <DropdownMenuItem
+                          onSelect={() => updateGroup(index, { includePdf: true })}
+                        >
+                          <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} />
+                          Add PO
+                        </DropdownMenuItem>
+                      ) : null}
+                      <DropdownMenuItem disabled>
+                        <HugeiconsIcon icon={File01Icon} size={16} />
+                        Request for quote
+                      </DropdownMenuItem>
+                      {attachments
+                        .filter(
+                          (file) => !(group.attachmentFileIds ?? []).includes(file.id),
+                        )
+                        .map((file) => (
+                          <DropdownMenuItem
+                            key={file.id}
+                            onSelect={() =>
+                              updateGroup(index, {
+                                attachmentFileIds: [
+                                  ...(group.attachmentFileIds ?? []),
+                                  file.id,
+                                ],
+                              })
+                            }
+                          >
+                            <HugeiconsIcon icon={File01Icon} size={16} />
+                            {file.filename}
+                          </DropdownMenuItem>
+                        ))}
+                      <DropdownMenuItem onSelect={() => onAddDocuments(group.groupKey)}>
+                        <HugeiconsIcon icon={Upload01Icon} size={16} />
+                        Custom attachment
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
-                {attachments.map((file) => (
-                  <div
-                    key={file.id}
-                    className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
-                  >
-                    <span className="min-w-0 truncate">{file.filename}</span>
-                    <button
-                      type="button"
-                      className="shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-50"
-                      aria-label={`Remove ${file.filename}`}
-                      onClick={() => onDeleteDocument(file.id)}
-                      disabled={deletePending || pending}
-                    >
-                      <HugeiconsIcon icon={Delete02Icon} size={14} />
-                    </button>
-                  </div>
-                ))}
               </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    className="w-fit"
-                    disabled={uploadPending || pending}
-                  >
-                    <HugeiconsIcon icon={Add01Icon} size={16} />
-                    Add documents
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="min-w-72">
-                  <DropdownMenuItem disabled>
-                    <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} />
-                    Purchase order
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled>
-                    <HugeiconsIcon icon={File01Icon} size={16} />
-                    Purchase order, received in parts
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled>
-                    <HugeiconsIcon icon={File01Icon} size={16} />
-                    Request for quote
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled>
-                    <HugeiconsIcon icon={File01Icon} size={16} />
-                    Put-away list
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={onAddDocuments}>
-                    <HugeiconsIcon icon={Upload01Icon} size={16} />
-                    Custom attachment
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+              );
+            })}
             {fileError ? <FieldError>{fileError}</FieldError> : null}
             {error ? <FieldError>{error}</FieldError> : null}
           </div>

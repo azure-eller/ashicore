@@ -22,6 +22,7 @@ export type TransactionalEmailInput = {
     | "purchase-order"
     | "invoice"
     | "daily-manufacturing-report";
+  from?: string;
   to: string;
   replyTo?: string;
   bcc?: string | string[];
@@ -123,7 +124,7 @@ export async function sendTransactionalEmail(
     method: "POST",
     headers,
     body: JSON.stringify({
-      from: senderConfig.from,
+      from: email.from ?? senderConfig.from,
       to: email.to,
       reply_to: email.replyTo,
       bcc: email.bcc,

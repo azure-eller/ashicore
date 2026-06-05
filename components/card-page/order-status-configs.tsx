@@ -493,20 +493,15 @@ const PURCHASE_STATUS_OPTIONS: OrderStatusOption[] = [
 ];
 
 function purchaseStatusOptions(status: PurchaseOrderStatus) {
-  const current = PURCHASE_STATUS_OPTIONS.find((option) => option.value === status);
-  const next =
-    status === "draft"
-      ? PURCHASE_STATUS_OPTIONS.find((option) => option.value === "ordered")
-      : status === "ordered" || status === "partial"
-        ? PURCHASE_STATUS_OPTIONS.find((option) => option.value === "received")
-        : null;
-
-  return [current, next].filter(
-    (option): option is OrderStatusOption => Boolean(option),
+  return PURCHASE_STATUS_OPTIONS.filter(
+    (option) =>
+      option.value === status ||
+      canPurchaseOrderTransition(status, option.value as PurchaseOrderStatus),
   );
 }
 
 function canPurchaseOrderTransition(from: PurchaseOrderStatus, to: PurchaseOrderStatus) {
+  if (to === "cancelled") return from === "draft" || from === "ordered";
   if (from === "draft") return to === "ordered";
   if (from === "ordered") return to === "received";
   if (from === "partial") return to === "received";

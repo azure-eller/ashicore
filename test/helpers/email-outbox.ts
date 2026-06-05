@@ -3,7 +3,13 @@ import path from "node:path";
 import { EMAIL_OUTBOX_DIR } from "../../lib/email/outbox";
 
 export type EmailOutboxEntry = {
+  attachments?: Array<{
+    filename: string;
+    content: string;
+    contentType?: string;
+  }>;
   createdAt: string;
+  from?: string;
   html: string;
   subject: string;
   tag: string;

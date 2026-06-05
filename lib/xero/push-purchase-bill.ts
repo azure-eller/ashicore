@@ -331,9 +331,6 @@ function assertBillablePurchaseOrder(data: {
   order: OrderForBill;
   lines: LineForBill[];
 }) {
-  if (data.order.status === "draft") {
-    throw new XeroError("Submit the purchase order before creating a Xero bill.", 409);
-  }
   if (data.order.status === "cancelled") {
     throw new XeroError("Cancelled purchase orders cannot be billed.", 409);
   }

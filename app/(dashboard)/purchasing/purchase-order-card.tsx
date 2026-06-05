@@ -756,6 +756,7 @@ export function PurchaseOrderCard({
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const detachFileInputRef = useRef<(() => void) | null>(null);
+  const emailAttachmentUploadGroupKeyRef = useRef<string | null>(null);
   const attachmentInputId = useId();
   const fallbackPath = initialData
     ? `/purchasing/order/${initialData.id}`
@@ -1632,29 +1633,6 @@ export function PurchaseOrderCard({
     onError: (error: Error) => setFileActionError(error.message),
   });
 
-  const deleteFileMutation = useMutation({
-    mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "file-delete"],
-    mutationFn: async (fileId: string) => {
-      if (!savedOrderId) throw new Error("Save the purchase order first.");
-      const response = await fetch(
-        `/api/purchase-orders/${savedOrderId}/files/${fileId}`,
-        { method: "DELETE" },
-      );
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to delete file.");
-      }
-
-      return fileId;
-    },
-    onMutate: () => setFileActionError(null),
-    onSuccess: (fileId) => {
-      setAttachments((current) => current.filter((file) => file.id !== fileId));
-      void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
-    },
-    onError: (error: Error) => setFileActionError(error.message),
-  });
   const duplicateMutation = useMutation({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "duplicate"],
     mutationFn: async () => {
@@ -1805,27 +1783,6 @@ export function PurchaseOrderCard({
       await purchaseOrderController.flush();
       const orderId = savedOrderIdRef.current;
       if (!orderId) throw new Error("Save the purchase order first.");
-      if (displayStatus === "draft") {
-        const statusResponse = await fetch(
-          `/api/purchase-orders/${orderId}/status`,
-          {
-            method: "PATCH",
-            headers: createIdempotencyHeaders("purchase-order-status", {
-              "Content-Type": "application/json",
-            }),
-            body: JSON.stringify({ status: "ordered" }),
-          },
-        );
-        const statusBody = await statusResponse.json().catch(() => null);
-
-        if (!statusResponse.ok) {
-          throw new Error(
-            statusBody?.error ?? "Failed to set purchase order to Ordered.",
-          );
-        }
-
-        setDisplayStatus("ordered");
-      }
 
       const response = await fetch(`/api/purchase-orders/${orderId}/email`, {
         method: "POST",
@@ -1837,11 +1794,13 @@ export function PurchaseOrderCard({
             groupKey: group.groupKey,
             include: group.include,
             resend: group.status === "sent" && group.include,
+            includePdf: group.includePdf,
             to: group.to,
             replyTo: group.replyTo || null,
             bcc: group.bcc || null,
             subject: group.subject,
             message: group.message || null,
+            attachmentFileIds: group.attachmentFileIds ?? [],
           })),
         }),
       });
@@ -1926,8 +1885,24 @@ export function PurchaseOrderCard({
 
     try {
       const orderId = await ensureSavedOrder();
+      const targetGroupKey = emailAttachmentUploadGroupKeyRef.current;
       for (const file of filesToUpload) {
-        uploadFileMutation.mutate({ orderId, file });
+        const uploaded = await uploadFileMutation.mutateAsync({ orderId, file });
+        if (targetGroupKey) {
+          setPoEmailDialogValues((current) => ({
+            ...current,
+            groups: (current.groups ?? []).map((group) =>
+              group.groupKey === targetGroupKey
+                ? {
+                    ...group,
+                    attachmentFileIds: Array.from(
+                      new Set([...(group.attachmentFileIds ?? []), uploaded.id]),
+                    ),
+                  }
+                : group,
+            ),
+          }));
+        }
       }
     } catch (error) {
       setFileActionError(
@@ -1935,6 +1910,8 @@ export function PurchaseOrderCard({
           ? error.message
         : "Save the purchase order before uploading files.",
       );
+    } finally {
+      emailAttachmentUploadGroupKeyRef.current = null;
     }
   }, [ensureSavedOrder, uploadFileMutation]);
   const attachFileInput = useCallback(
@@ -2246,6 +2223,8 @@ export function PurchaseOrderCard({
         bcc: userEmail,
         subject: `${subjectPrefix} from ${organizationName}`,
         message: `Hi,\n\nYou should find the necessary documents for ${savedOrderNumber ?? "this order"} attached to this email.\nPlease let me know if anything is missing.\n\nBest regards,\n${userName || userEmail}\n${organizationName}`,
+        includePdf: true,
+        attachmentFileIds: [],
         sentAt: state?.emailedAt ?? null,
         status: state?.emailStatus ?? null,
       };
@@ -2357,13 +2336,11 @@ export function PurchaseOrderCard({
     cardSaveState === "not_saved" ||
     cardSaveState === "failed"
       ? "Save changes before creating a supplier bill."
-      : displayStatus === "draft"
-        ? "Set this PO to Ordered before creating a supplier bill."
-        : displayStatus === "cancelled"
-          ? "Cancelled purchase orders cannot be billed."
-          : purchaseBillStatus === "pending"
-            ? "Bill sync is already running."
-            : null;
+      : displayStatus === "cancelled"
+        ? "Cancelled purchase orders cannot be billed."
+      : purchaseBillStatus === "pending"
+        ? "Bill sync is already running."
+        : null;
   const openPurchaseOrderEmailDialog = () => {
     setPoEmailError(null);
     const groups = emailDialogGroups();
@@ -2488,11 +2465,7 @@ export function PurchaseOrderCard({
                       !canWrite ||
                       purchaseOrderEmailMutation.isPending ||
                       resolvedVendorGroups.length === 0,
-                    tooltip:
-                      poEmailError ??
-                      (displayStatus === "draft"
-                        ? "Sending this email will set the PO to Ordered."
-                        : ""),
+                    tooltip: poEmailError ?? "",
                   },
                 ]
               : []
@@ -2778,12 +2751,28 @@ export function PurchaseOrderCard({
         error={poEmailError}
         pending={purchaseOrderEmailMutation.isPending}
         uploadPending={uploadFileMutation.isPending}
-        deletePending={deleteFileMutation.isPending}
         fileError={fileActionError}
         onValuesChange={setPoEmailDialogValues}
         onOpenChange={(open) => setPoEmailDialogOpen(open)}
-        onAddDocuments={() => fileInputRef.current?.click()}
-        onDeleteDocument={(fileId) => deleteFileMutation.mutate(fileId)}
+        onAddDocuments={(groupKey) => {
+          emailAttachmentUploadGroupKeyRef.current = groupKey;
+          fileInputRef.current?.click();
+        }}
+        onRemoveDocument={(groupKey, fileId) => {
+          setPoEmailDialogValues((current) => ({
+            ...current,
+            groups: (current.groups ?? []).map((group) =>
+              group.groupKey === groupKey
+                ? {
+                    ...group,
+                    attachmentFileIds: (group.attachmentFileIds ?? []).filter(
+                      (id) => id !== fileId,
+                    ),
+                  }
+                : group,
+            ),
+          }));
+        }}
         onSaveRecipientEmail={(groupKey, supplierId, email) =>
           saveSupplierEmailMutation.mutate({
             groupKey,

@@ -20,6 +20,7 @@
 /test/e2e/scratch/
 /test/.review-env.json
 /.agent-uploads/
+/.local-attachments/
 
 # next.js
 /.next/

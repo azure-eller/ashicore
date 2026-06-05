@@ -430,7 +430,7 @@ test.describe("Xero purchase bill gates", () => {
     });
   });
 
-  test("blocks bill creation for draft purchase orders", async ({ db }) => {
+  test("does not block bill creation for draft purchase orders", async ({ db }) => {
     await withOnlyXeroConnection(db, async () => {
       const ts = Date.now();
       const { materialId, supplierId } = await createMaterialAndSupplier(ts);
@@ -447,10 +447,7 @@ test.describe("Xero purchase bill gates", () => {
       );
       const body = await response.json();
 
-      expect(response.status).toBe(409);
-      expect(body.error).toBe(
-        "Submit the purchase order before creating a Xero bill.",
-      );
+      expectBillAttemptReachedXeroBoundary(response.status, body);
     });
   });
 

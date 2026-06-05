@@ -278,12 +278,6 @@ export async function createPurchaseBillInQuickBooks(
   const prepared = await withOrgContext(orgId, async (tx) => {
     const data = await loadPurchaseOrderForBillInTx(tx, orderId);
     if (!data) throw new QuickBooksError("Purchase order not found.", 404);
-    if (data.order.status === "draft") {
-      throw new QuickBooksError(
-        "Submit the purchase order before creating a QuickBooks bill.",
-        409
-      );
-    }
     if (data.order.status === "cancelled") {
       throw new QuickBooksError("Cancelled purchase orders cannot be billed.", 409);
     }

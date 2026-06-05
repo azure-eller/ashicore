@@ -7,8 +7,9 @@ import { renderPurchaseOrderPdfBuffer } from "@/lib/purchasing/send-purchase-ord
 export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   const context = await assertModuleReadAccess("purchasing", request.headers);
+  const groupKey = new URL(request.url).searchParams.get("groupKey");
 
-  const result = await renderPurchaseOrderPdfBuffer(context.orgId, id);
+  const result = await renderPurchaseOrderPdfBuffer(context.orgId, id, groupKey);
   if (!result) {
     return NextResponse.json(
       { error: "Purchase order not found" },

@@ -394,11 +394,13 @@ const purchaseOrderEmailBaseComposerSchema = z.object({
   groupKey: z.string().trim().min(1).optional(),
   include: z.boolean().optional(),
   resend: z.boolean().optional(),
+  includePdf: z.boolean().optional(),
   to: z.string().trim().optional(),
   replyTo: z.email("Reply-to must be a valid email address").optional().nullable(),
   bcc: z.email("Bcc must be a valid email address").optional().nullable(),
   subject: z.string().trim().max(200).optional(),
   message: z.string().trim().max(2000).optional().nullable(),
+  attachmentFileIds: z.array(z.string().uuid()).optional(),
 });
 
 const purchaseOrderEmailGroupSchema =
