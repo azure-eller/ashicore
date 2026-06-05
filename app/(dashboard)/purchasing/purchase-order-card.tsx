@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { Controller, useForm } from "react-hook-form";
@@ -933,6 +933,12 @@ export function PurchaseOrderCard({
     },
     [purchaseOrderController],
   );
+  const flushBeforeStatusTransition = useCallback(async () => {
+    await purchaseOrderController.flush();
+    if (purchaseOrderController.hasPendingOps()) {
+      throw new Error("Save changes before changing status.");
+    }
+  }, [purchaseOrderController]);
   const addressForm = useForm<AddressDialogValues>({
     defaultValues: EMPTY_ADDRESS_DIALOG_VALUES,
   });
@@ -959,12 +965,6 @@ export function PurchaseOrderCard({
         (row) => !isBlankPurchaseOrderAdditionalCost(row),
       ),
   );
-
-  useEffect(() => {
-    if (additionalCostsExpanded && additionalCostGridRows.length === 0) {
-      setAdditionalCostsExpanded(false);
-    }
-  }, [additionalCostGridRows.length, additionalCostsExpanded]);
 
   const watchedSupplierId = draftValues.supplierId;
   const watchedAdditionalCosts = draftValues.additionalCosts;
@@ -1982,6 +1982,8 @@ export function PurchaseOrderCard({
                 config={purchaseOrderStatusConfig}
                 ctx={{ orderId: savedOrderId, status: displayStatus }}
                 disabled={!canWrite || statusMutation.isPending}
+                beforeTransition={flushBeforeStatusTransition}
+                onTransitionError={(error) => setFormError(error.message)}
                 onChanged={(next) => {
                   setDisplayStatus(next as PurchaseOrderStatus);
                   void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });

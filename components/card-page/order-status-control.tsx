@@ -87,6 +87,9 @@ export type OrderStatusControlProps<Ctx> = {
   disabled?: boolean;
   footer?: ReactNode;
   actionVariant?: "menu" | "button";
+  /** Persist any dirty local draft before a consequential status transition. */
+  beforeTransition?: () => Promise<void>;
+  onTransitionError?: (error: Error) => void;
   /** Called after any successful transition so the caller can update local state and invalidate/refetch. */
   onChanged?: (status: string) => void;
 };
@@ -97,9 +100,12 @@ export function OrderStatusControl<Ctx>({
   disabled = false,
   footer,
   actionVariant = "menu",
+  beforeTransition,
+  onTransitionError,
   onChanged,
 }: OrderStatusControlProps<Ctx>) {
   const [dialogTarget, setDialogTarget] = useState<string | null>(null);
+  const [preparingTransition, setPreparingTransition] = useState(false);
 
   const current = config.current(ctx);
   const options = config.options(ctx);
@@ -108,16 +114,20 @@ export function OrderStatusControl<Ctx>({
 
   const instant = useMutation({
     mutationKey: ["order-status", config.type, "instant"],
-    mutationFn: (to: string) => {
+    mutationFn: async (to: string) => {
       if (!config.runInstant) {
-        return Promise.reject(new Error(`No instant handler for ${config.type}`));
+        throw new Error(`No instant handler for ${config.type}`);
       }
+      await beforeTransition?.();
       return config.runInstant(to, ctx);
+    },
+    onError: (error) => {
+      onTransitionError?.(transitionError(error, "Failed to change status."));
     },
     onSuccess: (_result, to) => onChanged?.(to),
   });
 
-  const busy = disabled || instant.isPending;
+  const busy = disabled || instant.isPending || preparingTransition;
 
   const handleSelect = (to: string) => {
     const kind = config.transitionKind(current, to, ctx);
@@ -126,7 +136,17 @@ export function OrderStatusControl<Ctx>({
       instant.mutate(to);
       return;
     }
-    setDialogTarget(to);
+    if (!beforeTransition) {
+      setDialogTarget(to);
+      return;
+    }
+    setPreparingTransition(true);
+    void beforeTransition()
+      .then(() => setDialogTarget(to))
+      .catch((error) => {
+        onTransitionError?.(transitionError(error, "Failed to save changes."));
+      })
+      .finally(() => setPreparingTransition(false));
   };
 
   return (
@@ -170,4 +190,17 @@ export function OrderStatusControl<Ctx>({
         : null}
     </>
   );
+}
+
+function transitionError(error: unknown, fallback: string) {
+  if (error instanceof Error) return error;
+  if (
+    error &&
+    typeof error === "object" &&
+    "error" in error &&
+    typeof error.error === "string"
+  ) {
+    return new Error(error.error);
+  }
+  return new Error(fallback);
 }

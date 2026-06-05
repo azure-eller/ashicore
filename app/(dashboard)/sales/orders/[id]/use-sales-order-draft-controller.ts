@@ -62,6 +62,7 @@ export type SalesOrderDraftController = {
   flush: () => Promise<void>;
   resetToSaved: () => void;
   refreshFromServer: () => Promise<void>;
+  hasPendingOps: () => boolean;
 };
 
 type SalesOrderDraftCreateMode = "auto-number" | "custom-number";
@@ -318,6 +319,7 @@ export function useSalesOrderDraftController({
       flush: engine.flush,
       resetToSaved: engine.resetToServer,
       refreshFromServer,
+      hasPendingOps: engine.hasPendingOps,
     }),
     [
       addLine,

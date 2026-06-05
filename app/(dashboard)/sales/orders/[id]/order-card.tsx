@@ -213,6 +213,12 @@ export function OrderCard({
       setActionError(error instanceof Error ? error.message : "Failed to save order.");
     });
   }, [controller, handleClose]);
+  const flushBeforeStatusTransition = useCallback(async () => {
+    await controller.flush();
+    if (controller.hasPendingOps()) {
+      throw new Error("Save changes before changing status.");
+    }
+  }, [controller]);
 
   return (
     <CardPage>
@@ -235,6 +241,8 @@ export function OrderCard({
               config={salesOrderStatusConfig}
               ctx={{ order }}
               disabled={isSalesOrderStatusDisabled(order)}
+              beforeTransition={flushBeforeStatusTransition}
+              onTransitionError={(error) => setActionError(error.message)}
               onChanged={() => {
                 void controller.refreshFromServer();
                 void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });

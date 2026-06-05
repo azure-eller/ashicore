@@ -504,7 +504,37 @@ function mergePurchaseOrderServerResult(
     if (hasNewerAdditionalCostEdits) next.additionalCosts = draft.additionalCosts;
   }
 
+  if (!hasNewerLineEdits) {
+    next.lines = appendBlankPurchaseOrderLineRows(next.lines, draft.lines);
+  }
+  if (!hasNewerAdditionalCostEdits) {
+    next.additionalCosts = appendBlankPurchaseOrderAdditionalCostRows(
+      next.additionalCosts,
+      draft.additionalCosts,
+    );
+  }
+
   return next;
+}
+
+function appendBlankPurchaseOrderLineRows(
+  serverRows: PurchaseOrderLineDraftRow[],
+  draftRows: PurchaseOrderLineDraftRow[],
+) {
+  const blankDraftRows = draftRows.filter(
+    (row) => !row.id && isBlankPurchaseOrderLine(row),
+  );
+  return blankDraftRows.length === 0 ? serverRows : [...serverRows, ...blankDraftRows];
+}
+
+function appendBlankPurchaseOrderAdditionalCostRows(
+  serverRows: PurchaseOrderAdditionalCostDraftRow[],
+  draftRows: PurchaseOrderAdditionalCostDraftRow[],
+) {
+  const blankDraftRows = draftRows.filter(
+    (row) => !row.id && isBlankPurchaseOrderAdditionalCost(row),
+  );
+  return blankDraftRows.length === 0 ? serverRows : [...serverRows, ...blankDraftRows];
 }
 
 const purchaseOrderDefaultValuesFallback: InsertPurchaseOrder = {
