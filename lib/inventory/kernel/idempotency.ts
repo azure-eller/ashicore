@@ -138,6 +138,49 @@ export async function claimInventoryIdempotencyInTx(
   };
 }
 
+export async function readInventoryIdempotencyReplayInTx<TResult>(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    idempotencyKey: string | null | undefined;
+    operationName: string;
+    payload: Record<string, unknown>;
+  }
+): Promise<TResult | null> {
+  if (!params.idempotencyKey) {
+    return null;
+  }
+
+  const existing = await tx.query.inventoryIdempotencyClaims.findFirst({
+    where: and(
+      eq(inventoryIdempotencyClaims.organizationId, params.organizationId),
+      eq(inventoryIdempotencyClaims.idempotencyKey, params.idempotencyKey)
+    ),
+  });
+  if (!existing) {
+    return null;
+  }
+
+  if (
+    existing.operationName !== params.operationName ||
+    existing.paramsHash !== hashIdempotencyParams(params.payload)
+  ) {
+    throw new IdempotencyConflictError(
+      params.idempotencyKey,
+      params.operationName
+    );
+  }
+
+  if ((existing.resultEnvelope as { status?: string }).status === "pending") {
+    throw new IdempotencyInFlightError(
+      params.idempotencyKey,
+      params.operationName
+    );
+  }
+
+  return existing.resultEnvelope as TResult;
+}
+
 export async function completeInventoryIdempotencyClaimInTx(
   tx: Tx,
   params: {

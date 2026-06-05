@@ -1,6 +1,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
+  inventoryEventAdjustmentReasons,
   inventoryEvents,
   lots,
   stocktakeItems,
@@ -56,6 +57,7 @@ test.describe("stocktake workflow operating story", () => {
 
     await page.goto(`/inventory/stocktakes/${stocktakeId}`);
     await expect(page.locator("main")).toContainText(materialName);
+    await expect(page.getByRole("button", { name: "Found lot" })).toBeVisible();
   });
 
   test("saves sparse draft counts and reloads the persisted count", async ({ db, page }) => {
@@ -126,9 +128,9 @@ test.describe("stocktake workflow operating story", () => {
 
     const events = await db
       .select({
+        id: inventoryEvents.id,
         eventType: inventoryEvents.eventType,
         quantity: inventoryEvents.quantity,
-        reason: sql<string | null>`${inventoryEvents.metadata}->>'reason'`,
       })
       .from(inventoryEvents)
       .where(sql`${inventoryEvents.metadata}->>'stocktakeId' = ${stocktakeId}`);
@@ -137,10 +139,16 @@ test.describe("stocktake workflow operating story", () => {
         expect.objectContaining({
           eventType: "stocktake_gain",
           quantity: "4.0000",
-          reason: "Cycle count",
         }),
       ])
     );
+    const gain = events.find((event) => event.eventType === "stocktake_gain");
+    expect(gain).toBeTruthy();
+    const [reason] = await db
+      .select({ reason: inventoryEventAdjustmentReasons.reason })
+      .from(inventoryEventAdjustmentReasons)
+      .where(eq(inventoryEventAdjustmentReasons.inventoryEventId, gain!.id));
+    expect(reason.reason).toBe("cycle_count");
 
     // The completion reason was persisted onto the stocktake row.
     const [reconciled] = await db
@@ -474,7 +482,7 @@ test.describe("stocktake found-lot operating story", () => {
       const adjust = await testFetch(`/api/items/${material.id}/stock-adjustments`, {
         method: "POST",
         body: JSON.stringify({
-          reason: "seed rollup stock",
+          reason: "data_correction",
           lots: [{ lotId, newQuantity: quantity }],
         }),
       });

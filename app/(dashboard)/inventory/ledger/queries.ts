@@ -17,6 +17,7 @@ import { alias } from "drizzle-orm/pg-core";
 import {
   INVENTORY_EVENT_TYPES,
   type InventoryEventType,
+  inventoryEventAdjustmentReasons,
   inventoryEvents,
   itemFamilies,
   itemVariantValues,
@@ -52,6 +53,10 @@ import {
   summarizeInventoryLedgerMetadata,
   type InventoryLedgerSourceType,
 } from "@/lib/inventory/ledger";
+import {
+  formatAdjustmentReason,
+  type AdjustmentReason,
+} from "@/lib/inventory/adjustment-reasons";
 import type { InventoryLedgerFilters } from "@/lib/schemas/inventory-ledger";
 import { itemDetailHref, type ItemType } from "../types";
 import type {
@@ -99,6 +104,89 @@ const stocktakeLineRefs = alias(stocktakeItems, "ledger_stocktake_line_refs");
 const stocktakeLotLineRefs = alias(stocktakeLotItems, "ledger_stocktake_lot_line_refs");
 const stocktakeDocs = alias(stocktakes, "ledger_stocktake_docs");
 const DEFAULT_LEDGER_TIME_ZONE = "UTC";
+
+function getDocumentCausePrefix(sourceType: InventoryLedgerSourceType) {
+  switch (sourceType) {
+    case "purchase_order":
+      return "Receipt";
+    case "sales_order":
+      return "Sale";
+    case "manufacturing_order":
+      return "Production";
+    case "stocktake":
+      return "Stock take";
+    case "item":
+      return "Adjustment";
+    case "seed":
+      return "Opening balance";
+    default:
+      return "System";
+  }
+}
+
+function isStocktakeEvent(eventType: InventoryEventType) {
+  return (
+    eventType === "stocktake_gain" ||
+    eventType === "stocktake_loss" ||
+    eventType === "stocktake_verification"
+  );
+}
+
+function isManualAdjustmentEvent(eventType: InventoryEventType) {
+  return (
+    eventType === "manual_adjustment_increase" ||
+    eventType === "manual_adjustment_decrease"
+  );
+}
+
+function resolveCause(row: {
+  eventType: InventoryEventType;
+  sourceDocument: InventoryLedgerRow["sourceDocument"];
+  adjustmentReason: AdjustmentReason | null;
+  adjustmentNote: string | null;
+}) {
+  if (isStocktakeEvent(row.eventType)) {
+    return {
+      prefix: "Stock take",
+      label: row.adjustmentReason
+        ? formatAdjustmentReason(row.adjustmentReason)
+        : "Cycle count",
+      href: row.sourceDocument?.href ?? null,
+      reason: row.adjustmentReason,
+      note: row.adjustmentNote,
+    };
+  }
+
+  if (isManualAdjustmentEvent(row.eventType)) {
+    return {
+      prefix: "Adjustment",
+      label: row.adjustmentReason
+        ? formatAdjustmentReason(row.adjustmentReason)
+        : "Data correction",
+      href: row.sourceDocument?.href ?? null,
+      reason: row.adjustmentReason,
+      note: row.adjustmentNote,
+    };
+  }
+
+  if (row.sourceDocument) {
+    return {
+      prefix: getDocumentCausePrefix(row.sourceDocument.type),
+      label: row.sourceDocument.label,
+      href: row.sourceDocument.href,
+      reason: null,
+      note: row.adjustmentNote,
+    };
+  }
+
+  return {
+    prefix: formatInventoryLedgerEventLabel(row.eventType),
+    label: "System",
+    href: null,
+    reason: null,
+    note: row.adjustmentNote,
+  };
+}
 
 function getLedgerTimeZone(filters: InventoryLedgerFilters) {
   return filters.timeZone ?? DEFAULT_LEDGER_TIME_ZONE;
@@ -749,6 +837,8 @@ export async function getInventoryLedger(
         manufacturingOrderNumberViaBatch: manufacturingOrdersViaBatches.orderNumber,
         stocktakeId: stocktakeDocs.id,
         stocktakeName: stocktakeDocs.name,
+        adjustmentReason: inventoryEventAdjustmentReasons.reason,
+        adjustmentNote: inventoryEventAdjustmentReasons.note,
       })
       .from(inventoryEvents)
       .innerJoin(items, eq(inventoryEvents.itemId, items.id))
@@ -845,6 +935,10 @@ export async function getInventoryLedger(
         )
       )
       .leftJoin(stocktakeDocs, eq(stocktakeLineRefs.stocktakeId, stocktakeDocs.id))
+      .leftJoin(
+        inventoryEventAdjustmentReasons,
+        eq(inventoryEvents.id, inventoryEventAdjustmentReasons.inventoryEventId)
+      )
       .where(where)
       .orderBy(desc(inventoryEvents.occurredAt), desc(inventoryEvents.id))
       .limit(filters.pageSize)
@@ -885,6 +979,7 @@ export async function getInventoryLedger(
         stocktakeId: row.stocktakeId,
         stocktakeName: row.stocktakeName,
       });
+      const adjustmentReason = row.adjustmentReason as AdjustmentReason | null;
       const actor =
         row.actorUserId != null
           ? {
@@ -922,6 +1017,12 @@ export async function getInventoryLedger(
               }
             : null,
         sourceDocument,
+        cause: resolveCause({
+          eventType,
+          sourceDocument,
+          adjustmentReason,
+          adjustmentNote: row.adjustmentNote,
+        }),
         actor,
         extendedCost: row.extendedCost,
         referenceType: row.referenceType,

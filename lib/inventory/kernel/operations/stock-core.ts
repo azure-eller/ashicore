@@ -977,6 +977,7 @@ export async function decrementExistingLotStockInTx(
     occurredAt?: Date;
     metadata?: Record<string, unknown> | null;
     disposition?: InventoryDisposition;
+    allowNegativeStock?: boolean;
   }
 ) {
   await lockItemsInTx(tx, [params.itemId]);
@@ -989,7 +990,7 @@ export async function decrementExistingLotStockInTx(
     }
     const consumed = await consumeInternalUntrackedStockInTx(tx, {
       ...params,
-      allowNegativeStock: false,
+      allowNegativeStock: params.allowNegativeStock ?? false,
     });
     return {
       eventId: consumed.eventIds[0],
@@ -1054,7 +1055,9 @@ export async function decrementExistingLotStockInTx(
         eq(inventoryLotBalances.itemId, params.itemId),
         eq(inventoryLotBalances.lotId, params.lotId),
         eq(inventoryLotBalances.disposition, disposition),
-        sql`${inventoryLotBalances.quantity} >= ${quantity}`
+        ...(params.allowNegativeStock
+          ? []
+          : [sql`${inventoryLotBalances.quantity} >= ${quantity}`])
       )
     )
     .returning({
@@ -1076,7 +1079,12 @@ export async function decrementExistingLotStockInTx(
       quantity: sql`${lots.quantity} - ${quantity}`,
       updatedAt: new Date(),
     })
-    .where(and(eq(lots.id, params.lotId), sql`${lots.quantity} >= ${quantity}`));
+    .where(
+      and(
+        eq(lots.id, params.lotId),
+        ...(params.allowNegativeStock ? [] : [sql`${lots.quantity} >= ${quantity}`])
+      )
+    );
 
   const [event] = await insertInventoryEventsInTx(tx, [
     {

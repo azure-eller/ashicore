@@ -785,12 +785,12 @@ export function LedgerTable({
         data ? formatInventoryLedgerMovementCategory(data.eventClass) : "",
     },
     {
-      colId: "source",
+      colId: "cause",
       minWidth: 210,
       flex: 1.2,
       headerComponent: () => (
         <ServerFilterableHeader
-          label="Source"
+          label="Cause"
           tooltip={LEDGER_SOURCE_TOOLTIP}
           options={DOCUMENT_TYPE_FILTER_OPTIONS}
           value={initialFilters.documentType}
@@ -802,19 +802,38 @@ export function LedgerTable({
           }
         />
       ),
-      valueGetter: ({ data }) => data?.sourceDocument?.label ?? "",
+      valueGetter: ({ data }) =>
+        data ? `${data.cause.prefix} ${data.cause.label}` : "",
       cellRenderer: ({ data }: { data?: InventoryLedgerRow }) => {
-        const sourceDocument = data?.sourceDocument;
-        if (!sourceDocument) {
+        const cause = data?.cause;
+        if (!cause) {
           return <span className="text-muted-foreground">—</span>;
         }
 
-        return sourceDocument.href ? (
-          <Link href={sourceDocument.href} className="hover:underline">
-            {sourceDocument.label}
-          </Link>
-        ) : (
-          sourceDocument.label
+        const primary = (
+          <span className="inline-flex min-w-0 items-center gap-(--space-2)">
+            <Badge variant="outline" className="h-(--space-8)">
+              {cause.prefix}
+            </Badge>
+            <span className="truncate">{cause.label}</span>
+          </span>
+        );
+
+        return (
+          <div className="flex min-w-0 flex-col justify-center gap-(--space-1)">
+            {cause.href ? (
+              <Link href={cause.href} className="min-w-0 hover:underline">
+                {primary}
+              </Link>
+            ) : (
+              primary
+            )}
+            {cause.note ? (
+              <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                {cause.note}
+              </span>
+            ) : null}
+          </div>
         );
       },
     },

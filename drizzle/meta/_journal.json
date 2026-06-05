@@ -1009,6 +1009,13 @@
       "when": 1780607207799,
       "tag": "0143_unit_uom_followup_marker",
       "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1780618255366,
+      "tag": "0144_adjustment_event_reasons",
+      "breakpoints": true
     }
   ]
 }

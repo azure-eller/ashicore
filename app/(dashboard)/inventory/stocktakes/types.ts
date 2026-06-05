@@ -6,6 +6,7 @@ import type {
 } from "@/lib/schemas/stocktakes";
 import { parseStocktakeScope } from "@/lib/schemas/stocktakes";
 import type { ItemType } from "@/app/(dashboard)/inventory/types";
+import type { LotTrackingMode } from "@/lib/inventory/lot-tracking";
 
 export type StocktakeScopeOption = {
   value: StocktakeScope;
@@ -24,6 +25,7 @@ export type StocktakePreviewItem = {
   sku: string | null;
   itemType: ItemType;
   stocktakeType: StocktakeScopeItemType;
+  lotTrackingMode: LotTrackingMode;
   category: string | null;
   unitName: string;
   currentQty: string;
@@ -95,6 +97,7 @@ export type StocktakeDetailLine = {
   itemName: string;
   itemSku: string | null;
   itemType: ItemType;
+  lotTrackingMode: LotTrackingMode;
   category: string | null;
   unitName: string;
   expectedQty: string;

@@ -362,7 +362,7 @@ test.describe("inventory mutation kernel heartbeat", () => {
       body: JSON.stringify({
         name: `Fast Negative Debt Stocktake ${ts}`,
         scope: buildStocktakeCategoryScope("material", category),
-        reason: "Cycle count",
+        reason: "cycle_count",
         notes: null,
       }),
     });
@@ -781,7 +781,7 @@ test.describe("inventory mutation kernel heartbeat", () => {
 
     await page.goto(`/inventory/materials/${itemId}`);
     await page.getByRole("button", { name: /Lots/ }).click();
-    await expect(page.getByRole("heading", { name: /Lots · 1 lot/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Lots · 5 on hand/ })).toBeVisible();
     const quantityCell = page.locator('.ag-cell[col-id="quantity"]').first();
     await expect(quantityCell).toContainText("5");
 
@@ -825,7 +825,7 @@ test.describe("inventory mutation kernel heartbeat", () => {
       body: JSON.stringify({
         name: `Fast Stocktake ${ts}`,
         scope: buildStocktakeCategoryScope("material", category),
-        reason: "Cycle count",
+        reason: "cycle_count",
         notes: null,
       }),
     });
@@ -864,7 +864,7 @@ test.describe("inventory mutation kernel heartbeat", () => {
       `/api/stocktakes/${stocktake.id}/complete`,
       {
         method: "POST",
-        body: JSON.stringify({ confirmStale: false, reason: "Cycle count" }),
+        body: JSON.stringify({ confirmStale: false, reason: "cycle_count" }),
       }
     );
     expect(completeResponse.status).toBe(200);

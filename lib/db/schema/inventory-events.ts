@@ -43,6 +43,21 @@ export const INVENTORY_EVENT_TYPES = [
 
 export type InventoryEventType = (typeof INVENTORY_EVENT_TYPES)[number];
 
+export const ADJUSTMENT_REASONS = [
+  "cycle_count",
+  "found_stock",
+  "damaged_spoiled",
+  "data_correction",
+  "other",
+] as const;
+
+export type AdjustmentReason = (typeof ADJUSTMENT_REASONS)[number];
+
+export const adjustmentReasonEnum = inventorySchema.enum(
+  "adjustment_reason",
+  ADJUSTMENT_REASONS
+);
+
 export const inventoryEvents = inventorySchema
   .table(
     "inventory_events",
@@ -145,6 +160,33 @@ export const inventoryEvents = inventorySchema
         END`
       ),
       pgPolicy("inventory_events_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const inventoryEventAdjustmentReasons = inventorySchema
+  .table(
+    "inventory_event_adjustment_reasons",
+    {
+      inventoryEventId: uuid("inventory_event_id")
+        .primaryKey()
+        .references(() => inventoryEvents.id, { onDelete: "cascade" }),
+      organizationId: text("organization_id").notNull(),
+      reason: adjustmentReasonEnum("reason").notNull(),
+      note: text("note"),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      index("inventory_event_adjustment_reasons_org_reason_idx").on(
+        table.organizationId,
+        table.reason
+      ),
+      pgPolicy("inventory_event_adjustment_reasons_org_isolation", {
         for: "all",
         to: "public",
         using: sql`organization_id = current_setting('app.current_org_id', true)`,

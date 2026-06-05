@@ -370,7 +370,7 @@ async function setStockTarget(
 
   if (!isLotTracked) {
     return jsonMutation(`/api/items/${id}/stock-adjustments`, "POST", {
-      reason: "Test stock target",
+      reason: "data_correction",
       newQuantity: targetQuantity,
     });
   }
@@ -395,7 +395,7 @@ async function setStockTarget(
     return { status: 400, body: { errors: { stock: ["Not enough lot stock to reduce."] } } };
   }
   return jsonMutation(`/api/items/${id}/stock-adjustments`, "POST", {
-    reason: "Test stock target",
+    reason: "data_correction",
     lots: lotAdjustments,
   });
 }

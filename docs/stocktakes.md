@@ -115,7 +115,8 @@ stale `409`, clients must fetch preview again, show the updated variance, and
 require the user to confirm again.
 
 Completion applies counted truth from **current live stock**, not from the old
-snapshot. It uses the stocktake's stored reason for inventory event metadata.
+snapshot. It records the stocktake adjustment reason on the inventory event's
+adjustment-reason companion row.
 
 1. lock the stocktake row
 2. lock all counted items in stable order

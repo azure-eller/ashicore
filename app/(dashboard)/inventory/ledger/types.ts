@@ -1,4 +1,5 @@
 import type { InventoryEventType } from "@/lib/db/schema";
+import type { AdjustmentReason } from "@/lib/db/schema";
 import type {
   InventoryLedgerBalanceDimension,
   InventoryLedgerEventClass,
@@ -52,6 +53,13 @@ export type InventoryLedgerRow = {
     label: string;
     href: string | null;
   } | null;
+  cause: {
+    prefix: string;
+    label: string;
+    href: string | null;
+    reason: AdjustmentReason | null;
+    note: string | null;
+  };
   actor: {
     id: string;
     name: string;

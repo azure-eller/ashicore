@@ -746,7 +746,7 @@ test.describe("inventory kernel invariants", () => {
       body: JSON.stringify({
         name: `Recon Stocktake ${ts}`,
         scope: `material:category:${category}`,
-        reason: "Cycle count",
+        reason: "cycle_count",
         notes: null,
       }),
     });
@@ -788,7 +788,7 @@ test.describe("inventory kernel invariants", () => {
     const completePromise = postJsonWithKey(
       `/api/stocktakes/${stocktakeId}/complete`,
       key("race-stocktake", ts),
-      { confirmStale: false, reason: "Cycle count" }
+      { confirmStale: false, reason: "cycle_count" }
     );
 
     const [shipResponse, completeResponse] = await Promise.all([

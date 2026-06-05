@@ -361,25 +361,6 @@ export async function deleteVariant(variantId: string): Promise<{ success: boole
   });
 }
 
-export type AddInitialStockInput = {
-  quantity: string;
-  costPerUnit?: string | null;
-  occurredAt: string;
-  note?: string | null;
-};
-
-export async function addInitialStock(
-  variantId: string,
-  input: AddInitialStockInput
-): Promise<{ lotId: string; eventId: string }> {
-  const path = `/api/items/${variantId}/initial-stock`;
-  return request<{ lotId: string; eventId: string }>(path, {
-    method: "POST",
-    idempotencyKey: "addInitialStock",
-    body: input,
-  });
-}
-
 export type CopyBomInput = {
   targetVariantIds: string[];
   note?: string | null;

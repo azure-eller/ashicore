@@ -3,9 +3,11 @@ import { test, expect } from "../fixtures";
 import { normalizeNumericScale } from "../../../lib/format";
 import {
   inventoryEvents,
+  inventoryEventAdjustmentReasons,
   inventoryItemBalances,
   inventoryLocations,
   inventoryLotBalances,
+  items,
   lots,
 } from "../../../lib/db/schema";
 import {
@@ -14,6 +16,20 @@ import {
   resolvePositiveStockUnitCostInTx,
 } from "../../../lib/inventory/kernel";
 import { createItem, getOrgId, getUnitId, testFetch } from "../../helpers/api";
+
+async function getAdjustmentReason(
+  db: Parameters<Parameters<typeof test>[2]>[0]["db"],
+  eventId: string
+) {
+  const [row] = await db
+    .select({
+      reason: inventoryEventAdjustmentReasons.reason,
+      note: inventoryEventAdjustmentReasons.note,
+    })
+    .from(inventoryEventAdjustmentReasons)
+    .where(eq(inventoryEventAdjustmentReasons.inventoryEventId, eventId));
+  return row;
+}
 
 test.describe("non-lot stock adjustment route", () => {
   const ts = Date.now();
@@ -112,7 +128,7 @@ test.describe("non-lot stock adjustment route", () => {
     const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
       method: "POST",
       body: JSON.stringify({
-        reason: "Damage",
+        reason: "damaged_spoiled",
         note: "spill",
         newQuantity: "2",
       }),
@@ -121,9 +137,9 @@ test.describe("non-lot stock adjustment route", () => {
 
     const [event] = await db
       .select({
+        id: inventoryEvents.id,
         eventType: inventoryEvents.eventType,
         quantity: inventoryEvents.quantity,
-        metadata: inventoryEvents.metadata,
       })
       .from(inventoryEvents)
       .where(
@@ -136,7 +152,10 @@ test.describe("non-lot stock adjustment route", () => {
 
     expect(event).toBeTruthy();
     expect(event.eventType).toBe("manual_adjustment_decrease");
-    expect(event.metadata?.reason).toBe("Damage");
+    await expect(getAdjustmentReason(db, event.id)).resolves.toMatchObject({
+      reason: "damaged_spoiled",
+      note: "spill",
+    });
 
     const [itemBalance] = await db
       .select({ onHandQty: inventoryItemBalances.onHandQty })
@@ -156,7 +175,7 @@ test.describe("non-lot stock adjustment route", () => {
     const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
       method: "POST",
       body: JSON.stringify({
-        reason: "Found",
+        reason: "found_stock",
         newQuantity: "9",
       }),
     });
@@ -164,10 +183,10 @@ test.describe("non-lot stock adjustment route", () => {
 
     const [event] = await db
       .select({
+        id: inventoryEvents.id,
         eventType: inventoryEvents.eventType,
         quantity: inventoryEvents.quantity,
         unitCost: inventoryEvents.unitCost,
-        metadata: inventoryEvents.metadata,
       })
       .from(inventoryEvents)
       .where(
@@ -180,7 +199,9 @@ test.describe("non-lot stock adjustment route", () => {
 
     expect(event).toBeTruthy();
     expect(event.quantity).toBe("4.0000");
-    expect(event.metadata?.reason).toBe("Found");
+    await expect(getAdjustmentReason(db, event.id)).resolves.toMatchObject({
+      reason: "found_stock",
+    });
 
     // The non-lot increase branch must cost like a stocktake gain too: resolve
     // the item's unit cost instead of writing a zero-cost event. Normalize to
@@ -253,7 +274,7 @@ test.describe("non-lot stock adjustment route", () => {
     const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
       method: "POST",
       body: JSON.stringify({
-        reason: "Correction",
+        reason: "data_correction",
         newQuantity: "5",
       }),
     });
@@ -261,9 +282,9 @@ test.describe("non-lot stock adjustment route", () => {
 
     const [event] = await db
       .select({
+        id: inventoryEvents.id,
         eventType: inventoryEvents.eventType,
         quantity: inventoryEvents.quantity,
-        metadata: inventoryEvents.metadata,
       })
       .from(inventoryEvents)
       .where(
@@ -276,7 +297,9 @@ test.describe("non-lot stock adjustment route", () => {
 
     expect(event).toBeTruthy();
     expect(event.quantity).toBe("8.0000");
-    expect(event.metadata?.reason).toBe("Correction");
+    await expect(getAdjustmentReason(db, event.id)).resolves.toMatchObject({
+      reason: "data_correction",
+    });
 
     const [itemBalance] = await db
       .select({ onHandQty: inventoryItemBalances.onHandQty })
@@ -306,7 +329,7 @@ test.describe("non-lot stock adjustment route", () => {
     const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
       method: "POST",
       body: JSON.stringify({
-        reason: "Recount",
+        reason: "data_correction",
         newQuantity: "5",
       }),
     });
@@ -352,7 +375,7 @@ test.describe("non-lot stock adjustment route", () => {
     // a 500 instead of replaying / cleanly conflicting.
     const idempotencyKey = `stock-adjust-retry-${ts}`;
     const body = JSON.stringify({
-      reason: "Recount",
+      reason: "data_correction",
       newQuantity: "9",
     });
 
@@ -379,7 +402,7 @@ test.describe("non-lot stock adjustment route", () => {
       {
         method: "POST",
         headers: { "Idempotency-Key": idempotencyKey },
-        body: JSON.stringify({ reason: "Recount", newQuantity: "12" }),
+        body: JSON.stringify({ reason: "data_correction", newQuantity: "12" }),
       }
     );
     expect(conflicting.status, await conflicting.text()).not.toBe(500);
@@ -420,6 +443,47 @@ test.describe("non-lot stock adjustment route", () => {
       }),
     });
     expect(response.status).toBe(400);
+  });
+
+  test("legacy mobile Stock count reason is accepted without verifying the item", async ({
+    db,
+  }) => {
+    const itemId = await createUntrackedMaterialWithStock(db, {
+      name: `Stock Adjust Mobile Alias ${ts}`,
+      sku: `STOCK-ADJ-MOBILE-ALIAS-${ts}`,
+      category: `Stock Adjust Mobile Alias ${ts}`,
+      stock: 5,
+    });
+
+    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "Stock count",
+        newQuantity: "6",
+      }),
+    });
+    expect(response.status, await response.text()).toBe(200);
+
+    const [event] = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_increase")
+        )
+      )
+      .orderBy(desc(inventoryEvents.occurredAt), desc(inventoryEvents.id));
+    expect(event).toBeTruthy();
+    await expect(getAdjustmentReason(db, event.id)).resolves.toMatchObject({
+      reason: "cycle_count",
+    });
+
+    const [itemBalance] = await db
+      .select({ lastVerifiedAt: inventoryItemBalances.lastVerifiedAt })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, itemId));
+    expect(itemBalance.lastVerifiedAt).toBeNull();
   });
 
   test("initial-stock route seeds opening stock", async ({ db }) => {
@@ -585,7 +649,7 @@ test.describe("lot-tracked stock adjustment route", () => {
     const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
       method: "POST",
       body: JSON.stringify({
-        reason: "Cycle count",
+        reason: "cycle_count",
         lots: [
           { lotId, newQuantity: "7" },
           { lotNumber: newLotNumber, newQuantity: "4" },
@@ -597,9 +661,9 @@ test.describe("lot-tracked stock adjustment route", () => {
     // The -3 on LOT-A is a manual_adjustment_decrease carrying the reason.
     const [decrease] = await db
       .select({
+        id: inventoryEvents.id,
         eventType: inventoryEvents.eventType,
         quantity: inventoryEvents.quantity,
-        metadata: inventoryEvents.metadata,
         lotId: inventoryEvents.lotId,
       })
       .from(inventoryEvents)
@@ -612,15 +676,17 @@ test.describe("lot-tracked stock adjustment route", () => {
       .orderBy(desc(inventoryEvents.occurredAt), desc(inventoryEvents.id));
     expect(decrease).toBeTruthy();
     expect(decrease.quantity).toBe("3.0000");
-    expect(decrease.metadata?.reason).toBe("Cycle count");
+    await expect(getAdjustmentReason(db, decrease.id)).resolves.toMatchObject({
+      reason: "cycle_count",
+    });
     expect(decrease.lotId).toBe(lotId);
 
     // The +4 new lot is a manual_adjustment_increase carrying the reason.
     const [increase] = await db
       .select({
+        id: inventoryEvents.id,
         eventType: inventoryEvents.eventType,
         quantity: inventoryEvents.quantity,
-        metadata: inventoryEvents.metadata,
       })
       .from(inventoryEvents)
       .where(
@@ -632,7 +698,9 @@ test.describe("lot-tracked stock adjustment route", () => {
       .orderBy(desc(inventoryEvents.occurredAt), desc(inventoryEvents.id));
     expect(increase).toBeTruthy();
     expect(increase.quantity).toBe("4.0000");
-    expect(increase.metadata?.reason).toBe("Cycle count");
+    await expect(getAdjustmentReason(db, increase.id)).resolves.toMatchObject({
+      reason: "cycle_count",
+    });
 
     // A new lot row + balance for LOT-B exists at qty 4.
     const [newLot] = await db
@@ -689,6 +757,66 @@ test.describe("lot-tracked stock adjustment route", () => {
     expect(lotABalance?.unitCost).toBe("2.000000");
   });
 
+  test("existing lot gain preserves the lot cost basis", async ({ db }) => {
+    const { itemId, lotId } = await createTrackedMaterialWithLot(db, {
+      name: `Lot Adjust Gain Cost ${ts}`,
+      sku: `LOT-ADJ-GAIN-COST-${ts}`,
+      category: `Lot Adjust ${ts}`,
+      lotNumber: `LGC-${ts}`,
+      stock: 10,
+    });
+    expect(lotId).toBeTruthy();
+    if (!lotId) throw new Error("Expected seeded lot id.");
+
+    await db
+      .update(items)
+      .set({ currentStockUnitCost: "5.00" })
+      .where(eq(items.id, itemId));
+
+    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "data_correction",
+        lots: [{ lotId, newQuantity: "14" }],
+      }),
+    });
+    expect(response.status, await response.text()).toBe(200);
+
+    const [event] = await db
+      .select({
+        unitCost: inventoryEvents.unitCost,
+        quantity: inventoryEvents.quantity,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.lotId, lotId),
+          eq(inventoryEvents.eventType, "manual_adjustment_increase")
+        )
+      )
+      .orderBy(desc(inventoryEvents.occurredAt), desc(inventoryEvents.id));
+    expect(event).toMatchObject({
+      quantity: "4.0000",
+      unitCost: "2.000000",
+    });
+
+    const [lotBalance] = await db
+      .select({ quantity: inventoryLotBalances.quantity, unitCost: inventoryLotBalances.unitCost })
+      .from(inventoryLotBalances)
+      .where(
+        and(
+          eq(inventoryLotBalances.itemId, itemId),
+          eq(inventoryLotBalances.lotId, lotId),
+          eq(inventoryLotBalances.disposition, "available")
+        )
+      );
+    expect(lotBalance).toMatchObject({
+      quantity: "14.0000",
+      unitCost: "2.000000",
+    });
+  });
+
   test("lot adjustment replays cleanly on a retried key", async ({ db }) => {
     const { itemId, lotId } = await createTrackedMaterialWithLot(db, {
       name: `Lot Adjust Idempotent ${ts}`,
@@ -701,7 +829,7 @@ test.describe("lot-tracked stock adjustment route", () => {
     const newLotNumber = `LIB-${ts}`;
     const idempotencyKey = `lot-stock-adjust-retry-${ts}`;
     const body = JSON.stringify({
-      reason: "Cycle count",
+      reason: "cycle_count",
       lots: [
         { lotId, newQuantity: "7" },
         { lotNumber: newLotNumber, newQuantity: "4" },
@@ -786,7 +914,7 @@ test.describe("lot-tracked stock adjustment route", () => {
     const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
       method: "POST",
       body: JSON.stringify({
-        reason: "Found",
+        reason: "found_stock",
         lots: [{ newQuantity: "3" }],
       }),
     });
@@ -806,7 +934,7 @@ test.describe("lot-tracked stock adjustment route", () => {
     const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
       method: "POST",
       body: JSON.stringify({
-        reason: "Found",
+        reason: "found_stock",
         lots: [{ lotNumber: existingLotNumber, newQuantity: "3" }],
       }),
     });
@@ -825,11 +953,45 @@ test.describe("lot-tracked stock adjustment route", () => {
     const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
       method: "POST",
       body: JSON.stringify({
-        reason: "Correction",
+        reason: "data_correction",
         lots: [{ lotId, lotNumber: `NEW-LOT-${ts}`, newQuantity: "3" }],
       }),
     });
     expect(response.status, await response.text()).toBe(400);
+  });
+
+  test("lot adjustment rejects duplicate existing lot ids", async ({ db }) => {
+    const { itemId, lotId } = await createTrackedMaterialWithLot(db, {
+      name: `Lot Adjust Duplicate ${ts}`,
+      sku: `LOT-ADJ-DUPLICATE-${ts}`,
+      category: `Lot Adjust Duplicate ${ts}`,
+      lotNumber: `LOT-DUPLICATE-${ts}`,
+      stock: 5,
+    });
+    expect(lotId).toBeTruthy();
+
+    const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "data_correction",
+        lots: [
+          { lotId, newQuantity: "3" },
+          { lotId, newQuantity: "2" },
+        ],
+      }),
+    });
+    expect(response.status, await response.text()).toBe(400);
+
+    const adjustmentEvents = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_decrease")
+        )
+      );
+    expect(adjustmentEvents).toHaveLength(0);
   });
 
   test("unknown lotId for this item is rejected with 404", async ({ db }) => {
@@ -847,7 +1009,7 @@ test.describe("lot-tracked stock adjustment route", () => {
     const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
       method: "POST",
       body: JSON.stringify({
-        reason: "Correction",
+        reason: "data_correction",
         lots: [{ lotId: foreignLotId, newQuantity: "3" }],
       }),
     });
@@ -865,7 +1027,7 @@ test.describe("lot-tracked stock adjustment route", () => {
     const response = await testFetch(`/api/items/${itemId}/stock-adjustments`, {
       method: "POST",
       body: JSON.stringify({
-        reason: "Correction",
+        reason: "data_correction",
         lots: [{ lotNumber: zeroedLotNumber, newQuantity: "0" }],
       }),
     });

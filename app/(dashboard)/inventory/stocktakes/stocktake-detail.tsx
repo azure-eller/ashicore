@@ -45,6 +45,13 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
+  Sheet,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
   EditableLineDataGrid,
   type ColDef,
   type EditableLineDataGridChange,
@@ -167,6 +174,9 @@ export function StocktakeDetail({
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewConfirmStale, setReviewConfirmStale] = useState(false);
   const [stocktakeReason, setStocktakeReason] = useState(stocktake.reason ?? "");
+  const [foundLotLineId, setFoundLotLineId] = useState<string | null>(null);
+  const [foundLotNumber, setFoundLotNumber] = useState("");
+  const [foundLotError, setFoundLotError] = useState<string | null>(null);
   const canEditCounts = stocktake.status === "draft";
 
   const refreshStocktakeQueries = async () => {
@@ -468,6 +478,66 @@ export function StocktakeDetail({
     stocktakeReason.trim() !== "" &&
     !completeMutation.isPending;
   const cardSaveState = cardSaveStateFromEngine(saveEngine.status);
+  const openFoundLotDrawer = useCallback((lineId: string) => {
+    setFoundLotLineId(lineId);
+    setFoundLotNumber("");
+    setFoundLotError(null);
+  }, []);
+
+  const closeFoundLotDrawer = useCallback(() => {
+    setFoundLotLineId(null);
+    setFoundLotNumber("");
+    setFoundLotError(null);
+  }, []);
+
+  const confirmFoundLot = useCallback(() => {
+    if (!foundLotLineId) return;
+    const lotNumber = foundLotNumber.trim();
+    if (!lotNumber) {
+      setFoundLotError("Lot name is required.");
+      return;
+    }
+
+    let duplicate = false;
+    setRows((currentRows) =>
+      currentRows.map((line) => {
+        if (line.id !== foundLotLineId) return line;
+        if (line.lots.some((lot) => lot.lotNumber.trim() === lotNumber)) {
+          duplicate = true;
+          return line;
+        }
+        const now = new Date();
+        return {
+          ...line,
+          lots: [
+            ...line.lots,
+            {
+              id: `found-${crypto.randomUUID()}`,
+              lotId: null,
+              isFound: true,
+              lotNumber,
+              expectedQty: "0",
+              countedQty: null,
+              varianceQty: null,
+              appliedDeltaQty: null,
+              notes: null,
+              receivedAt: now,
+              sortOrder: line.lots.length,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ],
+        };
+      })
+    );
+
+    if (duplicate) {
+      setFoundLotError("This lot is already listed.");
+      return;
+    }
+    closeFoundLotDrawer();
+  }, [closeFoundLotDrawer, foundLotLineId, foundLotNumber]);
+
   const countActions = (
     <div className="flex flex-wrap items-center gap-(--space-3)">
       <Input
@@ -526,6 +596,7 @@ export function StocktakeDetail({
           params.data.itemName = item.name;
           params.data.itemSku = item.sku;
           params.data.itemType = item.itemType;
+          params.data.lotTrackingMode = item.lotTrackingMode;
           params.data.category = item.category;
           params.data.unitName = item.unitName;
           params.data.expectedQty = item.currentQty;
@@ -568,6 +639,30 @@ export function StocktakeDetail({
         flex: 0.55,
         cellClass: ({ data }) => data && !isLotDisplayRow(data) ? "text-muted-foreground" : "",
         valueGetter: ({ data }) => data && isLotDisplayRow(data) ? data.lot.lotNumber : "",
+        cellRenderer: ({ data }: ICellRendererParams<StocktakeDisplayRow>) => {
+          if (!data) return null;
+          if (isLotDisplayRow(data)) {
+            return (
+              <span className="font-mono">
+                {data.lot.isFound ? "Found · " : ""}
+                {data.lot.lotNumber}
+              </span>
+            );
+          }
+          if (!canEditCounts || data.lotTrackingMode !== "tracked") {
+            return <span className="text-muted-foreground">—</span>;
+          }
+          return (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => openFoundLotDrawer(data.id)}
+            >
+              Found lot
+            </Button>
+          );
+        },
       },
       {
         field: "notes",
@@ -647,7 +742,7 @@ export function StocktakeDetail({
         valueFormatter: ({ value }) => (value == null ? "" : formatQuantity(value)),
       },
     ];
-  }, [canEditCounts, itemOptions, previewItemMap]);
+  }, [canEditCounts, itemOptions, openFoundLotDrawer, previewItemMap]);
 
   const createBlankRow = useCallback((): StocktakeDisplayRow => {
     const now = new Date();
@@ -659,6 +754,7 @@ export function StocktakeDetail({
       itemName: "",
       itemSku: null,
       itemType: "material",
+      lotTrackingMode: "tracked",
       category: null,
       unitName: "",
       expectedQty: "0",
@@ -676,6 +772,10 @@ export function StocktakeDetail({
   const handleLotCountChange = useCallback(
     (lineId: string, lotLineId: string, value: string | null, commit = false) => {
       const countedQty = normalizeCountedQtyInput(value);
+      const committedLot =
+        rows
+          .find((line) => line.id === lineId)
+          ?.lots.find((lot) => lot.id === lotLineId) ?? null;
       setRows((currentRows) =>
         currentRows.map((line) => {
           if (line.id !== lineId) {
@@ -705,6 +805,21 @@ export function StocktakeDetail({
       );
 
       if (commit) {
+        if (committedLot?.isFound) {
+          if (countedQty == null) return;
+          commitStocktakePatch({
+            lotLines: [
+              {
+                isFound: true,
+                stocktakeItemId: lineId,
+                lotNumber: committedLot.lotNumber,
+                countedQty,
+              },
+            ],
+          });
+          return;
+        }
+
         commitStocktakePatch({
           lotLines: [
             {
@@ -715,7 +830,7 @@ export function StocktakeDetail({
         });
       }
     },
-    [commitStocktakePatch]
+    [commitStocktakePatch, rows]
   );
 
   const handleRowsChange = useCallback(
@@ -1010,6 +1125,39 @@ export function StocktakeDetail({
         onOpenChange={setCloneDialogOpen}
         onSubmit={(reason) => cloneMutation.mutate(reason)}
       />
+      <Sheet
+        open={foundLotLineId != null}
+        onOpenChange={(open) => {
+          if (!open) closeFoundLotDrawer();
+        }}
+      >
+        <SheetContent side="bottom" className="mx-auto max-w-md">
+          <SheetHeader>
+            <SheetTitle>Found lot</SheetTitle>
+          </SheetHeader>
+          <div className="px-(--space-8)">
+            <Input
+              autoFocus
+              value={foundLotNumber}
+              onChange={(event) => {
+                setFoundLotNumber(event.target.value);
+                setFoundLotError(null);
+              }}
+              aria-label="Found lot name"
+              placeholder="Lot name"
+            />
+            {foundLotError ? (
+              <FieldError className="mt-(--space-2)">{foundLotError}</FieldError>
+            ) : null}
+          </div>
+          <SheetFooter>
+            <Button variant="outline" onClick={closeFoundLotDrawer}>
+              Back
+            </Button>
+            <Button onClick={confirmFoundLot}>Confirm</Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
       {deleteConfirm.dialog}
     </>

@@ -27,15 +27,12 @@ import {
   type EditableLineDataGridChange,
 } from "@/components/editable-line-data-grid";
 import { Button } from "@/components/ui/button";
-import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { CardField } from "@/components/card-page/card-field";
 import {
-  addInitialStock,
   deleteVariant,
-  type AddInitialStockInput,
   type CreateItemCardResult,
   type CreateItemCardVariantInput,
   type ItemCardDto,
@@ -49,6 +46,11 @@ import {
   isNonNegativeNumberString,
   isPositiveNumberString,
 } from "@/lib/schemas/shared";
+import {
+  ADJUSTMENT_REASONS,
+  formatAdjustmentReason,
+  type AdjustmentReason,
+} from "@/lib/inventory/adjustment-reasons";
 import { cn } from "@/lib/utils";
 import type { CardLotRow } from "./lot-grid-tab";
 import styles from "./card-page.module.css";
@@ -217,8 +219,7 @@ function StockQuantityAdjustmentBody({
   const next = toNumber(adjustment.nextQuantity);
   const delta = roundQty(next - previous);
   const isIncrease = delta > 0;
-  const [occurredAt, setOccurredAt] = useState(() => nowLocalIsoSecond());
-  const [costPerUnit, setCostPerUnit] = useState("");
+  const [reason, setReason] = useState<AdjustmentReason | "">("");
   const [note, setNote] = useState("");
   const lotsQuery = useQuery({
     queryKey: ["item-lots", adjustment.variant.id],
@@ -226,16 +227,21 @@ function StockQuantityAdjustmentBody({
       apiJson<CardLotRow[]>(`/api/items/${adjustment.variant.id}/lots`, {
         fallbackError: "Failed to load lots.",
       }),
-    enabled: !isIncrease && lotTracked,
+    enabled: lotTracked,
   });
 
   const draftKey = isIncrease
-    ? `${adjustment.variant.id}:increase:${delta}`
+    ? `${adjustment.variant.id}:increase:${delta}:${(lotsQuery.data ?? [])
+        .map((lot) => `${lot.id}:${lot.quantity}`)
+        .join("|")}`
     : `${adjustment.variant.id}:decrease:${delta}:${(lotsQuery.data ?? [])
         .map((lot) => `${lot.id}:${lot.quantity}`)
         .join("|")}`;
   const defaultDraftLots = useMemo(
-    () => (isIncrease ? [] : buildDecreaseDraft(lotsQuery.data ?? [], Math.abs(delta))),
+    () =>
+      isIncrease
+        ? buildTargetDraft(lotsQuery.data ?? [])
+        : buildDecreaseDraft(lotsQuery.data ?? [], Math.abs(delta)),
     [delta, isIncrease, lotsQuery.data],
   );
   const [draftLotsState, setDraftLotsState] = useState<{
@@ -249,24 +255,18 @@ function StockQuantityAdjustmentBody({
 
   const draftLots = draftLotsState.rows;
 
-  const increaseMutation = useMutation({
-    mutationKey: ["item-card-action", adjustment.variant.id, "stock-increase"],
-    mutationFn: (input: AddInitialStockInput) => addInitialStock(adjustment.variant.id, input),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["item-card"] });
-      onSaved();
-    },
-  });
-
-  const decreaseMutation = useMutation({
-    mutationKey: ["item-card-action", adjustment.variant.id, "stock-decrease"],
+  const adjustMutation = useMutation({
+    mutationKey: ["item-card-action", adjustment.variant.id, "stock-adjust"],
     mutationFn: async () => {
-      const reason = note.trim() || "Stock adjustment";
+      if (!reason) {
+        throw new Error("Choose a reason.");
+      }
       if (!lotTracked) {
         await apiJson<void>(`/api/items/${adjustment.variant.id}/stock-adjustments`, {
           method: "POST",
           body: {
             reason,
+            note: note.trim() || undefined,
             newQuantity: adjustment.nextQuantity,
           },
           idempotencyKey: "variant-stock-adjust",
@@ -282,6 +282,7 @@ function StockQuantityAdjustmentBody({
         method: "POST",
         body: {
           reason,
+          note: note.trim() || undefined,
           lots: changedLots,
         },
         idempotencyKey: "variant-stock-adjust",
@@ -296,13 +297,13 @@ function StockQuantityAdjustmentBody({
 
   const adjustedDelta = roundQty(
     draftLots.reduce(
-      (sum, row) => sum + Math.max(0, toNumber(row.lot.quantity) - toNumber(row.nextQuantity)),
+      (sum, row) => sum + toNumber(row.nextQuantity) - toNumber(row.lot.quantity),
       0,
     ),
   );
-  const decreaseNeeded = Math.abs(delta);
-  const decreaseValid = isIncrease || Math.abs(adjustedDelta - decreaseNeeded) <= 0.0001;
-  const mutationError = (increaseMutation.error ?? decreaseMutation.error) as Error | null;
+  const lotAdjustmentValid =
+    !lotTracked || Math.abs(adjustedDelta - delta) <= 0.0001;
+  const mutationError = adjustMutation.error as Error | null;
 
   return (
     <>
@@ -314,66 +315,31 @@ function StockQuantityAdjustmentBody({
         </DialogDescription>
       </DialogHeader>
 
-      {isIncrease ? (
-        <div className="grid gap-(--space-4) md:grid-cols-2">
-          <CardField
-            label="Quantity to add"
-            htmlFor="stock-adjust-quantity-add"
-            controlStyle="dialog"
-          >
-            <div className="flex items-center gap-(--space-2)">
-              <Input
-                id="stock-adjust-quantity-add"
-                value={String(delta)}
-                readOnly
-                className={styles.mono}
-              />
-              {unitLabel ? (
-                <span className="text-[length:var(--text-sm)] text-muted-foreground">
-                  {unitLabel}
-                </span>
-              ) : null}
-            </div>
-          </CardField>
-          <CardField
-            label="Cost per unit"
-            htmlFor="stock-adjust-cost-per-unit"
-            controlStyle="dialog"
-          >
-            <div className="flex items-center gap-(--space-2)">
-              <Input
-                id="stock-adjust-cost-per-unit"
-                value={costPerUnit}
-                onChange={(event) => setCostPerUnit(event.target.value)}
-                inputMode="decimal"
-              />
-              <span className="text-[length:var(--text-sm)] text-muted-foreground">USD</span>
-            </div>
-          </CardField>
-          <CardField
-            label="Occurred at"
-            htmlFor="stock-adjust-occurred-at"
-            controlStyle="dialog"
-          >
-            <DateTimePicker
-              id="stock-adjust-occurred-at"
-              value={occurredAt}
-              onChange={setOccurredAt}
-            />
-          </CardField>
-          <CardField
-            label="Note"
-            htmlFor="stock-adjust-note-increase"
-            controlStyle="dialog"
-          >
-            <Input
-              id="stock-adjust-note-increase"
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-            />
-          </CardField>
+      <CardField
+        label="Reason"
+        htmlFor="stock-adjust-reason"
+        controlStyle="dialog"
+      >
+        <div
+          id="stock-adjust-reason"
+          className="flex flex-wrap gap-(--space-2)"
+          aria-label="Adjustment reason"
+        >
+          {ADJUSTMENT_REASONS.map((adjustmentReason) => (
+            <Button
+              key={adjustmentReason}
+              type="button"
+              variant={reason === adjustmentReason ? "default" : "outline"}
+              size="sm"
+              onClick={() => setReason(adjustmentReason)}
+            >
+              {formatAdjustmentReason(adjustmentReason)}
+            </Button>
+          ))}
         </div>
-      ) : !lotTracked ? (
+      </CardField>
+
+      {!lotTracked ? (
         <div className="grid gap-(--space-4)">
           <CardField
             label="Quantity after adjustment"
@@ -424,7 +390,7 @@ function StockQuantityAdjustmentBody({
             </div>
             {draftLots.length === 0 ? (
               <p className="text-[length:var(--text-sm)] text-muted-foreground">
-                No available lots to reduce.
+                {isIncrease ? "No lots are available to adjust." : "No available lots to reduce."}
               </p>
             ) : (
               draftLots.map((row, index) => (
@@ -466,8 +432,8 @@ function StockQuantityAdjustmentBody({
             />
           </CardField>
           <p className="text-[length:var(--text-sm)] text-muted-foreground">
-            Reducing {formatQuantity(String(adjustedDelta))} of{" "}
-            {formatQuantity(String(decreaseNeeded))} {unitLabel ?? ""}.
+            Variance {formatQuantity(String(adjustedDelta))} of{" "}
+            {formatQuantity(String(delta))} {unitLabel ?? ""}.
           </p>
         </div>
       )}
@@ -481,30 +447,25 @@ function StockQuantityAdjustmentBody({
         <Button
           type="button"
           disabled={
-            increaseMutation.isPending ||
-            decreaseMutation.isPending ||
-            (!isIncrease && lotTracked && !decreaseValid)
+            adjustMutation.isPending ||
+            !reason ||
+            !lotAdjustmentValid
           }
           onClick={() => {
-            if (isIncrease) {
-              increaseMutation.mutate({
-                quantity: String(delta),
-                costPerUnit: costPerUnit.trim() === "" ? null : costPerUnit.trim(),
-                occurredAt: new Date(occurredAt).toISOString(),
-                note: note.trim() === "" ? null : note.trim(),
-              });
-              return;
-            }
-            decreaseMutation.mutate();
+            adjustMutation.mutate();
           }}
         >
-          {increaseMutation.isPending || decreaseMutation.isPending
-            ? "Adjusting..."
-            : "Adjust stock"}
+          {adjustMutation.isPending ? "Adjusting..." : "Adjust stock"}
         </Button>
       </DialogFooter>
     </>
   );
+}
+
+function buildTargetDraft(lots: CardLotRow[]) {
+  return lots
+    .filter((lot) => lot.lotNumber !== "UNBATCHED-NEGATIVE-STOCK")
+    .map((lot) => ({ lot, nextQuantity: lot.quantity }));
 }
 
 function buildDecreaseDraft(lots: CardLotRow[], decreaseQuantity: number) {
@@ -534,14 +495,6 @@ const toNumber = parseNumberOrZero;
 
 function roundQty(value: number) {
   return Math.round(value * 10000) / 10000;
-}
-
-function nowLocalIsoSecond(): string {
-  const now = new Date();
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(
-    now.getHours(),
-  )}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 }
 
 function StockQuantityCell({

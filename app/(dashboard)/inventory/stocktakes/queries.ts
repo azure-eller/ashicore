@@ -66,6 +66,7 @@ type SnapshotItem = {
   name: string;
   sku: string | null;
   itemType: string;
+  lotTrackingMode: string;
   category: string | null;
   unitName: string;
   currentQty: string;
@@ -196,6 +197,7 @@ async function getStocktakeLinesInTx(
       itemName: stocktakeItems.itemName,
       itemSku: stocktakeItems.itemSku,
       itemType: stocktakeItems.itemType,
+      lotTrackingMode: itemFamilies.lotTrackingMode,
       category: items.category,
       unitName: stocktakeItems.unitName,
       expectedQty,
@@ -209,6 +211,7 @@ async function getStocktakeLinesInTx(
     })
     .from(stocktakeItems)
     .innerJoin(items, eq(stocktakeItems.itemId, items.id))
+    .innerJoin(itemFamilies, eq(itemFamilies.id, items.familyId))
     .where(eq(stocktakeItems.stocktakeId, stocktakeId))
     .orderBy(asc(stocktakeItems.sortOrder), asc(stocktakeItems.createdAt));
 
@@ -348,11 +351,13 @@ async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
       name: items.name,
       sku: items.sku,
       itemType: items.itemType,
+      lotTrackingMode: itemFamilies.lotTrackingMode,
       category: items.category,
       unitName: unitDefinitions.name,
       currentQty: projectedOnHandQty(items.organizationId, items.id).as("currentQty"),
     })
     .from(items)
+    .innerJoin(itemFamilies, eq(itemFamilies.id, items.familyId))
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
     .where(inArray(items.id, lockedRows.map((row) => row.id)));
 
@@ -394,11 +399,13 @@ async function getSnapshotItemsForItemIdsInTx(tx: Tx, itemIds: string[]) {
       name: items.name,
       sku: items.sku,
       itemType: items.itemType,
+      lotTrackingMode: itemFamilies.lotTrackingMode,
       category: items.category,
       unitName: unitDefinitions.name,
       currentQty: projectedOnHandQty(items.organizationId, items.id).as("currentQty"),
     })
     .from(items)
+    .innerJoin(itemFamilies, eq(itemFamilies.id, items.familyId))
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
     .where(inArray(items.id, lockedRows.map((row) => row.id)));
 
@@ -479,6 +486,7 @@ export async function getStocktakePreviewItems(): Promise<StocktakePreviewItem[]
         name: items.name,
         sku: items.sku,
         itemType: items.itemType,
+        lotTrackingMode: itemFamilies.lotTrackingMode,
         stocktakeType: sql<StocktakeScopeItemType>`${items.itemType}`.as(
           "stocktakeType"
         ),
@@ -487,6 +495,7 @@ export async function getStocktakePreviewItems(): Promise<StocktakePreviewItem[]
         currentQty: projectedOnHandQty(items.organizationId, items.id).as("currentQty"),
       })
       .from(items)
+      .innerJoin(itemFamilies, eq(itemFamilies.id, items.familyId))
       .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
       .where(
         and(
@@ -500,6 +509,7 @@ export async function getStocktakePreviewItems(): Promise<StocktakePreviewItem[]
     return rows.map((row) => ({
       ...row,
       itemType: row.itemType as StocktakePreviewItem["itemType"],
+      lotTrackingMode: row.lotTrackingMode as StocktakePreviewItem["lotTrackingMode"],
       stocktakeType: row.stocktakeType as StocktakeScopeItemType,
       displayName: row.name,
     }));
@@ -1314,7 +1324,7 @@ export async function completeStocktake(
     await reconcileStocktakeCountInTx(tx, {
       organizationId: orgId,
       stocktakeId: id,
-      reason,
+      reason: "cycle_count",
       actorUserId: userId,
       idempotencyKey: deriveInventoryIdempotencyKey(
         options?.idempotencyKey,

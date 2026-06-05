@@ -15,6 +15,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Textarea } from "@/components/ui/textarea";
 import { DateTimeText } from "@/components/date-time-text";
 import {
   FixedEditableLines,
@@ -26,6 +29,11 @@ import { CardSection } from "@/components/card-page/card-page";
 import { apiJson } from "@/lib/client/api";
 import { LotDispositionActions } from "@/app/(dashboard)/inventory/lot-disposition-actions";
 import type { InventoryDisposition } from "@/lib/db/schema";
+import {
+  ADJUSTMENT_REASONS,
+  formatAdjustmentReason,
+  type AdjustmentReason,
+} from "@/lib/inventory/adjustment-reasons";
 import {
   formatCost,
   formatInventoryDisposition,
@@ -67,6 +75,7 @@ export type LotGridTabProps = {
 type PendingAdjustment = {
   lotId: string;
   lotNumber: string;
+  currentQuantity: string;
   quantity: string;
 };
 
@@ -174,6 +183,9 @@ export function LotGridTab({
   const [pendingAdjustment, setPendingAdjustment] = useState<PendingAdjustment | null>(
     null,
   );
+  const [adjustmentReason, setAdjustmentReason] = useState<AdjustmentReason | "">("");
+  const [adjustmentNote, setAdjustmentNote] = useState("");
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -185,7 +197,15 @@ export function LotGridTab({
   const resetRows = useCallback(() => {
     setRows(cloneLotRows(visibleLots));
     setPendingAdjustment(null);
+    setAdjustmentReason("");
+    setAdjustmentNote("");
   }, [visibleLots]);
+
+  useEffect(() => {
+    if (!successMessage) return;
+    const timeout = window.setTimeout(() => setSuccessMessage(null), 3500);
+    return () => window.clearTimeout(timeout);
+  }, [successMessage]);
 
   const fields = useMemo<LineField<CardLotRow>[]>(
     () => [
@@ -334,15 +354,22 @@ export function LotGridTab({
     }
 
     setError(null);
+    setSuccessMessage(null);
+    const currentLot = visibleLots.find((lot) => lot.id === change.row?.id);
     setPendingAdjustment({
       lotId: change.row.id,
       lotNumber: change.row.lotNumber,
+      currentQuantity: currentLot?.quantity ?? "0",
       quantity: change.row.quantity,
     });
   };
 
   const submitAdjustment = async () => {
     if (!pendingAdjustment) return;
+    if (!adjustmentReason) {
+      setError("Choose a reason.");
+      return;
+    }
     setIsSaving(true);
     setError(null);
 
@@ -350,7 +377,8 @@ export function LotGridTab({
       await apiJson<void>(`/api/items/${focusItemId}/stock-adjustments`, {
         method: "POST",
         body: {
-          reason: "Lot quantity adjustment",
+          reason: adjustmentReason,
+          note: adjustmentNote.trim() || undefined,
           lots: [
             {
               lotId: pendingAdjustment.lotId,
@@ -371,14 +399,34 @@ export function LotGridTab({
     }
 
     setIsSaving(false);
+    setSuccessMessage(
+      `${lotNumberLabel(pendingAdjustment.lotNumber)} adjusted.`
+    );
     setPendingAdjustment(null);
+    setAdjustmentReason("");
+    setAdjustmentNote("");
     router.refresh();
   };
+
+  const totalQuantity = useMemo(
+    () =>
+      normalizeNumeric(
+        visibleLots.reduce((sum, lot) => sum + parseQuantity(lot.quantity), 0)
+      ),
+    [visibleLots]
+  );
+  const pendingVariance =
+    pendingAdjustment == null
+      ? null
+      : normalizeNumeric(
+          parseQuantity(pendingAdjustment.quantity) -
+            parseQuantity(pendingAdjustment.currentQuantity)
+        );
 
   return (
     <CardSection
       title="Lots"
-      count={`· ${visibleLots.length} ${visibleLots.length === 1 ? "lot" : "lots"}`}
+      count={`· ${formatQuantity(totalQuantity)} on hand`}
     >
       <div className="mb-(--space-3)">
         <ActiveVariantSelect
@@ -398,24 +446,58 @@ export function LotGridTab({
         emptyMessage="No lots yet."
         error={error}
       />
-
       <AlertDialog
         open={pendingAdjustment != null}
         onOpenChange={(open) => {
           if (!open) resetRows();
         }}
       >
-        <AlertDialogContent size="sm">
+        <AlertDialogContent
+          size="sm"
+          onEscapeKeyDown={(event) => event.preventDefault()}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Adjust this lot?</AlertDialogTitle>
             <AlertDialogDescription>
-              This writes a manual inventory adjustment for lot{" "}
-              {pendingAdjustment?.lotNumber}.
+              {pendingAdjustment && pendingVariance
+                ? `${lotNumberLabel(pendingAdjustment.lotNumber)} ${formatQuantity(
+                    pendingAdjustment.currentQuantity
+                  )} → ${formatQuantity(pendingAdjustment.quantity)}, ${formatQuantity(
+                    pendingVariance
+                  )}. This writes a manual adjustment event.`
+                : "This writes a manual adjustment event."}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="grid gap-(--space-4)">
+            <Field>
+              <FieldLabel>Reason</FieldLabel>
+              <div className="flex flex-wrap gap-(--space-2)" aria-label="Adjustment reason">
+                {ADJUSTMENT_REASONS.map((reason) => (
+                  <Button
+                    key={reason}
+                    type="button"
+                    variant={adjustmentReason === reason ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setAdjustmentReason(reason)}
+                  >
+                    {formatAdjustmentReason(reason)}
+                  </Button>
+                ))}
+              </div>
+            </Field>
+            <Field>
+              <FieldLabel>Note</FieldLabel>
+              <Textarea
+                value={adjustmentNote}
+                onChange={(event) => setAdjustmentNote(event.target.value)}
+                maxLength={500}
+                aria-label="Adjustment note"
+              />
+            </Field>
+          </div>
           {error ? <p className="text-[length:var(--text-sm)] text-destructive">{error}</p> : null}
           <AlertDialogFooter>
-            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogCancel onClick={resetRows}>Back</AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault();
@@ -428,6 +510,14 @@ export function LotGridTab({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {successMessage ? (
+        <div
+          role="status"
+          className="fixed right-(--space-6) bottom-(--space-6) z-50 border border-border bg-popover px-(--space-5) py-(--space-3) text-[length:var(--text-sm)] text-popover-foreground shadow-[var(--shadow-overlay)]"
+        >
+          {successMessage}
+        </div>
+      ) : null}
     </CardSection>
   );
 }
